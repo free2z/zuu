@@ -1,0 +1,11 @@
+title: Free2z
+description: >-
+  Free2z is private, unintermediated freedom.
+baseurl: "/docs"
+# url: "https://free2z.com/"
+
+plugins:
+  - jekyll-remote-theme
+
+exclude:
+  - jekyll-theme-rtd

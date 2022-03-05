@@ -1,0 +1,32 @@
+<div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    {%- if page %}
+      {%- if page.collection == "posts" %}
+        <li><a href="{{ site.url | absolute_url }}{{ site.github.baseurl }}">Posts</a> &raquo;</li>
+        <li>{{ page.title }}</li>
+      {%- else %}
+        {%- assign page_directories = page.dir | split: '/' %}
+        <li><a href="/docs/">Home</a>&raquo;</li>
+        {%- for dir in page_directories %}
+        {%- if forloop.first == false %}
+        <li>{{ dir | capitalize }} &raquo;</li>
+        {%- endif %}
+        {%- endfor %}
+        <li>{{ page.title }}</li>
+      {%- endif %}
+    {%- endif %}
+  </ul>
+
+  {%- if (site.prev_next_buttons_location == 'top' or  site.prev_next_buttons_location =='both') and (previous_page or next_page) %}
+    <div class="rst-breadcrumbs-buttons" role="navigation" aria-label="breadcrumb navigation">
+      {%- if next_page %}
+        <a href="{{ next_page.url | absolute_url }}" class="btn btn-neutral float-right" title="{{ next_page.title }}">Next <span class="icon icon-circle-arrow-right"></span></a>
+      {%- endif %}
+      {%- if previous_page %}
+        <a href="{{ previous_page.url | absolute_url }}" class="btn btn-neutral" title="{{ previous_page.title }}"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+      {%- endif %}
+    </div>
+  {%- endif %}
+
+  <hr/>
+</div>
