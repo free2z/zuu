@@ -8,13 +8,22 @@ permalink: create-your-first-zpage
 
 # Create your first zPage
 
+To create your first zPage,
+go to [https://free2z.com/begin](https://free2z.com/begin).
+Whether you are logged in or not this is a good place to start.
+You can create a new user or log in with an existing user here.
+If you are already logged in, you will be taken to a listing
+of your zPages.
+
 ## Create a login
 
 Provide a username and password.
 
 ## Get a new zPage
 
-Create a new zPage with a `free2zaddr`.
+Once you are logged in for the first time, a new zPage will be created
+for you to edit. Provide a title and some content to be able to save the
+page.
 
 ## (optional) Fund your zPage
 

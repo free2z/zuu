@@ -10,9 +10,14 @@ permalink: what-are-zpages
 A zPage is essentially a webpage that is associated to
 private addresses on the Zcash blockchain.
 zPages can be used for many purposes.
-One primary use case would be to make a fundraising page.
-You can also create arbitrary content - public and promoted,
-or private to anyone who has a cryptic url.
+One primary use case would be to make a
+[fundraising page](https://free2z.com/ui-dev).
+You can also create
+[arbitrary content](https://free2z.cash/python-zcash-rpc)
+which can be
+[public and promoted](https://free2z.cash/ariel-gabacho),
+or private to anyone who has a
+[cryptic url](https://free2z.com/zs1uszfq0jn42t559qupp327n52qen7ajxfdhuydc8wlhn5cvky6u72x2qeh9y3wup2tfe2za3j8zv).
 
 ## Creators
 
@@ -23,29 +28,61 @@ Each Creator will start with 1 new zPage.
 If you don't want to participate in content creation, voting, comments, etc,
 there is no reason to create an account and become a Creator.
 Without an account, you are free to browse other people's zPages and
-can still donate and participate in the community without every having
+can still donate and participate in the community without ever having
 created a record in the database.
 [Learn more about membership](membership).
 
 Each Creator can have 1 or more zPages.
 Creating a zPage creates a unique Free2z address, `free2zaddr` for short.
-Each zPage has a unique `free2zaddr`
-which can be used to increase the user's balance with Free2z.
-For example, if you create a zPage and send 0.05 Zcash to the `free2zaddr`,
-you will own the new Page for 0.01 and have 0.04 left over that can be applied
-to new zPages and other features.
+This is a [Zcash shielded address](https://z.cash/technology/).
+This address is owned by free2z and can be used to increase the zPage's
+clout on free2z and other in-house funny money purposes.
+Perhaps as-yet-unthought-of paid features in the future.
+
+## Minimum zPage
+
+To start a zPage, all you need is a `title` and some `content`.
+
+The `content` is in markdown with html and css enabled.
+You can do video and image embeds in your page. But,
+free2z does not currently offer media hosting so you'll have to upload
+your videos and images to another service.
+
 
 ## `free2zaddr` and `p2paddr`
 
-Once a zPage has been funded, either by the Creator, or by the community,
-the Creator will be able to add their own p2p address to the zPage.
+Once a zPage has been funded, either by the Creator or by the community,
+the Creator will be able to add their own Peer-to-Peer (p2p)
+address to the zPage. This is called the `p2paddr` for short.
 
 * `free2zaddr` - funds in the `free2zaddr` are always owned by Free2z.
-  These funds can be applied to new zPages and features and promotions.
-* `p2paddr` - once a zPage has been funded, the Creator can
-  associate a Zcash address that they control, the `p2paddr`.
-  This address can then be
-  published to receive donations from the Free2z community.
+  These funds can be applied to new zPages and other features and promotions.
+* `p2paddr` - The peer-to-peer address, owned by the creator,
+  which donors can send funds directly to. Enabled once the zPage
+  has been funded with 0.01 Zcash to the `free2zaddr`.
+
+> Note: The `p2paddr` could actually be a
+  Zcash t-address or any other type of cryptocurrency address.
+  Just be clear in your content what kind of address you are using.
+
+## Vanity URL (Slug)
+
+Funded pages can have a name in the top-level namespaces of
+free2z.com, free2z.cash and free2give.xyz.
+If you input the vanity slug, `new-flute`, when you are funded and published,
+your page will be available at:
+
+- https://free2z.com/new-flute
+- https://free2z.cash/new-flute
+- https://free2give.xyz/new-flute
+
+If you want your page to be private to only people with a cryptic URL,
+leave the vanity field blank.
+
+### `Public`
+
+If you want people other than you to see your post, you have to mark it
+public
 
 ## Unfunded zPage
 
@@ -65,7 +102,7 @@ Once your zPage is funded, you gain full control and can choose
 to make the page public with a vanity url, add your own `p2paddress`
 and customize features for the page.
 
-
+[Learn more about membership](membership).
 
 <!--
 ## The full Page model
