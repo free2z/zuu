@@ -1,0 +1,3 @@
+[submodule "adityapk00/zecwallet-light-cli"]
+	path = adityapk00/zecwallet-light-cli
+	url = https://github.com/adityapk00/zecwallet-light-cli
