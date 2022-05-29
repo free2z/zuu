@@ -15,3 +15,6 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 
 # Personal preference really
 RUN apt install -y tree
+
+# CMD [ "zsh" ]
+ENV SHELL /bin/zsh
