@@ -4,7 +4,8 @@
     },
     "extensions": [
         "maelvalais.autoconf",
-        "rust-lang.rust"
+        "rust-lang.rust",
+        "ms-vscode.makefile-tools"
     ]
     // "settings": {
     //     "terminal.integrated.profiles.linux": {
