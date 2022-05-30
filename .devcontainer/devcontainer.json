@@ -3,7 +3,8 @@
         "dockerfile": "Dockerfile"
     },
     "extensions": [
-        "maelvalais.autoconf"
+        "maelvalais.autoconf",
+        "rust-lang.rust"
     ]
     // "settings": {
     //     "terminal.integrated.profiles.linux": {
