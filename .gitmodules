@@ -4,3 +4,6 @@
 [submodule "zcash/lightwalletd"]
 	path = zcash/lightwalletd
 	url = https://github.com/zcash/lightwalletd
+[submodule "zingolabs/zecwalletlitelib"]
+	path = zingolabs/zecwalletlitelib
+	url = https://github.com/zingolabs/zecwalletlitelib
