@@ -13,3 +13,6 @@
 [submodule "zingolabs/zecwallet-mobile"]
 	path = zingolabs/zecwallet-mobile
 	url = https://github.com/zingolabs/zecwallet-mobile
+[submodule "zingolabs/zecwallet-lite"]
+	path = zingolabs/zecwallet-lite
+	url = https://github.com/zingolabs/zecwallet-lite
