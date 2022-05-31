@@ -6,6 +6,9 @@
         "maelvalais.autoconf",
         "rust-lang.rust",
         "ms-vscode.makefile-tools"
+    ],
+    "mounts": [
+        "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
     ]
     // "settings": {
     //     "terminal.integrated.profiles.linux": {
