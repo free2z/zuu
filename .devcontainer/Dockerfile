@@ -13,6 +13,15 @@ RUN echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
 RUN wget https://golang.org/dl/go1.18.linux-amd64.tar.gz
 RUN tar -zxvf go1.18.linux-amd64.tar.gz -C /usr/local/
 
+# TODO: maybe docker-in-docker?
+# Install docker
+# RUN curl -fsSL https://get.docker.com | sh
+# systemd is a problem too
+# systemctl enable docker.service
+# systemctl enable containerd.service
+# systemctl start docker.service
+# System has not been booted with systemd as init system (PID 1). Can't operate.
+# Failed to connect to bus: Host is down
 
 # TODO: figure out how to use internal script :/
 # RUN /workspaces/zcash/zcutil/fetch-params.sh
