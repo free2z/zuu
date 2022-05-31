@@ -8,7 +8,8 @@
         "ms-vscode.makefile-tools"
     ],
     "mounts": [
-        "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+        "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+        "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached"
     ]
     // // should pick up .zshrc but ... hrm ...
     // "remoteEnv": {
