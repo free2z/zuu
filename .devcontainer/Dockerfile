@@ -57,20 +57,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -t robbyrussell
 ENV SHELL /bin/zsh
 
-
-# Rust in zsh
-# cargo/env doesn't like zsh ...
-# RUN echo 'source $HOME/.cargo/env' >> $HOME/.zshrc
-RUN echo "export PATH=${HOME}/.cargo/bin:${PATH}"
-
-# Golang in zsh
-RUN echo "export PATH=/usr/local/go/bin:${PATH}" >> $HOME/.zshrc
+# Add paths for Rust and Golang
+RUN echo "export PATH=/root/.cargo/bin:/usr/local/go/bin:${PATH}" >> $HOME/.zshrc
 
 # Random tools that should be optional
 RUN apt install -y tree vim
 
 # Too into people's options?
 RUN git config --global pull.rebase false
-
-# DEBUGGING
-RUN echo ".zshrc sourced!" >> /root/.zshrc
