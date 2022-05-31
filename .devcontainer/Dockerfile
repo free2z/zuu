@@ -7,7 +7,6 @@ RUN apt install -y git wget build-essential libncurses5 autotools-dev \
 
 # Install rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-RUN echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
 
 # Install golang
 RUN wget https://golang.org/dl/go1.18.linux-amd64.tar.gz
@@ -23,6 +22,7 @@ RUN . "$NVM_DIR/nvm.sh" && nvm alias default v${NODE_VERSION}
 ENV PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}"
 RUN node --version
 RUN npm --version
+RUN npm install -g yarn
 
 # Install docker
 RUN apt install -y \
@@ -38,6 +38,10 @@ RUN echo \
 RUN apt update
 RUN apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
+# zecwallet-lite
+# zingolabs/zecwalletlitelib
+RUN apt install -y cmake
+
 # TODO: use COPY to add script ... from submodule?
 # RUN /workspaces/zcash/zcutil/fetch-params.sh
 # RUN ./zcutil/build.sh -j4
@@ -47,13 +51,22 @@ RUN apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 # https://github.com/deluan/zsh-in-docker
 RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.1.2/zsh-in-docker.sh)" -- \
     -t robbyrussell
+ENV SHELL /bin/zsh
+
+
 # Rust in zsh
-RUN echo 'source $HOME/.cargo/env' >> $HOME/.zshrc
+# cargo/env doesn't like zsh ...
+# RUN echo 'source $HOME/.cargo/env' >> $HOME/.zshrc
+RUN echo "export PATH=${HOME}/.cargo/bin:${PATH}"
+
 # Golang in zsh
 RUN echo "export PATH=/usr/local/go/bin:${PATH}" >> $HOME/.zshrc
 
-# CMD [ "zsh" ]
-ENV SHELL /bin/zsh
-
 # Random tools that should be optional
 RUN apt install -y tree vim
+
+# Too into people's options?
+RUN git config --global pull.rebase false
+
+# DEBUGGING
+RUN echo ".zshrc sourced!" >> /root/.zshrc
