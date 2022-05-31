@@ -14,9 +14,8 @@ RUN wget https://golang.org/dl/go1.18.linux-amd64.tar.gz
 RUN tar -zxvf go1.18.linux-amd64.tar.gz -C /usr/local/
 
 # Install node
-# TODO: update - 18.2.0 ...
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
-ENV NODE_VERSION=17.9.0
+ENV NODE_VERSION=18.2.0
 ENV NVM_DIR=/root/.nvm
 RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION}
 RUN . "$NVM_DIR/nvm.sh" && nvm use v${NODE_VERSION}
