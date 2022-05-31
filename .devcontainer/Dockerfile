@@ -12,6 +12,10 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 RUN wget https://golang.org/dl/go1.18.linux-amd64.tar.gz
 RUN tar -zxvf go1.18.linux-amd64.tar.gz -C /usr/local/
 
+# Electron deps
+RUN apt install -y libxshmfence1 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libgtk-3-0 libgbm1 libasound2
+
 # Install node
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
 ENV NODE_VERSION=18.2.0
