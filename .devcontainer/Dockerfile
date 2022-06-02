@@ -46,6 +46,11 @@ RUN apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 # zingolabs/zecwalletlitelib
 RUN apt install -y cmake
 
+# Install python3 for Free2z, etc
+# TODO: pin?
+RUN apt install python3-pip python3-dev python3-virtualenv \
+    libpq-dev libcurl4-openssl-dev
+
 # TODO: use COPY to add script ... from submodule?
 # RUN /workspaces/zcash/zcutil/fetch-params.sh
 # RUN ./zcutil/build.sh -j4
