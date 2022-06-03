@@ -8,11 +8,17 @@
         "ms-vscode.makefile-tools"
     ],
     "mounts": [
+        // use host docker
         "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+        // use host gitconfig
         "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.zsh_history,target=/root/.zsh_history,type=bind",
-        // general persist across devcontainer rebuilds
-        "source=${localEnv:HOME}/zcache,target=/root/zcache,type=bind"
+        // use host .zsh_history
+        "source=${localEnv:HOME}/.zsh_history,target=/root/.zsh_history,type=bind"
+        // TODO: general persist across devcontainer rebuilds?
+        // "source=${localEnv:HOME}/zcache,target=/root/zcache,type=bind",
+        //
+        // keep zingolabs/zecwallet-lite/node_modules
+        // "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume"
     ]
     // // should pick up .zshrc but ... hrm ...
     // "remoteEnv": {
