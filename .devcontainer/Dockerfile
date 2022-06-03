@@ -49,7 +49,7 @@ RUN apt install -y cmake
 # Install python3 for Free2z, etc
 # TODO: pin?
 RUN apt install python3-pip python3-dev python3-virtualenv \
-    libpq-dev libcurl4-openssl-dev
+    libpq-dev libcurl4-openssl-dev libssl-dev
 
 # TODO: use COPY to add script ... from submodule?
 # RUN /workspaces/zcash/zcutil/fetch-params.sh
@@ -65,8 +65,14 @@ ENV SHELL /bin/zsh
 # Add paths for Rust and Golang
 RUN echo "export PATH=/root/.cargo/bin:/usr/local/go/bin:${PATH}" >> $HOME/.zshrc
 
+# General caching across rebuilds
+RUN mkdir /root/zcache
+
+# -----------------------------------------
+
 # Random tools that should be optional
 RUN apt install -y tree vim
 
 # Too into people's options?
-RUN git config --global pull.rebase false
+# Instead, mount $HOME/.gitconfig - see devcontainer.json
+# RUN git config --global pull.rebase false

@@ -9,7 +9,10 @@
     ],
     "mounts": [
         "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
-        "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached"
+        "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.zsh_history,target=/root/.zsh_history,type=bind",
+        // general persist across devcontainer rebuilds
+        "source=${localEnv:HOME}/zcache,target=/root/zcache,type=bind"
     ]
     // // should pick up .zshrc but ... hrm ...
     // "remoteEnv": {
