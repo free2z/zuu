@@ -44,7 +44,9 @@ RUN sudo apt install -y libxshmfence1 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
 
 # Install node
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
-ENV NODE_VERSION=18.2.0
+# ENV NODE_VERSION=18.2.0
+# Use LTS
+ENV NODE_VERSION=16.15.1
 ENV NVM_DIR=/home/dev/.nvm
 RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION}
 RUN . "$NVM_DIR/nvm.sh" && nvm use v${NODE_VERSION}
@@ -57,8 +59,6 @@ RUN npm install -g yarn
 # React-native ...
 # RUN npm install -g expo-cli
 
-# Ionic/Capacitor
-# RUN npm install -g @ionic/cli native-run cordova-res
 
 # Install docker
 RUN sudo apt install -y \
@@ -86,6 +86,12 @@ RUN sudo apt install -y python3-pip python3-dev python3-virtualenv \
 # TODO: use COPY to add script ... from submodule?
 # RUN /workspaces/zcash/zcutil/fetch-params.sh
 # RUN ./zcutil/build.sh -j4
+
+
+# Ionic/Capacitor
+# https://ionicframework.com/docs/react/your-first-app
+RUN npm install -g @ionic/cli native-run cordova-res
+
 
 # ------------ ZSH and extra/optional tools
 

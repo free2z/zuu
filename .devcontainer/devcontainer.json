@@ -11,15 +11,22 @@
         // use host docker
         "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
         // use host gitconfig
-        "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,consistency=cached",
         // use host .zsh_history
-        "source=${localEnv:HOME}/.zsh_history,target=/root/.zsh_history,type=bind"
-        // TODO: general persist across devcontainer rebuilds?
-        // "source=${localEnv:HOME}/zcache,target=/root/zcache,type=bind",
-        //
+        "source=${localEnv:HOME}/.zsh_history,target=/home/dev/.zsh_history,type=bind",
+        // Persist/cache across rebuilds
+        // keep the yarn cache
+        "source=yarn-cache,target=/home/dev/.cache/yarn,type=volume",
+        // *** zingolabs/zecwallet-lite ***
         // keep zingolabs/zecwallet-lite/node_modules
-        // "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume"
-    ]
+        "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume",
+        // keep zingolabs/zecwallet-lite/native/target
+        "source=zl-zwl-nt,target=/workspaces/free2z/zingolabs/zecwallet-lite/native/target,type=volume"
+    ],
+    // https://vscode-eastus.azurewebsites.net/remote/advancedcontainers/improve-performance
+    "postCreateCommand": "sudo chown dev /home/dev/.cache/yarn zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target",
+    "remoteUser": "dev",
+    "containerUser": "dev"
     // // should pick up .zshrc but ... hrm ...
     // "remoteEnv": {
     // }
