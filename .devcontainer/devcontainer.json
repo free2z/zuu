@@ -16,7 +16,7 @@
         "source=${localEnv:HOME}/.zsh_history,target=/home/dev/.zsh_history,type=bind",
         // Persist/cache across rebuilds
         // keep the yarn cache
-        "source=yarn-cache,target=/home/dev/.cache/yarn,type=volume",
+        "source=yarn-cache,target=/home/dev/.cache,type=volume",
         // *** zingolabs/zecwallet-lite ***
         // keep zingolabs/zecwallet-lite/node_modules
         "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume",
@@ -24,7 +24,7 @@
         "source=zl-zwl-nt,target=/workspaces/free2z/zingolabs/zecwallet-lite/native/target,type=volume"
     ],
     // https://vscode-eastus.azurewebsites.net/remote/advancedcontainers/improve-performance
-    "postCreateCommand": "sudo chown dev /home/dev/.cache/yarn zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target",
+    "postCreateCommand": "sudo chown dev /home/dev/.cache zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target",
     "remoteUser": "dev",
     "containerUser": "dev"
     // // should pick up .zshrc but ... hrm ...
