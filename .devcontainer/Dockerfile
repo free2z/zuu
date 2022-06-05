@@ -28,20 +28,6 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 RUN sudo wget https://golang.org/dl/go1.18.linux-amd64.tar.gz
 RUN sudo tar -zxvf go1.18.linux-amd64.tar.gz -C /usr/local/
 
-# # Electron deps
-# # still working on it ... hrm ...
-# # https://gist.github.com/weedz/c962d69078391115635772b279264c02#file-dockerfile
-# # https://stackoverflow.com/questions/67363396/configure-devcontainer-to-run-electron-app
-RUN sudo apt install -y libxshmfence1 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libgtk-3-0 libgbm1 libasound2 \
-    xorg openbox libatk-adaptor
-#
-# https://github.com/virgilioneto/xvfb-electron/blob/master/node8-electron1.8.1-stretch/Dockerfile
-# https://github.com/puppeteer/puppeteer/issues/8148
-# https://github.com/microsoft/vscode-remote-release/issues/550
-# React-native all the things?
-# https://microsoft.github.io/react-native-windows/
-
 # Install node
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
 # ENV NODE_VERSION=18.2.0
@@ -93,6 +79,12 @@ RUN sudo apt install -y python3-pip python3-dev python3-virtualenv \
 RUN npm install -g @ionic/cli native-run cordova-res
 
 
+# More electron zecwallet-lite stuff
+# Failed to move to new namespace: PID namespaces supported,
+# Network namespace supported, but failed: errno = Operation not permitted
+# RUN echo 'kernel.unprivileged_userns_clone=1' | sudo tee -a /etc/sysctl.d/00-local-userns.conf
+# RUN sudo service procps restart
+
 # ------------ ZSH and extra/optional tools
 
 # https://github.com/deluan/zsh-in-docker
@@ -114,3 +106,36 @@ RUN sudo apt install -y tree vim
 # Too into people's options?
 # Instead, mount $HOME/.gitconfig - see devcontainer.json
 # RUN git config --global pull.rebase false
+
+
+
+# -------- WIP
+
+
+
+
+# # Electron deps
+# # still working on it ... hrm ...
+# # https://gist.github.com/weedz/c962d69078391115635772b279264c02#file-dockerfile
+# # https://stackoverflow.com/questions/67363396/configure-devcontainer-to-run-electron-app
+RUN sudo apt install -y \
+    # libxshmfence1 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+    # libcups2 libdrm2 libgtk-3-0 libgbm1 libasound2 \
+    # xorg openbox libatk-adaptor
+    # TODO: what if someone's host is different :/
+    # https://jaked.org/blog/2021-02-18-How-to-run-Electron-on-Linux-on-Docker-on-Mac
+    # https://gist.github.com/cschiewek/246a244ba23da8b9f0e7b11a68bf3285
+    libx11-xcb1 libxcb-dri3-0 libxtst6 libnss3 libatk-bridge2.0-0 libgtk-3-0 libxss1 libasound2 \
+    libdrm2 libgbm1
+
+#
+# https://github.com/virgilioneto/xvfb-electron/blob/master/node8-electron1.8.1-stretch/Dockerfile
+# https://github.com/puppeteer/puppeteer/issues/8148
+# https://github.com/microsoft/vscode-remote-release/issues/550
+# React-native all the things?
+# https://microsoft.github.io/react-native-windows/
+# https://stackoverflow.com/a/61043049/177293
+# RUN sudo apt install -y xvfb gtk2-engines-pixbuf dbus-x11 xfonts-base \
+#     xfonts-100dpi xfonts-75dpi xfonts-cyrillic xfonts-scalable
+# RUN Xvfb -ac :99 -screen 0 1280x1024x16 & export DISPLAY=:99
+
