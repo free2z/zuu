@@ -127,6 +127,16 @@ RUN sudo apt install -y \
     # https://gist.github.com/cschiewek/246a244ba23da8b9f0e7b11a68bf3285
     libx11-xcb1 libxcb-dri3-0 libxtst6 libnss3 libatk-bridge2.0-0 libgtk-3-0 libxss1 libasound2 \
     libdrm2 libgbm1
+    # TODO: webgl
+    # # Does provide .so ...
+    # libgl1-mesa-glx \
+    # # https://hub.docker.com/r/cypress/base/dockerfile
+    # libgtk2.0-0 libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 xvfb \
+    # chromium
+# https://askubuntu.com/questions/834254/steam-libgl-error-no-matching-fbconfigs-or-visuals-found-libgl-error-failed-t
+# https://github.com/cypress-io/cypress/issues/4925
+# https://stackoverflow.com/questions/16296753/can-you-run-gui-applications-in-a-linux-docker-container
+# https://stackoverflow.com/questions/55313610/importerror-libgl-so-1-cannot-open-shared-object-file-no-such-file-or-directo
 
 #
 # https://github.com/virgilioneto/xvfb-electron/blob/master/node8-electron1.8.1-stretch/Dockerfile
