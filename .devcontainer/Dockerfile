@@ -120,6 +120,10 @@ RUN sudo apt install -y tree vim
 # # still working on it ... hrm ...
 # # https://gist.github.com/weedz/c962d69078391115635772b279264c02#file-dockerfile
 # # https://stackoverflow.com/questions/67363396/configure-devcontainer-to-run-electron-app
+
+# https://gist.github.com/paul-krohn/e45f96181b1cf5e536325d1bdee6c949
+# https://gist.github.com/cschiewek/246a244ba23da8b9f0e7b11a68bf3285
+# https://github.com/microsoft/vscode-remote-release/issues/550
 RUN sudo apt install -y \
     # libxshmfence1 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
     # libcups2 libdrm2 libgtk-3-0 libgbm1 libasound2 \

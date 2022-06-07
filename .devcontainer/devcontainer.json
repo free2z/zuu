@@ -4,8 +4,9 @@
     },
     "extensions": [
         "maelvalais.autoconf",
-        "rust-lang.rust",
-        "ms-vscode.makefile-tools"
+        "rust-lang.rust"
+        // wants root Makefile, I guess.
+        // "ms-vscode.makefile-tools"
     ],
     "mounts": [
         // use host docker
@@ -23,26 +24,26 @@
         // keep zingolabs/zecwallet-lite/node_modules
         "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume",
         // keep zingolabs/zecwallet-lite/native/target
-        "source=zl-zwl-nt,target=/workspaces/free2z/zingolabs/zecwallet-lite/native/target,type=volume"
+        "source=zl-zwl-nt,target=/workspaces/free2z/zingolabs/zecwallet-lite/native/target,type=volume",
+        // keep zinglabs/zecwalletlitelib/target
+        "source=zl-zwll-target,target=/workspaces/free2z/zingolabs/zecwalletlitelib/target,type=volume"
     ],
     // https://vscode-eastus.azurewebsites.net/remote/advancedcontainers/improve-performance
-    "postCreateCommand": "sudo chown dev /home/dev/.cache /home/dev/.cargo zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target",
+    "postCreateCommand": "sudo chown dev /home/dev/.cache /home/dev/.cargo zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target zingolabs/zecwalletlitelib/target",
     "remoteUser": "dev",
     "containerUser": "dev",
     // x11 forwarding, requires Xquartz on Mac
     "containerEnv": {
         // "DISPLAY": "${localEnv:DISPLAY}"
         "DISPLAY": "host.docker.internal:0"
-    }
+    },
     // "remoteEnv": {
     //     "DISPLAY": "${localEnv:DISPLAY}"
     // },
-    // "runArgs": [
-    //     "--net",
-    //     "host",
-    //     "-e",
-    //     "DISPLAY=${localEnv:DISPLAY}"
-    // ]
+    "runArgs": [
+        // https://github.com/jessfraz/dockerfiles/issues/350#issuecomment-477342782
+        "--privileged"
+    ]
     // // should pick up .zshrc but ... hrm ...
     // "remoteEnv": {
     // }
