@@ -61,6 +61,7 @@ RUN echo \
     $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 RUN sudo apt update
 RUN sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+RUN sudo usermod -aG docker $USERNAME
 
 # zecwallet-lite
 # zingolabs/zecwalletlitelib
