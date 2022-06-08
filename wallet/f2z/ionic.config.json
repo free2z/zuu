@@ -1,0 +1,7 @@
+{
+  "name": "f2z",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "react"
+}

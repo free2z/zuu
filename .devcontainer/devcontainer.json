@@ -29,7 +29,7 @@
         "source=zl-zwll-target,target=/workspaces/free2z/zingolabs/zecwalletlitelib/target,type=volume"
     ],
     // https://vscode-eastus.azurewebsites.net/remote/advancedcontainers/improve-performance
-    "postCreateCommand": "sudo chown dev target=/var/run/docker.sock /home/dev/.cache /home/dev/.cargo zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target zingolabs/zecwalletlitelib/target",
+    "postCreateCommand": "sudo chown dev /var/run/docker.sock /home/dev/.cache /home/dev/.cargo zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target zingolabs/zecwalletlitelib/target",
     "remoteUser": "dev",
     "containerUser": "dev",
     // x11 forwarding, requires Xquartz on Mac
