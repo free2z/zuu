@@ -3,10 +3,10 @@
         "dockerfile": "Dockerfile"
     },
     "extensions": [
-        "maelvalais.autoconf",
+        // "ms-vscode.makefile-tools",
+        // joaompinto.vscode-graphviz,
+        // "maelvalais.autoconf",
         "rust-lang.rust"
-        // wants root Makefile, I guess.
-        // "ms-vscode.makefile-tools"
     ],
     "mounts": [
         // use host docker
