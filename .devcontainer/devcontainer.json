@@ -3,6 +3,7 @@
         "dockerfile": "Dockerfile"
     },
     "extensions": [
+        // zxh404.vscode-proto3
         // "ms-vscode.makefile-tools",
         // joaompinto.vscode-graphviz,
         // "maelvalais.autoconf",
