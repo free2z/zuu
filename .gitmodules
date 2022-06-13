@@ -16,3 +16,6 @@
 [submodule "zingolabs/zecwallet-lite"]
 	path = zingolabs/zecwallet-lite
 	url = https://github.com/zingolabs/zecwallet-lite
+[submodule "adityapk00/zecwallet-lite"]
+	path = adityapk00/zecwallet-lite
+	url = https://github.com/adityapk00/zecwallet-lite
