@@ -113,7 +113,42 @@ https://bitcoin.stackexchange.com/questions/46782/rpc-cookie-authentication
 
 ### lightwalletd
 
-Install Go.
+Note that we will be installing a lot of powerful tools into our VM
+and will be building and running the latest `master` version of lightwalletd
+from source https://github.com/zcash/lightwalletd.
+For a production server, you probably don't want all of this power installed.
+Eventually we'll introduce a minimal container to run things.
+
+> TODO: containerize!!
+
+#### Prereqs to build lightwalletd
+
+##### System prereqs
+
+```
+sudo apt install -y build-essential
+```
+
+Install Docker (copied from .devcontainer/Dockerfile in free2z repo)
+
+```
+sudo apt install -y \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+    $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo usermod -aG docker $USER
+# You have to log out of your shell and log back in to be in the group!
+```
+
+##### Install Go.
 
 Taken from https://www.itzgeek.com/how-tos/linux/debian/how-to-install-go-lang-on-debian-11-debian-10.html
 
@@ -131,6 +166,28 @@ Verify Go installation:
 ```
 go version
 ```
+
+---
+
+#### Building lightwalletd
+
+Grab the free2z repo
+
+```
+sudo apt install git
+git clone https://github.com/free2z/free2z
+cd free2z
+git checkout metarepo  # TODO: remove once merged
+git submodule update --init --recursive
+cd zcash/lightwalletd  # master version
+```
+
+Now, build lightwalletd:
+
+```
+make
+```
+
 
 
 
