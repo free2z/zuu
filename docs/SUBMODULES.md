@@ -40,3 +40,23 @@ With this in place, we can pull and update all of the submodules:
 ```
 git submodule update --recursive --remote
 ```
+
+### Adding a submodule
+
+Let's say we want to add
+[zingolabs-mobile](https://github.com/zingolabs/zingo-mobile)
+to the metarepo. Two things to note:
+
+1. Specify a branch to track with -b
+2. Use the user/org name as the top-level directory and the repo name
+
+For 1, specify the development trunk. This will usually be `main`, `master`,
+or `dev` depending on the project. Rarely it may be desired to pin to some
+other branch. But, the idea is that we track the development versions of
+everything and get broken sooner rather than later.
+
+For 2, in this case the directory will be `zingolabs/zingo-mobile`.
+
+```
+git submodule add https://github.com/zingolabs/zingo-mobile zingolabs/zingo-mobile -b dev
+```
