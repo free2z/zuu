@@ -159,6 +159,6 @@ RUN sudo apt install -y \
 
 # grpc-web
 RUN sudo apt install -y protobuf-compiler
-RUN wget https://github.com/grpc/grpc-web/releases/download/1.3.1/protoc-gen-grpc-web-1.3.1-linux-x86_64
+RUN sudo wget https://github.com/grpc/grpc-web/releases/download/1.3.1/protoc-gen-grpc-web-1.3.1-linux-x86_64
 RUN sudo chmod +x protoc-gen-grpc-web-1.3.1-linux-x86_64
 RUN sudo cp protoc-gen-grpc-web-1.3.1-linux-x86_64 /usr/local/bin/protoc-gen-grpc-web

@@ -7,6 +7,7 @@
         // "ms-vscode.makefile-tools",
         // joaompinto.vscode-graphviz,
         // "maelvalais.autoconf",
+        "ms-python.python",
         "rust-lang.rust"
     ],
     "mounts": [
