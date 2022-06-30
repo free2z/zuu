@@ -22,6 +22,11 @@
         "source=yarn-cache,target=/home/dev/.cache,type=volume",
         // cargo cache
         "source=cargo-cache,target=/home/dev/.cargo,type=volume"
+        // zinglabs/zingo-mobile
+        // TODO - how to make generic regardless of checkout location?
+        // or, must a checkout location be prescribed :/
+        // or, document how to manually set docker desktop?
+        // "source=/Users/skyl/Code/github/free2z/zingolabs/zingo-mobile/rust,target=/workspaces/free2z/zingolabs/zingo-mobile/rust,type=bind"
         // *** zingolabs/zecwallet-lite ***
         // keep zingolabs/zecwallet-lite/node_modules
         // "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume",
@@ -31,7 +36,7 @@
         // "source=zl-zwll-target,target=/workspaces/free2z/zingolabs/zecwalletlitelib/target,type=volume"
     ],
     // https://vscode-eastus.azurewebsites.net/remote/advancedcontainers/improve-performance
-    "postCreateCommand": "sudo chown dev /var/run/docker.sock /home/dev/.cache /home/dev/.cargo zingolabs/zecwallet-lite/node_modules zingolabs/zecwallet-lite/native/target",
+    "postCreateCommand": "sudo chown dev /var/run/docker.sock /home/dev/.cache /home/dev/.cargo",
     "remoteUser": "dev",
     "containerUser": "dev",
     // x11 forwarding, requires Xquartz on Mac

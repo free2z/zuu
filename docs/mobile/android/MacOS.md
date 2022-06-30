@@ -4,8 +4,9 @@ Notes for building mobile apps in the devcontainer with a MacOS host.
 
 ### zingolabs/zingo-mobile
 
-If working in the free2z devcontainer, you need to share the filesystem
-that the `rust/android/build.sh` seeks to write to.
+Run `rust/android/build.sh` on the host machine.
+
+> TODO! make it work from the devcontainer
 
 ```
 docker: Error response from daemon: Mounts denied:
