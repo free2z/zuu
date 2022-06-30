@@ -1,0 +1,1 @@
+Generic notes for developing and testing for mobile.
