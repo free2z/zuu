@@ -27,3 +27,6 @@
 	path = zingolabs/zingolib
 	url = https://github.com/zingolabs/zingolib
 	branch = dev
+[submodule "zcash/zcash"]
+	path = zcash/zcash
+	url = https://github.com/zcash/zcash
