@@ -164,5 +164,18 @@ RUN sudo chmod +x protoc-gen-grpc-web-1.3.1-linux-x86_64
 RUN sudo cp protoc-gen-grpc-web-1.3.1-linux-x86_64 /usr/local/bin/protoc-gen-grpc-web
 
 
+# I think basically you want to run mobile dev with a GUI on the host :/
+#
 # zingo-mobile
-RUN sudo apt install -y rubygems ruby-dev
+# RUN sudo apt install -y rubygems ruby-dev
+## Android
+# RUN sudo apt install -y x11-apps openjdk-17-jdk
+#
+#RUN sudo apt install -y default-jdk
+#RUN wget https://redirector.gvt1.com/edgedl/android/studio/ide-zips/2020.3.1.26/android-studio-2020.3.1.26-linux.tar.gz
+#
+# https://developer.android.com/studio/install#linux
+# https://wiki.debian.org/AndroidStudio
+# https://techviewleo.com/how-to-install-android-studio-on-debian/
+# https://github.com/docker-android-sdk/android-30/blob/master/Dockerfile
+#
