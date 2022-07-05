@@ -36,3 +36,7 @@
 	branch = dev
 
 
+[submodule "hhanh00/zwallet"]
+	path = hhanh00/zwallet
+	url = https://github.com/hhanh00/zwallet
+	branch = main
