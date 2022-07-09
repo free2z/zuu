@@ -188,9 +188,69 @@ Now, build lightwalletd:
 make
 ```
 
+#### Expose!!
+
+```
+sudo apt install certbot ufw
+sudo ufw enable
+```
+
+```
+sudo ufw allow 80/tcp comment 'accept HTTP connections'
+```
+
+Forward DNS to your server. In the case we'll be using zuul.free2z.cash.
+Once the DNS for the subdomain has propagated, you can generate certificates:
+
+```
+sudo certbot certonly --standalone --preferred-challenges http -d zuul.free2z.cash
+```
+
+```
+sudo ufw allow 9067
+```
 
 
+```
+wget https://github.com/fullstorydev/grpcurl/releases/download/v1.7.0/grpcurl_1.7.0_linux_x86_64.tar.gz
 
+tar -xvf grpcurl_1.7.0_linux_x86_64.tar.gz
+
+chmod +x grpcurl
+
+./grpcurl -help
+```
+
+Make sure that the port is open and no firewall is block access.
+
+https://stackoverflow.com/a/21068402/177293
+
+Run lightwalletd with options (or create lightwalletd.yml with options):
+
+```
+./lightwalletd --tls-cert /path/to/fullchain.pem \
+    --tls-key /path/to/privkey.pem \
+    --zcash-conf-path /path/to/.zcash/zcash.conf \
+    --log-file /path/to/logs/server.log \
+    --data-dir /path/to/lightwalletd \
+    --grpc-bind-addr 0.0.0.0:9067
+```
+
+Now you should be able to get data from the lightwalletd instance using
+grpcurl:
+
+```
+grpcurl zuul.free2z.cash:9067 cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock
+```
+
+This should return something like:
+
+```
+{
+  "height": "1724495",
+  "hash": "yZ/M9KdiQeQVWtT3vgOa5jK3TMNh5pvGsfChAQAAAAA="
+}
+```
 
 
 ----
