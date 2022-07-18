@@ -36,8 +36,24 @@ https://www.envoyproxy.io/docs/envoy/latest/start/install
 Run the proxy:
 
 ```
-envoy -c envoy-demo.yaml
+envoy -c envoy.yaml
 ```
+
+Now build and deploy the sample app:
+
+```
+npm install
+npm start
+```
+
+WIP
+
+```
+Http response at 400 or 500 level
+```
+
+
+
 
 
 
@@ -48,14 +64,6 @@ The `package.json` and `.env` files here are changed according to
 https://github.com/grpc/grpc-web/issues/447
 
 https://medium.com/expedia-group-tech/the-weird-world-of-grpc-tooling-for-node-js-part-2-daafed94cc32
-
-```
-cli.ping()
-ServiceServiceClientPb.ts:499 undefined
-Promise {<rejected>: TypeError: Cannot read properties of undefined (reading 'serializeBinary')
-    at http://localhost:…}
-ServiceServiceClientPb.ts:500 Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'serializeBinary')
-```
 
 ----------------------------------
 

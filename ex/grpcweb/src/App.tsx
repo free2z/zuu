@@ -6,15 +6,16 @@ import { CompactTxStreamerClient } from "./web/ServiceServiceClientPb"
 import { ChainSpec, Duration } from './web/service_pb';
 import { Metadata } from 'grpc-web';
 
-const cli = new CompactTxStreamerClient("https://zuul.free2z.cash:9067")
+// const cli = new CompactTxStreamerClient("https://zuul.free2z.cash:9067")
+const cli = new CompactTxStreamerClient("http://localhost:8080")
 console.log(cli)
 window.cli = cli
 // window.name = "foo"
 
 function App() {
 
-  // cli.getLatestBlock(new ChainSpec(), grpcWeb.Metadata)
-  const p = cli.ping(new Duration(), {} as Metadata)
+  // TODO: 503!!
+  const p = cli.getLatestBlock(new Duration(), {} as Metadata)
   p.then((v) => {
     console.log("vvv", v)
   })
