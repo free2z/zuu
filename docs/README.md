@@ -1,6 +1,3 @@
-### Notes on the ZECOS
+### The ZUU docs
 
-Some things may need special tweaks to run in ZECOS devcontainer.
-To prevent upstream noise, such quirks can be documented here.
-
-Anything can go here in the docs directory really.
+Add guides and notes here to help other devs get going faster!
