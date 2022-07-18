@@ -7,12 +7,19 @@ Zuuli is the Zcash lightwallet that you always wanted
 
 # Dev notes
 
+Install node and npm.
+This is tested against the current LTS which is about `16.15.1`
+
 ```
 npm config set legacy-peer-deps true
 ```
 
+```
+npm install
+npm start
+```
 
-
+See `src/index.tsx` for how the application is setup.
 
 
 ------------
