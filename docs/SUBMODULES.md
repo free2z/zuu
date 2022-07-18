@@ -9,7 +9,7 @@ of the entire ecosystem.
 There are a variety of ways to try to stay in sync with a bunch of repos.
 For now, we use git submodules instead of a eg subtree since the
 sub-repos are moving fast and 99.999% of changes will come from the
-canonical repos and not from work directly in free2z/free2z.
+canonical repos and not from work directly in free2z/zuu.
 This document is to help us remember how to keep things in sync!
 
 This assumes git version >= 2.13.
@@ -17,14 +17,14 @@ This assumes git version >= 2.13.
 ### Cloning
 
 ```
-git clone --recurse-submodules -j8 https://github.com/free2z/free2z
+git clone --recurse-submodules -j8 https://github.com/free2z/zuu
 ```
 
 You can also clone and then pull the submodules separately:
 
 ```
-git clone https://github.com/free2z/free2z
-cd free2z
+git clone https://github.com/free2z/zuu
+cd zuu
 git submodule update --init --recursive
 ```
 

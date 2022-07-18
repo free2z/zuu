@@ -1,12 +1,17 @@
 # zuu-neon
 
+zuu-neon is a light wallet for desktop built with electron and
+native rust extensions.
+
 **zuu-neon:** Zcash Desktop UUallet
 
-This project was bootstrapped by [create-neon](https://www.npmjs.com/package/create-neon).
+This project was bootstrapped by
+[create-neon](https://www.npmjs.com/package/create-neon).
 
 ## Installing zuu-neon
 
-Installing zuu-neon requires a [supported version of Node and Rust](https://github.com/neon-bindings/neon#platform-support).
+Installing zuu-neon requires a
+[supported version of Node and Rust](https://github.com/neon-bindings/neon#platform-support).
 
 You can install the project with npm. In the project directory, run:
 
@@ -14,7 +19,8 @@ You can install the project with npm. In the project directory, run:
 $ npm install
 ```
 
-This fully installs the project, including installing any dependencies and running the build.
+This fully installs the project,
+including installing any dependencies and running the build.
 
 ## Building zuu-neon
 

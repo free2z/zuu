@@ -17,13 +17,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/free2z/free2z.git"
+    "url": "git+https://github.com/free2z/zuu.git"
   },
   "keywords": [
     "free2z"
   ],
   "bugs": {
-    "url": "https://github.com/free2z/free2z/issues"
+    "url": "https://github.com/free2z/zuu/issues"
   },
-  "homepage": "https://github.com/free2z/free2z#readme"
+  "homepage": "https://github.com/free2z/zuu#readme"
 }

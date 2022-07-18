@@ -175,8 +175,8 @@ Grab the free2z repo
 
 ```
 sudo apt install git
-git clone https://github.com/free2z/free2z
-cd free2z
+git clone https://github.com/free2z/zuu
+cd zuu
 git checkout metarepo  # TODO: remove once merged
 git submodule update --init --recursive
 cd zcash/lightwalletd  # master version
