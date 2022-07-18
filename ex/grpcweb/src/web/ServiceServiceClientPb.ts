@@ -23,9 +23,9 @@ export class CompactTxStreamerClient {
   credentials_: null | { [index: string]: string; };
   options_: null | { [index: string]: any; };
 
-  constructor(hostname: string,
-    credentials?: null | { [index: string]: string; },
-    options?: null | { [index: string]: any; }) {
+  constructor (hostname: string,
+               credentials?: null | { [index: string]: string; },
+               options?: null | { [index: string]: any; }) {
     if (!options) options = {};
     if (!credentials) credentials = {};
     options['format'] = 'text';
@@ -55,28 +55,28 @@ export class CompactTxStreamerClient {
     request: service_pb.ChainSpec,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.BlockID) => void): grpcWeb.ClientReadableStream<service_pb.BlockID>;
+               response: service_pb.BlockID) => void): grpcWeb.ClientReadableStream<service_pb.BlockID>;
 
   getLatestBlock(
     request: service_pb.ChainSpec,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.BlockID) => void) {
+               response: service_pb.BlockID) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock',
         request,
         metadata || {},
         this.methodDescriptorGetLatestBlock,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock',
-      request,
-      metadata || {},
-      this.methodDescriptorGetLatestBlock);
+    request,
+    metadata || {},
+    this.methodDescriptorGetLatestBlock);
   }
 
   methodDescriptorGetBlock = new grpcWeb.MethodDescriptor(
@@ -98,28 +98,28 @@ export class CompactTxStreamerClient {
     request: service_pb.BlockID,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: compact_formats_pb.CompactBlock) => void): grpcWeb.ClientReadableStream<compact_formats_pb.CompactBlock>;
+               response: compact_formats_pb.CompactBlock) => void): grpcWeb.ClientReadableStream<compact_formats_pb.CompactBlock>;
 
   getBlock(
     request: service_pb.BlockID,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: compact_formats_pb.CompactBlock) => void) {
+               response: compact_formats_pb.CompactBlock) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock',
         request,
         metadata || {},
         this.methodDescriptorGetBlock,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock',
-      request,
-      metadata || {},
-      this.methodDescriptorGetBlock);
+    request,
+    metadata || {},
+    this.methodDescriptorGetBlock);
   }
 
   methodDescriptorGetBlockRange = new grpcWeb.MethodDescriptor(
@@ -138,7 +138,7 @@ export class CompactTxStreamerClient {
     metadata?: grpcWeb.Metadata): grpcWeb.ClientReadableStream<compact_formats_pb.CompactBlock> {
     return this.client_.serverStreaming(
       this.hostname_ +
-      '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange',
+        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange',
       request,
       metadata || {},
       this.methodDescriptorGetBlockRange);
@@ -163,28 +163,28 @@ export class CompactTxStreamerClient {
     request: service_pb.TxFilter,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.RawTransaction) => void): grpcWeb.ClientReadableStream<service_pb.RawTransaction>;
+               response: service_pb.RawTransaction) => void): grpcWeb.ClientReadableStream<service_pb.RawTransaction>;
 
   getTransaction(
     request: service_pb.TxFilter,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.RawTransaction) => void) {
+               response: service_pb.RawTransaction) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTransaction',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTransaction',
         request,
         metadata || {},
         this.methodDescriptorGetTransaction,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTransaction',
-      request,
-      metadata || {},
-      this.methodDescriptorGetTransaction);
+    request,
+    metadata || {},
+    this.methodDescriptorGetTransaction);
   }
 
   methodDescriptorSendTransaction = new grpcWeb.MethodDescriptor(
@@ -206,28 +206,28 @@ export class CompactTxStreamerClient {
     request: service_pb.RawTransaction,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.SendResponse) => void): grpcWeb.ClientReadableStream<service_pb.SendResponse>;
+               response: service_pb.SendResponse) => void): grpcWeb.ClientReadableStream<service_pb.SendResponse>;
 
   sendTransaction(
     request: service_pb.RawTransaction,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.SendResponse) => void) {
+               response: service_pb.SendResponse) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/SendTransaction',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/SendTransaction',
         request,
         metadata || {},
         this.methodDescriptorSendTransaction,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/SendTransaction',
-      request,
-      metadata || {},
-      this.methodDescriptorSendTransaction);
+    request,
+    metadata || {},
+    this.methodDescriptorSendTransaction);
   }
 
   methodDescriptorGetTaddressTxids = new grpcWeb.MethodDescriptor(
@@ -246,7 +246,7 @@ export class CompactTxStreamerClient {
     metadata?: grpcWeb.Metadata): grpcWeb.ClientReadableStream<service_pb.RawTransaction> {
     return this.client_.serverStreaming(
       this.hostname_ +
-      '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTaddressTxids',
+        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTaddressTxids',
       request,
       metadata || {},
       this.methodDescriptorGetTaddressTxids);
@@ -271,28 +271,28 @@ export class CompactTxStreamerClient {
     request: service_pb.AddressList,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.Balance) => void): grpcWeb.ClientReadableStream<service_pb.Balance>;
+               response: service_pb.Balance) => void): grpcWeb.ClientReadableStream<service_pb.Balance>;
 
   getTaddressBalance(
     request: service_pb.AddressList,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.Balance) => void) {
+               response: service_pb.Balance) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTaddressBalance',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTaddressBalance',
         request,
         metadata || {},
         this.methodDescriptorGetTaddressBalance,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTaddressBalance',
-      request,
-      metadata || {},
-      this.methodDescriptorGetTaddressBalance);
+    request,
+    metadata || {},
+    this.methodDescriptorGetTaddressBalance);
   }
 
   methodDescriptorGetMempoolTx = new grpcWeb.MethodDescriptor(
@@ -311,7 +311,7 @@ export class CompactTxStreamerClient {
     metadata?: grpcWeb.Metadata): grpcWeb.ClientReadableStream<compact_formats_pb.CompactTx> {
     return this.client_.serverStreaming(
       this.hostname_ +
-      '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetMempoolTx',
+        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetMempoolTx',
       request,
       metadata || {},
       this.methodDescriptorGetMempoolTx);
@@ -333,7 +333,7 @@ export class CompactTxStreamerClient {
     metadata?: grpcWeb.Metadata): grpcWeb.ClientReadableStream<service_pb.RawTransaction> {
     return this.client_.serverStreaming(
       this.hostname_ +
-      '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetMempoolStream',
+        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetMempoolStream',
       request,
       metadata || {},
       this.methodDescriptorGetMempoolStream);
@@ -358,28 +358,71 @@ export class CompactTxStreamerClient {
     request: service_pb.BlockID,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.TreeState) => void): grpcWeb.ClientReadableStream<service_pb.TreeState>;
+               response: service_pb.TreeState) => void): grpcWeb.ClientReadableStream<service_pb.TreeState>;
 
   getTreeState(
     request: service_pb.BlockID,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.TreeState) => void) {
+               response: service_pb.TreeState) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTreeState',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTreeState',
         request,
         metadata || {},
         this.methodDescriptorGetTreeState,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTreeState',
-      request,
-      metadata || {},
-      this.methodDescriptorGetTreeState);
+    request,
+    metadata || {},
+    this.methodDescriptorGetTreeState);
+  }
+
+  methodDescriptorGetLatestTreeState = new grpcWeb.MethodDescriptor(
+    '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestTreeState',
+    grpcWeb.MethodType.UNARY,
+    service_pb.Empty,
+    service_pb.TreeState,
+    (request: service_pb.Empty) => {
+      return request.serializeBinary();
+    },
+    service_pb.TreeState.deserializeBinary
+  );
+
+  getLatestTreeState(
+    request: service_pb.Empty,
+    metadata: grpcWeb.Metadata | null): Promise<service_pb.TreeState>;
+
+  getLatestTreeState(
+    request: service_pb.Empty,
+    metadata: grpcWeb.Metadata | null,
+    callback: (err: grpcWeb.RpcError,
+               response: service_pb.TreeState) => void): grpcWeb.ClientReadableStream<service_pb.TreeState>;
+
+  getLatestTreeState(
+    request: service_pb.Empty,
+    metadata: grpcWeb.Metadata | null,
+    callback?: (err: grpcWeb.RpcError,
+               response: service_pb.TreeState) => void) {
+    if (callback !== undefined) {
+      return this.client_.rpcCall(
+        this.hostname_ +
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestTreeState',
+        request,
+        metadata || {},
+        this.methodDescriptorGetLatestTreeState,
+        callback);
+    }
+    return this.client_.unaryCall(
+    this.hostname_ +
+      '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestTreeState',
+    request,
+    metadata || {},
+    this.methodDescriptorGetLatestTreeState);
   }
 
   methodDescriptorGetAddressUtxos = new grpcWeb.MethodDescriptor(
@@ -401,28 +444,28 @@ export class CompactTxStreamerClient {
     request: service_pb.GetAddressUtxosArg,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.GetAddressUtxosReplyList) => void): grpcWeb.ClientReadableStream<service_pb.GetAddressUtxosReplyList>;
+               response: service_pb.GetAddressUtxosReplyList) => void): grpcWeb.ClientReadableStream<service_pb.GetAddressUtxosReplyList>;
 
   getAddressUtxos(
     request: service_pb.GetAddressUtxosArg,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.GetAddressUtxosReplyList) => void) {
+               response: service_pb.GetAddressUtxosReplyList) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetAddressUtxos',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetAddressUtxos',
         request,
         metadata || {},
         this.methodDescriptorGetAddressUtxos,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetAddressUtxos',
-      request,
-      metadata || {},
-      this.methodDescriptorGetAddressUtxos);
+    request,
+    metadata || {},
+    this.methodDescriptorGetAddressUtxos);
   }
 
   methodDescriptorGetAddressUtxosStream = new grpcWeb.MethodDescriptor(
@@ -441,7 +484,7 @@ export class CompactTxStreamerClient {
     metadata?: grpcWeb.Metadata): grpcWeb.ClientReadableStream<service_pb.GetAddressUtxosReply> {
     return this.client_.serverStreaming(
       this.hostname_ +
-      '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetAddressUtxosStream',
+        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetAddressUtxosStream',
       request,
       metadata || {},
       this.methodDescriptorGetAddressUtxosStream);
@@ -466,28 +509,28 @@ export class CompactTxStreamerClient {
     request: service_pb.Empty,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.LightdInfo) => void): grpcWeb.ClientReadableStream<service_pb.LightdInfo>;
+               response: service_pb.LightdInfo) => void): grpcWeb.ClientReadableStream<service_pb.LightdInfo>;
 
   getLightdInfo(
     request: service_pb.Empty,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.LightdInfo) => void) {
+               response: service_pb.LightdInfo) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLightdInfo',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLightdInfo',
         request,
         metadata || {},
         this.methodDescriptorGetLightdInfo,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLightdInfo',
-      request,
-      metadata || {},
-      this.methodDescriptorGetLightdInfo);
+    request,
+    metadata || {},
+    this.methodDescriptorGetLightdInfo);
   }
 
   methodDescriptorPing = new grpcWeb.MethodDescriptor(
@@ -496,7 +539,6 @@ export class CompactTxStreamerClient {
     service_pb.Duration,
     service_pb.PingResponse,
     (request: service_pb.Duration) => {
-      console.log(request)
       return request.serializeBinary();
     },
     service_pb.PingResponse.deserializeBinary
@@ -510,28 +552,28 @@ export class CompactTxStreamerClient {
     request: service_pb.Duration,
     metadata: grpcWeb.Metadata | null,
     callback: (err: grpcWeb.RpcError,
-      response: service_pb.PingResponse) => void): grpcWeb.ClientReadableStream<service_pb.PingResponse>;
+               response: service_pb.PingResponse) => void): grpcWeb.ClientReadableStream<service_pb.PingResponse>;
 
   ping(
     request: service_pb.Duration,
     metadata: grpcWeb.Metadata | null,
     callback?: (err: grpcWeb.RpcError,
-      response: service_pb.PingResponse) => void) {
+               response: service_pb.PingResponse) => void) {
     if (callback !== undefined) {
       return this.client_.rpcCall(
         this.hostname_ +
-        '/cash.z.wallet.sdk.rpc.CompactTxStreamer/Ping',
+          '/cash.z.wallet.sdk.rpc.CompactTxStreamer/Ping',
         request,
         metadata || {},
         this.methodDescriptorPing,
         callback);
     }
     return this.client_.unaryCall(
-      this.hostname_ +
+    this.hostname_ +
       '/cash.z.wallet.sdk.rpc.CompactTxStreamer/Ping',
-      request,
-      metadata || {},
-      this.methodDescriptorPing);
+    request,
+    metadata || {},
+    this.methodDescriptorPing);
   }
 
 }

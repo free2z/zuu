@@ -3,12 +3,22 @@ import logo from './logo.svg';
 import './App.css';
 
 import { CompactTxStreamerClient } from "./web/ServiceServiceClientPb"
-const cli = new CompactTxStreamerClient("lwdv3.zecwallet.co")
+import { ChainSpec, Duration } from './web/service_pb';
+import { Metadata } from 'grpc-web';
+
+const cli = new CompactTxStreamerClient("https://zuul.free2z.cash:9067")
 console.log(cli)
 window.cli = cli
 // window.name = "foo"
 
 function App() {
+
+  // cli.getLatestBlock(new ChainSpec(), grpcWeb.Metadata)
+  const p = cli.ping(new Duration(), {} as Metadata)
+  p.then((v) => {
+    console.log("vvv", v)
+  })
+  console.log("PPP", p)
 
   return (
     <div className="App">

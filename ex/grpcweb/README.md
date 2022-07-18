@@ -1,9 +1,22 @@
 # GRPC-WEB Zcash lightclient experiment
 
-Generated grpc-web client from zcash/lightwalletd/walletrpc
+Generated grpc-web client from zcash/lightwalletd/walletrpc.
+
+In the devcontainer, the protoc tool with grpc-web is already installed.
+
+On a Mac, you can install it with:
+
+```
+sudo wget https://github.com/grpc/grpc-web/releases/download/1.3.1/protoc-gen-grpc-web-1.3.1-darwin-x86_64
+sudo chmod +x protoc-gen-grpc-web-1.3.1-darwin-x86_64
+sudo mv protoc-gen-grpc-web-1.3.1-darwin-x86_64 /usr/local/bin/protoc-gen-grpc-web
+```
+
+Then you can generate a client in TypeScript with:
 
 ```
 cd /workspaces/free2z/zcash/lightwalletd/walletrpc
+mkdir web
 
 protoc -I=. service.proto compact_formats.proto darkside.proto \
     --js_out=import_style=commonjs:web \
@@ -15,6 +28,21 @@ Then copied into the src directory here
 ```
 cp -r web ../../../ex/grpcweb/src
 ```
+
+For development, install envoy locally for your host machine:
+
+https://www.envoyproxy.io/docs/envoy/latest/start/install
+
+Run the proxy:
+
+```
+envoy -c envoy-demo.yaml
+```
+
+
+
+
+------------
 
 The `package.json` and `.env` files here are changed according to
 https://github.com/grpc/grpc-web/issues/447

@@ -1,6 +1,3 @@
-// https://github.com/grpc/grpc-web/issues/447
-/* eslint-disable */
-// @ts-ignore
 // source: service.proto
 /**
  * @fileoverview
@@ -10,6 +7,8 @@
  * @public
  */
 // GENERATED CODE -- DO NOT EDIT!
+/* eslint-disable */
+// @ts-nocheck
 
 var jspb = require('google-protobuf');
 var goog = jspb;
@@ -46,7 +45,7 @@ goog.exportSymbol('proto.cash.z.wallet.sdk.rpc.TxFilter', null, global);
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.BlockID = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.BlockID = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.BlockID, jspb.Message);
@@ -67,7 +66,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.BlockRange = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.BlockRange, jspb.Message);
@@ -88,7 +87,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.TxFilter = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.TxFilter, jspb.Message);
@@ -109,7 +108,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.RawTransaction = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.RawTransaction, jspb.Message);
@@ -130,7 +129,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.SendResponse = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.SendResponse, jspb.Message);
@@ -151,7 +150,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.ChainSpec = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.ChainSpec = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.ChainSpec, jspb.Message);
@@ -172,7 +171,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.Empty = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.Empty = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.Empty, jspb.Message);
@@ -193,7 +192,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.LightdInfo, jspb.Message);
@@ -214,7 +213,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter, jspb.Message);
@@ -235,7 +234,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.Duration = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.Duration = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.Duration, jspb.Message);
@@ -256,7 +255,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.PingResponse = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.PingResponse, jspb.Message);
@@ -277,7 +276,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.Address = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.Address = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.Address, jspb.Message);
@@ -298,7 +297,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.AddressList = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.AddressList = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, proto.cash.z.wallet.sdk.rpc.AddressList.repeatedFields_, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.AddressList, jspb.Message);
@@ -319,7 +318,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.Balance = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.Balance = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.Balance, jspb.Message);
@@ -340,7 +339,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.Exclude = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.Exclude = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, proto.cash.z.wallet.sdk.rpc.Exclude.repeatedFields_, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.Exclude, jspb.Message);
@@ -361,7 +360,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.TreeState = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.TreeState = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.TreeState, jspb.Message);
@@ -382,7 +381,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.repeatedFields_, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg, jspb.Message);
@@ -403,7 +402,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply, jspb.Message);
@@ -424,7 +423,7 @@ if (goog.DEBUG && !COMPILED) {
  * @extends {jspb.Message}
  * @constructor
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList = function (opt_data) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.repeatedFields_, null);
 };
 goog.inherits(proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList, jspb.Message);
@@ -439,43 +438,43 @@ if (goog.DEBUG && !COMPILED) {
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.BlockID.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.BlockID.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.BlockID.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.BlockID} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.BlockID.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    height: jspb.Message.getFieldWithDefault(msg, 1, 0),
+    hash: msg.getHash_asB64()
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.BlockID} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.BlockID.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      height: jspb.Message.getFieldWithDefault(msg, 1, 0),
-      hash: msg.getHash_asB64()
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -484,7 +483,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockID}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.BlockID;
   return proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader(msg, reader);
@@ -498,24 +497,24 @@ proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockID}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setHeight(value);
-        break;
-      case 2:
-        var value = /** @type {!Uint8Array} */ (reader.readBytes());
-        msg.setHash(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setHeight(value);
+      break;
+    case 2:
+      var value = /** @type {!Uint8Array} */ (reader.readBytes());
+      msg.setHash(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -526,7 +525,7 @@ proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader = function (msg,
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.BlockID.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -540,7 +539,7 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.BlockID.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getHeight();
   if (f !== 0) {
@@ -563,7 +562,7 @@ proto.cash.z.wallet.sdk.rpc.BlockID.serializeBinaryToWriter = function (message,
  * optional uint64 height = 1;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHeight = function () {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHeight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 1, 0));
 };
 
@@ -572,7 +571,7 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHeight = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockID} returns this
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.setHeight = function (value) {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.setHeight = function(value) {
   return jspb.Message.setProto3IntField(this, 1, value);
 };
 
@@ -581,7 +580,7 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.setHeight = function (value) {
  * optional bytes hash = 2;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash = function () {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 2, ""));
 };
 
@@ -591,9 +590,9 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash = function () {
  * This is a type-conversion wrapper around `getHash()`
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash_asB64 = function () {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash_asB64 = function() {
   return /** @type {string} */ (jspb.Message.bytesAsB64(
-    this.getHash()));
+      this.getHash()));
 };
 
 
@@ -604,9 +603,9 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash_asB64 = function () {
  * This is a type-conversion wrapper around `getHash()`
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash_asU8 = function () {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash_asU8 = function() {
   return /** @type {!Uint8Array} */ (jspb.Message.bytesAsU8(
-    this.getHash()));
+      this.getHash()));
 };
 
 
@@ -614,7 +613,7 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.getHash_asU8 = function () {
  * @param {!(string|Uint8Array)} value
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockID} returns this
  */
-proto.cash.z.wallet.sdk.rpc.BlockID.prototype.setHash = function (value) {
+proto.cash.z.wallet.sdk.rpc.BlockID.prototype.setHash = function(value) {
   return jspb.Message.setProto3BytesField(this, 2, value);
 };
 
@@ -623,43 +622,43 @@ proto.cash.z.wallet.sdk.rpc.BlockID.prototype.setHash = function (value) {
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.BlockRange.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.BlockRange.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.BlockRange} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.BlockRange.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    start: (f = msg.getStart()) && proto.cash.z.wallet.sdk.rpc.BlockID.toObject(includeInstance, f),
+    end: (f = msg.getEnd()) && proto.cash.z.wallet.sdk.rpc.BlockID.toObject(includeInstance, f)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.BlockRange} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.BlockRange.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      start: (f = msg.getStart()) && proto.cash.z.wallet.sdk.rpc.BlockID.toObject(includeInstance, f),
-      end: (f = msg.getEnd()) && proto.cash.z.wallet.sdk.rpc.BlockID.toObject(includeInstance, f)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -668,7 +667,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockRange}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.BlockRange;
   return proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinaryFromReader(msg, reader);
@@ -682,26 +681,26 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockRange}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = new proto.cash.z.wallet.sdk.rpc.BlockID;
-        reader.readMessage(value, proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader);
-        msg.setStart(value);
-        break;
-      case 2:
-        var value = new proto.cash.z.wallet.sdk.rpc.BlockID;
-        reader.readMessage(value, proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader);
-        msg.setEnd(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = new proto.cash.z.wallet.sdk.rpc.BlockID;
+      reader.readMessage(value,proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader);
+      msg.setStart(value);
+      break;
+    case 2:
+      var value = new proto.cash.z.wallet.sdk.rpc.BlockID;
+      reader.readMessage(value,proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader);
+      msg.setEnd(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -712,7 +711,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinaryFromReader = function (m
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.BlockRange.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -726,7 +725,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.BlockRange.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getStart();
   if (f != null) {
@@ -751,7 +750,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.serializeBinaryToWriter = function (messa
  * optional BlockID start = 1;
  * @return {?proto.cash.z.wallet.sdk.rpc.BlockID}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.getStart = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.getStart = function() {
   return /** @type{?proto.cash.z.wallet.sdk.rpc.BlockID} */ (
     jspb.Message.getWrapperField(this, proto.cash.z.wallet.sdk.rpc.BlockID, 1));
 };
@@ -761,7 +760,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.getStart = function () {
  * @param {?proto.cash.z.wallet.sdk.rpc.BlockID|undefined} value
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockRange} returns this
 */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.setStart = function (value) {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.setStart = function(value) {
   return jspb.Message.setWrapperField(this, 1, value);
 };
 
@@ -770,7 +769,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.setStart = function (value) {
  * Clears the message field making it undefined.
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockRange} returns this
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.clearStart = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.clearStart = function() {
   return this.setStart(undefined);
 };
 
@@ -779,7 +778,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.clearStart = function () {
  * Returns whether this field is set.
  * @return {boolean}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.hasStart = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.hasStart = function() {
   return jspb.Message.getField(this, 1) != null;
 };
 
@@ -788,7 +787,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.hasStart = function () {
  * optional BlockID end = 2;
  * @return {?proto.cash.z.wallet.sdk.rpc.BlockID}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.getEnd = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.getEnd = function() {
   return /** @type{?proto.cash.z.wallet.sdk.rpc.BlockID} */ (
     jspb.Message.getWrapperField(this, proto.cash.z.wallet.sdk.rpc.BlockID, 2));
 };
@@ -798,7 +797,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.getEnd = function () {
  * @param {?proto.cash.z.wallet.sdk.rpc.BlockID|undefined} value
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockRange} returns this
 */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.setEnd = function (value) {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.setEnd = function(value) {
   return jspb.Message.setWrapperField(this, 2, value);
 };
 
@@ -807,7 +806,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.setEnd = function (value) {
  * Clears the message field making it undefined.
  * @return {!proto.cash.z.wallet.sdk.rpc.BlockRange} returns this
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.clearEnd = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.clearEnd = function() {
   return this.setEnd(undefined);
 };
 
@@ -816,7 +815,7 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.clearEnd = function () {
  * Returns whether this field is set.
  * @return {boolean}
  */
-proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.hasEnd = function () {
+proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.hasEnd = function() {
   return jspb.Message.getField(this, 2) != null;
 };
 
@@ -825,44 +824,44 @@ proto.cash.z.wallet.sdk.rpc.BlockRange.prototype.hasEnd = function () {
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.TxFilter.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.TxFilter.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.TxFilter} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.TxFilter.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    block: (f = msg.getBlock()) && proto.cash.z.wallet.sdk.rpc.BlockID.toObject(includeInstance, f),
+    index: jspb.Message.getFieldWithDefault(msg, 2, 0),
+    hash: msg.getHash_asB64()
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.TxFilter} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.TxFilter.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      block: (f = msg.getBlock()) && proto.cash.z.wallet.sdk.rpc.BlockID.toObject(includeInstance, f),
-      index: jspb.Message.getFieldWithDefault(msg, 2, 0),
-      hash: msg.getHash_asB64()
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -871,7 +870,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.TxFilter}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.TxFilter;
   return proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinaryFromReader(msg, reader);
@@ -885,29 +884,29 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.TxFilter}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = new proto.cash.z.wallet.sdk.rpc.BlockID;
-        reader.readMessage(value, proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader);
-        msg.setBlock(value);
-        break;
-      case 2:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setIndex(value);
-        break;
-      case 3:
-        var value = /** @type {!Uint8Array} */ (reader.readBytes());
-        msg.setHash(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = new proto.cash.z.wallet.sdk.rpc.BlockID;
+      reader.readMessage(value,proto.cash.z.wallet.sdk.rpc.BlockID.deserializeBinaryFromReader);
+      msg.setBlock(value);
+      break;
+    case 2:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setIndex(value);
+      break;
+    case 3:
+      var value = /** @type {!Uint8Array} */ (reader.readBytes());
+      msg.setHash(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -918,7 +917,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.deserializeBinaryFromReader = function (msg
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.TxFilter.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -932,7 +931,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.TxFilter.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getBlock();
   if (f != null) {
@@ -963,7 +962,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.serializeBinaryToWriter = function (message
  * optional BlockID block = 1;
  * @return {?proto.cash.z.wallet.sdk.rpc.BlockID}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getBlock = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getBlock = function() {
   return /** @type{?proto.cash.z.wallet.sdk.rpc.BlockID} */ (
     jspb.Message.getWrapperField(this, proto.cash.z.wallet.sdk.rpc.BlockID, 1));
 };
@@ -973,7 +972,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getBlock = function () {
  * @param {?proto.cash.z.wallet.sdk.rpc.BlockID|undefined} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TxFilter} returns this
 */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setBlock = function (value) {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setBlock = function(value) {
   return jspb.Message.setWrapperField(this, 1, value);
 };
 
@@ -982,7 +981,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setBlock = function (value) {
  * Clears the message field making it undefined.
  * @return {!proto.cash.z.wallet.sdk.rpc.TxFilter} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.clearBlock = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.clearBlock = function() {
   return this.setBlock(undefined);
 };
 
@@ -991,7 +990,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.clearBlock = function () {
  * Returns whether this field is set.
  * @return {boolean}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.hasBlock = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.hasBlock = function() {
   return jspb.Message.getField(this, 1) != null;
 };
 
@@ -1000,7 +999,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.hasBlock = function () {
  * optional uint64 index = 2;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getIndex = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getIndex = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 2, 0));
 };
 
@@ -1009,7 +1008,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getIndex = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TxFilter} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setIndex = function (value) {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setIndex = function(value) {
   return jspb.Message.setProto3IntField(this, 2, value);
 };
 
@@ -1018,7 +1017,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setIndex = function (value) {
  * optional bytes hash = 3;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 3, ""));
 };
 
@@ -1028,9 +1027,9 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash = function () {
  * This is a type-conversion wrapper around `getHash()`
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash_asB64 = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash_asB64 = function() {
   return /** @type {string} */ (jspb.Message.bytesAsB64(
-    this.getHash()));
+      this.getHash()));
 };
 
 
@@ -1041,9 +1040,9 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash_asB64 = function () {
  * This is a type-conversion wrapper around `getHash()`
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash_asU8 = function () {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash_asU8 = function() {
   return /** @type {!Uint8Array} */ (jspb.Message.bytesAsU8(
-    this.getHash()));
+      this.getHash()));
 };
 
 
@@ -1051,7 +1050,7 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.getHash_asU8 = function () {
  * @param {!(string|Uint8Array)} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TxFilter} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setHash = function (value) {
+proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setHash = function(value) {
   return jspb.Message.setProto3BytesField(this, 3, value);
 };
 
@@ -1060,43 +1059,43 @@ proto.cash.z.wallet.sdk.rpc.TxFilter.prototype.setHash = function (value) {
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.RawTransaction.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.RawTransaction.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.RawTransaction} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.RawTransaction.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    data: msg.getData_asB64(),
+    height: jspb.Message.getFieldWithDefault(msg, 2, 0)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.RawTransaction} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.RawTransaction.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      data: msg.getData_asB64(),
-      height: jspb.Message.getFieldWithDefault(msg, 2, 0)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -1105,7 +1104,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.RawTransaction}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.RawTransaction;
   return proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinaryFromReader(msg, reader);
@@ -1119,24 +1118,24 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinary = function (bytes) 
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.RawTransaction}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {!Uint8Array} */ (reader.readBytes());
-        msg.setData(value);
-        break;
-      case 2:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setHeight(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {!Uint8Array} */ (reader.readBytes());
+      msg.setData(value);
+      break;
+    case 2:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setHeight(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -1147,7 +1146,7 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.deserializeBinaryFromReader = functio
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.RawTransaction.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -1161,7 +1160,7 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.serializeBinary = function 
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getData_asU8();
   if (f.length > 0) {
@@ -1184,7 +1183,7 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.serializeBinaryToWriter = function (m
  * optional bytes data = 1;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData = function () {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
 };
 
@@ -1194,9 +1193,9 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData = function () {
  * This is a type-conversion wrapper around `getData()`
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData_asB64 = function () {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData_asB64 = function() {
   return /** @type {string} */ (jspb.Message.bytesAsB64(
-    this.getData()));
+      this.getData()));
 };
 
 
@@ -1207,9 +1206,9 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData_asB64 = function ()
  * This is a type-conversion wrapper around `getData()`
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData_asU8 = function () {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData_asU8 = function() {
   return /** @type {!Uint8Array} */ (jspb.Message.bytesAsU8(
-    this.getData()));
+      this.getData()));
 };
 
 
@@ -1217,7 +1216,7 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getData_asU8 = function () 
  * @param {!(string|Uint8Array)} value
  * @return {!proto.cash.z.wallet.sdk.rpc.RawTransaction} returns this
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.setData = function (value) {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.setData = function(value) {
   return jspb.Message.setProto3BytesField(this, 1, value);
 };
 
@@ -1226,7 +1225,7 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.setData = function (value) 
  * optional uint64 height = 2;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getHeight = function () {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getHeight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 2, 0));
 };
 
@@ -1235,7 +1234,7 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.getHeight = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.RawTransaction} returns this
  */
-proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.setHeight = function (value) {
+proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.setHeight = function(value) {
   return jspb.Message.setProto3IntField(this, 2, value);
 };
 
@@ -1244,43 +1243,43 @@ proto.cash.z.wallet.sdk.rpc.RawTransaction.prototype.setHeight = function (value
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.SendResponse.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.SendResponse.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.SendResponse} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.SendResponse.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    errorcode: jspb.Message.getFieldWithDefault(msg, 1, 0),
+    errormessage: jspb.Message.getFieldWithDefault(msg, 2, "")
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.SendResponse} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.SendResponse.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      errorcode: jspb.Message.getFieldWithDefault(msg, 1, 0),
-      errormessage: jspb.Message.getFieldWithDefault(msg, 2, "")
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -1289,7 +1288,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.SendResponse}
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.SendResponse;
   return proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinaryFromReader(msg, reader);
@@ -1303,24 +1302,24 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.SendResponse}
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {number} */ (reader.readInt32());
-        msg.setErrorcode(value);
-        break;
-      case 2:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setErrormessage(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {number} */ (reader.readInt32());
+      msg.setErrorcode(value);
+      break;
+    case 2:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setErrormessage(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -1331,7 +1330,7 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.deserializeBinaryFromReader = function 
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.SendResponse.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -1345,7 +1344,7 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.serializeBinary = function ()
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.SendResponse.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getErrorcode();
   if (f !== 0) {
@@ -1368,7 +1367,7 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.serializeBinaryToWriter = function (mes
  * optional int32 errorCode = 1;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.getErrorcode = function () {
+proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.getErrorcode = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 1, 0));
 };
 
@@ -1377,7 +1376,7 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.getErrorcode = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.SendResponse} returns this
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.setErrorcode = function (value) {
+proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.setErrorcode = function(value) {
   return jspb.Message.setProto3IntField(this, 1, value);
 };
 
@@ -1386,7 +1385,7 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.setErrorcode = function (valu
  * optional string errorMessage = 2;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.getErrormessage = function () {
+proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.getErrormessage = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 2, ""));
 };
 
@@ -1395,7 +1394,7 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.getErrormessage = function ()
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.SendResponse} returns this
  */
-proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.setErrormessage = function (value) {
+proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.setErrormessage = function(value) {
   return jspb.Message.setProto3StringField(this, 2, value);
 };
 
@@ -1404,42 +1403,42 @@ proto.cash.z.wallet.sdk.rpc.SendResponse.prototype.setErrormessage = function (v
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.ChainSpec.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.ChainSpec.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.ChainSpec.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.ChainSpec.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.ChainSpec} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.ChainSpec.toObject = function(includeInstance, msg) {
+  var f, obj = {
+
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.ChainSpec} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.ChainSpec.toObject = function (includeInstance, msg) {
-    var f, obj = {
-
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -1448,7 +1447,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.ChainSpec}
  */
-proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.ChainSpec;
   return proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinaryFromReader(msg, reader);
@@ -1462,16 +1461,16 @@ proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.ChainSpec}
  */
-proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      default:
-        reader.skipField();
-        break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -1482,7 +1481,7 @@ proto.cash.z.wallet.sdk.rpc.ChainSpec.deserializeBinaryFromReader = function (ms
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.ChainSpec.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.ChainSpec.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.ChainSpec.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -1496,7 +1495,7 @@ proto.cash.z.wallet.sdk.rpc.ChainSpec.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.ChainSpec.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.ChainSpec.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
 };
 
@@ -1505,42 +1504,42 @@ proto.cash.z.wallet.sdk.rpc.ChainSpec.serializeBinaryToWriter = function (messag
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.Empty.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.Empty.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.Empty.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.Empty.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.Empty} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.Empty.toObject = function(includeInstance, msg) {
+  var f, obj = {
+
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.Empty} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.Empty.toObject = function (includeInstance, msg) {
-    var f, obj = {
-
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -1549,7 +1548,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.Empty}
  */
-proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.Empty;
   return proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinaryFromReader(msg, reader);
@@ -1563,16 +1562,16 @@ proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.Empty}
  */
-proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      default:
-        reader.skipField();
-        break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -1583,7 +1582,7 @@ proto.cash.z.wallet.sdk.rpc.Empty.deserializeBinaryFromReader = function (msg, r
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.Empty.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.Empty.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.Empty.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -1597,7 +1596,7 @@ proto.cash.z.wallet.sdk.rpc.Empty.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.Empty.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.Empty.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
 };
 
@@ -1606,55 +1605,55 @@ proto.cash.z.wallet.sdk.rpc.Empty.serializeBinaryToWriter = function (message, w
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.LightdInfo.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.LightdInfo.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.LightdInfo} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.LightdInfo.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    version: jspb.Message.getFieldWithDefault(msg, 1, ""),
+    vendor: jspb.Message.getFieldWithDefault(msg, 2, ""),
+    taddrsupport: jspb.Message.getBooleanFieldWithDefault(msg, 3, false),
+    chainname: jspb.Message.getFieldWithDefault(msg, 4, ""),
+    saplingactivationheight: jspb.Message.getFieldWithDefault(msg, 5, 0),
+    consensusbranchid: jspb.Message.getFieldWithDefault(msg, 6, ""),
+    blockheight: jspb.Message.getFieldWithDefault(msg, 7, 0),
+    gitcommit: jspb.Message.getFieldWithDefault(msg, 8, ""),
+    branch: jspb.Message.getFieldWithDefault(msg, 9, ""),
+    builddate: jspb.Message.getFieldWithDefault(msg, 10, ""),
+    builduser: jspb.Message.getFieldWithDefault(msg, 11, ""),
+    estimatedheight: jspb.Message.getFieldWithDefault(msg, 12, 0),
+    zcashdbuild: jspb.Message.getFieldWithDefault(msg, 13, ""),
+    zcashdsubversion: jspb.Message.getFieldWithDefault(msg, 14, "")
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.LightdInfo} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.LightdInfo.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      version: jspb.Message.getFieldWithDefault(msg, 1, ""),
-      vendor: jspb.Message.getFieldWithDefault(msg, 2, ""),
-      taddrsupport: jspb.Message.getBooleanFieldWithDefault(msg, 3, false),
-      chainname: jspb.Message.getFieldWithDefault(msg, 4, ""),
-      saplingactivationheight: jspb.Message.getFieldWithDefault(msg, 5, 0),
-      consensusbranchid: jspb.Message.getFieldWithDefault(msg, 6, ""),
-      blockheight: jspb.Message.getFieldWithDefault(msg, 7, 0),
-      gitcommit: jspb.Message.getFieldWithDefault(msg, 8, ""),
-      branch: jspb.Message.getFieldWithDefault(msg, 9, ""),
-      builddate: jspb.Message.getFieldWithDefault(msg, 10, ""),
-      builduser: jspb.Message.getFieldWithDefault(msg, 11, ""),
-      estimatedheight: jspb.Message.getFieldWithDefault(msg, 12, 0),
-      zcashdbuild: jspb.Message.getFieldWithDefault(msg, 13, ""),
-      zcashdsubversion: jspb.Message.getFieldWithDefault(msg, 14, "")
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -1663,7 +1662,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.LightdInfo;
   return proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinaryFromReader(msg, reader);
@@ -1677,72 +1676,72 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setVersion(value);
-        break;
-      case 2:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setVendor(value);
-        break;
-      case 3:
-        var value = /** @type {boolean} */ (reader.readBool());
-        msg.setTaddrsupport(value);
-        break;
-      case 4:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setChainname(value);
-        break;
-      case 5:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setSaplingactivationheight(value);
-        break;
-      case 6:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setConsensusbranchid(value);
-        break;
-      case 7:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setBlockheight(value);
-        break;
-      case 8:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setGitcommit(value);
-        break;
-      case 9:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setBranch(value);
-        break;
-      case 10:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setBuilddate(value);
-        break;
-      case 11:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setBuilduser(value);
-        break;
-      case 12:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setEstimatedheight(value);
-        break;
-      case 13:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setZcashdbuild(value);
-        break;
-      case 14:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setZcashdsubversion(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setVersion(value);
+      break;
+    case 2:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setVendor(value);
+      break;
+    case 3:
+      var value = /** @type {boolean} */ (reader.readBool());
+      msg.setTaddrsupport(value);
+      break;
+    case 4:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setChainname(value);
+      break;
+    case 5:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setSaplingactivationheight(value);
+      break;
+    case 6:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setConsensusbranchid(value);
+      break;
+    case 7:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setBlockheight(value);
+      break;
+    case 8:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setGitcommit(value);
+      break;
+    case 9:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setBranch(value);
+      break;
+    case 10:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setBuilddate(value);
+      break;
+    case 11:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setBuilduser(value);
+      break;
+    case 12:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setEstimatedheight(value);
+      break;
+    case 13:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setZcashdbuild(value);
+      break;
+    case 14:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setZcashdsubversion(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -1753,7 +1752,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.deserializeBinaryFromReader = function (m
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.LightdInfo.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -1767,7 +1766,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getVersion();
   if (f.length > 0) {
@@ -1874,7 +1873,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.serializeBinaryToWriter = function (messa
  * optional string version = 1;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getVersion = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getVersion = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
 };
 
@@ -1883,7 +1882,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getVersion = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setVersion = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setVersion = function(value) {
   return jspb.Message.setProto3StringField(this, 1, value);
 };
 
@@ -1892,7 +1891,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setVersion = function (value) {
  * optional string vendor = 2;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getVendor = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getVendor = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 2, ""));
 };
 
@@ -1901,7 +1900,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getVendor = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setVendor = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setVendor = function(value) {
   return jspb.Message.setProto3StringField(this, 2, value);
 };
 
@@ -1910,7 +1909,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setVendor = function (value) {
  * optional bool taddrSupport = 3;
  * @return {boolean}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getTaddrsupport = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getTaddrsupport = function() {
   return /** @type {boolean} */ (jspb.Message.getBooleanFieldWithDefault(this, 3, false));
 };
 
@@ -1919,7 +1918,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getTaddrsupport = function () {
  * @param {boolean} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setTaddrsupport = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setTaddrsupport = function(value) {
   return jspb.Message.setProto3BooleanField(this, 3, value);
 };
 
@@ -1928,7 +1927,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setTaddrsupport = function (val
  * optional string chainName = 4;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getChainname = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getChainname = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 4, ""));
 };
 
@@ -1937,7 +1936,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getChainname = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setChainname = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setChainname = function(value) {
   return jspb.Message.setProto3StringField(this, 4, value);
 };
 
@@ -1946,7 +1945,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setChainname = function (value)
  * optional uint64 saplingActivationHeight = 5;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getSaplingactivationheight = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getSaplingactivationheight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 5, 0));
 };
 
@@ -1955,7 +1954,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getSaplingactivationheight = fu
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setSaplingactivationheight = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setSaplingactivationheight = function(value) {
   return jspb.Message.setProto3IntField(this, 5, value);
 };
 
@@ -1964,7 +1963,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setSaplingactivationheight = fu
  * optional string consensusBranchId = 6;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getConsensusbranchid = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getConsensusbranchid = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 6, ""));
 };
 
@@ -1973,7 +1972,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getConsensusbranchid = function
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setConsensusbranchid = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setConsensusbranchid = function(value) {
   return jspb.Message.setProto3StringField(this, 6, value);
 };
 
@@ -1982,7 +1981,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setConsensusbranchid = function
  * optional uint64 blockHeight = 7;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBlockheight = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBlockheight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 7, 0));
 };
 
@@ -1991,7 +1990,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBlockheight = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBlockheight = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBlockheight = function(value) {
   return jspb.Message.setProto3IntField(this, 7, value);
 };
 
@@ -2000,7 +1999,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBlockheight = function (valu
  * optional string gitCommit = 8;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getGitcommit = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getGitcommit = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 8, ""));
 };
 
@@ -2009,7 +2008,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getGitcommit = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setGitcommit = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setGitcommit = function(value) {
   return jspb.Message.setProto3StringField(this, 8, value);
 };
 
@@ -2018,7 +2017,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setGitcommit = function (value)
  * optional string branch = 9;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBranch = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBranch = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 9, ""));
 };
 
@@ -2027,7 +2026,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBranch = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBranch = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBranch = function(value) {
   return jspb.Message.setProto3StringField(this, 9, value);
 };
 
@@ -2036,7 +2035,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBranch = function (value) {
  * optional string buildDate = 10;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBuilddate = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBuilddate = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 10, ""));
 };
 
@@ -2045,7 +2044,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBuilddate = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBuilddate = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBuilddate = function(value) {
   return jspb.Message.setProto3StringField(this, 10, value);
 };
 
@@ -2054,7 +2053,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBuilddate = function (value)
  * optional string buildUser = 11;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBuilduser = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBuilduser = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 11, ""));
 };
 
@@ -2063,7 +2062,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getBuilduser = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBuilduser = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBuilduser = function(value) {
   return jspb.Message.setProto3StringField(this, 11, value);
 };
 
@@ -2072,7 +2071,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setBuilduser = function (value)
  * optional uint64 estimatedHeight = 12;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getEstimatedheight = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getEstimatedheight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 12, 0));
 };
 
@@ -2081,7 +2080,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getEstimatedheight = function (
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setEstimatedheight = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setEstimatedheight = function(value) {
   return jspb.Message.setProto3IntField(this, 12, value);
 };
 
@@ -2090,7 +2089,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setEstimatedheight = function (
  * optional string zcashdBuild = 13;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getZcashdbuild = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getZcashdbuild = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 13, ""));
 };
 
@@ -2099,7 +2098,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getZcashdbuild = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setZcashdbuild = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setZcashdbuild = function(value) {
   return jspb.Message.setProto3StringField(this, 13, value);
 };
 
@@ -2108,7 +2107,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setZcashdbuild = function (valu
  * optional string zcashdSubversion = 14;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getZcashdsubversion = function () {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getZcashdsubversion = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 14, ""));
 };
 
@@ -2117,7 +2116,7 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.getZcashdsubversion = function 
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.LightdInfo} returns this
  */
-proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setZcashdsubversion = function (value) {
+proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setZcashdsubversion = function(value) {
   return jspb.Message.setProto3StringField(this, 14, value);
 };
 
@@ -2126,43 +2125,43 @@ proto.cash.z.wallet.sdk.rpc.LightdInfo.prototype.setZcashdsubversion = function 
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    address: jspb.Message.getFieldWithDefault(msg, 1, ""),
+    range: (f = msg.getRange()) && proto.cash.z.wallet.sdk.rpc.BlockRange.toObject(includeInstance, f)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      address: jspb.Message.getFieldWithDefault(msg, 1, ""),
-      range: (f = msg.getRange()) && proto.cash.z.wallet.sdk.rpc.BlockRange.toObject(includeInstance, f)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -2171,7 +2170,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter}
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter;
   return proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinaryFromReader(msg, reader);
@@ -2185,25 +2184,25 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinary = fu
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter}
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setAddress(value);
-        break;
-      case 2:
-        var value = new proto.cash.z.wallet.sdk.rpc.BlockRange;
-        reader.readMessage(value, proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinaryFromReader);
-        msg.setRange(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setAddress(value);
+      break;
+    case 2:
+      var value = new proto.cash.z.wallet.sdk.rpc.BlockRange;
+      reader.readMessage(value,proto.cash.z.wallet.sdk.rpc.BlockRange.deserializeBinaryFromReader);
+      msg.setRange(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -2214,7 +2213,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.deserializeBinaryFromR
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -2228,7 +2227,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.serializeBin
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getAddress();
   if (f.length > 0) {
@@ -2252,7 +2251,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.serializeBinaryToWrite
  * optional string address = 1;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.getAddress = function () {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.getAddress = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
 };
 
@@ -2261,7 +2260,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.getAddress =
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.setAddress = function (value) {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.setAddress = function(value) {
   return jspb.Message.setProto3StringField(this, 1, value);
 };
 
@@ -2270,7 +2269,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.setAddress =
  * optional BlockRange range = 2;
  * @return {?proto.cash.z.wallet.sdk.rpc.BlockRange}
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.getRange = function () {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.getRange = function() {
   return /** @type{?proto.cash.z.wallet.sdk.rpc.BlockRange} */ (
     jspb.Message.getWrapperField(this, proto.cash.z.wallet.sdk.rpc.BlockRange, 2));
 };
@@ -2280,7 +2279,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.getRange = f
  * @param {?proto.cash.z.wallet.sdk.rpc.BlockRange|undefined} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter} returns this
 */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.setRange = function (value) {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.setRange = function(value) {
   return jspb.Message.setWrapperField(this, 2, value);
 };
 
@@ -2289,7 +2288,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.setRange = f
  * Clears the message field making it undefined.
  * @return {!proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.clearRange = function () {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.clearRange = function() {
   return this.setRange(undefined);
 };
 
@@ -2298,7 +2297,7 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.clearRange =
  * Returns whether this field is set.
  * @return {boolean}
  */
-proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.hasRange = function () {
+proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.hasRange = function() {
   return jspb.Message.getField(this, 2) != null;
 };
 
@@ -2307,42 +2306,42 @@ proto.cash.z.wallet.sdk.rpc.TransparentAddressBlockFilter.prototype.hasRange = f
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.Duration.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.Duration.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.Duration.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.Duration.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.Duration} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.Duration.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    intervalus: jspb.Message.getFieldWithDefault(msg, 1, 0)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.Duration} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.Duration.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      intervalus: jspb.Message.getFieldWithDefault(msg, 1, 0)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -2351,7 +2350,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.Duration}
  */
-proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.Duration;
   return proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinaryFromReader(msg, reader);
@@ -2365,20 +2364,20 @@ proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.Duration}
  */
-proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {number} */ (reader.readInt64());
-        msg.setIntervalus(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {number} */ (reader.readInt64());
+      msg.setIntervalus(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -2389,7 +2388,7 @@ proto.cash.z.wallet.sdk.rpc.Duration.deserializeBinaryFromReader = function (msg
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.Duration.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.Duration.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.Duration.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -2403,7 +2402,7 @@ proto.cash.z.wallet.sdk.rpc.Duration.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.Duration.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.Duration.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getIntervalus();
   if (f !== 0) {
@@ -2419,7 +2418,7 @@ proto.cash.z.wallet.sdk.rpc.Duration.serializeBinaryToWriter = function (message
  * optional int64 intervalUs = 1;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.Duration.prototype.getIntervalus = function () {
+proto.cash.z.wallet.sdk.rpc.Duration.prototype.getIntervalus = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 1, 0));
 };
 
@@ -2428,7 +2427,7 @@ proto.cash.z.wallet.sdk.rpc.Duration.prototype.getIntervalus = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.Duration} returns this
  */
-proto.cash.z.wallet.sdk.rpc.Duration.prototype.setIntervalus = function (value) {
+proto.cash.z.wallet.sdk.rpc.Duration.prototype.setIntervalus = function(value) {
   return jspb.Message.setProto3IntField(this, 1, value);
 };
 
@@ -2437,43 +2436,43 @@ proto.cash.z.wallet.sdk.rpc.Duration.prototype.setIntervalus = function (value) 
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.PingResponse.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.PingResponse.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.PingResponse} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.PingResponse.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    entry: jspb.Message.getFieldWithDefault(msg, 1, 0),
+    exit: jspb.Message.getFieldWithDefault(msg, 2, 0)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.PingResponse} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.PingResponse.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      entry: jspb.Message.getFieldWithDefault(msg, 1, 0),
-      exit: jspb.Message.getFieldWithDefault(msg, 2, 0)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -2482,7 +2481,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.PingResponse}
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.PingResponse;
   return proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinaryFromReader(msg, reader);
@@ -2496,24 +2495,24 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.PingResponse}
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {number} */ (reader.readInt64());
-        msg.setEntry(value);
-        break;
-      case 2:
-        var value = /** @type {number} */ (reader.readInt64());
-        msg.setExit(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {number} */ (reader.readInt64());
+      msg.setEntry(value);
+      break;
+    case 2:
+      var value = /** @type {number} */ (reader.readInt64());
+      msg.setExit(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -2524,7 +2523,7 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.deserializeBinaryFromReader = function 
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.PingResponse.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -2538,7 +2537,7 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.serializeBinary = function ()
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.PingResponse.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getEntry();
   if (f !== 0) {
@@ -2561,7 +2560,7 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.serializeBinaryToWriter = function (mes
  * optional int64 entry = 1;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.getEntry = function () {
+proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.getEntry = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 1, 0));
 };
 
@@ -2570,7 +2569,7 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.getEntry = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.PingResponse} returns this
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.setEntry = function (value) {
+proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.setEntry = function(value) {
   return jspb.Message.setProto3IntField(this, 1, value);
 };
 
@@ -2579,7 +2578,7 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.setEntry = function (value) {
  * optional int64 exit = 2;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.getExit = function () {
+proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.getExit = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 2, 0));
 };
 
@@ -2588,7 +2587,7 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.getExit = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.PingResponse} returns this
  */
-proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.setExit = function (value) {
+proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.setExit = function(value) {
   return jspb.Message.setProto3IntField(this, 2, value);
 };
 
@@ -2597,42 +2596,42 @@ proto.cash.z.wallet.sdk.rpc.PingResponse.prototype.setExit = function (value) {
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.Address.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.Address.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.Address.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.Address.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.Address} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.Address.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    address: jspb.Message.getFieldWithDefault(msg, 1, "")
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.Address} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.Address.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      address: jspb.Message.getFieldWithDefault(msg, 1, "")
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -2641,7 +2640,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.Address}
  */
-proto.cash.z.wallet.sdk.rpc.Address.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.Address.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.Address;
   return proto.cash.z.wallet.sdk.rpc.Address.deserializeBinaryFromReader(msg, reader);
@@ -2655,20 +2654,20 @@ proto.cash.z.wallet.sdk.rpc.Address.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.Address}
  */
-proto.cash.z.wallet.sdk.rpc.Address.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.Address.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setAddress(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setAddress(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -2679,7 +2678,7 @@ proto.cash.z.wallet.sdk.rpc.Address.deserializeBinaryFromReader = function (msg,
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.Address.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.Address.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.Address.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -2693,7 +2692,7 @@ proto.cash.z.wallet.sdk.rpc.Address.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.Address.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.Address.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getAddress();
   if (f.length > 0) {
@@ -2709,7 +2708,7 @@ proto.cash.z.wallet.sdk.rpc.Address.serializeBinaryToWriter = function (message,
  * optional string address = 1;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.Address.prototype.getAddress = function () {
+proto.cash.z.wallet.sdk.rpc.Address.prototype.getAddress = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
 };
 
@@ -2718,7 +2717,7 @@ proto.cash.z.wallet.sdk.rpc.Address.prototype.getAddress = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.Address} returns this
  */
-proto.cash.z.wallet.sdk.rpc.Address.prototype.setAddress = function (value) {
+proto.cash.z.wallet.sdk.rpc.Address.prototype.setAddress = function(value) {
   return jspb.Message.setProto3StringField(this, 1, value);
 };
 
@@ -2734,42 +2733,42 @@ proto.cash.z.wallet.sdk.rpc.AddressList.repeatedFields_ = [1];
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.AddressList.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.AddressList.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.AddressList.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.AddressList.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.AddressList} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.AddressList.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    addressesList: (f = jspb.Message.getRepeatedField(msg, 1)) == null ? undefined : f
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.AddressList} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.AddressList.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      addressesList: (f = jspb.Message.getRepeatedField(msg, 1)) == null ? undefined : f
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -2778,7 +2777,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.AddressList}
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.AddressList;
   return proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinaryFromReader(msg, reader);
@@ -2792,20 +2791,20 @@ proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.AddressList}
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {string} */ (reader.readString());
-        msg.addAddresses(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.addAddresses(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -2816,7 +2815,7 @@ proto.cash.z.wallet.sdk.rpc.AddressList.deserializeBinaryFromReader = function (
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.AddressList.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.AddressList.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -2830,7 +2829,7 @@ proto.cash.z.wallet.sdk.rpc.AddressList.prototype.serializeBinary = function () 
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.AddressList.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getAddressesList();
   if (f.length > 0) {
@@ -2846,7 +2845,7 @@ proto.cash.z.wallet.sdk.rpc.AddressList.serializeBinaryToWriter = function (mess
  * repeated string addresses = 1;
  * @return {!Array<string>}
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.prototype.getAddressesList = function () {
+proto.cash.z.wallet.sdk.rpc.AddressList.prototype.getAddressesList = function() {
   return /** @type {!Array<string>} */ (jspb.Message.getRepeatedField(this, 1));
 };
 
@@ -2855,7 +2854,7 @@ proto.cash.z.wallet.sdk.rpc.AddressList.prototype.getAddressesList = function ()
  * @param {!Array<string>} value
  * @return {!proto.cash.z.wallet.sdk.rpc.AddressList} returns this
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.prototype.setAddressesList = function (value) {
+proto.cash.z.wallet.sdk.rpc.AddressList.prototype.setAddressesList = function(value) {
   return jspb.Message.setField(this, 1, value || []);
 };
 
@@ -2865,7 +2864,7 @@ proto.cash.z.wallet.sdk.rpc.AddressList.prototype.setAddressesList = function (v
  * @param {number=} opt_index
  * @return {!proto.cash.z.wallet.sdk.rpc.AddressList} returns this
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.prototype.addAddresses = function (value, opt_index) {
+proto.cash.z.wallet.sdk.rpc.AddressList.prototype.addAddresses = function(value, opt_index) {
   return jspb.Message.addToRepeatedField(this, 1, value, opt_index);
 };
 
@@ -2874,7 +2873,7 @@ proto.cash.z.wallet.sdk.rpc.AddressList.prototype.addAddresses = function (value
  * Clears the list making it empty but non-null.
  * @return {!proto.cash.z.wallet.sdk.rpc.AddressList} returns this
  */
-proto.cash.z.wallet.sdk.rpc.AddressList.prototype.clearAddressesList = function () {
+proto.cash.z.wallet.sdk.rpc.AddressList.prototype.clearAddressesList = function() {
   return this.setAddressesList([]);
 };
 
@@ -2883,42 +2882,42 @@ proto.cash.z.wallet.sdk.rpc.AddressList.prototype.clearAddressesList = function 
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.Balance.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.Balance.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.Balance.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.Balance.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.Balance} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.Balance.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    valuezat: jspb.Message.getFieldWithDefault(msg, 1, 0)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.Balance} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.Balance.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      valuezat: jspb.Message.getFieldWithDefault(msg, 1, 0)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -2927,7 +2926,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.Balance}
  */
-proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.Balance;
   return proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinaryFromReader(msg, reader);
@@ -2941,20 +2940,20 @@ proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.Balance}
  */
-proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {number} */ (reader.readInt64());
-        msg.setValuezat(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {number} */ (reader.readInt64());
+      msg.setValuezat(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -2965,7 +2964,7 @@ proto.cash.z.wallet.sdk.rpc.Balance.deserializeBinaryFromReader = function (msg,
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.Balance.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.Balance.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.Balance.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -2979,7 +2978,7 @@ proto.cash.z.wallet.sdk.rpc.Balance.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.Balance.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.Balance.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getValuezat();
   if (f !== 0) {
@@ -2995,7 +2994,7 @@ proto.cash.z.wallet.sdk.rpc.Balance.serializeBinaryToWriter = function (message,
  * optional int64 valueZat = 1;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.Balance.prototype.getValuezat = function () {
+proto.cash.z.wallet.sdk.rpc.Balance.prototype.getValuezat = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 1, 0));
 };
 
@@ -3004,7 +3003,7 @@ proto.cash.z.wallet.sdk.rpc.Balance.prototype.getValuezat = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.Balance} returns this
  */
-proto.cash.z.wallet.sdk.rpc.Balance.prototype.setValuezat = function (value) {
+proto.cash.z.wallet.sdk.rpc.Balance.prototype.setValuezat = function(value) {
   return jspb.Message.setProto3IntField(this, 1, value);
 };
 
@@ -3020,42 +3019,42 @@ proto.cash.z.wallet.sdk.rpc.Exclude.repeatedFields_ = [1];
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.Exclude.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.Exclude.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.Exclude.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.Exclude} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.Exclude.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    txidList: msg.getTxidList_asB64()
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.Exclude} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.Exclude.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      txidList: msg.getTxidList_asB64()
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -3064,7 +3063,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.Exclude}
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.Exclude;
   return proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinaryFromReader(msg, reader);
@@ -3078,20 +3077,20 @@ proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.Exclude}
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {!Uint8Array} */ (reader.readBytes());
-        msg.addTxid(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {!Uint8Array} */ (reader.readBytes());
+      msg.addTxid(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -3102,7 +3101,7 @@ proto.cash.z.wallet.sdk.rpc.Exclude.deserializeBinaryFromReader = function (msg,
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.Exclude.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -3116,7 +3115,7 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.Exclude.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getTxidList_asU8();
   if (f.length > 0) {
@@ -3132,7 +3131,7 @@ proto.cash.z.wallet.sdk.rpc.Exclude.serializeBinaryToWriter = function (message,
  * repeated bytes txid = 1;
  * @return {!Array<string>}
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList = function () {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList = function() {
   return /** @type {!Array<string>} */ (jspb.Message.getRepeatedField(this, 1));
 };
 
@@ -3142,9 +3141,9 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList = function () {
  * This is a type-conversion wrapper around `getTxidList()`
  * @return {!Array<string>}
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList_asB64 = function () {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList_asB64 = function() {
   return /** @type {!Array<string>} */ (jspb.Message.bytesListAsB64(
-    this.getTxidList()));
+      this.getTxidList()));
 };
 
 
@@ -3155,9 +3154,9 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList_asB64 = function () {
  * This is a type-conversion wrapper around `getTxidList()`
  * @return {!Array<!Uint8Array>}
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList_asU8 = function () {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList_asU8 = function() {
   return /** @type {!Array<!Uint8Array>} */ (jspb.Message.bytesListAsU8(
-    this.getTxidList()));
+      this.getTxidList()));
 };
 
 
@@ -3165,7 +3164,7 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.getTxidList_asU8 = function () {
  * @param {!(Array<!Uint8Array>|Array<string>)} value
  * @return {!proto.cash.z.wallet.sdk.rpc.Exclude} returns this
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.setTxidList = function (value) {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.setTxidList = function(value) {
   return jspb.Message.setField(this, 1, value || []);
 };
 
@@ -3175,7 +3174,7 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.setTxidList = function (value) {
  * @param {number=} opt_index
  * @return {!proto.cash.z.wallet.sdk.rpc.Exclude} returns this
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.addTxid = function (value, opt_index) {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.addTxid = function(value, opt_index) {
   return jspb.Message.addToRepeatedField(this, 1, value, opt_index);
 };
 
@@ -3184,7 +3183,7 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.addTxid = function (value, opt_ind
  * Clears the list making it empty but non-null.
  * @return {!proto.cash.z.wallet.sdk.rpc.Exclude} returns this
  */
-proto.cash.z.wallet.sdk.rpc.Exclude.prototype.clearTxidList = function () {
+proto.cash.z.wallet.sdk.rpc.Exclude.prototype.clearTxidList = function() {
   return this.setTxidList([]);
 };
 
@@ -3193,47 +3192,47 @@ proto.cash.z.wallet.sdk.rpc.Exclude.prototype.clearTxidList = function () {
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.TreeState.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.TreeState.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.TreeState.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.TreeState} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.TreeState.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    network: jspb.Message.getFieldWithDefault(msg, 1, ""),
+    height: jspb.Message.getFieldWithDefault(msg, 2, 0),
+    hash: jspb.Message.getFieldWithDefault(msg, 3, ""),
+    time: jspb.Message.getFieldWithDefault(msg, 4, 0),
+    saplingtree: jspb.Message.getFieldWithDefault(msg, 5, ""),
+    orchardtree: jspb.Message.getFieldWithDefault(msg, 6, "")
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.TreeState} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.TreeState.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      network: jspb.Message.getFieldWithDefault(msg, 1, ""),
-      height: jspb.Message.getFieldWithDefault(msg, 2, 0),
-      hash: jspb.Message.getFieldWithDefault(msg, 3, ""),
-      time: jspb.Message.getFieldWithDefault(msg, 4, 0),
-      saplingtree: jspb.Message.getFieldWithDefault(msg, 5, ""),
-      orchardtree: jspb.Message.getFieldWithDefault(msg, 6, "")
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -3242,7 +3241,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.TreeState;
   return proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinaryFromReader(msg, reader);
@@ -3256,40 +3255,40 @@ proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinary = function (bytes) {
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setNetwork(value);
-        break;
-      case 2:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setHeight(value);
-        break;
-      case 3:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setHash(value);
-        break;
-      case 4:
-        var value = /** @type {number} */ (reader.readUint32());
-        msg.setTime(value);
-        break;
-      case 5:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setSaplingtree(value);
-        break;
-      case 6:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setOrchardtree(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setNetwork(value);
+      break;
+    case 2:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setHeight(value);
+      break;
+    case 3:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setHash(value);
+      break;
+    case 4:
+      var value = /** @type {number} */ (reader.readUint32());
+      msg.setTime(value);
+      break;
+    case 5:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setSaplingtree(value);
+      break;
+    case 6:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setOrchardtree(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -3300,7 +3299,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.deserializeBinaryFromReader = function (ms
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.TreeState.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -3314,7 +3313,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.serializeBinary = function () {
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.TreeState.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getNetwork();
   if (f.length > 0) {
@@ -3365,7 +3364,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.serializeBinaryToWriter = function (messag
  * optional string network = 1;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getNetwork = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getNetwork = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
 };
 
@@ -3374,7 +3373,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getNetwork = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setNetwork = function (value) {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setNetwork = function(value) {
   return jspb.Message.setProto3StringField(this, 1, value);
 };
 
@@ -3383,7 +3382,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setNetwork = function (value) {
  * optional uint64 height = 2;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getHeight = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getHeight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 2, 0));
 };
 
@@ -3392,7 +3391,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getHeight = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setHeight = function (value) {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setHeight = function(value) {
   return jspb.Message.setProto3IntField(this, 2, value);
 };
 
@@ -3401,7 +3400,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setHeight = function (value) {
  * optional string hash = 3;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getHash = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getHash = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 3, ""));
 };
 
@@ -3410,7 +3409,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getHash = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setHash = function (value) {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setHash = function(value) {
   return jspb.Message.setProto3StringField(this, 3, value);
 };
 
@@ -3419,7 +3418,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setHash = function (value) {
  * optional uint32 time = 4;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getTime = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getTime = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 4, 0));
 };
 
@@ -3428,7 +3427,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getTime = function () {
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setTime = function (value) {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setTime = function(value) {
   return jspb.Message.setProto3IntField(this, 4, value);
 };
 
@@ -3437,7 +3436,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setTime = function (value) {
  * optional string saplingTree = 5;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getSaplingtree = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getSaplingtree = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 5, ""));
 };
 
@@ -3446,7 +3445,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getSaplingtree = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setSaplingtree = function (value) {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setSaplingtree = function(value) {
   return jspb.Message.setProto3StringField(this, 5, value);
 };
 
@@ -3455,7 +3454,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setSaplingtree = function (value
  * optional string orchardTree = 6;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getOrchardtree = function () {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getOrchardtree = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 6, ""));
 };
 
@@ -3464,7 +3463,7 @@ proto.cash.z.wallet.sdk.rpc.TreeState.prototype.getOrchardtree = function () {
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.TreeState} returns this
  */
-proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setOrchardtree = function (value) {
+proto.cash.z.wallet.sdk.rpc.TreeState.prototype.setOrchardtree = function(value) {
   return jspb.Message.setProto3StringField(this, 6, value);
 };
 
@@ -3480,44 +3479,44 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.repeatedFields_ = [1];
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    addressesList: (f = jspb.Message.getRepeatedField(msg, 1)) == null ? undefined : f,
+    startheight: jspb.Message.getFieldWithDefault(msg, 2, 0),
+    maxentries: jspb.Message.getFieldWithDefault(msg, 3, 0)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      addressesList: (f = jspb.Message.getRepeatedField(msg, 1)) == null ? undefined : f,
-      startheight: jspb.Message.getFieldWithDefault(msg, 2, 0),
-      maxentries: jspb.Message.getFieldWithDefault(msg, 3, 0)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -3526,7 +3525,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg;
   return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinaryFromReader(msg, reader);
@@ -3540,28 +3539,28 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinary = function (byt
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = /** @type {string} */ (reader.readString());
-        msg.addAddresses(value);
-        break;
-      case 2:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setStartheight(value);
-        break;
-      case 3:
-        var value = /** @type {number} */ (reader.readUint32());
-        msg.setMaxentries(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.addAddresses(value);
+      break;
+    case 2:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setStartheight(value);
+      break;
+    case 3:
+      var value = /** @type {number} */ (reader.readUint32());
+      msg.setMaxentries(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -3572,7 +3571,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.deserializeBinaryFromReader = fun
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -3586,7 +3585,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.serializeBinary = funct
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getAddressesList();
   if (f.length > 0) {
@@ -3616,7 +3615,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.serializeBinaryToWriter = functio
  * repeated string addresses = 1;
  * @return {!Array<string>}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getAddressesList = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getAddressesList = function() {
   return /** @type {!Array<string>} */ (jspb.Message.getRepeatedField(this, 1));
 };
 
@@ -3625,7 +3624,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getAddressesList = func
  * @param {!Array<string>} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setAddressesList = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setAddressesList = function(value) {
   return jspb.Message.setField(this, 1, value || []);
 };
 
@@ -3635,7 +3634,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setAddressesList = func
  * @param {number=} opt_index
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.addAddresses = function (value, opt_index) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.addAddresses = function(value, opt_index) {
   return jspb.Message.addToRepeatedField(this, 1, value, opt_index);
 };
 
@@ -3644,7 +3643,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.addAddresses = function
  * Clears the list making it empty but non-null.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.clearAddressesList = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.clearAddressesList = function() {
   return this.setAddressesList([]);
 };
 
@@ -3653,7 +3652,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.clearAddressesList = fu
  * optional uint64 startHeight = 2;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getStartheight = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getStartheight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 2, 0));
 };
 
@@ -3662,7 +3661,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getStartheight = functi
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setStartheight = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setStartheight = function(value) {
   return jspb.Message.setProto3IntField(this, 2, value);
 };
 
@@ -3671,7 +3670,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setStartheight = functi
  * optional uint32 maxEntries = 3;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getMaxentries = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getMaxentries = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 3, 0));
 };
 
@@ -3680,7 +3679,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.getMaxentries = functio
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setMaxentries = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setMaxentries = function(value) {
   return jspb.Message.setProto3IntField(this, 3, value);
 };
 
@@ -3689,47 +3688,47 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosArg.prototype.setMaxentries = functio
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    address: jspb.Message.getFieldWithDefault(msg, 6, ""),
+    txid: msg.getTxid_asB64(),
+    index: jspb.Message.getFieldWithDefault(msg, 2, 0),
+    script: msg.getScript_asB64(),
+    valuezat: jspb.Message.getFieldWithDefault(msg, 4, 0),
+    height: jspb.Message.getFieldWithDefault(msg, 5, 0)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      address: jspb.Message.getFieldWithDefault(msg, 6, ""),
-      txid: msg.getTxid_asB64(),
-      index: jspb.Message.getFieldWithDefault(msg, 2, 0),
-      script: msg.getScript_asB64(),
-      valuezat: jspb.Message.getFieldWithDefault(msg, 4, 0),
-      height: jspb.Message.getFieldWithDefault(msg, 5, 0)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -3738,7 +3737,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply;
   return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinaryFromReader(msg, reader);
@@ -3752,40 +3751,40 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinary = function (b
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 6:
-        var value = /** @type {string} */ (reader.readString());
-        msg.setAddress(value);
-        break;
-      case 1:
-        var value = /** @type {!Uint8Array} */ (reader.readBytes());
-        msg.setTxid(value);
-        break;
-      case 2:
-        var value = /** @type {number} */ (reader.readInt32());
-        msg.setIndex(value);
-        break;
-      case 3:
-        var value = /** @type {!Uint8Array} */ (reader.readBytes());
-        msg.setScript(value);
-        break;
-      case 4:
-        var value = /** @type {number} */ (reader.readInt64());
-        msg.setValuezat(value);
-        break;
-      case 5:
-        var value = /** @type {number} */ (reader.readUint64());
-        msg.setHeight(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 6:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setAddress(value);
+      break;
+    case 1:
+      var value = /** @type {!Uint8Array} */ (reader.readBytes());
+      msg.setTxid(value);
+      break;
+    case 2:
+      var value = /** @type {number} */ (reader.readInt32());
+      msg.setIndex(value);
+      break;
+    case 3:
+      var value = /** @type {!Uint8Array} */ (reader.readBytes());
+      msg.setScript(value);
+      break;
+    case 4:
+      var value = /** @type {number} */ (reader.readInt64());
+      msg.setValuezat(value);
+      break;
+    case 5:
+      var value = /** @type {number} */ (reader.readUint64());
+      msg.setHeight(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -3796,7 +3795,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinaryFromReader = f
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -3810,7 +3809,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.serializeBinary = fun
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getAddress();
   if (f.length > 0) {
@@ -3861,7 +3860,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.serializeBinaryToWriter = funct
  * optional string address = 6;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getAddress = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getAddress = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 6, ""));
 };
 
@@ -3870,7 +3869,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getAddress = function
  * @param {string} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setAddress = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setAddress = function(value) {
   return jspb.Message.setProto3StringField(this, 6, value);
 };
 
@@ -3879,7 +3878,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setAddress = function
  * optional bytes txid = 1;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
 };
 
@@ -3889,9 +3888,9 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid = function ()
  * This is a type-conversion wrapper around `getTxid()`
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid_asB64 = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid_asB64 = function() {
   return /** @type {string} */ (jspb.Message.bytesAsB64(
-    this.getTxid()));
+      this.getTxid()));
 };
 
 
@@ -3902,9 +3901,9 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid_asB64 = funct
  * This is a type-conversion wrapper around `getTxid()`
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid_asU8 = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid_asU8 = function() {
   return /** @type {!Uint8Array} */ (jspb.Message.bytesAsU8(
-    this.getTxid()));
+      this.getTxid()));
 };
 
 
@@ -3912,7 +3911,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getTxid_asU8 = functi
  * @param {!(string|Uint8Array)} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setTxid = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setTxid = function(value) {
   return jspb.Message.setProto3BytesField(this, 1, value);
 };
 
@@ -3921,7 +3920,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setTxid = function (v
  * optional int32 index = 2;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getIndex = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getIndex = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 2, 0));
 };
 
@@ -3930,7 +3929,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getIndex = function (
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setIndex = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setIndex = function(value) {
   return jspb.Message.setProto3IntField(this, 2, value);
 };
 
@@ -3939,7 +3938,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setIndex = function (
  * optional bytes script = 3;
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript = function() {
   return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 3, ""));
 };
 
@@ -3949,9 +3948,9 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript = function 
  * This is a type-conversion wrapper around `getScript()`
  * @return {string}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript_asB64 = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript_asB64 = function() {
   return /** @type {string} */ (jspb.Message.bytesAsB64(
-    this.getScript()));
+      this.getScript()));
 };
 
 
@@ -3962,9 +3961,9 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript_asB64 = fun
  * This is a type-conversion wrapper around `getScript()`
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript_asU8 = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript_asU8 = function() {
   return /** @type {!Uint8Array} */ (jspb.Message.bytesAsU8(
-    this.getScript()));
+      this.getScript()));
 };
 
 
@@ -3972,7 +3971,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getScript_asU8 = func
  * @param {!(string|Uint8Array)} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setScript = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setScript = function(value) {
   return jspb.Message.setProto3BytesField(this, 3, value);
 };
 
@@ -3981,7 +3980,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setScript = function 
  * optional int64 valueZat = 4;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getValuezat = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getValuezat = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 4, 0));
 };
 
@@ -3990,7 +3989,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getValuezat = functio
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setValuezat = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setValuezat = function(value) {
   return jspb.Message.setProto3IntField(this, 4, value);
 };
 
@@ -3999,7 +3998,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setValuezat = functio
  * optional uint64 height = 5;
  * @return {number}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getHeight = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getHeight = function() {
   return /** @type {number} */ (jspb.Message.getFieldWithDefault(this, 5, 0));
 };
 
@@ -4008,7 +4007,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.getHeight = function 
  * @param {number} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setHeight = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.prototype.setHeight = function(value) {
   return jspb.Message.setProto3IntField(this, 5, value);
 };
 
@@ -4024,43 +4023,43 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.repeatedFields_ = [1];
 
 
 if (jspb.Message.GENERATE_TO_OBJECT) {
-  /**
-   * Creates an object representation of this proto.
-   * Field names that are reserved in JavaScript and will be renamed to pb_name.
-   * Optional fields that are not set will be set to undefined.
-   * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
-   * For the list of reserved names please see:
-   *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
-   * @param {boolean=} opt_includeInstance Deprecated. whether to include the
-   *     JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @return {!Object}
-   */
-  proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.toObject = function (opt_includeInstance) {
-    return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.toObject(opt_includeInstance, this);
+/**
+ * Creates an object representation of this proto.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * Optional fields that are not set will be set to undefined.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     net/proto2/compiler/js/internal/generator.cc#kKeyword.
+ * @param {boolean=} opt_includeInstance Deprecated. whether to include the
+ *     JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.toObject = function(opt_includeInstance) {
+  return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Deprecated. Whether to include
+ *     the JSPB instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    addressutxosList: jspb.Message.toObjectList(msg.getAddressutxosList(),
+    proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.toObject, includeInstance)
   };
 
-
-  /**
-   * Static version of the {@see toObject} method.
-   * @param {boolean|undefined} includeInstance Deprecated. Whether to include
-   *     the JSPB instance for transitional soy proto support:
-   *     http://goto/soy-param-migration
-   * @param {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList} msg The msg instance to transform.
-   * @return {!Object}
-   * @suppress {unusedLocalVariables} f is only used for nested messages
-   */
-  proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.toObject = function (includeInstance, msg) {
-    var f, obj = {
-      addressutxosList: jspb.Message.toObjectList(msg.getAddressutxosList(),
-        proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.toObject, includeInstance)
-    };
-
-    if (includeInstance) {
-      obj.$jspbMessageInstance = msg;
-    }
-    return obj;
-  };
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
 }
 
 
@@ -4069,7 +4068,7 @@ if (jspb.Message.GENERATE_TO_OBJECT) {
  * @param {jspb.ByteSource} bytes The bytes to deserialize.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinary = function (bytes) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinary = function(bytes) {
   var reader = new jspb.BinaryReader(bytes);
   var msg = new proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList;
   return proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinaryFromReader(msg, reader);
@@ -4083,21 +4082,21 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinary = functio
  * @param {!jspb.BinaryReader} reader The BinaryReader to use.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinaryFromReader = function (msg, reader) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinaryFromReader = function(msg, reader) {
   while (reader.nextField()) {
     if (reader.isEndGroup()) {
       break;
     }
     var field = reader.getFieldNumber();
     switch (field) {
-      case 1:
-        var value = new proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply;
-        reader.readMessage(value, proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinaryFromReader);
-        msg.addAddressutxos(value);
-        break;
-      default:
-        reader.skipField();
-        break;
+    case 1:
+      var value = new proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply;
+      reader.readMessage(value,proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply.deserializeBinaryFromReader);
+      msg.addAddressutxos(value);
+      break;
+    default:
+      reader.skipField();
+      break;
     }
   }
   return msg;
@@ -4108,7 +4107,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.deserializeBinaryFromReader
  * Serializes the message to binary data (in protobuf wire format).
  * @return {!Uint8Array}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.serializeBinary = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.serializeBinary = function() {
   var writer = new jspb.BinaryWriter();
   proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.serializeBinaryToWriter(this, writer);
   return writer.getResultBuffer();
@@ -4122,7 +4121,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.serializeBinary =
  * @param {!jspb.BinaryWriter} writer
  * @suppress {unusedLocalVariables} f is only used for nested messages
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.serializeBinaryToWriter = function (message, writer) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.serializeBinaryToWriter = function(message, writer) {
   var f = undefined;
   f = message.getAddressutxosList();
   if (f.length > 0) {
@@ -4139,7 +4138,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.serializeBinaryToWriter = f
  * repeated GetAddressUtxosReply addressUtxos = 1;
  * @return {!Array<!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply>}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.getAddressutxosList = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.getAddressutxosList = function() {
   return /** @type{!Array<!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply>} */ (
     jspb.Message.getRepeatedWrapperField(this, proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply, 1));
 };
@@ -4149,7 +4148,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.getAddressutxosLi
  * @param {!Array<!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply>} value
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList} returns this
 */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.setAddressutxosList = function (value) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.setAddressutxosList = function(value) {
   return jspb.Message.setRepeatedWrapperField(this, 1, value);
 };
 
@@ -4159,7 +4158,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.setAddressutxosLi
  * @param {number=} opt_index
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply}
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.addAddressutxos = function (opt_value, opt_index) {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.addAddressutxos = function(opt_value, opt_index) {
   return jspb.Message.addToRepeatedWrapperField(this, 1, opt_value, proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReply, opt_index);
 };
 
@@ -4168,7 +4167,7 @@ proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.addAddressutxos =
  * Clears the list making it empty but non-null.
  * @return {!proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList} returns this
  */
-proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.clearAddressutxosList = function () {
+proto.cash.z.wallet.sdk.rpc.GetAddressUtxosReplyList.prototype.clearAddressutxosList = function() {
   return this.setAddressutxosList([]);
 };
 
