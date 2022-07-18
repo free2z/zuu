@@ -46,6 +46,8 @@ in The ZUU at the directory `./zcash/lightwalletd`.
 
 Top-level trunk directories:
 
+* `.devcontainer/` - Debian11 container for building all of the code
+  in the repo: Rust, Go, npm, Python3, etc
 * `docs/` - Documentation, GUIDES and notes
 * `ex/` - Non-production experiments and examples
 * `private/` - .gitignored for convenience
