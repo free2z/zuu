@@ -1,4 +1,4 @@
-# Developing zecwallet-lite in ZECOS
+# Developing zecwallet-lite in The ZUU devcontainer
 
 Notes on working with zecwallet-lite within the metarepo/devcontainer.
 
