@@ -3,6 +3,13 @@
 zuu-neon is a light wallet for desktop built with electron and
 native rust extensions.
 
+Currently it is only usable as `node` REPL.
+
+It is currently based on the code from
+
+`adityapk00/zecwallet-lite` and `adityapk00/zecwalletlite-lib`
+
+
 **zuu-neon:** Zcash Desktop UUallet
 
 This project was bootstrapped by
@@ -48,8 +55,19 @@ After building zuu-neon, you can explore its exports at the Node REPL:
 ```sh
 $ npm install
 $ node
-> require('.').hello()
-"hello node"
+> z = require('.')
+{
+  litelib_wallet_exists: [Function: zuu_neon::litelib_wallet_exists],
+  litelib_initialize_new: [Function: zuu_neon::litelib_initialize_new],
+  litelib_initialize_existing: [Function: zuu_neon::litelib_initialize_existing],
+  litelib_initialize_new_from_phrase: [Function: zuu_neon::litelib_initialize_new_from_phrase],
+  litelib_deinitialize: [Function: zuu_neon::litelib_deinitialize],
+  litelib_execute: [Function: zuu_neon::litelib_execute]
+}
+> z.litelib_initialize_existing("https://mainnet.lightwalletd.com:9067")
+'OK'
+> s = z.litelib_execute("height", "")
+'{\n  "height": 1733897\n}'
 ```
 
 ## Available Scripts
