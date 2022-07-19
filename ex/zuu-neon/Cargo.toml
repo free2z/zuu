@@ -18,6 +18,7 @@ crate-type = ["cdylib"]
 # zecwalletlitelib = { path = "../../zecwallet-light-cli/lib" }
 # Go with what is on people's devices for now
 zecwalletlitelib = { git = "https://github.com/adityapk00/zecwallet-light-cli", rev = "b1880fd96a176dac0f5e7b7a15976d0776140b7a" }
+# zecwalletlitelib = { git = "https://github.com/adityapk00/zecwallet-light-cli", rev = "47fc08026fb3cbc3e83c8b7bd3bf509c0c02d29b" }
 
 lazy_static = "1.4.0"
 
