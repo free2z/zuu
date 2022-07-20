@@ -7,13 +7,15 @@
     "build": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
     "build-debug": "npm run build --",
     "build-release": "npm run build -- --release",
+    "dev": "electron ./src/main.js",
     "install": "npm run build-release",
     "test": "cargo test"
   },
   "author": "Skylar Saveland",
   "license": "MIT",
   "devDependencies": {
-    "cargo-cp-artifact": "^0.1"
+    "cargo-cp-artifact": "^0.1",
+    "electron": "^19.0.8"
   },
   "repository": {
     "type": "git",
@@ -25,5 +27,6 @@
   "bugs": {
     "url": "https://github.com/free2z/zuu/issues"
   },
-  "homepage": "https://github.com/free2z/zuu#readme"
+  "homepage": "https://github.com/free2z/zuu#readme",
+  "dependencies": {}
 }
