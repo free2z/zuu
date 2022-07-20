@@ -1,13 +1,27 @@
 # zuu-neon
 
-zuu-neon is a light wallet for desktop built with electron and
-native rust extensions.
-
-Currently it is only usable as `node` REPL.
-
-It is currently based on the code from
+`zuu-neon` creates a node module that can be used in a REPL
+or a node app. It is currently based on the lightwallet code from
 
 `adityapk00/zecwallet-lite` and `adityapk00/zecwalletlite-lib`
+
+To sync to the latest version, assuming you have pulled the latest
+from these submodules:
+
+```
+cp ../../adityapk00/zecwallet-lite/native/src/lib.rs src/lib.rs
+```
+
+The Cargo.toml references the locally checked out out version of the
+`adityapk00/zecwallet-light-cli` submodule. You could also choose a specific
+version if you need.
+
+You can delete the Cargo.lock and rebuild
+
+```
+rm Cargo.lock
+npm install
+```
 
 
 **zuu-neon:** Zcash Desktop UUallet
@@ -69,6 +83,9 @@ $ node
 > s = z.litelib_execute("height", "")
 '{\n  "height": 1733897\n}'
 ```
+
+
+---
 
 ## Available Scripts
 
