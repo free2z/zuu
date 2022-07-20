@@ -48,7 +48,9 @@ export default function AccountMenu() {
         console.log("ACCOUNTS USELIVEQUERY")
         const account = await getCurrentAccount(db)
         if (!account) {
-            throw new Error("NO ACCOUNT!!!");
+            // throw new Error("NO ACCOUNT!!!");
+            navigate("/intro")
+            return
         }
         setAccount(account)
         return await readAllAccounts(db)
