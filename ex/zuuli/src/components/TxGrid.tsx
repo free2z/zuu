@@ -107,10 +107,10 @@ export default function TxGrid() {
     })
 
     if (!account || !account.transactions) {
-        console.log("NNO TRSANNCTIONS")
+        // console.log("NNO TRSANNCTIONS")
         // TODO: Sync status!!!
         return <>
-            <Typography>No Transactions yet</Typography>
+            {/* <Typography>No Transactions yet</Typography> */}
         </>
     }
     console.log("TRANNSACTIONS", account.transactions)
