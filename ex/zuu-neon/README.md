@@ -23,7 +23,6 @@ rm Cargo.lock
 npm install
 ```
 
-
 **zuu-neon:** Zcash Desktop UUallet
 
 This project was bootstrapped by
@@ -50,9 +49,6 @@ If you have already installed the project and only want to run the build, run:
 ```sh
 $ npm run build
 ```
-
-
-
 
 
 ---
