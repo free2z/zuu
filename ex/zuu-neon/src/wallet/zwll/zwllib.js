@@ -1,4 +1,7 @@
 // Pure node wrapper for aditapk00/zecwallet-light-cli lib
+// Just using commonJS for regular node to not go down TS rabbit hole here
+// https://stackoverflow.com/a/60615051/177293
+
 /*
 > z.litelib_execute("help", "")
 'Available commands:\n' +
