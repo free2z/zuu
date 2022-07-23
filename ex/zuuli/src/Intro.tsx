@@ -8,7 +8,7 @@ import ArrowCircleRightIcon from "@mui/icons-material/ArrowCircleRight"
 import ContentCopyIcon from "@mui/icons-material/ContentCopy"
 import AddCircleIcon from "@mui/icons-material/AddCircle"
 
-import { HelpCenter } from "@mui/icons-material"
+import { Engineering, HelpCenter } from "@mui/icons-material"
 
 import { Biotech } from "@mui/icons-material"
 import { Account } from "./db/models"
@@ -132,7 +132,7 @@ export default function Intro() {
                             color="success"
                             style={{
                                 margin: "1em",
-                                width: "39%",
+                                width: "38%",
                             }}
                             endIcon={<AddCircleIcon />}
                             onClick={() => {
@@ -152,12 +152,12 @@ export default function Intro() {
                     {showRestore &&
                         <Button
                             variant="outlined"
-                            color="success"
+                            color="warning"
                             style={{
                                 margin: "1em",
-                                width: "39%",
+                                width: "38%",
                             }}
-                            endIcon={<AddCircleIcon />}
+                            endIcon={<Engineering />}
                             onClick={() => {
                                 setShowSeed(true)
                                 setShowNew(false)
