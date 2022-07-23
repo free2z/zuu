@@ -16,6 +16,7 @@
     "@types/node": "^16.11.45",
     "@types/react": "^18.0.15",
     "@types/react-dom": "^18.0.6",
+    "bluebird": "^3.7.2",
     "cuid": "^2.1.8",
     "dexie": "^3.2.2",
     "dexie-react-hooks": "^1.1.1",
@@ -23,10 +24,14 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.3.0",
     "react-scripts": "5.0.1",
+    "sqlite3": "^5.0.10",
     "typescript": "^4.7.4",
     "web-vitals": "^2.1.4"
   },
+  "main": "./src/electron/main.js",
   "scripts": {
+    "electron:start": "concurrently -k \"cross-env BROWSER=none npm run start\" \"wait-on http://localhost:3000 && electronmon .\"",
+    "dev": "electron ./src/electron/main.js",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
@@ -40,14 +45,18 @@
   },
   "browserslist": {
     "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
+      "last 1 electron version"
     ],
     "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
+      "last 1 electron version"
     ]
+  },
+  "devDependencies": {
+    "concurrently": "^7.3.0",
+    "cross-env": "^7.0.3",
+    "electron": "^19.0.9",
+    "electron-builder": "^23.1.0",
+    "electronmon": "^2.0.2",
+    "wait-on": "^6.0.1"
   }
 }

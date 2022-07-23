@@ -1,6 +1,32 @@
 # ZUULI
 
-Zuuli is the Zcash lightwallet that you always wanted
+Zuuli is the Zcash lightwallet that you always wanted.
+
+
+## Local dev
+
+This application depends on the excellent work of zcash-sync by hanh,
+which can be found at `hhanh00/zcash-sync` in the zuu repo.
+
+In the root of the zuu repository, run:
+
+```
+./build-node-sync.sh
+```
+
+Now in the `ex/zuuli` directory, install
+
+```
+npm i
+```
+
+Run the electron app in dev:
+
+```
+# TODO: concurrently not working meh .. `npm run electron:start`
+npm run start
+electronmon .
+```
 
 
 -------
