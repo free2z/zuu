@@ -1,4 +1,5 @@
 // TODO: rename to DTO or sth? Not really a model..
+// https://stackabuse.com/a-sqlite-tutorial-with-node-js/
 
 class Account {
     constructor(db) {

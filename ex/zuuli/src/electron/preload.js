@@ -1,3 +1,5 @@
+// https://mmazzarolo.com/blog/2021-08-12-building-an-electron-application-using-create-react-app/
+// https://www.electronjs.org/docs/v14-x-y/api/context-bridge
 // All of the Node.js APIs are available in the preload process.
 // It has the same sandbox as a Chrome extension.
 const { contextBridge } = require("electron");
@@ -46,7 +48,10 @@ process.once("loaded", () => {
         "getAccountByName": (name) => { return account.getByName(name) },
         "getTransparentForAccId": (id) => { return account.getTransparent(id) },
 
-        "setActive": (id) => { warp.setActiveAccount(0, id) },
+        "setActive": (id) => {
+            console.log("setACTIVE", id)
+            warp.setActiveAccount(0, id)
+        },
         // "Account": account,
     });
 });
