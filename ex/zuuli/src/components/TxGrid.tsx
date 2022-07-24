@@ -1,15 +1,9 @@
-import * as React from 'react';
-import * as ReactDOMServer from 'react-dom/server';
+import React from 'react';
 
-import Box from '@mui/material/Box';
-import { DataGrid, GridColDef, GridValueGetterParams } from '@mui/x-data-grid';
+import { DataGrid, GridColDef } from '@mui/x-data-grid';
+import { Link } from "@mui/material"
 
-import { Typography, Link } from "@mui/material"
-
-import { useLiveQuery } from "dexie-react-hooks"
-import { Transaction } from '../db/models';
-import { getCurrentAccount, getCurrentID } from '../db/db';
-import { Navigate } from 'react-router-dom';
+import { getCurrentID, useGlobalState, Transaction } from '../db/db';
 
 
 const columns: GridColDef[] = [
@@ -55,33 +49,6 @@ const columns: GridColDef[] = [
 ];
 
 
-export function fakeTransactions(): Transaction[] {
-    const accgid = getCurrentID() || ""
-    const transactions: Transaction[] = [
-        new Transaction(accgid, 1750111, new Date(), "0.001", "aqoixfnoqweifn"),
-        new Transaction(accgid, 1739111, new Date(), "0.101", "7qoaifnoqweifn"),
-        new Transaction(accgid, 1737111, new Date(), "0.011", "uqoifnoquweifn"),
-        new Transaction(accgid, 1736111, new Date(), "0.301", "gqoigfnoqweifn"),
-        new Transaction(accgid, 1730511, new Date(), "1.001", "lqoifnojqweifn"),
-        new Transaction(accgid, 1730111, new Date(), "0.500", "opqoifnoqweifn"),
-        new Transaction(accgid, 1710111, new Date(), "0.001", "aqoixfnoqweifn"),
-        new Transaction(accgid, 1709111, new Date(), "0.101", "7qoaifnoqweifn"),
-        new Transaction(accgid, 1707111, new Date(), "0.011", "uqoifnoquweifn"),
-        new Transaction(accgid, 1706111, new Date(), "0.301", "gqoigfnoqweifn"),
-        new Transaction(accgid, 1700511, new Date(), "1.001", "lqoifnojqweifn"),
-        new Transaction(accgid, 1700111, new Date(), "0.500", "opqoifnoqweifn"),
-        // {
-        //     height: 1733133,
-        //     datetime: Date(),
-        //     amount: "0.001",
-        //     txid: 'aowifnqowiecnoiqwejf',
-        //     accountID: gid,
-        // } as Transaction,
-    ];
-    return transactions
-}
-
-
 // interface TxGridProps {
 //     transactions: Transaction[],
 // }
@@ -89,22 +56,9 @@ export function fakeTransactions(): Transaction[] {
 export default function TxGrid() {
 
 
-    const transactions = useLiveQuery(async () => {
-
-    })
-
-    // const { transactions } = getTrans
-    const account = useLiveQuery(async () => {
-        const acc = await getCurrentAccount()
-        if (!acc) {
-            return
-        }
-        acc.transactions = fakeTransactions()
-        return acc
-    })
+    const [account, _] = useGlobalState('currentAccount')
 
     if (!account || !account.transactions) {
-        // TODO: Sync status!!!
         return <>
             {/* <Typography>No Transactions yet</Typography> */}
         </>
@@ -118,7 +72,7 @@ export default function TxGrid() {
             rowsPerPageOptions={[10]}
             // checkboxSelection
             disableSelectionOnClick
-            getRowId={(tx) => tx.gid}
+            getRowId={(tx: Transaction) => tx.txid}
         />
     );
 }

@@ -126,6 +126,7 @@ export default function AccountMenu() {
                                 setAccount(acc)
                             }}
                             key={acc.id_account}
+                            selected={acc.id_account === account.id_account}
                         >
                             <Avatar /> {acc.name}
                         </MenuItem>

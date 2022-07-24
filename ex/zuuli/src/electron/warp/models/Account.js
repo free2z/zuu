@@ -1,3 +1,5 @@
+// TODO: rename to DTO or sth? Not really a model..
+
 class Account {
     constructor(db) {
         this.db = db

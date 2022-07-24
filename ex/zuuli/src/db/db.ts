@@ -15,6 +15,7 @@ export function setCurrentID(id: string) {
 }
 
 ///////////// reaxt-hooks-global-state
+// https://github.com/dai-shi/react-hooks-global-state
 
 // Todo persist to localstorage?
 const initialState = {
@@ -28,11 +29,51 @@ export const { useGlobalState } = createGlobalState(initialState)
 
 //////////////////// warp / sqlite
 
-interface Transaction { }
 
-interface Note { }
+// CREATE TABLE transactions (
+//     id_tx INTEGER PRIMARY KEY,
+//     account INTEGER NOT NULL,
+//     txid BLOB NOT NULL,
+//     height INTEGER NOT NULL,
+//     timestamp INTEGER NOT NULL,
+//     value INTEGER NOT NULL,
+//     address TEXT,
+//     memo TEXT,
+//     tx_index INTEGER,
+//     CONSTRAINT tx_account UNIQUE (height, tx_index, account));
+// CREATE INDEX i_transaction ON transactions(account);
+export interface Transaction {
+    txid: string
+}
 
-// Combines what we get from warp-sync with our own local state?
+// CREATE TABLE received_notes (
+//     id_note INTEGER PRIMARY KEY,
+//     account INTEGER NOT NULL,
+//     position INTEGER NOT NULL,
+//     tx INTEGER NOT NULL,
+//     height INTEGER NOT NULL,
+//     output_index INTEGER NOT NULL,
+//     diversifier BLOB NOT NULL,
+//     value INTEGER NOT NULL,
+//     rcm BLOB NOT NULL,
+//     nf BLOB NOT NULL UNIQUE,
+//     spent INTEGER,
+//     excluded BOOL,
+//     CONSTRAINT tx_output UNIQUE (tx, output_index));
+// CREATE INDEX i_received_notes ON received_notes(account);
+export interface Note { }
+
+// Combines what we get from warp-sync with our own local state
+
+// CREATE TABLE accounts (
+//     id_account INTEGER PRIMARY KEY,
+//     name TEXT NOT NULL,
+//     seed TEXT,
+//     aindex INTEGER NOT NULL,
+//     sk TEXT,
+//     ivk TEXT NOT NULL UNIQUE,
+//     address TEXT NOT NULL);
+// CREATE INDEX i_account ON accounts(address);
 export interface Account {
     id_account: number,
     name: string,
