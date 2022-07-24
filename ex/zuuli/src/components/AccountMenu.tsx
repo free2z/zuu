@@ -119,8 +119,11 @@ export default function AccountMenu() {
                     return (
                         <MenuItem
                             onClick={() => {
+                                // TODO:
+                                // if acc.id_account === account.id_account
+                                // navigate to detail/settings?
                                 if (!acc.id_account) { return }
-                                console.log("Click user, SETID", acc)
+                                // console.log("Click user, SETID", acc)
                                 setCurrentID(`${acc.id_account}`)
                                 z.setActive(acc.id_account)
                                 setAccount(acc)
