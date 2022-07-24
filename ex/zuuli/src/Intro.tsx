@@ -10,11 +10,8 @@ import AddCircleIcon from "@mui/icons-material/AddCircle"
 
 import { Engineering, HelpCenter } from "@mui/icons-material"
 
-import { Biotech } from "@mui/icons-material"
-import { Account } from "./db/models"
 import NewOrRestoreModal from "./components/NewOrRestoreModal"
-import { createAccount, saveAccountRelations } from "./db/util"
-import { db, setCurrentGID } from "./db/db"
+import { z, Account, CURRENT_ACCOUNT_ID, setCurrentID, useGlobalState } from "./db/db"
 import { useNavigate } from "react-router-dom"
 
 
@@ -47,10 +44,10 @@ const fakeWords = [
 
 export default function Intro() {
     const navigate = useNavigate()
+    const [newAccount, setNewAccount] = React.useState({} as Account)
+    const [currentAccount, setCurrentAccount] = useGlobalState("currentAccount")
 
-    const [account, setAccount] = React.useState({
-        username: ""
-    } as Account)
+    const [name, setName] = React.useState("")
     const [showSeed, setShowSeed] = React.useState(false)
     const [showNew, setShowNew] = React.useState(true)
     const [showRestore, setShowRestore] = React.useState(true)
@@ -58,9 +55,12 @@ export default function Intro() {
     const [isRestore, setIsRestore] = React.useState(false)
 
     async function saveAccount() {
-        console.log(account)
-        const gid = await createAccount(db, account)
-        setCurrentGID(gid)
+        // const gid = await createAccount(db, account)
+        // z.newAccount(name)
+        // const acc = await z.getAccountByName(name)
+        setCurrentID(`${newAccount.id_account}`)
+        setCurrentAccount(newAccount)
+        // What about restore?
         navigate("/receive")
     }
 
@@ -92,15 +92,12 @@ export default function Intro() {
                 <TextField
                     fullWidth
                     label="Account Name"
-                    value={account.username}
+                    value={name}
                     placeholder="Account Name"
-                    error={showSave && !account.username}
+                    error={showSave && !name}
                     onChange={(ev) => {
                         // account.username = ev.target.value
-                        setAccount({
-                            ...account,
-                            username: ev.target.value,
-                        } as Account)
+                        setName(ev.target.value)
                     }}
                 // style={{ textAlign: "center" }}
                 />
@@ -134,14 +131,22 @@ export default function Intro() {
                                 margin: "1em",
                                 width: "38%",
                             }}
+                            disabled={name === ""}
                             endIcon={<AddCircleIcon />}
-                            onClick={() => {
-                                account.seed = fakeWords.join(" ")
-                                account.height = 1730000
-                                setAccount(account)
+                            onClick={async () => {
+
+                                z.newAccount(name)
+                                const newacc = await z.getAccountByName(name)
+                                const height = z.getServerHeight()
+                                newacc.height = height
+                                setNewAccount(newacc)
+
                                 setShowSeed(true)
                                 setShowNew(false)
                                 setShowRestore(false)
+
+                                // account.seed = fakeWords.join(" ")
+                                // account.height = z.getServerHeight()
                                 setShowSave(true)
                             }}
                         >
@@ -157,6 +162,7 @@ export default function Intro() {
                                 margin: "1em",
                                 width: "38%",
                             }}
+                            disabled={!name}
                             endIcon={<Engineering />}
                             onClick={() => {
                                 setShowSeed(true)
@@ -176,13 +182,13 @@ export default function Intro() {
                                 fullWidth
                                 label="24 word seed phrase"
                                 placeholder="24 word seed phrase to restore (optional)"
-                                value={account.seed}
+                                value={newAccount.seed}
                                 multiline={true}
                                 rows={7}
                             />
                             <TextField
                                 label="Start Height"
-                                value={account.height}
+                                value={newAccount.height}
                                 style={{ margin: "1em" }}
                             />
                         </>
@@ -195,7 +201,7 @@ export default function Intro() {
                 xs={12}
             // style={{ minWidth: 400 }}
             >
-                {showSave && account.username &&
+                {showSave && newAccount.name &&
                     <Button
                         variant="outlined"
                         color="success"

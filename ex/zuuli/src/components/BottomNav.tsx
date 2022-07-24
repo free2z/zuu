@@ -11,7 +11,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 
 export default function BottomNav() {
     const location = useLocation()
-    console.log(location)
     const [value, setValue] = React.useState(location.pathname)
     const navigate = useNavigate()
 
@@ -28,7 +27,6 @@ export default function BottomNav() {
                     showLabels
                     value={value}
                     onChange={(event, newValue) => {
-                        // console.log(value)
                         setValue(newValue)
                         navigate(newValue)
                     }}

@@ -33,10 +33,20 @@ process.once("loaded", () => {
         // Can just init once here?
         // "initCoin": warp.initCoin,
         "newAccount": (name) => { warp.newAccount(0, name) },
-        "getAccounts": () => { return account.all() },
+        "getAllAccounts": () => {
+            accounts = account.allWithT()
+            return accounts
+        },
+        "getAccount": (id) => { return account.getAccount(id) },
+        "getServerHeight": () => { return warp.getLatestHeight() },
+        //
+        // "getAccounts": () => { return account.all() },
+        //
+        //
         "getAccountByName": (name) => { return account.getByName(name) },
         "getTransparentForAccId": (id) => { return account.getTransparent(id) },
-        "getAll": () => { return account.allWithT() },
+
+        "setActive": (id) => { warp.setActiveAccount(0, id) },
         // "Account": account,
     });
 });

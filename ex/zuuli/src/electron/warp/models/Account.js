@@ -15,6 +15,17 @@ class Account {
         return this.db.all("SELECT * from accounts")
     }
 
+    async getAccount(id) {
+        // Could do query but this is easy and there aren't many
+        return this.db.get(`
+        SELECT accounts.*,
+        taddrs.address as taddress
+        from accounts
+        INNER JOIN taddrs on taddrs.account = accounts.id_account
+        WHERE id_account=?
+        `, [id])
+    }
+
     async getByName(name) {
         return this.db.get("SELECT * from accounts WHERE name=?", [name])
     }
@@ -27,7 +38,7 @@ class Account {
         // taddrs.sk as tsk
         // SK is the same as tsk!
         return this.db.all(`
-        SELECT *,
+        SELECT accounts.*,
         taddrs.address as taddress
         from accounts
         INNER JOIN taddrs on taddrs.account = accounts.id_account;`)

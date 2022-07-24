@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Grid, Toolbar } from '@mui/material'
+import { CircularProgress, Grid, Toolbar } from '@mui/material'
 
 import Box from '@mui/material/Box';
 import Avatar from '@mui/material/Avatar';
@@ -14,15 +14,21 @@ import PersonAdd from '@mui/icons-material/PersonAdd';
 import Settings from '@mui/icons-material/Settings';
 import Logout from '@mui/icons-material/Logout';
 
-import { useLiveQuery } from "dexie-react-hooks"
-import { readAllAccounts } from "../db/util"
-import { db, getCurrentAccount, getCurrentGID, setCurrentGID } from "../db/db"
-import { Account, Accounts } from '../db/models';
+import {
+    Account,
+    getCurrentAccount, readAllAccounts,
+    z, setCurrentID,
+    useGlobalState,
+} from "../db/db"
+// import { Account, Accounts } from '../db/models';
 import { useNavigate } from 'react-router-dom';
-import { collapseTextChangeRangesAcrossMultipleVersions } from 'typescript';
 
 
 export default function AccountMenu() {
+
+    const [account, setAccount] = useGlobalState('currentAccount')
+    const [accounts, setAccounts] = useGlobalState('accounts')
+
     const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
     const open = Boolean(anchorEl);
     const handleClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -31,34 +37,26 @@ export default function AccountMenu() {
     const handleClose = () => {
         setAnchorEl(null);
     }
-
     const navigate = useNavigate()
 
+    // const [account, setAccount] = React.useState({} as Account)
+    // const [accounts, setAccounts] = React.useState([] as Account[])
+
     React.useEffect(() => {
-        console.log("USE EFFECT")
-        console.log(getCurrentGID())
-        if (!getCurrentGID()) {
-            navigate("/intro")
-        }
-    }, []);
+        (async () => {
+            const _accounts = await readAllAccounts()
+            const _account = await getCurrentAccount()
+            if (!_account || !_accounts || _accounts.length === 0 || !_account.name) {
+                navigate("/intro")
+            }
+            setAccounts(_accounts)
+            setAccount(_account)
+        })()
+    }, [])
 
-    const [account, setAccount] = React.useState({} as Account)
-
-    const accounts = useLiveQuery(async () => {
-        console.log("ACCOUNTS USELIVEQUERY")
-        const account = await getCurrentAccount(db)
-        if (!account) {
-            // throw new Error("NO ACCOUNT!!!");
-            navigate("/intro")
-            return
-        }
-        setAccount(account)
-        return await readAllAccounts(db)
-    })
-    console.log(accounts)
-
-    if (!account.username) {
-        return <></>
+    if (!account || !accounts || accounts.length === 0 || !account.name) {
+        // return <Typography>Loading...</Typography>
+        return <CircularProgress />
     }
 
     return (
@@ -76,7 +74,7 @@ export default function AccountMenu() {
                 >
                     <Avatar
                         sx={{ width: 32, height: 32 }}
-                    >{account.username.at(0)?.toUpperCase()}</Avatar>
+                    >{account.name.at(0)}</Avatar>
                 </IconButton>
             </Tooltip>
             <Menu
@@ -121,12 +119,15 @@ export default function AccountMenu() {
                     return (
                         <MenuItem
                             onClick={() => {
-                                if (!acc.gid) { return }
-                                setCurrentGID(acc.gid)
+                                if (!acc.id_account) { return }
+                                console.log("Click user, SETID", acc)
+                                setCurrentID(`${acc.id_account}`)
+                                z.setActive(acc.id_account)
+                                setAccount(acc)
                             }}
-                            key={acc.gid}
+                            key={acc.id_account}
                         >
-                            <Avatar /> {acc.username}
+                            <Avatar /> {acc.name}
                         </MenuItem>
                     )
 

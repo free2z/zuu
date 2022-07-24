@@ -40,26 +40,49 @@ export class Note extends AbstractEntity {
     }
 }
 
-export class Account extends AbstractEntity {
+export class Account {
     transactions: Transaction[] = []
     notes: Note[] = []
 
+
+    // CREATE TABLE accounts (
+    //     id_account INTEGER PRIMARY KEY,
+    //     name TEXT NOT NULL,
+    //     seed TEXT,
+    //     aindex INTEGER NOT NULL,
+    //     sk TEXT,
+    //     ivk TEXT NOT NULL UNIQUE,
+    //     address TEXT NOT NULL);
+    //     taddress TEXT NOT NULL);
     constructor(
-        public username: string,
-        public password: string,
+        // public username: string,
+        public id_account: number,
+        public name: string,
+
+
+        // Free2z?
+        // public password: string,
+        //
+        // Birth, restore
+        // public height: number,
+        // public datetime: Date,
+        //
         public seed: string,
-        public height: number,
-        public datetime: Date,
-        public ua: string,
-        public za: string,
-        public ta: string,
+        public sk: string,
+        // Sapling
+        public ivk: string,
+        public address: string,
+        // t-addr
+        public taddress: string,
+        // Orchard
+        // public ua: string,
+
         // balances
-        public total: string,
-        public spendable: string,
-        public transparent: string,
-        gid?: string
+        // public total: string,
+        // public spendable: string,
+        // public transparent: string,
     ) {
-        super(gid)
+
         // Define navigation properties.
         // Making them non-enumerable will prevent them from being handled by indexedDB
         // when doing put() or add().

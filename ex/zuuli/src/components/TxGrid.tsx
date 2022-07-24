@@ -8,7 +8,7 @@ import { Typography, Link } from "@mui/material"
 
 import { useLiveQuery } from "dexie-react-hooks"
 import { Transaction } from '../db/models';
-import { getCurrentAccount, db, getCurrentGID } from '../db/db';
+import { getCurrentAccount, getCurrentID } from '../db/db';
 import { Navigate } from 'react-router-dom';
 
 
@@ -56,7 +56,7 @@ const columns: GridColDef[] = [
 
 
 export function fakeTransactions(): Transaction[] {
-    const accgid = getCurrentGID() || ""
+    const accgid = getCurrentID() || ""
     const transactions: Transaction[] = [
         new Transaction(accgid, 1750111, new Date(), "0.001", "aqoixfnoqweifn"),
         new Transaction(accgid, 1739111, new Date(), "0.101", "7qoaifnoqweifn"),
@@ -95,11 +95,8 @@ export default function TxGrid() {
 
     // const { transactions } = getTrans
     const account = useLiveQuery(async () => {
-        const acc = await getCurrentAccount(db)
-        console.log("CURRENT", acc)
+        const acc = await getCurrentAccount()
         if (!acc) {
-            // avigate("")
-            console.log("DOOOOOO")
             return
         }
         acc.transactions = fakeTransactions()
@@ -107,13 +104,11 @@ export default function TxGrid() {
     })
 
     if (!account || !account.transactions) {
-        // console.log("NNO TRSANNCTIONS")
         // TODO: Sync status!!!
         return <>
             {/* <Typography>No Transactions yet</Typography> */}
         </>
     }
-    console.log("TRANNSACTIONS", account.transactions)
 
     return (
         <DataGrid
