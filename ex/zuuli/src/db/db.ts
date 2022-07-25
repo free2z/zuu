@@ -109,8 +109,9 @@ interface Z {
     getAllAccounts: () => Promise<Account[]>
     getAccount: (id: number) => Promise<Account>
     getAccountByName: (name: string) => Promise<Account>
-    getServerHeight: () => number
+    getSyncHeight: () => Promise<number>
     setActive: (id: number) => void
+    warp: (offset: number) => any
 }
 
 export const z = (window as any).z as Z

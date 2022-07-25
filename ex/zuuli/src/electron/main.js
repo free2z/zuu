@@ -3,6 +3,13 @@ const { app, BrowserWindow, protocol } = require("electron");
 const path = require("path");
 const url = require("url");
 
+
+const { fork } = require('child_process');
+const p = fork(path.join(__dirname, 'warp.js'), [], {
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+});
+
+
 // Create the native browser window.
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -12,6 +19,7 @@ function createWindow() {
         // communicate between the node-land and the browser-land.
         webPreferences: {
             preload: path.join(__dirname, "preload.js"),
+            nodeIntegrationInWorker: true,
         },
     });
 

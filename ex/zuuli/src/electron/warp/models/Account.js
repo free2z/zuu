@@ -37,6 +37,9 @@ class Account {
         return this.db.get("SELECT * from taddrs WHERE account=?", [id])
     }
 
+    // https://www.techonthenet.com/sqlite/alias.php
+    // https://github.com/TryGhost/node-sqlite3/issues/443
+    // https://learnsql.com/blog/how-to-use-aliases-with-sql-join/
     async allWithT() {
         // taddrs.sk as tsk
         // SK is the same as tsk!

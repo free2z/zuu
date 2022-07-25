@@ -137,7 +137,7 @@ export default function Intro() {
 
                                 z.newAccount(name)
                                 const newacc = await z.getAccountByName(name)
-                                const height = z.getServerHeight()
+                                const height = await z.getSyncHeight()
                                 newacc.height = height
                                 setNewAccount(newacc)
 

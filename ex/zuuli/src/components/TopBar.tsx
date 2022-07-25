@@ -11,8 +11,21 @@ import { useLiveQuery } from "dexie-react-hooks"
 import AccountSpeedDial from "./AccountSpeedDial"
 import AccountMenu from "./AccountMenu"
 
+import { z } from "../db/db"
+
 
 export default function TopBar() {
+
+    const [syncBlock, setSyncBlock] = React.useState(0)
+
+    async function update() {
+        setSyncBlock(await z.getSyncHeight())
+        setTimeout(update, 10000)
+    }
+
+    React.useEffect(() => {
+        update()
+    }, [])
 
     return (
         <AppBar
@@ -29,6 +42,7 @@ export default function TopBar() {
                 >
                     ZUULI
                 </Typography>
+                <Typography>{syncBlock}</Typography>
                 {/* <Typography variant="h3">ZUULI</Typography> */}
                 {/* <AccountSpeedDial /> */}
                 <AccountMenu />

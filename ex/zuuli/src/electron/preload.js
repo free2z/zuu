@@ -40,7 +40,16 @@ process.once("loaded", () => {
             return accounts
         },
         "getAccount": (id) => { return account.getAccount(id) },
-        "getServerHeight": () => { return warp.getLatestHeight() },
+        // Height we have syncd to ..
+        "getSyncHeight": () => {
+            return new Promise((resolve, reject) => {
+                try {
+                    resolve(warp.getLatestHeight());
+                } catch (e) {
+                    reject(e)
+                }
+            })
+        },
         //
         // "getAccounts": () => { return account.all() },
         //
@@ -52,6 +61,14 @@ process.once("loaded", () => {
             console.log("setACTIVE", id)
             warp.setActiveAccount(0, id)
         },
+
+        // from: number
+        "warp": (from) => {
+            // from is start height / birth height
+            // coin, offset
+            warp.warp(0)
+            // return warp.warp(0, from)
+        }
         // "Account": account,
     });
 });
