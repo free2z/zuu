@@ -7,15 +7,7 @@ import TopBar from "./components/TopBar"
 import BottomNav from "./components/BottomNav"
 
 
-
 export default function App() {
-
-  // const accounts = useLiveQuery(async () => {
-  //   // Query the DB using our promise based API.
-  //   // The end result will magically become
-  //   // observable.
-  //   return await readAllAccounts(db)
-  // })
 
   return (
     <Grid container
@@ -28,11 +20,14 @@ export default function App() {
         style={{
           width: "100%",
           padding: "0.5em",
+          wordWrap: "break-word",
           // maxHeight: "90vh",
           // minHeight: "70vh",
           // TODO: make more perfect
           // do some math?
-          height: "87vh",
+          paddingTop: "70px",
+          paddingBottom: "70px",
+          minHeight: "100vh",
         }}
       >
         <Outlet />

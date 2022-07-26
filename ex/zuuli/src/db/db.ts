@@ -19,6 +19,7 @@ export function setCurrentID(id: string) {
 
 // Todo persist to localstorage?
 const initialState = {
+    pathname: "/",
     // currentID: 1,
     currentAccount: {} as Account,
     accounts: [] as Account[],
@@ -110,6 +111,7 @@ interface Z {
     getAccount: (id: number) => Promise<Account>
     getAccountByName: (name: string) => Promise<Account>
     getSyncHeight: () => Promise<number>
+    getServerHeight: () => Promise<number>
     setActive: (id: number) => void
     warp: (offset: number) => any
 }

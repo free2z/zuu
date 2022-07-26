@@ -28,6 +28,7 @@ export default function AccountMenu() {
 
     const [account, setAccount] = useGlobalState('currentAccount')
     const [accounts, setAccounts] = useGlobalState('accounts')
+    const [path, setPath] = useGlobalState('pathname')
 
     const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
     const open = Boolean(anchorEl);
@@ -47,6 +48,7 @@ export default function AccountMenu() {
             const _accounts = await readAllAccounts()
             const _account = await getCurrentAccount()
             if (!_account || !_accounts || _accounts.length === 0 || !_account.name) {
+                setPath("/intro")
                 navigate("/intro")
             }
             setAccounts(_accounts)
@@ -119,9 +121,11 @@ export default function AccountMenu() {
                     return (
                         <MenuItem
                             onClick={() => {
-                                // TODO:
-                                // if acc.id_account === account.id_account
-                                // navigate to detail/settings?
+                                if (acc.id_account === account.id_account) {
+                                    // settings
+                                    setPath('/')
+                                    navigate('/')
+                                }
                                 if (!acc.id_account) { return }
                                 // console.log("Click user, SETID", acc)
                                 setCurrentID(`${acc.id_account}`)
@@ -139,6 +143,7 @@ export default function AccountMenu() {
                 <Divider />
                 <MenuItem
                     onClick={() => {
+                        setPath("/intro")
                         navigate("/intro")
                     }}
                 >
@@ -147,7 +152,12 @@ export default function AccountMenu() {
                     </ListItemIcon>
                     Add another account
                 </MenuItem>
-                <MenuItem>
+                <MenuItem
+                    onClick={() => {
+                        setPath('/')
+                        navigate('/')
+                    }}
+                >
                     <ListItemIcon>
                         <Settings fontSize="small" />
                     </ListItemIcon>

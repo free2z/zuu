@@ -7,16 +7,23 @@ import { Send, Expand, Input } from '@mui/icons-material';
 // import LocationOnIcon from '@mui/icons-material/LocationOn';
 
 import { useNavigate, useLocation } from "react-router-dom";
+import { useGlobalState } from "../db/db";
 
 
 export default function BottomNav() {
     const location = useLocation()
-    const [value, setValue] = React.useState(location.pathname)
+    const [path, setPath] = useGlobalState('pathname')
+
     const navigate = useNavigate()
 
     return (
         <Grid item xs={12}>
-            <AppBar position="absolute" color="primary" style={{ top: "auto", bottom: 0 }}>
+            <AppBar
+                // position="absolute"
+                position="fixed"
+                color="primary"
+                style={{ top: "auto", bottom: 0 }}
+            >
 
                 <BottomNavigation
                     // style={{
@@ -25,9 +32,10 @@ export default function BottomNav() {
                     //     bottom: 10,
                     // }}
                     showLabels
-                    value={value}
+                    value={path}
                     onChange={(event, newValue) => {
-                        setValue(newValue)
+                        // setValue(newValue)
+                        setPath(newValue)
                         navigate(newValue)
                     }}
                 >

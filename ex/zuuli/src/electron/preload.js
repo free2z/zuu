@@ -9,7 +9,9 @@ const Account = require("./warp/models/Account")
 
 console.log("PRELOAD")
 
-warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+warp.initCoin(0, "./zec.db", "https://zuul.free2z.cash:9067")
+console.log("warp", warp)
+// warp.skipToLatestHeight()
 
 const db = new DB("./zec.db")
 // console.log("new DB", db)
@@ -41,10 +43,22 @@ process.once("loaded", () => {
         },
         "getAccount": (id) => { return account.getAccount(id) },
         // Height we have syncd to ..
+        "getServerHeight": () => {
+            return new Promise((resolve, reject) => {
+                try {
+                    resolve(warp.getServerHeight());
+                } catch (e) {
+                    reject(e)
+                }
+            })
+        },
+        "skipToLatestHeight": () => {
+            return warp.skipToLastHeight()
+        },
         "getSyncHeight": () => {
             return new Promise((resolve, reject) => {
                 try {
-                    resolve(warp.getLatestHeight());
+                    resolve(warp.getSyncHeight());
                 } catch (e) {
                     reject(e)
                 }

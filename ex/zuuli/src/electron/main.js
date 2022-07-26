@@ -1,13 +1,37 @@
 // Module to control the application lifecycle and the native browser window.
 const { app, BrowserWindow, protocol } = require("electron");
+const { fork } = require('child_process');
 const path = require("path");
 const url = require("url");
 
+function forkWarp() {
+    // console.log("forkWarp")
+    const p = fork(path.join(__dirname, 'warp.js'), [], {
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+    });
+    // console.log("set on close")
+    p.on('error', (err) => {
+        // console.log('error', err)
+        // console.log(arguments)
+        // try again in 30 seconds
+        setTimeout(forkWarp, 30000)
+    })
+    p.on('close', (code, signal) => {
+        console.log("CLOSE AND RESTART", code, signal)
+        setTimeout(forkWarp, 30000)
+    });
+    // console.log("END")
+}
+// console.log("FORK")
+forkWarp()
 
-const { fork } = require('child_process');
-const p = fork(path.join(__dirname, 'warp.js'), [], {
-    stdio: ['pipe', 'pipe', 'pipe', 'ipc']
-});
+// const p = fork(path.join(__dirname, 'warp.js'), [], {
+//     stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+// });
+// p.on('close', () => {
+//     console.log("CLOSE AND RESTART")
+//     // forkWarp()
+// });
 
 
 // Create the native browser window.

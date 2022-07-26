@@ -12,6 +12,7 @@ import Send from './Send'
 import Transactions from './Transactions'
 import Receive from './Receive'
 import Intro from './Intro'
+import AccountDetail from './AccountDetail'
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -24,6 +25,7 @@ root.render(
 
         {/* Routes with Account Menu and BottomNav */}
         <Route path="/" element={<App />}>
+          <Route path="/" element={<AccountDetail />} />
           <Route path="/receive" element={<Receive />} />
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/send" element={<Send />} />

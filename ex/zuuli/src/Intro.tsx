@@ -46,6 +46,7 @@ export default function Intro() {
     const navigate = useNavigate()
     const [newAccount, setNewAccount] = React.useState({} as Account)
     const [currentAccount, setCurrentAccount] = useGlobalState("currentAccount")
+    const [path, setPath] = useGlobalState("pathname")
 
     const [name, setName] = React.useState("")
     const [showSeed, setShowSeed] = React.useState(false)
@@ -61,6 +62,7 @@ export default function Intro() {
         setCurrentID(`${newAccount.id_account}`)
         setCurrentAccount(newAccount)
         // What about restore?
+        setPath("/receive")
         navigate("/receive")
     }
 
@@ -137,7 +139,7 @@ export default function Intro() {
 
                                 z.newAccount(name)
                                 const newacc = await z.getAccountByName(name)
-                                const height = await z.getSyncHeight()
+                                const height = await z.getServerHeight()
                                 newacc.height = height
                                 setNewAccount(newacc)
 
