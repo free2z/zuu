@@ -1,0 +1,6 @@
+node_modules
+private/
+.vscode/
+*.log
+target/
+

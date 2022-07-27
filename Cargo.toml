@@ -1,0 +1,47 @@
+[workspace]
+members = [
+# ./adityapk00/zecwallet-lite/native/Cargo.toml
+# ./adityapk00/zecwallet-light-cli/Cargo.toml
+# ./adityapk00/zecwallet-light-cli/cli/Cargo.toml
+# ./adityapk00/zecwallet-light-cli/lib/Cargo.toml
+# ./zingolabs/zecwallet-lite/native/Cargo.toml
+# ./zingolabs/zingolib/Cargo.toml
+# ./zingolabs/zingolib/config/Cargo.toml
+# ./zingolabs/zingolib/cli/Cargo.toml
+# ./zingolabs/zingolib/lib/Cargo.toml
+# ./zingolabs/zingo-mobile/rust/Cargo.toml
+# ./zingolabs/zingo-mobile/rust/ios/Cargo.toml
+# ./zingolabs/zingo-mobile/rust/android/Cargo.toml
+# ./zingolabs/zingo-mobile/rust/lib/Cargo.toml
+# ./Cargo.toml
+# ./zecwalletco/zecwallet-mobile/rust/Cargo.toml
+# ./zecwalletco/zecwallet-mobile/rust/ios/Cargo.toml
+# ./zecwalletco/zecwallet-mobile/rust/android/Cargo.toml
+# ./zecwalletco/zecwallet-mobile/rust/lib/Cargo.toml
+# ./zcash/zcash/Cargo.toml
+# ./ex/wasm/hello-wasm/Cargo.toml
+# ./ex/zuu-neon/Cargo.toml
+# ./hhanh00/zwallet/Cargo.toml
+# ./hhanh00/zwallet/native/zcash-params/Cargo.toml
+# ./hhanh00/zwallet/native/zcash-sync/Cargo.toml
+"hhanh00/zcash-sync",
+# ./ZcashFoundation/zebra/zebra-rpc/Cargo.toml
+# ./ZcashFoundation/zebra/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-client/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-chain/Cargo.toml
+# ./ZcashFoundation/zebra/tower-fallback/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-utils/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-state/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-consensus/Cargo.toml
+# ./ZcashFoundation/zebra/tower-batch/Cargo.toml
+# https://github.com/rust-lang/cargo/issues/5042
+# ./ZcashFoundation/zebra/zebrad/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-script/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-node-services/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-test/Cargo.toml
+# ./ZcashFoundation/zebra/zebra-network/Cargo.toml
+]
+
+default-members = [
+    "hhanh00/zcash-sync",
+]

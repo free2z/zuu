@@ -1,0 +1,49 @@
+# adityapk00
+[submodule "adityapk00/zecwallet-lite"]
+	path = adityapk00/zecwallet-lite
+	url = https://github.com/adityapk00/zecwallet-lite
+	branch = master
+[submodule "adityapk00/zecwallet-light-cli"]
+	path = adityapk00/zecwallet-light-cli
+	url = https://github.com/adityapk00/zecwallet-light-cli
+	branch = master
+# hhanh00
+[submodule "hhanh00/zwallet"]
+	path = hhanh00/zwallet
+	url = https://github.com/hhanh00/zwallet
+	branch = main
+[submodule "hhanh00/zcash-sync"]
+	path = hhanh00/zcash-sync
+	url = https://github.com/hhanh00/zcash-sync
+	branch = master
+# zcash
+[submodule "zcash/zcash"]
+	path = zcash/zcash
+	url = https://github.com/zcash/zcash
+	branch = master
+[submodule "zcash/lightwalletd"]
+	path = zcash/lightwalletd
+	url = https://github.com/zcash/lightwalletd
+	branch = master
+# zecwalletco
+[submodule "zecwalletco/zecwallet-mobile"]
+	path = zecwalletco/zecwallet-mobile
+	url = https://github.com/zecwalletco/zecwallet-mobile
+	branch = master
+# zingolabs
+[submodule "zingolabs/zecwallet-lite"]
+	path = zingolabs/zecwallet-lite
+	url = https://github.com/zingolabs/zecwallet-lite
+	branch = dev
+[submodule "zingolabs/zingo-mobile"]
+	path = zingolabs/zingo-mobile
+	url = https://github.com/zingolabs/zingo-mobile
+	branch = dev
+[submodule "zingolabs/zingolib"]
+	path = zingolabs/zingolib
+	url = https://github.com/zingolabs/zingolib
+	branch = dev
+[submodule "ZcashFoundation/zebra"]
+	path = ZcashFoundation/zebra
+	url = https://github.com/ZcashFoundation/zebra
+	branch = main

@@ -1,0 +1,65 @@
+{
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "extensions": [
+        // zxh404.vscode-proto3
+        // "ms-vscode.makefile-tools",
+        // joaompinto.vscode-graphviz,
+        // "maelvalais.autoconf",
+        "ms-python.python",
+        "rust-lang.rust"
+    ],
+    "mounts": [
+        // use host docker
+        "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+        // use host gitconfig
+        "source=${localEnv:HOME}/.gitconfig,target=/home/dev/.gitconfig,type=bind,consistency=cached",
+        // use host .zsh_history
+        "source=${localEnv:HOME}/.zsh_history,target=/home/dev/.zsh_history,type=bind",
+        // Persist/cache across rebuilds
+        // keep the yarn cache
+        "source=yarn-cache,target=/home/dev/.cache,type=volume",
+        // cargo cache
+        "source=cargo-cache,target=/home/dev/.cargo,type=volume"
+        // zinglabs/zingo-mobile
+        // TODO - how to make generic regardless of checkout location?
+        // or, must a checkout location be prescribed :/
+        // or, document how to manually set docker desktop?
+        // "source=/Users/skyl/Code/github/free2z/zingolabs/zingo-mobile/rust,target=/workspaces/free2z/zingolabs/zingo-mobile/rust,type=bind"
+        // *** zingolabs/zecwallet-lite ***
+        // keep zingolabs/zecwallet-lite/node_modules
+        // "source=zl-zwl-nm,target=/workspaces/free2z/zingolabs/zecwallet-lite/node_modules,type=volume",
+        // keep zingolabs/zecwallet-lite/native/target
+        // "source=zl-zwl-nt,target=/workspaces/free2z/zingolabs/zecwallet-lite/native/target,type=volume",
+        // keep zinglabs/zecwalletlitelib/target
+        // "source=zl-zwll-target,target=/workspaces/free2z/zingolabs/zecwalletlitelib/target,type=volume"
+    ],
+    // https://vscode-eastus.azurewebsites.net/remote/advancedcontainers/improve-performance
+    "postCreateCommand": "sudo chown dev /var/run/docker.sock /home/dev/.cache /home/dev/.cargo",
+    "remoteUser": "dev",
+    "containerUser": "dev",
+    // x11 forwarding, requires Xquartz on Mac
+    "containerEnv": {
+        // "DISPLAY": "${localEnv:DISPLAY}"
+        "DISPLAY": "host.docker.internal:0"
+    },
+    // "remoteEnv": {
+    //     "DISPLAY": "${localEnv:DISPLAY}"
+    // },
+    "runArgs": [
+        // https://github.com/jessfraz/dockerfiles/issues/350#issuecomment-477342782
+        "--privileged"
+    ]
+    // // should pick up .zshrc but ... hrm ...
+    // "remoteEnv": {
+    // }
+    // "settings": {
+    //     "terminal.integrated.profiles.linux": {
+    //         "zsh": {
+    //             "path": "/usr/bin/zsh"
+    //         }
+    //     },
+    //     "terminal.integrated.defaultProfile.linux": "zsh"
+    // }
+}

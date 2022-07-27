@@ -1,0 +1,28 @@
+[package]
+name = "zuu-neon"
+version = "0.1.0"
+description = "Zcash Desktop UUallet"
+authors = ["Skylar Saveland"]
+license = "MIT"
+edition = "2018"
+exclude = ["index.node"]
+
+[lib]
+crate-type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# zecwalletlitelib = { git = "https://github.com/zingolabs/zecwalletlitelib", branch = "main" }
+# zingolib = { git = "https://github.com/zingolabs/zingolib", branch = "dev" }
+
+# Go with what is on people's devices for now
+# zecwalletlitelib = { git = "https://github.com/adityapk00/zecwallet-light-cli", rev = "4276057e9fcdc15f3dd5b4aacd12951d3fec3c48" }
+zecwalletlitelib = { path = "../../adityapk00/zecwallet-light-cli/lib" }
+
+lazy_static = "1.4.0"
+
+[dependencies.neon]
+version = "0.10"
+default-features = false
+features = ["napi-6"]
