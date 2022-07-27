@@ -119,6 +119,7 @@ interface Z {
     getAllAccounts: () => Promise<Account[]>
     getAccount: (id: number) => Promise<Account>
     getAccountByName: (name: string) => Promise<Account>
+    getTransactions: (id: number) => Promise<Transaction[]>
     getSyncHeight: () => Promise<number>
     getServerHeight: () => Promise<number>
     setActive: (id: number) => void

@@ -5,7 +5,7 @@
 const { contextBridge } = require("electron");
 const warp = require("./warp/index.node")
 const DB = require("./warp/DB")
-const Account = require("./warp/models/Account")
+const Account = require("./warp/models/Account");
 
 console.log("PRELOAD")
 
@@ -42,6 +42,9 @@ process.once("loaded", () => {
             return accounts
         },
         "getAccount": (id) => { return account.getAccount(id) },
+        "getTransactions": (id) => {
+            return account.getTransactions(id)
+        },
         // Height we have syncd to ..
         "getServerHeight": () => {
             // return new Promise((resolve, reject) => {

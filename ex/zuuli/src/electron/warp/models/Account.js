@@ -1,4 +1,9 @@
 // TODO: rename to DTO or sth? Not really a model..
+// Also has other queries like transactions table ...
+// so not really a DTO either at all ...
+// this is just a convenience wrapper to the warp
+// sqlite database
+// db.js ... Queries.js ... ? hrm ...
 // https://stackabuse.com/a-sqlite-tutorial-with-node-js/
 
 class Account {
@@ -48,6 +53,13 @@ class Account {
         taddrs.address as taddress
         from accounts
         INNER JOIN taddrs on taddrs.account = accounts.id_account;`)
+    }
+
+    // Given an account id, get all transactions for the account
+    async getTransactions(id) {
+        return this.db.all(`
+        SELECT * from transactions WHERE account=?
+        `, [id])
     }
 }
 
