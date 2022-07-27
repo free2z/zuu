@@ -18,10 +18,14 @@ const columns: GridColDef[] = [
         },
     },
     {
-        field: 'amount',
-        headerName: 'Amt',
+        field: 'value',
+        headerName: 'Z',
         width: 100,
-        editable: true,
+        editable: false,
+        valueFormatter: (v) => {
+            return `${v.value / 100000000}`
+            // return v.value
+        }
     },
     // {
     //     field: 'height',
@@ -31,20 +35,22 @@ const columns: GridColDef[] = [
     //     editable: true,
     // },
     {
-        field: 'datetime',
+        field: 'timestamp',
         headerName: 'Date',
         width: 150,
         editable: false,
         valueFormatter: (v) => {
             // return v.value.toLocaleDateString('en-US')
-            return v.value.toLocaleDateString('zh-Hans-CN')
+            // return v.value.toLocaleDateString('zh-Hans-CN')
+            const d = new Date(v.value * 1000)
+            return `${d.toLocaleDateString('zh-Hans-CN')} ${d.toLocaleTimeString('en-US')}`
         }
 
-        // description: 'This column has a value getter and is not sortable.',
-        // sortable: false,
-        // width: 160,
-        // valueGetter: (params: GridValueGetterParams) =>
-        //     `${params.row.firstName || ''} ${params.row.lastName || ''}`,
+        //     // description: 'This column has a value getter and is not sortable.',
+        //     // sortable: false,
+        //     // width: 160,
+        //     // valueGetter: (params: GridValueGetterParams) =>
+        //     //     `${params.row.firstName || ''} ${params.row.lastName || ''}`,
     },
 ];
 
@@ -64,6 +70,7 @@ export default function TxGrid() {
         </>
     }
 
+    // console.log("GRID", account)
     return (
         <DataGrid
             rows={account.transactions}
@@ -72,7 +79,7 @@ export default function TxGrid() {
             rowsPerPageOptions={[10]}
             // checkboxSelection
             disableSelectionOnClick
-            getRowId={(tx: Transaction) => tx.txid}
+            getRowId={(tx: Transaction) => tx.id_tx}
         />
     );
 }

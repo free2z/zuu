@@ -43,15 +43,27 @@ export default function AccountMenu() {
     // const [account, setAccount] = React.useState({} as Account)
     // const [accounts, setAccounts] = React.useState([] as Account[])
 
+    // TODO: put this ahead of first render
+    // and make a loading animation in pure SVG/CSS until the DB state
+    // is loaded
+    //
     React.useEffect(() => {
         (async () => {
             const _accounts = await readAllAccounts()
+            // TODO: use join?
             const _account = await getCurrentAccount()
+            console.log("GETTING TXS", _account)
+
+            const _txs = await z.getTransactions(_account.id_account)
+            console.log("GOT:", _txs)
+            _account.transactions = _txs
+
             if (!_account || !_accounts || _accounts.length === 0 || !_account.name) {
                 console.log("SKIPPING TO LAST HEIGHT")
                 z.skipToLastHeight()
                 setPath("/intro")
                 navigate("/intro")
+                return
             }
             setAccounts(_accounts)
             setAccount(_account)
