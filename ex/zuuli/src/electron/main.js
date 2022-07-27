@@ -3,6 +3,14 @@ const { app, BrowserWindow, protocol } = require("electron");
 const { fork } = require('child_process');
 const path = require("path");
 const url = require("url");
+const warp = require("./warp/index.node")
+
+// Maybe have to do this in every process to call other methods such
+// as getServerHeight ....
+warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+
+
+
 
 function forkWarp() {
     // console.log("forkWarp")
@@ -11,14 +19,26 @@ function forkWarp() {
     });
     // console.log("set on close")
     p.on('error', (err) => {
-        // console.log('error', err)
+        console.log('ERROR', err)
         // console.log(arguments)
         // try again in 30 seconds
         setTimeout(forkWarp, 30000)
     })
     p.on('close', (code, signal) => {
         console.log("CLOSE AND RESTART", code, signal)
+        const syncH = warp.getSyncHeight()
+        console.log("SYNC", warp.getSyncHeight())
+        console.log("Server", warp.getServerHeight())
+        if (code === null) {
+            console.log("NULL CODE")
+            warp.rewindToHeight(syncH - 100)
+            console.log("rewound!")
+        } else (
+            console.log("Exit with code", code)
+        )
+        // does this do sth weird tho ...
         setTimeout(forkWarp, 30000)
+        // forkWarp()
     });
     // console.log("END")
 }
@@ -37,8 +57,8 @@ forkWarp()
 // Create the native browser window.
 function createWindow() {
     const mainWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
+        width: 700,
+        height: 800,
         // Set the path of an additional "preload" script that can be used to
         // communicate between the node-land and the browser-land.
         webPreferences: {

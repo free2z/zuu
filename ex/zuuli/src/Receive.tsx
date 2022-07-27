@@ -2,6 +2,7 @@ import { CircularProgress, Typography } from "@mui/material";
 import React from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import AddressTabs from "./components/AddressTabs";
 
 import { useGlobalState } from "./db/db";
 
@@ -17,13 +18,6 @@ export default function Receive() {
     }
 
     return (
-        <>
-            <Typography>
-                {account.address}
-            </Typography>
-            <Typography>
-                {account.taddress}
-            </Typography>
-        </>
+        <AddressTabs account={account} />
     )
 }

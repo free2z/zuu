@@ -48,6 +48,8 @@ export default function AccountMenu() {
             const _accounts = await readAllAccounts()
             const _account = await getCurrentAccount()
             if (!_account || !_accounts || _accounts.length === 0 || !_account.name) {
+                console.log("SKIPPING TO LAST HEIGHT")
+                z.skipToLastHeight()
                 setPath("/intro")
                 navigate("/intro")
             }
@@ -58,7 +60,7 @@ export default function AccountMenu() {
 
     if (!account || !accounts || accounts.length === 0 || !account.name) {
         // return <Typography>Loading...</Typography>
-        return <CircularProgress />
+        return <></>
     }
 
     return (

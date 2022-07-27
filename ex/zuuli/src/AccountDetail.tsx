@@ -1,4 +1,4 @@
-import { CircularProgress, Divider, Paper, Typography } from "@mui/material";
+import { CircularProgress, Divider, Modal, Paper, Typography } from "@mui/material";
 import React from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,14 +11,31 @@ import { useGlobalState } from "./db/db";
 
 export default function AccountDetail() {
     const [account, setAccount] = useGlobalState('currentAccount')
+    const [loading, setLoading] = React.useState(true)
 
-    if (!account.id_account) {
+    if (!account || !account.id_account) {
         // assume we might get somewhere eventually?
         // shouldn't probably ever happen for more than a split second
-        return <CircularProgress />
+        return (
+            <Modal
+                open={loading}
+                style={{
+                    width: "100%",
+                    height: "100vh",
+                    background: "black",
+                }}
+            >
+                <CircularProgress
+                    color="secondary"
+                    style={{
+                        width: "100%",
+                        height: "100vh",
+                        // margin: "0 auto",
+                    }}
+                />
+            </Modal>
+        )
     }
-
-    // console.log(account)
 
     return (
         <Paper
@@ -35,64 +52,65 @@ export default function AccountDetail() {
             </Typography>
 
             <Divider
-                variant="middle"
-                style={{ margin: "0.5em 3em" }}
-            />
-            <QRDialog
-                title={"Shielded Zaddress (Sapling)"}
-                content={account.address}
-                button={"Shielded zAddress"}
-                color="success"
-            />
+                variant="inset"
+                style={{ margin: "2em 10%" }}
+            >
+                <QRDialog
+                    title={"Shielded Zaddress (Sapling)"}
+                    content={account.address}
+                    button={"Shielded zAddress"}
+                    color="success"
+                />
+            </Divider>
 
             <Divider
-                variant="middle"
-                style={{ margin: "0.5em 3em" }}
-            />
-            <QRDialog
-                title={"Transparent Address"}
-                content={account.taddress}
-                button={"Transparent Address"}
-                color="primary"
-            />
+                variant="inset"
+                style={{ margin: "2em 10%" }}
+            >
+                <QRDialog
+                    title={"Transparent Address"}
+                    content={account.taddress}
+                    button={"Transparent Address"}
+                    color="primary"
+                />
+            </Divider>
 
             <Divider
-                variant="middle"
-                style={{ margin: "0.5em 3em" }}
-            />
+                variant="inset"
+                style={{ margin: "2em 10%" }}
+            >
 
 
-            <QRDialog
-                title={"Incoming Viewing Key"}
-                content={account.ivk}
-                button={"Viewing Key"}
-                color="secondary"
-            />
+                <QRDialog
+                    title={"Incoming Viewing Key"}
+                    content={account.ivk}
+                    button={"Viewing Key"}
+                    color="secondary"
+                />
+            </Divider>
 
             <Divider
-                variant="middle"
-                style={{ margin: "0.5em 3em" }}
-            />
-            <QRDialog
-                title={"SECRET Key"}
-                content={account.sk}
-                button={"Secret Key"}
-                color="warning"
-            />
+                variant="inset"
+                style={{ margin: "2em 10%" }}
+            >
+                <QRDialog
+                    title={"SECRET Key"}
+                    content={account.sk}
+                    button={"Secret Key"}
+                    color="warning"
+                />
+            </Divider>
             <Divider
-                variant="middle"
-                style={{ margin: "0.5em 3em" }}
-            />
-            <QRDialog
-                title={"Seed Phrase"}
-                content={account.seed}
-                button={"Seed Phrase"}
-                color="error"
-            />
-            <Divider
-                variant="middle"
-                style={{ margin: "0.5em 3em" }}
-            />
+                variant="inset"
+                style={{ margin: "2em 10%" }}
+            >
+                <QRDialog
+                    title={"Seed Phrase"}
+                    content={account.seed}
+                    button={"Seed Phrase"}
+                    color="error"
+                />
+            </Divider>
         </Paper >
     )
 }

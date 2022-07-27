@@ -19,7 +19,7 @@ export function setCurrentID(id: string) {
 
 // Todo persist to localstorage?
 const initialState = {
-    pathname: "/",
+    pathname: window.location.pathname,
     // currentID: 1,
     currentAccount: {} as Account,
     accounts: [] as Account[],
@@ -44,7 +44,16 @@ export const { useGlobalState } = createGlobalState(initialState)
 //     CONSTRAINT tx_account UNIQUE (height, tx_index, account));
 // CREATE INDEX i_transaction ON transactions(account);
 export interface Transaction {
+    account: number
     txid: string
+    height: number
+    timestamp: number
+    value: number
+    address: string
+    memo: string
+    //
+    id_tx: number // pk
+    tx_index: number
 }
 
 // CREATE TABLE received_notes (
@@ -113,6 +122,7 @@ interface Z {
     getSyncHeight: () => Promise<number>
     getServerHeight: () => Promise<number>
     setActive: (id: number) => void
+    skipToLastHeight: () => void
     warp: (offset: number) => any
 }
 

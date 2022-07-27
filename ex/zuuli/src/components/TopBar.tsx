@@ -11,12 +11,11 @@ import { useLiveQuery } from "dexie-react-hooks"
 import AccountSpeedDial from "./AccountSpeedDial"
 import AccountMenu from "./AccountMenu"
 
-import { z } from "../db/db"
+import { useGlobalState, z } from "../db/db"
 
 const TROUBLES = 1730000
 
 export default function TopBar() {
-
     const [syncHeight, setSyncHeight] = React.useState(0)
     const [serverHeight, setServerHeight] = React.useState(0)
     const [progress, setProgress] = React.useState(0)

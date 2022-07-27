@@ -44,25 +44,28 @@ process.once("loaded", () => {
         "getAccount": (id) => { return account.getAccount(id) },
         // Height we have syncd to ..
         "getServerHeight": () => {
-            return new Promise((resolve, reject) => {
-                try {
-                    resolve(warp.getServerHeight());
-                } catch (e) {
-                    reject(e)
-                }
-            })
+            // return new Promise((resolve, reject) => {
+            //     try {
+            //         resolve(warp.getServerHeight());
+            //     } catch (e) {
+            //         reject(e)
+            //     }
+            // })
+            return warp.getServerHeight()
         },
-        "skipToLatestHeight": () => {
+        // moves the sync forward to the end
+        "skipToLastHeight": () => {
             return warp.skipToLastHeight()
         },
         "getSyncHeight": () => {
-            return new Promise((resolve, reject) => {
-                try {
-                    resolve(warp.getSyncHeight());
-                } catch (e) {
-                    reject(e)
-                }
-            })
+            return warp.getSyncHeight()
+            // return new Promise((resolve, reject) => {
+            //     try {
+            //         resolve(warp.getSyncHeight());
+            //     } catch (e) {
+            //         reject(e)
+            //     }
+            // })
         },
         //
         // "getAccounts": () => { return account.all() },
