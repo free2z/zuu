@@ -14,14 +14,18 @@ import PersonAdd from '@mui/icons-material/PersonAdd';
 import Settings from '@mui/icons-material/Settings';
 import Logout from '@mui/icons-material/Logout';
 
+// import { ipcRenderer } from 'electron';
+
 import {
     Account,
     getCurrentAccount, readAllAccounts,
     z, setCurrentID,
     useGlobalState,
+    ipc,
 } from "../db/db"
 // import { Account, Accounts } from '../db/models';
 import { useNavigate } from 'react-router-dom';
+import { WorkHistory } from '@mui/icons-material';
 
 
 export default function AccountMenu() {
@@ -176,6 +180,19 @@ export default function AccountMenu() {
                         <Settings fontSize="small" />
                     </ListItemIcon>
                     Settings
+                </MenuItem>
+
+                <MenuItem
+                    // TODO: open modal for height to rewind to!
+                    onClick={() => {
+                        ipc.rewind(1758800)
+                        // ipcRenderer.send('cancel-sync', 1600000)
+                    }}
+                >
+                    <ListItemIcon>
+                        <WorkHistory fontSize='small' />
+                    </ListItemIcon>
+                    Rescan
                 </MenuItem>
                 {/* </> */}
             </Menu>

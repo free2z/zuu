@@ -10,6 +10,7 @@ warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
 // try {
 warp.warp(0)
 // too much of a problem that the exception can't be caught
+// maybe it's OK and we can just run again on error?
 
 // thread '<unnamed>' panicked at 'called `Result::unwrap()` on an `Err` value: status: Unknown, message: "error reading a body from connection: stream error received: unspecific protocol error detected", details: [], metadata: MetadataMap { headers: {} }
 // Caused by:

@@ -5,16 +5,21 @@ const path = require("path");
 const url = require("url");
 const warp = require("./warp/index.node")
 
+const { ipcMain } = require('electron')
+
+
 // Maybe have to do this in every process to call other methods such
 // as getServerHeight ....
+// at least all these initCoin calls (2 too many?) seem to resolve
+// relative to the process that is running (eg electronmon .)
+// Maybe have to revisit when packaging?
 warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
 
-
-
+let p
 
 function forkWarp() {
     // console.log("forkWarp")
-    const p = fork(path.join(__dirname, 'warp.js'), [], {
+    p = fork(path.join(__dirname, 'warp.js'), [], {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc']
     });
     // console.log("set on close")
@@ -29,13 +34,17 @@ function forkWarp() {
         const syncH = warp.getSyncHeight()
         console.log("SYNC", warp.getSyncHeight())
         console.log("Server", warp.getServerHeight())
-        // if (code === null) {
-        //     console.log("NULL CODE")
-        //     warp.rewindToHeight(syncH - 100)
-        //     console.log("rewound!")
-        // } else (
+        // TODO: differentiate between errors?
+        // TODO: how much is the right amount to rewind?
+        // only need to rewind for chain reorg?
+        if (code !== 0) {
+            console.log("NULL CODE")
+            warp.rewindToHeight(syncH - 100)
+            console.log("rewound!")
+        }
+        // else {
         //     console.log("Exit with code", code)
-        // )
+        // }
         // does this do sth weird tho ...
         setTimeout(forkWarp, 30000)
         // forkWarp()
@@ -45,13 +54,17 @@ function forkWarp() {
 // console.log("FORK")
 forkWarp()
 
-// const p = fork(path.join(__dirname, 'warp.js'), [], {
-//     stdio: ['pipe', 'pipe', 'pipe', 'ipc']
-// });
-// p.on('close', () => {
-//     console.log("CLOSE AND RESTART")
-//     // forkWarp()
-// });
+
+
+
+//  // Event handler for synchronous incoming messages
+//  ipcMain.on('synchronous-message', (event, arg) => {
+//     console.log(arg)
+
+//     // Synchronous event emmision
+//     event.returnValue = 'sync pong'
+//  })
+
 
 
 // Create the native browser window.
@@ -83,6 +96,22 @@ function createWindow() {
     if (!app.isPackaged) {
         mainWindow.webContents.openDevTools();
     }
+
+    // IPC -------------------------------------------
+    // Event handler for asynchronous incoming messages
+    ipcMain.on('rewind', (event, arg) => {
+        // console.log(arg)
+        // console.log("KILLING", p.kill)
+        p.kill()
+        // console.log("Killed", p.killed)
+        // let's see about this arg ...
+        warp.rewindToHeight(arg)
+        // Event emitter for sending asynchronous messages
+        event.sender.send('ipcsnackbar', {
+            message: "kilt",
+            severity: "success",
+        })
+    })
 }
 
 // Setup a local proxy to adjust the paths of requested files when loading
