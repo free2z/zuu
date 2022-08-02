@@ -29,13 +29,13 @@ function forkWarp() {
         const syncH = warp.getSyncHeight()
         console.log("SYNC", warp.getSyncHeight())
         console.log("Server", warp.getServerHeight())
-        if (code === null) {
-            console.log("NULL CODE")
-            warp.rewindToHeight(syncH - 100)
-            console.log("rewound!")
-        } else (
-            console.log("Exit with code", code)
-        )
+        // if (code === null) {
+        //     console.log("NULL CODE")
+        //     warp.rewindToHeight(syncH - 100)
+        //     console.log("rewound!")
+        // } else (
+        //     console.log("Exit with code", code)
+        // )
         // does this do sth weird tho ...
         setTimeout(forkWarp, 30000)
         // forkWarp()

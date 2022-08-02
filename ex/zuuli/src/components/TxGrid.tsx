@@ -14,7 +14,10 @@ const columns: GridColDef[] = [
         width: 120,
         editable: false,
         renderCell: (params) => {
-            return <Link href={`/${params.row.txid}`}>{params.row.txid}</Link>
+            // const s = params.row.txid
+            const s = params.row.txid.toString()
+            // const s = new TextDecoder().decode(params.row.txid);
+            return <Link href={`/${s}`}>{s}</Link>
         },
     },
     {
@@ -27,13 +30,20 @@ const columns: GridColDef[] = [
             // return v.value
         }
     },
-    // {
-    //     field: 'height',
-    //     headerName: 'Height',
-    //     type: 'number',
-    //     // width: 30,
-    //     editable: true,
-    // },
+    {
+        field: 'memo',
+        headerName: 'Memo',
+        type: 'string',
+        // width: 30,
+        editable: false,
+    },
+    {
+        field: 'height',
+        headerName: 'Height',
+        type: 'number',
+        // width: 30,
+        editable: false,
+    },
     {
         field: 'timestamp',
         headerName: 'Date',
