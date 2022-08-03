@@ -1,7 +1,5 @@
-import { CircularProgress, Typography } from "@mui/material";
 import React from "react";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { CircularProgress } from "@mui/material";
 import AddressTabs from "./components/AddressTabs";
 
 import { useGlobalState } from "./db/db";
