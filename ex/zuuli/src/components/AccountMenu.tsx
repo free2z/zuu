@@ -94,7 +94,7 @@ export default function AccountMenu() {
                 >
                     <Avatar
                         sx={{ width: 32, height: 32 }}
-                    >{account.name.at(0)}</Avatar>
+                    >{account.name.at(0)?.toUpperCase()}</Avatar>
                 </IconButton>
             </Tooltip>
             <Menu

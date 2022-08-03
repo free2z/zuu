@@ -39,7 +39,7 @@ function forkWarp() {
         // only need to rewind for chain reorg?
         if (code !== 0) {
             console.log("NULL CODE")
-            warp.rewindToHeight(syncH - 100)
+            warp.rewindToHeight(syncH - 10)
             console.log("rewound!")
         }
         // else {
