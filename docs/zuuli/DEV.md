@@ -45,7 +45,8 @@ npm run start
 > to run these multiple commands and close browser windows.
 > Soon™
 
-Run the electron app:
+In another terminal, also in the `zuu/ex/zuuli` directory,
+run the electron app:
 
 ```
 electronmon .
