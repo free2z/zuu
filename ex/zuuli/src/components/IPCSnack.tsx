@@ -20,45 +20,21 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(function Alert(
 
 export default function SimpleSnackbar() {
     const [open, setOpen] = React.useState(false)
-    const [message, setMessage] = React.useState("")
+    const [message, setMessage] = React.useState("hello")
     const [severity, setSeverity] = React.useState('success' as 'success' | 'info' | 'warning' | 'error')
 
     // TODO: TYPE
-    // TODO: register only once
+    // TODO: register only once?
+    // console.log("REGISTER SNACKBAR")
     ipc.onIPCSnackbar((event: any, arg: any) => {
         console.log("IPCSNACK", event, arg)
     })
-
-    // ipcRenderer.on('cancel-sync-reply', (event, arg) => {
-    //     console.log(arg)
-    //     setSeverity("info")
-    //     setMessage("canceled")
-    //     setOpen(true)
-    // })
-
 
     const handleClose = (event: React.SyntheticEvent | Event, reason?: string) => {
         setOpen(false);
     };
 
-    // const action = (
-    //     <React.Fragment>
-    //         <Button color="secondary" size="small" onClick={handleClose}>
-    //             UNDO
-    //         </Button>
-    //         <IconButton
-    //             size="small"
-    //             aria-label="close"
-    //             color="inherit"
-    //             onClick={handleClose}
-    //         >
-    //             <CloseIcon fontSize="small" />
-    //         </IconButton>
-    //     </React.Fragment>
-    // );
-
     return (
-
         <Snackbar
             open={open}
             // autoHideDuration={6000}
@@ -72,13 +48,5 @@ export default function SimpleSnackbar() {
                 {message}
             </Alert>
         </Snackbar>
-        // <Snackbar
-        //     open={open}
-        //     // autoHideDuration={6000}
-        //     onClose={handleClose}
-        //     message={message}
-        // // action={action}
-        // />
     );
 }
-

@@ -1,5 +1,5 @@
 import React from "react";
-import { Badge, Chip, Container, Divider, Tooltip } from "@mui/material";
+import { Chip, Divider, Tooltip } from "@mui/material";
 import LoopIcon from "@mui/icons-material/Loop";
 
 export interface WarpIconInterface {
@@ -26,7 +26,7 @@ export default function WarpIcon(props: WarpIconInterface) {
                         fontSize="medium"
                         // color="warning"
                         style={{
-                            animation: "spin 4s linear infinite"
+                            animation: "spin 10s linear infinite"
                         }}
                     />}
                     color="warning"
