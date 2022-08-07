@@ -18,11 +18,11 @@ export default function TopBar() {
 
     async function updateServer() {
         setServerHeight(await z.getServerHeight())
-        setTimeout(updateServer, 15000)
+        setTimeout(updateServer, 30000)
     }
     async function updateSync() {
         setSyncHeight(await z.getSyncHeight())
-        setTimeout(updateSync, 15000)
+        setTimeout(updateSync, 30000)
     }
 
     React.useEffect(() => {
@@ -31,6 +31,7 @@ export default function TopBar() {
     }, [])
 
     React.useEffect(() => {
+        console.log(`${syncHeight} / ${serverHeight}`)
         // const progress = (
         //     (syncHeight - TROUBLES)
         //     /

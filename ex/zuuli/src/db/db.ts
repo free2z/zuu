@@ -113,6 +113,17 @@ export interface Account {
     notes: Note[],
 }
 
+// TODO: how to make a method?
+export function getBalance(acc: Account): number {
+    if (!acc.transactions) {
+        return 0
+    }
+    const result = acc.transactions.reduce((accumulator, tx) => {
+        return accumulator + tx.value;
+    }, 0);
+    return result
+}
+
 // Comes from preload.js
 interface Z {
     newAccount: (name: string) => void
@@ -123,6 +134,7 @@ interface Z {
     getSyncHeight: () => Promise<number>
     getServerHeight: () => Promise<number>
     setActive: (id: number) => void
+    send: (json: string) => string
     skipToLastHeight: () => void
     warp: (offset: number) => any
 }

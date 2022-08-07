@@ -44,13 +44,7 @@ process.once("loaded", () => {
         },
     })
     contextBridge.exposeInMainWorld("z", {
-        // Can just init once here?
-        // "initCoin": warp.initCoin,
-        // TODO: all of these destructive things should be done
-        // via IPC knowing that the current sync is cancelled?
-        // Hanh said with authority that only one process should be
-        // doing sync/destructive stuff ...
-        "newAccount": (name) => { warp.newAccount(0, name) },
+        // DB Queries
         "getAllAccounts": () => {
             accounts = account.allWithT()
             return accounts
@@ -59,15 +53,11 @@ process.once("loaded", () => {
         "getTransactions": (id) => {
             return account.getTransactions(id)
         },
+        "getAccountByName": (name) => { return account.getByName(name) },
+        "getTransparentForAccId": (id) => { return account.getTransparent(id) },
+        //
         // Height we have syncd to ..
         "getServerHeight": () => {
-            // return new Promise((resolve, reject) => {
-            //     try {
-            //         resolve(warp.getServerHeight());
-            //     } catch (e) {
-            //         reject(e)
-            //     }
-            // })
             return warp.getServerHeight()
         },
         // moves the sync forward to the end
@@ -76,25 +66,27 @@ process.once("loaded", () => {
         },
         "getSyncHeight": () => {
             return warp.getSyncHeight()
-            // return new Promise((resolve, reject) => {
-            //     try {
-            //         resolve(warp.getSyncHeight());
-            //     } catch (e) {
-            //         reject(e)
-            //     }
-            // })
         },
-        //
-        // "getAccounts": () => { return account.all() },
-        //
-        //
-        "getAccountByName": (name) => { return account.getByName(name) },
-        "getTransparentForAccId": (id) => { return account.getTransparent(id) },
 
+        // Does this need to be strictly with IPC?
+        // Do we need to stop the sync?
         "setActive": (id) => {
             console.log("setACTIVE", id)
             warp.setActiveAccount(0, id)
         },
+        // Can just init once here?
+        // "initCoin": warp.initCoin,
+        // TODO: all of these destructive things should be done
+        // via IPC knowing that the current sync is cancelled?
+        // Hanh said with authority that only one process should be
+        // doing sync/destructive stuff ...
+        "newAccount": (name) => { warp.newAccount(0, name) },
+
+        "send": (json) => {
+            // TODO: get feedback!! Doh!
+            // just block the whole UI? Could work..
+            return warp.sendMultiPayment(json)
+        }
 
         // Should never warp from the main world
         // TODO: how to rescan/rewind if only the forkWarp should be
