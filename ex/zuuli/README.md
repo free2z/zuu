@@ -28,6 +28,31 @@ npm run start
 electronmon .
 ```
 
+## Node CLI
+
+It can be helpful to use the node CLI to examine the behavior of
+zcash-sync and interrogate the database.
+
+From the root of the repository, run `node`.
+Within node, you can import the zcash-sync FFI and
+run some database queries against the SQLite db, `zec.db`.
+
+```nodejs
+## zcash-sync
+const warp = require("./src/electron/warp/index.node")
+warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+warp.setActiveAccount(0, 1)
+
+## DB libraries - should be READ-ONLY
+const DB = require("./src/electron/warp/DB.js")
+const db = new DB("./zec.db")
+# TODO: rename this module to `Qs` or something like that.
+# I'm sick of this unsemanntic naming ;9
+const Account = require("./src/electron/warp/models/Account.js")
+const q = new Account(db)
+```
+
+
 
 -------
 
