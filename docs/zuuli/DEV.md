@@ -13,8 +13,15 @@ You must install rust and nodejs with npm for your operating system.
 ### Enter The ZUU
 
 ```
-git clone https://github.com/free2z/zuu
+git clone --recurse-submodules -j8 https://github.com/free2z/zuu
 cd zuu
+```
+
+If you've already checked out the repo,
+you can pull the submodules from the root directory via:
+
+```
+git submodule update --init --recursive
 ```
 
 Checkout the `dev` branch to live on the wild side
