@@ -38,7 +38,12 @@ Within node, you can import the zcash-sync FFI and
 run some database queries against the SQLite db, `zec.db`.
 
 ```nodejs
-## zcash-sync
+# Helper that is resilient to network errors for syncing
+const forkWarp = require("./src/electron/fork.js").forkWarp
+# launches in fork process and restarts on error
+forkWarp()
+#
+# zcash-sync node FFI
 const warp = require("./src/electron/warp/index.node")
 warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
 warp.setActiveAccount(0, 1)

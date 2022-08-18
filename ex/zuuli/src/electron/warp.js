@@ -8,7 +8,7 @@ warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
 // if error ... rewind? ...
 // warp.skipToLastHeight()
 // try {
-warp.warp(0)
+warp.warp()
 // too much of a problem that the exception can't be caught
 // maybe it's OK and we can just run again on error?
 
