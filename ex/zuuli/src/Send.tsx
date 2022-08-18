@@ -113,11 +113,11 @@ export default function Send() {
                             onClick={() => {
                                 // TODO: this is crude
                                 setAmount(
-                                    ((balance - 10000) / ZatToZEC)
+                                    ((balance - 1000) / ZatToZEC)
                                 )
                             }}
                         >
-                            {`${(balance - 10000) / ZatToZEC}`}
+                            {`${(balance - 1000) / ZatToZEC}`}
                             <Balance
                                 fontSize="large"
                             />
