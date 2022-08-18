@@ -24,12 +24,6 @@ you can pull the submodules from the root directory via:
 git submodule update --init --recursive
 ```
 
-Checkout the `dev` branch to live on the wild side
-
-```
-git checkout dev
-```
-
 ### Build hhanh00/zcash-sync into ex/zuuli
 
 Build the free2z node FFI fork of zcash-sync.
