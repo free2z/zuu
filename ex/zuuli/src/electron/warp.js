@@ -22,6 +22,6 @@ warp.warp()
 // } catch (e) {
 //     const syncH = warp.getSyncHeight()
 //     console.log("FML", e)
-//     warp.rewindToHeight(syncH - 200)
+//     warp.rewindToHeight(syncH - 100)
 // }
 console.log("DONE WARP!")

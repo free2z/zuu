@@ -51,12 +51,23 @@ function createWindow() {
     // IPC -------------------------------------------
     // Event handler for asynchronous incoming messages
     ipcMain.on('rewind', (event, arg) => {
+        // TODO: shouldn't really rewind except to birthday
+        // or up to 100 blocks for reorg.
+        // BUT rescan between TX and witnesses can result in lost witnesses
+        // so, really, we should have an "earliest height" for all accounts
+        // and then just rescan from there instead of letting the user
+        // guess/choose
+        // return
+        console.log("REWIND", event, arg)
         // console.log(arg)
         // console.log("KILLING", p.kill)
-        p.kill()
+        // p.kill()
         // console.log("Killed", p.killed)
         // let's see about this arg ...
-        warp.rewindToHeight(arg)
+        // TODO: should rewind to birthday
+        // warp.rewindToHeight(arg)
+
+        // Just a fake to work on the snackbar/IPC for now ...
         // Event emitter for sending asynchronous messages
         event.sender.send('ipcsnackbar', {
             message: "kilt",
