@@ -7,16 +7,16 @@ import { getCurrentID, useGlobalState, Transaction } from '../db/db';
 
 
 const columns: GridColDef[] = [
-    // { field: 'id', headerName: 'ID', width: 90 },
+    // https://mui.com/x/api/data-grid/data-grid/
+    // https://mui.com/x/react-data-grid/#mit-version
     {
         field: 'txid',
         headerName: 'TXID',
         width: 120,
         editable: false,
         renderCell: (params) => {
-            // const s = params.row.txid
+            console.log("RENDER", params)
             const s = params.row.txid.toString()
-            // const s = new TextDecoder().decode(params.row.txid);
             return <Link href={`/${s}`}>{s}</Link>
         },
     },
@@ -27,7 +27,6 @@ const columns: GridColDef[] = [
         editable: false,
         valueFormatter: (v) => {
             return `${v.value / 100000000}`
-            // return v.value
         }
     },
     {
@@ -55,12 +54,6 @@ const columns: GridColDef[] = [
             const d = new Date(v.value * 1000)
             return `${d.toLocaleDateString('zh-Hans-CN')} ${d.toLocaleTimeString('en-US')}`
         }
-
-        //     // description: 'This column has a value getter and is not sortable.',
-        //     // sortable: false,
-        //     // width: 160,
-        //     // valueGetter: (params: GridValueGetterParams) =>
-        //     //     `${params.row.firstName || ''} ${params.row.lastName || ''}`,
     },
 ];
 
