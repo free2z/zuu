@@ -51,10 +51,12 @@ warp.setActiveAccount(0, 1)
 ## DB libraries - should be READ-ONLY
 const DB = require("./src/electron/warp/DB.js")
 const db = new DB("./zec.db")
-# TODO: rename this module to `Qs` or something like that.
-# I'm sick of this unsemanntic naming ;9
+# TODO: rename this module to `Qs` or something like that?
+# it's not really a model, it's a collection of query methods ...
 const Account = require("./src/electron/warp/models/Account.js")
-const q = new Account(db)
+const acc = new Account(db)
+const Transaction = require("./src/electron/warp/models/Transaction.js")
+const tx = new Transaction(db)
 ```
 
 
