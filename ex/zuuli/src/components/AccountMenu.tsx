@@ -54,10 +54,16 @@ export default function AccountMenu() {
     React.useEffect(() => {
         (async () => {
             const _accounts = await readAllAccounts()
-            // TODO: use join?
             const _account = await getCurrentAccount()
-            console.log("GETTING TXS", _account)
 
+            if (_account) {
+                console.log("Setting active", _account)
+                z.setActive(_account.id_account)
+            } else {
+                console.log("No account")
+            }
+            console.log("GETTING TXS", _account)
+            // TODO: use join?
             const _txs = await z.getTransactions(_account.id_account)
             console.log("GOT:", _txs)
             _account.transactions = _txs
@@ -135,7 +141,7 @@ export default function AccountMenu() {
             >
                 {/* <> */}
                 {accounts?.map(acc => {
-
+                    // console.log("CURRENT", account)
                     return (
                         <MenuItem
                             onClick={() => {

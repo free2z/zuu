@@ -42,6 +42,9 @@ process.once("loaded", () => {
             // (_event, value)
             ipcRenderer.on('ipcsnackbar', callback)
         },
+        "open": (link) => {
+            ipcRenderer.send('open', link)
+        },
     })
     contextBridge.exposeInMainWorld("z", {
         // DB Queries

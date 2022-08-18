@@ -1,4 +1,6 @@
-const { fork } = require('child_process');
+const path = require("path")
+const { fork } = require('child_process')
+
 const warp = require("./warp/index.node")
 
 // Maybe have to do this in every process to call other methods such
@@ -18,7 +20,12 @@ let p
 function forkWarp(from) {
     console.log(new Date())
     if (from !== undefined) {
-        warp.rewindToHeight(from)
+        // TODO
+        // console.log("REWIND to", from)
+        // just kidding, rewinding can lose witnesses so .. yeah
+        // maybe implement this later but haphazard rewind isn't a good
+        // idea ...
+        // warp.rewindToHeight(from)
     }
     // console.log("forkWarp")
     p = fork(path.join(__dirname, 'warp.js'), [], {
@@ -39,25 +46,17 @@ function forkWarp(from) {
         // TODO: differentiate between errors?
         // TODO: how much is the right amount to rewind?
         // only need to rewind for chain reorg?
+        // probably bury chain reorg rewind in the FFI code?
         if (code !== 0) {
-            console.log("NULL CODE")
+            console.log("ERROR")
             // warp.rewindToHeight(syncH - 10)
-            // console.log("rewound!")
-            setTimeout(forkWarp, 10000)
+            setTimeout(forkWarp, 1000)
             return
         }
-        // else {
-        //     console.log("Exit with code", code)
-        // }
-        // does this do sth weird tho ...
         console.log("start again in 30 seconds")
         setTimeout(forkWarp, 30000)
-        // forkWarp()
     });
-    // console.log("END")
 }
-// console.log("FORK")
-// forkWarp()
 
 xprts.forkWarp = forkWarp
 

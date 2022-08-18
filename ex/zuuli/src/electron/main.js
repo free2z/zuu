@@ -1,12 +1,12 @@
 // Module to control the application lifecycle and the native browser window.
-const { app, BrowserWindow, protocol } = require("electron");
+const { app, BrowserWindow, protocol, shell } = require("electron");
 const path = require("path");
 const url = require("url");
 
-const { ipcMain } = require('electron')
+const { ipcMain } = require('electron');
+const { forkWarp } = require("./fork");
 
-
-
+forkWarp()
 
 //  // Event handler for synchronous incoming messages
 //  ipcMain.on('synchronous-message', (event, arg) => {
@@ -50,6 +50,10 @@ function createWindow() {
 
     // IPC -------------------------------------------
     // Event handler for asynchronous incoming messages
+    ipcMain.on('open', (event, arg) => {
+        console.log("OPEN", event, arg)
+        shell.openExternal(arg)
+    })
     ipcMain.on('rewind', (event, arg) => {
         // TODO: shouldn't really rewind except to birthday
         // or up to 100 blocks for reorg.

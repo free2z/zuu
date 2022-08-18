@@ -3,7 +3,6 @@ import React from "react";
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, IconButton, TextField, Typography } from "@mui/material";
 import { Balance } from "@mui/icons-material";
 import { useGlobalState, getBalance, z } from "./db/db";
-import { SocketAddress } from "net";
 
 const ZatToZEC = 100000000
 
@@ -39,6 +38,13 @@ export default function Send() {
             max_amount_per_note: 9999999999999,  // ????
         }])
         console.log(json)
+        // set globally?
+        console.log(account)
+        setConfirmOpen(false)
+
+        // TODO: put over IPC! send blocks the UI!
+        // TODO: is this setActive needed?
+        z.setActive(account.id_account)
         const res = z.send(json)
         console.log("DONE!")
         console.log(res)

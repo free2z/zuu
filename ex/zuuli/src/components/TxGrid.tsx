@@ -3,7 +3,7 @@ import React from 'react';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import { Link } from "@mui/material"
 
-import { getCurrentID, useGlobalState, Transaction } from '../db/db';
+import { getCurrentID, useGlobalState, Transaction, ipc } from '../db/db';
 
 
 const columns: GridColDef[] = [
@@ -15,9 +15,32 @@ const columns: GridColDef[] = [
         width: 120,
         editable: false,
         renderCell: (params) => {
-            console.log("RENDER", params)
-            const s = params.row.txid.toString()
-            return <Link href={`/${s}`}>{s}</Link>
+            // const as_text = Array.from(params.row.txid.rev)
+            //     .map((val: any) => val.toString(16)) //.padStart(2, "0"))
+            //     .join("");
+            // console.log("TEXT", as_text)
+            // console.log(Buffer.from(params.row.txid).toString('hex'))
+            // console.log(
+            const as_text = params.row.txid.reduceRight(
+                (str: any, byte: any) => str + byte.toString(16).padStart(2, '0'), ''
+            )
+            // )
+
+            // const bin = [];
+            // for (let i = 0; i < params.row.txid.length; i++) {
+            //     bin.push(String.fromCharCode(params.row.txid[i]));
+            // }
+            // const as_text = btoa(bin.join(""));
+            // console.log(as_text);
+
+            // const s = params.row.txid.toString('hex')
+
+            return <Link
+                href={""}
+                onClick={() => {
+                    ipc.open(`https://zcashblockexplorer.com/transactions/${as_text}`)
+                }}
+            >{as_text}</Link>
         },
     },
     {
