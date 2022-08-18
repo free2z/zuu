@@ -1,57 +1,21 @@
 // Module to control the application lifecycle and the native browser window.
-const { app, BrowserWindow, protocol } = require("electron");
-const { fork } = require('child_process');
+const { app, BrowserWindow, protocol, shell } = require("electron");
 const path = require("path");
 const url = require("url");
-const warp = require("./warp/index.node")
 
-// Maybe have to do this in every process to call other methods such
-// as getServerHeight ....
-warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+const { ipcMain } = require('electron');
+const { forkWarp } = require("./fork");
 
-
-
-
-function forkWarp() {
-    // console.log("forkWarp")
-    const p = fork(path.join(__dirname, 'warp.js'), [], {
-        stdio: ['pipe', 'pipe', 'pipe', 'ipc']
-    });
-    // console.log("set on close")
-    p.on('error', (err) => {
-        console.log('ERROR', err)
-        // console.log(arguments)
-        // try again in 30 seconds
-        setTimeout(forkWarp, 30000)
-    })
-    p.on('close', (code, signal) => {
-        console.log("CLOSE AND RESTART", code, signal)
-        const syncH = warp.getSyncHeight()
-        console.log("SYNC", warp.getSyncHeight())
-        console.log("Server", warp.getServerHeight())
-        if (code === null) {
-            console.log("NULL CODE")
-            warp.rewindToHeight(syncH - 100)
-            console.log("rewound!")
-        } else (
-            console.log("Exit with code", code)
-        )
-        // does this do sth weird tho ...
-        setTimeout(forkWarp, 30000)
-        // forkWarp()
-    });
-    // console.log("END")
-}
-// console.log("FORK")
 forkWarp()
 
-// const p = fork(path.join(__dirname, 'warp.js'), [], {
-//     stdio: ['pipe', 'pipe', 'pipe', 'ipc']
-// });
-// p.on('close', () => {
-//     console.log("CLOSE AND RESTART")
-//     // forkWarp()
-// });
+//  // Event handler for synchronous incoming messages
+//  ipcMain.on('synchronous-message', (event, arg) => {
+//     console.log(arg)
+
+//     // Synchronous event emmision
+//     event.returnValue = 'sync pong'
+//  })
+
 
 
 // Create the native browser window.
@@ -83,6 +47,37 @@ function createWindow() {
     if (!app.isPackaged) {
         mainWindow.webContents.openDevTools();
     }
+
+    // IPC -------------------------------------------
+    // Event handler for asynchronous incoming messages
+    ipcMain.on('open', (event, arg) => {
+        console.log("OPEN", event, arg)
+        shell.openExternal(arg)
+    })
+    ipcMain.on('rewind', (event, arg) => {
+        // TODO: shouldn't really rewind except to birthday
+        // or up to 100 blocks for reorg.
+        // BUT rescan between TX and witnesses can result in lost witnesses
+        // so, really, we should have an "earliest height" for all accounts
+        // and then just rescan from there instead of letting the user
+        // guess/choose
+        // return
+        console.log("REWIND", event, arg)
+        // console.log(arg)
+        // console.log("KILLING", p.kill)
+        // p.kill()
+        // console.log("Killed", p.killed)
+        // let's see about this arg ...
+        // TODO: should rewind to birthday
+        // warp.rewindToHeight(arg)
+
+        // Just a fake to work on the snackbar/IPC for now ...
+        // Event emitter for sending asynchronous messages
+        event.sender.send('ipcsnackbar', {
+            message: "kilt",
+            severity: "success",
+        })
+    })
 }
 
 // Setup a local proxy to adjust the paths of requested files when loading

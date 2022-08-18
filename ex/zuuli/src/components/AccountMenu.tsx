@@ -14,14 +14,18 @@ import PersonAdd from '@mui/icons-material/PersonAdd';
 import Settings from '@mui/icons-material/Settings';
 import Logout from '@mui/icons-material/Logout';
 
+// import { ipcRenderer } from 'electron';
+
 import {
     Account,
     getCurrentAccount, readAllAccounts,
     z, setCurrentID,
     useGlobalState,
+    ipc,
 } from "../db/db"
 // import { Account, Accounts } from '../db/models';
 import { useNavigate } from 'react-router-dom';
+import { WorkHistory } from '@mui/icons-material';
 
 
 export default function AccountMenu() {
@@ -43,15 +47,33 @@ export default function AccountMenu() {
     // const [account, setAccount] = React.useState({} as Account)
     // const [accounts, setAccounts] = React.useState([] as Account[])
 
+    // TODO: put this ahead of first render
+    // and make a loading animation in pure SVG/CSS until the DB state
+    // is loaded
+    //
     React.useEffect(() => {
         (async () => {
             const _accounts = await readAllAccounts()
             const _account = await getCurrentAccount()
+
+            if (_account) {
+                console.log("Setting active", _account)
+                z.setActive(_account.id_account)
+            } else {
+                console.log("No account")
+            }
+            console.log("GETTING TXS", _account)
+            // TODO: use join?
+            const _txs = await z.getTransactions(_account.id_account)
+            console.log("GOT:", _txs)
+            _account.transactions = _txs
+
             if (!_account || !_accounts || _accounts.length === 0 || !_account.name) {
                 console.log("SKIPPING TO LAST HEIGHT")
                 z.skipToLastHeight()
                 setPath("/intro")
                 navigate("/intro")
+                return
             }
             setAccounts(_accounts)
             setAccount(_account)
@@ -78,7 +100,7 @@ export default function AccountMenu() {
                 >
                     <Avatar
                         sx={{ width: 32, height: 32 }}
-                    >{account.name.at(0)}</Avatar>
+                    >{account.name.at(0)?.toUpperCase()}</Avatar>
                 </IconButton>
             </Tooltip>
             <Menu
@@ -119,7 +141,7 @@ export default function AccountMenu() {
             >
                 {/* <> */}
                 {accounts?.map(acc => {
-
+                    // console.log("CURRENT", account)
                     return (
                         <MenuItem
                             onClick={() => {
@@ -164,6 +186,19 @@ export default function AccountMenu() {
                         <Settings fontSize="small" />
                     </ListItemIcon>
                     Settings
+                </MenuItem>
+
+                <MenuItem
+                    // TODO: open modal for height to rewind to!
+                    onClick={() => {
+                        ipc.rewind(1758800)
+                        // ipcRenderer.send('cancel-sync', 1600000)
+                    }}
+                >
+                    <ListItemIcon>
+                        <WorkHistory fontSize='small' />
+                    </ListItemIcon>
+                    Rescan
                 </MenuItem>
                 {/* </> */}
             </Menu>

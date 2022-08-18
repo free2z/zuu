@@ -5,6 +5,7 @@ import { Grid } from "@mui/material"
 
 import TopBar from "./components/TopBar"
 import BottomNav from "./components/BottomNav"
+import IPCSnack from "./components/IPCSnack"
 
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
       // xs={12} sm={11} md={10} lg={8} xl={7}
       style={{ margin: "0 auto" }}
     >
+      <IPCSnack />
       <TopBar />
       <Grid
         item xs={12}
