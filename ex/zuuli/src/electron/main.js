@@ -4,7 +4,7 @@ const path = require("path");
 const url = require("url");
 
 const { ipcMain } = require('electron');
-const { forkWarp } = require("./fork");
+const { forkWarp, warp } = require("./fork");
 
 forkWarp()
 
@@ -53,6 +53,19 @@ function createWindow() {
     ipcMain.on('open', (event, arg) => {
         console.log("OPEN", event, arg)
         shell.openExternal(arg)
+    })
+    ipcMain.on('send', (event, id, json) => {
+        console.log("SEND", event, id, json)
+        // Zcash
+        warp.setActiveAccount(0, id)
+        const res = warp.sendMultiPayment(json)
+        // const res = "foobar!"
+        console.log("SENT", res)
+        event.sender.send('ipcsnackbar', {
+            message: res,
+            // TODO: differentiate res strings ..
+            severity: "secondary",
+        })
     })
     ipcMain.on('rewind', (event, arg) => {
         // TODO: shouldn't really rewind except to birthday

@@ -2,7 +2,9 @@ import React from "react";
 
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, IconButton, TextField, Typography } from "@mui/material";
 import { Balance } from "@mui/icons-material";
-import { useGlobalState, getBalance, z } from "./db/db";
+import { useGlobalState, getBalance, z, ipc } from "./db/db";
+import { useNavigate } from "react-router-dom";
+// import { ipcRenderer } from "electron";
 
 const ZatToZEC = 100000000
 
@@ -15,10 +17,21 @@ export function SliceAddress(address: string): string {
 export default function Send() {
     const [account, setAccount] = useGlobalState('currentAccount')
 
+    // TODO: hold the state in localstorage so
+    // we don't lose our input - make sticky with clear ...
+    // TODO: address book
+    // TODO: validate address
+    // TODO: validate length of memo
+    // TODO: validate amount
+    // TODO: IPC send
+    // TODO: click to add return address to memo (snap diversified too)
     const [confirmOpen, setConfirmOpen] = React.useState(false)
     const [address, setAddress] = React.useState("")
     const [amount, setAmount] = React.useState(0)
     const [memo, setMemo] = React.useState("")
+
+    const navigate = useNavigate()
+    const [_, setPath] = useGlobalState('pathname')
 
     const balance = getBalance(account)
 
@@ -37,17 +50,20 @@ export default function Send() {
             subject: "",  // ???
             max_amount_per_note: 9999999999999,  // ????
         }])
-        console.log(json)
+        // console.log(json)
         // set globally?
-        console.log(account)
+        // console.log(account)
         setConfirmOpen(false)
+        ipc.send(account.id_account, json)
+        setPath("/transactions")
+        navigate("/transactions")
 
         // TODO: put over IPC! send blocks the UI!
         // TODO: is this setActive needed?
-        z.setActive(account.id_account)
-        const res = z.send(json)
-        console.log("DONE!")
-        console.log(res)
+        // z.setActive(account.id_account)
+        // const res = z.send(json)
+        // console.log("DONE!")
+        // console.log(res)
     }
 
     return (
@@ -144,6 +160,8 @@ export default function Send() {
                 }}
             />
             <Button
+                variant="contained"
+                color="success"
                 onClick={() => {
                     setConfirmOpen(true)
                 }}
