@@ -16,7 +16,10 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(function Alert(
     return <MuiAlert elevation={6} ref={ref} variant="filled" {...props} />;
 });
 
-
+interface SnackMessage {
+    message: string
+    severity: "success" | "error" | "info" | "warning"
+}
 
 export default function SimpleSnackbar() {
     const [open, setOpen] = React.useState(false)
@@ -25,9 +28,12 @@ export default function SimpleSnackbar() {
 
     // TODO: TYPE
     // TODO: register only once?
-    // console.log("REGISTER SNACKBAR")
-    ipc.onIPCSnackbar((event: any, arg: any) => {
-        console.log("IPCSNACK", event, arg)
+    console.log("REGISTER SNACKBAR")
+    ipc.onIPCSnackbar((event: any, sm: SnackMessage) => {
+        console.log("IPCSNACK", event, sm)
+        setMessage(sm.message)
+        setSeverity(sm.severity)
+        setOpen(true)
     })
 
     const handleClose = (event: React.SyntheticEvent | Event, reason?: string) => {

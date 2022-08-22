@@ -144,6 +144,7 @@ interface IPC {
     // TODO: type this function!
     onIPCSnackbar: (fn: (event: any, arg: any) => void) => void
     open: (link: string) => void
+    send: (id: number, json: string) => string
 }
 
 export const z = (window as any).z as Z

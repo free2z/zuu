@@ -45,6 +45,9 @@ process.once("loaded", () => {
         "open": (link) => {
             ipcRenderer.send('open', link)
         },
+        "send": (id, json) => {
+            ipcRenderer.send('send', id, json)
+        },
     })
     contextBridge.exposeInMainWorld("z", {
         // DB Queries
