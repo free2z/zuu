@@ -33,7 +33,15 @@ electronmon .
 It can be helpful to use the node CLI to examine the behavior of
 zcash-sync and interrogate the database.
 
-From the root of the repository, run `node`.
+From the root of the repository, run:
+
+```
+RUST_LOG=info node
+```
+
+> You can set the `RUST_LOG` level
+> [to your taste](https://docs.rs/env_logger/latest/env_logger/).
+
 Within node, you can import the zcash-sync FFI and
 run some database queries against the SQLite db, `zec.db`.
 
