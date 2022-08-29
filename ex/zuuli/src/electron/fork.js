@@ -8,7 +8,8 @@ const warp = require("./warp/index.node")
 // at least all these initCoin calls (2 too many?) seem to resolve
 // relative to the process that is running (eg electronmon .)
 // Maybe have to revisit when packaging?
-warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+// warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+warp.initCoin(0, "./zec.db", "https://zuul.free2z.cash:9067")
 
 
 const xprts = {}

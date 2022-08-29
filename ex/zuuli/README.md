@@ -45,7 +45,8 @@ forkWarp()
 #
 # zcash-sync node FFI
 const warp = require("./src/electron/warp/index.node")
-warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+# warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+warp.initCoin(0, "./zec.db", "https://zuul.free2z.cash:9067")
 warp.setActiveAccount(0, 1)
 
 ## DB libraries - should be READ-ONLY
