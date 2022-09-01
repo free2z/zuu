@@ -27,6 +27,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     '34.168.155.131',
+    'be.free2z.com',
 ]
 
 
