@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>2Z Battle Ground | Coworking Office Space</title>
+
+  <!-- CSS  -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link href="/static/parallax/css/materialize.css" type="text/css" rel="stylesheet" media="screen,projection" />
+  <link href="/static/parallax/css/style.css" type="text/css" rel="stylesheet" media="screen,projection" />
+</head>
+
+<body>
+  <nav class="white" role="navigation">
+    <div class="nav-wrapper container">
+      <a id="logo-container" href="#" class="brand-logo brown-text">2Z</a>
+      <!-- <ul class="right hide-on-med-and-down">
+        <li><a href="#">Navbar Link</a></li>
+      </ul>
+
+      <ul id="nav-mobile" class="sidenav">
+        <li><a href="#">Navbar Link</a></li>
+      </ul>
+      <a href="#" data-target="nav-mobile" class="sidenav-trigger"><i class="material-icons">menu</i></a> -->
+    </div>
+  </nav>
+
+  <div id="index-banner" class="parallax-container">
+    <div class="section no-pad-bot">
+      <div class="container">
+        <!-- <div class="row center">
+          <h1 class="header col s12 black-text">
+            Modern Flexible Coworking
+          </h1>
+        </div> -->
+        <!-- <div class="row center black-text">
+          <a href="http://materializecss.com/getting-started.html" id="download-button"
+            class="btn-large waves-effect waves-light teal lighten-1">Get Started</a>
+        </div>
+        <br><br> -->
+
+
+        <div class="row">
+          <div class="col s12 m1"></div>
+          <div class="col s12 m10">
+            <div class="card white lighten-1">
+              <div class="card-content black-text">
+                <h5 class="card-title purple-text">Office Space in Battle Ground</h5>
+                <!-- <span class="card-title">Interested in reserving a spot?</span> -->
+                <p>Add your email to make a reservation.</p>
+                {% block content %}{% endblock %}
+              </div>
+              <!-- <div class="card-action">
+                <a href="#">This is a link</a>
+                <a href="#">This is a link</a>
+              </div> -->
+            </div>
+          </div>
+        </div>
+        <!-- <div class="col s12 m7">
+          <h2 class="header">Interested in reserving a spot?</h2>
+          <div class="card horizontal">
+            <div class="card-stacked">
+              <div class="card-content">
+                <p>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div> -->
+
+
+      </div>
+    </div>
+    <div class="parallax"><img src="/static/clow0.png" alt="Coworking space"></div>
+  </div>
+
+  {% block mid %}
+  <div class="container">
+    <div class="section">
+
+      <!--   Icon Section   -->
+      <div class="row">
+        <div class="col s12 m4">
+          <div class="icon-block">
+            <h2 class="center brown-text"><i class="material-icons">flash_on</i></h2>
+            <h5 class="center">Modern Productivity</h5>
+
+            <p class="light">
+              Fast internet. Good coffee. The right balance of focused quiet
+              and excitement.
+              Have a nice space to get work done.
+            </p>
+          </div>
+        </div>
+
+        <div class="col s12 m4">
+          <div class="icon-block">
+            <h2 class="center brown-text"><i class="material-icons">group</i></h2>
+            <h5 class="center">Thriving Community</h5>
+
+            <p class="light">
+              Do private business meetings. Meet new people.
+              Make connections. Live your best life!</p>
+          </div>
+        </div>
+
+        <div class="col s12 m4">
+          <div class="icon-block">
+            <h2 class="center brown-text"><i class="material-icons">settings</i></h2>
+            <h5 class="center">Convenient Security</h5>
+
+            <p class="light">
+              Choose private office or general membership.
+              Quality people with advanced, modern security that protects
+              your privacy.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <div class="parallax-container valign-wrapper">
+    <div class="section no-pad-bot">
+      <div class="container">
+        <div class="row center">
+          <h1 class="header col s12 light">Be Free 2Z!</h1>
+        </div>
+      </div>
+    </div>
+    <div class="parallax"><img src="/static/clow1.png" alt="Unsplashed background img 2"></div>
+  </div>
+
+  <div class="container">
+    <div class="section">
+
+      <div class="row">
+        <div class="col s12 center">
+          <h3><i class="mdi-content-send brown-text"></i></h3>
+          <h4>Contact Us</h4>
+          <p class="left-align light">
+            Adding your email will let us know that you're interested in
+            modern, shared coworking space in Battle Ground, Washington.
+            We will guard your email address and not sell it or give it
+            to anyone. We will contact you to let you know about the progress
+            with the space and to see if you are still interested in
+            joining 2Z when we are ready in early 2023.
+
+            You can always email <a href="mailto:skylar@free2z.com">skylar@free2z.com</a>
+            if you have any thoughts or suggestions.
+            Emailing us does not obligate you in any way.
+
+            Thanks in advance for the feedback!
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <div class="parallax-container valign-wrapper">
+    <div class="section no-pad-bot">
+      <div class="container">
+        <div class="row center">
+          <h2 class="header col s12 light white-text">
+            Can't wait to see you!
+          </h2>
+        </div>
+      </div>
+    </div>
+    <div class="parallax"><img src="/static/clow2.png" alt="Unsplashed background img 3"></div>
+  </div>
+  {% endblock %}
+
+
+  {% block footer %}
+  <footer class="page-footer teal">
+    <div class="container">
+      <div class="row">
+        <div class="col l6 s12">
+          <h5 class="white-text">About 2Z</h5>
+          <p class="grey-text text-lighten-4">
+            2Z Inc. is a corporation owned and operated
+            by software nerds who want to see a better world
+            with more freedom and privacy.
+          </p>
+        </div>
+        <!-- <div class="col l3 s12">
+          <h5 class="white-text">Settings</h5>
+          <ul>
+            <li><a class="white-text" href="#!">Link 1</a></li>
+            <li><a class="white-text" href="#!">Link 2</a></li>
+            <li><a class="white-text" href="#!">Link 3</a></li>
+            <li><a class="white-text" href="#!">Link 4</a></li>
+          </ul>
+        </div>
+        <div class="col l3 s12">
+          <h5 class="white-text">Connect</h5>
+          <ul>
+            <li><a class="white-text" href="#!">Link 1</a></li>
+            <li><a class="white-text" href="#!">Link 2</a></li>
+            <li><a class="white-text" href="#!">Link 3</a></li>
+            <li><a class="white-text" href="#!">Link 4</a></li>
+          </ul>
+        </div> -->
+      </div>
+    </div>
+    <div class="footer-copyright">
+      <div class="container">
+        Part of
+        <a target="_blank" class="brown-text text-lighten-3" href="https://github.com/free2z/zuu">
+          The ZUU
+        </a>
+      </div>
+    </div>
+  </footer>
+  {% endblock %}
+
+  <!--  Scripts-->
+  <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+  <script src="/static/parallax/js/materialize.js"></script>
+  <script src="/static/parallax/js/init.js"></script>
+
+</body>
+
+</html>

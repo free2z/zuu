@@ -1,0 +1,76 @@
+{% extends "index.html" %}
+
+{% block content %}
+
+
+<!-- <div class="site-wrapper-inner">
+    <div class="cover-container">
+        <div class="inner cover">
+            <h1 class="cover-heading">Sign up on our waiting list!</h1>
+            <p class="lead">
+                Once this site is ready to launch, you will be emailed.
+            </p>
+            {% if form.email.errors %}
+            <b>{{ form.email.errors.0 }}</b>
+            {% endif %}
+            {% url "waitinglist_list_signup" as url %}
+            <form method="POST" action="{{ url }}" class="form-inline">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label class="sr-only" for="id_email">Email address</label>
+                    <input type="email" name="email" class="form-control input-lg" id="id_email"
+                        placeholder="your@email.com">
+                </div>
+                <button class="btn btn-default btn-lg">Submit</button>
+            </form>
+        </div>
+
+    </div>
+</div> -->
+
+
+<!--
+
+<form method="POST" action="/waitinglist/list_signup/" class="form-inline">
+    {% csrf_token %}
+    <div class="form-group">
+        <label class="sr-only" for="id_email">Email address</label>
+        <input type="email" name="email" class="form-control input-lg" id="id_email" placeholder="your@email.com" />
+    </div>
+    <button class="btn btn-default btn-lg">Submit</button>
+</form> -->
+<div class="row" style="margin-top: 1em">
+    <form class="col s12" method="POST" action="/waitinglist/list_signup/">
+        {% csrf_token %}
+
+        <div class="row">
+            <div class="input-field col s12">
+                <!-- <input id="email" type="email" class="validate"> -->
+                <input type="email" name="email" class="validate" id="id_email" placeholder="your@email.com">
+                <label for="email">Email</label>
+                {% if form.email.errors %}
+                <span class="helper-text red-text">
+                    {{ form.email.errors.0 }}
+                </span>
+                {% else %}
+                <span class="helper-text purple-text">
+                    We will FOREVER protect your data!
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        <button class="btn btn-default btn-lg">Reserve</button>
+
+        <!-- <div class="row">
+            <div class="col s12">
+                This is an inline input field:
+                <div class="input-field inline">
+                    <input id="email_inline" type="email" class="validate">
+                    <label for="email_inline">Email</label>
+                    <span class="helper-text" data-error="wrong" data-success="right">Helper text</span>
+                </div>
+            </div>
+        </div> -->
+    </form>
+</div>
+{% endblock %}
