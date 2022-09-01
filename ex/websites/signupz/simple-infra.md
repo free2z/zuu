@@ -3,6 +3,10 @@
 This is a simple way to deploy using sqlite3.
 Suitable for a small site only seeking a few dozen contacts.
 
+Adapted from
+
+https://www.digitalocean.com/community/tutorials/how-to-set-up-django-with-postgres-nginx-and-gunicorn-on-ubuntu-22-04
+
 Create a VM:
 
 ```bash
@@ -29,5 +33,25 @@ pip install gunicorn
 ./manage.py makemigrations
 ./manage.py migrate
 ./manage.py createsuperuser
+sudo chown skyl:skyl /var/www/
 ./manage.py collectstatic
+```
+
+Gunicorn, Nginx
+
+```bash
+sudo vim /etc/systemd/system/gunicorn.socket
+sudo vim /etc/systemd/system/gunicorn.service
+sudo systemctl start gunicorn.socket
+sudo systemctl enable gunicorn.socket
+# ls /run/gunicorn.sock
+sudo journalctl -u gunicorn.socket
+sudo systemctl status gunicorn
+curl --unix-socket /run/gunicorn.sock localhost
+sudo systemctl status gunicorn
+sudo vim /etc/nginx/sites-available/signupz
+# ls /etc/nginx/sites-available/
+sudo ln -s /etc/nginx/sites-available/signupz /etc/nginx/sites-enabled
+sudo nginx -t
+sudo systemctl restart nginx
 ```
