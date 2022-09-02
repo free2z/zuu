@@ -114,6 +114,7 @@
     </div>
   </nav>
 
+  {% block banner %}
   <div id="index-banner" class="parallax-container">
     <div class="section no-pad-bot">
       <div class="container">
@@ -134,7 +135,7 @@
           <div class="col s12 m10">
             <div class="card white lighten-1">
               <div class="card-content black-text">
-                {% include "pinax/waitinglist/list_signup.html" %}
+                {% include "signup.html" %}
               </div>
               <!-- <div class="card-action">
                 <a href="#">This is a link</a>
@@ -160,6 +161,7 @@
     </div>
     <div class="parallax"><img src="/static/clow0.png" alt="Coworking space"></div>
   </div>
+  {% endblock %}
 
   {% block mid %}
   <div class="container">
@@ -250,7 +252,7 @@
         <div class="col s12 m10">
           <div class="card white lighten-1">
             <div class="card-content black-text">
-              {% include "pinax/waitinglist/list_signup.html" %}
+              {% include "signup.html" %}
             </div>
             <!-- <div class="card-action">
               <a href="#">This is a link</a>
