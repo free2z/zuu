@@ -10,6 +10,35 @@
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <link href="/static/parallax/css/materialize.css" type="text/css" rel="stylesheet" media="screen,projection" />
   <link href="/static/parallax/css/style.css" type="text/css" rel="stylesheet" media="screen,projection" />
+  <style>
+    .stroke {
+      /* margin-top: "-500px"; */
+      font-weight: 600;
+      color: #fcf5e9;
+      font-size: 77px;
+      /* outline: #45254A solid 1px;
+      outline-style: dotted; */
+
+      /* -webkit-text-stroke: 1px #FDA343; */
+
+      text-shadow:
+        /* -2px 3px 10px #45254A, */
+        -3px 2px 9px #B41715,
+        -2px -1px 1px #FDA343,
+        -1px 1px 0 #B41715,
+        -2px -2px 0 #45254A,
+        2px -2px 0 #45254A,
+        -2px 2px 0 #45254A,
+        2px 2px 0 #45254A,
+        3px 3px 0 #5f2c67,
+        4px 4px 0 #8e5497,
+        5px 5px 0 #b88ebe,
+        /* 4px 4px 0 #fff, */
+        /* 5px 5px 0 #fff, */
+        6px 6px 0 #d2b3d6,
+        7px 7px 0 #d2b3d6;
+    }
+  </style>
 </head>
 
 <body>
@@ -47,7 +76,7 @@
           <div class="col s12 m10">
             <div class="card white lighten-1">
               <div class="card-content black-text">
-                {% block content %}{% endblock %}
+                {% include "pinax/waitinglist/list_signup.html" %}
               </div>
               <!-- <div class="card-action">
                 <a href="#">This is a link</a>
@@ -126,7 +155,10 @@
     <div class="section no-pad-bot">
       <div class="container">
         <div class="row center">
-          <h1 class="header col s12 light">Be Free 2Z!</h1>
+          <h1 class="header col s12 light stroke">
+            Reserve Now!
+
+          </h1>
         </div>
       </div>
     </div>
@@ -157,6 +189,22 @@
         </div>
       </div>
 
+      <div class="row">
+        <div class="col s12 m1"></div>
+        <div class="col s12 m10">
+          <div class="card white lighten-1">
+            <div class="card-content black-text">
+              {% include "pinax/waitinglist/list_signup.html" %}
+            </div>
+            <!-- <div class="card-action">
+              <a href="#">This is a link</a>
+              <a href="#">This is a link</a>
+            </div> -->
+          </div>
+        </div>
+      </div>
+
+
     </div>
   </div>
 
@@ -165,9 +213,9 @@
     <div class="section no-pad-bot">
       <div class="container">
         <div class="row center">
-          <h2 class="header col s12 light white-text">
-            Can't wait to see you!
-          </h2>
+          <h1 class="header col s12 light stroke">
+            Be Free! 2Z
+          </h1>
         </div>
       </div>
     </div>

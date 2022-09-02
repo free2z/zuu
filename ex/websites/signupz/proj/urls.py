@@ -25,6 +25,6 @@ urlpatterns = [
         include("pinax.waitinglist.urls",
         namespace="pinax_waitinglist")),
     re_path(r"^$",
-        TemplateView.as_view(template_name="pinax/waitinglist/list_signup.html"),
+        TemplateView.as_view(template_name="index.html"),
         name="home"),
 ]
