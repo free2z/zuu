@@ -55,3 +55,14 @@ sudo ln -s /etc/nginx/sites-available/signupz /etc/nginx/sites-enabled
 sudo nginx -t
 sudo systemctl restart nginx
 ```
+
+Install certbot
+
+```
+sudo apt update
+sudo apt install -y snapd
+sudo snap install core; sudo snap refresh core
+sudo snap install --classic certbot
+sudo ln -s /snap/bin/certbot /usr/bin/certbot
+sudo certbot --nginx
+```
