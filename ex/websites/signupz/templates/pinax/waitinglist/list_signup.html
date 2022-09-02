@@ -39,27 +39,40 @@
     </div>
     <button class="btn btn-default btn-lg">Submit</button>
 </form> -->
-<div class="row" style="margin-top: 1em">
+<div class="row">
     <form class="col s12" method="POST" action="/waitinglist/list_signup/">
         {% csrf_token %}
 
-        <div class="row">
-            <div class="input-field col s12">
-                <!-- <input id="email" type="email" class="validate"> -->
-                <input type="email" name="email" class="validate" id="id_email" placeholder="your@email.com">
-                <label for="email">Email</label>
-                {% if form.email.errors %}
-                <span class="helper-text red-text">
-                    {{ form.email.errors.0 }}
-                </span>
-                {% else %}
-                <span class="helper-text purple-text">
-                    We will FOREVER protect your data!
-                </span>
-                {% endif %}
-            </div>
-        </div>
-        <button class="btn btn-default btn-lg">Reserve</button>
+
+        <h6 class="card-title purple-text" style="margin-bottom: 1em;">
+            Want Modern, Affordable
+            Office Space in Battle Ground, Washington?
+        </h6>
+        <!-- <div class="row"> -->
+        <!-- <div class="input-field col s12"> -->
+
+
+        <!-- <span class="card-title">Interested in reserving a spot?</span> -->
+        <!-- <p>Add your email to express interest and get updates!</p> -->
+        <!-- <input id="email" type="email" class="validate"> -->
+        <label class="teal-text" for="email">Email</label>
+        <input type="email" name="email" class="validate" id="id_email" placeholder="your@email.com">
+
+
+        {% if form.email.errors %}
+        <span class="helper-text red-text">
+            {{ form.email.errors.0 }}
+        </span>
+        {% else %}
+        <span class="helper-text purple-text">
+            Add your email to express interest!
+            <!-- We will FOREVER protect your data! -->
+        </span>
+        {% endif %}
+        <br></br>
+        <button class="btn btn-default btn-lg" style="margin-top: 2em;">Reserve</button>
+        <!-- </div> -->
+        <!-- </div> -->
 
         <!-- <div class="row">
             <div class="col s12">
