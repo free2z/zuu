@@ -1,6 +1,6 @@
 # adityapk00
 [submodule "adityapk00/zecwallet-lite"]
-	path = adityapk00/zecwallet-lite
+	path = z/adityapk00/zecwallet-lite
 	url = https://github.com/adityapk00/zecwallet-lite
 	branch = master
 [submodule "adityapk00/zecwallet-light-cli"]
