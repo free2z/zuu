@@ -9,11 +9,11 @@
 	branch = master
 # hhanh00
 [submodule "hhanh00/zwallet"]
-	path = hhanh00/zwallet
+	path = z/hhanh00/zwallet
 	url = https://github.com/hhanh00/zwallet
 	branch = main
 [submodule "hhanh00/zcash-sync"]
-	path = hhanh00/zcash-sync
+	path = z/hhanh00/zcash-sync
 	url = https://github.com/hhanh00/zcash-sync
 	branch = master
 # zcash
