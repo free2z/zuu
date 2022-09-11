@@ -19,8 +19,6 @@ of external git repos. These currently come from the following orgs and users:
 * [z/hhanh00/](https://github.com/hhanh00)
 * [z/zcash/](https://github.com/zcash)
 * [z/ZcashFoundation/](https://github.com/ZcashFoundation)
-* [z/zecwalletco/](https://github.com/zecwalletco)
-* [z/zingolabs/](https://github.com/zingolabs)
 
 ### Code Layout
 

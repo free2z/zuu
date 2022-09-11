@@ -26,11 +26,6 @@
 	url = https://github.com/zcash/lightwalletd
 	branch = master
 # zecwalletco
-[submodule "zecwalletco/zecwallet-mobile"]
-	path = zecwalletco/zecwallet-mobile
-	url = https://github.com/zecwalletco/zecwallet-mobile
-	branch = master
-# zingolabs
 [submodule "ZcashFoundation/zebra"]
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
