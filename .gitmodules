@@ -18,11 +18,11 @@
 	branch = master
 # zcash
 [submodule "zcash/zcash"]
-	path = zcash/zcash
+	path = z/zcash/zcash
 	url = https://github.com/zcash/zcash
 	branch = master
 [submodule "zcash/lightwalletd"]
-	path = zcash/lightwalletd
+	path = z/zcash/lightwalletd
 	url = https://github.com/zcash/lightwalletd
 	branch = master
 # zecwalletco
@@ -31,18 +31,6 @@
 	url = https://github.com/zecwalletco/zecwallet-mobile
 	branch = master
 # zingolabs
-[submodule "zingolabs/zecwallet-lite"]
-	path = zingolabs/zecwallet-lite
-	url = https://github.com/zingolabs/zecwallet-lite
-	branch = dev
-[submodule "zingolabs/zingo-mobile"]
-	path = zingolabs/zingo-mobile
-	url = https://github.com/zingolabs/zingo-mobile
-	branch = dev
-[submodule "zingolabs/zingolib"]
-	path = zingolabs/zingolib
-	url = https://github.com/zingolabs/zingolib
-	branch = dev
 [submodule "ZcashFoundation/zebra"]
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
