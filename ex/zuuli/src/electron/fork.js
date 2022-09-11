@@ -29,7 +29,11 @@ function forkWarp(from) {
     }
     // console.log("forkWarp")
     p = fork(path.join(__dirname, 'warp.js'), [], {
-        stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+        env: {
+            // RUST_LOG: "debug",
+            RUST_LOG: "info",
+        },
     });
     // console.log("set on close")
     p.on('error', (err) => {
