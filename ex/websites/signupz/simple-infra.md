@@ -58,6 +58,10 @@ sudo systemctl restart nginx
 
 Install certbot
 
+Adapted from
+
+https://www.itzgeek.com/how-tos/linux/debian/how-to-install-lets-encrypt-ssl-certificate-for-nginx-on-debian-11.html
+
 ```
 sudo apt update
 sudo apt install -y snapd
