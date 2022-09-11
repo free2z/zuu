@@ -10,7 +10,9 @@ const Account = require("./warp/models/Account");
 
 console.log("PRELOAD")
 
-warp.initCoin(0, "./zec.db", "https://zuul.free2z.cash:9067")
+// warp.initCoin(0, "./zec.db", "https://zuul.free2z.cash:9067")
+warp.initCoin(0, "./zec.db", "https://mainnet.lightwalletd.com:9067")
+
 console.log("warp", warp)
 // warp.skipToLatestHeight()
 
