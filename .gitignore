@@ -1,3 +1,4 @@
+bazel-*
 .DS_Store
 node_modules
 private/
