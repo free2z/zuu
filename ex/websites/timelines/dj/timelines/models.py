@@ -1,4 +1,6 @@
 import json
+import itertools
+
 from django.db import models
 
 from django_extensions.db.fields import AutoSlugField
@@ -54,6 +56,9 @@ class Timeline(CreatedUpdated):
     media = models.ForeignKey(
         'timelines.Media', blank=True, null=True, on_delete=models.SET_NULL)
 
+    children = models.ManyToManyField(
+        'self', blank=True, help_text="Sub-timelines",
+    )
     events = models.ManyToManyField('timelines.Event', blank=True)
 
     # timelinejs options
@@ -66,6 +71,11 @@ class Timeline(CreatedUpdated):
     def __str__(self) -> str:
         return self.headline
 
+    def render_events(self) -> list:
+        return [
+            ev.render() for ev in self.events.all()
+        ]
+
     def render(self) -> dict:
         d = {}
         d["title"] = {
@@ -75,46 +85,49 @@ class Timeline(CreatedUpdated):
                 "text": self.text,
             }
         }
-        d["events"] = [
-            ev.render() for ev in self.events.all()
-        ]
+        # TODO: recursive render of events and chain.
+        # now only renders one level
+        d["events"] = list(itertools.chain(
+            self.render_events(),
+            *[child.render_events() for child in self.children.all()],
+        ))
         return d
 
     def to_json(self) -> str:
         return json.dumps(self.render())
 
 
-class Date(models.Model):
-    """
-    Datetime. This is sort of a hack because only year is required.
-    Therefore, it's going to be a little bit better rendering the
-    form widget as separate components. With a lot more time and
-    money we would rather use a regular DateTimeField and just
-    make fancy input/rendering for it to go to timelinejs.
+# class Date(models.Model):
+#     """
+#     Datetime. This is sort of a hack because only year is required.
+#     Therefore, it's going to be a little bit better rendering the
+#     form widget as separate components. With a lot more time and
+#     money we would rather use a regular DateTimeField and just
+#     make fancy input/rendering for it to go to timelinejs.
 
-    https://timeline.knightlab.com/docs/json-format.html#json-date
-    """
-    year = models.IntegerField()
-    month = models.PositiveSmallIntegerField(
-        blank=True, null=True, choices=[(n, n) for n in range(1,13)]
-    )
-    day = models.PositiveSmallIntegerField(
-        blank=True, null=True, choices=[(n, n) for n in range(1,31)]
-    )
-    hour = models.PositiveSmallIntegerField(
-        blank=True, null=True, choices=[(n, n) for n in range(24)]
-    )
-    minute = models.PositiveSmallIntegerField(
-        blank=True, null=True, choices=[(n, n) for n in range(60)]
-    )
-    second = models.PositiveSmallIntegerField(
-        blank=True, null=True, choices=[(n, n) for n in range(60)]
-    )
-    millisecond = models.PositiveIntegerField(blank=True, null=True)
-    # display_date
+#     https://timeline.knightlab.com/docs/json-format.html#json-date
+#     """
+#     year = models.IntegerField()
+#     month = models.PositiveSmallIntegerField(
+#         blank=True, null=True, choices=[(n, n) for n in range(1,13)]
+#     )
+#     day = models.PositiveSmallIntegerField(
+#         blank=True, null=True, choices=[(n, n) for n in range(1,31)]
+#     )
+#     hour = models.PositiveSmallIntegerField(
+#         blank=True, null=True, choices=[(n, n) for n in range(24)]
+#     )
+#     minute = models.PositiveSmallIntegerField(
+#         blank=True, null=True, choices=[(n, n) for n in range(60)]
+#     )
+#     second = models.PositiveSmallIntegerField(
+#         blank=True, null=True, choices=[(n, n) for n in range(60)]
+#     )
+#     millisecond = models.PositiveIntegerField(blank=True, null=True)
+#     # display_date
 
-    def __str__(self) -> str:
-        return f"{self.year} {self.month} {self.day} {self.hour} {self.minute}"
+#     def __str__(self) -> str:
+#         return f"{self.year} {self.month} {self.day} {self.hour} {self.minute}"
 
 
 class Event(CreatedUpdated):
@@ -135,12 +148,51 @@ class Event(CreatedUpdated):
     #       "text": "<p>Early stone age</p>"
     #     }
     #   },
-    start_date = models.OneToOneField(
-        'timelines.Date', blank=False, 
-        on_delete=models.PROTECT, related_name="start_events")
-    end_date = models.OneToOneField(
-        'timelines.Date', blank=False, 
-        on_delete=models.PROTECT, related_name="end_events")
+
+    # start
+    start_year = models.IntegerField()
+    start_month = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(1,13)]
+    )
+    start_day = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(1,31)]
+    )
+    start_hour = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(24)]
+    )
+    start_minute = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(60)]
+    )
+    start_second = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(60)]
+    )
+    start_millisecond = models.PositiveIntegerField(blank=True, null=True)
+
+    # end
+    end_year = models.IntegerField(blank=True, null=True)
+    end_month = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(1,13)]
+    )
+    end_day = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(1,31)]
+    )
+    end_hour = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(24)]
+    )
+    end_minute = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(60)]
+    )
+    end_second = models.PositiveSmallIntegerField(
+        blank=True, null=True, choices=[(n, n) for n in range(60)]
+    )
+    end_millisecond = models.PositiveIntegerField(blank=True, null=True)
+
+    # start_date = models.OneToOneField(
+    #     'timelines.Date', blank=False,
+    #     on_delete=models.PROTECT, related_name="start_events")
+    # end_date = models.OneToOneField(
+    #     'timelines.Date', blank=False,
+    #     on_delete=models.PROTECT, related_name="end_events")
     headline = models.CharField(max_length=255, blank=False)
     text = models.TextField()
     media = models.ForeignKey('timelines.Media', null=True, blank=True, on_delete=models.SET_NULL)
@@ -159,21 +211,21 @@ class Event(CreatedUpdated):
         }
         d['media'] = self.media.render() if self.media else None
         d['start_date'] = {
-            "year": self.start_date.year,
-            "month": self.start_date.month,
-            "day": self.start_date.day,
-            "hour": self.start_date.hour,
-            "minute": self.start_date.minute,
-            "second": self.start_date.second,
-            "millisecond": self.start_date.millisecond,
+            "year": self.start_year,
+            "month": self.start_month,
+            "day": self.start_day,
+            "hour": self.start_hour,
+            "minute": self.start_minute,
+            "second": self.start_second,
+            "millisecond": self.start_millisecond,
         }
         d['end_date'] = {
-            "year": self.end_date.year,
-            "month": self.end_date.month,
-            "day": self.end_date.day,
-            "hour": self.end_date.hour,
-            "minute": self.end_date.minute,
-            "second": self.end_date.second,
-            "millisecond": self.end_date.millisecond,
+            "year": self.end_year or self.start_year,
+            "month": self.end_month,
+            "day": self.end_day,
+            "hour": self.end_hour,
+            "minute": self.end_minute,
+            "second": self.end_second,
+            "millisecond": self.end_millisecond,
         }
         return d
