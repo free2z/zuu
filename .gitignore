@@ -5,4 +5,7 @@ private/
 .vscode/
 *.log
 target/
+*.pyc
+__pycache__
+
 
