@@ -14,23 +14,23 @@ class CreatedUpdated(models.Model):
         abstract = True
 
 
-class Media(CreatedUpdated):
-    url = models.URLField()
-    caption = models.CharField(max_length=255, blank=True)
-    credit = models.CharField(max_length=255, blank=True)
+# class Media(CreatedUpdated):
+#     url = models.URLField()
+#     caption = models.CharField(max_length=255, blank=True)
+#     credit = models.CharField(max_length=255, blank=True)
 
-    class Meta:
-        pass
+#     class Meta:
+#         pass
 
-    def __str__(self) -> str:
-        return super().__str__()
+#     def __str__(self) -> str:
+#         return super().__str__()
 
-    def render(self) -> dict:
-        return {
-            "url": self.url,
-            "caption": self.caption,
-            "credit": self.credit,
-        }
+#     def render(self) -> dict:
+#         return {
+#             "url": self.url,
+#             "caption": self.caption,
+#             "credit": self.credit,
+#         }
 
 
 class Timeline(CreatedUpdated):
@@ -53,13 +53,17 @@ class Timeline(CreatedUpdated):
     headline = models.CharField(max_length=255)
     slug = AutoSlugField(populate_from='headline')
     text = models.TextField()
-    media = models.ForeignKey(
-        'timelines.Media', blank=True, null=True, on_delete=models.SET_NULL)
+    # media = models.ForeignKey(
+    #     'timelines.Media', blank=True, null=True, on_delete=models.SET_NULL)
+
+    # Inlines better admin experience
+    media_url = models.URLField(blank=True)
+    media_caption = models.CharField(max_length=255, blank=True)
+    media_credit = models.CharField(max_length=255, blank=True)
 
     children = models.ManyToManyField(
         'self', blank=True, help_text="Sub-timelines",
     )
-    events = models.ManyToManyField('timelines.Event', blank=True)
 
     # timelinejs options
     scale_factor = models.PositiveSmallIntegerField(
@@ -79,11 +83,15 @@ class Timeline(CreatedUpdated):
     def render(self) -> dict:
         d = {}
         d["title"] = {
-            "media": self.media.render() if self.media else None,
+            "media": {
+                "url": self.media_url,
+                "caption": self.media_caption,
+                "credit": self.media_credit,
+            },
             "text": {
                 "headline": self.headline,
                 "text": self.text,
-            }
+            },
         }
         # TODO: recursive render of events and chain.
         # now only renders one level
@@ -148,6 +156,9 @@ class Event(CreatedUpdated):
     #       "text": "<p>Early stone age</p>"
     #     }
     #   },
+    timeline = models.ForeignKey(
+        'timelines.Timeline', on_delete=models.SET_NULL, null=True,
+        related_name="events")
 
     # start
     start_year = models.IntegerField()
@@ -195,7 +206,14 @@ class Event(CreatedUpdated):
     #     on_delete=models.PROTECT, related_name="end_events")
     headline = models.CharField(max_length=255, blank=False)
     text = models.TextField()
-    media = models.ForeignKey('timelines.Media', null=True, blank=True, on_delete=models.SET_NULL)
+
+    # MEDIA
+    # media = models.ForeignKey('timelines.Media', null=True, blank=True, on_delete=models.SET_NULL)
+    # Inlines better admin experience
+    media_url = models.URLField(blank=True)
+    media_caption = models.CharField(max_length=255, blank=True)
+    media_credit = models.CharField(max_length=255, blank=True)
+
 
     class Meta:
         pass
@@ -209,7 +227,11 @@ class Event(CreatedUpdated):
             "headline": self.headline,
             "text": self.text,
         }
-        d['media'] = self.media.render() if self.media else None
+        d['media'] = {
+            "url": self.media_url,
+            "caption": self.media_caption,
+            "credit": self.media_credit,
+        }
         d['start_date'] = {
             "year": self.start_year,
             "month": self.start_month,
