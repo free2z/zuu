@@ -4,60 +4,9 @@
     <link title="timeline-styles" rel="stylesheet"
         href="https://cdn.knightlab.com/libs/timeline3/latest/css/timeline.css">
 
-    <style>
-        /* TODO: this is really quite a problem. Build timeline from scratch?
-           OR contribute to knightlab lib?
-           Mobile support or bust!
-        */
-        @media screen and (max-width: 500px) {
-            #timeline-embed, .tl-timeline p {
-                font-size: 35px !important;
-            }
-            .tl-timeline .tl-slidenav-next .tl-slidenav-title, .tl-timeline .tl-slidenav-previous .tl-slidenav-title, .tl-timeline .tl-message .tl-slidenav-title, .tl-timeline .tl-timegroup-message .tl-slidenav-title {
-                font-size: 18px !important;
-            }
-            .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline, .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline p {
-                font-size: 18px !important;
-                line-height: 20px !important;
-            }
-        }
-        @media screen and (min-width: 501px) and (max-width: 700px) {
-            #timeline-embed, .tl-timeline p {
-                font-size: 30px !important;
-            }
-            .tl-timeline .tl-slidenav-next .tl-slidenav-title, .tl-timeline .tl-slidenav-previous .tl-slidenav-title, .tl-timeline .tl-message .tl-slidenav-title, .tl-timeline .tl-timegroup-message .tl-slidenav-title {
-                font-size: 17px !important;
-            }
-            .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline, .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline p {
-                font-size: 17px !important;
-                line-height: 19px !important;
-            }
-        }
-        @media screen and (min-width: 701px) and (max-width: 1200px) {
-            #timeline-embed, .tl-timeline p {
-                font-size: 28px !important;
-            }
-            .tl-timeline .tl-slidenav-next .tl-slidenav-title, .tl-timeline .tl-slidenav-previous .tl-slidenav-title, .tl-timeline .tl-message .tl-slidenav-title, .tl-timeline .tl-timegroup-message .tl-slidenav-title {
-                font-size: 18px !important;
-            }
-            .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline, .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline p {
-                font-size: 18px !important;
-                line-height: 20px !important;
-            }
-        }
-        @media screen and (min-width: 1201px) {
-            #timeline-embed, .tl-timeline p {
-                font-size: 25px !important;
-            }
-            .tl-timeline .tl-slidenav-next .tl-slidenav-title, .tl-timeline .tl-slidenav-previous .tl-slidenav-title, .tl-timeline .tl-message .tl-slidenav-title, .tl-timeline .tl-timegroup-message .tl-slidenav-title {
-                font-size: 13px !important;
-            }
-            .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline, .tl-timemarker .tl-timemarker-content-container .tl-timemarker-content .tl-timemarker-text h2.tl-headline p {
-                font-size: 13px !important;
-                line-height: 15px !important;
-            }
-        }
-    </style>
+    <meta id="viewport" name="viewport"
+        content ="width=device-width, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
 </head>
 
 <!-- https://softauthor.com/css-make-a-div-height-full-screen/ -->
