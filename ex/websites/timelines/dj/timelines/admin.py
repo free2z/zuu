@@ -6,7 +6,10 @@ from .models import Timeline, Event
 class EventInline(admin.StackedInline):
     model = Event
     extra = 1
-    classes = ["collapse"]
+    # classes = ["collapse open"]
+    # inline_classes = ["collapse"]
+    classes = ('grp-collapse grp-open',)
+    inline_classes = ('grp-collapse grp-closed',)
 
 
 @admin.register(Timeline)
