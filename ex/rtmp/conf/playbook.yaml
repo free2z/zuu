@@ -1,56 +1,11 @@
-- name: Install nginx, django, https, rtmp
-  hosts: azhrio
-  become: yes
-  tasks:
-    - name: Install nginx apt
-      # register: updatesys
-      apt:
-        # update_cache: yes
-        name:
-          - nginx
-          - libnginx-mod-rtmp
-        state: present
-    - name: Install Python deps
-      apt:
-        name:
-          - python3-venv 
-          - python3-dev
-        state: present
+# TODO: roles?
+- name: Nginx with certbot
+  import_playbook: nginx.yaml
+- name: Django behind
+  import_playbook: django.yaml
 
-----
-- hosts: all
-  become: yes
-  tasks:
-  - name: "apt-get update"
-    apt:
-      update_cache: yes
-      cache_valid_time: 3600
 
-  - name: "create www directory"
-    file:
-      path: /var/www/{{ domain }}
-      state: directory
-      mode: '0775'
-      owner: "{{ ansible_user }}"
-      group: "{{ ansible_user }}"
-
-  - name: delete default nginx site
-    file:
-      path: /etc/nginx/sites-enabled/default
-      state: absent
-    notify: restart nginx
-
-  - name: copy nginx site.conf
-    template:
-      src: site.conf.j2
-      dest: /etc/nginx/sites-enabled/{{ domain }}
-      owner: root
-      group: root
-      mode: '0644'
-    notify: restart nginx
-
-  handlers:
-    - name: restart nginx
-      service:
-        name: nginx
-        state: restarted
+# - name: Install nginx, django, https, rtmp
+#   hosts: azhrio
+#   become: yes
+#   tasks:

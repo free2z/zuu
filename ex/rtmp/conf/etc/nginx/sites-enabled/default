@@ -1,3 +1,4 @@
+# Hello from ansible!
 ##
 # You should look at the following URL's in order to grasp a solid understanding
 # of Nginx configuration files in order to fully unleash the power of Nginx.
@@ -38,6 +39,19 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
 
+}
+
+
+server {
+    listen 80 default_server;
+    server_name streams.azhr.io;
+    root /var/www;
+    expires -1d;
+
+    location ~ ^/live/.+\.ts$ {
+        # MPEG-TS segments can be cached upstream indefinitely
+        expires max;
+    }
 }
 
 
@@ -84,24 +98,22 @@ server {
 server {
     if ($host = azhr.io) {
         return 301 https://$host$request_uri;
-        } # managed by Certbot
+    } # managed by Certbot
 
-        server_name azhr.io;
-        listen 80;
-        return 404; # managed by Certbot
-
-
-    }
+    server_name azhr.io;
+    listen 80;
+    return 404; # managed by Certbot
+}
 
 
-    server {
-        if ($host = timelines.azhr.io) {
-            return 301 https://$host$request_uri;
-            } # managed by Certbot
+server {
+    if ($host = timelines.azhr.io) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
 
 
-            server_name timelines.azhr.io 34.171.211.18;
-            listen 80;
-            return 404; # managed by Certbot
+    server_name timelines.azhr.io 34.171.211.18;
+    listen 80;
+    return 404; # managed by Certbot
 
-        }
+}

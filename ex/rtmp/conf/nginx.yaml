@@ -1,0 +1,29 @@
+- hosts: azhrio
+  become: yes
+  tasks:
+  - name: "apt-get update"
+    apt:
+      update_cache: yes
+      cache_valid_time: 3600
+  - name: Install nginx apt
+    # register: updatesys
+    apt:
+      # update_cache: yes
+      name:
+        - nginx
+        - libnginx-mod-rtmp
+      state: present
+  - name: copy nginx site.conf
+    template:
+      src: etc/nginx/sites-enabled/default
+      dest: /etc/nginx/sites-enabled/default
+      owner: root
+      group: root
+      mode: '0644'
+    notify: restart nginx
+
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted

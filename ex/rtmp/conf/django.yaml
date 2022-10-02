@@ -1,0 +1,27 @@
+- hosts: azhrio
+  become: yes
+  tasks:
+  - name: "apt-get update"
+    apt:
+      update_cache: yes
+      cache_valid_time: 3600
+  - name: Install Python deps
+    apt:
+      name:
+        - python3-venv 
+        - python3-dev
+      state: present
+  - name: "ensure /var/www/static"
+    file:
+      path: /var/www/static
+      state: directory
+      mode: '0775'
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+
+# TODO:
+# pull
+# configure python/gunicorn
+# collectstatic
+# migrate
+# restart gunicorn
