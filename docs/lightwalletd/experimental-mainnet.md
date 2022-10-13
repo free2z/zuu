@@ -252,6 +252,63 @@ This should return something like:
 }
 ```
 
+----
+
+### systemctl
+
+because lightwalletd may die from time to time or the machine
+may reboot, I made a service file and enable, start and restart
+lightwalletd using the service file
+
+`/etc/systemd/system/lightwalletd.service`
+
+:
+
+```
+[Unit]
+Description=Lightwalletd Service
+After=network.target
+
+[Service]
+Type=simple
+User=skyl
+WorkingDirectory=/home/skyl/free2z/zcash/lightwalletd
+ExecStart=/home/skyl/free2z/zcash/lightwalletd/lightwalletd --tls-cert /home/skyl/fullchain.pem --tls-key /home/skyl/privkey.pem --zcash-conf-path /home/skyl/.zcash/zcash.conf --log-file /home/skyl/logs/server.log --data-dir /home/skyl/lightwalletd --grpc-bind-addr 0.0.0.0:9067
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+
+### CERTS!
+
+My lightwalletd is running as a unprivileged user but the certs live
+where root owns them. Not sure the best solution to this. But,
+I decided to copy the fullchain.pem and privkey.pem into a place where
+my unprivileged user can own them and do that every time the cert renews.
+
+IDK, kinda' hacky but .. OK.
+
+https://www.digitalocean.com/community/tutorials/how-to-use-certbot-standalone-mode-to-retrieve-let-s-encrypt-ssl-certificates-on-ubuntu-16-04
+
+I made a file at `/etc/letsencrypt/renewal-hooks/deploy/lightwalletd`
+with the contents something like:
+
+```sh
+#!/bin/sh
+do
+    cp /etc/letsencrypt/live/zuul.free2z.cash/privkey.pem /home/skyl/
+    chown -h skyl:skyl /home/skyl/privkey.pem
+    cp /etc/letsencrypt/live/zuul.free2z.cash/fullchain.pem /home/skyl/
+    chown -h skyl:skyl /home/skyl/fullchain.pem
+    systemctl restart lightwalletd
+done
+```
+
+We'll see in December if this works for automatic renewal.
+
+This is all PITA and duct tape. TODO: full automate + one-command.
 
 ----
 
