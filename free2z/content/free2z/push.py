@@ -69,14 +69,15 @@ if __name__ == "__main__":
             # if nothing is actually changing ...
             if zpres['content'] != diskcontent:
                 print("UPDATE", zp['title'])
-                # print(repr(diskcontent))
-                # print(repr(zpres['content']))
-                # output_list = [
-                #     li for li in
-                #     difflib.ndiff(diskcontent, zpres['content'])
-                #     if li[0] != ' '
-                # ]
-                # print(output_list)
+                # print(repr(diskcontent[:50]))
+                # print(repr(zpres['content'][:50]))
+                # # output_list = [
+                # #     li for li in
+                # #     difflib.ndiff(diskcontent, zpres['content'])
+                # #     if li[0] != ' '
+                # # ]
+                # # print(output_list)
+                # exit(0)
                 zp['content'] = diskcontent
                 requests.put(
                     ZPAGE_URL(free2zaddr),
