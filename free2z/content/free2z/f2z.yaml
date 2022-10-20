@@ -7,10 +7,10 @@ creator:
 zpages:
 - category: FREE2Z
   free2zaddr: edfb334f-a411-4194-83df-760b076d2860
-  is_published: false
+  is_published: true
   p2paddr: zs1fhtyukrdml9ez256gt0dz8h5xvljg57k9p8kwrxlpnk7f5w00rr35drqzgd5k4pajz4pu8p962d
   path: using-free2z-api-with-python-requests.md
-  thumbnail_url: ''
+  thumbnail_url: https://i.ibb.co/QQCG2qx/Two-gears-transparent-background.png
   title: Using the free2z API with Python Requests
   vanity: using-free2z-api-with-python-requests
 - category: ZCASH
