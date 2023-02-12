@@ -26,3 +26,7 @@
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
 	branch = main
+[submodule "z/zingolabs/zingo-mobile"]
+	path = z/zingolabs/zingo-mobile
+	url = https://github.com/zingolabs/zingo-mobile
+	branch = dev

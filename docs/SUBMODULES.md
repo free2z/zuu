@@ -57,6 +57,6 @@ everything and get broken sooner rather than later.
 
 For 2, in this case the directory will be `zingolabs/zingo-mobile`.
 
-```
-git submodule add https://github.com/zingolabs/zingo-mobile zingolabs/zingo-mobile -b dev
+```sh
+git submodule add -b dev https://github.com/zingolabs/zingo-mobile z/zingolabs/zingo-mobile
 ```
