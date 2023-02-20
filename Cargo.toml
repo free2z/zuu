@@ -25,6 +25,7 @@ members = [
 # ./hhanh00/zwallet/native/zcash-params/Cargo.toml
 # ./hhanh00/zwallet/native/zcash-sync/Cargo.toml
 "z/hhanh00/zcash-sync",
+"ex/zuuli-mobile/rust",
 # ./ZcashFoundation/zebra/zebra-rpc/Cargo.toml
 # ./ZcashFoundation/zebra/Cargo.toml
 # ./ZcashFoundation/zebra/zebra-client/Cargo.toml
@@ -44,4 +45,8 @@ members = [
 
 default-members = [
     "z/hhanh00/zcash-sync",
+]
+
+exclude = [
+
 ]
