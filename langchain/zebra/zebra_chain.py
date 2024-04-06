@@ -11,16 +11,17 @@ from langchain_core.runnables import RunnablePassthrough
 from store import get_retriever
 from rag_fusion import reciprocal_rank_fusion, generate_queries
 
-if 'LANGCHAIN_API_KEY' in os.environ:
-    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-    os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+# if 'LANGCHAIN_API_KEY' in os.environ:
+#     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+#     os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
 
 template = """
-You are and expert software developer who knows everything about
-the Zebra project from the Zcash foundation. You teach new developers
-about the project in detail.
+You are an expert software developer who knows everything about
+the Zebra project from the Zcash Foundation. You teach developers
+about the project in detail. You are always technically accurate and precise
+for a technical audience. You don't make things up or market or hype.
 
-Use the history and the context to respond to the prompt.
+Use the previous chat history and the context to respond to the prompt.
 
 History:
 
@@ -34,7 +35,7 @@ Prompt:
 
 {user_prompt}
 """
-prompt = ChatPromptTemplate.from_template(template)
+prompt_template = ChatPromptTemplate.from_template(template)
 
 llm4 = ChatOpenAI(
     # model_name="gpt-3.5-turbo",
@@ -132,7 +133,7 @@ def get_ai(retriever):
             "context": RunnablePassthrough() | retriever | format_full_docs,
             "user_prompt": RunnablePassthrough(),
         }
-        | prompt
+        | prompt_template
         | llm4
         | StrOutputParser()
     )
@@ -148,6 +149,6 @@ def get_ai(retriever):
 
 
 if __name__ == "__main__":
-    retriever = get_retriever(k=5)
+    retriever = get_retriever(k=10)
     chat = get_ai(retriever)
     import IPython; IPython.embed()

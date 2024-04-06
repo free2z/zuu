@@ -1,4 +1,3 @@
-
 from langchain_community.document_loaders.generic import GenericLoader
 from langchain_community.document_loaders.parsers import LanguageParser
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -10,8 +9,9 @@ def get_retriever(persist_directory="./chroma/openai", k=20):
     # Attempt to initialize Chroma from the persist directory
     # If this directory exists and has data, this will load the data
     vectorstore = Chroma(persist_directory=persist_directory, embedding_function=OpenAIEmbeddings())
-    print("Loaded Chroma store from disk.")
-    if not vectorstore.embeddings:
+    # print("Loaded Chroma store from disk.")
+    # print("Embeddings:", vectorstore.embeddings)
+    if not vectorstore.embeddings.dimensions:
         # If the directory doesn't exist or is empty, we'll create and save the data
         print(f"Creating a new Chroma store.")
 
@@ -19,7 +19,7 @@ def get_retriever(persist_directory="./chroma/openai", k=20):
         loader = GenericLoader.from_filesystem(
             "../../z/ZcashFoundation/zebra/",
             glob="**/*",
-            suffixes=[".rs", ".toml", ".yaml", ".md", ".json"],
+            suffixes=[".rs", ".toml", ".yaml", ".md", ".json", ".proto"],
             parser=LanguageParser(),
         )
         docs = loader.load()
