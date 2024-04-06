@@ -5,15 +5,15 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
+# from langchain.chains import ConversationChain
 from langchain_core.runnables import RunnablePassthrough
 
 from store import get_retriever
-from rag_fusion import reciprocal_rank_fusion, generate_queries
+# from rag_fusion import reciprocal_rank_fusion, generate_queries
 
-# if 'LANGCHAIN_API_KEY' in os.environ:
-#     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-#     os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
+if 'LANGCHAIN_API_KEY' in os.environ:
+    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+    os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
 
 template = """
 You are an expert software developer who knows everything about
@@ -81,7 +81,7 @@ def format_full_docs(docs):
             continue
 
         source = doc.metadata['source']
-        full_contents.append(f"Source: {source}")
+        full_contents.append(f"Source: {source.replace('../../', '')}")
 
         # Check if the file is not too large to process
         # This threshold is arbitrary and can be adjusted based on your needs
@@ -149,6 +149,6 @@ def get_ai(retriever):
 
 
 if __name__ == "__main__":
-    retriever = get_retriever(k=10)
+    retriever = get_retriever(k=12)
     chat = get_ai(retriever)
     import IPython; IPython.embed()
