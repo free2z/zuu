@@ -1,3 +1,18 @@
+# hhanh00
+[submodule "hhanh00/zcash-warp"]
+	path = z/hhanh00/zcash-warp
+	url = https://github.com/hhanh00/zcash-warp
+	branch = master
+
+[submodule "hhanh00/lwd-warp"]
+	path = z/hhanh00/lwd-warp
+	url = https://github.com/hhanh00/lwd-warp
+	branch = master
+
+[submodule "hhanh00/warp"]
+	path = z/hhanh00/warp
+	url = https://github.com/hhanh00/warp
+	branch = master
 # zcash
 [submodule "zcash/zcash"]
 	path = z/zcash/zcash
@@ -15,3 +30,12 @@
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
 	branch = main
+[submodule "z/hhanh00/zcash-warp"]
+	path = z/hhanh00/zcash-warp
+	url = https://github.com/hhanh00/zcash-warp
+[submodule "z/hhanh00/lwd-warp"]
+	path = z/hhanh00/lwd-warp
+	url = https://github.com/hhanh00/lwd-warp
+[submodule "z/hhanh00/warp"]
+	path = z/hhanh00/warp
+	url = https://github.com/hhanh00/warp
