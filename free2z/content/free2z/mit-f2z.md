@@ -1,1 +1,0 @@
-> All proceeds will go to open source software development!
