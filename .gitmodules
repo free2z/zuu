@@ -1,13 +1,4 @@
 # hhanh00
-[submodule "hhanh00/zcash-warp"]
-	path = z/hhanh00/zcash-warp
-	url = https://github.com/hhanh00/zcash-warp
-	branch = master
-
-[submodule "hhanh00/lwd-warp"]
-	path = z/hhanh00/lwd-warp
-	url = https://github.com/hhanh00/lwd-warp
-	branch = master
 
 [submodule "hhanh00/warp"]
 	path = z/hhanh00/warp
