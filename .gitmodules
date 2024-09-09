@@ -1,8 +1,3 @@
-# hhanh00
-[submodule "hhanh00/zcash-sync"]
-	path = z/hhanh00/zcash-sync
-	url = https://github.com/hhanh00/zcash-sync
-	branch = master
 # zcash
 [submodule "zcash/zcash"]
 	path = z/zcash/zcash
