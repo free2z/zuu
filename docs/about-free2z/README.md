@@ -3,6 +3,11 @@
 This website is built using [Docusaurus 2](https://docusaurus.io/),
 a modern static website generator.
 
+Some of the art was generated at
+https://hotpot.ai/art-generator
+
+and then converted to svg with pngtosvg.com :D
+
 ### Installation
 
 ```
