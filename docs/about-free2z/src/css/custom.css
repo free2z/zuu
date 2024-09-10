@@ -41,66 +41,6 @@
   /* --ifm-heading-color: #ef69ce; */
 }
 
-.hero {
-  position: relative;
-  background: url("/img/Free2z-Header.jpg") center/cover no-repeat;
-  color: white;
-  padding: 100px 0;
-  z-index: 1;
-}
-
-.hero::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(45deg,
-      rgba(27, 27, 27, 0.7),
-      rgba(183, 158, 224, 0.7));
-  z-index: -1;
-}
-
-.hero__title {
-  color: #ffffff;
-  font-size: 62px;
-  text-shadow: 5px 5px 7px rgba(0, 0, 0, 0.5);
-}
-
-.hero__subtitle {
-  font-size: 30px;
-  font-weight: 600;
-  text-shadow: 5px 5px 7px rgba(0, 0, 0, 0.5);
-  text-align: center;
-}
-
-.hero .buttons {
-  position: relative;
-  z-index: 1;
-}
-
-.hero .button {
-  font-size: 18px;
-  font-weight: 600;
-  background-color: #c0ade0;
-  border: none;
-  cursor: pointer;
-  transition: color 0.3s;
-  padding: 12px 0;
-  width: 150px;
-  text-align: center;
-  margin-right: 10px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.hero .button:hover {
-  background-color: #b8a1e0;
-  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
-}
-
 .navbar__link {
   position: relative;
 }
@@ -143,25 +83,6 @@ a:hover {
   color: var(--color-background-hover);
 }
 
-@media screen and (max-width: 996px) {
-  .hero__title {
-    font-size: 52px;
-    margin-bottom: 10px;
-  }
-
-  .hero__subtitle {
-    font-size: 23px;
-    margin-bottom: 20px;
-  }
-
-  .hero .button {
-    margin-top: 10px;
-  }
-}
-
-[data-theme="dark"] .hero__title {
-  color: white;
-}
 
 [data-theme="dark"] .footer a:hover {
   color: var(--color-background-footer-hover);
