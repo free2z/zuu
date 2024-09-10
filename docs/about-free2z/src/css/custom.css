@@ -1,0 +1,190 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-color-primary: #7c87db;
+  --ifm-color-primary-dark: #6a78e0;
+  --ifm-color-primary-darker: #6572d5;
+  --ifm-color-primary-darkest: #4f5aa9;
+  --ifm-color-primary-light: #828ddf;
+  /* --ifm-color-primary-lighter: #919aea; */
+  /* --ifm-color-primary-lightest: #b6bdff; */
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --ifm-button-background-color: #c0ade0;
+  --ifm-button-color: black;
+  /* --color-background-hover: #cbd1ff; */
+  --color-background-footer: #272727;
+  /* --ifm-navbar-link-hover-color: #4f5aa9; */
+  /* --ifm-heading-color: #ffecfa; */
+}
+
+/* For readability concerns, you should choose a lighter palette in dark mode. */
+[data-theme="dark"] {
+  --ifm-color-primary: #cbd1ff;
+  /* --ifm-color-primary-dark: #6a78e0; */
+  /* --ifm-color-primary-darker: #6572d5; */
+  /* --ifm-color-primary-darkest: #4f5aa9; */
+  --ifm-color-primary-light: #828ddf;
+  --ifm-color-primary-lighter: #919aea;
+  --ifm-color-primary-lightest: #b6bdff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --ifm-button-background-color: #ff87e1;
+  --color-background-hover: #b79ee0;
+  --color-background-footer: #272727;
+  --color-background-footer-hover: #b79ee0;
+  --ifm-navbar-link-hover-color: #cbd1ff;
+  /* --ifm-heading-color: #ef69ce; */
+}
+
+.hero {
+  position: relative;
+  background: url("/img/Free2z-Header.jpg") center/cover no-repeat;
+  color: white;
+  padding: 100px 0;
+  z-index: 1;
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(45deg,
+      rgba(27, 27, 27, 0.7),
+      rgba(183, 158, 224, 0.7));
+  z-index: -1;
+}
+
+.hero__title {
+  color: #ffffff;
+  font-size: 62px;
+  text-shadow: 5px 5px 7px rgba(0, 0, 0, 0.5);
+}
+
+.hero__subtitle {
+  font-size: 30px;
+  font-weight: 600;
+  text-shadow: 5px 5px 7px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.hero .buttons {
+  position: relative;
+  z-index: 1;
+}
+
+.hero .button {
+  font-size: 18px;
+  font-weight: 600;
+  background-color: #c0ade0;
+  border: none;
+  cursor: pointer;
+  transition: color 0.3s;
+  padding: 12px 0;
+  width: 150px;
+  text-align: center;
+  margin-right: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hero .button:hover {
+  background-color: #b8a1e0;
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.navbar__link {
+  position: relative;
+}
+
+.navbar__link--active,
+.navbar__link:hover {
+  color: var(--ifm-navbar-link-hover-color);
+  text-decoration: none;
+}
+
+.navbar__link::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: calc(50% - 20px);
+  width: 40px;
+  height: 2px;
+  background-color: #6a78e0;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.navbar__link:hover::after {
+  opacity: 1;
+}
+
+a {
+  font-weight: 500;
+}
+
+a:hover {
+  color: var(--color-background-hover);
+}
+
+.footer {
+  background-color: var(--color-background-footer);
+}
+
+.footer a:hover {
+  color: var(--color-background-hover);
+}
+
+@media screen and (max-width: 996px) {
+  .hero__title {
+    font-size: 52px;
+    margin-bottom: 10px;
+  }
+
+  .hero__subtitle {
+    font-size: 23px;
+    margin-bottom: 20px;
+  }
+
+  .hero .button {
+    margin-top: 10px;
+  }
+}
+
+[data-theme="dark"] .hero__title {
+  color: white;
+}
+
+[data-theme="dark"] .footer a:hover {
+  color: var(--color-background-footer-hover);
+}
+
+iframe {
+  max-width: 100%;
+}
+
+.align-right {
+  text-align: right;
+}
+
+.float-right {
+  float: right;
+  margin: 0.1em 1em;
+}
+
+/* Hide desktop navbar items but show in mobile */
+
+/* Hide certain navbar items on desktop but show on mobile */
+@media (min-width: 996px) {
+  .navbar-item-to-hide {
+    display: none;
+  }
+}
