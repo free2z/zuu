@@ -1,0 +1,107 @@
+- Overview
+  - Introduction
+    - What is Free2Z?
+    - Who is Free2Z for?
+  - Core Values
+    - Transparency
+    - Fairness
+    - User Empowerment
+    - ...
+  - Key Features
+    - Peer-to-Peer Donations
+    - Revenue Sharing
+    - Creative Tools
+  - Why Choose Free2Z
+    - No Ads, Low Fees
+    - Privacy and Anonymity
+
+- Getting Started
+  - Introduction to Free2Z
+    - What to Expect
+    - Required Tools
+  - Quick Start Guide
+    - Account Setup
+    - Sign Up
+    - Verification
+    - Set Up Wallet
+  - Navigating Free2Z
+    - Dashboard Overview
+    - Key Menus
+    - How to Seek Help
+
+- For Creators
+  - Monetization Options
+    - P2P Donations
+    - Revenue Sharing (2Z Tokens)
+    - Subscription Models
+  - Content Creation Tools
+    - Livestreams
+    - PPV Broadcasts
+    - Members-Only Content
+  - Building zPages
+    - Creating zPages
+    - Best Practices
+    - Advanced Customizations
+
+- For Supporters
+  - How to Support Creators
+    - One-Time Donations
+    - Subscription Support
+    - Transparent Pricing
+  - User Experience
+    - Dashboard Features
+    - Profile Customization
+    - Supporter Benefits
+
+- For Anonymous Users
+  - Discovering Content
+    - How It Works
+    - Fairness and Transparency
+    - How to Engage with Content
+  - Supporting Anonymously
+    - How to Donate Anonymously
+    - No-Login Required Features
+
+- Revenue Sharing and Tokens
+  - Introduction to 2Z Tokens
+    - What are 2Z Tokens?
+    - How to Earn 2Z Tokens
+    - Transparent Accounting
+  - Eligibility and Requirements
+    - Qualification Criteria
+    - Compliance and Restrictions
+    - How to Become a Partner
+  - Revenue Distribution
+    - Revenue Sharing Pool
+    - Token Allocation
+    - Withdrawal Procedures
+
+- Privacy and Security
+  - Using Cryptocurrency
+    - Using Zcash
+    - Other Supported Cryptos
+  - Secure Transactions
+    - Data Protection
+    - Data Handling
+    - Encryption Technologies
+  - Anonymity Features
+    - Trust and Safety
+    - Code of Conduct
+    - Moderation Policies
+    - Dispute Resolution
+
+- Advanced Features
+  - AI Tools
+    - Overview of AI Tools
+    - How to Use Them
+    - Ethical Considerations
+  - API and Developer Resources
+    - API Documentation
+    - SDKs and Libraries
+    - Community Contributions
+  - Customizations and Integrations
+    - Plugins and Extensions
+    - Webhooks
+    - Third-party Services
+
+- _category_.json (in each directory)

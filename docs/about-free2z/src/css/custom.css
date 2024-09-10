@@ -1,0 +1,111 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-color-primary: #7c87db;
+  --ifm-color-primary-dark: #6a78e0;
+  --ifm-color-primary-darker: #6572d5;
+  --ifm-color-primary-darkest: #4f5aa9;
+  --ifm-color-primary-light: #828ddf;
+  /* --ifm-color-primary-lighter: #919aea; */
+  /* --ifm-color-primary-lightest: #b6bdff; */
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --ifm-button-background-color: #c0ade0;
+  --ifm-button-color: black;
+  /* --color-background-hover: #cbd1ff; */
+  --color-background-footer: #272727;
+  /* --ifm-navbar-link-hover-color: #4f5aa9; */
+  /* --ifm-heading-color: #ffecfa; */
+}
+
+/* For readability concerns, you should choose a lighter palette in dark mode. */
+[data-theme="dark"] {
+  --ifm-color-primary: #cbd1ff;
+  /* --ifm-color-primary-dark: #6a78e0; */
+  /* --ifm-color-primary-darker: #6572d5; */
+  /* --ifm-color-primary-darkest: #4f5aa9; */
+  --ifm-color-primary-light: #828ddf;
+  --ifm-color-primary-lighter: #919aea;
+  --ifm-color-primary-lightest: #b6bdff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --ifm-button-background-color: #ff87e1;
+  --color-background-hover: #b79ee0;
+  --color-background-footer: #272727;
+  --color-background-footer-hover: #b79ee0;
+  --ifm-navbar-link-hover-color: #cbd1ff;
+  /* --ifm-heading-color: #ef69ce; */
+}
+
+.navbar__link {
+  position: relative;
+}
+
+.navbar__link--active,
+.navbar__link:hover {
+  color: var(--ifm-navbar-link-hover-color);
+  text-decoration: none;
+}
+
+.navbar__link::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: calc(50% - 20px);
+  width: 40px;
+  height: 2px;
+  background-color: #6a78e0;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.navbar__link:hover::after {
+  opacity: 1;
+}
+
+a {
+  font-weight: 500;
+}
+
+a:hover {
+  color: var(--color-background-hover);
+}
+
+.footer {
+  background-color: var(--color-background-footer);
+}
+
+.footer a:hover {
+  color: var(--color-background-hover);
+}
+
+
+[data-theme="dark"] .footer a:hover {
+  color: var(--color-background-footer-hover);
+}
+
+iframe {
+  max-width: 100%;
+}
+
+.align-right {
+  text-align: right;
+}
+
+.float-right {
+  float: right;
+  margin: 0.1em 1em;
+}
+
+/* Hide desktop navbar items but show in mobile */
+
+/* Hide certain navbar items on desktop but show on mobile */
+@media (min-width: 996px) {
+  .navbar-item-to-hide {
+    display: none;
+  }
+}

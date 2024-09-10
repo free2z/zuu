@@ -1,0 +1,17 @@
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
+
+package(default_visibility = ["//visibility:public"])
+
+# bundle install; bundle exec jekyll build
+filegroup(
+    name = "files",
+    srcs = glob([
+        "docsbuild/**/*.*",
+    ]),
+)
+
+pkg_tar(
+    name = "tar",
+    srcs = [":files"],
+    strip_prefix = ".",
+)
