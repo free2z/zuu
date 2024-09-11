@@ -1,0 +1,11 @@
+# Contact information for security issues
+Contact: sec@free2z.com
+# URL for bug bounty program
+Bug-Bounty: https://free2z.com/free2z/zpage/100-zec-bounty-for-security-privacy-and-bugs
+# TODO
+# Encryption preference for security reports
+# Encryption: prefer-encrypt
+# PGP key information
+# PGP: https://free2z.com/security.txt.asc
+# URL for security policy
+# Policy: https://free2z.com/security-policy

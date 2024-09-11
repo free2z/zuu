@@ -1,0 +1,48 @@
+.w-md-editor-text-input {
+  overflow: scroll;
+  /* font-family: monospace, monospace !important; */
+  font-family: 'Roboto Mono', monospace !important;
+  font-size: large;
+  line-height: 118%;
+}
+
+.w-md-editor-toolbar svg {
+  width: 20px !important;
+  height: 20px !important;
+  /* margin-right: 0.25em !important; */
+}
+
+.w-md-editor-toolbar li>button {
+  width: auto;
+  height: auto;
+  padding: 0.5em;
+}
+
+.w-md-editor-toolbar {
+  min-width: 60px;
+}
+
+[data-name="embed"] svg {
+  width: 25px !important;
+  height: 25px !important;
+}
+
+[data-name="fileUpload"] svg {
+  width: 25px !important;
+  height: 25px !important;
+}
+
+[data-name="AI"] svg {
+  width: 25px !important;
+  height: 25px !important;
+}
+
+[data-name="selectFile"] svg {
+  width: 25px !important;
+  height: 25px !important;
+}
+
+[data-name="Dall-E"] svg {
+  width: 25px !important;
+  height: 25px !important;
+}

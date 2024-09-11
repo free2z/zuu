@@ -1,0 +1,4 @@
+# rebuilding the typescript all of the time takes cloudbuild
+# time ... hrm ... github actions? Just check it all in?
+#!build/
+

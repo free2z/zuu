@@ -1,0 +1,4 @@
+/* Add a class name to scope the styles to the specific component */
+.IframelyComponent div[style*="max-width"] {
+    margin: 0 auto;
+}
