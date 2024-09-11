@@ -19,7 +19,7 @@ npm test
 npm build
 ```
 
-### Generate self-signed local dev certificates**
+### Generate self-signed local dev certificates (optional)
 
 **Install `mkcert`, a local CA for development certificates**
 
