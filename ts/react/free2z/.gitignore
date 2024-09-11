@@ -1,4 +1,43 @@
-# rebuilding the typescript all of the time takes cloudbuild
-# time ... hrm ... github actions? Just check it all in?
-#!build/
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
 
+# Build output
+build/
+dist/
+
+# Test coverage
+coverage/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor-specific files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ESLint cache
+.eslintcache
+
+# Parcel cache
+.cache/
+
+# Jest snapshots
+*.snap
+
+# TypeScript
+*.tsbuildinfo
+
+# Miscellaneous
+.lock-wscript
