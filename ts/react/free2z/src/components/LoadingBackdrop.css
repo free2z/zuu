@@ -1,0 +1,65 @@
+@keyframes textMove {
+    0% {
+        transform: rotateX(0deg) rotateY(0deg) translateY(0);
+    }
+
+    25% {
+        transform: rotateX(90deg) rotateY(90deg) translateY(-100px);
+    }
+
+    50% {
+        transform: rotateX(180deg) rotateY(180deg) translateY(0);
+    }
+
+    75% {
+        transform: rotateX(270deg) rotateY(270deg) translateY(100px);
+    }
+
+    100% {
+        transform: rotateX(360deg) rotateY(360deg) translateY(0);
+    }
+}
+
+@keyframes zanyMove {
+    0% {
+        transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+    }
+
+    25% {
+        transform: rotateX(180deg) rotateY(180deg) rotateZ(180deg);
+    }
+
+    50% {
+        transform: rotateX(180deg) rotateY(180deg) rotateZ(180deg);
+    }
+
+    75% {
+        transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+    }
+
+    100% {
+        transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        color: rgb(179, 179, 255);
+    }
+
+    25% {
+        color: pink;
+    }
+
+    50% {
+        color: rgb(147, 89, 147);
+    }
+
+    75% {
+        color: rgb(241, 198, 229);
+    }
+
+    100% {
+        color: rgb(179, 179, 255);
+    }
+}

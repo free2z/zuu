@@ -1,0 +1,16 @@
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "build",
+    srcs = glob([
+        "build/**/*.*",
+    ]),
+)
+
+pkg_tar(
+    name = "tar",
+    srcs = [":build"],
+    strip_prefix = ".",
+)
