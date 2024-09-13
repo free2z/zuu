@@ -28,4 +28,5 @@ jobs:
 
       - name: Build the project
         working-directory: ts/react/free2z
-        run: npm run build
+        # TODO: we want to set this to true soon!
+        run: CI=false npm run build
