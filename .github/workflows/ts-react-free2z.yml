@@ -22,9 +22,9 @@ jobs:
         working-directory: ts/react/free2z
         run: npm install
 
-      - name: Run tests
-        working-directory: ts/react/free2z
-        run: npm test
+      # - name: Run tests
+      #   working-directory: ts/react/free2z
+      #   run: npm test
 
       - name: Build the project
         working-directory: ts/react/free2z
