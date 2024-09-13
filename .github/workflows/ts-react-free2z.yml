@@ -1,0 +1,31 @@
+name: React App CI
+
+on:
+  pull_request:
+    paths:
+      - 'ts/react/free2z/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ts/react/free2z
+        run: npm install
+
+      - name: Run tests
+        working-directory: ts/react/free2z
+        run: npm test
+
+      - name: Build the project
+        working-directory: ts/react/free2z
+        run: npm run build
