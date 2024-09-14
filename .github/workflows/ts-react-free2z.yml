@@ -1,4 +1,4 @@
-name: React App CI
+name: ts/react/free2z
 
 on:
   pull_request:
