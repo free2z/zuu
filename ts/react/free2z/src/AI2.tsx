@@ -2,6 +2,7 @@ import { Helmet } from "react-helmet-async";
 import { useEffect, useReducer, useRef, useState } from 'react';
 import {
     AppBar, Box, IconButton, Toolbar, Stack, Tooltip,
+    Theme,
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -213,9 +214,9 @@ const reducer = (state: AIState, action: AIAction): AIState => {
 export default function AI() {
     const { conversationId } = useParams();
     const [open, setOpen] = useState(false)
-    const [user, setUser] = useGlobalState('creator')
-    const [authStatus, setAuthStatus] = useGlobalState('authStatus')
-    const [loginModal, setLoginModal] = useGlobalState("loginModal")
+    const [user] = useGlobalState('creator')
+    const [authStatus] = useGlobalState('authStatus')
+    const [, setLoginModal] = useGlobalState("loginModal")
     const navigate = useTransitionNavigate()
     const bottomRef = useRef<HTMLDivElement>(null);
     const outerBoxRef = useRef<HTMLDivElement>(null);
@@ -379,7 +380,7 @@ export default function AI() {
                     backgroundColor: 'background.paper',
                     position: 'fixed',
                     width: '100%',
-                    zIndex: (theme) => theme.zIndex.drawer + 1,
+                    zIndex: (theme: Theme) => theme.zIndex.drawer + 1,
                 }}
                 elevation={2}
             >
@@ -538,7 +539,7 @@ export default function AI() {
                     position: 'fixed',
                     bottom: -9,
                     width: '100%',
-                    zIndex: (theme) => theme.zIndex.drawer - 1,
+                    zIndex: (theme: Theme) => theme.zIndex.drawer - 1,
                 }}
             >
                 <Footer />

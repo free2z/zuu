@@ -120,7 +120,7 @@
     "@types/react-swipeable-views": "^0.13.5",
     "@types/react-syntax-highlighter": "^13.5.2",
     "@types/testing-library__react": "^10.2.0",
-    "@types/three": "^0.149.0",
+    "@types/three": "^0.168.0",
     "prettier": "2.6.2",
     "react-app-rewired": "^2.2.1"
   }
