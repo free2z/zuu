@@ -1,32 +1,20 @@
-# hhanh00
-
-[submodule "hhanh00/warp"]
+[submodule "z/hhanh00/warp"]
 	path = z/hhanh00/warp
 	url = https://github.com/hhanh00/warp
 	branch = master
-# zcash
-[submodule "zcash/zcash"]
+[submodule "z/zcash/zcash"]
 	path = z/zcash/zcash
 	url = https://github.com/zcash/zcash
 	branch = master
-[submodule "zcash/lightwalletd"]
+[submodule "z/zcash/lightwalletd"]
 	path = z/zcash/lightwalletd
 	url = https://github.com/zcash/lightwalletd
 	branch = master
 [submodule "z/zcash/zips"]
 	path = z/zcash/zips
 	url = https://github.com/zcash/zips
-# ZcashFoundation
-[submodule "ZcashFoundation/zebra"]
+	branch = main
+[submodule "z/ZcashFoundation/zebra"]
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
 	branch = main
-[submodule "z/hhanh00/zcash-warp"]
-	path = z/hhanh00/zcash-warp
-	url = https://github.com/hhanh00/zcash-warp
-[submodule "z/hhanh00/lwd-warp"]
-	path = z/hhanh00/lwd-warp
-	url = https://github.com/hhanh00/lwd-warp
-[submodule "z/hhanh00/warp"]
-	path = z/hhanh00/warp
-	url = https://github.com/hhanh00/warp
