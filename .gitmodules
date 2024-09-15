@@ -18,7 +18,3 @@
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
 	branch = main
-[submodule "z/hhanh00/warp"]
-	path = z/hhanh00/warp
-	url = https://github.com/hhanh00/warp
-	branch = main
