@@ -16,22 +16,22 @@
   },
   "dependencies": {
     "@docusaurus/core": "^3.0.0",
-    "@docusaurus/preset-classic": "^3.1.1",
-    "@mdx-js/react": "^3.0.0",
-    "@react-three/drei": "^9.97.5",
-    "@react-three/fiber": "^8.15.16",
+    "@docusaurus/preset-classic": "^3.5.2",
+    "@mdx-js/react": "^3.0.1",
+    "@react-three/drei": "^9.112.0",
+    "@react-three/fiber": "^8.17.7",
     "clsx": "^1.2.1",
     "drei": "^2.2.21",
-    "prism-react-renderer": "^2.3.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "three": "^0.158.0"
+    "prism-react-renderer": "^2.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.168.0"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.0.0",
     "@docusaurus/tsconfig": "3.0.0",
     "@docusaurus/types": "3.0.0",
-    "@types/react": "^18.2.55",
+    "@types/react": "^18.3.5",
     "typescript": "~5.2.2"
   },
   "browserslist": {
