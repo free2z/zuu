@@ -80,7 +80,7 @@ export default function EditPage() {
 
     const handleSave = () => {
         setErrors(noErrors)
-        setLoading(true)
+        // setLoading(true)
         const update = (f2zaddr: string): Promise<AxiosResponse<any, any>> => {
             // console.log(`update ${f2zaddr}`)
             return axios
@@ -96,13 +96,13 @@ export default function EditPage() {
                         message: "Saved",
                         open: true,
                         severity: "success",
-                        duration: 2000,
+                        duration: 1000,
                     })
                     const currentPath = location.pathname;
                     const newPath = currentPath.replace(/\/edit\/[^/]+$/, `/edit/${page.vanity}`);
                     // navigate(newPath, { replace: true });
                     window.history.replaceState(null, '', newPath);
-                    setLoading(false)
+                    // setLoading(false)
                     return res
                 })
                 .catch((res) => {
@@ -120,7 +120,7 @@ export default function EditPage() {
                     })
                     // how do you pass a reject along?
                     // console.log("catch update RES", res)
-                    setLoading(false)
+                    // setLoading(false)
                     res.data = page
                     return res
                     // throw "No Save"
@@ -173,7 +173,7 @@ export default function EditPage() {
                     //     {}, '', `/edit/${newAddr}`);
                     navigate(`/edit/${newAddr}`, { replace: true });
 
-                    setLoading(false)
+                    // setLoading(false)
                     return res
                 }).catch(res => {
                     // console.log("error updating", res)
@@ -183,7 +183,7 @@ export default function EditPage() {
                         severity: "error",
                         duration: null,
                     })
-                    setLoading(false)
+                    // setLoading(false)
                     return res
                     // throw "No Save"
                 })
@@ -201,7 +201,7 @@ export default function EditPage() {
                     vanity: res.data.vanity || "",
                     title: res.data.title || "",
                 })
-                setLoading(false)
+                // setLoading(false)
                 // how do you pass a reject along?
                 // throw "No Save"
             })
