@@ -44,7 +44,7 @@ export const saplingRE = /^zs[a-z0-9]{76}$/g
 
 export default function EditPage() {
     const { id } = useParams()
-    const [current, getCurrent] = useGlobalState("creator")
+    const [current] = useGlobalState("creator")
     const [selectedImage, setSelectedImage] = useState<FileMetadata | null>(null)
 
     const newPage = {
@@ -72,8 +72,8 @@ export default function EditPage() {
     const [errors, setErrors] = useState(noErrors)
 
     const setSnackbarState = useGlobalState("snackbar")[1]
-    const [loading, setLoading] = useGlobalState("loading")
-    const [focus, setFocus] = useState(false)
+    const [, setLoading] = useGlobalState("loading")
+    const [focus] = useState(false)
     const [page, setPage] = useState(newPage)
     const navigate = useTransitionNavigate()
     const location = useLocation()
@@ -452,7 +452,8 @@ export default function EditPage() {
                     <MarkdownEditor
                         page={page}
                         setPage={setPage}
-                        handleSave={handleSave} />
+                        handleSave={handleSave}
+                    />
                 </Grid>
 
                 <Grid item xs={12} md={11} lg={10}>
