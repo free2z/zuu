@@ -258,6 +258,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                             title={page.title}
                             height={isFullScreen ? "calc(100vh - 54px)" : "555px"}
                             previewWindow={previewWindow || undefined}
+                            handleSave={handleSave}
                         />
                     </TabPanel>
                     <TabPanel value={value} index={1}>

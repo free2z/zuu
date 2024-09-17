@@ -44,6 +44,8 @@ type Props = {
     required?: boolean
     title?: string
     previewWindow?: Window
+    // the axiosresponse coupling is no better than plain any
+    handleSave?: () => any
 }
 
 
@@ -88,13 +90,10 @@ export default function F2ZMarkdownField(props: Props) {
 
         const handleScroll = () => {
             const { scrollTop, scrollHeight, clientHeight } = textArea;
-            console.log(`Scroll Top: ${scrollTop}, Scroll Height: ${scrollHeight}, Client Height: ${clientHeight}`);
+            // console.log(`Scroll Top: ${scrollTop}, Scroll Height: ${scrollHeight}, Client Height: ${clientHeight}`);
 
             // Check if we are near the bottom
             if (scrollHeight - scrollTop - clientHeight < 100) {
-                console.log('Near the bottom, sending message to child window.');
-                // but make it smooth
-                // props.previewWindow?.scrollTo(0, props.previewWindow?.document.body.scrollHeight);
                 props.previewWindow?.scrollTo({
                     top: props.previewWindow?.document.body.scrollHeight,
                     behavior: 'smooth'
@@ -102,17 +101,36 @@ export default function F2ZMarkdownField(props: Props) {
             }
         };
 
-        console.log('Attaching scroll event listener to the textarea.');
+        // console.log('Attaching scroll event listener to the textarea.');
         // Attach the scroll event
         textArea.addEventListener('scroll', handleScroll);
 
         // Cleanup
         return () => {
-            console.log('Removing scroll event listener from the textarea.');
+            // console.log('Removing scroll event listener from the textarea.');
             textArea.removeEventListener('scroll', handleScroll);
         };
     }, [editorRef.current, props.previewWindow]); // Depend on editorRef
 
+
+    useEffect(() => {
+        const handleSaveShortcut = (e: KeyboardEvent) => {
+            // Check for ctrlKey (Windows/Linux) or metaKey (macOS)
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                console.log("ctrl/cmd + s detected");
+                e.preventDefault(); // Prevent the default save action
+                props.handleSave && props.handleSave();
+            }
+        };
+
+        // Attach the event listener
+        document.addEventListener('keydown', handleSaveShortcut, { passive: false });
+
+        // Clean up the event listener
+        return () => {
+            document.removeEventListener('keydown', handleSaveShortcut);
+        };
+    }, [props.handleSave]);
 
     const handleImageSelection = (file: FileMetadata) => {
         // You can add the markdown insertion logic here
@@ -322,6 +340,15 @@ export default function F2ZMarkdownField(props: Props) {
                     }}
                     value={content}
                     onChange={cb}
+                    // This doesn't override the default browser save page
+                    // call handleSave on cmd+s, ctrl+s
+                    // onKeyUp={(e) => {
+                    //     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    //         console.log("ctrl+s")
+                    //         e.preventDefault();
+                    //         props.handleSave && props.handleSave();
+                    //     }
+                    // }}
                     textareaProps={{
                         placeholder: placeholder || samplePage,
                         // ref: textAreaRef,
