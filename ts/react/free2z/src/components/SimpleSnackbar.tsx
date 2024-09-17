@@ -16,6 +16,10 @@ export default function SimpleSnackbar() {
             enqueueSnackbar(snackbar.message, {
                 variant: snackbar.severity,
                 autoHideDuration: snackbar.duration,
+                anchorOrigin: {
+                    vertical: 'bottom',
+                    horizontal: 'center',
+                },
                 onClose: () => setSnackbar({ ...snackbar, open: false }),
                 action: key => (
                     <IconButton

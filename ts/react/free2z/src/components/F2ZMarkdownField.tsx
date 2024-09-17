@@ -1,7 +1,7 @@
 import { FolderOpen, Satellite, SatelliteAlt, Upload, YouTube } from "@mui/icons-material";
 import MDEditor, { ICommand, TextAreaTextApi, TextState } from "@uiw/react-md-editor"
 import axios from "axios";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { samplePage } from "../Constants"
 import { useGlobalState } from "../state/global";
 import { useStoreState } from "../state/persist";
@@ -43,6 +43,9 @@ type Props = {
     placeholder?: string
     required?: boolean
     title?: string
+    previewWindow?: Window
+    // the axiosresponse coupling is no better than plain any
+    handleSave?: () => any
 }
 
 
@@ -63,6 +66,71 @@ export default function F2ZMarkdownField(props: Props) {
 
     const [imageSelectorOpen, setImageSelectorOpen] = useState(false);
     const [editorApi, setEditorApi] = useState<null | TextAreaTextApi>(null);
+
+    const editorRef = useRef<HTMLDivElement | null>(null); // Ref to the MDEditor container
+
+    // This just scrolls our preview window if it is open
+    // and we are near the bottom of the editor.
+    useEffect(() => {
+        if (!props.previewWindow) {
+            return;
+        }
+
+        if (!editorRef.current) {
+            console.log('Editor ref is not attached yet.');
+            return;
+        }
+
+        // Access the textarea inside the MDEditor
+        const textArea = editorRef.current.querySelector('textarea');
+        if (!(textArea instanceof HTMLTextAreaElement)) {
+            console.log('Textarea not found within MDEditor.');
+            return;
+        }
+
+        const handleScroll = () => {
+            const { scrollTop, scrollHeight, clientHeight } = textArea;
+            // console.log(`Scroll Top: ${scrollTop}, Scroll Height: ${scrollHeight}, Client Height: ${clientHeight}`);
+
+            // Check if we are near the bottom
+            if (scrollHeight - scrollTop - clientHeight < 100) {
+                props.previewWindow?.scrollTo({
+                    top: props.previewWindow?.document.body.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        };
+
+        // console.log('Attaching scroll event listener to the textarea.');
+        // Attach the scroll event
+        textArea.addEventListener('scroll', handleScroll);
+
+        // Cleanup
+        return () => {
+            // console.log('Removing scroll event listener from the textarea.');
+            textArea.removeEventListener('scroll', handleScroll);
+        };
+    }, [editorRef.current, props.previewWindow]); // Depend on editorRef
+
+
+    useEffect(() => {
+        const handleSaveShortcut = (e: KeyboardEvent) => {
+            // Check for ctrlKey (Windows/Linux) or metaKey (macOS)
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                console.log("ctrl/cmd + s detected");
+                e.preventDefault(); // Prevent the default save action
+                props.handleSave && props.handleSave();
+            }
+        };
+
+        // Attach the event listener
+        document.addEventListener('keydown', handleSaveShortcut, { passive: false });
+
+        // Clean up the event listener
+        return () => {
+            document.removeEventListener('keydown', handleSaveShortcut);
+        };
+    }, [props.handleSave]);
 
     const handleImageSelection = (file: FileMetadata) => {
         // You can add the markdown insertion logic here
@@ -265,32 +333,44 @@ export default function F2ZMarkdownField(props: Props) {
                 onClose={() => setImageSelectorOpen(false)}
                 onSelect={handleImageSelection}
             />
-            <MDEditor
-                style={{
-                    border: `1px solid gray`,
-                }}
-                value={content}
-                onChange={cb}
-                textareaProps={{
-                    placeholder: placeholder || samplePage,
-                }}
-                enableScroll={true}
-                highlightEnable={false}
-                visibleDragbar={false}
-                height={height || 555}
-                preview={"edit"}
-                extraCommands={[dalle, openai, embed, fileUpload, selectFile]}
-                commandsFilter={(
-                    command: ICommand,
-                    isExtra: boolean
-                ): false | ICommand => {
-                    // console.log(command, isExtra)
-                    if (noCommands.includes(command.name || "")) {
-                        return false
-                    }
-                    return command
-                }}
-            />
+            <div ref={editorRef}>
+                <MDEditor
+                    style={{
+                        border: `1px solid gray`,
+                    }}
+                    value={content}
+                    onChange={cb}
+                    // This doesn't override the default browser save page
+                    // call handleSave on cmd+s, ctrl+s
+                    // onKeyUp={(e) => {
+                    //     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    //         console.log("ctrl+s")
+                    //         e.preventDefault();
+                    //         props.handleSave && props.handleSave();
+                    //     }
+                    // }}
+                    textareaProps={{
+                        placeholder: placeholder || samplePage,
+                        // ref: textAreaRef,
+                    }}
+                    enableScroll={true}
+                    highlightEnable={false}
+                    visibleDragbar={false}
+                    height={height || 555}
+                    preview={"edit"}
+                    extraCommands={[dalle, openai, embed, fileUpload, selectFile]}
+                    commandsFilter={(
+                        command: ICommand,
+                        isExtra: boolean
+                    ): false | ICommand => {
+                        // console.log(command, isExtra)
+                        if (noCommands.includes(command.name || "")) {
+                            return false
+                        }
+                        return command
+                    }}
+                />
+            </div>
         </div>
     )
 }
