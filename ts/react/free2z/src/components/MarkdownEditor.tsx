@@ -13,7 +13,6 @@ import F2ZMarkdownField from "./F2ZMarkdownField";
 import { TabPanel } from "./TabPanel";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import getTheme from "../Theme";
 import { CacheProvider, Theme } from '@emotion/react';
 import createCache from '@emotion/cache';
 
@@ -33,7 +32,11 @@ interface MarkdownEditorProps {
     handleSave: () => Promise<AxiosResponse<any, any>>;
 }
 
-function PreviewWindow({ content, container, theme }: { content: string, container: HTMLElement, theme: Theme }) {
+function PreviewWindow({
+    content, container, theme,
+}: {
+    content: string, container: HTMLElement, theme: Theme,
+}) {
     // Create an Emotion cache for the new window
     const cache = createCache({
         key: 'mui', // You can change this to a unique key to avoid conflicts
@@ -46,7 +49,13 @@ function PreviewWindow({ content, container, theme }: { content: string, contain
             <CacheProvider value={cache}>
                 <ThemeProvider theme={theme}>
                     <CssBaseline />
-                    <Box component="div" sx={{ margin: 1 }}>
+                    <Box component="div"
+                        sx={{
+                            margin: 1,
+                            marginBottom: 15,
+                            paddingBottom: 15,
+                        }}
+                    >
                         <MathMarkdown content={content} />
                     </Box>
                 </ThemeProvider>
@@ -54,6 +63,7 @@ function PreviewWindow({ content, container, theme }: { content: string, contain
         </BrowserRouter>
     );
 }
+
 
 export default function MarkdownEditor(props: MarkdownEditorProps) {
     const { page, setPage, handleSave } = props;
@@ -247,6 +257,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                             required={true}
                             title={page.title}
                             height={isFullScreen ? "calc(100vh - 54px)" : "555px"}
+                            previewWindow={previewWindow || undefined}
                         />
                     </TabPanel>
                     <TabPanel value={value} index={1}>
