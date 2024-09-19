@@ -1,7 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Mesh } from 'three';
+import { Canvas, extend } from '@react-three/fiber';
+import { Mesh, CylinderGeometry } from 'three';
 import RotatingCamera from './RotatingCamera';
+
+// Extend THREE to include missing geometries
+extend({ CylinderGeometry });
 
 const FFT_SIZE = 1024;
 
@@ -10,7 +13,6 @@ const Y_OFFSET = 0.25;
 const NUM_BARS = 128;
 const BAR_WIDTH = 0.001;
 const BAR_HEIGHT = 0.05;
-// const BAR_DEPTH = 0.001;
 const BAR_SPACING = 0.0001;
 const MAX_SCALE = 3500;
 const AMPLITUDE_NORMALIZER = 256.0; // Normalizes the amplitude values
@@ -26,7 +28,6 @@ const mapAmplitudeToColor = (amplitude: number): string => {
     const hue = 240 - (amplitude * 240);
     return `hsl(${hue}, 100%, 50%)`;
 };
-
 
 const Bar: React.FC<{
     position: [number, number, number],
@@ -45,19 +46,18 @@ const Bar: React.FC<{
 
     return (
         <>
-            {/* https://threejs.org/docs/#api/en/geometries/CylinderGeometry */}
+            {/* Use the extended CylinderGeometry */}
             <mesh ref={borderMeshRef} position={position}>
-                <cylinderBufferGeometry args={[BAR_WIDTH * 1.05, BAR_WIDTH * 1.05, BAR_HEIGHT * 1.05, 32]} />
+                <cylinderGeometry args={[BAR_WIDTH * 1.05, BAR_WIDTH * 1.05, BAR_HEIGHT * 1.05, 32]} />
                 <meshStandardMaterial color={'black'} transparent opacity={0.15} />
             </mesh>
             <mesh ref={meshRef} position={position}>
-                <cylinderBufferGeometry args={[BAR_WIDTH, BAR_WIDTH, BAR_HEIGHT, 32]} />
+                <cylinderGeometry args={[BAR_WIDTH, BAR_WIDTH, BAR_HEIGHT, 32]} />
                 <meshStandardMaterial color={color} />
             </mesh>
         </>
     );
 };
-
 
 const AudioVisualizerCanvas: React.FC<VisualizerProps> = ({ dataArrayRef, analyserRef }) => {
     const [bars, setBars] = useState<Array<{
@@ -111,8 +111,7 @@ const AudioVisualizerCanvas: React.FC<VisualizerProps> = ({ dataArrayRef, analys
 
     const barPositions = Array.from({ length: NUM_BARS }, (_, i) => {
         const yPos = (i - HALF_BARS) * (BAR_HEIGHT + BAR_SPACING) + Y_OFFSET;
-        // const zPos = (i - HALF_BARS) * (BAR_DEPTH + BAR_SPACING);
-        const zPos = i / NUM_BARS * 2
+        const zPos = i / NUM_BARS * 2;
         return [0, yPos, zPos] as [number, number, number];
     });
 
@@ -125,10 +124,7 @@ const AudioVisualizerCanvas: React.FC<VisualizerProps> = ({ dataArrayRef, analys
     return (
         <Canvas
             onClick={(ev) => requestFullScreen(ev.currentTarget)}
-            style={{
-                cursor: 'pointer',
-                // background: 'black',
-            }}
+            style={{ cursor: 'pointer' }}
         >
             <ambientLight />
             <pointLight position={[10, 10, 10]} />
