@@ -1,7 +1,7 @@
 [submodule "z/hhanh00/warp"]
 	path = z/hhanh00/warp
 	url = https://github.com/hhanh00/warp
-	branch = master
+	branch = main
 [submodule "z/zcash/zcash"]
 	path = z/zcash/zcash
 	url = https://github.com/zcash/zcash
