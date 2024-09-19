@@ -18,3 +18,6 @@
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
 	branch = main
+[submodule "z/ZecHub/zechub"]
+	path = z/ZecHub/zechub
+	url = https://github.com/ZecHub/zechub
