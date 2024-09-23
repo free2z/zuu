@@ -5,7 +5,7 @@ export default function (variant: string) {
         return (
             <Typography
                 component="div"
-                style={{ margin: "0.5em 0" }}
+                style={{ margin: "0.75em 0" }}
                 variant={variant}
                 {...props}
             />
