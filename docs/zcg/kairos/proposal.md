@@ -1,4 +1,4 @@
-# Open Kairos Zcash Community Fund
+# Zcash Matching Fund
 
 ## Pitch
 
@@ -8,7 +8,7 @@ is:
 - Efficient
 - Fair
 - Scalable/Granular - scales up and down based on enthusiasm and commitment
-- Community-driven / semi-democratic
+- Community-driven
 - Awards based on sentiment and conviction
 - Promotes collaboration and positive competition
 - Programmatic, deterministic, rules-based
@@ -26,29 +26,27 @@ TODO: Finalize Open Kairos Foundation and team.
 
 Please reach out if you would like to be part of the final draft!
 
-Open Kairos Foundation is a new non-profit with a broad mission
-to further public good, education, and charity. The primary initial
-focus will be operating this matching fund program.
+The Zcash Matching Fund (ZMF for short) will be the first initiative of the Open Kairos Foundation.  Open Kairos is a new non-profit with a broad mission
+to further public good, education, and charity by supporting open source software and other technologies that are leading to a better future for humanity.
 
 The initial board of directors has not yet been finalized.
 Please get in though now if you would like to be involved.
-Keep in mind that being part of the team will exclude you and
+Joining the Open Kairos Foundation team will exclude you and
 people close to you from receiving matching funds.
 -->
 
 <!-- TODO: finalize other entities to be part of the team.
 
-In addition to the Open Kairos team, we want to add other entities to the
+In addition to the Open Kairos team, we hope to add other entities to the
 multisig custody of the fund.
 
 The idea is that a multisig with several non-profits will help ensure the
 validity of the operation. But, entities that take part in the calculation
-and distribution should not be recipients of the funds.
+and distribution should not be recipients of the funds. To simplify fiscal considerations we would only consider other 501(c)(3) nonprofits or similar.
 
 Ideally, the matching fund would be a showcase of Zcash's desirable security
 properties including offline signing, multisig, and best practices.
-Perhaps a 2 of 3 would be efficient operationally and secure. Bigger is
-better in some ways as long as it's technically sound and not too cumbersome.
+Perhaps a 2 of 3 would be efficient operationally and secure.
 
 Considering activities that are outside of the core competencies of
 the Open Kairos team, specifically in marketing, legal, and security,
@@ -90,7 +88,7 @@ worked on independently.
 
 <!--
 2000 ZEC is quite thrifty to implement and operate the program for 1 year
-at current ZEC prices - but doable.
+at current ZEC prices - but probably doable.
 
 If more people want to join the team, we should maybe ask for more.
 We could have a better MVP, more marketing, more outreach, more time put into
@@ -101,11 +99,7 @@ Being part of the grant team will exclude from the matching fund.
 -->
 
 ### Description of Problem or Opportunity
-
-Zcash could benefit from a widely-scoped, donation-based, small grants
-_matching_ fund that is efficient, fair, scalable, community-driven, granular,
-programmatic, measurable, notable, and a showcase of Zcash's properties and
-unique features.
+Zcash could benefit from a community based, small grants _matching_ fund that showcases the best of Zcash's properties and unique features.  The fund should be efficient, fair, scalable, programmatic, measurable and notable.
 
 Many people are doing work in the Zcash ecosystem and adjacent to it that
 Zcashers may want to fund. Many initiatives are out-of-scope for ZCG, ZF,
@@ -118,8 +112,6 @@ ZecHub and other funding mechanisms.
 - Public goods, open source software, and infrastructure
 - Community building, events, and meetups
 - Art, media, and culture
-- Advocacy, policy, and lobbying
-- Startups, businesses, and entrepreneurs
 - Individual contributors, content creators, and influencers
 - Hackers, tinkerers, and hobbyists
 - Students, interns, and volunteers
@@ -141,13 +133,9 @@ ZecHub is doing amazing work with individuals and teams in the Zcash ecosystem
 using task-based funding for Zcash-related projects, primarily focused on
 education.
 
-Free2Z itself has been an experimental project that has been free-form,
-haphazard, ad-hoc, and chaotic in regards to how people have been funded. This
-matching grant program would be a way to formalize and scale up the Free2Z
-experiment by making one of the main rewards mechanisms programmable and
-rules-based. People will still be free to fly an address and ask for donations
-and receive private, p2p one-off direct grants of ZEC, and receive 2Zs to use
-in Free2Z. This matching funding mechanism will be an additional way to receive
+Free2Z has complemented these other organizations by offering an additional free-form mechanism to get funded for producing Zcash content. Free2Z offers an easy way to fly a Zcash address publicly and ask for real private, p2p donations or direct grants of ZEC. This has been particularly useful for the Zcash Community in the global south.
+
+The ZMF matching funding mechanism will be an additional way to receive
 funds that will be more structured, predictable, and scalable - with
 separate APIs and UIs for donors and recipients.
 
@@ -177,7 +165,7 @@ the minimal mandatory compliance to receive funds.
 
 Individual Zcashers will need to donate to unlock the matching funds for the
 recipients. Participation is key to success: both in applying for matching and
-in donating to the fund. The 1000 ZEC matching per quarter will only be paid
+in donating to the fund. People will have to put their ZEC where their mouth is; the 1000 ZEC matching per quarter will only be paid
 out if the community donates at least 1000 ZEC through the fund.
 
 ## **Proposed Solution**
@@ -186,7 +174,7 @@ out if the community donates at least 1000 ZEC through the fund.
 
 A wallet is created with a unified address. This wallet is controlled by a
 non-profit or threshold signature of non-profits and DAOs with best practice
-security.
+security standards.
 
 It is empty to start.
 
@@ -206,13 +194,14 @@ other channels to get people whom the community loves to register.
 
 ### Matching fund menu / leaderboard
 
-Potential donors and lurkers can see everyone who has opted in to the matching
+The ZMF will leverage Free2Z as the platform of choice for its matching program.  This will require significant enhancements to Free2Z's open source UI and backend.
+Potential donors and lurkers will be able to see everyone who has opted in to the matching
 program, browse the potential recipients, and decide to donate easily. The
-donations are made with shielded transactions with memos. A VK is published so
+donations will be made with shielded transactions with memos. A VK will be published so
 everyone can see the donations and even make their own UI. The UI and new
-backend code will be MIT open source so anyone outside of Free2Z could make and
-interface to the VK data. A realtime leaderboard is published on Free2Z. The
-matching fund status is displayed on the free2z UI and people can donate
+backend code will be MIT open source so anyone outside of Free2Z can make and
+interface to the VK data. A realtime leaderboard will be published on Free2Z. The
+matching fund status will be displayed on the Free2z UI and people will be able to donate
 shielded ZEC to the fund and see their donation come up on the leaderboard and
 with the VK.
 
@@ -315,7 +304,7 @@ could be a major embarrassment.
 
 ### Unintended Consequences
 
-I hope that it brings different parts of the community together because it is
+We hope that it brings different parts of the community together because it is
 rules-based and helps to distribute the block reward programmatically. But, ZCG
 funds that go to this initiative will necessarily not go to other initiatives.
 So, if this initiative isn't aligned and nourishing the entire ecosystem, it
@@ -351,7 +340,7 @@ The hypothesis is that we can make huge impact very efficiently.
 - Software
 
 1500 ZEC to implement the MVP program for January 2025 and iterate on the
-software. 500 to operate and adminstrate the program for 1 year.
+software. 500 to operate and adminstrate the program for one year.
 
 Subgrants through the matching algorithm will be awarded up to 1000 ZEC per
 quarter.
