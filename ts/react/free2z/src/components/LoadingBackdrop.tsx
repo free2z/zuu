@@ -33,6 +33,7 @@ export default function LoadingBackdrop() {
                 // zIndex: 1301,
                 zIndex: theme.zIndex.modal + 1,
                 // animation: 'fadeIn 5s ease-in-out',
+                opacity: 0.1,
             }}
         >
             <LoadingAnimation />
@@ -41,7 +42,7 @@ export default function LoadingBackdrop() {
                 style={{
                     textAlign: 'center',
                     color: 'text',
-                    opacity: 0.2,
+                    opacity: 0.1,
                     fontSize: '2.25em',
                     textShadow: '1px 1px 1px #fff, -1px -1px 1px #fff, -1px 1px 1px #fff, 1px -1px 1px #fff',
                     // animation: 'zanyMove 10s linear infinite',

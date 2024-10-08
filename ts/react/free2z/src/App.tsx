@@ -40,7 +40,7 @@ const ProfileUploads = React.lazy(() => import('./ProfileUploads'));
 const StoryTime = React.lazy(() => import('./StoryTime'));
 const StoryTimeEdit = React.lazy(() => import('./components/StoryTimeEdit'));
 const StoryTimeDisplay = React.lazy(() => import('./components/StoryTimeDisplay'));
-const VideoPlayerTest = React.lazy(() => import('./components/VideoPlayerTest'));
+// const VideoPlayerTest = React.lazy(() => import('./components/VideoPlayerTest'));
 const CreatorLive = React.lazy(() => import('./CreatorLive'));
 const CreatorLivePrivate = React.lazy(() => import('./CreatorLivePrivate'));
 const AI2 = React.lazy(() => import('./AI2'))
@@ -50,6 +50,11 @@ const AIList = React.lazy(() => import('./AIList'))
 const AudioMicrophoneVisualizer = React.lazy(() => import('./components/AudioMicrophoneVisualizer'))
 const ResetPassword = React.lazy(() => import('./components/ResetPassword'))
 const KYCPage = React.lazy(() => import('./components/KYCPage'))
+// const DKGSetup = React.lazy(() => import('./components/DKGSetup'))
+const EFMStart = React.lazy(() => import('./components/EFMStart'))
+const EFMMainSession = React.lazy(() => import('./components/EFMMainSession'))
+// const EFMSession = React.lazy(() => import('./components/EFMSession'))
+
 
 axios.defaults.withCredentials = true;
 axios.interceptors.request.use((config) => {
@@ -149,6 +154,16 @@ function App() {
                                 <CreatorLoginModal />
                                 <LoadingBackdrop />
                                 <Routes>
+                                    <Route path="/tools/p2pe2e" element={
+                                        <React.Suspense fallback={<LoadingBackdrop />}>
+                                            <EFMStart />
+                                        </React.Suspense>
+                                    } />
+                                    <Route path="/tools/p2pe2e/:UUID" element={
+                                        <React.Suspense fallback={<LoadingBackdrop />}>
+                                            <EFMMainSession />
+                                        </React.Suspense>
+                                    } />
                                     <Route path="/reset-password"
                                         element={
                                             <React.Suspense fallback={<LoadingBackdrop />}>

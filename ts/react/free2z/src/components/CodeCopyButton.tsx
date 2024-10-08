@@ -1,5 +1,5 @@
 import { Check, ContentCopy } from "@mui/icons-material";
-import { IconButton } from "@mui/material";
+import { IconButton, Theme } from "@mui/material";
 import { useState, useEffect } from "react";
 
 type CodeCopyProps = {
@@ -35,9 +35,9 @@ export default function CodeCopyButton(props: CodeCopyProps) {
             onClick={handleCopyClick}
             sx={{
                 position: 'absolute',
-                top: '-2px',
+                top: '3px',
                 right: '-4px',
-                zIndex: (theme) => theme.zIndex.mobileStepper - 1,
+                zIndex: (theme: Theme) => theme.zIndex.mobileStepper - 1,
                 borderColor: copySuccess ? 'success.main' : undefined,
                 color: copySuccess ? 'success.main' : undefined,
             }}
