@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useSnackbar } from 'notistack';
-import { IconButton } from "@mui/material";
+import { Fade, IconButton } from "@mui/material";
 import { Close } from "@mui/icons-material";
 
 import { useGlobalState } from "../state/global"
@@ -32,6 +32,18 @@ export default function SimpleSnackbar() {
                         <Close fontSize="small" />
                     </IconButton>
                 ),
+                TransitionProps: {
+                    enter: true,
+                    exit: true,
+                    direction: 'up',
+                    timeout: {
+                        enter: 300,  // Fade in duration
+                        exit: 500,  // Fade out duration
+                    },
+                },
+                style: {
+                    opacity: 0.9,
+                },
             });
         }
     }, [snackbar]);

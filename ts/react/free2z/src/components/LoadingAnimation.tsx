@@ -10,7 +10,7 @@ export default function LoadingAnimation() {
                 thickness={1}
                 variant="indeterminate"
                 sx={{
-                    opacity: 1,
+                    opacity: 0.5,
                     position: 'absolute',
                     animationDuration: "0.5s",
                 }}
@@ -21,7 +21,7 @@ export default function LoadingAnimation() {
                 thickness={5}
                 variant="indeterminate"
                 sx={{
-                    opacity: 0.35,
+                    opacity: 0.25,
                     position: 'absolute',
                     animationDuration: "7s",
                 }}
@@ -44,7 +44,7 @@ export default function LoadingAnimation() {
                 thickness={1}
                 variant="indeterminate"
                 sx={{
-                    opacity: 0.35,
+                    opacity: 0.2,
                     position: 'absolute',
                     animationDuration: "8s",
                     // transform: "rotate(180deg)",
