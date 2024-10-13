@@ -6,8 +6,11 @@ The Zkash User Universe
 
 Contribute to Free2Z:
 
-* [ts/react/free2z](./ts/react/free2z/): The Free2Z React Frontend
+* [ts/react/free2z](./ts/react/free2z/): The Free2Z React Frontend at https://free2z.com/
 * [docs/about-free2z](./docs/about-free2z/): Free2Z documentation at https://free2z.com/docs/
+* [Free2Z Backend](./py/dj/proj/zuu/README.md): Parts of the Free2Z backend API
+
+Let us know if you would like more modules open sourced!
 
 ## Zcash submodules
 
@@ -26,4 +29,5 @@ Top-level trunk directories:
   in the repo: Rust, Go, npm, Python3, etc
 * `z/` - Submodules in `{GITHUB_USER}/{GITHUB_REPO}` format
 * `ts/` - TypeScript
+* `py/` - Python
 * `docs/` - Infinite namespaces for text available
