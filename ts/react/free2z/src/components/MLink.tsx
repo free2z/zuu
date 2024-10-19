@@ -83,14 +83,42 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
         aria-describedby="alert-dialog-description"
       >
         <DialogTitle id="alert-dialog-title">
-          Navigate to external link
+          Navigate to external link?
         </DialogTitle>
         <DialogContent>
-          <DialogContentText id="alert-dialog-description">
-            You are about to navigate to an external link. Are you sure you want
-            to proceed?
+          <DialogContentText id="alert-dialog-description"
+            sx={{
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+            }}
+          >
+            You are about to navigate to
           </DialogContentText>
-          <p></p>
+          <DialogContentText
+            sx={{
+              fontWeight: "bold",
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+              my: 1,
+            }}
+          >
+            <Link
+              href={externalLink || ""}
+              target="_blank"
+              rel="noopener,noreferrer"
+              color="primary"
+            >{externalLink}</Link>
+          </DialogContentText>
+          <DialogContentText
+            // make the text bold
+            sx={{
+              fontWeight: "bold",
+              // make margin top and bottom
+              my: 1,
+            }}
+          >
+            Are you sure you want to proceed?
+          </DialogContentText>
           <FormControlLabel
             control={
               <Checkbox
