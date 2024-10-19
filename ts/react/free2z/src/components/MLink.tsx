@@ -86,12 +86,7 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
           Navigate to external link?
         </DialogTitle>
         <DialogContent>
-          <DialogContentText id="alert-dialog-description"
-            sx={{
-              whiteSpace: "pre-wrap",
-              wordWrap: "break-word",
-            }}
-          >
+          <DialogContentText id="alert-dialog-description">
             You are about to navigate to
           </DialogContentText>
           <DialogContentText
@@ -110,10 +105,8 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
             >{externalLink}</Link>
           </DialogContentText>
           <DialogContentText
-            // make the text bold
             sx={{
               fontWeight: "bold",
-              // make margin top and bottom
               my: 1,
             }}
           >
