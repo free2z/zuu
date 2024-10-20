@@ -1,7 +1,7 @@
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Swiper as SwiperClass } from 'swiper';
 import SwiperCore, { Autoplay, Navigation } from 'swiper';
-import { Avatar, Card, CardContent, CardMedia, Typography } from '@mui/material';
+import { Avatar,  CardActionArea, CardContent, Typography } from '@mui/material';
 
 // Import Swiper styles
 import 'swiper/css';
@@ -10,7 +10,6 @@ import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageInterface } from './PageRenderer';
 import SwiperLoadingAnimation from './SwiperLoadingAnimation';
-import { useTransitionNavigate } from '../hooks/useTransitionNavigate';
 import { HOME_CAROUSEL_BREAKPOINTS } from './HomeCarouselConstants';
 import HoverCard from './common/HoverCard';
 
@@ -28,7 +27,6 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
     const [page, setPage] = useState(1);
     const lastElement = useRef<HTMLDivElement | null>(null);
     const swiperRef = useRef<SwiperClass | null>(null);
-    const navigate = useTransitionNavigate()
 
     const fetchData = useCallback(async (triggeredByObserver = false) => {
         if (fetching || !hasMore || (!triggeredByObserver && page !== 1)) return;
@@ -120,18 +118,19 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
                             ref={index === zpages.length - 1 ? lastElement : null}
                         >
 
-                            <HoverCard
-                                onClick={() => {
-                                    navigate(zpage.get_url);
-                                }}
-                            >
-
-                                <CardMedia
+                            <HoverCard>   
+                            {/* Add CardActionArea to allow the Card to function as an `<a>` tag */}
+                            <CardActionArea href={zpage.get_url}>
+                                {/* Replace `CardMedia` with an `img` HTML tag. `CardMedia` does not have all the accessibility features that `img` provides */}
+                                <img
+                                    src={zpage.featured_image?.thumbnail}
+                                    alt={zpage.title}
                                     style={{
-                                        minHeight: 180,
+                                    minHeight: 180,
+                                    maxHeight: 180,
+                                    objectFit: "cover",
+                                    width: "100%",
                                     }}
-                                    image={zpage.featured_image?.thumbnail}
-                                    title={zpage.title}
                                 />
                                 <CardContent
                                     style={{
@@ -204,6 +203,7 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
                                         {zpage.content}
                                     </Typography>
                                 </CardContent>
+                            </CardActionArea>
                             </HoverCard>
                         </div>
                     </SwiperSlide>

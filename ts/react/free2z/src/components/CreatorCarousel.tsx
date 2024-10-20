@@ -1,7 +1,7 @@
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Swiper as SwiperClass } from 'swiper';
 import SwiperCore, { Autoplay, Navigation } from 'swiper';
-import { Card, CardContent, CardMedia, Typography } from '@mui/material';
+import {  CardActionArea, CardContent, CardMedia, Typography } from '@mui/material';
 
 // Import Swiper styles
 import 'swiper/css';
@@ -10,7 +10,6 @@ import { PublicCreator } from '../CreatorDetail';
 import axios from 'axios';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SwiperLoadingAnimation from './SwiperLoadingAnimation';
-import { useTransitionNavigate } from '../hooks/useTransitionNavigate';
 import { HOME_CAROUSEL_BREAKPOINTS } from './HomeCarouselConstants';
 import HoverCard from './common/HoverCard';
 
@@ -36,7 +35,6 @@ export default function CreatorCarousel(props: CreatorCarouselProps) {
     const [hasMore, setHasMore] = useState(true);
     const [page, setPage] = useState(1);
     const lastElement = useRef<HTMLDivElement | null>(null);
-    const navigate = useTransitionNavigate()
     const [sortChanged, setSortChanged] = useState(false)
     const swiperRef = useRef<SwiperClass | null>(null);
 
@@ -131,18 +129,19 @@ export default function CreatorCarousel(props: CreatorCarouselProps) {
                         <div
                             ref={index === creators.length - 1 ? lastElement : null}
                         >
-                            <HoverCard
-                                onClick={() => {
-                                    navigate(`/${creator.username}`)
-                                }}
-                            >
-                                <CardMedia
+                            <HoverCard>
+                            {/* Add CardActionArea to allow the Card to function as an `<a>` tag */}
+                            <CardActionArea href={creator.username}>
+                                {/* Replace `CardMedia` with an `img` HTML tag. `CardMedia` does not have all the accessibility features that `img` provides */}
+                                <img
+                                    src={creator.banner_image?.thumbnail}
+                                    alt={creator.full_name || creator.username}
                                     style={{
-                                        // height: '80%',
-                                        minHeight: 180,
+                                    minHeight: 180,
+                                    maxHeight: 180,
+                                    objectFit: "cover",
+                                    width: "100%",
                                     }}
-                                    image={creator.banner_image?.thumbnail}
-                                    title={creator.full_name || creator.username}
                                 />
                                 <div
                                     style={{
@@ -190,6 +189,7 @@ export default function CreatorCarousel(props: CreatorCarouselProps) {
                                         {truncate(creator.full_name || creator.username, 33)}
                                     </Typography>
                                 </CardContent>
+                                </CardActionArea >
                             </HoverCard>
                         </div>
                     </SwiperSlide>
