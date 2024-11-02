@@ -11,9 +11,9 @@ const CustomTypography = styled(Typography)(({ theme, variant,fontStyle }) => ({
   }),
   ...(fontStyle === "italic" && {
     fontStyle: "italic",
-    fontSize: "1.32rem",    
+    fontSize: "1.2rem",    
     fontFamily: "serif",
-    fontWeight: 400,
+    fontWeight: 300,
   }),
 }));
 
