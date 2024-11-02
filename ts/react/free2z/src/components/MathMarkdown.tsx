@@ -320,6 +320,7 @@ function MemoMarkdown(props: MathMarkdownProps) {
                 h4: (props) => <Heading {...props} level={4} />,
                 h5: (props) => <Heading {...props} level={5} />,
                 h6: (props) => <Heading {...props} level={6} />,
+                em: MTypography("body1", "italic"),
                 table: (props) => (
                     <TableWrapper>
                         <Table {...(props as TableProps)} />
