@@ -34,8 +34,8 @@ export default function CodeCopyButton(props: CodeCopyProps) {
             onClick={handleCopyClick}
             sx={{
                 position: 'absolute',
-                top: '20px',
-                right: '20px',
+                top: '10px',
+                right: '10px',
                 zIndex: (theme: Theme) => theme.zIndex.mobileStepper - 1,
                 borderColor: copySuccess ? 'success.main' : undefined,
                 color: copySuccess ? 'success.main' : undefined,
@@ -43,7 +43,7 @@ export default function CodeCopyButton(props: CodeCopyProps) {
         >
             {copySuccess ?
                 <Check fontSize="small" style={{
-                    color: 'green'
+                    color: '#00ff04'
                 }} />
                 :
                 <ContentCopy fontSize="small" style={{

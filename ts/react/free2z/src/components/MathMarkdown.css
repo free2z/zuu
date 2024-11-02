@@ -9,15 +9,15 @@
 pre[class*="language-"],
 code[class*="language-"] {
     color: #d4d4d4;
-    font-size: 18px;
-    font-weight: 500;
+    font-size: 0.95rem;
+    font-weight: 400;
     text-shadow: none;
-    font-family: Menlo, Monaco, Consolas, "Andale Mono", "Ubuntu Mono", "Courier New", monospace;
+    font-family:  Menlo, Consolas, Monaco, "Andale Mono", "Ubuntu Mono", "Courier New", monospace;
     direction: ltr;
     text-align: left;
-    white-space: pre;
+    white-space: pre-wrap;
     word-spacing: normal;
-    word-break: normal;
+    word-break: break-word;
     line-height: 1.5;
     -moz-tab-size: 4;
     -o-tab-size: 4;
@@ -33,7 +33,7 @@ code[class*="language-"]::selection,
 pre[class*="language-"] *::selection,
 code[class*="language-"] *::selection {
     text-shadow: none;
-    background: #264F78;
+    background: #267844;
 }
 
 @media print {
@@ -46,16 +46,15 @@ code[class*="language-"] *::selection {
 
 pre[class*="language-"] {
     padding: 1em;
-    margin: 0.5em 0;
     overflow: auto;
-    background: #1e1e1e;
+    background: #000000;
 }
 
 :not(pre)>code[class*="language-"] {
     padding: .1em .3em;
     border-radius: .3em;
     color: #db4c69;
-    background: #1e1e1e;
+    background: #000000;
 }
 
 /*********************************************************

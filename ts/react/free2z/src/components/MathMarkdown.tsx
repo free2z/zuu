@@ -156,7 +156,6 @@ const InlineCode = styled('code')(
         backgroundColor: theme.palette.mode === "dark" ? "#262625" : "#f5f5f5",
         padding: "3px 8px",
         borderRadius: "6px",
-        fontFamily: "monospace",
         fontSize: "0.90rem !important",
 
 
@@ -165,26 +164,19 @@ const InlineCode = styled('code')(
 // Custom styling for block code
 const BlockCode = styled('code')(
     () => ({
-        backgroundColor:"#000000",
+        backgroundColor:"#000000 !important",
         position: "relative",
-        paddingLeft: "0.3rem",
-        paddingRight: "0.3rem",
-        paddingTop: "0.2rem",
-        paddingBottom: "0.2rem",
-        fontFamily: "monospace",
-        whiteSpace: "pre-wrap !important",
-        wordBreak: "break-word",
-        fontSize: "0.875rem !important",
+        padding:'0.5rem !important',    
 
     }),
 )
 
 const Pre = styled('pre')(
     () => ({
-        backgroundColor: '#000000 !important',
         borderRadius: "4px",
+        margin: '0 !important',
         maxHeight: "650px !important",
-        padding: "1rem !important",
+        padding: "0.5rem ",
     }),
 )
 
