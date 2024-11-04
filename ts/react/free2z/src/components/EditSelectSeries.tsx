@@ -254,6 +254,9 @@ const EditSelectSeries: React.FC<Props> = ({ page }) => {
                 onChange={handleSelectSeries}
                 onInputChange={handleInputChange}
                 loading={isLoading}
+                // https://stackoverflow.com/questions/61947941/material-ui-autocomplete-warning-the-value-provided-to-autocomplete-is-invalid
+                freeSolo
+                forcePopupIcon
                 ListboxProps={{
                   sx: { maxHeight: '300px' },
                   onScroll: async(event: React.SyntheticEvent) => {
