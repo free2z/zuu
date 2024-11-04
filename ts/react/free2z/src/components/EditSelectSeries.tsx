@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from 'react-query';
+import { useMutation, useInfiniteQuery } from 'react-query';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import axios from 'axios';
 import React, { useState, useEffect, useRef } from 'react';
@@ -6,6 +6,7 @@ import {
     TextField, IconButton, Dialog, DialogTitle, DialogContent,
     DialogActions, Button, Box, List, ListItem, ListItemText,
     Theme, Stack, useMediaQuery,
+    CircularProgress,
 } from '@mui/material';
 import Autocomplete, { AutocompleteInputChangeReason } from '@mui/material/Autocomplete';
 import AddIcon from '@mui/icons-material/Add';
@@ -43,10 +44,25 @@ const EditSelectSeries: React.FC<Props> = ({ page }) => {
     // At the start of your component, create a ref to hold the previous value
     const prevSelectedSeriesRef = useRef<Series | null>();
 
-    const { data: seriesList = [], refetch } = useQuery<Series[]>('seriesList', () =>
-        axios.get('/api/g12f/series/mine/').then((res) => res.data)
-    );
+    const fetchSeries = ({ pageParam = 1 }) =>  axios.get(`/api/g12f/series/mine?page=${pageParam}`).then((res) => res.data)
 
+        const {
+          data: seriesList,
+          fetchNextPage,
+          isFetchingNextPage,
+          isLoading,
+          hasNextPage,
+          refetch,
+          status,
+        } = useInfiniteQuery(
+          'seriesList',
+          fetchSeries,
+          {
+            getNextPageParam: (lastPage, pages) => {
+              return lastPage.length >= 10 ? pages.length + 1 : undefined;
+            },
+          }
+        );
     // Update the ref with the current value in a useEffect
     useEffect(() => {
         prevSelectedSeriesRef.current = selectedSeries;
@@ -232,21 +248,51 @@ const EditSelectSeries: React.FC<Props> = ({ page }) => {
             <Autocomplete
                 id="series-select"
                 sx={{ width: '90%' }}
-                options={seriesList || []}
-                // loadOptions={(inputValue) => {
-                //     return axios.get('/api/g12f/series/mine/', {
-                //         params: {
-                //             search: inputValue
-                //         }
-                //     }).then((res) => res.data.results)
-                // }}
+                options={seriesList?.pages.flat() || []}
                 getOptionLabel={(option) => option.name}
                 value={selectedSeries}
                 onChange={handleSelectSeries}
                 onInputChange={handleInputChange}
-                renderInput={(params) => <TextField {...params}
-                    label="Select Series" variant="outlined"
-                />}
+                loading={isLoading}
+                ListboxProps={{
+                  sx: { maxHeight: '300px' },
+                  onScroll: async(event: React.SyntheticEvent) => {
+                    if(hasNextPage === false) return;
+                    const listboxNode = event.currentTarget as HTMLElement;
+                    if (
+                        Number(listboxNode.scrollTop.toFixed(0)) + listboxNode.clientHeight >=
+                        listboxNode.scrollHeight
+                    ) {
+                        await fetchNextPage();    
+                    }
+                  },
+                }}
+                renderOption={(props, option) => {
+                    return (
+                      <li {...props} key={option.id}>
+                        {option.name}
+                      </li>
+                    );
+                  }}
+                renderInput={(params) => (
+                    <TextField
+                    {...params}
+                     label="Select Series"
+                    variant="outlined"
+                    key={params.inputProps.id}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <React.Fragment>
+                            {isFetchingNextPage ? (
+                            <span>Charging more options{'  '}<CircularProgress color="inherit" size={20} /></span>
+                            ) : null}
+                            {params.InputProps.endAdornment}
+                        </React.Fragment>
+                      ),
+                    }}
+                  />
+                )}
             />
             <IconButton onClick={handleAddSeries}>
                 <AddIcon fontSize="large" color="primary" />
