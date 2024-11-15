@@ -378,7 +378,7 @@ function App() {
                                             <>
                                                 <SimpleNav />
                                                 <NormalPage>
-                                                    <PageDetail />
+                                                    <RootSplitter />
                                                 </NormalPage>
                                             </>
                                         }
