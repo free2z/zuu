@@ -92,19 +92,27 @@ export default function Global404() {
     ], []);
 
     return (
-        <Canvas style={{ height: "100vh", backgroundColor: "black" }}>
-            <OrbitControls />
-            <Stars />
-            <ambientLight intensity={1} />
-            <spotLight position={[0, 0, 0]} angle={0.3} intensity={1} castShadow />
-            <directionalLight position={[5, 10, 5]} intensity={5} castShadow />
-            <Physics>
-                <Text404 />
-                <Toruso />
-                <Box />
-                <Sphero />
-                <Plane />
-            </Physics>
-        </Canvas>
+        <div style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+        }}>
+            <Canvas style={{ height: "100vh", backgroundColor: "black" }}>
+                <OrbitControls />
+                <Stars />
+                <ambientLight intensity={1} />
+                <spotLight position={[0, 0, 0]} angle={0.3} intensity={1} castShadow />
+                <directionalLight position={[5, 10, 5]} intensity={5} castShadow />
+                <Physics>
+                    <Text404 />
+                    <Toruso />
+                    <Box />
+                    <Sphero />
+                    <Plane />
+                </Physics>
+            </Canvas>
+        </div>
     );
 }
