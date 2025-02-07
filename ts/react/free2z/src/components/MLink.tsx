@@ -15,10 +15,21 @@ import {
 type MLinkProps = Omit<LinkProps, "color"> &
   Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "color">;
 
-// Key for storing the user's preference in localStorage
-const LOCAL_STORAGE_KEY = "dontShowExternalLinkWarning";
+// Key for storing the user's preferences in localStorage
+const TRUSTED_DOMAINS_KEY = "trustedExternalDomains";
+const GLOBAL_WARNING_KEY = "dontShowExternalLinkWarning";
 
-const checkIisInternalLink = (href: string | undefined) =>
+// Helper function to extract domain from URL
+const getDomain = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch {
+    return "";
+  }
+};
+
+const checkIsInternalLink = (href: string | undefined) =>
   href?.startsWith("#") ||
   href?.startsWith("https://free2z.com/") ||
   href?.startsWith("https://free2z.cash/") ||
@@ -27,30 +38,54 @@ const checkIisInternalLink = (href: string | undefined) =>
 const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
   const [open, setOpen] = useState(false);
   const [externalLink, setExternalLink] = useState<string | null>(null);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [dontShowGlobally, setDontShowGlobally] = useState(false);
+  const [trustDomain, setTrustDomain] = useState(false);
+  const [currentDomain, setCurrentDomain] = useState<string>("");
 
-  const isInternalLink = checkIisInternalLink(href);
+  const isInternalLink = checkIsInternalLink(href);
 
   useEffect(() => {
-    const storedPreference = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (storedPreference === null) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, "false");
+    // init globlal preferences
+    const globalPreference = localStorage.getItem(GLOBAL_WARNING_KEY);
+    if (globalPreference === null) {
+      localStorage.setItem(GLOBAL_WARNING_KEY, "false");
     }
-    setDontShowAgain(storedPreference === "true");
+    setDontShowGlobally(globalPreference === "true");
+
+    //  init trusted domains
+    const trustedDomains = localStorage.getItem(TRUSTED_DOMAINS_KEY);
+    if (trustedDomains === null) {
+      localStorage.setItem(TRUSTED_DOMAINS_KEY, JSON.stringify([]));
+    }
   }, []);
+
+  useEffect(() => {
+    if (href) {
+      const domain = getDomain(href);
+      setCurrentDomain(domain);
+      
+      // Check if domain is trusted
+      const trustedDomains = JSON.parse(localStorage.getItem(TRUSTED_DOMAINS_KEY) || "[]");
+      setTrustDomain(trustedDomains.includes(domain));
+    }
+  }, [href]);
+
+  const shouldSkipWarning = (): boolean => {
+    const globalPreference = localStorage.getItem(GLOBAL_WARNING_KEY) === "true";
+    const trustedDomains = JSON.parse(localStorage.getItem(TRUSTED_DOMAINS_KEY) || "[]");
+    return globalPreference || (currentDomain && trustedDomains.includes(currentDomain));
+  };
 
   const handleClick = (
     event: React.MouseEvent<HTMLAnchorElement, MouseEvent>
   ) => {
-    //check directly from localStorage if the user has opted out of the warning
-    const storedPreference = localStorage.getItem(LOCAL_STORAGE_KEY);
-    // If the link is external and the user hasn't opted out of the warning, show the dialog
-    if (!isInternalLink && !(storedPreference === "true")) {
+    if (!isInternalLink && !shouldSkipWarning()) {
       event.preventDefault();
       setExternalLink(href || null);
       setOpen(true);
     }
   };
+
 
   const handleClose = (confirm: boolean) => {
     setOpen(false);
@@ -59,10 +94,26 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
     }
   };
 
-  const handleCheckboxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGlobalCheckboxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const checked = event.target.checked;
-    setDontShowAgain(checked);
-    localStorage.setItem(LOCAL_STORAGE_KEY, checked.toString());
+    setDontShowGlobally(checked);
+    localStorage.setItem(GLOBAL_WARNING_KEY, checked.toString());
+  };
+
+  const handleDomainCheckboxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = event.target.checked;
+    setTrustDomain(checked);
+    
+    const trustedDomains = JSON.parse(localStorage.getItem(TRUSTED_DOMAINS_KEY) || "[]");
+    if (checked && currentDomain) {
+      trustedDomains.push(currentDomain);
+    } else {
+      const index = trustedDomains.indexOf(currentDomain);
+      if (index > -1) {
+        trustedDomains.splice(index, 1);
+      }
+    }
+    localStorage.setItem(TRUSTED_DOMAINS_KEY, JSON.stringify(trustedDomains));
   };
 
   return (
@@ -75,7 +126,6 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
         {...props}
       />
 
-      {/* Confirmation dialog */}
       <Dialog
         open={open}
         onClose={() => handleClose(false)}
@@ -102,7 +152,9 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
               target="_blank"
               rel="noopener,noreferrer"
               color="primary"
-            >{externalLink}</Link>
+            >
+              {externalLink}
+            </Link>
           </DialogContentText>
           <DialogContentText
             sx={{
@@ -115,11 +167,20 @@ const MLink: React.FC<MLinkProps> = ({ href, ...props }) => {
           <FormControlLabel
             control={
               <Checkbox
-                checked={dontShowAgain}
-                onChange={handleCheckboxChange}
+                checked={trustDomain}
+                onChange={handleDomainCheckboxChange}
               />
             }
-            label="Don't show this warning again"
+            label={`Trust all links from ${currentDomain}`}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={dontShowGlobally}
+                onChange={handleGlobalCheckboxChange}
+              />
+            }
+            label="Don't show any external link warnings"
           />
         </DialogContent>
         <DialogActions>
