@@ -150,6 +150,36 @@ const Heading = ({ level, ...props }: { id?: string, level: 1 | 2 | 3 | 4 | 5 | 
     )
 }
 
+// Custom styling forinline code
+const InlineCode = styled('code')(
+    ({ theme }) => ({
+        backgroundColor: theme.palette.mode === "dark" ? "#262625" : "#f5f5f5",
+        padding: "3px 8px",
+        borderRadius: "6px",
+        fontSize: "0.90rem !important",
+
+
+    }),
+)
+// Custom styling for block code
+const BlockCode = styled('code')(
+    () => ({
+        backgroundColor:"#000000 !important",
+        position: "relative",
+        padding:'0.5rem !important',    
+
+    }),
+)
+
+const Pre = styled('pre')(
+    () => ({
+        borderRadius: "4px",
+        margin: '0 !important',
+        maxHeight: "650px !important",
+        padding: "0.5rem ",
+    }),
+)
+
 // Helper function to adjust scroll position
 const scrollToElement = (element: HTMLElement, offset = 0) => {
     const top = element.getBoundingClientRect().top + window.scrollY + offset;
@@ -262,10 +292,10 @@ function MemoMarkdown(props: MathMarkdownProps) {
                     if (className?.startsWith('language-')) {
                         return (
                             <Box component="div" display="flex" flexDirection="column" position="relative">
-                                <CodeCopyButton code={extractTextFromChildren(children)} />
-                                <pre className={className} {...props}>
+                                <CodeCopyButton code={extractTextFromChildren(children)} /> 
+                                <Pre className={className} {...props}>
                                     {children}
-                                </pre>
+                                </Pre>
                             </Box>
                         )
                     } else {
@@ -282,6 +312,7 @@ function MemoMarkdown(props: MathMarkdownProps) {
                 h4: (props) => <Heading {...props} level={4} />,
                 h5: (props) => <Heading {...props} level={5} />,
                 h6: (props) => <Heading {...props} level={6} />,
+                em: MTypography("body1", "italic"),
                 table: (props) => (
                     <TableWrapper>
                         <Table {...(props as TableProps)} />
@@ -372,18 +403,24 @@ function MemoMarkdown(props: MathMarkdownProps) {
                     if (qrCodeMatch && qrCodeAddr) {
                         return <QRAddress addr={qrCodeAddr} size={256} />;
                     }
-
-                    // Fallback to rendering as a code block
+                    if(className?.startsWith('language-')){
+                        return (
+                            <BlockCode className={className} {...props}>
+                                {children}
+                            </BlockCode>
+                        );
+                    }
                     return (
-                        <code className={className} {...props}>
+                        <InlineCode className={className} {...props}>
                             {children}
-                        </code>
+                        </InlineCode>
                     );
                 },
             }}
         />, [props.content, darkMode])
     return memoized
 }
+
 
 export default function MathMarkdown(props: MathMarkdownProps) {
     const headingRef = useRef<any>({})
