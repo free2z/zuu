@@ -21,15 +21,16 @@ export default function StoryTimeDisplay() {
         ).then((res) => {
             // console.log(res)
             setStory(res.data)
-            setLoading(false)
         }).catch((res) => {
-            setLoading(false)
             setSnackbarState({
                 message: JSON.stringify(res.data),
                 open: true,
                 duration: undefined,
                 severity: "error",
             })
+        })
+        .finally(() => {
+            setLoading(false)
         })
     }
 

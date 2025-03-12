@@ -46,7 +46,6 @@ export default function StoryTimeEdit() {
         ).then((res) => {
             // console.log(res)
             setStory(res.data)
-            setLoading(false)
         }).catch((res) => {
             console.error("ERROR", res)
             setSnackbarState({
@@ -55,6 +54,8 @@ export default function StoryTimeEdit() {
                 duration: undefined,
                 severity: "error",
             })
+        }).finally(() => {
+            setLoading(false)
         })
     }
 
