@@ -12,6 +12,8 @@ import AIzPageDialog from "./AIzPageDialog";
 import DallezPageDialog from "./DallezPageDialog";
 import FileSelectorDialog from "./FileSelectorDialog";
 import { FileMetadata } from "./DragDropFiles";
+import { Box, Typography } from "@mui/material";
+import LoadingAnimation from "./LoadingAnimation";
 
 const embed: ICommand = {
     name: 'embed',
@@ -55,7 +57,6 @@ export default function F2ZMarkdownField(props: Props) {
     const darkMode = useStoreState("darkmode")
     const [prog, setProgress] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null);
-
     const [aiOpen, setAIOpen] = useState(false)
     const [aiState, setAIstate] = useState({} as TextState)
     const [aiTA, setAITA] = useState({} as TextAreaTextApi)
@@ -66,6 +67,7 @@ export default function F2ZMarkdownField(props: Props) {
 
     const [imageSelectorOpen, setImageSelectorOpen] = useState(false);
     const [editorApi, setEditorApi] = useState<null | TextAreaTextApi>(null);
+    const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle')
 
     const editorRef = useRef<HTMLDivElement | null>(null); // Ref to the MDEditor container
 
@@ -158,6 +160,7 @@ export default function F2ZMarkdownField(props: Props) {
         api: TextAreaTextApi,
     ) => {
         setProgress(1)
+
         // event.preventDefault();
         const file = event.target.files?.[0];
         if (!file) {
@@ -173,8 +176,19 @@ export default function F2ZMarkdownField(props: Props) {
             method: "POST",
             url: "/uploads/single-public",
             onUploadProgress: (progressEvent) => {
-                const progress = (progressEvent.loaded / progressEvent.total) * 100;
-                setProgress(progress)
+                const loaded = progressEvent.loaded
+                const total = progressEvent.total
+                const progress = (loaded / total) * 100;
+                if (loaded === total) {
+                    setProgress(0)
+                    setUploadState('processing')
+                }
+                else {
+                    setProgress(progress)
+                }
+            },
+            onDownloadProgress: () => {
+                setUploadState('idle')
             },
             headers: {
                 "Content-Type": "multipart/form-data"
@@ -314,6 +328,45 @@ export default function F2ZMarkdownField(props: Props) {
     return (
         <div data-color-mode={darkMode ? "dark" : "light"}>
             <LinearProgressBackdrop progress={prog} />
+            {uploadState === 'processing' && (
+                <Box component="div" sx={{
+                    position: 'fixed',
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 1300,
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    padding: '1rem',
+                    justifyContent: "center",
+                    display: 'flex',
+                    alignItems: 'center'
+                }}>
+                    <LoadingAnimation />
+                    <div
+                        // ref={divRef}
+                        style={{
+                            textAlign: 'center',
+                            color: 'text',
+                            opacity: 0.1,
+                            fontSize: '2.25em',
+                            textShadow: '1px 1px 1px #fff, -1px -1px 1px #fff, -1px 1px 1px #fff, 1px -1px 1px #fff',
+                            animation: 'zanyMove 3s linear infinite, shimmer 2s ease-in-out infinite',
+                            position: 'absolute',
+                        }}
+                    >
+                        <Typography variant="body1" sx={{ mt: 2 }}>
+                            Processing files on server...
+                        </Typography>
+                        <Typography variant="caption" sx={{ mt: 1 }}>
+                            This may take a few moments
+                        </Typography>
+                    </div>
+                </Box>
+
+            )}
+
             <AIzPageDialog
                 state={aiState}
                 ta={aiTA}
