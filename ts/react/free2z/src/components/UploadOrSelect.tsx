@@ -11,6 +11,7 @@ import { FileMetadata } from "./DragDropFiles";
 import LinearProgressBackdrop from "./LinearProgressBackdrop";
 import LightboxImage from "./CustomImage";
 import { FeaturedImage } from "./PageRenderer";
+import LoadingAnimation from "./LoadingAnimation";
 
 
 type UploadOrSelectProps = {
@@ -29,6 +30,7 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
     const [prog, setProgress] = useState(0)
     const [mql, setMQL] = useState(window.matchMedia('(max-width: 600px)'))
     const [searching, setSearching] = useState(true)
+    const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle')
 
     const handleUpload = (
         event: ChangeEvent<HTMLInputElement>,
@@ -45,8 +47,19 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
             method: "POST",
             url: "/uploads/single-public",
             onUploadProgress: (progressEvent) => {
-                const progress = (progressEvent.loaded / progressEvent.total) * 100;
-                setProgress(progress)
+                const loaded = progressEvent.loaded
+                const total = progressEvent.total
+                const progress = (loaded / total) * 100;
+                if (loaded === total) {
+                    setProgress(0)
+                    setUploadState('processing')
+                }
+                else {
+                    setProgress(progress)
+                }
+            },
+            onDownloadProgress: () => {
+                setUploadState('idle')
             },
             headers: {
                 "Content-Type": "multipart/form-data"
@@ -91,6 +104,44 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
     return (
         <>
             <LinearProgressBackdrop progress={prog} />
+            {uploadState === 'processing' && (
+                <Box component="div" sx={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    width: "100%",
+                    height: "100%",
+                    zIndex: 1300,
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    padding: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}>
+                    <LoadingAnimation />
+                    <div
+                        style={{
+                            textAlign: 'center',
+                            color: 'text',
+                            opacity: 0.1,
+                            fontSize: '2.25em',
+                            textShadow: '1px 1px 1px #fff, -1px -1px 1px #fff, -1px 1px 1px #fff, 1px -1px 1px #fff',
+                            animation: 'zanyMove 3s linear infinite, shimmer 2s ease-in-out infinite',
+                            position: 'absolute',
+                        }}
+                    >
+                        <Typography variant="h4" sx={{ mt: 2 }}>
+                            Processing files on server...
+                        </Typography>
+                        <Typography variant="h4" sx={{ mt: 1 }}>
+                            This may take a few moments
+                        </Typography>
+                    </div>
+                </Box>
+            )}
+
             <Stack direction="column"
                 alignItems="center"
                 style={{

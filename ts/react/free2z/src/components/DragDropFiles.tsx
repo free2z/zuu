@@ -1,14 +1,16 @@
 // https://www.codemzy.com/blog/react-drag-drop-file-upload
 import {
-    Button, Chip, Divider, InputLabel, Paper, Stack, Typography
+    Button, Chip, Divider, InputLabel, Paper, Stack, Typography,
+    CircularProgress, Box
 } from "@mui/material";
 import axios from "axios";
 import Cookies from "js-cookie";
-import { useState, useRef, ChangeEvent, DragEvent } from "react";
+import { useState, useRef, ChangeEvent, DragEvent, useEffect } from "react";
 import { useGlobalState } from "../state/global";
 import FileUploadForm from "./FileUploadForm";
 import LinearProgressBackdrop from "./LinearProgressBackdrop";
 import MyUploads from "./MyUploads";
+import LoadingAnimation from "./LoadingAnimation";
 
 
 export type FileMetadata = {
@@ -31,6 +33,8 @@ export default function DragDropFile() {
     const [fileList, setFileList] = useState([] as File[])
     const [metadata, setMetadata] = useState([] as FileMetadata[])
     const [prog, setProgress] = useState(0)
+    const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle')
+
 
     // handle drag events
     const handleDrag = function (e: DragEvent<HTMLElement>) {
@@ -112,12 +116,8 @@ export default function DragDropFile() {
         // https://stackoverflow.com/q/71989915/177293
         // https://stackoverflow.com/a/42096508/177293
         // https://stackoverflow.com/a/61221416/177293
-        // TODO: better loading
-        // setLoading(true)
-        // console.log("UPLOAD")
-        // console.log(fileList)
-        // console.log(metadata)
         setProgress(1)
+        setUploadState('uploading')
 
         // create formData object
         const formData = new FormData();
@@ -127,7 +127,7 @@ export default function DragDropFile() {
 
         formData.append("body", JSON.stringify(metadata))
         const csrf = Cookies.get("csrftoken")
-        // console.log(formData)
+
         axios({
             method: "POST",
             url: "/uploads/handle",
@@ -137,18 +137,35 @@ export default function DragDropFile() {
                 "X-CSRFToken": csrf || "",
             },
             onUploadProgress: (progressEvent) => {
-                const progress = (progressEvent.loaded / progressEvent.total) * 100;
-                setProgress(progress)
+                const loaded = progressEvent.loaded
+                const total = progressEvent.total
+                const progress = (loaded / total) * 100;
+                if (loaded === total) {
+                    setProgress(0)
+                    setUploadState('processing')
+                }
+                else {
+                    setProgress(progress)
+                }
+            },
+            onDownloadProgress: () => {
+                setUploadState('idle')
             },
         }).then((res) => {
             setMetadata([])
             setFileList([])
-            // setLoading(false)
             setProgress(0)
+            setUploadState('idle')
             setLoads(loads + 1)
+            setSnack({
+                open: true,
+                severity: "success",
+                message: "Files uploaded successfully",
+                duration: 5000,
+            })
         }).catch((res) => {
-            // console.log(res)
             setProgress(0)
+            setUploadState('idle')
             setSnack({
                 open: true,
                 severity: "error",
@@ -162,6 +179,44 @@ export default function DragDropFile() {
     return (
         <>
             <LinearProgressBackdrop progress={prog} />
+            {uploadState === 'processing' && (
+                <Box component="div" sx={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    width: "100%",
+                    height: "100%",
+                    zIndex: 1300,
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    padding: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}>
+                    <LoadingAnimation />
+                    <div
+                        style={{
+                            textAlign: 'center',
+                            color: 'text',
+                            opacity: 0.1,
+                            fontSize: '2.25em',
+                            textShadow: '1px 1px 1px #fff, -1px -1px 1px #fff, -1px 1px 1px #fff, 1px -1px 1px #fff',
+                            animation: 'zanyMove 3s linear infinite, shimmer 2s ease-in-out infinite',
+                            position: 'absolute',
+                        }}
+                    >
+                        <Typography variant="h4" sx={{ mt: 2 }}>
+                            Processing files on server...
+                        </Typography>
+                        <Typography variant="h4" sx={{ mt: 1 }}>
+                            This may take a few moments
+                        </Typography>
+                    </div>
+                </Box>
+            )}
+
             <Paper
                 sx={{
                     backgroundColor: dragActive ? "text.secondary" : "background.paper",
@@ -265,7 +320,6 @@ export default function DragDropFile() {
                     {!!fileList.length &&
                         <Stack
                             direction="column"
-                            // spacing={10}
                             style={{
                                 margin: "1em",
                             }}
@@ -274,11 +328,16 @@ export default function DragDropFile() {
                                 variant="outlined"
                                 onClick={uploadClick}
                                 disabled={
+                                    uploadState !== 'idle' ||
                                     metadata.some(
                                         file => file.name.length > 100 || file.title.length > 64
                                     )
                                 }
-                            >Upload</Button>
+                                startIcon={uploadState !== 'idle' ? <CircularProgress size={20} /> : null}
+                            >
+                                {uploadState === 'idle' ? 'Upload' :
+                                    uploadState === 'uploading' ? 'Uploading...' : 'Processing...'}
+                            </Button>
                         </Stack>
                     }
                 </form>
