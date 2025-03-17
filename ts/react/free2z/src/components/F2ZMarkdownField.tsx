@@ -359,7 +359,7 @@ export default function F2ZMarkdownField(props: Props) {
                         <Typography variant="body1" sx={{ mt: 2 }}>
                             Processing files on server...
                         </Typography>
-                        <Typography variant="caption" sx={{ mt: 1 }}>
+                        <Typography variant="body1" sx={{ mt: 1 }}>
                             This may take a few moments
                         </Typography>
                     </div>

@@ -132,10 +132,10 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
                             position: 'absolute',
                         }}
                     >
-                        <Typography variant="body1" sx={{ mt: 2 }}>
+                        <Typography variant="h4" sx={{ mt: 2 }}>
                             Processing files on server...
                         </Typography>
-                        <Typography variant="caption" sx={{ mt: 1 }}>
+                        <Typography variant="h4" sx={{ mt: 1 }}>
                             This may take a few moments
                         </Typography>
                     </div>
