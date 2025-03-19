@@ -29,23 +29,26 @@ export default function CodeCopyButton(props: CodeCopyProps) {
 
     return (
         <IconButton
-            // variant="contained"
             size="small"
             color="primary"
             onClick={handleCopyClick}
             sx={{
                 position: 'absolute',
-                top: '3px',
-                right: '-4px',
+                top: '10px',
+                right: '10px',
                 zIndex: (theme: Theme) => theme.zIndex.mobileStepper - 1,
                 borderColor: copySuccess ? 'success.main' : undefined,
                 color: copySuccess ? 'success.main' : undefined,
             }}
         >
             {copySuccess ?
-                <Check fontSize="small" />
+                <Check fontSize="small" style={{
+                    color: '#00ff04'
+                }} />
                 :
-                <ContentCopy fontSize="small" />
+                <ContentCopy fontSize="small" style={{
+                    color: 'whitesmoke'
+                }}/>
             }
         </IconButton>
     )
