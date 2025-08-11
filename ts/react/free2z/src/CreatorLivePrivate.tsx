@@ -10,57 +10,103 @@ import DyteLeave from "./components/DyteLeave";
 import DyteCreator from "./components/DyteCreator";
 import { useGlobalState } from "./state/global";
 
-
 export default function CreatorLive() {
-    const params = useParams()
-    const owner = params.owner
-    const uuid = params.uuid
+    const params = useParams();
+    const owner = params.owner;
+    const uuid = params.uuid;
 
-    const [creator, _c] = useGlobalState("creator")
-    const setSnackbarState = useGlobalState("snackbar")[1]
-    const [loading, setLoading] = useGlobalState("loading")
-    const [authStatus, _a] = useGlobalState("authStatus")
+    const [creator] = useGlobalState("creator");
+    const setSnackbarState = useGlobalState("snackbar")[1];
+    const [loading, setLoading] = useGlobalState("loading");
+    const [authStatus] = useGlobalState("authStatus");
 
-    const navigate = useTransitionNavigate()
-    const [meeting, initMeeting] = useDyteClient()
+    const navigate = useTransitionNavigate();
+    const [meeting, initMeeting] = useDyteClient();
 
     const [clipboardPending, setClipboardPending] = useState(false);
 
-    const copyToClipboard = async () => {
-        await navigator.clipboard.writeText(window.location.href);
+    // --- Helpers ----------------------------------------------------
+
+    const showManualCopySnackbar = () => {
+        const url = window.location.href;
+
         setSnackbarState({
-            message: `Secret URL copied to clipboard. Share it only with people you want to join the call.`,
-            severity: "success",
+            message: "Tap the copy icon to copy your secret URL.",
+            severity: "info",
             duration: null,
             open: true,
+            action: {
+                ariaLabel: "Copy link",
+                onClick: async () => {
+                    try {
+                        await navigator.clipboard.writeText(url);
+                        setSnackbarState({
+                            message: "Link copied.",
+                            severity: "success",
+                            duration: 3000,
+                            open: true,
+                        });
+                    } catch {
+                        // Last-ditch: just show the raw URL so they can select/copy.
+                        setSnackbarState({
+                            message: url,
+                            severity: "info",
+                            duration: null,
+                            open: true,
+                        });
+                    }
+                },
+            },
         });
     };
 
-    useEffect(() => {
-        const handleFocus = async () => {
-            if (clipboardPending) {
-                setClipboardPending(false);
-                await copyToClipboard();
-                document.removeEventListener('focus', handleFocus);
+    const copyToClipboard = async (): Promise<boolean> => {
+        const url = window.location.href;
+        try {
+            if (
+                !window.isSecureContext || // some browsers require secure context
+                !navigator.clipboard ||
+                typeof navigator.clipboard.writeText !== "function"
+            ) {
+                showManualCopySnackbar();
+                return false;
             }
+            await navigator.clipboard.writeText(url);
+            setSnackbarState({
+                message:
+                    "Secret URL copied to clipboard. Share it only with people you want to join the call.",
+                severity: "success",
+                duration: null,
+                open: true,
+            });
+            return true;
+        } catch {
+            // Swallow Safari/permission errors and show fallback
+            showManualCopySnackbar();
+            return false;
+        }
+    };
+
+    // When window regains focus (after meeting init), try to copy; on failure show fallback snackbar
+    useEffect(() => {
+        if (!clipboardPending) return;
+
+        const handleFocus = async () => {
+            setClipboardPending(false);
+            await copyToClipboard(); // fallback snackbar shown internally if it fails
         };
 
-        document.addEventListener('focus', handleFocus);
-
-        return () => {
-            document.removeEventListener('focus', handleFocus);
-        };
+        // Attach once to avoid stacking handlers
+        window.addEventListener("focus", handleFocus, { once: true });
+        return () => window.removeEventListener("focus", handleFocus);
     }, [clipboardPending]);
 
+    // --- Init flow --------------------------------------------------
+
     useEffect(() => {
-        console.log("Starting Private", creator.username)
+        if (authStatus === null) return;
 
-        if (authStatus === null) {
-            console.log("authStatus is null")
-            return
-        }
-
-        const is_owner = creator.username.toLowerCase() === owner?.toLowerCase()
+        const is_owner = creator.username.toLowerCase() === owner?.toLowerCase();
 
         if (!creator.can_stream && is_owner) {
             setSnackbarState({
@@ -68,9 +114,9 @@ export default function CreatorLive() {
                 severity: "warning",
                 duration: undefined,
                 open: true,
-            })
-            navigate('/profile')
-            return
+            });
+            navigate("/profile");
+            return;
         }
 
         setSnackbarState({
@@ -78,39 +124,32 @@ export default function CreatorLive() {
             severity: "info",
             duration: undefined,
             open: true,
-        })
-        setLoading(true)
-        axios.post(`/api/dyte/${owner}/private/${uuid}`).then((res) => {
+        });
+        setLoading(true);
 
-            // console.log("INIT MEETING", res)
-
-            // TODO: e2ee
-            // const sharedKeyProvider = new DyteE2EEManager.SharedKeyProvider();
-            // sharedKeyProvider.setKey("meeting-password");
-            // const e2eeManager = new DyteE2EEManager({ keyProvider: sharedKeyProvider });
-
-            initMeeting({
-                authToken: res.data.auth_token,
-                // https://dyte.io/blog/end-to-end-encryption/
-                // modules: {
-                //     e2ee: {
-                //         enabled: true,
-                //         manager: e2eeManager,
-                //     }
-                // }
-            }).then(async (client) => {
+        axios
+            .post(`/api/dyte/${owner}/private/${uuid}`)
+            .then((res) =>
+                initMeeting({
+                    authToken: res.data.auth_token,
+                    // modules: { e2ee: { enabled: true, manager: e2eeManager } }
+                })
+            )
+            .then(async () => {
                 setLoading(false);
 
                 if (is_owner) {
                     if (document.hasFocus()) {
-                        await copyToClipboard();
+                        await copyToClipboard(); // fallback snackbar shown internally if it fails
                     } else {
                         setClipboardPending(true);
+                        // Optional: show the manual-copy snackbar proactively so users see it immediately
+                        showManualCopySnackbar();
                     }
                 }
-            }).catch((err) => {
-                console.error("catch*********", err)
-                // window.location.reload()
+            })
+            .catch((err) => {
+                console.error("catch*********", err);
                 setSnackbarState({
                     message: "Error initializing meeting",
                     severity: "error",
@@ -118,30 +157,16 @@ export default function CreatorLive() {
                     open: true,
                 });
                 setLoading(false);
-                navigate(`/${owner}`)
+                navigate(`/${owner}`);
             });
-        }).catch((reason) => {
-            setLoading(false)
-            console.log("FAIL1", reason)
-            setSnackbarState({
-                message: "Error initializing meeting",
-                severity: "error",
-                duration: undefined,
-                open: true,
-            });
-            navigate(`/${owner}`)
-        })
-    }, [creator.username, authStatus])
+    }, [creator.username, authStatus]);
 
     return (
         <>
             <Helmet>
                 <title>{`Private Call`}</title>
             </Helmet>
-            <DyteProvider
-                value={meeting}
-                fallback={<></>}
-            >
+            <DyteProvider value={meeting} fallback={<></>}>
                 <DyteLeave />
                 <DyteCreator />
             </DyteProvider>
