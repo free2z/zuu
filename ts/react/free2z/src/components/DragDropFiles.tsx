@@ -34,7 +34,7 @@ export default function DragDropFile() {
     const [metadata, setMetadata] = useState([] as FileMetadata[])
     const [prog, setProgress] = useState(0)
     const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle')
-
+    const [creator, _] = useGlobalState("creator")
 
     // handle drag events
     const handleDrag = function (e: DragEvent<HTMLElement>) {
@@ -270,7 +270,14 @@ export default function DragDropFile() {
                                 Select Files
                             </Button>
                             <Typography variant="caption">
-                                Maximum 250MB per upload
+                                {/* 5GB if >= 5000, 250MB if > 0, else 5BM */}
+                                {parseInt(creator.tuzis) > 5000 &&
+
+                                    "You can upload files up to 5GB in size."}
+                                {parseInt(creator.tuzis) > 0 && parseInt(creator.tuzis) <= 5000 &&
+                                    "You can upload files up to 250MB in size."}
+                                {parseInt(creator.tuzis) <= 0 &&
+                                    "You can upload files up to 5MB in size."}
                             </Typography>
                         </Stack>
                     </InputLabel>
