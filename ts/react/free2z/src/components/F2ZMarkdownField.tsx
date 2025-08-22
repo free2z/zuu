@@ -14,6 +14,8 @@ import FileSelectorDialog from "./FileSelectorDialog";
 import { FileMetadata } from "./DragDropFiles";
 import { Box, Typography } from "@mui/material";
 import LoadingAnimation from "./LoadingAnimation";
+import { maxBytesForTuzis, humanBytes, getMessage } from "../lib/size-limits";
+import { max } from "moment";
 
 const embed: ICommand = {
     name: 'embed',
@@ -24,13 +26,10 @@ const embed: ICommand = {
         'aria-label': 'Add embed (ctrl + e)',
         title: 'Add embed (ctrl + e)'
     },
-    icon: (
-        <YouTube />
-    ),
-    execute: function execute(state, api) {
-        var imageTemplate = state.selectedText || 'url';
-        api.replaceSelection("\n\n::embed[".concat(imageTemplate, "]\n\n"));
-        // Adjust the selection to not contain the **
+    icon: (<YouTube />),
+    execute(state, api) {
+        const imageTemplate = state.selectedText || 'url';
+        api.replaceSelection(`\n\n::embed[${imageTemplate}]\n\n`);
         api.setSelectionRange({
             start: 10 + state.selection.start,
             end: 10 + state.selection.start + imageTemplate.length
@@ -46,14 +45,13 @@ type Props = {
     required?: boolean
     title?: string
     previewWindow?: Window
-    // the axiosresponse coupling is no better than plain any
     handleSave?: () => any
 }
 
-
 export default function F2ZMarkdownField(props: Props) {
-    const { content, cb, height, placeholder, required, title } = props
+    const { content, cb, height, placeholder, title } = props
     const setSnackbarState = useGlobalState("snackbar")[1]
+    const [creator] = useGlobalState("creator")
     const darkMode = useStoreState("darkmode")
     const [prog, setProgress] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null);
@@ -69,32 +67,15 @@ export default function F2ZMarkdownField(props: Props) {
     const [editorApi, setEditorApi] = useState<null | TextAreaTextApi>(null);
     const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle')
 
-    const editorRef = useRef<HTMLDivElement | null>(null); // Ref to the MDEditor container
+    const editorRef = useRef<HTMLDivElement | null>(null);
 
-    // This just scrolls our preview window if it is open
-    // and we are near the bottom of the editor.
     useEffect(() => {
-        if (!props.previewWindow) {
-            return;
-        }
-
-        if (!editorRef.current) {
-            console.log('Editor ref is not attached yet.');
-            return;
-        }
-
-        // Access the textarea inside the MDEditor
+        if (!props.previewWindow || !editorRef.current) return;
         const textArea = editorRef.current.querySelector('textarea');
-        if (!(textArea instanceof HTMLTextAreaElement)) {
-            console.log('Textarea not found within MDEditor.');
-            return;
-        }
+        if (!(textArea instanceof HTMLTextAreaElement)) return;
 
         const handleScroll = () => {
             const { scrollTop, scrollHeight, clientHeight } = textArea;
-            // console.log(`Scroll Top: ${scrollTop}, Scroll Height: ${scrollHeight}, Client Height: ${clientHeight}`);
-
-            // Check if we are near the bottom
             if (scrollHeight - scrollTop - clientHeight < 100) {
                 props.previewWindow?.scrollTo({
                     top: props.previewWindow?.document.body.scrollHeight,
@@ -102,56 +83,34 @@ export default function F2ZMarkdownField(props: Props) {
                 });
             }
         };
-
-        // console.log('Attaching scroll event listener to the textarea.');
-        // Attach the scroll event
         textArea.addEventListener('scroll', handleScroll);
-
-        // Cleanup
-        return () => {
-            // console.log('Removing scroll event listener from the textarea.');
-            textArea.removeEventListener('scroll', handleScroll);
-        };
-    }, [editorRef.current, props.previewWindow]); // Depend on editorRef
-
+        return () => textArea.removeEventListener('scroll', handleScroll);
+    }, [editorRef.current, props.previewWindow]);
 
     useEffect(() => {
         const handleSaveShortcut = (e: KeyboardEvent) => {
-            // Check for ctrlKey (Windows/Linux) or metaKey (macOS)
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                console.log("ctrl/cmd + s detected");
-                e.preventDefault(); // Prevent the default save action
+                e.preventDefault();
                 props.handleSave && props.handleSave();
             }
         };
-
-        // Attach the event listener
         document.addEventListener('keydown', handleSaveShortcut, { passive: false });
-
-        // Clean up the event listener
-        return () => {
-            document.removeEventListener('keydown', handleSaveShortcut);
-        };
+        return () => document.removeEventListener('keydown', handleSaveShortcut);
     }, [props.handleSave]);
 
     const handleImageSelection = (file: FileMetadata) => {
-        // You can add the markdown insertion logic here
-        // Close the dialog
         setImageSelectorOpen(false);
-        let insert = ""
-        let title = (file.description || file.title || file.name).replace(/\n/g, "");
-
+        const title = (file.description || file.title || file.name).replace(/\n/g, "");
+        let insert = "";
         if (file.mime_type?.startsWith("image")) {
-            // Add image to the editor
             insert = `![${title}](${file.url})`;
         } else if (file.mime_type?.startsWith("video")) {
-            insert = `::embed[${file.url}]`
+            insert = `::embed[${file.url}]`;
         } else if (file.mime_type?.startsWith("audio")) {
-            insert = `::embed[${file.url}]`
+            insert = `::embed[${file.url}]`;
         } else {
-            insert = `[${title}](${file.url})`
+            insert = `[${title}](${file.url})`;
         }
-        // console.log("CALLING", editorApi)
         editorApi && editorApi.replaceSelection(`\n\n${insert}\n\n`);
     }
 
@@ -159,71 +118,71 @@ export default function F2ZMarkdownField(props: Props) {
         event: React.ChangeEvent<HTMLInputElement>,
         api: TextAreaTextApi,
     ) => {
-        setProgress(1)
-
-        // event.preventDefault();
         const file = event.target.files?.[0];
         if (!file) {
-            setProgress(0)
-            console.error("no file!")
+            setProgress(0);
             return;
         }
 
+        // Client-side guard so we never start sending bytes if too big.
+        const maxBytes = maxBytesForTuzis(creator?.tuzis);
+
+        if (file.size > maxBytes) {
+            setSnackbarState({
+                message: `“${file.name}” is too large. Max ${humanBytes(maxBytes)}. ${getMessage(maxBytes)}`,
+                open: true,
+                duration: undefined,
+                severity: 'error',
+            });
+            return;
+        }
+
+        setProgress(1);
+        setUploadState('uploading');
+
         const formData = new FormData();
         formData.append("file", file);
-        // You could add metadata in the formData here if you need it
+
         axios({
             method: "POST",
             url: "/uploads/single-public",
             onUploadProgress: (progressEvent) => {
-                const loaded = progressEvent.loaded
-                const total = progressEvent.total
-                const progress = (loaded / total) * 100;
-                if (loaded === total) {
-                    setProgress(0)
-                    setUploadState('processing')
+                const loaded = progressEvent.loaded ?? 0;
+                const total = progressEvent.total ?? 0;
+                if (total > 0) {
+                    const pct = (loaded / total) * 100;
+                    if (loaded === total) {
+                        setProgress(0);
+                        setUploadState('processing');
+                    } else {
+                        setProgress(pct);
+                    }
                 }
-                else {
-                    setProgress(progress)
-                }
             },
-            onDownloadProgress: () => {
-                setUploadState('idle')
-            },
-            headers: {
-                "Content-Type": "multipart/form-data"
-            },
+            onDownloadProgress: () => setUploadState('idle'),
+            headers: { "Content-Type": "multipart/form-data" },
             data: formData
         })
             .then(resp => {
-                // Set the URL of the uploaded file to the text field
-                // cb(response)
-                if (
-                    resp.data.mime_type.startsWith('video') ||
-                    resp.data.mime_type.startsWith('audio')
-                ) {
-                    api.replaceSelection(
-                        `\n::embed[${resp.data.url}]\n\n`
-                    );
-                } else if (resp.data.mime_type.startsWith('image')) {
-                    api.replaceSelection(
-                        `\n\n![](${resp.data.thumbnail || resp.data.url})\n\n`
-                    )
+                const { mime_type, url, thumbnail } = resp.data;
+                if (mime_type.startsWith('video') || mime_type.startsWith('audio')) {
+                    api.replaceSelection(`\n::embed[${url}]\n\n`);
+                } else if (mime_type.startsWith('image')) {
+                    api.replaceSelection(`\n\n![](${thumbnail || url})\n\n`);
                 } else {
-                    api.replaceSelection(
-                        `[The File](${resp.data.url})`
-                    )
+                    api.replaceSelection(`[The File](${url})`);
                 }
-                setProgress(0)
+                setProgress(0);
             })
             .catch(error => {
                 setSnackbarState({
-                    message: `upload failed ${error}`,
+                    message: `upload failed${error?.response?.status ? ` (${error.response.status})` : ""}`,
                     open: true,
                     duration: undefined,
                     severity: 'error',
-                })
-                setProgress(0)
+                });
+                setProgress(0);
+                setUploadState('idle');
             });
     };
 
@@ -239,24 +198,15 @@ export default function F2ZMarkdownField(props: Props) {
         icon: (
             <>
                 <Upload />
-                <input
-                    type="file"
-                    style={{ display: 'none' }}
-                    ref={inputRef}
-                />
+                <input type="file" style={{ display: 'none' }} ref={inputRef} />
             </>
         ),
-        execute: function execute(state, api) {
-            if (!inputRef || !inputRef.current) return
+        execute(state, api) {
+            if (!inputRef?.current) return;
             inputRef.current.onchange = function () {
-                const event = {
-                    target: inputRef.current
-                } as React.ChangeEvent<HTMLInputElement>
-                handleUpload(
-                    event,
-                    api
-                );
-            }
+                const event = { target: inputRef.current } as React.ChangeEvent<HTMLInputElement>;
+                handleUpload(event, api);
+            };
             inputRef.current.click();
         },
     };
@@ -270,13 +220,8 @@ export default function F2ZMarkdownField(props: Props) {
             'aria-label': ' (ctrl + a)',
             title: 'AI (ctrl + a)'
         },
-        icon: (
-            <>
-                <SatelliteAlt />
-            </>
-        ),
-        execute: function execute(state, api) {
-            // console.log(state, api)
+        icon: (<SatelliteAlt />),
+        execute(state, api) {
             setAIstate(state)
             setAITA(api)
             setAIOpen(true)
@@ -292,14 +237,9 @@ export default function F2ZMarkdownField(props: Props) {
             'aria-label': ' (ctrl + shift + p)',
             title: 'Select File (ctrl + shift + p)'
         },
-        icon: (
-            <>
-                <FolderOpen />
-            </>
-        ),
-        execute: function execute(state, api) {
+        icon: (<FolderOpen />),
+        execute(state, api) {
             setImageSelectorOpen(true)
-            // console.log("SET", editorApi, api)
             setEditorApi(api)
         }
     }
@@ -313,12 +253,8 @@ export default function F2ZMarkdownField(props: Props) {
             'aria-label': ' (ctrl + m)',
             title: 'AI (ctrl + m)'
         },
-        icon: (
-            <>
-                <Satellite />
-            </>
-        ),
-        execute: function execute(state, api) {
+        icon: (<Satellite />),
+        execute(state, api) {
             setDalleState(state)
             setDalleTA(api)
             setDalleOpen(true)
@@ -331,27 +267,23 @@ export default function F2ZMarkdownField(props: Props) {
             {uploadState === 'processing' && (
                 <Box component="div" sx={{
                     position: 'fixed',
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
+                    top: 0, bottom: 0, left: 0, right: 0,
                     zIndex: 1300,
                     backgroundColor: 'rgba(0,0,0,0.7)',
                     color: 'white',
-                    padding: '1rem',
+                    p: '1rem',
                     justifyContent: "center",
                     display: 'flex',
                     alignItems: 'center'
                 }}>
                     <LoadingAnimation />
                     <div
-                        // ref={divRef}
                         style={{
                             textAlign: 'center',
                             color: 'text',
                             opacity: 0.1,
                             fontSize: '2.25em',
-                            textShadow: '1px 1px 1px #fff, -1px -1px 1px #fff, -1px 1px 1px #fff, 1px -1px 1px #fff',
+                            textShadow: '1px 1px 1px #fff, -1px -1px 1px #fff, 1px -1px 1px #fff',
                             animation: 'zanyMove 3s linear infinite, shimmer 2s ease-in-out infinite',
                             position: 'absolute',
                         }}
@@ -364,62 +296,26 @@ export default function F2ZMarkdownField(props: Props) {
                         </Typography>
                     </div>
                 </Box>
-
             )}
 
-            <AIzPageDialog
-                state={aiState}
-                ta={aiTA}
-                open={aiOpen}
-                setOpen={setAIOpen}
-                title={title}
-            />
-            <DallezPageDialog
-                state={dalleState}
-                ta={dalleTA}
-                open={dalleOpen}
-                setOpen={setDalleOpen}
-                title={title}
-            />
-            <FileSelectorDialog
-                open={imageSelectorOpen}
-                onClose={() => setImageSelectorOpen(false)}
-                onSelect={handleImageSelection}
-            />
+            <AIzPageDialog state={aiState} ta={aiTA} open={aiOpen} setOpen={setAIOpen} title={title} />
+            <DallezPageDialog state={dalleState} ta={dalleTA} open={dalleOpen} setOpen={setDalleOpen} title={title} />
+            <FileSelectorDialog open={imageSelectorOpen} onClose={() => setImageSelectorOpen(false)} onSelect={handleImageSelection} />
+
             <div ref={editorRef}>
                 <MDEditor
-                    style={{
-                        border: `1px solid gray`,
-                    }}
+                    style={{ border: `1px solid gray` }}
                     value={content}
                     onChange={cb}
-                    // This doesn't override the default browser save page
-                    // call handleSave on cmd+s, ctrl+s
-                    // onKeyUp={(e) => {
-                    //     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                    //         console.log("ctrl+s")
-                    //         e.preventDefault();
-                    //         props.handleSave && props.handleSave();
-                    //     }
-                    // }}
-                    textareaProps={{
-                        placeholder: placeholder || samplePage,
-                        // ref: textAreaRef,
-                    }}
-                    enableScroll={true}
+                    textareaProps={{ placeholder: placeholder || samplePage }}
+                    enableScroll
                     highlightEnable={false}
                     visibleDragbar={false}
                     height={height || 555}
                     preview={"edit"}
                     extraCommands={[dalle, openai, embed, fileUpload, selectFile]}
-                    commandsFilter={(
-                        command: ICommand,
-                        isExtra: boolean
-                    ): false | ICommand => {
-                        // console.log(command, isExtra)
-                        if (noCommands.includes(command.name || "")) {
-                            return false
-                        }
+                    commandsFilter={(command: ICommand) => {
+                        if (noCommands.includes(command.name || "")) return false
                         return command
                     }}
                 />
