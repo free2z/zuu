@@ -12,7 +12,7 @@ import LinearProgressBackdrop from "./LinearProgressBackdrop";
 import LightboxImage from "./CustomImage";
 import { FeaturedImage } from "./PageRenderer";
 import LoadingAnimation from "./LoadingAnimation";
-
+import { maxBytesForTuzis, humanBytes, getMessage } from "../lib/size-limits";
 
 type UploadOrSelectProps = {
     spacing?: number,
@@ -23,83 +23,92 @@ type UploadOrSelectProps = {
 }
 
 export default function UploadOrSelect(props: UploadOrSelectProps) {
-    const { selectedImage, setSelectedImage, noPreview, spacing, cb } = props
-    const setSnackbarState = useGlobalState("snackbar")[1]
-    const [results, setResults] = useState([] as FeaturedImage[])
+    const { selectedImage, setSelectedImage, noPreview, spacing, cb } = props;
+    const setSnackbarState = useGlobalState("snackbar")[1];
+    const [creator] = useGlobalState("creator");
+    const [results, setResults] = useState([] as FeaturedImage[]);
     const [openDialog, setOpenDialog] = useState(false);
-    const [prog, setProgress] = useState(0)
-    const [mql, setMQL] = useState(window.matchMedia('(max-width: 600px)'))
-    const [searching, setSearching] = useState(true)
-    const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle')
+    const [prog, setProgress] = useState(0);
+    const [mql, setMQL] = useState(window.matchMedia('(max-width: 600px)'));
+    const [searching, setSearching] = useState(true);
+    const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'processing'>('idle');
 
     const handleUpload = (
         event: ChangeEvent<HTMLInputElement>,
-        cb: (resp: AxiosResponse<any, any>) => void
+        cbAfter: (resp: AxiosResponse<any, any>) => void
     ) => {
-        setProgress(1)
-        event.preventDefault();
         const file = event.target.files?.[0];
         if (!file) return;
+
+        // Hard client-side guard so we never start sending bytes if too big.
+        const maxBytes = maxBytesForTuzis(creator?.tuzis);
+        if (file.size > maxBytes) {
+            setSnackbarState({
+                message: `“${file.name}” is too large. Max ${humanBytes(maxBytes)}. ${getMessage(maxBytes)}`,
+                open: true,
+                duration: undefined,
+                severity: 'error',
+            });
+            return;
+        }
+
+        setProgress(1);
+        setUploadState('uploading');
+
         const formData = new FormData();
         formData.append("file", file);
-        // You could add metadata in the formData here if you need it
+
         axios({
             method: "POST",
             url: "/uploads/single-public",
             onUploadProgress: (progressEvent) => {
-                const loaded = progressEvent.loaded
-                const total = progressEvent.total
-                const progress = (loaded / total) * 100;
-                if (loaded === total) {
-                    setProgress(0)
-                    setUploadState('processing')
-                }
-                else {
-                    setProgress(progress)
+                const loaded = progressEvent.loaded ?? 0;
+                const total = progressEvent.total ?? 0;
+                if (total > 0) {
+                    const pct = (loaded / total) * 100;
+                    if (loaded === total) {
+                        setProgress(0);
+                        setUploadState('processing');
+                    } else {
+                        setProgress(pct);
+                    }
                 }
             },
             onDownloadProgress: () => {
-                setUploadState('idle')
+                setUploadState('idle');
             },
-            headers: {
-                "Content-Type": "multipart/form-data"
-            },
+            headers: { "Content-Type": "multipart/form-data" },
             data: formData
         })
             .then(response => {
-                // Set the URL of the uploaded file to the text field
-                cb(response)
-                setProgress(0)
+                cbAfter(response);
+                setProgress(0);
             })
             .catch(error => {
                 setSnackbarState({
-                    message: `upload failed ${error}`,
+                    message: `upload failed${error?.response?.status ? ` (${error.response.status})` : ""}`,
                     open: true,
                     duration: undefined,
                     severity: 'error',
-                })
-                setProgress(0)
+                });
+                setProgress(0);
+                setUploadState('idle');
             });
     };
 
     const handleSelect = (image: FileMetadata) => {
-        // TODO: set it on the page/creator - take callback ...
-        // Set selectedImage state and close the dialog
-        // console.log("HANDLE SELECT", image)
         setSelectedImage(image);
         cb && cb(image);
         setOpenDialog(false);
     };
 
-    const openImageSelectionDialog = () => {
-        setOpenDialog(true);
-    };
+    const openImageSelectionDialog = () => setOpenDialog(true);
 
     useEffect(() => {
-        window.addEventListener('resize', () => {
-            setMQL(window.matchMedia('(max-width: 600px)'));
-        })
-    }, [])
+        const onResize = () => setMQL(window.matchMedia('(max-width: 600px)'));
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
 
     return (
         <>
@@ -107,15 +116,12 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
             {uploadState === 'processing' && (
                 <Box component="div" sx={{
                     position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    width: "100%",
-                    height: "100%",
+                    top: 0, left: 0, right: 0,
+                    width: "100%", height: "100%",
                     zIndex: 1300,
                     backgroundColor: 'rgba(0,0,0,0.7)',
                     color: 'white',
-                    padding: '1rem',
+                    p: '1rem',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center'
@@ -142,15 +148,8 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
                 </Box>
             )}
 
-            <Stack direction="column"
-                alignItems="center"
-                style={{
-                    width: "100%",
-                }}
-            >
-                <Stack
-                    direction="row"
-                    spacing={spacing !== undefined ? spacing : 2}>
+            <Stack direction="column" alignItems="center" style={{ width: "100%" }}>
+                <Stack direction="row" spacing={spacing !== undefined ? spacing : 2}>
                     <Tooltip title="Upload Image">
                         <IconButton color="primary" component="label">
                             <Upload />
@@ -159,32 +158,25 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
                                 style={{ display: "none" }}
                                 onChange={(ev) => {
                                     handleUpload(ev, (response) => {
-                                        // console.log("UPLOAD SUCCESS", response)
-                                        // TODO: set the page/creator data
-                                        // with callback
-                                        setSelectedImage(response.data)
-                                        cb && cb(response.data)
+                                        setSelectedImage(response.data);
+                                        cb && cb(response.data);
                                     })
                                 }}
                             />
                         </IconButton>
                     </Tooltip>
                     <Tooltip title="Select Image">
-                        <IconButton
-                            color="info"
-                            onClick={openImageSelectionDialog}
-                        >
+                        <IconButton color="info" onClick={openImageSelectionDialog}>
                             <PhotoLibrary />
                         </IconButton>
                     </Tooltip>
-                    {/* TODO: generate */}
                     {selectedImage && (
                         <Tooltip title="Remove">
                             <IconButton
                                 color="warning"
                                 onClick={() => {
-                                    setSelectedImage(null)
-                                    cb && cb(null)
+                                    setSelectedImage(null);
+                                    cb && cb(null);
                                 }}
                             >
                                 <Clear />
@@ -192,29 +184,27 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
                         </Tooltip>
                     )}
                 </Stack>
+
                 {selectedImage && !noPreview && (
                     <Box
                         component="div"
                         display="inline-flex"
-                        alignItems="center" marginLeft={1}
-                        style={{
-                            maxWidth: "355px",
-                            maxHeight: "211px",
-                            // height: "auto",
-                            overflow: "auto",
-                        }}
+                        alignItems="center"
+                        marginLeft={1}
+                        style={{ maxWidth: "355px", maxHeight: "211px", overflow: "auto" }}
                     >
                         <LightboxImage
                             src={selectedImage.url}
                             alt={selectedImage.title}
-                            hideCaption={true}
+                            hideCaption
                         />
                     </Box>
                 )}
             </Stack>
 
             <Dialog
-                open={openDialog} onClose={() => setOpenDialog(false)}
+                open={openDialog}
+                onClose={() => setOpenDialog(false)}
                 maxWidth="md"
                 fullWidth={!mql.matches}
                 fullScreen={mql.matches}
@@ -229,15 +219,10 @@ export default function UploadOrSelect(props: UploadOrSelectProps) {
                 <DialogContent>
                     {results.length === 0 && !searching && (
                         <Typography>
-                            No uploads!
-                            Try <Link href="/profile/uploads">uploading</Link> some images.
+                            No uploads! Try <Link href="/profile/uploads">uploading</Link> some images.
                         </Typography>
                     )}
-                    <ImageList cols={mql.matches ? 2 : 3} gap={8}
-                        sx={{
-                            minHeight: "50vh",
-                        }}
-                    >
+                    <ImageList cols={mql.matches ? 2 : 3} gap={8} sx={{ minHeight: "50vh" }}>
                         {results.map((image) => (
                             <ImageListItem key={image.id}>
                                 <img
