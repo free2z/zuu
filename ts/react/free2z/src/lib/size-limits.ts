@@ -22,8 +22,8 @@ export function getMessage(maxBytes: number): string {
         // With no tuzis, you can upload up to 5MB files.
         // With tuzis, you can upload up to 250MB files.
         // With 5000+ tuzis, you can upload up to 5GB files
-        [5 * 1024 * 1024]: "Free accounts can upload files up to 5MB each.",
-        [250 * 1024 * 1024]: "With tuzis, you can upload files up to 250MB each.",
+        [5 * 1024 * 1024]: "Free accounts can upload files up to 5MB each. With tuzis, you can upload files up to 250MB each.",
+        [250 * 1024 * 1024]: "With less than 5000 tuzis, you can upload files up to 250MB each. With 5000+ tuzis, you can upload files up to 5GB each.",
         [5 * 1024 * 1024 * 1024]: "With 5000+ tuzis, you can upload files up to 5GB each.",
     }[maxBytes]
 }
