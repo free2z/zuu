@@ -1,9 +1,9 @@
-import { useDyteMeeting } from "@dytesdk/react-web-core";
+import { useRealtimeKitMeeting } from "@cloudflare/realtimekit-react";
 import { useEffect } from "react";
 
 
 export default function DyteLeave() {
-    const { meeting } = useDyteMeeting()
+    const { meeting } = useRealtimeKitMeeting()
 
     useEffect(() => {
         const handleBeforeUnload = (event: BeforeUnloadEvent) => {

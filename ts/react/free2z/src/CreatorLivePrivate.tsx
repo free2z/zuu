@@ -1,6 +1,6 @@
 import { Helmet } from "react-helmet-async";
-import { useDyteClient, DyteProvider } from "@dytesdk/react-web-core";
-// import { DyteE2EEManager } from '@dytesdk/web-core/modules/e2ee';
+import { useRealtimeKitClient, RealtimeKitProvider } from "@cloudflare/realtimekit-react";
+// import { DyteE2EEManager } from '@cloudflare/realtimekit/modules/e2ee';
 
 import axios from "axios";
 import { useEffect, useState } from "react";
@@ -21,7 +21,7 @@ export default function CreatorLive() {
     const [authStatus] = useGlobalState("authStatus");
 
     const navigate = useTransitionNavigate();
-    const [meeting, initMeeting] = useDyteClient();
+    const [meeting, initMeeting] = useRealtimeKitClient();
 
     const [clipboardPending, setClipboardPending] = useState(false);
 
@@ -166,10 +166,10 @@ export default function CreatorLive() {
             <Helmet>
                 <title>{`Private Call`}</title>
             </Helmet>
-            <DyteProvider value={meeting} fallback={<></>}>
+            <RealtimeKitProvider value={meeting} fallback={<></>}>
                 <DyteLeave />
                 <DyteCreator />
-            </DyteProvider>
+            </RealtimeKitProvider>
         </>
     );
 }
