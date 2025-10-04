@@ -1,15 +1,15 @@
 import { useEffect } from "react";
 
-import { DyteMeeting, DyteParticipantsAudio } from "@dytesdk/react-ui-kit";
-import { useDyteMeeting } from "@dytesdk/react-web-core";
-import { leaveRoomState } from "@dytesdk/web-core";
+import { RtkMeeting, RtkParticipantsAudio } from "@cloudflare/realtimekit-react-ui";
+import { useRealtimeKitMeeting } from "@cloudflare/realtimekit-react";
+import { leaveRoomState } from "@cloudflare/realtimekit";
 
 import { useTransitionNavigate } from "../hooks/useTransitionNavigate";
 import { useGlobalState } from "../state/global";
 
 
 export default function DyteCreator() {
-    const { meeting } = useDyteMeeting();
+    const { meeting } = useRealtimeKitMeeting();
     const navigate = useTransitionNavigate();
     const [creator] = useGlobalState("creator");
 
@@ -37,8 +37,8 @@ export default function DyteCreator() {
 
     return (
         <>
-            <DyteParticipantsAudio meeting={meeting} />
-            <DyteMeeting meeting={meeting} showSetupScreen={true} />
+            <RtkParticipantsAudio meeting={meeting} />
+            <RtkMeeting meeting={meeting} showSetupScreen={true} />
         </>
     );
 }

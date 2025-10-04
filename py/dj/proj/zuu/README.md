@@ -5,7 +5,7 @@ Parts of the Free2Z backend are open-sourced here.
 Prerequisites:
 
 - Tested against Python >= 3.12
-- [Requirements](../../../../langchain/zcash/requirements.txt)
+- [Requirements](../../../requirements/main.txt)
 
 ## Quickstart
 
@@ -15,7 +15,7 @@ installed, you can create a virtual environment and install the requirements:
 ```bash
 python -m venv env
 source env/bin/activate
-pip install -r ../../langchain/zcash/requirements.txt
+pip install -r requirements/main.txt
 export PYTHONPATH=`pwd`
 ```
 

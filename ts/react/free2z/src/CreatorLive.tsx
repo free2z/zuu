@@ -1,5 +1,5 @@
 import { Helmet } from "react-helmet-async";
-import { useDyteClient, DyteProvider } from "@dytesdk/react-web-core";
+import { useRealtimeKitClient, RealtimeKitProvider } from "@cloudflare/realtimekit-react";
 import axios from "axios";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -23,7 +23,7 @@ export default function CreatorLive() {
     const [loginModal, setLoginModal] = useGlobalState("loginModal")
     const [authStatus, _a] = useGlobalState("authStatus")
     const navigate = useTransitionNavigate()
-    const [meeting, initMeeting] = useDyteClient()
+    const [meeting, initMeeting] = useRealtimeKitClient()
     const [showPay, setShowPay] = useState(false)
     const [star, setStar] = useState({} as PublicCreator)
 
@@ -171,13 +171,13 @@ export default function CreatorLive() {
             <Helmet>
                 <title>{`${star.username}'s Live Stream - Free2Z`}</title>
             </Helmet>
-            <DyteProvider
+            <RealtimeKitProvider
                 value={meeting}
                 fallback={<></>}
             >
                 <DyteLeave />
                 <DyteCreator />
-            </DyteProvider>
+            </RealtimeKitProvider>
         </>
     );
 }
