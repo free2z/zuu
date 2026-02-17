@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-unlock-wallet"
+description = "Enables the unlock_wallet command without any pre-configured scope."
+commands.allow = ["unlock_wallet"]
+
+[[permission]]
+identifier = "deny-unlock-wallet"
+description = "Denies the unlock_wallet command without any pre-configured scope."
+commands.deny = ["unlock_wallet"]

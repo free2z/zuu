@@ -10,6 +10,7 @@ import { Send } from "./pages/Send";
 import { Receive } from "./pages/Receive";
 import { History } from "./pages/History";
 import { Settings } from "./pages/Settings";
+import { WalletPicker } from "./pages/WalletPicker";
 
 function App() {
   const { page, setPage, error, setError } = useWalletStore();
@@ -19,7 +20,7 @@ function App() {
     checkStatus();
   }, [checkStatus]);
 
-  const showNav = !["welcome", "create", "restore"].includes(page);
+  const showNav = !["welcome", "create", "restore", "wallet-picker"].includes(page);
 
   const renderPage = () => {
     switch (page) {
@@ -39,6 +40,8 @@ function App() {
         return <History />;
       case "settings":
         return <Settings />;
+      case "wallet-picker":
+        return <WalletPicker />;
     }
   };
 

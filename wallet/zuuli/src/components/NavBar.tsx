@@ -1,4 +1,5 @@
 import type { Page } from "../types";
+import { useWalletStore } from "../store/wallet";
 
 interface Props {
   currentPage: Page;
@@ -58,12 +59,36 @@ const navItems: { page: Page; label: string; icon: JSX.Element }[] = [
   },
 ];
 
+const walletIcon = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="M16 12h.01" />
+    <path d="M2 10h20" />
+  </svg>
+);
+
 export function NavBar({ currentPage, onNavigate }: Props) {
+  const walletStatus = useWalletStore((s) => s.walletStatus);
+
   return (
     <>
       {/* Desktop sidebar */}
       <nav className="hidden md:flex flex-col w-52 bg-zuuli-surface border-r border-zinc-800/50 py-6 gap-0.5 shrink-0">
-        <span className="text-white font-bold text-2xl mb-8 px-6 tracking-tight">ZUULI</span>
+        <span className="text-white font-bold text-2xl mb-2 px-6 tracking-tight">ZUULI</span>
+        {walletStatus?.activeWalletName && (
+          <button
+            onClick={() => onNavigate("wallet-picker")}
+            className="flex items-center gap-2 px-6 py-1.5 mb-6 text-xs text-zinc-500 hover:text-purple-400 transition-colors group"
+          >
+            {walletIcon}
+            <span className="truncate">{walletStatus.activeWalletName}</span>
+            {(walletStatus.walletCount ?? 0) > 1 && (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 opacity-50 group-hover:opacity-100">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            )}
+          </button>
+        )}
         {navItems.map(({ page, label, icon }) => (
           <button
             key={page}

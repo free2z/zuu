@@ -6,7 +6,7 @@ import { BalanceDisplay } from "../components/BalanceDisplay";
 import { SyncProgress } from "../components/SyncProgress";
 
 export function Home() {
-  const { balance, syncStatus, setPage } = useWalletStore();
+  const { balance, syncStatus, walletStatus, setPage } = useWalletStore();
   const { startSync } = useSync();
   const { refreshBalance } = useBalance();
 
@@ -19,6 +19,20 @@ export function Home() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 animate-fade-in">
+      {walletStatus && !walletStatus.hasSeed && (
+        <div className="w-full max-w-xs mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <p className="text-amber-400 text-sm font-medium">View-only mode</p>
+          <p className="text-amber-400/70 text-xs mt-1">
+            Enter your recovery phrase in Settings to enable spending.
+          </p>
+          <button
+            onClick={() => setPage("settings")}
+            className="mt-2 text-xs text-amber-400 underline hover:text-amber-300"
+          >
+            Go to Settings
+          </button>
+        </div>
+      )}
       <BalanceDisplay balance={balance} />
 
       <div className="mt-4">

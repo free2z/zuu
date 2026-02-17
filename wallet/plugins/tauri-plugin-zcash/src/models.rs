@@ -11,8 +11,22 @@ pub struct WalletCreated {
 #[serde(rename_all = "camelCase")]
 pub struct WalletStatus {
     pub initialized: bool,
+    pub has_seed: bool,
     pub synced_height: Option<u64>,
     pub chain_tip: Option<u64>,
+    pub active_wallet_id: Option<String>,
+    pub active_wallet_name: Option<String>,
+    pub wallet_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletInfo {
+    pub id: String,
+    pub name: String,
+    pub is_active: bool,
+    pub birthday_height: Option<u64>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,12 +76,21 @@ pub struct PaymentRequest {
     pub label: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpendingKeyStatus {
+    pub account_index: u32,
+    pub available: bool,
+    pub message: String,
+}
+
 // Command argument types
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWalletArgs {
     pub mnemonic_word_count: Option<u32>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +98,7 @@ pub struct CreateWalletArgs {
 pub struct RestoreWalletArgs {
     pub seed_phrase: String,
     pub birthday_height: Option<u64>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,4 +133,30 @@ pub struct SetLightwalletdUrlArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ParsePaymentUriArgs {
     pub uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchWalletArgs {
+    pub wallet_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameWalletArgs {
+    pub wallet_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteWalletArgs {
+    pub wallet_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockWalletArgs {
+    pub seed_phrase: String,
+    pub wallet_id: Option<String>,
 }

@@ -3,17 +3,19 @@ import { useWalletStore } from "../store/wallet";
 import { useWallet } from "../hooks/useWallet";
 
 export function RestoreWallet() {
-  const { setPage, error } = useWalletStore();
+  const { setPage, error, walletStatus } = useWalletStore();
   const { restoreWallet } = useWallet();
   const [phrase, setPhrase] = useState("");
   const [birthday, setBirthday] = useState("");
+  const [name, setName] = useState("");
 
   const handleRestore = async () => {
     const height = birthday ? parseInt(birthday, 10) : undefined;
-    await restoreWallet(phrase.trim(), height);
+    await restoreWallet(phrase.trim(), height, name.trim() || undefined);
   };
 
   const wordCount = phrase.trim() ? phrase.trim().split(/\s+/).length : 0;
+  const hasWallets = (walletStatus?.walletCount ?? 0) > 0;
 
   const badgeClass =
     wordCount < 12
@@ -28,6 +30,19 @@ export function RestoreWallet() {
       <p className="text-zinc-400 text-sm mb-6">
         Enter your 24-word recovery phrase to restore your wallet.
       </p>
+
+      <div className="mb-4">
+        <label className="block text-sm text-zinc-400 mb-1">
+          Wallet Name (optional)
+        </label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="My Restored Wallet"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+        />
+      </div>
 
       <div className="mb-4">
         <label className="block text-sm text-zinc-400 mb-1">
@@ -68,9 +83,7 @@ export function RestoreWallet() {
         </p>
       </div>
 
-      {error && (
-        <p className="text-red-400 text-sm mb-4">{error}</p>
-      )}
+      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
       <button
         onClick={handleRestore}
@@ -81,7 +94,7 @@ export function RestoreWallet() {
       </button>
 
       <button
-        onClick={() => setPage("welcome")}
+        onClick={() => setPage(hasWallets ? "wallet-picker" : "welcome")}
         className="mt-3 w-full py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
       >
         Cancel

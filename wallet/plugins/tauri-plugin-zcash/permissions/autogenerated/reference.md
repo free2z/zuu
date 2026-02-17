@@ -7,6 +7,13 @@ Default permissions for the Zcash wallet plugin
 - `allow-create-wallet`
 - `allow-restore-wallet`
 - `allow-get-wallet-status`
+- `allow-get-seed-phrase`
+- `allow-get-viewing-key`
+- `allow-get-spending-key`
+- `allow-list-wallets`
+- `allow-switch-wallet`
+- `allow-rename-wallet`
+- `allow-delete-wallet`
 - `allow-create-account`
 - `allow-list-accounts`
 - `allow-get-account-balance`
@@ -18,6 +25,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-get-transaction-history`
 - `allow-set-lightwalletd-url`
 - `allow-parse-payment-uri`
+- `allow-unlock-wallet`
 
 ## Permission Table
 
@@ -83,6 +91,32 @@ Denies the create_wallet command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-delete-wallet`
+
+</td>
+<td>
+
+Enables the delete_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-delete-wallet`
+
+</td>
+<td>
+
+Denies the delete_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-get-account-balance`
 
 </td>
@@ -102,6 +136,58 @@ Enables the get_account_balance command without any pre-configured scope.
 <td>
 
 Denies the get_account_balance command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-get-seed-phrase`
+
+</td>
+<td>
+
+Enables the get_seed_phrase command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-get-seed-phrase`
+
+</td>
+<td>
+
+Denies the get_seed_phrase command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-get-spending-key`
+
+</td>
+<td>
+
+Enables the get_spending_key command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-get-spending-key`
+
+</td>
+<td>
+
+Denies the get_spending_key command without any pre-configured scope.
 
 </td>
 </tr>
@@ -187,6 +273,32 @@ Denies the get_unified_address command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-get-viewing-key`
+
+</td>
+<td>
+
+Enables the get_viewing_key command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-get-viewing-key`
+
+</td>
+<td>
+
+Denies the get_viewing_key command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-get-wallet-status`
 
 </td>
@@ -239,6 +351,32 @@ Denies the list_accounts command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-list-wallets`
+
+</td>
+<td>
+
+Enables the list_wallets command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-list-wallets`
+
+</td>
+<td>
+
+Denies the list_wallets command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-parse-payment-uri`
 
 </td>
@@ -258,6 +396,32 @@ Enables the parse_payment_uri command without any pre-configured scope.
 <td>
 
 Denies the parse_payment_uri command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-rename-wallet`
+
+</td>
+<td>
+
+Enables the rename_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-rename-wallet`
+
+</td>
+<td>
+
+Denies the rename_wallet command without any pre-configured scope.
 
 </td>
 </tr>
@@ -388,6 +552,58 @@ Enables the stop_sync command without any pre-configured scope.
 <td>
 
 Denies the stop_sync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-switch-wallet`
+
+</td>
+<td>
+
+Enables the switch_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-switch-wallet`
+
+</td>
+<td>
+
+Denies the switch_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-unlock-wallet`
+
+</td>
+<td>
+
+Enables the unlock_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-unlock-wallet`
+
+</td>
+<td>
+
+Denies the unlock_wallet command without any pre-configured scope.
 
 </td>
 </tr>

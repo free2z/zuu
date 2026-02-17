@@ -5,8 +5,20 @@ export interface WalletCreated {
 
 export interface WalletStatus {
   initialized: boolean;
+  hasSeed: boolean;
   syncedHeight: number | null;
   chainTip: number | null;
+  activeWalletId: string | null;
+  activeWalletName: string | null;
+  walletCount: number;
+}
+
+export interface WalletInfo {
+  id: string;
+  name: string;
+  isActive: boolean;
+  birthdayHeight: number | null;
+  createdAt: string;
 }
 
 export interface AccountInfo {
@@ -46,6 +58,12 @@ export interface PaymentRequest {
   label: string | null;
 }
 
+export interface SpendingKeyStatus {
+  accountIndex: number;
+  available: boolean;
+  message: string;
+}
+
 export interface TransactionHistoryState {
   transactions: TransactionEntry[];
   lastFetched: number | null;
@@ -59,4 +77,5 @@ export type Page =
   | "send"
   | "receive"
   | "history"
-  | "settings";
+  | "settings"
+  | "wallet-picker";

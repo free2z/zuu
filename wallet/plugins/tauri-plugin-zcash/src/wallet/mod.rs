@@ -24,6 +24,8 @@ pub struct WalletState {
     pub network: Network,
     pub data_dir: PathBuf,
     pub db: Arc<Mutex<Option<WalletDatabase>>>,
+    /// Read-only DB connection for non-blocking reads during sync.
+    pub read_db: Arc<Mutex<Option<WalletDatabase>>>,
     pub seed: Arc<Mutex<Option<SecretVec<u8>>>>,
     pub lightwalletd_url: RwLock<String>,
     pub sync_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -39,39 +41,46 @@ impl WalletState {
         manifest.migrate_legacy(&data_dir);
 
         // If there's an active wallet, try to open its DB and load seed from keychain
-        let db = if let Some(active) = manifest.get_active() {
+        let (db, read_db) = if let Some(active) = manifest.get_active() {
             let db_path = data_dir.join(&active.db_filename);
             match storage::init_wallet_db(&db_path, network) {
                 Ok(db) => {
                     tracing::info!("reopened existing wallet: {} ({})", active.name, active.id);
-                    Some(db)
+                    let rdb = match storage::open_read_db(&db_path, network) {
+                        Ok(rdb) => Some(rdb),
+                        Err(e) => {
+                            tracing::warn!("failed to open read-only db: {e}");
+                            None
+                        }
+                    };
+                    (Some(db), rdb)
                 }
                 Err(e) => {
                     tracing::error!("failed to reopen wallet {}: {e}", active.id);
-                    None
+                    (None, None)
                 }
             }
         } else {
-            None
+            (None, None)
         };
 
-        // Try to load seed from keychain for active wallet
+        // Try to load seed from keychain / encrypted file for active wallet
         let seed = if let Some(active) = manifest.get_active() {
-            match keychain::get_seed_phrase(&active.id) {
+            match keychain::get_seed_phrase(&data_dir, &active.id) {
                 Ok(phrase) => {
                     match keys::parse_mnemonic(&phrase) {
                         Ok(mnemonic) => {
-                            tracing::info!("loaded seed from keychain for wallet {}", active.id);
+                            tracing::info!("loaded seed from secure storage for wallet {}", active.id);
                             Some(keys::mnemonic_to_seed(&mnemonic))
                         }
                         Err(e) => {
-                            tracing::warn!("keychain seed invalid for wallet {}: {e}", active.id);
+                            tracing::warn!("stored seed invalid for wallet {}: {e}", active.id);
                             None
                         }
                     }
                 }
                 Err(_) => {
-                    tracing::info!("no seed in keychain for wallet {}", active.id);
+                    tracing::info!("no seed in secure storage for wallet {}", active.id);
                     None
                 }
             }
@@ -83,6 +92,7 @@ impl WalletState {
             network,
             data_dir,
             db: Arc::new(Mutex::new(db)),
+            read_db: Arc::new(Mutex::new(read_db)),
             seed: Arc::new(Mutex::new(seed)),
             lightwalletd_url: RwLock::new(
                 "https://zec.rocks:443".to_string(),
@@ -95,7 +105,7 @@ impl WalletState {
     }
 
     pub async fn is_initialized(&self) -> bool {
-        self.db.lock().await.is_some()
+        self.read_db.lock().await.is_some()
     }
 
     /// Get the DB path for the active wallet

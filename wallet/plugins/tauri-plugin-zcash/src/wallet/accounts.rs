@@ -106,7 +106,7 @@ pub async fn list_accounts(state: &WalletState) -> Result<Vec<AccountInfo>> {
         return Err(Error::WalletNotInitialized);
     }
 
-    let db_guard = state.db.lock().await;
+    let db_guard = state.read_db.lock().await;
     let db = db_guard
         .as_ref()
         .ok_or(Error::WalletNotInitialized)?;

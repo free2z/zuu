@@ -33,6 +33,7 @@ pub async fn start_sync<R: Runtime>(
     let lightwalletd_url = state.lightwalletd_url.read().await.clone();
     let syncing_flag = Arc::clone(&state.syncing);
     let db = Arc::clone(&state.db);
+    let read_db = Arc::clone(&state.read_db);
     let network = state.network;
     let last_known_chain_tip = Arc::clone(&state.last_known_chain_tip);
 
@@ -41,6 +42,7 @@ pub async fn start_sync<R: Runtime>(
         lightwalletd_url,
         syncing_flag,
         db,
+        read_db,
         network,
         last_known_chain_tip,
     ));
@@ -54,6 +56,7 @@ async fn sync_task<R: Runtime>(
     lightwalletd_url: String,
     syncing: Arc<RwLock<bool>>,
     db: Arc<Mutex<Option<WalletDatabase>>>,
+    read_db: Arc<Mutex<Option<WalletDatabase>>>,
     network: Network,
     last_known_chain_tip: Arc<AtomicU64>,
 ) {
@@ -91,9 +94,9 @@ async fn sync_task<R: Runtime>(
     // Cache the chain tip
     last_known_chain_tip.store(chain_tip, Ordering::Relaxed);
 
-    // Get birthday height for progress calculation
+    // Get birthday height for progress calculation (use read_db to avoid blocking)
     let birthday_height = {
-        let db_guard = db.lock().await;
+        let db_guard = read_db.lock().await;
         if let Some(db) = db_guard.as_ref() {
             db.get_wallet_birthday()
                 .ok()
@@ -135,9 +138,9 @@ async fn sync_task<R: Runtime>(
 
         match result {
             Ok(()) => {
-                // Sync batch completed - check progress
+                // Sync batch completed - check progress (use read_db to avoid blocking)
                 let synced_height = {
-                    let db_guard = db.lock().await;
+                    let db_guard = read_db.lock().await;
                     if let Some(db) = db_guard.as_ref() {
                         db.chain_height()
                             .ok()
@@ -185,9 +188,9 @@ async fn sync_task<R: Runtime>(
         }
     }
 
-    // Final status
+    // Final status (use read_db to avoid blocking)
     let synced_height = {
-        let db_guard = db.lock().await;
+        let db_guard = read_db.lock().await;
         if let Some(db) = db_guard.as_ref() {
             db.chain_height()
                 .ok()
@@ -222,10 +225,13 @@ pub async fn stop_sync(state: &WalletState) -> Result<()> {
     // Signal sync to stop
     *state.syncing.write().await = false;
 
-    // Also abort the task handle as a fallback
-    let mut handle = state.sync_handle.lock().await;
-    if let Some(h) = handle.take() {
+    // Abort and wait for the task to fully cancel (releases db mutex)
+    let handle = {
+        state.sync_handle.lock().await.take()
+    };
+    if let Some(h) = handle {
         h.abort();
+        let _ = h.await; // wait for cancellation to complete
     }
     Ok(())
 }
@@ -260,7 +266,7 @@ pub async fn get_sync_status(state: &WalletState) -> Result<SyncStatus> {
         }
     }
 
-    let db_guard = state.db.lock().await;
+    let db_guard = state.read_db.lock().await;
     let db = db_guard.as_ref();
 
     let synced_height = if let Some(db) = db {

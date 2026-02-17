@@ -2,32 +2,79 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   WalletCreated,
   WalletStatus,
+  WalletInfo,
   AccountInfo,
   AccountBalance,
   SyncStatus,
   TransactionEntry,
   PaymentRequest,
+  SpendingKeyStatus,
 } from "../types";
 
 export async function createWallet(
   mnemonicWordCount?: number,
+  name?: string,
 ): Promise<WalletCreated> {
   return invoke("plugin:zcash|create_wallet", {
-    args: { mnemonicWordCount: mnemonicWordCount ?? 24 },
+    args: { mnemonicWordCount: mnemonicWordCount ?? 24, name },
   });
 }
 
 export async function restoreWallet(
   seedPhrase: string,
   birthdayHeight?: number,
+  name?: string,
 ): Promise<{ success: boolean }> {
   return invoke("plugin:zcash|restore_wallet", {
-    args: { seedPhrase, birthdayHeight },
+    args: { seedPhrase, birthdayHeight, name },
   });
 }
 
 export async function getWalletStatus(): Promise<WalletStatus> {
   return invoke("plugin:zcash|get_wallet_status");
+}
+
+export async function getSeedPhrase(): Promise<string> {
+  return invoke("plugin:zcash|get_seed_phrase");
+}
+
+export async function getViewingKey(accountIndex: number): Promise<string> {
+  return invoke("plugin:zcash|get_viewing_key", {
+    args: { accountIndex },
+  });
+}
+
+export async function getSpendingKey(
+  accountIndex: number,
+): Promise<SpendingKeyStatus> {
+  return invoke("plugin:zcash|get_spending_key", {
+    args: { accountIndex },
+  });
+}
+
+export async function listWallets(): Promise<WalletInfo[]> {
+  return invoke("plugin:zcash|list_wallets");
+}
+
+export async function switchWallet(walletId: string): Promise<void> {
+  return invoke("plugin:zcash|switch_wallet", {
+    args: { walletId },
+  });
+}
+
+export async function renameWallet(
+  walletId: string,
+  name: string,
+): Promise<void> {
+  return invoke("plugin:zcash|rename_wallet", {
+    args: { walletId, name },
+  });
+}
+
+export async function deleteWallet(walletId: string): Promise<void> {
+  return invoke("plugin:zcash|delete_wallet", {
+    args: { walletId },
+  });
 }
 
 export async function createAccount(): Promise<AccountInfo> {
@@ -92,4 +139,13 @@ export async function setLightwalletdUrl(url: string): Promise<void> {
 
 export async function parsePaymentUri(uri: string): Promise<PaymentRequest> {
   return invoke("plugin:zcash|parse_payment_uri", { args: { uri } });
+}
+
+export async function unlockWallet(
+  seedPhrase: string,
+  walletId?: string,
+): Promise<void> {
+  return invoke("plugin:zcash|unlock_wallet", {
+    args: { seedPhrase, walletId },
+  });
 }

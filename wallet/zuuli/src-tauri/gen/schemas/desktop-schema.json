@@ -2361,10 +2361,10 @@
           "markdownDescription": "Denies the reveal_item_in_dir command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`",
+          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`",
           "type": "string",
           "const": "zcash:default",
-          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`"
+          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`"
         },
         {
           "description": "Enables the create_account command without any pre-configured scope.",
@@ -2379,10 +2379,28 @@
           "markdownDescription": "Enables the create_wallet command without any pre-configured scope."
         },
         {
+          "description": "Enables the delete_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-delete-wallet",
+          "markdownDescription": "Enables the delete_wallet command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_account_balance command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:allow-get-account-balance",
           "markdownDescription": "Enables the get_account_balance command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_seed_phrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-get-seed-phrase",
+          "markdownDescription": "Enables the get_seed_phrase command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_spending_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-get-spending-key",
+          "markdownDescription": "Enables the get_spending_key command without any pre-configured scope."
         },
         {
           "description": "Enables the get_sync_status command without any pre-configured scope.",
@@ -2403,6 +2421,12 @@
           "markdownDescription": "Enables the get_unified_address command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_viewing_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-get-viewing-key",
+          "markdownDescription": "Enables the get_viewing_key command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_wallet_status command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:allow-get-wallet-status",
@@ -2415,10 +2439,22 @@
           "markdownDescription": "Enables the list_accounts command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_wallets command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-list-wallets",
+          "markdownDescription": "Enables the list_wallets command without any pre-configured scope."
+        },
+        {
           "description": "Enables the parse_payment_uri command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:allow-parse-payment-uri",
           "markdownDescription": "Enables the parse_payment_uri command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the rename_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-rename-wallet",
+          "markdownDescription": "Enables the rename_wallet command without any pre-configured scope."
         },
         {
           "description": "Enables the restore_wallet command without any pre-configured scope.",
@@ -2451,6 +2487,18 @@
           "markdownDescription": "Enables the stop_sync command without any pre-configured scope."
         },
         {
+          "description": "Enables the switch_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-switch-wallet",
+          "markdownDescription": "Enables the switch_wallet command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unlock_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-unlock-wallet",
+          "markdownDescription": "Enables the unlock_wallet command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_account command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:deny-create-account",
@@ -2463,10 +2511,28 @@
           "markdownDescription": "Denies the create_wallet command without any pre-configured scope."
         },
         {
+          "description": "Denies the delete_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-delete-wallet",
+          "markdownDescription": "Denies the delete_wallet command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_account_balance command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:deny-get-account-balance",
           "markdownDescription": "Denies the get_account_balance command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_seed_phrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-get-seed-phrase",
+          "markdownDescription": "Denies the get_seed_phrase command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_spending_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-get-spending-key",
+          "markdownDescription": "Denies the get_spending_key command without any pre-configured scope."
         },
         {
           "description": "Denies the get_sync_status command without any pre-configured scope.",
@@ -2487,6 +2553,12 @@
           "markdownDescription": "Denies the get_unified_address command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_viewing_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-get-viewing-key",
+          "markdownDescription": "Denies the get_viewing_key command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_wallet_status command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:deny-get-wallet-status",
@@ -2499,10 +2571,22 @@
           "markdownDescription": "Denies the list_accounts command without any pre-configured scope."
         },
         {
+          "description": "Denies the list_wallets command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-list-wallets",
+          "markdownDescription": "Denies the list_wallets command without any pre-configured scope."
+        },
+        {
           "description": "Denies the parse_payment_uri command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:deny-parse-payment-uri",
           "markdownDescription": "Denies the parse_payment_uri command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rename_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-rename-wallet",
+          "markdownDescription": "Denies the rename_wallet command without any pre-configured scope."
         },
         {
           "description": "Denies the restore_wallet command without any pre-configured scope.",
@@ -2533,6 +2617,18 @@
           "type": "string",
           "const": "zcash:deny-stop-sync",
           "markdownDescription": "Denies the stop_sync command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the switch_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-switch-wallet",
+          "markdownDescription": "Denies the switch_wallet command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlock_wallet command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-unlock-wallet",
+          "markdownDescription": "Denies the unlock_wallet command without any pre-configured scope."
         }
       ]
     },

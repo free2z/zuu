@@ -27,7 +27,8 @@ export function CreateWallet() {
       </h2>
       <p className="text-zinc-400 text-sm mb-6">
         Write down these words in order and store them in a safe place. This is
-        the only way to recover your wallet.
+        the only way to recover your wallet. You can also view this later in
+        Settings (device authentication required).
       </p>
 
       <SeedPhraseGrid phrase={seedPhrase} />
@@ -43,7 +44,16 @@ export function CreateWallet() {
             }`}
           >
             {confirmed && (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}

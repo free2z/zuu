@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-switch-wallet"
+description = "Enables the switch_wallet command without any pre-configured scope."
+commands.allow = ["switch_wallet"]
+
+[[permission]]
+identifier = "deny-switch-wallet"
+description = "Denies the switch_wallet command without any pre-configured scope."
+commands.deny = ["switch_wallet"]

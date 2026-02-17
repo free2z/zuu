@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   Page,
   WalletStatus,
+  WalletInfo,
   AccountBalance,
   SyncStatus,
   TransactionEntry,
@@ -13,6 +14,9 @@ interface WalletStore {
 
   walletStatus: WalletStatus | null;
   setWalletStatus: (status: WalletStatus) => void;
+
+  wallets: WalletInfo[];
+  setWallets: (wallets: WalletInfo[]) => void;
 
   balance: AccountBalance | null;
   setBalance: (balance: AccountBalance) => void;
@@ -34,6 +38,8 @@ interface WalletStore {
 
   transactions: TransactionEntry[];
   mergeTransactions: (incoming: TransactionEntry[]) => void;
+
+  resetWalletState: () => void;
 }
 
 export const useWalletStore = create<WalletStore>((set) => ({
@@ -42,6 +48,9 @@ export const useWalletStore = create<WalletStore>((set) => ({
 
   walletStatus: null,
   setWalletStatus: (walletStatus) => set({ walletStatus }),
+
+  wallets: [],
+  setWallets: (wallets) => set({ wallets }),
 
   balance: null,
   setBalance: (balance) => set({ balance }),
@@ -69,12 +78,20 @@ export const useWalletStore = create<WalletStore>((set) => ({
         byTxid.set(tx.txid, tx);
       }
       const merged = Array.from(byTxid.values()).sort((a, b) => {
-        // Most recent first: higher block height first, unconfirmed (null) at top
         if (a.blockHeight === null && b.blockHeight === null) return 0;
         if (a.blockHeight === null) return -1;
         if (b.blockHeight === null) return 1;
         return b.blockHeight - a.blockHeight;
       });
       return { transactions: merged };
+    }),
+
+  resetWalletState: () =>
+    set({
+      balance: null,
+      syncStatus: null,
+      unifiedAddress: null,
+      transactions: [],
+      seedPhrase: null,
     }),
 }));
