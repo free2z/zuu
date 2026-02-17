@@ -22,6 +22,8 @@ zip32 = { version = "0.2", default-features = false }
 nonempty = "0.11"
 async-trait = "0.1"
 rustls = { version = "0.23", features = ["ring"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+uuid = { version = "1", features = ["v4"] }
 
 zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "sync", "orchard", "transparent-inputs"] }
 zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["orchard", "transparent-inputs"] }
