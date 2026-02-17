@@ -26,6 +26,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-set-lightwalletd-url`
 - `allow-parse-payment-uri`
 - `allow-unlock-wallet`
+- `allow-validate-address`
 
 ## Permission Table
 
@@ -604,6 +605,32 @@ Enables the unlock_wallet command without any pre-configured scope.
 <td>
 
 Denies the unlock_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-validate-address`
+
+</td>
+<td>
+
+Enables the validate_address command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-validate-address`
+
+</td>
+<td>
+
+Denies the validate_address command without any pre-configured scope.
 
 </td>
 </tr>

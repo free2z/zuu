@@ -2361,10 +2361,10 @@
           "markdownDescription": "Denies the reveal_item_in_dir command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`",
+          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`",
           "type": "string",
           "const": "zcash:default",
-          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`"
+          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-send-transaction`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`"
         },
         {
           "description": "Enables the create_account command without any pre-configured scope.",
@@ -2499,6 +2499,12 @@
           "markdownDescription": "Enables the unlock_wallet command without any pre-configured scope."
         },
         {
+          "description": "Enables the validate_address command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-validate-address",
+          "markdownDescription": "Enables the validate_address command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_account command without any pre-configured scope.",
           "type": "string",
           "const": "zcash:deny-create-account",
@@ -2629,6 +2635,12 @@
           "type": "string",
           "const": "zcash:deny-unlock-wallet",
           "markdownDescription": "Denies the unlock_wallet command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the validate_address command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-validate-address",
+          "markdownDescription": "Denies the validate_address command without any pre-configured scope."
         }
       ]
     },

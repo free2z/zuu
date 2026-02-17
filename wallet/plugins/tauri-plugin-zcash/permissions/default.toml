@@ -23,4 +23,5 @@ permissions = [
     "allow-set-lightwalletd-url",
     "allow-parse-payment-uri",
     "allow-unlock-wallet",
+    "allow-validate-address",
 ]

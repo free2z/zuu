@@ -733,6 +733,39 @@ pub(crate) async fn set_lightwalletd_url<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn validate_address<R: Runtime>(
+    _app: AppHandle<R>,
+    args: ValidateAddressArgs,
+) -> Result<AddressValidation> {
+    match zcash_address::ZcashAddress::try_from_encoded(&args.address) {
+        Ok(_) => {
+            let addr = &args.address;
+            let (address_type, can_receive_memo) = if addr.starts_with("u1") {
+                ("unified", true)
+            } else if addr.starts_with("zs") {
+                ("sapling", true)
+            } else if addr.starts_with("t1") || addr.starts_with("t3") {
+                ("transparent", false)
+            } else if addr.starts_with("tex") {
+                ("tex", false)
+            } else {
+                ("unknown", false)
+            };
+            Ok(AddressValidation {
+                valid: true,
+                address_type: Some(address_type.to_string()),
+                can_receive_memo,
+            })
+        }
+        Err(_) => Ok(AddressValidation {
+            valid: false,
+            address_type: None,
+            can_receive_memo: false,
+        }),
+    }
+}
+
+#[command]
 pub(crate) async fn parse_payment_uri<R: Runtime>(
     _app: AppHandle<R>,
     args: ParsePaymentUriArgs,

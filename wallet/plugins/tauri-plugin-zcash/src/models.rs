@@ -160,3 +160,17 @@ pub struct UnlockWalletArgs {
     pub seed_phrase: String,
     pub wallet_id: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateAddressArgs {
+    pub address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddressValidation {
+    pub valid: bool,
+    pub address_type: Option<String>,
+    pub can_receive_memo: bool,
+}

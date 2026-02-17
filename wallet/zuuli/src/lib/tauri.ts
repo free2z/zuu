@@ -9,6 +9,7 @@ import type {
   TransactionEntry,
   PaymentRequest,
   SpendingKeyStatus,
+  AddressValidation,
 } from "../types";
 
 export async function createWallet(
@@ -139,6 +140,14 @@ export async function setLightwalletdUrl(url: string): Promise<void> {
 
 export async function parsePaymentUri(uri: string): Promise<PaymentRequest> {
   return invoke("plugin:zcash|parse_payment_uri", { args: { uri } });
+}
+
+export async function validateAddress(
+  address: string,
+): Promise<AddressValidation> {
+  return invoke("plugin:zcash|validate_address", {
+    args: { address },
+  });
 }
 
 export async function unlockWallet(

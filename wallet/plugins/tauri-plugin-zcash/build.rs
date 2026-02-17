@@ -21,6 +21,7 @@ const COMMANDS: &[&str] = &[
     "get_transaction_history",
     "set_lightwalletd_url",
     "parse_payment_uri",
+    "validate_address",
 ];
 
 fn main() {

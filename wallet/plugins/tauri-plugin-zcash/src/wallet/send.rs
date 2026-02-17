@@ -10,6 +10,7 @@ use zcash_client_backend::data_api::wallet::{
 use zcash_client_backend::data_api::WalletRead;
 use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::fees::DustOutputPolicy;
+use zcash_client_backend::proto::service::RawTransaction;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::memo::{Memo, MemoBytes};
@@ -17,6 +18,7 @@ use zcash_protocol::value::Zatoshis;
 use zcash_protocol::ShieldedProtocol;
 
 use crate::error::{Error, Result};
+use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::keys;
 use crate::wallet::WalletState;
 
@@ -118,11 +120,42 @@ pub async fn send_transaction(
     .map_err(|e| Error::SendError(format!("failed to create transaction: {e:?}")))?;
 
     // Get the txid
-    let txid = txids.first();
+    let txid = *txids.first();
 
-    // TODO: Broadcast the transaction via lightwalletd
-    // For now, just return the txid - the transaction is stored locally
+    // Fetch the raw transaction from the wallet DB
+    let tx = db
+        .get_transaction(txid)
+        .map_err(|e| Error::SendError(format!("failed to read transaction: {e}")))?
+        .ok_or_else(|| Error::SendError("transaction not found in wallet DB after creation".into()))?;
+
+    // Serialize the transaction to raw bytes
+    let mut raw_tx = Vec::new();
+    tx.write(&mut raw_tx)
+        .map_err(|e| Error::SendError(format!("failed to serialize transaction: {e}")))?;
+
+    // Drop the DB lock before making the network call
+    drop(db_guard);
+
+    // Connect to lightwalletd and broadcast
+    let url = state.lightwalletd_url.read().await.clone();
+    let mut client = connect_to_lightwalletd(&url).await?;
+
+    let response = client
+        .send_transaction(RawTransaction {
+            data: raw_tx,
+            height: 0,
+        })
+        .await
+        .map_err(|e| Error::SendError(format!("broadcast failed: {e}")))?
+        .into_inner();
+
+    if response.error_code != 0 {
+        return Err(Error::SendError(format!(
+            "broadcast rejected (code {}): {}",
+            response.error_code, response.error_message
+        )));
+    }
+
     let txid_hex = format!("{}", txid);
-
     Ok(txid_hex)
 }

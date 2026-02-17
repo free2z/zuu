@@ -64,6 +64,12 @@ export interface SpendingKeyStatus {
   message: string;
 }
 
+export interface AddressValidation {
+  valid: boolean;
+  addressType: string | null;
+  canReceiveMemo: boolean;
+}
+
 export interface TransactionHistoryState {
   transactions: TransactionEntry[];
   lastFetched: number | null;
