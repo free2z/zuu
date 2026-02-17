@@ -53,6 +53,9 @@ export function RestoreWallet() {
           onChange={(e) => setPhrase(e.target.value)}
           placeholder="Enter your seed phrase words separated by spaces..."
           rows={4}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
         />
         <div className="flex items-center gap-2 mt-1">
@@ -72,7 +75,9 @@ export function RestoreWallet() {
           Birthday Height (optional)
         </label>
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
           value={birthday}
           onChange={(e) => setBirthday(e.target.value)}
           placeholder="Block height when wallet was created"
@@ -83,7 +88,7 @@ export function RestoreWallet() {
         </p>
       </div>
 
-      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+      {error && <p className="text-red-400 text-sm mb-4" role="alert">{error}</p>}
 
       <button
         onClick={handleRestore}
@@ -95,7 +100,7 @@ export function RestoreWallet() {
 
       <button
         onClick={() => setPage(hasWallets ? "wallet-picker" : "welcome")}
-        className="mt-3 w-full py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+        className="mt-3 w-full py-2.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors min-tap"
       >
         Cancel
       </button>

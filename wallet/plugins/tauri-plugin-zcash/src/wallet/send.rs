@@ -33,14 +33,15 @@ pub async fn send_transaction(
         return Err(Error::WalletNotInitialized);
     }
 
-    // Get seed for signing
-    let seed_guard = state.seed.lock().await;
-    let seed = seed_guard
-        .as_ref()
-        .ok_or(Error::Other("seed not available - please restart the wallet".into()))?;
-
-    // Derive USK for account 0
-    let usk = keys::derive_usk(seed.expose_secret(), &state.network, 0)?;
+    // Derive USK from seed, then drop the seed lock immediately (M2)
+    let usk = {
+        let seed_guard = state.seed.lock().await;
+        let seed = seed_guard
+            .as_ref()
+            .ok_or(Error::Other("seed not available - please restart the wallet".into()))?;
+        keys::derive_usk(seed.expose_secret(), &state.network, 0)?
+    };
+    // seed_guard dropped here — seed mutex released
 
     // Parse the recipient address
     let recipient = zcash_address::ZcashAddress::try_from_encoded(to)
@@ -50,11 +51,14 @@ pub async fn send_transaction(
     let zatoshis = Zatoshis::from_u64(amount)
         .map_err(|_| Error::SendError("invalid amount".into()))?;
 
-    let memo_bytes = memo.map(|m| {
-        MemoBytes::from(
-            Memo::from_str(m).unwrap_or(Memo::Empty)
-        )
-    });
+    // Parse memo with proper error propagation (M4)
+    let memo_bytes = match memo {
+        Some(m) => Some(MemoBytes::from(
+            Memo::from_str(m)
+                .map_err(|e| Error::SendError(format!("invalid memo: {e}")))?
+        )),
+        None => None,
+    };
 
     let payment = zip321::Payment::new(
         recipient,
@@ -68,6 +72,10 @@ pub async fn send_transaction(
 
     let request = zip321::TransactionRequest::new(vec![payment])
         .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
+
+    // Load prover before acquiring the DB lock — pure I/O, no DB dependency (M1)
+    let prover = LocalTxProver::with_default_location()
+        .ok_or(Error::SendError("sapling parameters not found - please download them first".into()))?;
 
     // Propose the transfer
     let mut db_guard = state.db.lock().await;
@@ -103,9 +111,6 @@ pub async fn send_transaction(
     .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")))?;
 
     // Create the transaction
-    let prover = LocalTxProver::with_default_location()
-        .ok_or(Error::SendError("sapling parameters not found - please download them first".into()))?;
-
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
     let txids = create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(

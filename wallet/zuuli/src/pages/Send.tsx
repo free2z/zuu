@@ -32,6 +32,9 @@ export function Send() {
   // ZIP-321 indicator
   const [filledFromUri, setFilledFromUri] = useState(false);
 
+  // Review step: show full address toggle
+  const [showFullAddress, setShowFullAddress] = useState(false);
+
   const spendable = balance?.spendable ?? 0;
 
   // Validate address with debounce
@@ -63,7 +66,7 @@ export function Send() {
   // Parse amount to zatoshis
   const zatoshis = Math.round(parseFloat(amount) * 1e8);
   const validAmount = !isNaN(zatoshis) && zatoshis > 0;
-  const exceedsBalance = validAmount && zatoshis > spendable;
+  const exceedsBalance = validAmount && (zatoshis + STANDARD_FEE) > spendable;
   const memoBytes = new TextEncoder().encode(memo).length;
   const showMemo = addressValidation?.canReceiveMemo !== false;
 
@@ -136,6 +139,7 @@ export function Send() {
     setSendError(null);
     setFilledFromUri(false);
     setAddressValidation(null);
+    setShowFullAddress(false);
   };
 
   const handleQrScan = useCallback(
@@ -161,6 +165,7 @@ export function Send() {
             strokeLinecap="round"
             strokeLinejoin="round"
             className="mx-auto"
+            aria-hidden="true"
           >
             <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
             <polyline points="22 4 12 14.01 9 11.01" />
@@ -172,8 +177,8 @@ export function Send() {
           onClick={() => {
             if (txid) navigator.clipboard.writeText(txid);
           }}
-          className="text-xs text-zinc-300 break-all font-mono bg-zinc-900 px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer border border-zinc-800 inline-block max-w-full"
-          title="Click to copy"
+          className="text-xs text-zinc-300 break-all font-mono bg-zinc-900 px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer border border-zinc-800 inline-block max-w-full min-tap"
+          aria-label="Copy transaction ID to clipboard"
         >
           {txid}
         </button>
@@ -210,6 +215,7 @@ export function Send() {
             strokeLinecap="round"
             strokeLinejoin="round"
             className="mx-auto"
+            aria-hidden="true"
           >
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
@@ -242,7 +248,7 @@ export function Send() {
   if (step === "sending") {
     return (
       <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
-        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" />
+        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Sending transaction" />
         <p className="text-lg text-white font-medium">{sendingStatus}</p>
         <p className="text-sm text-zinc-500 mt-2">
           This may take a moment...
@@ -264,9 +270,13 @@ export function Send() {
             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
               Recipient
             </p>
-            <p className="text-sm text-white font-mono break-all">
-              {truncateAddress(to, 16)}
-            </p>
+            <button
+              onClick={() => setShowFullAddress(!showFullAddress)}
+              className="text-sm text-white font-mono break-all text-left"
+              aria-label={showFullAddress ? "Collapse address" : "Show full address"}
+            >
+              {showFullAddress ? to : truncateAddress(to, 16)}
+            </button>
             {addressValidation?.addressType && (
               <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 capitalize">
                 {addressValidation.addressType}
@@ -332,14 +342,7 @@ export function Send() {
   // --- Form step ---
   return (
     <div className="p-6 max-w-lg mx-auto animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-white">Send ZEC</h2>
-        {balance && (
-          <span className="text-sm px-3 py-1 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
-            {formatZecDisplay(spendable)}
-          </span>
-        )}
-      </div>
+      <h2 className="text-2xl font-bold text-white mb-6">Send ZEC</h2>
 
       {filledFromUri && (
         <div className="mb-4 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400 text-sm">
@@ -359,7 +362,9 @@ export function Send() {
               value={to}
               onChange={(e) => handleAddressChange(e.target.value)}
               placeholder="Unified, Sapling, or transparent address"
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-20 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-28 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
               <button
@@ -371,8 +376,8 @@ export function Send() {
                     // Clipboard permission denied — ignore silently
                   }
                 }}
-                className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
-                title="Paste"
+                className="p-2.5 text-zinc-500 hover:text-zinc-300 transition-colors min-tap flex items-center justify-center"
+                aria-label="Paste address from clipboard"
               >
                 <svg
                   width="16"
@@ -383,6 +388,7 @@ export function Send() {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                   <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
@@ -390,8 +396,8 @@ export function Send() {
               </button>
               <button
                 onClick={() => setShowScanner(true)}
-                className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
-                title="Scan QR code"
+                className="p-2.5 text-zinc-500 hover:text-zinc-300 transition-colors min-tap flex items-center justify-center"
+                aria-label="Scan QR code"
               >
                 <svg
                   width="16"
@@ -402,6 +408,7 @@ export function Send() {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <path d="M3 7V5a2 2 0 012-2h2" />
                   <path d="M17 3h2a2 2 0 012 2v2" />
@@ -415,32 +422,34 @@ export function Send() {
 
           {/* Validation indicator */}
           {to.trim() && (
-            <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex items-center gap-2 mt-1.5" aria-live="polite">
               {validatingAddress ? (
-                <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" role="status" aria-label="Validating address" />
               ) : addressValidation?.valid ? (
                 <svg
-                  width="14"
-                  height="14"
+                  width="16"
+                  height="16"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#34d399"
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               ) : (
                 <svg
-                  width="14"
-                  height="14"
+                  width="16"
+                  height="16"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#f87171"
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
@@ -465,8 +474,9 @@ export function Send() {
           </label>
           <div className="relative">
             <input
-              type="number"
-              step="0.00000001"
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]*\.?[0-9]*"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00000000"
@@ -474,7 +484,8 @@ export function Send() {
             />
             <button
               onClick={handleMax}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-2.5 py-1 text-xs font-semibold text-purple-400 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 text-xs font-semibold text-purple-400 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 transition-colors min-tap"
+              aria-label="Set maximum amount"
             >
               MAX
             </button>
@@ -484,8 +495,13 @@ export function Send() {
               = {zatoshis.toLocaleString()} zatoshis
             </p>
           )}
+          {balance && (
+            <p className="text-xs text-zinc-500 mt-1">
+              {formatZecDisplay(spendable)} available
+            </p>
+          )}
           {exceedsBalance && (
-            <p className="text-xs text-red-400 mt-1">
+            <p className="text-xs text-red-400 mt-1" role="alert">
               Exceeds spendable balance ({formatZecDisplay(spendable)})
             </p>
           )}

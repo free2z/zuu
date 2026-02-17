@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { SeedPhraseGrid } from "../components/SeedPhraseGrid";
+import { formatHeight } from "../lib/format";
 import * as api from "../lib/tauri";
 
 const SERVERS = [
@@ -49,7 +50,8 @@ function RevealSection({
       <button
         onClick={handleReveal}
         disabled={loading}
-        className="px-4 py-2 text-sm rounded-xl border border-zinc-700 text-zinc-300 hover:border-purple-500/50 hover:text-purple-400 transition-colors disabled:opacity-50"
+        className="px-4 py-2.5 text-sm rounded-xl border border-zinc-700 text-zinc-300 hover:border-purple-500/50 hover:text-purple-400 transition-colors disabled:opacity-50 min-tap"
+        aria-label={value ? `Hide ${title}` : `Reveal ${title}`}
       >
         {loading ? "Authenticating..." : value ? "Hide" : "Reveal"}
       </button>
@@ -131,7 +133,8 @@ function SeedPhraseSection() {
       <button
         onClick={handleReveal}
         disabled={loading}
-        className="px-4 py-2 text-sm rounded-xl border border-zinc-700 text-zinc-300 hover:border-purple-500/50 hover:text-purple-400 transition-colors disabled:opacity-50"
+        className="px-4 py-2.5 text-sm rounded-xl border border-zinc-700 text-zinc-300 hover:border-purple-500/50 hover:text-purple-400 transition-colors disabled:opacity-50 min-tap"
+        aria-label={phrase ? "Hide recovery phrase" : "Reveal recovery phrase"}
       >
         {loading ? "Authenticating..." : phrase ? "Hide" : "Reveal"}
       </button>
@@ -184,9 +187,24 @@ function SeedPhraseSection() {
   );
 }
 
+function StatRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <span className="text-xs text-zinc-500">{label}</span>
+      <span className="text-xs text-zinc-300 font-mono">{value}</span>
+    </div>
+  );
+}
+
 export function Settings() {
-  const { lightwalletdUrl, setLightwalletdUrl, setPage, setError, walletStatus } =
-    useWalletStore();
+  const {
+    lightwalletdUrl,
+    setLightwalletdUrl,
+    setPage,
+    setError,
+    walletStatus,
+    syncStatus,
+  } = useWalletStore();
   const [url, setUrl] = useState(lightwalletdUrl);
   const [saved, setSaved] = useState(false);
   const [useCustom, setUseCustom] = useState(
@@ -211,65 +229,97 @@ export function Settings() {
 
   const isSelected = (serverUrl: string) => !useCustom && url === serverUrl;
 
+  const rawChainTip = syncStatus?.chainTip ?? walletStatus?.chainTip ?? null;
+  const syncedHeight = syncStatus?.syncedHeight ?? walletStatus?.syncedHeight ?? null;
+  // If we've scanned past the cached tip, those blocks are real
+  const chainTip =
+    rawChainTip !== null && syncedHeight !== null
+      ? Math.max(rawChainTip, syncedHeight)
+      : rawChainTip;
+  const syncing = syncStatus?.syncing ?? false;
+  const progressPercent = syncStatus?.progressPercent ?? null;
+  const synced = progressPercent !== null && progressPercent >= 99.9;
+  const blocksBehind =
+    chainTip !== null && syncedHeight !== null ? chainTip - syncedHeight : null;
+
   return (
     <div className="p-6 max-w-lg mx-auto animate-fade-in">
       <h2 className="text-2xl font-bold text-white mb-6">Settings</h2>
 
       <div className="space-y-6">
-        {/* Wallet Management */}
+        {/* Wallet — prominent card style */}
         {(walletStatus?.walletCount ?? 0) > 0 && (
-          <div>
-            <h3 className="text-sm font-medium text-white mb-2">Wallet</h3>
-            <p className="text-xs text-zinc-400 mb-3">
-              Active: {walletStatus?.activeWalletName ?? "Unknown"}
-            </p>
-            <div className="flex gap-2">
+          <div className="bg-zuuli-surface border border-zinc-800/50 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-zinc-500 uppercase tracking-wider">Active Wallet</p>
+                <p className="text-sm font-medium text-white mt-0.5">
+                  {walletStatus?.activeWalletName ?? "Unknown"}
+                </p>
+              </div>
               <button
                 onClick={() => setPage("wallet-picker")}
-                className="px-4 py-2 text-sm rounded-xl border border-zinc-700 text-zinc-300 hover:border-purple-500/50 hover:text-purple-400 transition-colors"
+                className="px-4 py-2.5 text-sm rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors min-tap"
               >
-                Switch Wallet
+                Switch
               </button>
             </div>
           </div>
         )}
 
-        {/* Recovery Phrase */}
-        <div className="border-t border-zinc-800/50 pt-6">
-          <SeedPhraseSection />
+        {/* Blockchain Stats */}
+        <div className="bg-zuuli-surface border border-zinc-800/50 rounded-xl p-4">
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Blockchain</h3>
+          <div className="divide-y divide-zinc-800/50">
+            {chainTip !== null && (
+              <StatRow label="Chain tip" value={formatHeight(chainTip)} />
+            )}
+            {syncedHeight !== null && (
+              <StatRow label="Wallet synced to" value={formatHeight(syncedHeight)} />
+            )}
+            <StatRow
+              label="Status"
+              value={
+                synced
+                  ? "Synced"
+                  : syncing
+                    ? `Syncing${progressPercent !== null ? ` (${Math.round(progressPercent)}%)` : ""}`
+                    : "Not syncing"
+              }
+            />
+            {!synced && blocksBehind !== null && blocksBehind > 0 && (
+              <StatRow label="Blocks behind" value={formatHeight(blocksBehind)} />
+            )}
+          </div>
         </div>
 
-        {/* Viewing Key */}
-        <div className="border-t border-zinc-800/50 pt-6">
-          <RevealSection
-            title="Unified Full Viewing Key"
-            description="Share to let others see your transaction history. Cannot spend funds."
-            onReveal={() => api.getViewingKey(0)}
-          />
-        </div>
+        {/* Security — Recovery Phrase + Viewing Key */}
+        <div>
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">Security</h3>
 
-        {/* Spending Key Status */}
-        <div className="border-t border-zinc-800/50 pt-6">
-          <RevealSection
-            title="Spending Key"
-            description="Verify spending authority is available for this wallet."
-            onReveal={async () => {
-              const status = await api.getSpendingKey(0);
-              return status.message;
-            }}
-          />
+          <div className="space-y-6">
+            <SeedPhraseSection />
+
+            <div className="border-t border-zinc-800/50 pt-6">
+              <RevealSection
+                title="Unified Full Viewing Key"
+                description="Share to let others see your transaction history. Cannot spend funds."
+                onReveal={() => api.getViewingKey(0)}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Server Selection */}
-        <div className="border-t border-zinc-800/50 pt-6">
-          <label className="block text-sm text-zinc-400 mb-3">
-            Lightwalletd Server
-          </label>
-          <div className="space-y-2">
+        <div>
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">Server</h3>
+          <div className="space-y-2" role="radiogroup" aria-label="Lightwalletd server selection">
             {SERVERS.map((server) => (
               <button
                 key={server.url}
                 onClick={() => handleSelect(server.url)}
+                role="radio"
+                aria-checked={isSelected(server.url)}
                 className={`w-full text-left p-3 rounded-xl border transition-colors ${
                   isSelected(server.url)
                     ? "bg-purple-500/5 border-purple-500/50"
@@ -283,6 +333,7 @@ export function Settings() {
                         ? "border-purple-500 bg-purple-500"
                         : "border-zinc-600"
                     }`}
+                    aria-hidden="true"
                   >
                     {isSelected(server.url) && (
                       <div className="w-1.5 h-1.5 bg-white rounded-full" />
@@ -300,6 +351,8 @@ export function Settings() {
 
             <button
               onClick={() => setUseCustom(true)}
+              role="radio"
+              aria-checked={useCustom}
               className={`w-full text-left p-3 rounded-xl border transition-colors ${
                 useCustom
                   ? "bg-purple-500/5 border-purple-500/50"
@@ -313,6 +366,7 @@ export function Settings() {
                       ? "border-purple-500 bg-purple-500"
                       : "border-zinc-600"
                   }`}
+                  aria-hidden="true"
                 >
                   {useCustom && (
                     <div className="w-1.5 h-1.5 bg-white rounded-full" />
@@ -325,6 +379,8 @@ export function Settings() {
             {useCustom && (
               <input
                 type="text"
+                inputMode="url"
+                autoComplete="off"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://your-server:443"
@@ -350,13 +406,7 @@ export function Settings() {
         </div>
 
         <div className="border-t border-zinc-800/50 pt-6">
-          <h3 className="text-sm font-medium text-white mb-2">Network</h3>
-          <p className="text-xs text-zinc-400">Zcash Mainnet</p>
-        </div>
-
-        <div className="border-t border-zinc-800/50 pt-6">
-          <h3 className="text-sm font-medium text-white mb-2">About</h3>
-          <p className="text-xs text-zinc-400">ZUULI v0.1.0</p>
+          <p className="text-xs text-zinc-400">Zcash Mainnet · ZUULI v0.1.0</p>
           <p className="text-xs text-zinc-500 mt-1">Shielded by default.</p>
         </div>
       </div>

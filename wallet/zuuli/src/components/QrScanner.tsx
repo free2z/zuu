@@ -11,6 +11,15 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
   const runningRef = useRef(false);
   const mountedRef = useRef(true);
 
+  // Escape key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   useEffect(() => {
     mountedRef.current = true;
     const scannerId = "qr-reader";
@@ -56,14 +65,20 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
   }, [onScan]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="QR code scanner"
+    >
       <div className="w-full max-w-sm mx-4">
         <div className="bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800">
           <div className="flex items-center justify-between p-4">
             <h3 className="text-white font-semibold">Scan QR Code</h3>
             <button
               onClick={onClose}
-              className="text-zinc-400 hover:text-white transition-colors"
+              className="p-2.5 text-zinc-400 hover:text-white transition-colors min-tap flex items-center justify-center"
+              aria-label="Close QR scanner"
             >
               <svg
                 width="24"
@@ -74,6 +89,7 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                aria-hidden="true"
               >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -88,7 +104,7 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
               <p className="text-red-400 text-sm mb-3">{error}</p>
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-sm border border-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-800 transition-colors"
+                className="px-4 py-2 text-sm border border-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-800 transition-colors min-tap"
               >
                 Close
               </button>

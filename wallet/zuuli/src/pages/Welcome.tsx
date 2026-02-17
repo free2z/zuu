@@ -35,7 +35,7 @@ export function Welcome() {
         {hasWallets && (
           <button
             onClick={() => setPage("wallet-picker")}
-            className="w-full py-3 text-sm text-zinc-400 hover:text-white transition-colors"
+            className="w-full py-3 text-sm text-zinc-400 hover:text-white transition-colors min-tap"
           >
             Back to Wallet Picker
           </button>

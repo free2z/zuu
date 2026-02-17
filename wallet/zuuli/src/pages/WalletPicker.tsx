@@ -72,10 +72,12 @@ export function WalletPicker() {
               <button
                 onClick={() => !wallet.isActive && handleSwitch(wallet.id)}
                 className="flex-1 text-left"
+                aria-label={`${wallet.isActive ? "Active wallet" : "Switch to"}: ${wallet.name}`}
+                disabled={wallet.isActive}
               >
                 <div className="flex items-center gap-2">
                   {wallet.isActive && (
-                    <div className="w-2 h-2 bg-purple-500 rounded-full shrink-0" />
+                    <div className="w-2 h-2 bg-purple-500 rounded-full shrink-0" aria-hidden="true" />
                   )}
                   {renamingId === wallet.id ? (
                     <input
@@ -114,10 +116,10 @@ export function WalletPicker() {
                     setRenamingId(wallet.id);
                     setRenameValue(wallet.name);
                   }}
-                  className="p-1.5 text-zinc-500 hover:text-white rounded transition-colors"
-                  title="Rename"
+                  className="p-2.5 text-zinc-500 hover:text-white rounded transition-colors min-tap flex items-center justify-center"
+                  aria-label={`Rename wallet ${wallet.name}`}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z" />
                   </svg>
                 </button>
@@ -127,13 +129,13 @@ export function WalletPicker() {
                       <div className="flex items-center gap-1 animate-fade-in">
                         <button
                           onClick={() => handleDelete(wallet.id)}
-                          className="px-2 py-1 text-xs bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors"
+                          className="px-3 py-2 text-sm bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors min-tap"
                         >
-                          Confirm
+                          Delete
                         </button>
                         <button
                           onClick={() => setDeletingId(null)}
-                          className="px-2 py-1 text-xs text-zinc-500 rounded hover:text-white transition-colors"
+                          className="px-3 py-2 text-sm text-zinc-500 rounded hover:text-white transition-colors min-tap"
                         >
                           Cancel
                         </button>
@@ -141,10 +143,10 @@ export function WalletPicker() {
                     ) : (
                       <button
                         onClick={() => setDeletingId(wallet.id)}
-                        className="p-1.5 text-zinc-500 hover:text-red-400 rounded transition-colors"
-                        title="Delete"
+                        className="p-2.5 text-zinc-500 hover:text-red-400 rounded transition-colors min-tap flex items-center justify-center"
+                        aria-label={`Delete wallet ${wallet.name}`}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <polyline points="3 6 5 6 21 6" />
                           <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                         </svg>
@@ -161,7 +163,7 @@ export function WalletPicker() {
       {walletStatus?.initialized && (
         <button
           onClick={() => setPage("home")}
-          className="mt-6 w-full py-2 text-sm text-zinc-500 hover:text-white transition-colors"
+          className="mt-6 w-full py-2.5 text-sm text-zinc-500 hover:text-white transition-colors min-tap"
         >
           Back to Wallet
         </button>

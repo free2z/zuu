@@ -37,7 +37,7 @@ export function Receive() {
           <p className="text-red-400 text-sm mb-3">{error}</p>
           <button
             onClick={fetchAddress}
-            className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+            className="text-sm text-purple-400 hover:text-purple-300 transition-colors py-2 px-3 rounded-lg min-tap"
           >
             Retry
           </button>
@@ -47,14 +47,18 @@ export function Receive() {
       {unifiedAddress ? (
         <>
           <div className="flex justify-center mb-4">
-            <div className="bg-white p-6 rounded-2xl shadow-glow-purple">
+            <div
+              className="bg-white p-6 rounded-2xl shadow-glow-purple"
+              role="img"
+              aria-label="QR code for Zcash address"
+            >
               <QRCodeSVG value={unifiedAddress} size={200} />
             </div>
           </div>
           <AddressCard address={unifiedAddress} label="Unified Address" />
         </>
       ) : !error ? (
-        <div className="flex justify-center mb-4">
+        <div className="flex justify-center mb-4" role="status" aria-label="Loading address">
           <div className="bg-zinc-800 p-6 rounded-2xl animate-pulse">
             <div className="w-[200px] h-[200px] rounded-lg bg-zinc-700" />
           </div>
