@@ -1,4 +1,12 @@
 #!/bin/bash
+
+# Initialize submodules if --init flag is passed (for first-time setup after clone)
+if [ "$1" = "--init" ]; then
+    echo "Initializing all submodules..."
+    git submodule update --init
+    echo "========================================="
+fi
+
 # Iterate through each submodule defined in .gitmodules
 git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | while read path_key path
 do

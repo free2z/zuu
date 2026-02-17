@@ -18,3 +18,95 @@
 	path = z/ZcashFoundation/zebra
 	url = https://github.com/ZcashFoundation/zebra
 	branch = main
+[submodule "z/zcash/librustzcash"]
+	path = z/zcash/librustzcash
+	url = https://github.com/zcash/librustzcash
+	branch = main
+[submodule "z/zcash/orchard"]
+	path = z/zcash/orchard
+	url = https://github.com/zcash/orchard
+	branch = main
+[submodule "z/zcash/sapling-crypto"]
+	path = z/zcash/sapling-crypto
+	url = https://github.com/zcash/sapling-crypto
+	branch = main
+[submodule "z/zcash/halo2"]
+	path = z/zcash/halo2
+	url = https://github.com/zcash/halo2
+	branch = main
+[submodule "z/zcash/pasta_curves"]
+	path = z/zcash/pasta_curves
+	url = https://github.com/zcash/pasta_curves
+	branch = main
+[submodule "z/zcash/incrementalmerkletree"]
+	path = z/zcash/incrementalmerkletree
+	url = https://github.com/zcash/incrementalmerkletree
+	branch = main
+[submodule "z/zcash/zcash_note_encryption"]
+	path = z/zcash/zcash_note_encryption
+	url = https://github.com/zcash/zcash_note_encryption
+	branch = main
+[submodule "z/zcash/zcash_spec"]
+	path = z/zcash/zcash_spec
+	url = https://github.com/zcash/zcash_spec
+	branch = main
+[submodule "z/zcash/zip32"]
+	path = z/zcash/zip32
+	url = https://github.com/zcash/zip32
+	branch = master
+[submodule "z/zcash/lightwallet-protocol"]
+	path = z/zcash/lightwallet-protocol
+	url = https://github.com/zcash/lightwallet-protocol
+	branch = main
+[submodule "z/zcash/zcash-devtool"]
+	path = z/zcash/zcash-devtool
+	url = https://github.com/zcash/zcash-devtool
+	branch = main
+[submodule "z/ZcashFoundation/frost"]
+	path = z/ZcashFoundation/frost
+	url = https://github.com/ZcashFoundation/frost
+	branch = main
+[submodule "z/ZcashFoundation/z3"]
+	path = z/ZcashFoundation/z3
+	url = https://github.com/ZcashFoundation/z3
+	branch = dev
+[submodule "z/Electric-Coin-Company/zashi-android"]
+	path = z/Electric-Coin-Company/zashi-android
+	url = https://github.com/Electric-Coin-Company/zashi-android
+	branch = main
+[submodule "z/Electric-Coin-Company/zashi-ios"]
+	path = z/Electric-Coin-Company/zashi-ios
+	url = https://github.com/Electric-Coin-Company/zashi-ios
+	branch = main
+[submodule "z/Electric-Coin-Company/zcash-android-wallet-sdk"]
+	path = z/Electric-Coin-Company/zcash-android-wallet-sdk
+	url = https://github.com/Electric-Coin-Company/zcash-android-wallet-sdk
+	branch = main
+[submodule "z/Electric-Coin-Company/zcash-swift-wallet-sdk"]
+	path = z/Electric-Coin-Company/zcash-swift-wallet-sdk
+	url = https://github.com/Electric-Coin-Company/zcash-swift-wallet-sdk
+	branch = main
+[submodule "z/hhanh00/zwallet"]
+	path = z/hhanh00/zwallet
+	url = https://github.com/hhanh00/zwallet
+	branch = main
+[submodule "z/ChainSafe/WebZjs"]
+	path = z/ChainSafe/WebZjs
+	url = https://github.com/ChainSafe/WebZjs
+	branch = main
+[submodule "z/zingolabs/zaino"]
+	path = z/zingolabs/zaino
+	url = https://github.com/zingolabs/zaino
+	branch = dev
+[submodule "z/zingolabs/zingolib"]
+	path = z/zingolabs/zingolib
+	url = https://github.com/zingolabs/zingolib
+	branch = dev
+[submodule "z/LEONINE-DAO/Nozy-wallet"]
+	path = z/LEONINE-DAO/Nozy-wallet
+	url = https://github.com/LEONINE-DAO/Nozy-wallet
+	branch = master
+[submodule "z/QED-it/librustzcash"]
+	path = z/QED-it/librustzcash
+	url = https://github.com/QED-it/librustzcash
+	branch = zsa1

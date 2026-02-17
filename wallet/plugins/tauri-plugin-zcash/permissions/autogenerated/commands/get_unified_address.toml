@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-unified-address"
+description = "Enables the get_unified_address command without any pre-configured scope."
+commands.allow = ["get_unified_address"]
+
+[[permission]]
+identifier = "deny-get-unified-address"
+description = "Denies the get_unified_address command without any pre-configured scope."
+commands.deny = ["get_unified_address"]

@@ -1,0 +1,18 @@
+[default]
+description = "Default permissions for the Zcash wallet plugin"
+permissions = [
+    "allow-create-wallet",
+    "allow-restore-wallet",
+    "allow-get-wallet-status",
+    "allow-create-account",
+    "allow-list-accounts",
+    "allow-get-account-balance",
+    "allow-get-unified-address",
+    "allow-start-sync",
+    "allow-stop-sync",
+    "allow-get-sync-status",
+    "allow-send-transaction",
+    "allow-get-transaction-history",
+    "allow-set-lightwalletd-url",
+    "allow-parse-payment-uri",
+]

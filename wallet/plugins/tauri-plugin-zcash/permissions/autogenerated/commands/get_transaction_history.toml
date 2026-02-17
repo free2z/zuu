@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-transaction-history"
+description = "Enables the get_transaction_history command without any pre-configured scope."
+commands.allow = ["get_transaction_history"]
+
+[[permission]]
+identifier = "deny-get-transaction-history"
+description = "Denies the get_transaction_history command without any pre-configured scope."
+commands.deny = ["get_transaction_history"]

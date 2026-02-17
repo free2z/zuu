@@ -1,0 +1,38 @@
+[package]
+name = "tauri-plugin-zcash"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.1"
+description = "Tauri plugin for Zcash wallet operations"
+links = "tauri-plugin-zcash"
+
+[dependencies]
+tauri = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tonic = { version = "0.14", default-features = false }
+bip0039 = "0.12"
+secrecy = "0.8"
+rand = "0.8"
+tracing = "0.1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+zip32 = { version = "0.2", default-features = false }
+nonempty = "0.11"
+async-trait = "0.1"
+rustls = { version = "0.23", features = ["ring"] }
+
+zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "sync", "orchard", "transparent-inputs"] }
+zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { path = "../../../z/zcash/librustzcash/zcash_primitives" }
+zcash_proofs = { path = "../../../z/zcash/librustzcash/zcash_proofs", features = ["local-prover", "multicore"] }
+zcash_keys = { path = "../../../z/zcash/librustzcash/zcash_keys", features = ["orchard", "sapling", "transparent-key-encoding"] }
+zcash_protocol = { path = "../../../z/zcash/librustzcash/components/zcash_protocol" }
+zcash_address = { path = "../../../z/zcash/librustzcash/components/zcash_address" }
+zip321 = { path = "../../../z/zcash/librustzcash/components/zip321" }
+pczt = { path = "../../../z/zcash/librustzcash/pczt" }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+tauri-build = "2"
