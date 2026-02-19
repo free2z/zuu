@@ -7,5 +7,6 @@ private/
 target/
 *.pyc
 __pycache__
+wallet/zuuli/dist/
 
 

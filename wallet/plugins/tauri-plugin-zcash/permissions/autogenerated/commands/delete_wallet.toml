@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-delete-wallet"
+description = "Enables the delete_wallet command without any pre-configured scope."
+commands.allow = ["delete_wallet"]
+
+[[permission]]
+identifier = "deny-delete-wallet"
+description = "Denies the delete_wallet command without any pre-configured scope."
+commands.deny = ["delete_wallet"]

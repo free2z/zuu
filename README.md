@@ -15,11 +15,24 @@ Let us know if you would like more modules open sourced!
 ## Zcash submodules
 
 Check the [.gitmodules](./.gitmodules) file for the complete listing
-of external git repos. These currently come from the following orgs and users:
+of external git repos. These are organized by category:
 
-* [z/hhanh00/](https://github.com/hhanh00)
-* [z/zcash/](https://github.com/zcash)
-* [z/ZcashFoundation/](https://github.com/ZcashFoundation)
+### Core Protocol
+
+* [z/zcash/](https://github.com/zcash) — librustzcash, orchard, sapling-crypto, halo2, pasta_curves, incrementalmerkletree, zcash_note_encryption, zcash_spec, zip32, zips, lightwallet-protocol, zcash-devtool, lightwalletd, zcash (legacy)
+* [z/ZcashFoundation/](https://github.com/ZcashFoundation) — zebra, frost, z3
+
+### Wallets & SDKs
+
+* [z/Electric-Coin-Company/](https://github.com/Electric-Coin-Company) — zashi-android, zashi-ios, zcash-android-wallet-sdk, zcash-swift-wallet-sdk
+* [z/hhanh00/](https://github.com/hhanh00) — warp, zwallet
+
+### Community
+
+* [z/ChainSafe/](https://github.com/ChainSafe) — WebZjs
+* [z/zingolabs/](https://github.com/zingolabs) — zaino, zingolib
+* [z/LEONINE-DAO/](https://github.com/LEONINE-DAO) — Nozy-wallet
+* [z/QED-it/](https://github.com/QED-it) — librustzcash (ZSA fork)
 
 ## Code Layout
 

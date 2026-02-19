@@ -1,0 +1,668 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useWalletStore } from "../store/wallet";
+import * as api from "../lib/tauri";
+import { formatZecDisplay, formatZec, truncateAddress } from "../lib/format";
+import type { AddressValidation, SendProposal } from "../types";
+import { QrScanner } from "../components/QrScanner";
+
+const MIN_FEE_ESTIMATE = 10000; // 0.0001 ZEC — minimum ZIP-317 fee for display only
+
+type SendStep = "form" | "proposing" | "review" | "executing" | "success" | "error";
+
+export function Send() {
+  const { balance } = useWalletStore();
+
+  const [to, setTo] = useState("");
+  const [amount, setAmount] = useState("");
+  const [memo, setMemo] = useState("");
+  const [step, setStep] = useState<SendStep>("form");
+  const [txid, setTxid] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Proposal state
+  const [proposal, setProposal] = useState<SendProposal | null>(null);
+  const [paramsReady, setParamsReady] = useState(false);
+  const [paramsDownloading, setParamsDownloading] = useState(false);
+  const [feeNotice, setFeeNotice] = useState<string | null>(null);
+
+  // Address validation
+  const [addressValidation, setAddressValidation] =
+    useState<AddressValidation | null>(null);
+  const [validatingAddress, setValidatingAddress] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Max mode toggle
+  const [maxMode, setMaxMode] = useState(false);
+
+  // QR scanner
+  const [showScanner, setShowScanner] = useState(false);
+
+  // ZIP-321 indicator
+  const [filledFromUri, setFilledFromUri] = useState(false);
+
+  // Review step: show full address toggle
+  const [showFullAddress, setShowFullAddress] = useState(false);
+
+  const spendable = balance?.spendable ?? 0;
+
+  // Kick off sapling params download in background on mount
+  useEffect(() => {
+    setParamsDownloading(true);
+    api.ensureSaplingParams()
+      .then(() => setParamsReady(true))
+      .catch(() => {/* will retry before execute */})
+      .finally(() => setParamsDownloading(false));
+  }, []);
+
+  // Validate address with debounce
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!to.trim()) {
+      setAddressValidation(null);
+      setValidatingAddress(false);
+      return;
+    }
+
+    setValidatingAddress(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const result = await api.validateAddress(to.trim());
+        setAddressValidation(result);
+      } catch {
+        setAddressValidation({ valid: false, addressType: null, canReceiveMemo: false });
+      }
+      setValidatingAddress(false);
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [to]);
+
+  // Parse amount to zatoshis
+  const zatoshis = Math.round(parseFloat(amount) * 1e8);
+  const validAmount = !isNaN(zatoshis) && zatoshis > 0;
+  const exceedsBalance = validAmount && (zatoshis + MIN_FEE_ESTIMATE) > spendable;
+  const memoBytes = new TextEncoder().encode(memo).length;
+  const showMemo = addressValidation?.canReceiveMemo !== false;
+
+  const canSend = maxMode
+    ? addressValidation?.valid && memoBytes <= 512
+    : addressValidation?.valid && validAmount && !exceedsBalance && memoBytes <= 512;
+
+  // Handle pasting — detect zcash: URIs
+  const handleAddressChange = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim();
+      if (trimmed.startsWith("zcash:")) {
+        try {
+          const parsed = await api.parsePaymentUri(trimmed);
+          setTo(parsed.address);
+          if (parsed.amount) {
+            setAmount(formatZec(parsed.amount));
+            setMaxMode(false);
+          }
+          if (parsed.memo) {
+            setMemo(parsed.memo);
+          }
+          setFilledFromUri(true);
+          return;
+        } catch {
+          // Not a valid URI, treat as raw text
+        }
+      }
+      setTo(trimmed);
+      setFilledFromUri(false);
+    },
+    [],
+  );
+
+  const handleMax = () => {
+    if (maxMode) {
+      // Toggle OFF
+      setMaxMode(false);
+      setAmount("");
+      return;
+    }
+    // Toggle ON — fill with estimate
+    setMaxMode(true);
+    const maxAmount = spendable - MIN_FEE_ESTIMATE;
+    if (maxAmount > 0) {
+      setAmount(formatZec(maxAmount));
+    }
+  };
+
+  const handleReview = async () => {
+    if (!canSend) return;
+    setStep("proposing");
+    setFeeNotice(null);
+
+    try {
+      const result = maxMode
+        ? await api.proposeSendAll(to.trim(), memo || undefined)
+        : await api.proposeSend(to.trim(), zatoshis, memo || undefined);
+      setProposal(result);
+      setAmount(formatZec(result.amount));
+      setStep("review");
+    } catch (e) {
+      setSendError(String(e));
+      setStep("error");
+    }
+  };
+
+  const handleConfirmSend = async () => {
+    if (!proposal) return;
+    setStep("executing");
+
+    try {
+      // Ensure params are ready before executing
+      if (!paramsReady) {
+        await api.ensureSaplingParams();
+        setParamsReady(true);
+      }
+
+      const result = await api.executeSend(proposal.proposalId);
+      setTxid(result);
+      setStep("success");
+    } catch (e) {
+      const errorStr = String(e);
+      // Auto-repropose on stale proposal
+      if (errorStr.includes("stale") || errorStr.includes("mismatch") || errorStr.includes("no pending proposal")) {
+        try {
+          const newProposal = maxMode
+            ? await api.proposeSendAll(to.trim(), memo || undefined)
+            : await api.proposeSend(to.trim(), proposal.amount, memo || undefined);
+          if (newProposal.fee === proposal.fee) {
+            // Same fee — retry execute immediately
+            setProposal(newProposal);
+            try {
+              const result = await api.executeSend(newProposal.proposalId);
+              setTxid(result);
+              setStep("success");
+              return;
+            } catch (e2) {
+              setSendError(String(e2));
+              setStep("error");
+              return;
+            }
+          } else {
+            // Fee changed — show updated review
+            setProposal(newProposal);
+            setFeeNotice("Fee updated due to new wallet activity");
+            setStep("review");
+            return;
+          }
+        } catch (e2) {
+          setSendError(String(e2));
+          setStep("error");
+          return;
+        }
+      }
+      setSendError(errorStr);
+      setStep("error");
+    }
+  };
+
+  const resetForm = () => {
+    setTo("");
+    setAmount("");
+    setMemo("");
+    setMaxMode(false);
+    setTxid(null);
+    setStep("form");
+    setSendError(null);
+    setProposal(null);
+    setFeeNotice(null);
+    setFilledFromUri(false);
+    setAddressValidation(null);
+    setShowFullAddress(false);
+  };
+
+  const handleQrScan = useCallback(
+    (data: string) => {
+      setShowScanner(false);
+      handleAddressChange(data);
+    },
+    [handleAddressChange],
+  );
+
+  // --- Success state ---
+  if (step === "success") {
+    return (
+      <div className="p-6 max-w-lg mx-auto text-center animate-fade-in">
+        <div className="mb-4">
+          <svg
+            width="56"
+            height="56"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#34d399"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="mx-auto"
+            aria-hidden="true"
+          >
+            <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-emerald-400 mb-2">Sent!</h2>
+        <p className="text-sm text-zinc-400 mb-2">Transaction ID:</p>
+        <button
+          onClick={() => {
+            if (txid) navigator.clipboard.writeText(txid);
+          }}
+          className="text-xs text-zinc-300 break-all font-mono bg-zinc-900 px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer border border-zinc-800 inline-block max-w-full min-tap"
+          aria-label="Copy transaction ID to clipboard"
+        >
+          {txid}
+        </button>
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={resetForm}
+            className="flex-1 py-3 border-2 border-purple-500 text-purple-400 rounded-xl hover:bg-purple-500/10 transition-colors"
+          >
+            Send Another
+          </button>
+          <button
+            onClick={() => useWalletStore.getState().setPage("home")}
+            className="flex-1 py-3 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Error state ---
+  if (step === "error") {
+    return (
+      <div className="p-6 max-w-lg mx-auto text-center animate-fade-in">
+        <div className="mb-4">
+          <svg
+            width="56"
+            height="56"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#f87171"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="mx-auto"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-red-400 mb-2">
+          Transaction Failed
+        </h2>
+        <p className="text-sm text-zinc-400 break-all mb-6">{sendError}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setStep("form")}
+            className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
+          >
+            Try Again
+          </button>
+          <button
+            onClick={resetForm}
+            className="flex-1 py-3 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Proposing state ---
+  if (step === "proposing") {
+    return (
+      <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
+        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Preparing transaction" />
+        <p className="text-lg text-white font-medium">Preparing transaction...</p>
+        <p className="text-sm text-zinc-500 mt-2">
+          Calculating fee...
+        </p>
+      </div>
+    );
+  }
+
+  // --- Executing state ---
+  if (step === "executing") {
+    return (
+      <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
+        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Sending transaction" />
+        <p className="text-lg text-white font-medium">Signing and broadcasting...</p>
+        <p className="text-sm text-zinc-500 mt-2">
+          This may take a moment...
+        </p>
+      </div>
+    );
+  }
+
+  // --- Review step ---
+  if (step === "review" && proposal) {
+    return (
+      <div className="p-6 max-w-lg mx-auto animate-fade-in">
+        <h2 className="text-2xl font-bold text-white mb-6">
+          Review Transaction
+        </h2>
+
+        {feeNotice && (
+          <div className="mb-4 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm">
+            {feeNotice}
+          </div>
+        )}
+
+        <div className="space-y-4 bg-zinc-900 rounded-xl p-4 border border-zinc-800">
+          <div>
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+              Recipient
+            </p>
+            <button
+              onClick={() => setShowFullAddress(!showFullAddress)}
+              className="text-sm text-white font-mono break-all text-left"
+              aria-label={showFullAddress ? "Collapse address" : "Show full address"}
+            >
+              {showFullAddress ? to : truncateAddress(to, 16)}
+            </button>
+            {addressValidation?.addressType && (
+              <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 capitalize">
+                {addressValidation.addressType}
+              </span>
+            )}
+          </div>
+
+          <div className="border-t border-zinc-800 pt-3">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+              Amount
+            </p>
+            <p className="text-lg text-white font-semibold">
+              {formatZecDisplay(proposal.amount)}
+            </p>
+          </div>
+
+          {memo && (
+            <div className="border-t border-zinc-800 pt-3">
+              <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+                Memo
+              </p>
+              <p className="text-sm text-zinc-300 break-words">{memo}</p>
+            </div>
+          )}
+
+          <div className="border-t border-zinc-800 pt-3">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+              Network Fee
+            </p>
+            <p className="text-sm text-zinc-300">
+              {formatZecDisplay(proposal.fee)}
+            </p>
+          </div>
+
+          <div className="border-t border-zinc-800 pt-3">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+              Total Deducted
+            </p>
+            <p className="text-lg text-white font-bold">
+              {formatZecDisplay(proposal.total)}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={handleConfirmSend}
+            className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
+          >
+            Confirm Send
+          </button>
+          <button
+            onClick={() => setStep("form")}
+            className="flex-1 py-3 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Form step ---
+  return (
+    <div className="p-6 max-w-lg mx-auto animate-fade-in">
+      <h2 className="text-2xl font-bold text-white mb-6">Send ZEC</h2>
+
+      {filledFromUri && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400 text-sm">
+          Filled from payment request
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {/* Address input */}
+        <div>
+          <label className="block text-sm text-zinc-400 mb-1">
+            Recipient Address
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              value={to}
+              onChange={(e) => handleAddressChange(e.target.value)}
+              placeholder="Unified, Sapling, or transparent address"
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-28 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+              <button
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    handleAddressChange(text);
+                  } catch {
+                    // Clipboard permission denied — ignore silently
+                  }
+                }}
+                className="p-2.5 text-zinc-500 hover:text-zinc-300 transition-colors min-tap flex items-center justify-center"
+                aria-label="Paste address from clipboard"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowScanner(true)}
+                className="p-2.5 text-zinc-500 hover:text-zinc-300 transition-colors min-tap flex items-center justify-center"
+                aria-label="Scan QR code"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 7V5a2 2 0 012-2h2" />
+                  <path d="M17 3h2a2 2 0 012 2v2" />
+                  <path d="M21 17v2a2 2 0 01-2 2h-2" />
+                  <path d="M7 21H5a2 2 0 01-2-2v-2" />
+                  <rect x="7" y="7" width="10" height="10" rx="1" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Validation indicator */}
+          {to.trim() && (
+            <div className="flex items-center gap-2 mt-1.5" aria-live="polite">
+              {validatingAddress ? (
+                <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" role="status" aria-label="Validating address" />
+              ) : addressValidation?.valid ? (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#34d399"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#f87171"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              )}
+              {!validatingAddress && addressValidation?.valid && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 capitalize">
+                  {addressValidation.addressType}
+                </span>
+              )}
+              {!validatingAddress && !addressValidation?.valid && (
+                <span className="text-xs text-red-400">Invalid address</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Amount input */}
+        <div>
+          <label className="block text-sm text-zinc-400 mb-1">
+            Amount (ZEC)
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]*\.?[0-9]*"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00000000"
+              disabled={maxMode}
+              className={`w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-16 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none${maxMode ? " opacity-70" : ""}`}
+            />
+            <button
+              onClick={handleMax}
+              className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors min-tap ${maxMode ? "bg-purple-500 text-white" : "text-purple-400 bg-purple-500/10 hover:bg-purple-500/20"}`}
+              aria-label={maxMode ? "Disable maximum amount" : "Set maximum amount"}
+              aria-pressed={maxMode}
+            >
+              MAX
+            </button>
+          </div>
+          {maxMode && (
+            <p className="text-xs text-purple-400 mt-1">
+              Sending all available — fee deducted at review
+            </p>
+          )}
+          {!maxMode && validAmount && (
+            <p className="text-xs text-zinc-500 mt-1">
+              = {zatoshis.toLocaleString()} zatoshis
+            </p>
+          )}
+          {balance && (
+            <p className="text-xs text-zinc-500 mt-1">
+              {formatZecDisplay(spendable)} available
+            </p>
+          )}
+          {!maxMode && exceedsBalance && (
+            <p className="text-xs text-red-400 mt-1" role="alert">
+              Exceeds spendable balance ({formatZecDisplay(spendable)})
+            </p>
+          )}
+        </div>
+
+        {/* Memo */}
+        {showMemo && (
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">
+              Memo (optional)
+            </label>
+            <textarea
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              placeholder="Encrypted memo (up to 512 bytes)"
+              rows={3}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
+            />
+            <p
+              className={`text-xs mt-1 ${memoBytes > 512 ? "text-red-400" : "text-zinc-500"}`}
+            >
+              {memoBytes}/512 bytes
+            </p>
+          </div>
+        )}
+
+        {/* Fee display */}
+        <div className="flex items-center justify-between px-3 py-2 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+          <span className="text-xs text-zinc-500">Network fee</span>
+          <span className="text-xs text-zinc-400">
+            ~{formatZecDisplay(MIN_FEE_ESTIMATE)}{" "}
+            <span className="text-zinc-600">(estimated)</span>
+          </span>
+        </div>
+
+        {/* Params download indicator */}
+        {paramsDownloading && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+            <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" role="status" aria-label="Downloading parameters" />
+            <span className="text-xs text-zinc-500">Downloading proving parameters...</span>
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={handleReview}
+        disabled={!canSend}
+        className="mt-6 w-full py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        Review & Send
+      </button>
+
+      {showScanner && (
+        <QrScanner
+          onScan={handleQrScan}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
+    </div>
+  );
+}

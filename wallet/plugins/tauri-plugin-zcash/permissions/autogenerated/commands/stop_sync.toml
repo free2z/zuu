@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stop-sync"
+description = "Enables the stop_sync command without any pre-configured scope."
+commands.allow = ["stop_sync"]
+
+[[permission]]
+identifier = "deny-stop-sync"
+description = "Denies the stop_sync command without any pre-configured scope."
+commands.deny = ["stop_sync"]

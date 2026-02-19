@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-parse-payment-uri"
+description = "Enables the parse_payment_uri command without any pre-configured scope."
+commands.allow = ["parse_payment_uri"]
+
+[[permission]]
+identifier = "deny-parse-payment-uri"
+description = "Denies the parse_payment_uri command without any pre-configured scope."
+commands.deny = ["parse_payment_uri"]

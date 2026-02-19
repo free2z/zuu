@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-validate-address"
+description = "Enables the validate_address command without any pre-configured scope."
+commands.allow = ["validate_address"]
+
+[[permission]]
+identifier = "deny-validate-address"
+description = "Denies the validate_address command without any pre-configured scope."
+commands.deny = ["validate_address"]
