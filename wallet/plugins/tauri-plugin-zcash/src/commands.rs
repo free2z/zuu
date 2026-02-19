@@ -443,6 +443,9 @@ pub(crate) async fn switch_wallet<R: Runtime>(
         }
     }
 
+    // Clear any pending proposal from the previous wallet
+    *zcash.state.pending_proposal.lock().await = None;
+
     // Update manifest
     let wallet_entry = {
         let mut manifest = zcash.state.manifest.lock().await;
@@ -693,18 +696,49 @@ pub(crate) async fn get_sync_status<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn send_transaction<R: Runtime>(
+pub(crate) async fn ensure_sapling_params<R: Runtime>(
     app: AppHandle<R>,
-    args: SendTransactionArgs,
-) -> Result<String> {
+) -> Result<SaplingParamsStatus> {
     let zcash = app.zcash();
-    crate::wallet::send::send_transaction(
+    crate::wallet::send::ensure_sapling_params(&zcash.state).await
+}
+
+#[command]
+pub(crate) async fn propose_send<R: Runtime>(
+    app: AppHandle<R>,
+    args: ProposeSendArgs,
+) -> Result<SendProposal> {
+    let zcash = app.zcash();
+    crate::wallet::send::propose_send(
         &zcash.state,
         &args.to,
         args.amount,
         args.memo.as_deref(),
     )
     .await
+}
+
+#[command]
+pub(crate) async fn propose_send_all<R: Runtime>(
+    app: AppHandle<R>,
+    args: ProposeSendAllArgs,
+) -> Result<SendProposal> {
+    let zcash = app.zcash();
+    crate::wallet::send::propose_send_all(
+        &zcash.state,
+        &args.to,
+        args.memo.as_deref(),
+    )
+    .await
+}
+
+#[command]
+pub(crate) async fn execute_send<R: Runtime>(
+    app: AppHandle<R>,
+    args: ExecuteSendArgs,
+) -> Result<String> {
+    let zcash = app.zcash();
+    crate::wallet::send::execute_send(&zcash.state, args.proposal_id).await
 }
 
 #[command]

@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletStore } from "../store/wallet";
 import * as api from "../lib/tauri";
 import { formatZecDisplay, formatZec, truncateAddress } from "../lib/format";
-import type { AddressValidation } from "../types";
+import type { AddressValidation, SendProposal } from "../types";
 import { QrScanner } from "../components/QrScanner";
 
-const STANDARD_FEE = 10000; // 0.0001 ZEC (zip317 standard)
+const MIN_FEE_ESTIMATE = 10000; // 0.0001 ZEC — minimum ZIP-317 fee for display only
 
-type SendStep = "form" | "review" | "sending" | "success" | "error";
+type SendStep = "form" | "proposing" | "review" | "executing" | "success" | "error";
 
 export function Send() {
   const { balance } = useWalletStore();
@@ -17,14 +17,22 @@ export function Send() {
   const [memo, setMemo] = useState("");
   const [step, setStep] = useState<SendStep>("form");
   const [txid, setTxid] = useState<string | null>(null);
-  const [sendingStatus, setSendingStatus] = useState("Creating transaction...");
   const [sendError, setSendError] = useState<string | null>(null);
+
+  // Proposal state
+  const [proposal, setProposal] = useState<SendProposal | null>(null);
+  const [paramsReady, setParamsReady] = useState(false);
+  const [paramsDownloading, setParamsDownloading] = useState(false);
+  const [feeNotice, setFeeNotice] = useState<string | null>(null);
 
   // Address validation
   const [addressValidation, setAddressValidation] =
     useState<AddressValidation | null>(null);
   const [validatingAddress, setValidatingAddress] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Max mode toggle
+  const [maxMode, setMaxMode] = useState(false);
 
   // QR scanner
   const [showScanner, setShowScanner] = useState(false);
@@ -36,6 +44,15 @@ export function Send() {
   const [showFullAddress, setShowFullAddress] = useState(false);
 
   const spendable = balance?.spendable ?? 0;
+
+  // Kick off sapling params download in background on mount
+  useEffect(() => {
+    setParamsDownloading(true);
+    api.ensureSaplingParams()
+      .then(() => setParamsReady(true))
+      .catch(() => {/* will retry before execute */})
+      .finally(() => setParamsDownloading(false));
+  }, []);
 
   // Validate address with debounce
   useEffect(() => {
@@ -66,15 +83,13 @@ export function Send() {
   // Parse amount to zatoshis
   const zatoshis = Math.round(parseFloat(amount) * 1e8);
   const validAmount = !isNaN(zatoshis) && zatoshis > 0;
-  const exceedsBalance = validAmount && (zatoshis + STANDARD_FEE) > spendable;
+  const exceedsBalance = validAmount && (zatoshis + MIN_FEE_ESTIMATE) > spendable;
   const memoBytes = new TextEncoder().encode(memo).length;
   const showMemo = addressValidation?.canReceiveMemo !== false;
 
-  const canSend =
-    addressValidation?.valid &&
-    validAmount &&
-    !exceedsBalance &&
-    memoBytes <= 512;
+  const canSend = maxMode
+    ? addressValidation?.valid && memoBytes <= 512
+    : addressValidation?.valid && validAmount && !exceedsBalance && memoBytes <= 512;
 
   // Handle pasting — detect zcash: URIs
   const handleAddressChange = useCallback(
@@ -86,6 +101,7 @@ export function Send() {
           setTo(parsed.address);
           if (parsed.amount) {
             setAmount(formatZec(parsed.amount));
+            setMaxMode(false);
           }
           if (parsed.memo) {
             setMemo(parsed.memo);
@@ -103,29 +119,87 @@ export function Send() {
   );
 
   const handleMax = () => {
-    const maxAmount = spendable - STANDARD_FEE;
+    if (maxMode) {
+      // Toggle OFF
+      setMaxMode(false);
+      setAmount("");
+      return;
+    }
+    // Toggle ON — fill with estimate
+    setMaxMode(true);
+    const maxAmount = spendable - MIN_FEE_ESTIMATE;
     if (maxAmount > 0) {
       setAmount(formatZec(maxAmount));
     }
   };
 
-  const handleSend = async () => {
+  const handleReview = async () => {
     if (!canSend) return;
-    setStep("sending");
-    setSendingStatus("Creating transaction...");
-    setSendError(null);
+    setStep("proposing");
+    setFeeNotice(null);
 
     try {
-      setSendingStatus("Broadcasting...");
-      const result = await api.sendTransaction(
-        to.trim(),
-        zatoshis,
-        memo || undefined,
-      );
+      const result = maxMode
+        ? await api.proposeSendAll(to.trim(), memo || undefined)
+        : await api.proposeSend(to.trim(), zatoshis, memo || undefined);
+      setProposal(result);
+      setAmount(formatZec(result.amount));
+      setStep("review");
+    } catch (e) {
+      setSendError(String(e));
+      setStep("error");
+    }
+  };
+
+  const handleConfirmSend = async () => {
+    if (!proposal) return;
+    setStep("executing");
+
+    try {
+      // Ensure params are ready before executing
+      if (!paramsReady) {
+        await api.ensureSaplingParams();
+        setParamsReady(true);
+      }
+
+      const result = await api.executeSend(proposal.proposalId);
       setTxid(result);
       setStep("success");
     } catch (e) {
-      setSendError(String(e));
+      const errorStr = String(e);
+      // Auto-repropose on stale proposal
+      if (errorStr.includes("stale") || errorStr.includes("mismatch") || errorStr.includes("no pending proposal")) {
+        try {
+          const newProposal = maxMode
+            ? await api.proposeSendAll(to.trim(), memo || undefined)
+            : await api.proposeSend(to.trim(), proposal.amount, memo || undefined);
+          if (newProposal.fee === proposal.fee) {
+            // Same fee — retry execute immediately
+            setProposal(newProposal);
+            try {
+              const result = await api.executeSend(newProposal.proposalId);
+              setTxid(result);
+              setStep("success");
+              return;
+            } catch (e2) {
+              setSendError(String(e2));
+              setStep("error");
+              return;
+            }
+          } else {
+            // Fee changed — show updated review
+            setProposal(newProposal);
+            setFeeNotice("Fee updated due to new wallet activity");
+            setStep("review");
+            return;
+          }
+        } catch (e2) {
+          setSendError(String(e2));
+          setStep("error");
+          return;
+        }
+      }
+      setSendError(errorStr);
       setStep("error");
     }
   };
@@ -134,9 +208,12 @@ export function Send() {
     setTo("");
     setAmount("");
     setMemo("");
+    setMaxMode(false);
     setTxid(null);
     setStep("form");
     setSendError(null);
+    setProposal(null);
+    setFeeNotice(null);
     setFilledFromUri(false);
     setAddressValidation(null);
     setShowFullAddress(false);
@@ -244,12 +321,25 @@ export function Send() {
     );
   }
 
-  // --- Sending state ---
-  if (step === "sending") {
+  // --- Proposing state ---
+  if (step === "proposing") {
+    return (
+      <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
+        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Preparing transaction" />
+        <p className="text-lg text-white font-medium">Preparing transaction...</p>
+        <p className="text-sm text-zinc-500 mt-2">
+          Calculating fee...
+        </p>
+      </div>
+    );
+  }
+
+  // --- Executing state ---
+  if (step === "executing") {
     return (
       <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
         <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Sending transaction" />
-        <p className="text-lg text-white font-medium">{sendingStatus}</p>
+        <p className="text-lg text-white font-medium">Signing and broadcasting...</p>
         <p className="text-sm text-zinc-500 mt-2">
           This may take a moment...
         </p>
@@ -258,12 +348,18 @@ export function Send() {
   }
 
   // --- Review step ---
-  if (step === "review") {
+  if (step === "review" && proposal) {
     return (
       <div className="p-6 max-w-lg mx-auto animate-fade-in">
         <h2 className="text-2xl font-bold text-white mb-6">
           Review Transaction
         </h2>
+
+        {feeNotice && (
+          <div className="mb-4 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm">
+            {feeNotice}
+          </div>
+        )}
 
         <div className="space-y-4 bg-zinc-900 rounded-xl p-4 border border-zinc-800">
           <div>
@@ -289,7 +385,7 @@ export function Send() {
               Amount
             </p>
             <p className="text-lg text-white font-semibold">
-              {formatZecDisplay(zatoshis)}
+              {formatZecDisplay(proposal.amount)}
             </p>
           </div>
 
@@ -307,7 +403,7 @@ export function Send() {
               Network Fee
             </p>
             <p className="text-sm text-zinc-300">
-              {formatZecDisplay(STANDARD_FEE)}
+              {formatZecDisplay(proposal.fee)}
             </p>
           </div>
 
@@ -316,14 +412,14 @@ export function Send() {
               Total Deducted
             </p>
             <p className="text-lg text-white font-bold">
-              {formatZecDisplay(zatoshis + STANDARD_FEE)}
+              {formatZecDisplay(proposal.total)}
             </p>
           </div>
         </div>
 
         <div className="flex gap-3 mt-6">
           <button
-            onClick={handleSend}
+            onClick={handleConfirmSend}
             className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
           >
             Confirm Send
@@ -480,17 +576,24 @@ export function Send() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00000000"
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-16 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+              disabled={maxMode}
+              className={`w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-16 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none${maxMode ? " opacity-70" : ""}`}
             />
             <button
               onClick={handleMax}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 text-xs font-semibold text-purple-400 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 transition-colors min-tap"
-              aria-label="Set maximum amount"
+              className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors min-tap ${maxMode ? "bg-purple-500 text-white" : "text-purple-400 bg-purple-500/10 hover:bg-purple-500/20"}`}
+              aria-label={maxMode ? "Disable maximum amount" : "Set maximum amount"}
+              aria-pressed={maxMode}
             >
               MAX
             </button>
           </div>
-          {validAmount && (
+          {maxMode && (
+            <p className="text-xs text-purple-400 mt-1">
+              Sending all available — fee deducted at review
+            </p>
+          )}
+          {!maxMode && validAmount && (
             <p className="text-xs text-zinc-500 mt-1">
               = {zatoshis.toLocaleString()} zatoshis
             </p>
@@ -500,7 +603,7 @@ export function Send() {
               {formatZecDisplay(spendable)} available
             </p>
           )}
-          {exceedsBalance && (
+          {!maxMode && exceedsBalance && (
             <p className="text-xs text-red-400 mt-1" role="alert">
               Exceeds spendable balance ({formatZecDisplay(spendable)})
             </p>
@@ -532,13 +635,22 @@ export function Send() {
         <div className="flex items-center justify-between px-3 py-2 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
           <span className="text-xs text-zinc-500">Network fee</span>
           <span className="text-xs text-zinc-400">
-            {formatZecDisplay(STANDARD_FEE)}
+            ~{formatZecDisplay(MIN_FEE_ESTIMATE)}{" "}
+            <span className="text-zinc-600">(estimated)</span>
           </span>
         </div>
+
+        {/* Params download indicator */}
+        {paramsDownloading && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+            <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" role="status" aria-label="Downloading parameters" />
+            <span className="text-xs text-zinc-500">Downloading proving parameters...</span>
+          </div>
+        )}
       </div>
 
       <button
-        onClick={() => setStep("review")}
+        onClick={handleReview}
         disabled={!canSend}
         className="mt-6 w-full py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >

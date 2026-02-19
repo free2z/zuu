@@ -10,6 +10,8 @@ import type {
   PaymentRequest,
   SpendingKeyStatus,
   AddressValidation,
+  SaplingParamsStatus,
+  SendProposal,
 } from "../types";
 
 export async function createWallet(
@@ -114,13 +116,32 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   return invoke("plugin:zcash|get_sync_status");
 }
 
-export async function sendTransaction(
+export async function ensureSaplingParams(): Promise<SaplingParamsStatus> {
+  return invoke("plugin:zcash|ensure_sapling_params");
+}
+
+export async function proposeSend(
   to: string,
   amount: number,
   memo?: string,
-): Promise<string> {
-  return invoke("plugin:zcash|send_transaction", {
+): Promise<SendProposal> {
+  return invoke("plugin:zcash|propose_send", {
     args: { to, amount, memo },
+  });
+}
+
+export async function proposeSendAll(
+  to: string,
+  memo?: string,
+): Promise<SendProposal> {
+  return invoke("plugin:zcash|propose_send_all", {
+    args: { to, memo },
+  });
+}
+
+export async function executeSend(proposalId: number): Promise<string> {
+  return invoke("plugin:zcash|execute_send", {
+    args: { proposalId },
   });
 }
 

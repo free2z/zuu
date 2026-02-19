@@ -107,12 +107,40 @@ pub struct AccountIdArgs {
     pub account_index: u32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaplingParamsStatus {
+    pub ready: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SendTransactionArgs {
+pub struct ProposeSendArgs {
     pub to: String,
     pub amount: u64,
     pub memo: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendProposal {
+    pub proposal_id: u32,
+    pub amount: u64,
+    pub fee: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposeSendAllArgs {
+    pub to: String,
+    pub memo: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteSendArgs {
+    pub proposal_id: u32,
 }
 
 #[derive(Debug, Deserialize)]

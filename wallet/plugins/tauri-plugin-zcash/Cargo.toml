@@ -33,7 +33,7 @@ security-framework = { version = "3", features = ["OSX_10_15"] }
 zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "sync", "orchard", "transparent-inputs"] }
 zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["orchard", "transparent-inputs"] }
 zcash_primitives = { path = "../../../z/zcash/librustzcash/zcash_primitives" }
-zcash_proofs = { path = "../../../z/zcash/librustzcash/zcash_proofs", features = ["local-prover", "multicore"] }
+zcash_proofs = { path = "../../../z/zcash/librustzcash/zcash_proofs", features = ["local-prover", "download-params", "multicore"] }
 zcash_keys = { path = "../../../z/zcash/librustzcash/zcash_keys", features = ["orchard", "sapling", "transparent-key-encoding"] }
 zcash_protocol = { path = "../../../z/zcash/librustzcash/components/zcash_protocol" }
 zcash_address = { path = "../../../z/zcash/librustzcash/components/zcash_address" }

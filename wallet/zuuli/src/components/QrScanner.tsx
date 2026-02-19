@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import QrScannerLib from "qr-scanner";
 
 interface QrScannerProps {
   onScan: (data: string) => void;
@@ -8,8 +8,8 @@ interface QrScannerProps {
 
 export function QrScanner({ onScan, onClose }: QrScannerProps) {
   const [error, setError] = useState<string | null>(null);
-  const runningRef = useRef(false);
-  const mountedRef = useRef(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scannerRef = useRef<QrScannerLib | null>(null);
 
   // Escape key handler
   useEffect(() => {
@@ -21,46 +21,37 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
   }, [onClose]);
 
   useEffect(() => {
-    mountedRef.current = true;
-    const scannerId = "qr-reader";
-    let scanner: Html5Qrcode | null = null;
+    const video = videoRef.current;
+    if (!video) return;
 
-    const startScanner = async () => {
-      try {
-        scanner = new Html5Qrcode(scannerId);
-        await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            if (!mountedRef.current) return;
-            runningRef.current = false;
-            scanner?.stop().catch(() => {});
-            onScan(decodedText);
-          },
-          () => {},
-        );
-        runningRef.current = true;
-      } catch (err) {
-        if (!mountedRef.current) return;
-        runningRef.current = false;
-        const msg =
-          err instanceof DOMException && err.name === "NotAllowedError"
-            ? "Camera permission denied. Grant camera access in your system settings to scan QR codes."
-            : typeof err === "string"
-              ? err
-              : "Camera access denied or unavailable";
-        setError(msg);
-      }
-    };
+    const scanner = new QrScannerLib(
+      video,
+      (result) => {
+        scanner.stop();
+        onScan(result.data);
+      },
+      {
+        preferredCamera: "environment",
+        highlightScanRegion: true,
+        highlightCodeOutline: true,
+        maxScansPerSecond: 10,
+      },
+    );
+    scannerRef.current = scanner;
 
-    startScanner();
+    scanner.start().catch((err) => {
+      const msg =
+        err instanceof DOMException && err.name === "NotAllowedError"
+          ? "Camera permission denied. Grant camera access in your system settings to scan QR codes."
+          : typeof err === "string"
+            ? err
+            : "Camera access denied or unavailable";
+      setError(msg);
+    });
 
     return () => {
-      mountedRef.current = false;
-      if (runningRef.current && scanner) {
-        runningRef.current = false;
-        scanner.stop().catch(() => {});
-      }
+      scanner.destroy();
+      scannerRef.current = null;
     };
   }, [onScan]);
 
@@ -97,7 +88,9 @@ export function QrScanner({ onScan, onClose }: QrScannerProps) {
             </button>
           </div>
 
-          <div id="qr-reader" className="w-full" />
+          <div className="relative w-full aspect-square overflow-hidden bg-black">
+            <video ref={videoRef} className="w-full h-full object-cover" />
+          </div>
 
           {error && (
             <div className="p-4 text-center">

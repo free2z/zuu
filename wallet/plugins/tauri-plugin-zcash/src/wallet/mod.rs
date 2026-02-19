@@ -11,10 +11,16 @@ pub mod sync;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 use secrecy::SecretVec;
 use tokio::sync::{Mutex, RwLock};
 use zcash_protocol::consensus::Network;
+
+/// Type alias for a cached transaction proposal.
+pub type WalletProposal = zcash_client_backend::proposal::Proposal<
+    zcash_primitives::transaction::fees::zip317::FeeRule,
+    zcash_client_sqlite::ReceivedNoteId,
+>;
 
 /// Type alias for our concrete WalletDb.
 pub type WalletDatabase =
@@ -32,6 +38,9 @@ pub struct WalletState {
     pub syncing: Arc<RwLock<bool>>,
     pub last_known_chain_tip: Arc<AtomicU64>,
     pub manifest: Arc<Mutex<manifest::WalletManifest>>,
+    pub prover: Arc<Mutex<Option<zcash_proofs::prover::LocalTxProver>>>,
+    pub pending_proposal: Arc<Mutex<Option<(u32, WalletProposal)>>>,
+    pub proposal_counter: Arc<AtomicU32>,
 }
 
 impl WalletState {
@@ -101,6 +110,9 @@ impl WalletState {
             syncing: Arc::new(RwLock::new(false)),
             last_known_chain_tip: Arc::new(AtomicU64::new(0)),
             manifest: Arc::new(Mutex::new(manifest)),
+            prover: Arc::new(Mutex::new(None)),
+            pending_proposal: Arc::new(Mutex::new(None)),
+            proposal_counter: Arc::new(AtomicU32::new(0)),
         }
     }
 

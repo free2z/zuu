@@ -70,6 +70,17 @@ export interface AddressValidation {
   canReceiveMemo: boolean;
 }
 
+export interface SaplingParamsStatus {
+  ready: boolean;
+}
+
+export interface SendProposal {
+  proposalId: number;
+  amount: number;
+  fee: number;
+  total: number;
+}
+
 export interface TransactionHistoryState {
   transactions: TransactionEntry[];
   lastFetched: number | null;

@@ -21,7 +21,10 @@ Default permissions for the Zcash wallet plugin
 - `allow-start-sync`
 - `allow-stop-sync`
 - `allow-get-sync-status`
-- `allow-send-transaction`
+- `allow-ensure-sapling-params`
+- `allow-propose-send`
+- `allow-propose-send-all`
+- `allow-execute-send`
 - `allow-get-transaction-history`
 - `allow-set-lightwalletd-url`
 - `allow-parse-payment-uri`
@@ -111,6 +114,58 @@ Enables the delete_wallet command without any pre-configured scope.
 <td>
 
 Denies the delete_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-ensure-sapling-params`
+
+</td>
+<td>
+
+Enables the ensure_sapling_params command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-ensure-sapling-params`
+
+</td>
+<td>
+
+Denies the ensure_sapling_params command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-execute-send`
+
+</td>
+<td>
+
+Enables the execute_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-execute-send`
+
+</td>
+<td>
+
+Denies the execute_send command without any pre-configured scope.
 
 </td>
 </tr>
@@ -397,6 +452,58 @@ Enables the parse_payment_uri command without any pre-configured scope.
 <td>
 
 Denies the parse_payment_uri command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-propose-send`
+
+</td>
+<td>
+
+Enables the propose_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-propose-send`
+
+</td>
+<td>
+
+Denies the propose_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-propose-send-all`
+
+</td>
+<td>
+
+Enables the propose_send_all command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-propose-send-all`
+
+</td>
+<td>
+
+Denies the propose_send_all command without any pre-configured scope.
 
 </td>
 </tr>
