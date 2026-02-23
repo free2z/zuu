@@ -103,21 +103,33 @@ pub async fn get_transaction_history(
                     .map(|b| format!("{b:02x}"))
                     .collect::<String>();
 
-                // Decode memo: strip trailing null bytes, attempt UTF-8
+                // Decode memo per ZIP 302:
+                // - First byte 0x00..0xF4: UTF-8 text (trailing nulls are padding)
+                // - First byte 0xF5: arbitrary binary (not displayable)
+                // - First byte 0xF6: empty memo (already filtered in SQL)
+                // - First byte 0xF7..0xFF: future/unknown format
+                // Embedded null bytes (used by some wallets as field separators)
+                // are replaced with newlines for display.
                 let memo = memo_blob.and_then(|bytes| {
-                    let trimmed: Vec<u8> = bytes
-                        .into_iter()
-                        .rev()
-                        .skip_while(|&b| b == 0)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev()
-                        .collect();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        String::from_utf8(trimmed).ok()
+                    if bytes.is_empty() {
+                        return None;
                     }
+                    // ZIP 302: only first byte 0x00..0xF4 indicates a text memo
+                    if bytes[0] > 0xF4 {
+                        return None;
+                    }
+                    // Strip trailing null padding
+                    let end = bytes.iter().rposition(|&b| b != 0).map(|i| i + 1).unwrap_or(0);
+                    if end == 0 {
+                        return None;
+                    }
+                    // Decode as UTF-8, then replace embedded null bytes with newlines
+                    // (some wallets like YWallet use \x00 as a field separator between
+                    // the reply-to address and message text)
+                    String::from_utf8(bytes[..end].to_vec())
+                        .ok()
+                        .map(|s| s.replace('\0', "\n"))
+                        .filter(|s| !s.is_empty())
                 });
 
                 let delta = balance_delta.unwrap_or(0);

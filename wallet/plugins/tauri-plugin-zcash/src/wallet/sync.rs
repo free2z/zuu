@@ -3,9 +3,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::{AppHandle, Emitter, Runtime};
 use tokio::sync::{Mutex, RwLock};
+use tonic::transport::Channel;
 
-use zcash_client_backend::data_api::WalletRead;
-use zcash_protocol::consensus::Network;
+use zcash_client_backend::data_api::{TransactionDataRequest, TransactionStatus, WalletRead, WalletWrite};
+use zcash_client_backend::data_api::wallet::decrypt_and_store_transaction;
+use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
+use zcash_client_backend::proto::service::TxFilter;
+use zcash_primitives::transaction::Transaction;
+use zcash_protocol::consensus::{BranchId, BlockHeight, Network};
 
 use crate::error::{Error, Result};
 use crate::models::SyncStatus;
@@ -220,6 +225,9 @@ async fn sync_task<R: Runtime>(
                         effective_tip
                     );
 
+                    // Enhance transactions to retrieve full data (including memos)
+                    enhance_transactions(&mut client, &db, &network).await;
+
                     // If fully synced, break out of inner loop to sleep & re-check
                     if synced_height >= chain_tip {
                         tracing::info!("sync caught up to chain tip {}", chain_tip);
@@ -271,6 +279,156 @@ async fn sync_task<R: Runtime>(
         chain_tip,
         progress_percent: progress,
     });
+}
+
+/// Maximum number of transactions to enhance per sync batch to avoid delaying scanning.
+const ENHANCE_BATCH_SIZE: usize = 10;
+
+/// Fetch full transaction data for queued enhancement requests and decrypt/store them.
+///
+/// The sync engine (`zcash_client_backend::sync::run()`) only processes compact blocks, which
+/// contain truncated ciphertexts — enough for note detection but **not** 512-byte memos.
+/// After scanning, detected transactions are queued via `queue_tx_retrieval()`. This function
+/// polls that queue, fetches the full transaction from lightwalletd, and calls
+/// `decrypt_and_store_transaction()` which decrypts and stores the complete data including memos.
+async fn enhance_transactions(
+    client: &mut CompactTxStreamerClient<Channel>,
+    db: &Arc<Mutex<Option<WalletDatabase>>>,
+    network: &Network,
+) {
+    // 1. Read all data requests from the DB
+    let requests = {
+        let db_guard = db.lock().await;
+        let db = match db_guard.as_ref() {
+            Some(db) => db,
+            None => return,
+        };
+        match db.transaction_data_requests() {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("enhance: failed to get tx data requests: {e}");
+                return;
+            }
+        }
+    };
+
+    if requests.is_empty() {
+        return;
+    }
+
+    // 2. Separate Enhancement and GetStatus requests
+    let mut enhancement_txids = Vec::new();
+    let mut status_txids = Vec::new();
+    for r in requests {
+        match r {
+            TransactionDataRequest::Enhancement(txid) => enhancement_txids.push(txid),
+            TransactionDataRequest::GetStatus(txid) => status_txids.push(txid),
+            _ => {}
+        }
+    }
+
+    tracing::info!(
+        "enhance: {} enhancement + {} status requests queued",
+        enhancement_txids.len(),
+        status_txids.len()
+    );
+
+    // 3. Process Enhancement requests (fetch full tx, decrypt, store with memos)
+    for txid in enhancement_txids.into_iter().take(ENHANCE_BATCH_SIZE) {
+        let filter = TxFilter {
+            block: None,
+            index: 0,
+            hash: txid.as_ref().to_vec(),
+        };
+
+        tracing::info!("enhance: fetching full tx {txid} from lightwalletd");
+
+        let raw_tx = match client.get_transaction(filter).await {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => {
+                tracing::warn!("enhance: failed to fetch tx {txid}: {e}");
+                // Mark as not found so we don't retry forever
+                let mut db_guard = db.lock().await;
+                if let Some(db) = db_guard.as_mut() {
+                    let _ = db.set_transaction_status(txid, TransactionStatus::TxidNotRecognized);
+                }
+                continue;
+            }
+        };
+
+        tracing::info!(
+            "enhance: fetched tx {txid}, height={}, data_len={}",
+            raw_tx.height,
+            raw_tx.data.len()
+        );
+
+        // Determine mined height: 0 means mempool, u64::MAX means reorged fork
+        let mined_height = if raw_tx.height > 0 && raw_tx.height != u64::MAX {
+            Some(BlockHeight::from_u32(raw_tx.height as u32))
+        } else {
+            None
+        };
+
+        // Parse the raw transaction bytes
+        let branch_id = mined_height
+            .map(|h| BranchId::for_height(network, h))
+            .unwrap_or_else(|| BranchId::for_height(network, BlockHeight::from_u32(u32::MAX)));
+
+        let tx = match Transaction::read(&raw_tx.data[..], branch_id) {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::warn!("enhance: failed to parse tx {txid}: {e}");
+                continue;
+            }
+        };
+
+        // Decrypt and store — this writes memos to the DB
+        let mut db_guard = db.lock().await;
+        if let Some(db) = db_guard.as_mut() {
+            match decrypt_and_store_transaction(network, db, &tx, mined_height) {
+                Ok(()) => {
+                    tracing::info!("enhance: successfully enhanced tx {txid}");
+                }
+                Err(e) => {
+                    tracing::warn!("enhance: decrypt_and_store_transaction failed for {txid}: {e}");
+                }
+            }
+        }
+    }
+
+    // 4. Process GetStatus requests (update mined height / expiry status)
+    for txid in status_txids.into_iter().take(ENHANCE_BATCH_SIZE) {
+        let filter = TxFilter {
+            block: None,
+            index: 0,
+            hash: txid.as_ref().to_vec(),
+        };
+
+        match client.get_transaction(filter).await {
+            Ok(resp) => {
+                let raw_tx = resp.into_inner();
+                let status = if raw_tx.height > 0 && raw_tx.height != u64::MAX {
+                    TransactionStatus::Mined(BlockHeight::from_u32(raw_tx.height as u32))
+                } else if raw_tx.height == u64::MAX {
+                    // Mined on a fork, treat as not in main chain
+                    TransactionStatus::NotInMainChain
+                } else {
+                    // height == 0 means mempool, skip status update
+                    continue;
+                };
+                let mut db_guard = db.lock().await;
+                if let Some(db) = db_guard.as_mut() {
+                    let _ = db.set_transaction_status(txid, status);
+                }
+            }
+            Err(_) => {
+                let mut db_guard = db.lock().await;
+                if let Some(db) = db_guard.as_mut() {
+                    let _ = db.set_transaction_status(txid, TransactionStatus::TxidNotRecognized);
+                }
+            }
+        }
+    }
 }
 
 /// Wait until the syncing flag becomes false.
