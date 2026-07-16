@@ -110,3 +110,11 @@
 	path = z/QED-it/librustzcash
 	url = https://github.com/QED-it/librustzcash
 	branch = zsa1
+[submodule "z/zakura-core/zakura"]
+	path = z/zakura-core/zakura
+	url = https://github.com/zakura-core/zakura
+	branch = main
+[submodule "z/zcash/zallet"]
+	path = z/zcash/zallet
+	url = https://github.com/zcash/zallet
+	branch = main
