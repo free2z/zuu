@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use secrecy::ExposeSecret;
 use zcash_client_backend::data_api::wallet::{
     create_proposed_transactions,
-    input_selection::GreedyInputSelector,
+    input_selection::{GreedyInputSelector, SpendPolicy},
     propose_transfer,
     ConfirmationsPolicy, SpendingKeys,
 };
@@ -121,7 +121,7 @@ pub async fn propose_send(
         None,
         vec![],
     )
-    .ok_or(Error::SendError("failed to create payment".into()))?;
+    .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
 
     let request = zip321::TransactionRequest::new(vec![payment])
         .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
@@ -156,6 +156,8 @@ pub async fn propose_send(
         &change_strategy,
         request,
         policy,
+        &SpendPolicy::default(),
+        None,
     )
     .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")))?;
 
@@ -246,7 +248,7 @@ pub async fn propose_send_all(
             None,
             vec![],
         )
-        .ok_or(Error::SendError("failed to create payment".into()))?;
+        .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
 
         let request = zip321::TransactionRequest::new(vec![payment])
             .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
@@ -280,6 +282,8 @@ pub async fn propose_send_all(
             &change_strategy,
             request,
             policy,
+            &SpendPolicy::default(),
+            None,
         );
 
         drop(db_guard);

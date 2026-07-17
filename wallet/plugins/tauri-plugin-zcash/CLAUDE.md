@@ -35,8 +35,8 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
 - **`ConfirmationsPolicy`** — at `zcash_client_backend::data_api::wallet::ConfirmationsPolicy`, use `::default()`.
 - **`OvkPolicy`** — at `zcash_client_backend::wallet::OvkPolicy` (NOT `data_api::wallet`).
 - **`SingleOutputChangeStrategy::new`** — 4 args: `(FeeRule, Option<MemoBytes>, ShieldedProtocol, DustOutputPolicy)`.
-- **`Payment::new`** — returns `Option<Self>`, takes `Option<Zatoshis>` for amount. Six args: `(recipient, amount, memo, label, message, other_params)`.
-- **`propose_transfer`** — has phantom `CommitmentTreeErrT`. Use turbofish: `propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(...)`.
+- **`Payment::new`** — returns `Result<Self, zip321::PaymentError>` (changed from `Option`), takes `Option<Zatoshis>` for amount. Six args: `(recipient, amount, memo, label, message, other_params)`. Use `.map_err(...)?`, not `.ok_or(...)?`.
+- **`propose_transfer`** — takes **9** args and has phantom `CommitmentTreeErrT`. Use turbofish: `propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(...)`. The last two args are `spend_policy: &input_selection::SpendPolicy` (use `SpendPolicy::default()` to preserve fully-shielded behavior) and `proposed_version: Option<TxVersion>` (use `None` to let target height decide).
 - **`create_proposed_transactions`** — has phantom `InputsErrT` + `ChangeErrT`. Use `std::convert::Infallible` for both.
 - **`Memo::from_str`** — needs `use std::str::FromStr;` in scope.
 - **Default lightwalletd** — `https://zec.rocks:443` (mainnet.lightwalletd.com:9067 is deprecated).
