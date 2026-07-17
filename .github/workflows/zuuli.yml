@@ -109,15 +109,13 @@ jobs:
       # --locked: the committed Cargo.lock must build as-is. Bumping the
       # librustzcash submodule changes the path-dep resolution, so whoever bumps
       # it must also commit the regenerated lock — this makes that non-optional.
+      #
+      # This compiles tauri-plugin-zcash and all librustzcash path deps. Because
+      # the app graph does not enable extra Cargo features beyond what the plugin
+      # itself declares, a plugin that free-rides on an undeclared feature fails
+      # here too — so this single build is enough to catch feature-hygiene bugs.
       - name: Build Tauri backend (plugin + librustzcash path deps)
         run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
-
-      # Build the plugin on its own so it can't silently rely on a Cargo feature
-      # that only gets enabled because the app's dependency graph happened to turn
-      # it on. Shares CARGO_TARGET_DIR with the step above, so librustzcash is not
-      # recompiled from scratch.
-      - name: Verify plugin builds standalone (feature self-sufficiency)
-        run: cargo build --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.

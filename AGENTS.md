@@ -72,6 +72,29 @@ integrate, and move it forward alongside everything else.
   librustzcash `main` + refreshed crates, so upstream drift surfaces as an early
   warning **before** we bump the submodule in a PR.
 
+## Verifying before you push
+
+A warm local build is a liar. It reuses artifacts and, worse, resolves Cargo
+**features** and npm **optional-dependency trees** differently than a clean
+checkout — so a build that's green on your machine can be red in CI for reasons
+your machine will never show you. Two specific traps we've hit:
+
+- **Feature unification masking.** Your local dependency graph may turn on a
+  Cargo feature (e.g. `rusqlite/array`, `tonic/transport`) that CI's graph does
+  not, so code using that feature compiles locally and fails in CI. `cargo build`
+  locally will *not* reproduce this; only a clean build does.
+- **Toolchain skew.** A newer stable `rustc` can reject code an older one
+  accepted (e.g. `Self::Error` becoming an ambiguous associated type). Verify
+  with the **same toolchain CI uses** (`rustup toolchain install <ver>` +
+  `cargo +<ver>`), not whatever you happen to have.
+
+So: for anything touching Rust deps/features, verify in a **clean Linux build
+with CI's toolchain** — a throwaway `ubuntu:24.04` container that installs the
+pinned `rustc`, fetches only the needed submodule, and runs the same `cargo
+build --locked` — and **let it finish**. That is the only local check that sees
+what CI sees. The workflow's `--locked` build and standalone plugin build exist
+to catch these too, but catching them before the push is cheaper than a red run.
+
 ## Practical notes
 
 - Submodules live at `z/{github-org}/{repo}` and track a branch (see

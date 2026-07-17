@@ -20,9 +20,11 @@ bip0039 = "0.12"
 secrecy = "0.8"
 rand = "0.8"
 tracing = "0.1"
-# `vtab` for rusqlite::vtab::array (see wallet/storage.rs) — declared explicitly for
-# the same reason as tonic above.
-rusqlite = { version = "0.37", features = ["bundled", "vtab"] }
+# `array` for rusqlite::vtab::array (see wallet/storage.rs) — the `array` feature
+# is what actually gates that module (it implies `vtab` + `modern_sqlite`).
+# Declared explicitly for the same reason as tonic above: don't rely on another
+# crate's feature unification to turn it on, or clean builds break.
+rusqlite = { version = "0.37", features = ["bundled", "array"] }
 zip32 = { version = "0.2", default-features = false }
 nonempty = "0.11"
 async-trait = "0.1"
