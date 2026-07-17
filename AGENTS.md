@@ -87,6 +87,17 @@ your machine will never show you. Two specific traps we've hit:
   accepted (e.g. `Self::Error` becoming an ambiguous associated type). Verify
   with the **same toolchain CI uses** (`rustup toolchain install <ver>` +
   `cargo +<ver>`), not whatever you happen to have.
+- **Platform-gated dependencies.** A dependency under
+  `[target.'cfg(target_os = "…")'.dependencies]` only exists for that OS. In
+  TOML, every `key = …` after a `[table]` header belongs to that table until the
+  next header — so deps written below a `cfg(macos)` block are silently
+  macOS-only even if you meant them to be universal. ZUULI's entire zcash stack
+  was accidentally macOS-gated this way; it built on every developer's Mac and
+  failed on Linux CI with `unresolved import zcash_protocol`. Cross-platform
+  deps go in `[dependencies]`. Check placement with
+  `cargo tree --target x86_64-unknown-linux-gnu -i <crate>` — if it prints
+  "nothing to print" for a dep you use everywhere, it's gated to the wrong
+  target.
 
 So: for anything touching Rust deps/features, verify in a **clean Linux build
 with CI's toolchain** — a throwaway `ubuntu:24.04` container that installs the

@@ -34,9 +34,11 @@ uuid = { version = "1", features = ["v4"] }
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework = { version = "3", features = ["OSX_10_15"] }
-
+# Zcash crates — path deps into the z/zcash/librustzcash submodule. These MUST
+# live in [dependencies] (cross-platform). They were previously under the macOS
+# target table below, which made them macOS-only: on Linux/Windows the whole
+# zcash stack vanished from the graph and every build failed with
+# `unresolved import zcash_protocol`. macOS-only builds never noticed.
 zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "sync", "orchard", "transparent-inputs"] }
 zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["orchard", "transparent-inputs"] }
 zcash_primitives = { path = "../../../z/zcash/librustzcash/zcash_primitives" }
@@ -46,6 +48,9 @@ zcash_protocol = { path = "../../../z/zcash/librustzcash/components/zcash_protoc
 zcash_address = { path = "../../../z/zcash/librustzcash/components/zcash_address" }
 zip321 = { path = "../../../z/zcash/librustzcash/components/zip321" }
 pczt = { path = "../../../z/zcash/librustzcash/pczt" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", features = ["OSX_10_15"] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
