@@ -12,12 +12,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-tonic = { version = "0.14", default-features = false }
+# We use `tonic::transport::Channel` directly (see wallet/client.rs) to connect to
+# lightwalletd over TLS, so declare those features here rather than relying on them
+# leaking in via zcash_client_backend's feature unification (which breaks clean builds).
+tonic = { version = "0.14", default-features = false, features = ["transport", "tls-webpki-roots"] }
 bip0039 = "0.12"
 secrecy = "0.8"
 rand = "0.8"
 tracing = "0.1"
-rusqlite = { version = "0.37", features = ["bundled"] }
+# `vtab` for rusqlite::vtab::array (see wallet/storage.rs) — declared explicitly for
+# the same reason as tonic above.
+rusqlite = { version = "0.37", features = ["bundled", "vtab"] }
 zip32 = { version = "0.2", default-features = false }
 nonempty = "0.11"
 async-trait = "0.1"

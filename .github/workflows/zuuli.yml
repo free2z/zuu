@@ -74,6 +74,10 @@ jobs:
   rust:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    env:
+      # Shared target dir so the app build and the standalone plugin build reuse
+      # the same compiled librustzcash artifacts instead of building it twice.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@v4
 
@@ -97,26 +101,23 @@ jobs:
             build-essential curl wget file pkg-config
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            wallet/zuuli/src-tauri
-            wallet/plugins/tauri-plugin-zcash
+          workspaces: wallet/zuuli/src-tauri -> ${{ github.workspace }}/target
 
+      # --locked: the committed Cargo.lock must build as-is. Bumping the
+      # librustzcash submodule changes the path-dep resolution, so whoever bumps
+      # it must also commit the regenerated lock — this makes that non-optional.
       - name: Build Tauri backend (plugin + librustzcash path deps)
-        run: cargo build --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+        run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
 
-      - name: Test tauri-plugin-zcash
-        run: cargo test --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
-
-      # Informational — surfaces new lints/deprecations from dep bumps without
-      # failing the build on pre-existing warnings.
-      - name: Clippy (non-blocking)
-        continue-on-error: true
-        run: cargo clippy --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+      # Build the plugin on its own so it can't silently rely on a Cargo feature
+      # that only gets enabled because the app's dependency graph happened to turn
+      # it on. Shares CARGO_TARGET_DIR with the step above, so librustzcash is not
+      # recompiled from scratch.
+      - name: Verify plugin builds standalone (feature self-sufficiency)
+        run: cargo build --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.
