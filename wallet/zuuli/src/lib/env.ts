@@ -12,9 +12,11 @@ function readEnv(key: string, fallback: string): string {
 }
 
 // In dev / `tauri dev` (import.meta.env.DEV), talk to the API via a same-origin
-// relative base so the Vite proxy handles it (no CORS). In a production build
-// use the absolute host (reached through tauri-plugin-http, which isn't subject
-// to browser CORS). Override either with VITE_F2Z_API / VITE_F2Z_MEDIA.
+// relative base so the Vite proxy handles it (no CORS). The proxy target
+// defaults to staging (stage.free2z.cash) during development — see
+// vite.config.ts / VITE_F2Z_PROXY. In a production build use the absolute host
+// below (reached through tauri-plugin-http, which isn't subject to browser
+// CORS). Override either with VITE_F2Z_API / VITE_F2Z_MEDIA.
 const IS_DEV = Boolean(
   (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
 );
