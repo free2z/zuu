@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Radio } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -19,8 +19,13 @@ const FILTERS: { value: Filter; label: string }[] = [
 ];
 
 export function Discovery() {
-  const { data, loading } = useAsync(() => live.listPublic(), []);
+  const { data, loading, reload } = useAsync(() => live.listPublic(), []);
   const [filter, setFilter] = useState<Filter>("all");
+
+  useEffect(() => {
+    const interval = window.setInterval(reload, 15_000);
+    return () => window.clearInterval(interval);
+  }, [reload]);
 
   const streams = useMemo(() => {
     const all = data ?? [];

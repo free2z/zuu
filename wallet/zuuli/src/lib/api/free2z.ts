@@ -370,22 +370,51 @@ export const live = {
     const page = await request<Paginated<RawDyteMeeting>>("/api/dyte/public/", {
       query: { page_size: 48 },
       anonymous: true,
+      cache: "no-store",
     });
-    return (page.results ?? []).map(mapLivestream);
+    const meetings = page.results ?? [];
+    const streams = meetings.map(mapLivestream);
+
+    // `live_now` is maintained by provider webhooks and can remain true when
+    // an end event is delayed or lost. Reconcile every listing with the live
+    // provider session so stale meetings never appear as currently live.
+    const statuses = await Promise.all(
+      streams.map((stream) => live.status(stream.username, stream.kind)),
+    );
+    return streams
+      .map((stream, index) => ({
+        ...stream,
+        live: statuses[index].live,
+        participants: statuses[index].participants,
+      }))
+      .filter((stream) => stream.live);
   },
 
-  async status(username: string): Promise<{ live: boolean; participants: number }> {
+  async status(
+    username: string,
+    kind?: StreamKind,
+  ): Promise<{ live: boolean; participants: number }> {
     if (useMock()) {
       await delay(120);
       const s = mockLivestreams.find((l) => l.username === username);
       return { live: s?.live ?? false, participants: s?.participants ?? 0 };
     }
     try {
-      const s = await request<Record<string, { participants?: number }>>(
+      const s = await request<
+        Record<string, { meeting_type?: string; participants?: number }>
+      >(
         `/api/dyte/${username}/live-status`,
-        { anonymous: true },
+        { anonymous: true, cache: "no-store" },
       );
-      const entries = Object.values(s || {});
+      const expectedType = kind ? TYPE_FROM_KIND[kind] : undefined;
+      const entries = Object.entries(s || {})
+        .filter(
+          ([key, entry]) =>
+            !expectedType ||
+            key === expectedType ||
+            entry.meeting_type === expectedType,
+        )
+        .map(([, entry]) => entry);
       const participants = entries.reduce((n, e) => n + (e.participants ?? 0), 0);
       return { live: entries.length > 0, participants };
     } catch {
