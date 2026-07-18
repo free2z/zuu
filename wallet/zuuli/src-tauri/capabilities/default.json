@@ -8,7 +8,10 @@
     "zcash:default",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "https://free2z.cash/*" }]
+      "allow": [
+        { "url": "https://free2z.cash/*" },
+        { "url": "https://stage.free2z.cash/*" }
+      ]
     }
   ]
 }
