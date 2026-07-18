@@ -1,0 +1,5161 @@
+openapi: 3.0.3
+info:
+  title: f2z
+  version: 0.1.0
+  description: Free2z is a tool for content and peer-2-peer giving that does not compromise
+    on privacy
+paths:
+  /api/ai/conversations/:
+    get:
+      operationId: ai_conversations_list
+      description: This is to get your own conversations and fork others.
+      parameters:
+      - in: query
+        name: ai_model__model
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: user__username
+        schema:
+          type: string
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedConversationList'
+          description: ''
+    post:
+      operationId: ai_conversations_create
+      description: This is to get your own conversations and fork others.
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+  /api/ai/conversations/{conversation_id}/promptresponses/:
+    get:
+      operationId: ai_conversations_promptresponses_list
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPromptResponseList'
+          description: ''
+    post:
+      operationId: ai_conversations_promptresponses_create
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptResponse'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PromptResponse'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PromptResponse'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+          description: ''
+  /api/ai/conversations/{conversation_id}/promptresponses/{id}/:
+    get:
+      operationId: ai_conversations_promptresponses_retrieve
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this prompt response.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+          description: ''
+    put:
+      operationId: ai_conversations_promptresponses_update
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this prompt response.
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptResponse'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PromptResponse'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PromptResponse'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+          description: ''
+    patch:
+      operationId: ai_conversations_promptresponses_partial_update
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this prompt response.
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPromptResponse'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPromptResponse'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPromptResponse'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+          description: ''
+    delete:
+      operationId: ai_conversations_promptresponses_destroy
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this prompt response.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/ai/conversations/{id}/:
+    get:
+      operationId: ai_conversations_retrieve
+      description: This is to get your own conversations and fork others.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this conversation.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: ''
+    put:
+      operationId: ai_conversations_update
+      description: This is to get your own conversations and fork others.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this conversation.
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+    patch:
+      operationId: ai_conversations_partial_update
+      description: This is to get your own conversations and fork others.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this conversation.
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedConversation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedConversation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedConversation'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+    delete:
+      operationId: ai_conversations_destroy
+      description: This is to get your own conversations and fork others.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this conversation.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/ai/conversations/fork/:
+    post:
+      operationId: ai_conversations_fork_create
+      description: This is to get your own conversations and fork others.
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+  /api/ai/conversations/public/:
+    get:
+      operationId: ai_conversations_public_retrieve
+      description: This is to get your own conversations and fork others.
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+          description: ''
+  /api/ai/models/:
+    get:
+      operationId: ai_models_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAIModelList'
+          description: ''
+  /api/ai/models/{id}/:
+    get:
+      operationId: ai_models_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this ai model.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIModel'
+          description: ''
+  /api/ai/personalities/:
+    get:
+      operationId: ai_personalities_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAIPersonalityList'
+          description: ''
+    post:
+      operationId: ai_personalities_create
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIPersonality'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIPersonality'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIPersonality'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIPersonality'
+          description: ''
+  /api/ai/personalities/{id}/:
+    get:
+      operationId: ai_personalities_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this personality.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIPersonality'
+          description: ''
+    put:
+      operationId: ai_personalities_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this personality.
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIPersonality'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIPersonality'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIPersonality'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIPersonality'
+          description: ''
+    patch:
+      operationId: ai_personalities_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this personality.
+        required: true
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAIPersonality'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAIPersonality'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAIPersonality'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIPersonality'
+          description: ''
+    delete:
+      operationId: ai_personalities_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this personality.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/ai/public-conversations/:
+    get:
+      operationId: ai_public_conversations_list
+      description: |-
+        This viewset provides read-only access to public conversations.
+        The ConversationDetailSerializer returns all of the promptresponses
+      parameters:
+      - in: query
+        name: ai_model__model
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: user__username
+        schema:
+          type: string
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedConversationList'
+          description: ''
+  /api/ai/public-conversations/{conversation_id}/promptresponses/:
+    get:
+      operationId: ai_public_conversations_promptresponses_list
+      description: This viewset provides read-only access to prompt responses for
+        public conversations
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPromptResponseList'
+          description: ''
+  /api/ai/public-conversations/{conversation_id}/promptresponses/{id}/:
+    get:
+      operationId: ai_public_conversations_promptresponses_retrieve
+      description: This viewset provides read-only access to prompt responses for
+        public conversations
+      parameters:
+      - in: path
+        name: conversation_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this prompt response.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptResponse'
+          description: ''
+  /api/ai/public-conversations/{id}/:
+    get:
+      operationId: ai_public_conversations_retrieve
+      description: |-
+        This viewset provides read-only access to public conversations.
+        The ConversationDetailSerializer returns all of the promptresponses
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this conversation.
+        required: true
+      tags:
+      - ai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: |-
+        Check the credentials and return the REST Token
+        if the credentials are valid and authenticated.
+        Calls Django Auth login method to register User ID
+        in Django session framework
+
+        Accept the following POST parameters: username, password
+        Return the REST Framework Token Object's key.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorLogin'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreatorLogin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreatorLogin'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: |-
+        Calls Django logout method and delete the Token object
+        assigned to the current User object.
+
+        Accepts/Returns nothing.
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/auth/password/change/:
+    post:
+      operationId: auth_password_change_create
+      description: |-
+        Calls Django Auth SetPasswordForm save method.
+
+        Accepts the following POST parameters: new_password1, new_password2
+        Returns the success/fail message.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/auth/password/reset/:
+    post:
+      operationId: auth_password_reset_create
+      description: |-
+        Calls Django Auth PasswordResetForm save method.
+
+        Accepts the following POST parameters: email
+        Returns the success/fail message.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordReset'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordReset'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordReset'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/auth/password/reset/confirm/:
+    post:
+      operationId: auth_password_reset_confirm_create
+      description: |-
+        Password reset e-mail link is confirmed, therefore
+        this resets the user's password.
+
+        Accepts the following POST parameters: token, uid,
+            new_password1, new_password2
+        Returns the success/fail message.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/auth/user/:
+    get:
+      operationId: auth_user_retrieve
+      description: This is only for the owner
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: auth_user_update
+      description: This is only for the owner
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDetails'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserDetails'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserDetails'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetails'
+          description: ''
+    patch:
+      operationId: auth_user_partial_update
+      description: This is only for the owner
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/comments/:
+    get:
+      operationId: comments_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: subscribed_to
+        schema:
+          type: boolean
+      - in: query
+        name: tags
+        schema:
+          type: string
+      tags:
+      - comments
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommentListList'
+          description: ''
+    post:
+      operationId: comments_create
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentList'
+          description: ''
+  /api/comments/{type}/{uuid}/:
+    get:
+      operationId: comments_list_2
+      description: Comments under a content object identified by UUID and type
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: path
+        name: type
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommentListList'
+          description: ''
+    post:
+      operationId: comments_create_2
+      description: Comments under a content object identified by UUID and type
+      parameters:
+      - in: path
+        name: type
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentList'
+          description: ''
+  /api/comments/{uuid}/:
+    get:
+      operationId: comments_retrieve
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentList'
+          description: ''
+    put:
+      operationId: comments_update
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentList'
+          description: ''
+    patch:
+      operationId: comments_partial_update
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentList'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentList'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentList'
+          description: ''
+    delete:
+      operationId: comments_destroy
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/comments/{uuid}/replies/:
+    get:
+      operationId: comments_replies_list
+      description: |-
+        These are the child comments for a parent comment identified by UUID.
+
+        NEW - not tied to zpage
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommentListList'
+          description: ''
+    post:
+      operationId: comments_replies_create
+      description: |-
+        These are the child comments for a parent comment identified by UUID.
+
+        NEW - not tied to zpage
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentList'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentList'
+          description: ''
+  /api/comments/{uuid}/vote/:
+    post:
+      operationId: comments_vote_create
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/creator/:
+    get:
+      operationId: creator_list
+      description: List Creators on Free2z
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - creator
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCreatorListList'
+          description: ''
+  /api/creator/{username__iexact}/:
+    get:
+      operationId: creator_retrieve
+      description: List Creators on Free2z
+      parameters:
+      - in: path
+        name: username__iexact
+        schema:
+          type: string
+        required: true
+      tags:
+      - creator
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatorDetail'
+          description: ''
+  /api/dyte/{username}/{type}:
+    get:
+      operationId: dyte_retrieve
+      description: Returns number of participants in a meeting or 4XX if not live
+      parameters:
+      - in: path
+        name: type
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: dyte_create
+      description: Create/join _public_ meetings
+      parameters:
+      - in: path
+        name: type
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/dyte/{username}/live-status:
+    get:
+      operationId: dyte_live_status_retrieve
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/dyte/{username}/private:
+    get:
+      operationId: dyte_private_retrieve
+      description: |-
+        GET will return the UUID for the currently logged in user's private meeting
+        POST will create a new private meeting for the currently logged in user,
+        if one does not already exist. Otherwise it will recycle the secret UUID
+        and return a new one
+
+        Only for the creator to manage their own private meeting
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: dyte_private_create
+      description: |-
+        GET will return the UUID for the currently logged in user's private meeting
+        POST will create a new private meeting for the currently logged in user,
+        if one does not already exist. Otherwise it will recycle the secret UUID
+        and return a new one
+
+        Only for the creator to manage their own private meeting
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/dyte/{username}/private/{secret}:
+    post:
+      operationId: dyte_private_create_2
+      description: |-
+        Post will join the private meeting:
+
+        For the creator, it will join the meeting as the host
+        For the participant, it will join the meeting as a participant
+      parameters:
+      - in: path
+        name: secret
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/dyte/public/:
+    get:
+      operationId: dyte_public_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCreatorMeetingList'
+          description: ''
+  /api/dyte/public/{meeting_id}/:
+    get:
+      operationId: dyte_public_retrieve
+      parameters:
+      - in: path
+        name: meeting_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatorMeeting'
+          description: ''
+  /api/dyte/webhook:
+    post:
+      operationId: dyte_webhook_create
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/dyte/webhook-recording-status-update/:
+    post:
+      operationId: dyte_webhook_recording_status_update_create
+      description: DEPRECATED
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/add:
+    post:
+      operationId: emails_add_create
+      tags:
+      - emails
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Email'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Email'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Email'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Email'
+          description: ''
+  /api/emails/change-password:
+    post:
+      operationId: emails_change_password_create
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/emails/confirm:
+    get:
+      operationId: emails_confirm_retrieve
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/delete:
+    delete:
+      operationId: emails_delete_destroy
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/emails/do-reset-password:
+    post:
+      operationId: emails_do_reset_password_create
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/notifications:
+    post:
+      operationId: emails_notifications_create
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/opt-out/{email}:
+    get:
+      operationId: emails_opt_out_retrieve
+      parameters:
+      - in: path
+        name: email
+        schema:
+          type: string
+        required: true
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/password-is-set:
+    get:
+      operationId: emails_password_is_set_retrieve
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/emails/public:
+    post:
+      operationId: emails_public_create
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/resend:
+    post:
+      operationId: emails_resend_create
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/reset-password:
+    post:
+      operationId: emails_reset_password_create
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/emails/status:
+    get:
+      operationId: emails_status_retrieve
+      tags:
+      - emails
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/events/:
+    get:
+      operationId: events_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventList'
+          description: ''
+  /api/events/read/{event_id}/:
+    post:
+      operationId: events_read_create
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/events/read/all/:
+    post:
+      operationId: events_read_all_create
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/g12f/series/mine/:
+    get:
+      operationId: g12f_series_mine_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - g12f
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSeriesEditList'
+          description: ''
+    post:
+      operationId: g12f_series_mine_create
+      tags:
+      - g12f
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeriesEdit'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SeriesEdit'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SeriesEdit'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesEdit'
+          description: ''
+  /api/g12f/series/mine/{id}/:
+    get:
+      operationId: g12f_series_mine_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this series.
+        required: true
+      tags:
+      - g12f
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesEdit'
+          description: ''
+    put:
+      operationId: g12f_series_mine_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this series.
+        required: true
+      tags:
+      - g12f
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeriesEdit'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SeriesEdit'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SeriesEdit'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesEdit'
+          description: ''
+    patch:
+      operationId: g12f_series_mine_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this series.
+        required: true
+      tags:
+      - g12f
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSeriesEdit'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSeriesEdit'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSeriesEdit'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesEdit'
+          description: ''
+    delete:
+      operationId: g12f_series_mine_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this series.
+        required: true
+      tags:
+      - g12f
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/g12f/zpage/{free2zaddr}/series/:
+    get:
+      operationId: g12f_zpage_series_retrieve
+      description: Retrieve series by zpage
+      parameters:
+      - in: path
+        name: free2zaddr
+        schema:
+          type: string
+        required: true
+      tags:
+      - g12f
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/get-type/{id}:
+    get:
+      operationId: get_type_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - get-type
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/kyc/change-status:
+    post:
+      operationId: kyc_change_status_create
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/kyc/delete-tax-form:
+    delete:
+      operationId: kyc_delete_tax_form_destroy
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/kyc/get-tax-form-file:
+    get:
+      operationId: kyc_get_tax_form_file_retrieve
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/kyc/identity-documents:
+    get:
+      operationId: kyc_identity_documents_retrieve
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: kyc_identity_documents_create
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: kyc_identity_documents_destroy
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/kyc/tax-form-signature:
+    get:
+      operationId: kyc_tax_form_signature_retrieve
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: kyc_tax_form_signature_create
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/kyc/upload-tax-form:
+    post:
+      operationId: kyc_upload_tax_form_create
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/kyc/user-profile:
+    get:
+      operationId: kyc_user_profile_retrieve
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: kyc_user_profile_create
+      tags:
+      - kyc
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/myuploads/:
+    get:
+      operationId: myuploads_list
+      parameters:
+      - in: query
+        name: access
+        schema:
+          type: string
+      - in: query
+        name: mime_type
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - myuploads
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFeaturedImageList'
+          description: ''
+    post:
+      operationId: myuploads_create
+      tags:
+      - myuploads
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeaturedImage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeaturedImage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeaturedImage'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeaturedImage'
+          description: ''
+  /api/myuploads/{id}/:
+    get:
+      operationId: myuploads_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this generic file.
+        required: true
+      tags:
+      - myuploads
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeaturedImage'
+          description: ''
+    put:
+      operationId: myuploads_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this generic file.
+        required: true
+      tags:
+      - myuploads
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeaturedImage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeaturedImage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeaturedImage'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeaturedImage'
+          description: ''
+    patch:
+      operationId: myuploads_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this generic file.
+        required: true
+      tags:
+      - myuploads
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFeaturedImage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFeaturedImage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFeaturedImage'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeaturedImage'
+          description: ''
+    delete:
+      operationId: myuploads_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this generic file.
+        required: true
+      tags:
+      - myuploads
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/openai/image:
+    post:
+      operationId: openai_image_create
+      tags:
+      - openai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/openai/prompt:
+    post:
+      operationId: openai_prompt_create
+      tags:
+      - openai
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/otp/disable/:
+    delete:
+      operationId: otp_disable_destroy
+      tags:
+      - otp
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: No response body
+  /api/otp/enable/:
+    post:
+      operationId: otp_enable_create
+      tags:
+      - otp
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/otp/login/:
+    post:
+      operationId: otp_login_create
+      tags:
+      - otp
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/otp/setup/:
+    post:
+      operationId: otp_setup_create
+      tags:
+      - otp
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/otp/status/:
+    get:
+      operationId: otp_status_retrieve
+      tags:
+      - otp
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/start/:
+    post:
+      operationId: start_create
+      description: /api/start - create new user with POST
+      tags:
+      - start
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Registration'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Registration'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Registration'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Registration'
+          description: ''
+  /api/storytime/{creator}/{slug}:
+    get:
+      operationId: storytime_retrieve
+      parameters:
+      - in: path
+        name: creator
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - storytime
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/storytime/{slug}/image:
+    post:
+      operationId: storytime_image_create
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - storytime
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/storytime/{slug}/text:
+    post:
+      operationId: storytime_text_create
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - storytime
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/storytime/mystories/:
+    get:
+      operationId: storytime_mystories_list
+      description: Use this for own stories
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - storytime
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStoryFullList'
+          description: ''
+  /api/storytime/mystories/{slug}:
+    get:
+      operationId: storytime_mystories_retrieve
+      description: Use this for own stories
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - storytime
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryFull'
+          description: ''
+    patch:
+      operationId: storytime_mystories_partial_update
+      description: Use this for own stories
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - storytime
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStoryFull'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedStoryFull'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedStoryFull'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryFull'
+          description: ''
+  /api/storytime/start:
+    post:
+      operationId: storytime_start_create
+      tags:
+      - storytime
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/stripe/create-checkout-session/:
+    post:
+      operationId: stripe_create_checkout_session_create
+      tags:
+      - stripe
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/stripe/transactions/:
+    get:
+      operationId: stripe_transactions_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - stripe
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTransactionList'
+          description: ''
+  /api/stripe/transactions/{id}/:
+    get:
+      operationId: stripe_transactions_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this stripe transaction.
+        required: true
+      tags:
+      - stripe
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+          description: ''
+  /api/tagging/autocomplete:
+    get:
+      operationId: tagging_autocomplete_retrieve
+      tags:
+      - tagging
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/token/login/:
+    post:
+      operationId: token_login_create
+      tags:
+      - token
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/token/logout/:
+    post:
+      operationId: token_logout_create
+      tags:
+      - token
+      security:
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/token/logoutall/:
+    post:
+      operationId: token_logoutall_create
+      description: |-
+        Log the user out of all sessions
+        I.E. deletes all auth tokens for the user
+      tags:
+      - token
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/tuzis/donate/{username}:
+    post:
+      operationId: tuzis_donate_create
+      description: Donate 2Z to the creator in the url
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/tuzis/my-subscribers:
+    get:
+      operationId: tuzis_my_subscribers_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSubscriptionList'
+          description: ''
+  /api/tuzis/my-subscriptions:
+    get:
+      operationId: tuzis_my_subscriptions_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSubscriptionList'
+          description: ''
+  /api/tuzis/subscribe/{username}:
+    get:
+      operationId: tuzis_subscribe_retrieve
+      description: |-
+        Subscribe the request.user as a fan to the star in the urls.
+
+        Add another 30 days if repeated ... hrm ...
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: tuzis_subscribe_create
+      description: |-
+        Subscribe the request.user as a fan to the star in the urls.
+
+        Add another 30 days if repeated ... hrm ...
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: tuzis_subscribe_partial_update
+      description: |-
+        Subscribe the request.user as a fan to the star in the urls.
+
+        Add another 30 days if repeated ... hrm ...
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: tuzis_subscribe_destroy
+      description: Set max_price to 0 so it won't renew.
+      parameters:
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - tuzis
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/twitter/delete:
+    delete:
+      operationId: twitter_delete_destroy
+      tags:
+      - twitter
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/twitter/public-status/:
+    get:
+      operationId: twitter_public_status_retrieve
+      tags:
+      - twitter
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: twitter_public_status_update
+      tags:
+      - twitter
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: twitter_public_status_partial_update
+      tags:
+      - twitter
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/twitter/v1/access-token:
+    get:
+      operationId: twitter_v1_access_token_retrieve
+      tags:
+      - twitter
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/twitter/v1/request-token:
+    post:
+      operationId: twitter_v1_request_token_create
+      tags:
+      - twitter
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/zpage/:
+    get:
+      operationId: zpage_list
+      description: |-
+        API endpoint that allows zpages to be viewed or edited.
+        This is the workhorse.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - zpage
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedzPageListList'
+          description: ''
+    post:
+      operationId: zpage_create
+      description: |-
+        API endpoint that allows zpages to be viewed or edited.
+        This is the workhorse.
+      tags:
+      - zpage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/zPageUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/zPageUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/zPageUpdate'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/zPageUpdate'
+          description: ''
+  /api/zpage/{free2zaddr}/vote/:
+    post:
+      operationId: zpage_vote_create
+      parameters:
+      - in: path
+        name: free2zaddr
+        schema:
+          type: string
+        required: true
+      tags:
+      - zpage
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
+  /api/zpage/{id}/:
+    get:
+      operationId: zpage_retrieve
+      description: |-
+        API endpoint that allows zpages to be viewed or edited.
+        This is the workhorse.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this zPage.
+        required: true
+      tags:
+      - zpage
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/zPageDetail'
+          description: ''
+    put:
+      operationId: zpage_update
+      description: |-
+        API endpoint that allows zpages to be viewed or edited.
+        This is the workhorse.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - zpage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/zPageUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/zPageUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/zPageUpdate'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/zPageUpdate'
+          description: ''
+    patch:
+      operationId: zpage_partial_update
+      description: |-
+        API endpoint that allows zpages to be viewed or edited.
+        This is the workhorse.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - zpage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedzPageUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedzPageUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedzPageUpdate'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/zPageUpdate'
+          description: ''
+    delete:
+      operationId: zpage_destroy
+      description: |-
+        API endpoint that allows zpages to be viewed or edited.
+        This is the workhorse.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - zpage
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/zpage/fund/:
+    post:
+      operationId: zpage_fund_create
+      tags:
+      - zpage
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    AIModel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        model:
+          type: string
+          description: OpenAI model name
+          maxLength: 200
+        display_name:
+          type: string
+          maxLength: 200
+        system_message:
+          type: string
+          description: Default system message
+        max_tokens:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        is_ga:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        input_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,1}(?:\.\d{0,9})?$
+          description: The cost per token for input. E.g., $0.0015 / 1K tokens means
+            $0.0000015 per token.
+        output_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,1}(?:\.\d{0,9})?$
+          description: The cost per token for output. E.g., $0.002 / 1K tokens means
+            $0.000002 per token.
+        markup:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: 'The multiplier that we charge above our cost. Default: at
+            cost'
+      required:
+      - created_at
+      - display_name
+      - id
+      - max_tokens
+      - model
+      - system_message
+      - updated_at
+    AIPersonality:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        creator:
+          type: string
+          readOnly: true
+        display_name:
+          type: string
+          maxLength: 200
+        system_message:
+          type: string
+        is_public:
+          type: boolean
+      required:
+      - creator
+      - display_name
+      - id
+      - system_message
+    AccessEnum:
+      enum:
+      - private
+      - members
+      - public
+      type: string
+      description: |-
+        * `private` - private
+        * `members` - members
+        * `public` - public
+    BlankEnum:
+      enum:
+      - ''
+    CategoryEnum:
+      enum:
+      - ART
+      - COMEDY
+      - COMMUNITY
+      - CHARITY
+      - CRYPTO
+      - EDUCATION
+      - FICTION
+      - FOR TRADE
+      - FREE2Z
+      - FUNDRAISING
+      - GAMING
+      - HEALTH
+      - LIFESTYLE
+      - MATH
+      - MUSIC
+      - PODCAST
+      - POLITICS
+      - RELIEF
+      - SCIENCE
+      - SERVICE
+      - SPORTS
+      - TECHNOLOGY
+      - ZCASH
+      type: string
+      description: |-
+        * `` - None
+        * `ART` - Art
+        * `COMEDY` - Comedy
+        * `COMMUNITY` - Community
+        * `CHARITY` - Charity
+        * `CRYPTO` - Crypto
+        * `EDUCATION` - Education
+        * `FICTION` - Fiction
+        * `FOR TRADE` - For Trade
+        * `FREE2Z` - Free2z
+        * `FUNDRAISING` - Fundraising
+        * `GAMING` - Gaming
+        * `HEALTH` - Health
+        * `LIFESTYLE` - Lifestyle
+        * `MATH` - Math
+        * `MUSIC` - Music
+        * `PODCAST` - Podcast
+        * `POLITICS` - Politics
+        * `RELIEF` - Relief
+        * `SCIENCE` - Science
+        * `SERVICE` - Service
+        * `SPORTS` - Sports
+        * `TECHNOLOGY` - Technology
+        * `ZCASH` - Zcash
+    CommentAuthor:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        avatar_image:
+          $ref: '#/components/schemas/FeaturedImage'
+      required:
+      - avatar_image
+      - username
+    CommentList:
+      type: object
+      description: The one we use for zPages and converse
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        author:
+          allOf:
+          - $ref: '#/components/schemas/CommentAuthor'
+          readOnly: true
+        parent:
+          type: string
+          format: uuid
+          nullable: true
+        headline:
+          type: string
+          maxLength: 100
+        content:
+          type: string
+          maxLength: 1000
+        tuzis:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        tags:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        num_children:
+          type: string
+          readOnly: true
+        content_url:
+          type: string
+          readOnly: true
+      required:
+      - author
+      - content
+      - content_url
+      - created_at
+      - headline
+      - num_children
+      - tags
+      - updated_at
+      - uuid
+    Conversation:
+      type: object
+      description: |-
+        this is for private listing
+        it is also used for create and update
+        probably other stuff.
+        TODO: fully document all serializers and views and maybe combine
+      properties:
+        display_name:
+          type: string
+          maxLength: 200
+        is_public:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        ai_model:
+          type: string
+          format: uuid
+        personality:
+          type: string
+          format: uuid
+          nullable: true
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/CreatorList'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        model_name:
+          type: string
+          readOnly: true
+        tags:
+          type: string
+          readOnly: true
+      required:
+      - ai_model
+      - created_at
+      - display_name
+      - id
+      - model_name
+      - tags
+      - updated_at
+      - user
+    ConversationDetail:
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 200
+        is_public:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        ai_model:
+          type: string
+          format: uuid
+        personality:
+          type: string
+          format: uuid
+          nullable: true
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        prompt_response_set:
+          type: array
+          items:
+            $ref: '#/components/schemas/PromptResponse'
+          readOnly: true
+        tags:
+          type: string
+          readOnly: true
+      required:
+      - ai_model
+      - created_at
+      - display_name
+      - id
+      - prompt_response_set
+      - tags
+      - updated_at
+      - user
+    CreatorDetail:
+      type: object
+      description: Creator detail serializer
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,2}(?:\.\d{0,8})?$
+        is_verified:
+          type: boolean
+          description: Once a Creator is verified, all of their pages are
+        zpages:
+          type: integer
+          readOnly: true
+        avatar_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        banner_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        full_name:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 1024
+        p2paddr:
+          type: string
+          maxLength: 255
+        can_stream:
+          type: boolean
+          description: Returns True if the creator can start a livestream of the given
+            type.
+          readOnly: true
+        member_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,0})?$
+          nullable: true
+          description: Price for 30 days of membership, livestream access, etc
+      required:
+      - avatar_image
+      - banner_image
+      - can_stream
+      - username
+      - zpages
+    CreatorList:
+      type: object
+      description: Listing page serializer for Creators
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,2}(?:\.\d{0,8})?$
+        is_verified:
+          type: boolean
+          description: Once a Creator is verified, all of their pages are
+        zpages:
+          type: integer
+          readOnly: true
+        avatar_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        banner_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        full_name:
+          type: string
+          maxLength: 128
+        p2paddr:
+          type: string
+          maxLength: 255
+        member_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,0})?$
+          nullable: true
+          description: Price for 30 days of membership, livestream access, etc
+      required:
+      - avatar_image
+      - banner_image
+      - username
+      - zpages
+    CreatorLogin:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        captcha_result:
+          type: string
+        otp_token:
+          type: string
+          writeOnly: true
+      required:
+      - captcha_result
+      - password
+    CreatorMeeting:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        creator:
+          allOf:
+          - $ref: '#/components/schemas/CreatorDetail'
+          readOnly: true
+        meeting_id:
+          type: string
+          maxLength: 64
+        meeting_type:
+          allOf:
+          - $ref: '#/components/schemas/MeetingTypeEnum'
+          default: subscribers-only
+        is_public:
+          type: boolean
+          default: true
+        live_now:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        price_per_minute:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+          description: Optional fee set by Creator
+        secret:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+          description: Secret UUID used to join private
+        e2ee:
+          type: boolean
+      required:
+      - creator
+      - id
+      - meeting_id
+      - secret
+    Email:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        token:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+        confirmed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - confirmed_at
+      - created_at
+      - email
+      - expires_at
+      - token
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        amount:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        receiving_user:
+          allOf:
+          - $ref: '#/components/schemas/SimpleCreator'
+          readOnly: true
+        contributor:
+          allOf:
+          - $ref: '#/components/schemas/SimpleCreator'
+          readOnly: true
+        payee:
+          allOf:
+          - $ref: '#/components/schemas/SimpleCreator'
+          readOnly: true
+        message:
+          type: string
+          readOnly: true
+        content_url:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        read:
+          type: boolean
+          readOnly: true
+      required:
+      - content_url
+      - contributor
+      - created_at
+      - id
+      - message
+      - payee
+      - read
+      - receiving_user
+      - type
+    FeaturedImage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        thumbnail:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        title:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 255
+        access:
+          $ref: '#/components/schemas/AccessEnum'
+        mime_type:
+          $ref: '#/components/schemas/MimeTypeEnum'
+      required:
+      - created_at
+      - id
+      - mime_type
+      - name
+      - thumbnail
+      - updated_at
+      - url
+    MeetingTypeEnum:
+      enum:
+      - private
+      - broadcast
+      - ppv
+      - subscribers-only
+      type: string
+      description: |-
+        * `private` - Private
+        * `broadcast` - Broadcast
+        * `ppv` - Pay Per View
+        * `subscribers-only` - Subscribers Only
+    MimeTypeEnum:
+      enum:
+      - image/jpeg
+      - image/png
+      - image/gif
+      - image/svg+xml
+      - image/webp
+      - video/mp4
+      type: string
+      description: |-
+        * `image/jpeg` - image/jpeg
+        * `image/png` - image/png
+        * `image/gif` - image/gif
+        * `image/svg+xml` - image/svg+xml
+        * `image/webp` - image/webp
+        * `video/mp4` - video/mp4
+    Page:
+      type: object
+      properties:
+        prompt:
+          type: string
+          maxLength: 512
+        content:
+          type: string
+          maxLength: 3072
+        image_url:
+          type: string
+          readOnly: true
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - image_url
+      - order
+      - prompt
+      - updated_at
+    PageComment:
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        comment:
+          type: string
+          maxLength: 256
+      required:
+      - comment
+      - created_at
+    PageOrder:
+      type: object
+      properties:
+        page:
+          $ref: '#/components/schemas/zPage'
+        order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+      required:
+      - order
+      - page
+    PaginatedAIModelList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIModel'
+    PaginatedAIPersonalityList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIPersonality'
+    PaginatedCommentListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommentList'
+    PaginatedConversationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+    PaginatedCreatorListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatorList'
+    PaginatedCreatorMeetingList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatorMeeting'
+    PaginatedEventList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+    PaginatedFeaturedImageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeaturedImage'
+    PaginatedPromptResponseList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PromptResponse'
+    PaginatedSeriesEditList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeriesEdit'
+    PaginatedStoryFullList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoryFull'
+    PaginatedSubscriptionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+    PaginatedTransactionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+    PaginatedzPageListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/zPageList'
+    PasswordChange:
+      type: object
+      properties:
+        new_password1:
+          type: string
+          maxLength: 128
+        new_password2:
+          type: string
+          maxLength: 128
+      required:
+      - new_password1
+      - new_password2
+    PasswordReset:
+      type: object
+      description: Serializer for requesting a password reset e-mail.
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    PasswordResetConfirm:
+      type: object
+      description: Serializer for confirming a password reset attempt.
+      properties:
+        new_password1:
+          type: string
+          maxLength: 128
+        new_password2:
+          type: string
+          maxLength: 128
+        uid:
+          type: string
+        token:
+          type: string
+      required:
+      - new_password1
+      - new_password2
+      - token
+      - uid
+    PatchedAIPersonality:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        creator:
+          type: string
+          readOnly: true
+        display_name:
+          type: string
+          maxLength: 200
+        system_message:
+          type: string
+        is_public:
+          type: boolean
+    PatchedCommentList:
+      type: object
+      description: The one we use for zPages and converse
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        author:
+          allOf:
+          - $ref: '#/components/schemas/CommentAuthor'
+          readOnly: true
+        parent:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        headline:
+          type: string
+          maxLength: 100
+        content:
+          type: string
+          maxLength: 1000
+        tuzis:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        tags:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        num_children:
+          type: string
+          readOnly: true
+        content_url:
+          type: string
+          readOnly: true
+    PatchedConversation:
+      type: object
+      description: |-
+        this is for private listing
+        it is also used for create and update
+        probably other stuff.
+        TODO: fully document all serializers and views and maybe combine
+      properties:
+        display_name:
+          type: string
+          maxLength: 200
+        is_public:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        ai_model:
+          type: string
+          format: uuid
+        personality:
+          type: string
+          format: uuid
+          nullable: true
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/CreatorList'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        model_name:
+          type: string
+          readOnly: true
+        tags:
+          type: string
+          readOnly: true
+    PatchedFeaturedImage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        thumbnail:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        title:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 255
+        access:
+          $ref: '#/components/schemas/AccessEnum'
+        mime_type:
+          $ref: '#/components/schemas/MimeTypeEnum'
+    PatchedPromptResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        ai_model:
+          allOf:
+          - $ref: '#/components/schemas/AIModel'
+          readOnly: true
+        personality:
+          allOf:
+          - $ref: '#/components/schemas/AIPersonality'
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/CreatorList'
+          readOnly: true
+        user_input:
+          type: string
+        response:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        conversation:
+          type: string
+          format: uuid
+          nullable: true
+    PatchedSeriesEdit:
+      type: object
+      description: For editing the order of zPages in a Series and the name of the
+        Series.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        pageorder_set:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageOrder'
+        creator:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedStoryFull:
+      type: object
+      properties:
+        creator:
+          allOf:
+          - $ref: '#/components/schemas/CreatorList'
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        is_published:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Page'
+          readOnly: true
+    PatchedzPageUpdate:
+      type: object
+      properties:
+        free2zaddr:
+          type: string
+          readOnly: true
+          description: UUID to get the zPage
+        vanity:
+          type: string
+          nullable: true
+          description: Optional vanity URL field
+          maxLength: 128
+          pattern: ^[-a-zA-Z0-9_]+$
+        p2paddr:
+          type: string
+          description: Creator's zaddress for funding and sending private memos
+          maxLength: 255
+        title:
+          type: string
+          maxLength: 128
+        content:
+          type: string
+          maxLength: 100000
+        is_published:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        category:
+          oneOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        f2z_score:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,8})?$
+          readOnly: true
+          description: Cache of rank calculation
+        get_url:
+          type: string
+          readOnly: true
+        featured_image:
+          type: integer
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        publish_at:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+          description: Description for meta tag, AI if blank
+          maxLength: 255
+    PromptResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        ai_model:
+          allOf:
+          - $ref: '#/components/schemas/AIModel'
+          readOnly: true
+        personality:
+          allOf:
+          - $ref: '#/components/schemas/AIPersonality'
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/CreatorList'
+          readOnly: true
+        user_input:
+          type: string
+        response:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        conversation:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - ai_model
+      - created_at
+      - id
+      - personality
+      - response
+      - updated_at
+      - user
+      - user_input
+    Registration:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        password:
+          type: string
+          maxLength: 128
+      required:
+      - password
+      - username
+    RestAuthDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          readOnly: true
+      required:
+      - detail
+    SeriesEdit:
+      type: object
+      description: For editing the order of zPages in a Series and the name of the
+        Series.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        pageorder_set:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageOrder'
+        creator:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - creator
+      - id
+      - name
+      - pageorder_set
+      - updated_at
+    SimpleCreator:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        avatar_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        p2paddr:
+          type: string
+          maxLength: 255
+        member_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,0})?$
+          nullable: true
+          description: Price for 30 days of membership, livestream access, etc
+      required:
+      - avatar_image
+      - username
+    StoryFull:
+      type: object
+      properties:
+        creator:
+          allOf:
+          - $ref: '#/components/schemas/CreatorList'
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        slug:
+          type: string
+          readOnly: true
+          pattern: ^[-a-zA-Z0-9_]+$
+        is_published:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        pages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Page'
+          readOnly: true
+      required:
+      - created_at
+      - creator
+      - pages
+      - slug
+      - title
+      - updated_at
+    Subscription:
+      type: object
+      properties:
+        fan:
+          $ref: '#/components/schemas/SimpleCreator'
+        star:
+          $ref: '#/components/schemas/SimpleCreator'
+        expires:
+          type: string
+          format: date-time
+        max_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,7}(?:\.\d{0,0})?$
+          description: Number of credits the sub is allowed to recur for
+      required:
+      - fan
+      - star
+    Token:
+      type: object
+      description: Serializer for Token model.
+      properties:
+        key:
+          type: string
+          maxLength: 40
+      required:
+      - key
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        amount:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Total amount paid to stripe in cents
+        tuzis_credited:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Number of Tuzis credited to the user.
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the transaction was made.
+        stripe_charge_id:
+          type: string
+          description: Unique identifier for the transaction from Stripe.
+          maxLength: 255
+        user:
+          type: integer
+          description: Reference to the creator that made the transaction.
+      required:
+      - amount
+      - id
+      - stripe_charge_id
+      - timestamp
+      - tuzis_credited
+      - user
+    TypeEnum:
+      enum:
+      - AISCORE_COMMENT
+      - MADE_COMMENT
+      - VOTE_COMMENT_RECEIVED
+      - VOTE_COMMENT_SENT
+      - NEW_REPLY
+      - PAGE_UPDATE
+      - PAGE_VOTE
+      - DONATION_RECEIVED
+      - DONATION_SENT
+      - SUBSCRIPTION_RECEIVED
+      - SUBSCRIPTION_SENT
+      - BOUGHT_TUZI
+      - CHAT2Z
+      - PLATFORM_FEE
+      - PAY_PER_VIEW_REVENUE
+      - PAY_PER_VIEW_SPEND
+      type: string
+      description: |-
+        * `AISCORE_COMMENT` - AISCORE_COMMENT
+        * `MADE_COMMENT` - MADE_COMMENT
+        * `VOTE_COMMENT_RECEIVED` - VOTE_COMMENT_RECEIVED
+        * `VOTE_COMMENT_SENT` - VOTE_COMMENT_SENT
+        * `NEW_REPLY` - NEW_REPLY
+        * `PAGE_UPDATE` - PAGE_UPDATE
+        * `PAGE_VOTE` - PAGE_VOTE
+        * `DONATION_RECEIVED` - DONATION_RECEIVED
+        * `DONATION_SENT` - DONATION_SENT
+        * `SUBSCRIPTION_RECEIVED` - SUBSCRIPTION_RECEIVED
+        * `SUBSCRIPTION_SENT` - SUBSCRIPTION_SENT
+        * `BOUGHT_TUZI` - BOUGHT_TUZI
+        * `CHAT2Z` - CHAT2Z
+        * `PLATFORM_FEE` - PLATFORM_FEE
+        * `PAY_PER_VIEW_REVENUE` - PAY_PER_VIEW_REVENUE
+        * `PAY_PER_VIEW_SPEND` - PAY_PER_VIEW_SPEND
+    UserDetails:
+      type: object
+      description: User model w/o password
+      properties:
+        pk:
+          type: integer
+          readOnly: true
+          title: ID
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+      required:
+      - email
+      - pk
+      - username
+    zPage:
+      type: object
+      properties:
+        free2zaddr:
+          type: string
+          description: UUID to get the zPage
+          maxLength: 128
+        title:
+          type: string
+          maxLength: 128
+      required:
+      - free2zaddr
+      - title
+    zPageDetail:
+      type: object
+      description: Only for retrieval
+      properties:
+        free2zaddr:
+          type: string
+          readOnly: true
+          description: UUID to get the zPage
+        vanity:
+          type: string
+          nullable: true
+          description: Optional vanity URL field
+          maxLength: 128
+          pattern: ^[-a-zA-Z0-9_]+$
+        p2paddr:
+          type: string
+        title:
+          type: string
+          maxLength: 128
+        content:
+          type: string
+          maxLength: 100000
+        category:
+          oneOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_published:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        total_raised:
+          type: number
+          format: double
+          readOnly: true
+        featured_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        description:
+          type: string
+          description: Description for meta tag, AI if blank
+          maxLength: 255
+        is_verified:
+          type: boolean
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,2}(?:\.\d{0,8})?$
+        f2z_score:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,8})?$
+          readOnly: true
+          description: Cache of rank calculation
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageComment'
+          readOnly: true
+        creator:
+          $ref: '#/components/schemas/SimpleCreator'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        get_url:
+          type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            type: string
+        publish_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - comments
+      - content
+      - created_at
+      - creator
+      - f2z_score
+      - featured_image
+      - free2zaddr
+      - get_url
+      - p2paddr
+      - tags
+      - title
+      - total_raised
+      - updated_at
+    zPageList:
+      type: object
+      properties:
+        free2zaddr:
+          type: string
+          readOnly: true
+          description: UUID to get the zPage
+        vanity:
+          type: string
+          nullable: true
+          description: Optional vanity URL field
+          maxLength: 128
+          pattern: ^[-a-zA-Z0-9_]+$
+        p2paddr:
+          type: string
+        title:
+          type: string
+          maxLength: 128
+        category:
+          oneOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_published:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        featured_image:
+          $ref: '#/components/schemas/FeaturedImage'
+        description:
+          type: string
+          description: Description for meta tag, AI if blank
+          maxLength: 255
+        is_verified:
+          type: boolean
+          readOnly: true
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,2}(?:\.\d{0,8})?$
+          readOnly: true
+        f2z_score:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,8})?$
+          readOnly: true
+          description: Cache of rank calculation
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        get_url:
+          type: string
+          readOnly: true
+        creator:
+          $ref: '#/components/schemas/SimpleCreator'
+        content:
+          type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+      - content
+      - created_at
+      - creator
+      - f2z_score
+      - featured_image
+      - free2zaddr
+      - get_url
+      - is_verified
+      - p2paddr
+      - tags
+      - title
+      - total
+      - updated_at
+    zPageUpdate:
+      type: object
+      properties:
+        free2zaddr:
+          type: string
+          readOnly: true
+          description: UUID to get the zPage
+        vanity:
+          type: string
+          nullable: true
+          description: Optional vanity URL field
+          maxLength: 128
+          pattern: ^[-a-zA-Z0-9_]+$
+        p2paddr:
+          type: string
+          description: Creator's zaddress for funding and sending private memos
+          maxLength: 255
+        title:
+          type: string
+          maxLength: 128
+        content:
+          type: string
+          maxLength: 100000
+        is_published:
+          type: boolean
+        is_subscriber_only:
+          type: boolean
+        category:
+          oneOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        f2z_score:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,8})?$
+          readOnly: true
+          description: Cache of rank calculation
+        get_url:
+          type: string
+          readOnly: true
+        featured_image:
+          type: integer
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        publish_at:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+          description: Description for meta tag, AI if blank
+          maxLength: 255
+      required:
+      - content
+      - f2z_score
+      - free2zaddr
+      - get_url
+      - tags
+      - title
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    knoxApiToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "Token"

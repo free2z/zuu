@@ -1,0 +1,7 @@
+node_modules
+.svelte-kit
+build
+.vite
+.env
+.env.*
+npm-debug.log*

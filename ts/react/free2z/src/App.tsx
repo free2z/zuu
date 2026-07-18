@@ -23,6 +23,7 @@ import Converse from "./components/Converse"
 import EventFeed from "./components/EventFeed"
 import SimpleNav from "./components/SimpleNav"
 import CreatorLoginModal from "./CreatorLoginModal"
+import TryNewUIBanner from "./components/TryNewUIBanner"
 import { Helmet, HelmetProvider } from "react-helmet-async"
 
 const FABNewConverse = React.lazy(() => import('./components/FABNewConverse'))
@@ -152,6 +153,7 @@ function App() {
                                 <GlobalCreator />
                                 <CssBaseline />
                                 <CreatorLoginModal />
+                                <TryNewUIBanner />
                                 <LoadingBackdrop />
                                 <Routes>
                                     <Route path="/tools/p2pe2e" element={

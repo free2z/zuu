@@ -1,0 +1,313 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  scroll-behavior: smooth;
+
+  /* Free2Z Design System - Light Mode
+   *
+   * Neutral warm-gray surfaces — NO green tint.
+   * Mirrors dark mode's philosophy: clean, modern surfaces
+   * that let the lime accent be the star.
+   * Contrast hierarchy (lightest → darkest):
+   *   bg-primary   #fafafa  — page background (off-white, easy on eyes)
+   *   bg-secondary #f0f0f2  — cards, panels, sidebar
+   *   bg-tertiary  #e4e4e7  — muted surfaces, tabs
+   *   bg-input     #ffffff  — inputs, interactive (true white for clarity)
+   */
+  --f2z-bg-primary: #fafafa;
+  --f2z-bg-secondary: #f0f0f2;
+  --f2z-bg-tertiary: #e4e4e7;
+  --f2z-bg-input: #ffffff;
+
+  --f2z-text-primary: #18181b;
+  --f2z-text-secondary: #27272a;
+  --f2z-text-muted: #71717a;
+  --f2z-text-tertiary: #a1a1aa;
+
+  --f2z-accent-primary: #65a30d;
+  /* Lime-600 — darker for readability on light bg */
+  --f2z-accent-hover: #4d7c0f;
+  /* Lime-700 */
+  --f2z-accent-light: #84cc16;
+  /* Lime-500 */
+  --f2z-accent-secondary: #4d7c0f;
+
+  --f2z-border-primary: rgba(0, 0, 0, 0.1);
+  --f2z-border-secondary: rgba(0, 0, 0, 0.05);
+
+  /* Typography */
+  --f2z-font-size-xs: 12px;
+  --f2z-font-size-sm: 14px;
+  --f2z-font-size-base: 16px;
+  --f2z-font-size-lg: 18px;
+  --f2z-font-size-xl: 20px;
+  --f2z-font-size-2xl: 24px;
+  --f2z-font-size-3xl: 30px;
+  --f2z-font-size-4xl: 36px;
+  --f2z-font-size-5xl: 48px;
+  --f2z-font-size-6xl: 60px;
+
+  --f2z-font-weight-normal: 400;
+  --f2z-font-weight-medium: 500;
+  --f2z-font-weight-semibold: 600;
+  --f2z-font-weight-bold: 700;
+
+  --f2z-line-height-tight: 1.25;
+  --f2z-line-height-normal: 1.5;
+  --f2z-line-height-relaxed: 1.75;
+
+  /* Spacing */
+  --f2z-space-xs: 4px;
+  --f2z-space-sm: 8px;
+  --f2z-space-md: 12px;
+  --f2z-space-lg: 16px;
+  --f2z-space-xl: 20px;
+  --f2z-space-2xl: 24px;
+  --f2z-space-3xl: 32px;
+  --f2z-space-4xl: 48px;
+
+  /* Border Radius */
+  --f2z-radius-sm: 4px;
+  --f2z-radius-md: 6px;
+  --f2z-radius-lg: 8px;
+  --f2z-radius-xl: 12px;
+
+  /* Transitions */
+  --f2z-transition-fast: 0.15s ease;
+  --f2z-transition-normal: 0.2s ease;
+  --f2z-transition-slow: 0.3s ease;
+
+  --radius: var(--f2z-radius-lg);
+  --background: var(--f2z-bg-primary);
+  --foreground: var(--f2z-text-primary);
+  --card: var(--f2z-bg-secondary);
+  --card-foreground: var(--f2z-text-primary);
+  --popover: var(--f2z-bg-secondary);
+  --popover-foreground: var(--f2z-text-primary);
+  --primary: var(--f2z-accent-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--f2z-bg-tertiary);
+  --secondary-foreground: var(--f2z-text-primary);
+  --muted: var(--f2z-bg-tertiary);
+  --muted-foreground: var(--f2z-text-muted);
+  --accent: var(--f2z-bg-tertiary);
+  --accent-foreground: var(--f2z-text-primary);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: var(--f2z-border-primary);
+  --input: var(--f2z-border-primary);
+  --ring: var(--f2z-accent-primary);
+  --chart-1: var(--f2z-accent-primary);
+  --chart-2: var(--f2z-accent-secondary);
+  --chart-3: var(--f2z-accent-light);
+  --chart-4: var(--f2z-accent-primary);
+  --chart-5: var(--f2z-accent-secondary);
+  --sidebar: var(--f2z-bg-secondary);
+  --sidebar-foreground: var(--f2z-text-primary);
+  --sidebar-primary: var(--f2z-accent-primary);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--f2z-bg-tertiary);
+  --sidebar-accent-foreground: var(--f2z-text-primary);
+  --sidebar-border: var(--f2z-border-secondary);
+  --sidebar-ring: var(--f2z-accent-hover);
+}
+
+.dark {
+  /* Free2Z Design System - Dark Mode
+   * 
+   * Deep neutral surfaces with the faintest cool undertone.
+   * Clean, modern, and lets the lime accent be the star.
+   * Contrast hierarchy (darkest → lightest):
+   *   bg-primary   #0a0a0c  — page background
+   *   bg-secondary #141417  — cards, panels, sidebar
+   *   bg-tertiary  #1c1c20  — muted surfaces, tabs
+   *   bg-input     #252529  — inputs, interactive
+   */
+  --f2z-bg-primary: #0a0a0c;
+  --f2z-bg-secondary: #141417;
+  --f2z-bg-tertiary: #1c1c20;
+  --f2z-bg-input: #252529;
+
+  --f2z-text-primary: #f4f4f5;
+  --f2z-text-secondary: #d4d4d8;
+  --f2z-text-muted: #a1a1aa;
+  --f2z-text-tertiary: #71717a;
+
+  --f2z-accent-primary: #84cc16;
+  /* Lime-500 */
+  --f2z-accent-hover: #a3e635;
+  /* Lime-400 — brighter hover for dark bg */
+  --f2z-accent-light: #bef264;
+  /* Lime-300 */
+  --f2z-accent-secondary: #65a30d;
+
+  --f2z-border-primary: rgba(255, 255, 255, 0.08);
+  --f2z-border-secondary: rgba(255, 255, 255, 0.04);
+
+  --background: var(--f2z-bg-primary);
+  --foreground: var(--f2z-text-primary);
+  --card: var(--f2z-bg-secondary);
+  --card-foreground: var(--f2z-text-primary);
+  --popover: var(--f2z-bg-secondary);
+  --popover-foreground: var(--f2z-text-primary);
+  --primary: var(--f2z-accent-primary);
+  --primary-foreground: var(--f2z-bg-primary);
+  --secondary: var(--f2z-accent-secondary);
+  --secondary-foreground: var(--f2z-text-primary);
+  --muted: var(--f2z-bg-tertiary);
+  --muted-foreground: var(--f2z-text-muted);
+  --accent: var(--f2z-accent-secondary);
+  --accent-foreground: var(--f2z-text-primary);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: var(--f2z-border-primary);
+  --input: var(--f2z-bg-input);
+  --ring: var(--f2z-accent-hover);
+  --chart-1: var(--f2z-accent-primary);
+  --chart-2: var(--f2z-accent-secondary);
+  --chart-3: var(--f2z-accent-light);
+  --chart-4: var(--f2z-accent-primary);
+  --chart-5: var(--f2z-accent-secondary);
+  --sidebar: var(--f2z-bg-secondary);
+  --sidebar-foreground: var(--f2z-text-primary);
+  --sidebar-primary: var(--f2z-accent-primary);
+  --sidebar-primary-foreground: var(--f2z-bg-primary);
+  --sidebar-accent: var(--f2z-accent-secondary);
+  --sidebar-accent-foreground: var(--f2z-text-primary);
+  --sidebar-border: var(--f2z-border-secondary);
+  --sidebar-ring: var(--f2z-accent-hover);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-size: var(--f2z-font-size-base);
+  line-height: var(--f2z-line-height-normal);
+}
+
+.markdown-content .math.math-block {
+  margin: 1.5rem 0;
+}
+
+.markdown-content .katex {
+  color: var(--foreground);
+}
+
+.markdown-content .katex-display {
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+.markdown-content .mermaid-diagram {
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+
+.markdown-content .mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.markdown-content .mermaid-diagram-error {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--muted), transparent 20%);
+  padding: 1rem;
+}
+
+.markdown-content .mermaid-diagram-error pre {
+  margin: 0;
+}
+
+.markdown-content .mermaid-error-message {
+  margin-top: 0.75rem;
+  color: var(--destructive);
+  font-size: 0.875rem;
+}
+
+.mask-radial-grid {
+  mask-image: radial-gradient(circle at top, black 20%, transparent 80%);
+}
+
+.glass-card {
+  @apply border border-border/60 bg-white/80 shadow-xs backdrop-blur-md dark:border-primary/10 dark:bg-card/40 dark:shadow-none;
+}
+.mesh-gradient {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(
+      at 0% 0%,
+      color-mix(in srgb, var(--primary), transparent 95%) 0px,
+      transparent 50%
+    ),
+    radial-gradient(
+      at 100% 0%,
+      color-mix(in srgb, var(--primary), transparent 97%) 0px,
+      transparent 50%
+    ),
+    radial-gradient(
+      at 100% 100%,
+      color-mix(in srgb, var(--primary), transparent 95%) 0px,
+      transparent 50%
+    ),
+    radial-gradient(
+      at 0% 100%,
+      color-mix(in srgb, var(--primary), transparent 97%) 0px,
+      transparent 50%
+    );
+}
