@@ -6,8 +6,9 @@
 // This module is the CONTRACT every feature imports. Keep the return types stable.
 
 import { useMock } from "../platform";
+import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
-import { basicLogin, mediaUrl, request, setToken } from "./http";
+import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
   mockAiReply,
   mockArticles,
@@ -23,6 +24,8 @@ import type {
   AuthUser,
   DyteJoinTicket,
   Livestream,
+  LoginResult,
+  OtpStatus,
   Paginated,
   PricingQuote,
   PricingSnapshot,
@@ -159,15 +162,89 @@ function inferProvider(model: string): AIModel["provider"] {
 }
 
 // ─── Auth / session ─────────────────────────────────────────────────────────
+
+/** Mock: which usernames should exercise the 2FA (OTP) step, and the code that clears it. */
+const MOCK_OTP_CODE = "123456";
+function mockOtpEnabled(username: string): boolean {
+  return MOCK_OTP || username.toLowerCase().includes("otp");
+}
+
 export const auth = {
-  /** Classic username/password → Knox token (HTTP Basic auth under the hood). */
-  async login(username: string, password: string): Promise<AuthUser> {
+  /**
+   * Classic username/password sign-in (a first-class login method, peer to
+   * Login with Zcash).
+   *
+   * Real flow:
+   *   1. `basicLogin` → Knox Basic-auth login (`/api/token/login/`) mints a token.
+   *   2. `otpStatus()` (authenticated with that token) reports whether the
+   *      account has TOTP 2FA enabled.
+   *   3. If 2FA is ON we DROP the token and return `otp_required`, so an
+   *      abandoned code prompt never leaves a live session behind; the caller
+   *      finishes via `completeOtp`. If 2FA is OFF, the login is complete.
+   *
+   * (Knox's own login endpoint does not enforce OTP, so the second factor is
+   * gated here on the client — see the follow-up note about a token-upgrading
+   * OTP endpoint on the backend.)
+   */
+  async login(username: string, password: string): Promise<LoginResult> {
     if (useMock()) {
       await delay();
+      if (mockOtpEnabled(username)) return { status: "otp_required", username };
+      setToken("mock-knox-token");
+      return { status: "complete", user: { ...mockUser, username } };
+    }
+    await basicLogin(username, password); // sets the Knox token
+    const { enabled } = await auth.otpStatus();
+    if (enabled) {
+      setToken(null); // don't persist a session behind an unfinished 2FA prompt
+      return { status: "otp_required", username };
+    }
+    return { status: "complete", user: await auth.me() };
+  },
+
+  /** Whether the currently-authenticated account has TOTP 2FA enabled. */
+  async otpStatus(): Promise<OtpStatus> {
+    if (useMock()) {
+      await delay(120);
+      return { enabled: false };
+    }
+    return request<OtpStatus>("/api/otp/status/");
+  },
+
+  /**
+   * Finish a username/password login that requires 2FA. The backend's
+   * `/api/otp/login/` verifies the 6-digit TOTP `code` (it re-checks the
+   * password too); a wrong code throws. On success we mint a fresh Knox token
+   * via Basic-auth login and load the profile.
+   */
+  async completeOtp(
+    username: string,
+    password: string,
+    code: string,
+  ): Promise<AuthUser> {
+    if (useMock()) {
+      await delay();
+      if (code !== MOCK_OTP_CODE) {
+        throw new Error("That code didn't match. (Mock mode expects 123456.)");
+      }
       setToken("mock-knox-token");
       return { ...mockUser, username };
     }
-    await basicLogin(username, password);
+    try {
+      await request("/api/otp/login/", {
+        method: "POST",
+        anonymous: true,
+        body: { username, password, token: code },
+      });
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 400 || e.status === 401)) {
+        throw new Error(
+          "That code didn't match. Check your authenticator app and try again.",
+        );
+      }
+      throw e;
+    }
+    await basicLogin(username, password); // establish the real session token
     return auth.me();
   },
 

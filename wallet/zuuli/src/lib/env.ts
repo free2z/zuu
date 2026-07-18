@@ -35,6 +35,14 @@ export const MEDIA_BASE = readEnv("VITE_F2Z_MEDIA", DEFAULT_API).replace(/\/$/, 
  */
 export const FORCE_MOCK = readEnv("VITE_MOCK", "") === "1";
 
+/**
+ * Mock-only: force the username/password path to require a 2FA (OTP) code so
+ * the code-entry step can be exercised offline (VITE_MOCK_OTP=1). Even without
+ * this flag, any mock username containing "otp" triggers the 2FA step. The mock
+ * accepts the code `123456`.
+ */
+export const MOCK_OTP = readEnv("VITE_MOCK_OTP", "") === "1";
+
 /** Dyte SDK base — used to construct join URLs for livestreams. */
 export const DYTE_BASE = readEnv("VITE_DYTE_BASE", "https://app.dyte.io");
 

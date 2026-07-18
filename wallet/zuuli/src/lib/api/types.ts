@@ -29,6 +29,20 @@ export interface SessionToken {
   expiry?: string;
 }
 
+/** GET /api/otp/status/ — whether the signed-in account has TOTP 2FA enabled. */
+export interface OtpStatus {
+  enabled: boolean;
+}
+
+/**
+ * Result of a username/password sign-in. Either the session is fully
+ * established, or a second factor (a 6-digit TOTP code) is still required and
+ * the caller must finish via `auth.completeOtp`.
+ */
+export type LoginResult =
+  | { status: "complete"; user: AuthUser }
+  | { status: "otp_required"; username: string };
+
 // ── AI ────────────────────────────────────────────────────────────────────
 export interface AIModel {
   id: string;
