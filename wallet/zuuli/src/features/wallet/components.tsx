@@ -1,13 +1,7 @@
 // Composite wallet UI pieces: sync bar, address card, transaction row.
 import { QRCodeSVG } from "qrcode.react";
 import { Link } from "react-router-dom";
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Loader2,
-  Play,
-  Square,
-} from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -20,88 +14,62 @@ import type { SyncStatus, TransactionEntry } from "@/lib/wallet/types";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./shared";
 
-/** Sync progress bar with a Start/Stop toggle. */
-export function SyncBar({
-  sync,
-  busy,
-  onToggle,
-}: {
-  sync: SyncStatus | null;
-  busy: boolean;
-  onToggle: () => void;
-}) {
+/**
+ * Passive sync status. Sync runs automatically and continuously (resumed on
+ * launch by the wallet store), so there is no manual start/stop control — this
+ * just quietly reflects state: "Syncing… N%" while catching up, "Synced" once
+ * at the chain tip. The engine keeps reporting `syncing: true` even when caught
+ * up (it watches for new blocks), so "caught up" is judged by height.
+ */
+export function SyncBar({ sync }: { sync: SyncStatus | null }) {
   const pct = sync ? Math.min(100, Math.max(0, sync.progressPercent)) : 0;
-  const syncing = sync?.syncing ?? false;
-  const synced = pct >= 99.995;
+  const connecting = sync === null || sync.chainTip === 0;
+  const caughtUp =
+    sync !== null && sync.chainTip > 0 && sync.syncedHeight >= sync.chainTip;
 
   return (
-    <Card className="rounded-xl p-4">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0 space-y-0.5">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            {syncing ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                <span>Syncing blocks</span>
-              </>
-            ) : synced ? (
-              <>
-                <span
-                  className="h-2 w-2 rounded-full bg-emerald-400"
-                  aria-hidden
-                />
-                <span>Up to date</span>
-              </>
-            ) : (
-              <>
-                <span
-                  className="h-2 w-2 rounded-full bg-muted-foreground"
-                  aria-hidden
-                />
-                <span>Sync paused</span>
-              </>
-            )}
-          </div>
-          <p className="truncate text-xs tabular-nums text-muted-foreground">
-            {sync
-              ? `${formatHeight(sync.syncedHeight)} / ${formatHeight(sync.chainTip)} · ${pct.toFixed(1)}%`
-              : "—"}
-          </p>
+    <Card className="rounded-xl p-4" role="status" aria-live="polite">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        {caughtUp ? (
+          <>
+            <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
+            <span>Synced</span>
+          </>
+        ) : connecting ? (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <span className="text-muted-foreground">Connecting</span>
+          </>
+        ) : (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <span>Syncing</span>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {pct.toFixed(1)}%
+            </span>
+          </>
+        )}
+      </div>
+
+      <p className="mt-0.5 truncate text-xs tabular-nums text-muted-foreground">
+        {sync && !connecting
+          ? `${formatHeight(sync.syncedHeight)} / ${formatHeight(sync.chainTip)}`
+          : "Waiting for chain tip…"}
+      </p>
+
+      {!caughtUp ? (
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+            style={{ width: `${pct}%` }}
+            role="progressbar"
+            aria-valuenow={Math.round(pct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Chain sync progress"
+          />
         </div>
-
-        <Button
-          type="button"
-          size="sm"
-          variant={syncing ? "outline" : "secondary"}
-          onClick={onToggle}
-          disabled={busy}
-          aria-label={syncing ? "Stop sync" : "Start sync"}
-        >
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : syncing ? (
-            <Square className="h-4 w-4" />
-          ) : (
-            <Play className="h-4 w-4" />
-          )}
-          {syncing ? "Stop" : "Sync"}
-        </Button>
-      </div>
-
-      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            "h-full rounded-full transition-[width] duration-500 ease-out",
-            synced ? "bg-emerald-400" : "bg-primary",
-          )}
-          style={{ width: `${pct}%` }}
-          role="progressbar"
-          aria-valuenow={Math.round(pct)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Chain sync progress"
-        />
-      </div>
+      ) : null}
     </Card>
   );
 }

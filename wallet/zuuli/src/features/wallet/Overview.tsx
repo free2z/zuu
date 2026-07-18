@@ -1,5 +1,5 @@
 // Wallet overview: balance, sync, address, recent activity.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDownToLine, ArrowUpRight, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,11 @@ export function Overview() {
   const balance = useWallet((s) => s.balance);
   const sync = useWallet((s) => s.sync);
   const unifiedAddress = useWallet((s) => s.unifiedAddress);
-  const refreshSync = useWallet((s) => s.refreshSync);
 
-  const [syncBusy, setSyncBusy] = useState(false);
   const [recent, setRecent] = useState<TransactionEntry[] | null>(null);
-  const pollRef = useRef<number | null>(null);
+
+  // Sync runs automatically and is polled by the wallet store, so there is no
+  // manual start/stop here — the SyncBar below is a passive status indicator.
 
   // Load a small recent-activity preview.
   useEffect(() => {
@@ -38,40 +38,6 @@ export function Overview() {
       alive = false;
     };
   }, []);
-
-  // Poll sync status roughly every 1.5s while a sync is in progress.
-  useEffect(() => {
-    const syncing = sync?.syncing ?? false;
-    if (syncing && pollRef.current === null) {
-      pollRef.current = window.setInterval(() => {
-        void refreshSync();
-      }, 1500);
-    }
-    if (!syncing && pollRef.current !== null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    return () => {
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [sync?.syncing, refreshSync]);
-
-  const onToggleSync = useCallback(async () => {
-    setSyncBusy(true);
-    try {
-      if (sync?.syncing) {
-        await wallet.stopSync();
-      } else {
-        await wallet.startSync();
-      }
-      await refreshSync();
-    } finally {
-      setSyncBusy(false);
-    }
-  }, [sync?.syncing, refreshSync]);
 
   const pending = balance
     ? balance.valuePending + balance.changePending
@@ -143,7 +109,7 @@ export function Overview() {
 
         {/* Sync + address column */}
         <div className="space-y-6">
-          <SyncBar sync={sync} busy={syncBusy} onToggle={onToggleSync} />
+          <SyncBar sync={sync} />
           {unifiedAddress ? (
             <AddressCard address={unifiedAddress} compact />
           ) : (
