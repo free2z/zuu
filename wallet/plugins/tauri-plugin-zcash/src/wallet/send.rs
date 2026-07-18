@@ -16,7 +16,7 @@ use zcash_client_backend::wallet::OvkPolicy;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::memo::{Memo, MemoBytes};
 use zcash_protocol::value::Zatoshis;
-use zcash_protocol::ShieldedProtocol;
+use zcash_protocol::ShieldedPool;
 
 use crate::error::{Error, Result};
 use crate::models::{SaplingParamsStatus, SendProposal};
@@ -142,7 +142,7 @@ pub async fn propose_send(
     let change_strategy = SingleOutputChangeStrategy::new(
         zcash_primitives::transaction::fees::zip317::FeeRule::standard(),
         None,
-        ShieldedProtocol::Orchard,
+        ShieldedPool::Orchard,
         DustOutputPolicy::default(),
     );
 
@@ -268,7 +268,7 @@ pub async fn propose_send_all(
         let change_strategy = SingleOutputChangeStrategy::new(
             zcash_primitives::transaction::fees::zip317::FeeRule::standard(),
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedPool::Orchard,
             DustOutputPolicy::default(),
         );
 

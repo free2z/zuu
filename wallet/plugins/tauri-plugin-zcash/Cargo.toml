@@ -55,7 +55,6 @@ zcash_keys = { path = "../../../z/zcash/librustzcash/zcash_keys", features = ["o
 zcash_protocol = { path = "../../../z/zcash/librustzcash/components/zcash_protocol" }
 zcash_address = { path = "../../../z/zcash/librustzcash/components/zcash_address" }
 zip321 = { path = "../../../z/zcash/librustzcash/components/zip321" }
-pczt = { path = "../../../z/zcash/librustzcash/pczt" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "3", features = ["OSX_10_15"] }
