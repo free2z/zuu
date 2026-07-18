@@ -25,6 +25,7 @@ const COMMANDS: &[&str] = &[
     "set_lightwalletd_url",
     "parse_payment_uri",
     "validate_address",
+    "sign_challenge",
 ];
 
 fn main() {

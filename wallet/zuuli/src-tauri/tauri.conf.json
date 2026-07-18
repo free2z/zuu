@@ -2,10 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "ZUULI",
   "version": "0.1.0",
-  "identifier": "com.free2z.zuuli",
+  "identifier": "com.2zinc.zuuli",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://127.0.0.1:1421",
+    "devUrl": "http://127.0.0.1:1423",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -13,21 +13,19 @@
     "windows": [
       {
         "title": "ZUULI",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 360,
-        "minHeight": 600
+        "width": 1280,
+        "height": 860,
+        "minWidth": 380,
+        "minHeight": 640
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://*.zec.rocks; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src 'self' data: https:; connect-src 'self' https://free2z.com https://*.free2z.com https://*.zec.rocks https://*.dyte.io wss://*.dyte.io https://*.stripe.com https://checkout.stripe.com; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [
-      "icons/icon.png"
-    ]
+    "icon": ["icons/icon.png"]
   }
 }

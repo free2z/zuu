@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sign-challenge"
+description = "Enables the sign_challenge command without any pre-configured scope."
+commands.allow = ["sign_challenge"]
+
+[[permission]]
+identifier = "deny-sign-challenge"
+description = "Denies the sign_challenge command without any pre-configured scope."
+commands.deny = ["sign_challenge"]
