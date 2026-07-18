@@ -64,7 +64,16 @@ type FetchLike = typeof fetch;
 let fetchImpl: FetchLike | null = null;
 async function getFetch(): Promise<FetchLike> {
   if (fetchImpl) return fetchImpl;
-  if (isTauri()) {
+  // `tauri dev` is served by the Vite dev server, whose proxy forwards /api and
+  // /uploadz to the backend (same-origin localhost:1423 → backend, no CORS). Use
+  // window.fetch there so that proxy is honored. Only production builds (no dev
+  // server, absolute API_BASE like https://free2z.cash) need tauri-plugin-http
+  // to dodge browser CORS from the webview's own origin.
+  const isDev = Boolean(
+    (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
+  );
+  const useNativeHttp = isTauri() && !isDev;
+  if (useNativeHttp) {
     const mod = await import("@tauri-apps/plugin-http");
     fetchImpl = mod.fetch as unknown as FetchLike;
   } else {
