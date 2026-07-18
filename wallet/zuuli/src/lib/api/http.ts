@@ -78,6 +78,7 @@ interface RequestOpts {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
   headers?: Record<string, string>;
+  cache?: RequestCache;
   /** Skip the auth header even if a token exists. */
   anonymous?: boolean;
   signal?: AbortSignal;
@@ -121,6 +122,7 @@ export async function request<T>(
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
+    cache: opts.cache,
   });
 
   const text = await res.text();
