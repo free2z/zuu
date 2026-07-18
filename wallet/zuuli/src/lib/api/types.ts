@@ -139,3 +139,41 @@ export interface Paginated<T> {
   previous: string | null;
   results: T[];
 }
+
+// ── Pricing (live 2Z ↔ ZEC / card) ───────────────────────────────
+// The backend does live ZEC/USD price discovery (tuzi py/dj/apps/pricing) and
+// derives every conversion from "1 2Z = $0.01". Decimal money fields come over
+// the wire as strings; parse them at the point of use, never store a rate.
+
+/** Card processing fees applied to the USD path (PricingSnapshot.card). */
+export interface CardFees {
+  percent_fee: string; // e.g. "0.05" (5%)
+  flat_fee_cents: number;
+}
+
+/** Current live pricing snapshot — GET /api/pricing/. */
+export interface PricingSnapshot {
+  zec_usd: string; // aggregated ZEC/USD spot
+  spread: string; // e.g. "0.10"
+  tuzis_per_zec: string; // 2Z per 1 ZEC after the spread
+  tuzi_per_usd: number; // 100 (2Z == $0.01)
+  usd_per_tuzi: string; // e.g. "0.01"
+  num_sources: number; // exchanges in the average
+  sources: Record<string, string>; // per-exchange ZEC/USD quotes
+  updated_at: string; // ISO datetime
+  stale: boolean; // older than the freshness window
+  bootstrap: boolean; // cold-start estimate — present as an estimate only
+  card: CardFees;
+}
+
+/** Exact amounts to buy N 2Z — GET /api/pricing/quote/?tuzis=N. */
+export interface PricingQuote {
+  tuzis: number;
+  zec_amount: string; // ZEC to send (8dp) — display directly, don't recompute
+  card_cents: number; // USD cents Stripe would charge
+  tuzis_per_zec: string;
+  zec_usd: string;
+  updated_at: string; // ISO datetime
+  stale: boolean;
+  bootstrap: boolean;
+}
