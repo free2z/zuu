@@ -65,7 +65,7 @@ export function Receive() {
         </div>
       ) : null}
 
-      <div className="mt-6 bg-zuuli-surface border border-zinc-800/50 rounded-xl p-4">
+      <div className="mt-6 bg-zuuallet-surface border border-zinc-800/50 rounded-xl p-4">
         <h3 className="text-sm font-medium text-white mb-2">About Unified Addresses</h3>
         <p className="text-xs text-zinc-400">
           Unified addresses contain receivers for multiple Zcash pools

@@ -1,8 +1,8 @@
-name: wallet/zuuli
+name: wallet/zuuallet
 
-# Guards ZUULI against dependency bumps breaking the build.
+# Guards Zuuallet against dependency bumps breaking the build.
 #
-# ZUULI's Rust backend (wallet/plugins/tauri-plugin-zcash) depends on the
+# Zuuallet's Rust backend (wallet/plugins/tauri-plugin-zcash) depends on the
 # librustzcash crates via *path* dependencies into the z/zcash/librustzcash
 # submodule. Bumping that submodule (or the crates.io / npm deps) can break
 # compilation, so this workflow compiles both halves of the app:
@@ -17,26 +17,26 @@ name: wallet/zuuli
 on:
   pull_request:
     paths:
-      - 'wallet/zuuli/**'
+      - 'wallet/zuuallet/**'
       - 'wallet/plugins/**'
       - 'z/zcash/librustzcash'
       - '.gitmodules'
-      - '.github/workflows/zuuli.yml'
+      - '.github/workflows/zuuallet.yml'
   push:
     branches: [main]
     paths:
-      - 'wallet/zuuli/**'
+      - 'wallet/zuuallet/**'
       - 'wallet/plugins/**'
       - 'z/zcash/librustzcash'
       - '.gitmodules'
-      - '.github/workflows/zuuli.yml'
+      - '.github/workflows/zuuallet.yml'
   workflow_dispatch:
   schedule:
     # Mondays 07:00 UTC — upstream-canary only (see job `if:` guards).
     - cron: '0 7 * * 1'
 
 concurrency:
-  group: zuuli-${{ github.ref }}
+  group: zuuallet-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -57,14 +57,14 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: wallet/zuuli/package-lock.json
+          cache-dependency-path: wallet/zuuallet/package-lock.json
 
       - name: Install dependencies
-        working-directory: wallet/zuuli
+        working-directory: wallet/zuuallet
         run: npm ci
 
       - name: Typecheck + build (tsc && vite build)
-        working-directory: wallet/zuuli
+        working-directory: wallet/zuuallet
         run: npm run build
 
   # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Only fetch the one submodule the build needs — the rest of z/ is huge
-      # (zebra, zcashd, zashi, ...) and irrelevant to compiling ZUULI.
+      # (zebra, zcashd, zashi, ...) and irrelevant to compiling Zuuallet.
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
 
@@ -104,7 +104,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: wallet/zuuli/src-tauri -> ${{ github.workspace }}/target
+          workspaces: wallet/zuuallet/src-tauri -> ${{ github.workspace }}/target
 
       # --locked: the committed Cargo.lock must build as-is. Bumping the
       # librustzcash submodule changes the path-dep resolution, so whoever bumps
@@ -115,7 +115,7 @@ jobs:
       # itself declares, a plugin that free-rides on an undeclared feature fails
       # here too — so this single build is enough to catch feature-hygiene bugs.
       - name: Build Tauri backend (plugin + librustzcash path deps)
-        run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+        run: cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
 
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.
@@ -153,10 +153,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: wallet/zuuli/src-tauri
+          workspaces: wallet/zuuallet/src-tauri
 
       - name: Refresh crates.io deps to latest compatible
-        run: cargo update --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+        run: cargo update --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
 
       - name: Build against latest upstream
-        run: cargo build --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+        run: cargo build --manifest-path wallet/zuuallet/src-tauri/Cargo.toml

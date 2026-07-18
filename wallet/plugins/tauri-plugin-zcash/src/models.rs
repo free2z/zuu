@@ -195,6 +195,22 @@ pub struct ValidateAddressArgs {
     pub address: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignChallengeArgs {
+    pub challenge: String,
+    pub account_index: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedChallenge {
+    pub address: String,
+    pub challenge: String,
+    pub signature: String,
+    pub pubkey: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressValidation {

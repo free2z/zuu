@@ -1,9 +1,9 @@
-# ZUULI — Agent instructions
+# Zuuallet — Agent instructions
 
 ## Build / check commands
 
 ```bash
-cd wallet/zuuli
+cd wallet/zuuallet
 
 # Install dependencies
 npm install
@@ -57,7 +57,7 @@ npm run tauri build
 
 ## Design rules
 
-- **Backgrounds**: zinc-900 (`bg-zinc-900`) for cards, zinc-950 (`bg-zinc-950` / `bg-zuuli-bg`) for page backgrounds.
+- **Backgrounds**: zinc-900 (`bg-zinc-900`) for cards, zinc-950 (`bg-zinc-950` / `bg-zuuallet-bg`) for page backgrounds.
 - **Accent**: purple-500 (`text-purple-500`, `bg-purple-500`, `border-purple-500`). Use `hover:bg-purple-600` for hover states.
 - **No emojis** in the UI.
 - **Touch targets**: Always use the `min-tap` class on buttons and interactive elements (44px minimum).

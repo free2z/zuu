@@ -73,7 +73,7 @@ export function NavBar({ currentPage, onNavigate }: Props) {
   return (
     <>
       {/* Desktop sidebar */}
-      <nav className="hidden md:flex flex-col w-52 bg-zuuli-surface border-r border-zinc-800/50 py-6 gap-0.5 shrink-0" aria-label="Main navigation">
+      <nav className="hidden md:flex flex-col w-52 bg-zuuallet-surface border-r border-zinc-800/50 py-6 gap-0.5 shrink-0" aria-label="Main navigation">
         <span className="text-white font-bold text-2xl mb-2 px-6 tracking-tight">ZUULI</span>
         {walletStatus?.activeWalletName && (
           <button
@@ -112,7 +112,7 @@ export function NavBar({ currentPage, onNavigate }: Props) {
       </nav>
 
       {/* Mobile bottom tabs */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-zuuli-surface/95 backdrop-blur-sm border-t border-zinc-800/50 flex z-50" aria-label="Main navigation">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-zuuallet-surface/95 backdrop-blur-sm border-t border-zinc-800/50 flex z-50" aria-label="Main navigation">
         {navItems.map(({ page, label, icon }) => (
           <button
             key={page}

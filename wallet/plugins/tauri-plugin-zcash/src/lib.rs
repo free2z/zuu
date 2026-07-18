@@ -66,6 +66,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::set_lightwalletd_url,
             commands::parse_payment_uri,
             commands::validate_address,
+            commands::sign_challenge,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

@@ -3,13 +3,16 @@
 `zuu` is a **synthetic monorepo**. The `z/` directory vendors Zcash-ecosystem
 repos as git submodules (`z/{github-org}/{repo}`) so we can depend on them **in
 source** — build, test, and integrate against real upstream code rather than
-released crates/packages. Our own apps (e.g. `wallet/zuuli/`) depend on those
+released crates/packages. Our own apps (e.g. `wallet/zuuallet/`) depend on those
 submodules via path dependencies.
 
 This exists to **move the whole ecosystem forward together**, not just to keep
-our apps building. Our software (ZUULI especially) is experimental. When those
+our apps building. Our software (Zuuallet especially) is experimental. When those
 two goals conflict, **ecosystem progress wins over our own short-term
 stability.**
+
+- **Parallel agents:** see [docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md)
+  for how multiple agents collaborate through issues/worktrees/PRs.
 
 ## The prime directive: stay on the bleeding edge, and contribute the fixes
 
@@ -64,7 +67,7 @@ integrate, and move it forward alongside everything else.
 
 ## Guardrails that keep us honest
 
-- **`.github/workflows/zuuli.yml`** builds both halves of ZUULI (frontend
+- **`.github/workflows/zuuallet.yml`** builds both halves of Zuuallet (frontend
   typecheck+build; Rust `cargo build` of the Tauri backend through the
   librustzcash path deps) on every change to the app, its deps, or the
   `z/zcash/librustzcash` submodule pointer. If a bump breaks us, CI says so.
@@ -91,7 +94,7 @@ your machine will never show you. Two specific traps we've hit:
   `[target.'cfg(target_os = "…")'.dependencies]` only exists for that OS. In
   TOML, every `key = …` after a `[table]` header belongs to that table until the
   next header — so deps written below a `cfg(macos)` block are silently
-  macOS-only even if you meant them to be universal. ZUULI's entire zcash stack
+  macOS-only even if you meant them to be universal. Zuuallet's entire zcash stack
   was accidentally macOS-gated this way; it built on every developer's Mac and
   failed on Linux CI with `unresolved import zcash_protocol`. Cross-platform
   deps go in `[dependencies]`. Check placement with
@@ -116,6 +119,6 @@ to catch these too, but catching them before the push is cheaper than a red run.
   can fail `npm ci` on Linux CI (diverging optional-dependency subtrees);
   regenerate so it satisfies both. Cargo features must be declared, not
   inherited by luck.
-- Per-project agent docs (`wallet/zuuli/CLAUDE.md`,
+- Per-project agent docs (`wallet/zuuallet/CLAUDE.md`,
   `wallet/plugins/tauri-plugin-zcash/CLAUDE.md`) carry the concrete build
   commands and API gotchas. This file is the *why*; those are the *how*.

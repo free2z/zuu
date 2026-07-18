@@ -249,7 +249,7 @@ export function Settings() {
       <div className="space-y-6">
         {/* Wallet — prominent card style */}
         {(walletStatus?.walletCount ?? 0) > 0 && (
-          <div className="bg-zuuli-surface border border-zinc-800/50 rounded-xl p-4">
+          <div className="bg-zuuallet-surface border border-zinc-800/50 rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-zinc-500 uppercase tracking-wider">Active Wallet</p>
@@ -268,7 +268,7 @@ export function Settings() {
         )}
 
         {/* Blockchain Stats */}
-        <div className="bg-zuuli-surface border border-zinc-800/50 rounded-xl p-4">
+        <div className="bg-zuuallet-surface border border-zinc-800/50 rounded-xl p-4">
           <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Blockchain</h3>
           <div className="divide-y divide-zinc-800/50">
             {chainTip !== null && (

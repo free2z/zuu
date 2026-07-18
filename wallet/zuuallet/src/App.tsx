@@ -55,7 +55,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-zuuli-bg">
+    <div className="flex h-screen bg-zuuallet-bg">
       {showNav && <NavBar currentPage={page} onNavigate={setPage} />}
 
       {showNav && <SyncBar syncStatus={syncStatus} />}

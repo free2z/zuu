@@ -10,12 +10,14 @@ this repo:
 - When HEAD breaks us: if it's our bug, **fix forward**; if it's a real upstream
   regression, **branch → PR upstream → add the fork to `z/` → pin our commit
   transiently → resume `main` once merged**.
-- Moving the **whole ecosystem forward** takes priority over ZUULI's own
+- Moving the **whole ecosystem forward** takes priority over Zuuallet's own
   short-term stability.
 
 Per-project specifics:
 
-- `wallet/zuuli/CLAUDE.md` — ZUULI desktop app (Tauri v2 + React).
+- `wallet/zuuallet/CLAUDE.md` — Zuuallet desktop app (Tauri v2 + React).
 - `wallet/plugins/tauri-plugin-zcash/CLAUDE.md` — Rust plugin, build commands,
   librustzcash API gotchas.
-- `.github/workflows/zuuli.yml` — CI that proves dependency bumps still build.
+- `.github/workflows/zuuallet.yml` — CI that proves dependency bumps still build.
+- `docs/PARALLEL-AGENTS.md` — how parallel agents collaborate through GitHub
+  (worktrees/issues/PRs).

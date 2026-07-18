@@ -1,4 +1,4 @@
-# ZUULI
+# Zuuallet
 
 A privacy-first desktop wallet for Zcash, built with Tauri v2, React, and librustzcash.
 
@@ -14,7 +14,7 @@ A privacy-first desktop wallet for Zcash, built with Tauri v2, React, and librus
 ### Development
 
 ```bash
-cd wallet/zuuli
+cd wallet/zuuallet
 npm install
 npm run tauri dev
 ```
@@ -24,7 +24,7 @@ This starts both the Vite dev server (port 1421) and the Tauri backend.
 ### Production build
 
 ```bash
-cd wallet/zuuli
+cd wallet/zuuallet
 npm run tauri build
 ```
 
@@ -51,7 +51,7 @@ All backend communication goes through `@tauri-apps/api/core` `invoke()` calls t
 ## Directory structure
 
 ```
-wallet/zuuli/
+wallet/zuuallet/
   src/
     App.tsx              — Root component, page router, global sync start
     main.tsx             — React entry point
@@ -120,4 +120,4 @@ Background sync starts automatically after wallet is active. Polls every 30s for
 - **lightwalletd URL**: Default `https://zec.rocks:443`, configurable in Settings
 - **CSP**: `default-src 'self'; connect-src 'self' https://*.zec.rocks; style-src 'self' 'unsafe-inline'`
 - **Window**: 1200x800 default, 360x600 minimum
-- **App identifier**: `com.free2z.zuuli`
+- **App identifier**: `com.free2z.zuuallet`

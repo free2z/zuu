@@ -1,11 +1,11 @@
 [package]
-name = "zuuli"
+name = "zuuallet"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85.1"
 
 [lib]
-name = "zuuli_lib"
+name = "zuuallet_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

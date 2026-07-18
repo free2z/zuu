@@ -4,7 +4,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        zuuli: {
+        zuuallet: {
           bg: "#09090b",
           surface: "#18181b",
           elevated: "#27272a",
