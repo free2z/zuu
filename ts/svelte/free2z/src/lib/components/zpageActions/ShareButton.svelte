@@ -10,67 +10,32 @@
   } from '$lib/components/ui/dropdown-menu';
   import { Tooltip as TooltipPrimitive } from 'bits-ui';
   import { Content as TooltipContent } from '$lib/components/ui/tooltip';
-  import { Share2Icon, Linkedin, CopyIcon } from '@lucide/svelte';
+  import { Share2Icon, Linkedin, CopyIcon, Mail } from '@lucide/svelte';
   import { page } from '$app/state';
+  import { env } from '$env/dynamic/public';
   import { tStore as t } from '$lib/i18n';
+  import { CANONICAL_ORIGIN } from '$lib/seo';
 
   const props = $props();
   const { article = null, onOpen = () => {}, onClose = () => {} } = props;
+  const canonicalOrigin =
+    env.PUBLIC_CANONICAL_BASE_URL?.replace(/\/$/, '') || CANONICAL_ORIGIN;
 
   function getCanonical(): string {
+    const username = article?.creator?.username;
+    const identifier = article?.vanity || article?.free2zaddr;
+    if (username && identifier) {
+      return new URL(`/${encodeURIComponent(username)}/${encodeURIComponent(identifier)}`, canonicalOrigin).toString();
+    }
     if (article?.get_url) {
-      let url = article.get_url;
-      if (!/^https?:\/\//.test(url)) {
-        url = url.replace(/^\/zpage\//, '/');
-        if (!/^https?:\/\//.test(url) && !url.startsWith('/')) {
-          return '';
-        }
-        if (!/^https?:\/\//.test(url)) {
-          url = `${page.url.origin}${url}`;
-        }
-      }
-      // Validate the URL
       try {
-        const parsedUrl = new URL(url);
-        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-          return '';
-        }
-      } catch (e) {
+        const path = new URL(article.get_url, canonicalOrigin).pathname.replace(/^\/zpage\//, '/');
+        return new URL(path, canonicalOrigin).toString();
+      } catch {
         return '';
       }
-      return url;
     }
-    return page.url.href;
-  }
-
-  function appendUTM(url: string, source: string) {
-    try {
-      const u = new URL(url);
-      if (!u.searchParams.has('utm_source')) {
-        u.searchParams.set('utm_source', source);
-      }
-      if (!u.searchParams.has('utm_medium')) {
-        u.searchParams.set('utm_medium', 'social');
-      }
-      if (!u.searchParams.has('utm_campaign')) {
-        u.searchParams.set('utm_campaign', 'share');
-      }
-      return u.toString();
-    } catch (e) {
-      const [base, query] = url.split('?');
-      const params = new URLSearchParams(query || '');
-      if (!params.has('utm_source')) {
-        params.set('utm_source', source);
-      }
-      if (!params.has('utm_medium')) {
-        params.set('utm_medium', 'social');
-      }
-      if (!params.has('utm_campaign')) {
-        params.set('utm_campaign', 'share');
-      }
-      const queryString = params.toString();
-      return queryString ? `${base}?${queryString}` : base;
-    }
+    return new URL(page.url.pathname, canonicalOrigin).toString();
   }
 
   let open = $state(false);
@@ -97,6 +62,26 @@
     }
   }
 
+  async function shareNative() {
+    const url = getCanonical();
+    if (!url) return;
+    if (!navigator.share) {
+      await copyLink();
+      return;
+    }
+    try {
+      await navigator.share({
+        title: article?.title || 'Free2Z',
+        text: article?.description || `Read ${article?.title || 'this article'} on Free2Z`,
+        url,
+      });
+      open = false;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      toast.error($t('pageActions.share.shareFailed', 'Unable to share'));
+    }
+  }
+
   function openShare(url: string) {
     try {
       new URL(url);
@@ -107,7 +92,7 @@
   }
 
   function shareX() {
-    const url = appendUTM(getCanonical(), 'x');
+    const url = getCanonical();
     const text = $t('pageActions.share.textX', `Check out ${article?.title || ''} by ${
       article?.creator?.username || 'Free2Z creator'
     } on Free2Z`, {
@@ -121,7 +106,7 @@
   }
 
   function shareReddit() {
-    const url = appendUTM(getCanonical(), 'reddit');
+    const url = getCanonical();
     const shareUrl = `https://www.reddit.com/submit?url=${encodeURIComponent(
       url
     )}&title=${encodeURIComponent(article?.title || '')}`;
@@ -129,7 +114,7 @@
   }
 
   function shareLinkedIn() {
-    const url = appendUTM(getCanonical(), 'linkedin');
+    const url = getCanonical();
     const shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
       url
     )}`;
@@ -137,7 +122,7 @@
   }
 
   function shareTelegram() {
-    const url = appendUTM(getCanonical(), 'telegram');
+    const url = getCanonical();
     const text = $t('pageActions.share.textTelegram', `Check out ${article?.title || ''} by ${
       article?.creator?.username || ''
     } on Free2Z`, {
@@ -148,6 +133,19 @@
       url
     )}&text=${encodeURIComponent(text)}`;
     openShare(shareUrl);
+  }
+
+  function shareFacebook() {
+    const url = getCanonical();
+    openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
+  }
+
+  function shareEmail() {
+    const url = getCanonical();
+    const subject = article?.title || 'Free2Z article';
+    const body = `Read ${subject} on Free2Z:\n\n${url}`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    open = false;
   }
 </script>
 
@@ -171,6 +169,10 @@
     </TooltipPrimitive.Provider>
 
     <DropdownMenuContent class="w-56">
+      <DropdownMenuItem onclick={shareNative}>
+        <Share2Icon class="w-4 h-4 mr-2" />
+        <span>{$t('pageActions.share.native', 'Share…')}</span>
+      </DropdownMenuItem>
       <DropdownMenuItem onclick={copyLink}>
         <CopyIcon class="w-4 h-4 mr-2"/> 
         <span>{$t('pageActions.share.copyLink', 'Copy link')}</span>
@@ -199,6 +201,14 @@
         <svg aria-hidden="true" role="img" class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Telegram</title><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
         <span>{$t('pageActions.share.telegram', 'Share on Telegram')}</span>
         </div>
+      </DropdownMenuItem>
+      <DropdownMenuItem onclick={shareFacebook}>
+        <span class="w-4 h-4 mr-2 text-center font-bold" aria-hidden="true">f</span>
+        <span>{$t('pageActions.share.facebook', 'Share on Facebook')}</span>
+      </DropdownMenuItem>
+      <DropdownMenuItem onclick={shareEmail}>
+        <Mail class="w-4 h-4 mr-2" />
+        <span>{$t('pageActions.share.email', 'Share by email')}</span>
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>

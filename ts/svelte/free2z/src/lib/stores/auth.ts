@@ -111,6 +111,33 @@ function createAuthStore() {
       }));
     },
 
+    setSubscription: (username: string, subscribed: boolean) => {
+      patchState((state) => {
+        if (!state.creator) {
+          return state;
+        }
+
+        const stars = new Set(state.creator.stars ?? []);
+        if (subscribed) {
+          stars.add(username);
+        } else {
+          stars.delete(username);
+        }
+
+        return {
+          ...state,
+          creator: {
+            ...state.creator,
+            stars: [...stars],
+          },
+        };
+      });
+    },
+
+    isSubscribedTo: (username: string) => {
+      return Boolean(currentState.creator?.stars?.includes(username));
+    },
+
     hydrateFromSession: (creator: Creator | null) => {
       if (creator) {
         setAuthenticatedState(creator);

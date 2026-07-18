@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 // Dev proxy to backend so /api requests hit Django instead of SvelteKit
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
+  ssr: {
+    external: ["@resvg/resvg-js"],
+  },
   server: {
     proxy: {
       '/api': {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { AlignLeft, Clock } from "@lucide/svelte";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import type { EditorMode } from "./types";
   import { countWords, estimateReadTime } from "./utils";
 
@@ -22,13 +22,13 @@
     <span class="flex items-center gap-1.5">
       <AlignLeft class="h-3.5 w-3.5 text-(--f2z-accent-primary)" />
       {wordCount}
-      {t("editor.words", "words")}
+      {$t("editor.words", "words")}
     </span>
     <span class="text-(--f2z-text-secondary)/40" aria-hidden="true">·</span>
     <span class="flex items-center gap-1.5">
       <Clock class="h-3.5 w-3.5 text-(--f2z-accent-primary)" />
       {readTime}
-      {t("editor.minRead", "min read")}
+      {$t("editor.minRead", "min read")}
     </span>
   </div>
 {/if}

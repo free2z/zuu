@@ -20,6 +20,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       - in: query
         name: user__username
         schema:
@@ -79,6 +85,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -432,6 +444,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - ai
       security:
@@ -479,6 +497,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -652,6 +676,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       - in: query
         name: user__username
         schema:
@@ -686,6 +716,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -993,6 +1029,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       - name: search
         required: false
         in: query
@@ -1056,6 +1098,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       - in: path
@@ -1246,6 +1294,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       - in: path
         name: uuid
         schema:
@@ -1329,12 +1383,34 @@ paths:
       operationId: creator_list
       description: List Creators on Free2z
       parameters:
+      - in: query
+        name: is_verified
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
       - name: page
         required: false
         in: query
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
       tags:
       - creator
       security:
@@ -1528,6 +1604,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -1780,6 +1862,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - events
       security:
@@ -1831,6 +1919,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -2162,6 +2256,12 @@ paths:
           type: string
       - in: query
         name: mime_type
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
         schema:
           type: string
       - name: page
@@ -2528,6 +2628,7 @@ paths:
           - tr
           - tt
           - udm
+          - ug
           - uk
           - ur
           - uz
@@ -2662,6 +2763,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - storytime
       security:
@@ -2763,6 +2870,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -2880,6 +2993,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - tuzis
       security:
@@ -2902,6 +3021,12 @@ paths:
         required: false
         in: query
         description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
         schema:
           type: integer
       tags:
@@ -3095,6 +3220,12 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - zpage
       security:
@@ -3279,6 +3410,36 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/zpage/{id}/related/:
+    get:
+      operationId: zpage_related_list
+      description: Up to 6 published, public zPages related to this page, ranked by
+        pgvector cosine similarity over the stored search-index embeddings (no OpenAI
+        call at request time). If the page has no embedding, or no neighbors are within
+        the similarity ceiling, falls back to the author's most recent published pages.
+        Unpaginated array; no auth required.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - zpage
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - knoxApiToken: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/zPageList'
+          description: ''
   /api/zpage/fund/:
     post:
       operationId: zpage_fund_create
@@ -3841,6 +4002,12 @@ components:
       - type
     FeaturedImage:
       type: object
+      description: |-
+        The image size ladder (#590). `thumb`/`card`/`banner` are
+        purpose-named conveniences into the same ladder `variants` exposes
+        in full (for srcset). All are None until the worker has processed
+        the upload, and None for non-image files; they never point at the
+        original.
       properties:
         id:
           type: integer
@@ -3853,6 +4020,23 @@ components:
           readOnly: true
         thumbnail:
           type: string
+          readOnly: true
+        thumb:
+          type: string
+          nullable: true
+          readOnly: true
+        card:
+          type: string
+          nullable: true
+          readOnly: true
+        banner:
+          type: string
+          nullable: true
+          readOnly: true
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageVariant'
           readOnly: true
         created_at:
           type: string
@@ -3873,13 +4057,30 @@ components:
         mime_type:
           $ref: '#/components/schemas/MimeTypeEnum'
       required:
+      - banner
+      - card
       - created_at
       - id
       - mime_type
       - name
+      - thumb
       - thumbnail
       - updated_at
       - url
+      - variants
+    ImageVariant:
+      type: object
+      properties:
+        width:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        url:
+          type: string
+          readOnly: true
+      required:
+      - url
+      - width
     MeetingTypeEnum:
       enum:
       - private
@@ -4435,6 +4636,12 @@ components:
           readOnly: true
     PatchedFeaturedImage:
       type: object
+      description: |-
+        The image size ladder (#590). `thumb`/`card`/`banner` are
+        purpose-named conveniences into the same ladder `variants` exposes
+        in full (for srcset). All are None until the worker has processed
+        the upload, and None for non-image files; they never point at the
+        original.
       properties:
         id:
           type: integer
@@ -4447,6 +4654,23 @@ components:
           readOnly: true
         thumbnail:
           type: string
+          readOnly: true
+        thumb:
+          type: string
+          nullable: true
+          readOnly: true
+        card:
+          type: string
+          nullable: true
+          readOnly: true
+        banner:
+          type: string
+          nullable: true
+          readOnly: true
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageVariant'
           readOnly: true
         created_at:
           type: string
@@ -4565,11 +4789,14 @@ components:
           readOnly: true
           description: UUID to get the zPage
         vanity:
-          type: string
           nullable: true
           description: Optional vanity URL field
-          maxLength: 128
-          pattern: ^[-a-zA-Z0-9_]+$
+          oneOf:
+          - type: string
+            maxLength: 128
+            pattern: ^[-a-zA-Z0-9_]+$
+          - type: string
+            maxLength: 0
         p2paddr:
           type: string
           description: Creator's zaddress for funding and sending private memos
@@ -4733,6 +4960,9 @@ components:
           pattern: ^-?\d{0,6}(?:\.\d{0,0})?$
           nullable: true
           description: Price for 30 days of membership, livestream access, etc
+        full_name:
+          type: string
+          maxLength: 128
       required:
       - avatar_image
       - username
@@ -4921,11 +5151,14 @@ components:
           readOnly: true
           description: UUID to get the zPage
         vanity:
-          type: string
           nullable: true
           description: Optional vanity URL field
-          maxLength: 128
-          pattern: ^[-a-zA-Z0-9_]+$
+          oneOf:
+          - type: string
+            maxLength: 128
+            pattern: ^[-a-zA-Z0-9_]+$
+          - type: string
+            maxLength: 0
         p2paddr:
           type: string
         title:
@@ -5012,11 +5245,14 @@ components:
           readOnly: true
           description: UUID to get the zPage
         vanity:
-          type: string
           nullable: true
           description: Optional vanity URL field
-          maxLength: 128
-          pattern: ^[-a-zA-Z0-9_]+$
+          oneOf:
+          - type: string
+            maxLength: 128
+            pattern: ^[-a-zA-Z0-9_]+$
+          - type: string
+            maxLength: 0
         p2paddr:
           type: string
         title:
@@ -5092,11 +5328,14 @@ components:
           readOnly: true
           description: UUID to get the zPage
         vanity:
-          type: string
           nullable: true
           description: Optional vanity URL field
-          maxLength: 128
-          pattern: ^[-a-zA-Z0-9_]+$
+          oneOf:
+          - type: string
+            maxLength: 128
+            pattern: ^[-a-zA-Z0-9_]+$
+          - type: string
+            maxLength: 0
         p2paddr:
           type: string
           description: Creator's zaddress for funding and sending private memos

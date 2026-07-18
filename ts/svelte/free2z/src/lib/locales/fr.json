@@ -10,6 +10,10 @@
     "signUp": "S'inscrire",
     "logo": "Free2Z"
   },
+  "language": {
+    "choose": "Choisir la langue",
+    "current": "Langue"
+  },
   "homepage": {
     "topStories": "Histoires Populaires",
     "heroSection": "Histoire Principale",
@@ -419,6 +423,32 @@
     "openThread": "Ouvrir le fil",
     "beFirstReply": "Ouvrez le fil et soyez le premier à répondre",
     "openConversation": "Ouvrir la conversation"
+  },
+  "footer": {
+    "label": "Pied de page",
+    "home": "Accueil Free2Z",
+    "tagline": "Publication indépendante, soutien direct et liberté de créer.",
+    "status": "État et actualités",
+    "statusDescription": "État officiel de la plateforme et actualités",
+    "resources": "Ressources",
+    "documentation": "Documentation",
+    "help": "Centre d’aide",
+    "security": "Confidentialité et sécurité",
+    "legal": "Mentions légales",
+    "terms": "Conditions d’utilisation",
+    "privacy": "Politique de confidentialité",
+    "connect": "Nous suivre",
+    "xLabel": "Free2Z sur X",
+    "githubLabel": "Free2Z sur GitHub",
+    "communityLabel": "Profil communautaire Free2Z",
+    "connectDescription": "Suivez les actualités du produit et participez à la conversation.",
+    "rights": "Tous droits réservés.",
+    "preferences": "Préférences d’affichage",
+    "theme": "Thème",
+    "chooseTheme": "Choisir le thème",
+    "light": "Clair",
+    "dark": "Sombre",
+    "system": "Système"
   },
   "comments": {
     "navigateToContent": "Naviguer vers le contenu",

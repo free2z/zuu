@@ -10,8 +10,12 @@
   let showModal = false;
   let showOTPModal = false;
   let otpData = { username: "", password: "" };
+  let initialView: "login" | "signup" = "login";
 
   $: nextPath = $page.url.searchParams.get("next");
+  $: initialView = $page.url.searchParams.get("view") === "signup"
+    ? "signup"
+    : "login";
 
   function handleAuthSuccess(event?: CustomEvent<{ creator: any }>) {
     showModal = false;
@@ -52,6 +56,7 @@
 <main class="flex flex-1 items-center justify-center bg-background">
   <UnifiedAuthModal
     bind:open={showModal}
+    {initialView}
     on:success={handleAuthSuccess}
     on:requiresOTP={handleAuthRequiresOTP}
   />

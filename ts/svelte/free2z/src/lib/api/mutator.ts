@@ -134,7 +134,11 @@ export const customInstance = async <T>(
 
     return response.json();
   } catch (error) {
-    console.error('API request failed:', error);
+    // AbortError is an expected control-flow signal when a query is unmounted
+    // or superseded. Logging it as a request failure creates false alarms.
+    if (!(error instanceof Error && error.name === 'AbortError')) {
+      console.error('API request failed:', error);
+    }
     throw error;
   }
 };

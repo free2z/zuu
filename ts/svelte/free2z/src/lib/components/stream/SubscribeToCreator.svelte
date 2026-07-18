@@ -1,25 +1,30 @@
 <script lang="ts">
-  import { createTuzisSubscribeCreate } from '$lib/api/tuzis/tuzis';
+  import { tuzisSubscribeCreate } from '$lib/api/tuzis/tuzis';
   import type { CreatorDetail } from '$lib/api/f2z.schemas';
   import { authStore } from '$lib/stores/auth';
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import { toast } from 'svelte-sonner';
+  import ManageSubscription from '$lib/components/subscription/ManageSubscription.svelte';
 
   export let creator: CreatorDetail;
   export let open = false;
   export let onOpenChange: (open: boolean) => void = () => {};
+  let isSubmitting = false;
+  let isUnconfirmed = false;
 
   $: user = $authStore.creator;
+  $: isSubscribed = Boolean(user?.stars?.includes(creator.username));
   $: balance = user && user.tuzis ? Number(user.tuzis) : 0;
   $: price = creator.member_price ? Number(creator.member_price) : 0;
   $: canAfford = balance >= price;
 
-  const subscribeMutation = createTuzisSubscribeCreate();
-
   async function handleSubscribe() {
-    const hasActiveSession = await authStore.ensureAuthenticated();
-    if (!hasActiveSession) {
+    if (isSubmitting || isUnconfirmed || authStore.isSubscribedTo(creator.username)) {
+      return;
+    }
+
+    if (!user) {
       toast.error("Please log in to subscribe.");
       return;
     }
@@ -29,21 +34,48 @@
       return;
     }
 
+    isSubmitting = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+
     try {
-      await $subscribeMutation.mutateAsync({ username: creator.username });
+      await tuzisSubscribeCreate(creator.username, undefined, controller.signal);
+      authStore.setSubscription(creator.username, true);
       toast.success(`Subscribed to ${creator.username}!`);
       onOpenChange(false);
-      // Refresh user to update balance
-      authStore.checkAuth();
+      // Reconcile membership and refresh the balance without the auth cache.
+      void authStore.checkAuth({ force: true, silent: true });
     } catch (e: any) {
       console.error(e);
-      toast.error(e?.response?.data?.message || "Failed to subscribe.");
+      if (e?.name === 'AbortError') {
+        isUnconfirmed = true;
+        toast.error(
+          "The server did not confirm the subscription. Check your subscriptions before trying again.",
+        );
+        return;
+      }
+      toast.error(
+        e?.data?.error ||
+          e?.data?.message ||
+          e?.response?.data?.message ||
+          "Failed to subscribe.",
+      );
+    } finally {
+      window.clearTimeout(timeout);
+      isSubmitting = false;
     }
   }
 </script>
 
 <Dialog.Root bind:open {onOpenChange}>
   <Dialog.Content>
+    {#if isSubscribed}
+      <Dialog.Header>
+        <Dialog.Title class="sr-only">Manage subscription to {creator.username}</Dialog.Title>
+        <Dialog.Description class="sr-only">Manage subscription renewal</Dialog.Description>
+      </Dialog.Header>
+      <ManageSubscription {creator} onClose={() => onOpenChange(false)} />
+    {:else}
     <Dialog.Header>
       <Dialog.Title>Subscribe to {creator.full_name || creator.username}</Dialog.Title>
       <Dialog.Description>
@@ -77,13 +109,20 @@
       <Button variant="outline" onclick={() => onOpenChange(false)}>Cancel</Button>
       {#if user}
         {#if canAfford}
-          <Button onclick={handleSubscribe} disabled={$subscribeMutation.isPending}>
-            {#if $subscribeMutation.isPending}
+          <Button onclick={handleSubscribe} disabled={isSubmitting || isUnconfirmed}>
+            {#if isSubmitting}
               Subscribing...
+            {:else if isUnconfirmed}
+              Status unconfirmed — reload to check
             {:else}
               Subscribe for {price} 2Z
             {/if}
           </Button>
+          {#if isUnconfirmed}
+            <p class="text-xs text-amber-600 dark:text-amber-400" role="alert">
+              Do not retry yet: the server may have completed the charge. Close and reload this page to check your subscription status.
+            </p>
+          {/if}
         {:else}
           <Button href="/buy-2z" variant="default">Buy 2Z</Button>
         {/if}
@@ -91,5 +130,6 @@
         <Button href="/login">Log in</Button>
       {/if}
     </Dialog.Footer>
+    {/if}
   </Dialog.Content>
 </Dialog.Root>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import { UploadCloud } from "@lucide/svelte";
 
   interface Props {
@@ -30,20 +30,20 @@
     </div>
     <div class="space-y-1">
       <p class="text-sm font-medium text-foreground">
-        {t(
+        {$t(
           "editor.dropOrSelectCover",
           "Drop an image here or pick one from your device",
         )}
       </p>
       <p class="text-xs text-muted-foreground">
-        {t(
+        {$t(
           "editor.coverUploadHint",
           "The final cover will be cropped to the standard banner ratio before it is saved.",
         )}
       </p>
     </div>
     <Button size="sm" onclick={() => deviceInputRef?.click()}>
-      {t("editor.selectImage", "Select Image")}
+      {$t("editor.selectImage", "Select Image")}
     </Button>
     <input
       bind:this={deviceInputRef}

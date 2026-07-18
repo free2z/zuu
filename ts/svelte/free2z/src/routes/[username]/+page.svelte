@@ -6,7 +6,7 @@
   import { goto } from '$app/navigation';
   import LiveIndicator from '$lib/components/stream/LiveIndicator.svelte';
   import { Badge } from '$lib/components/ui/badge';
-  import { CheckCircle2, FileText, Settings, LayoutGrid, PenLine,  } from '@lucide/svelte';
+  import { CheckCircle2, FileText, Settings, LayoutGrid, PenLine, Search } from '@lucide/svelte';
   import * as Tabs from "$lib/components/ui/tabs";
   import * as Select from "$lib/components/ui/select";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -16,10 +16,15 @@
   import CustomPagination from '$lib/components/CustomPagination.svelte';
   import MarkdownContent from '$lib/components/MarkdownContent.svelte';
   import { processMarkdown } from '$lib/utils/markdown';
+  import { parseBioFrontmatter } from '$lib/utils/bio';
+  import SocialLinks from '$lib/components/profile/SocialLinks.svelte';
   import ProfileDonate from '$lib/components/profile/ProfileDonate.svelte';
   import ProfileSubscribe from '$lib/components/profile/ProfileSubscribe.svelte';
   import ProfileShare from '$lib/components/profile/ProfileShare.svelte';
+  import ImageLightbox from '$lib/components/profile/ImageLightbox.svelte';
   import { page } from '$app/stores';
+  import SeoHead from '$lib/components/SeoHead.svelte';
+  import { CANONICAL_ORIGIN, compactText, toAbsoluteUrl } from '$lib/seo';
 
   export let data: PageData & {
     isOwner: boolean;
@@ -27,6 +32,8 @@
   };
 
   const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, '') || '';
+  const canonicalOrigin =
+    env.PUBLIC_CANONICAL_BASE_URL?.replace(/\/$/, '') || CANONICAL_ORIGIN;
 
   $: creator = data.creator;
   $: zpages = data.zpages?.results || [];
@@ -70,32 +77,51 @@
        goto(newUrl, { noScroll: true });
   }
 
-  function buildImageUrl(image: any) {
+  function buildImageUrl(image: any, preferOriginal = false) {
     if (!image?.url && !image?.thumbnail) return null;
-    const imageUrl = image.thumbnail || image.url;
+    const imageUrl = preferOriginal ? image.url || image.thumbnail : image.thumbnail || image.url;
     if (/^https?:\/\//.test(imageUrl)) return imageUrl;
     return `${apiBase}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
   }
 
   $: avatarUrl = buildImageUrl(creator.avatar_image);
+  $: avatarFullSizeUrl = buildImageUrl(creator.avatar_image, true);
   $: bannerUrl = buildImageUrl(creator.banner_image);
   $: displayName = creator.full_name || creator.username;
-  $: descriptionHtml = processMarkdown(creator.description || '');
+  // Strip the leading social frontmatter block (issue #566) before rendering,
+  // and surface the parsed links as a tidy row above the bio.
+  $: parsedBio = parseBioFrontmatter(creator.description || '');
+  $: bioSocials = parsedBio.socials;
+  $: descriptionHtml = processMarkdown(parsedBio.body);
+  $: hasBio = Boolean(parsedBio.body.trim());
+  $: seoDescription = compactText(parsedBio.body, `${displayName}'s creator profile on Free2Z.`);
+  $: profileImage = bannerUrl || avatarUrl || '/brand/free2z-og.png';
+  $: profileJsonLd = {
+    '@type': 'Person',
+    '@id': `${canonicalOrigin}/${encodeURIComponent(creator.username)}#creator`,
+    name: displayName,
+    alternateName: `@${creator.username}`,
+    description: seoDescription,
+    url: `${canonicalOrigin}/${encodeURIComponent(creator.username)}`,
+    image: avatarUrl ? toAbsoluteUrl(avatarUrl, canonicalOrigin) : undefined
+  };
 </script>
 
-<svelte:head>
-  <title>{displayName} on Free2Z</title>
-  <meta
-    name="description"
-    content={creator.description || `${displayName}'s profile on Free2Z`}
-  />
-</svelte:head>
+<SeoHead
+  title={`${displayName} on Free2Z`}
+  description={seoDescription}
+  path={`/${encodeURIComponent(creator.username)}`}
+  type="profile"
+  image={profileImage}
+  imageAlt={`${displayName}'s Free2Z profile image`}
+  structuredData={profileJsonLd}
+/>
 
 <main class="flex-1 bg-background text-foreground pb-20">
   <!-- Banner -->
   <div class="relative h-72 md:h-96 w-full bg-muted overflow-hidden">
     {#if bannerUrl}
-      <img src={bannerUrl} alt="Banner" class="h-full w-full object-cover" />
+      <img src={bannerUrl} alt="" class="h-full w-full object-cover" />
     {/if}
     <div class="absolute inset-0 bg-gradient-to-b from-transparent to-background/80"></div>
   </div>
@@ -106,8 +132,13 @@
       <!-- Avatar -->
       <div class="relative shrink-0 mx-auto md:mx-0">
         <div class="h-24 w-24 md:h-28 md:w-28 rounded-xl border-4 border-background shadow-sm overflow-hidden bg-muted">
-          {#if avatarUrl}
-            <img src={avatarUrl} alt={displayName} class="h-full w-full object-cover" />
+          {#if avatarUrl && avatarFullSizeUrl}
+            <ImageLightbox
+              thumbnailUrl={avatarUrl}
+              fullSizeUrl={avatarFullSizeUrl}
+              alt={displayName}
+              triggerClass="h-full w-full"
+            />
           {:else}
             <div class="h-full w-full flex items-center justify-center text-2xl font-bold text-muted-foreground bg-muted">
               {displayName.slice(0, 2).toUpperCase()}
@@ -132,25 +163,31 @@
       <div class="flex-1 min-w-0 w-full text-center md:text-left space-y-3 mb-1">
         <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div class="space-y-1.5">
-            <h1 class="text-3xl font-bold tracking-tight truncate" title={displayName}>{displayName}</h1>
-            <div class="flex items-center justify-center md:justify-start gap-3 flex-wrap">
-              <span class="text-sm text-muted-foreground font-medium">@{creator.username}</span>
+            <h1 class="truncate text-2xl font-bold tracking-tight sm:text-3xl" title={displayName}>{displayName}</h1>
+            <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3 md:justify-start">
+              <span class="text-xs font-medium text-muted-foreground sm:text-sm">@{creator.username}</span>
               <LiveIndicator username={creator.username} />
-              <span class="text-sm text-muted-foreground">
+              <span class="text-xs text-muted-foreground sm:text-sm">
                 <span class="font-semibold text-foreground">{creator.zpages || 0}</span> articles
               </span>
             </div>
           </div>
 
           <!-- Action Buttons -->
-          <div class="flex items-center gap-2 justify-center md:justify-end">
-            <ProfileDonate {creator} />
+          <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:justify-center md:justify-end">
+            <div class="order-2 sm:order-1">
+              <ProfileDonate {creator} />
+            </div>
 
             {#if !isOwner}
-              <ProfileSubscribe {creator} />
+              <div class="order-1 col-span-2 sm:order-2 sm:col-span-1">
+                <ProfileSubscribe {creator} />
+              </div>
             {/if}
 
-            <ProfileShare username={creator.username} {displayName} />
+            <div class="order-3">
+              <ProfileShare username={creator.username} {displayName} />
+            </div>
 
             {#if isOwner}
               <Button href={`/${creator.username}/dashboard/profile`} variant="default">
@@ -166,11 +203,16 @@
     </header>
 
     <!-- Bio Section -->
-    {#if creator.description}
-      <div class="max-w-3xl pb-8">
-        <div class="prose dark:prose-invert prose-sm max-w-none prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
-          <MarkdownContent html={descriptionHtml} />
-        </div>
+    {#if bioSocials.length || hasBio}
+      <div class="mx-auto max-w-2xl space-y-5 pb-8">
+        {#if bioSocials.length}
+          <SocialLinks links={bioSocials} />
+        {/if}
+        {#if hasBio}
+          <div class="prose dark:prose-invert prose-sm max-w-none prose-a:text-primary prose-a:no-underline hover:prose-a:underline">
+            <MarkdownContent html={descriptionHtml} />
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -191,12 +233,16 @@
                  </Tabs.List>
 
                  <div class="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
-                     <Input 
-                         placeholder="Search..." 
-                         class="w-full md:w-48 h-9" 
-                         value={currentSearch}
-                         oninput={handleSearch}
-                     />
+                     <div class="relative w-full md:w-48">
+                         <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                         <Input
+                             aria-label={`Search ${displayName}'s articles`}
+                             placeholder="Search articles"
+                             class="h-9 w-full pl-9"
+                             value={currentSearch}
+                             oninput={handleSearch}
+                         />
+                     </div>
                      
                      <Select.Root 
                         type="single"
@@ -234,7 +280,7 @@
              <Tabs.Content value="published" class="mt-0 outline-none focus-visible:outline-none">
                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {#each publishedPages as zpage}
-                        <ZpageCard story={zpage} />
+                        <ZpageCard story={zpage} compactOnMobile={true} />
                     {:else}
                           <div class="col-span-full flex flex-col items-center justify-center py-16 border-2 border-dashed rounded-xl text-center space-y-2">
                             <FileText class="size-10 text-muted-foreground/20" />
@@ -249,7 +295,7 @@
                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                       {#each drafts as zpage}
                           <div class="relative group/draft">
-                             <ZpageCard story={zpage} />
+                             <ZpageCard story={zpage} compactOnMobile={true} />
                              <div class="absolute top-3 right-3 z-20">
                                  <Badge variant="outline" class="bg-background/80 text-orange-500 border-orange-200 text-[10px] uppercase tracking-wider font-semibold">Draft</Badge>
                              </div>
@@ -288,12 +334,16 @@
                     <p class="text-sm text-muted-foreground">Explore thoughts and stories from {displayName}</p>
                 </div>
                 <div class="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
-                     <Input 
-                         placeholder="Search..." 
-                         class="w-full md:w-48 h-9" 
-                         value={currentSearch}
-                         oninput={handleSearch}
-                     />
+                     <div class="relative w-full md:w-48">
+                         <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                         <Input
+                             aria-label={`Search ${displayName}'s articles`}
+                             placeholder="Search articles"
+                             class="h-9 w-full pl-9"
+                             value={currentSearch}
+                             oninput={handleSearch}
+                         />
+                     </div>
                      
                      <Select.Root 
                         type="single"
@@ -326,7 +376,7 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {#each zpages as zpage}
-                    <ZpageCard story={zpage} />
+                    <ZpageCard story={zpage} compactOnMobile={true} />
                 {:else}
                      <div class="col-span-full flex flex-col items-center justify-center py-16 border-2 border-dashed rounded-xl text-center space-y-2">
                         <FileText class="size-10 text-muted-foreground/20" />

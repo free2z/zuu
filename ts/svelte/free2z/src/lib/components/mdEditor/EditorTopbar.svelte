@@ -3,7 +3,7 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
   import PublishSheet from "$lib/components/mdEditor/PublishSheet.svelte";
   import AuthUserDropdown from "$lib/components/auth/AuthUserDropdown.svelte";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import type {
     EditorCurrentUser,
     EditorMode,
@@ -135,13 +135,13 @@
               ? `/${currentUser.username}/dashboard/pages`
               : "/"}
             class="text-(--f2z-text-secondary) hover:!bg-transparent hover:text-(--f2z-accent-primary)"
-            aria-label={t("editor.backToDashboard", "Back to your articles")}
+            aria-label={$t("editor.backToDashboard", "Back to your articles")}
           >
             <ArrowLeft class="size-4" />
           </Button>
         </Tooltip.Trigger>
         <Tooltip.Content>
-          <p>{t("editor.backToDashboard", "Back to your articles")}</p>
+          <p>{$t("editor.backToDashboard", "Back to your articles")}</p>
         </Tooltip.Content>
       </Tooltip.Root>
 
@@ -167,11 +167,11 @@
               class="flex items-center gap-1.5 px-1 text-xs font-medium text-(--f2z-accent-primary) hover:underline"
             >
               {@render statusIcon()}
-              {t("editor.published", "Published")}
+              {$t("editor.published", "Published")}
             </a>
           </Tooltip.Trigger>
           <Tooltip.Content>
-            <p>{t("editor.viewArticle", "View published article")}</p>
+            <p>{$t("editor.viewArticle", "View published article")}</p>
           </Tooltip.Content>
         </Tooltip.Root>
       {:else}
@@ -182,9 +182,9 @@
         >
           {@render statusIcon()}
           {#if isScheduled}
-            {t("editor.scheduled", "Scheduled")}
+            {$t("editor.scheduled", "Scheduled")}
           {:else}
-            {t("editor.draft", "Draft")}
+            {$t("editor.draft", "Draft")}
           {/if}
         </span>
       {/if}
@@ -204,19 +204,19 @@
           >
             {#if isSaving}
               <Loader2 class="h-3.5 w-3.5 animate-spin" />
-              {t("editor.saving", "Saving...")}
+              {$t("editor.saving", "Saving...")}
             {:else if saveError}
               <AlertCircle class="h-3.5 w-3.5" />
-              {t("editor.saveError", "Couldn't save")}
+              {$t("editor.saveError", "Couldn't save")}
             {:else if isDirty}
               <CloudUpload class="h-3.5 w-3.5" />
-              {t("editor.unsaved", "Unsaved changes")}
+              {$t("editor.unsaved", "Unsaved changes")}
             {:else if lastSavedAt}
               <Check class="h-3.5 w-3.5 text-(--f2z-accent-primary)" />
-              {t("editor.saved", "Saved")}
+              {$t("editor.saved", "Saved")}
             {:else}
               <CloudUpload class="h-3.5 w-3.5" />
-              {t("editor.autosave", "Autosave on")}
+              {$t("editor.autosave", "Autosave on")}
             {/if}
           </span>
         </Tooltip.Trigger>
@@ -225,7 +225,7 @@
             <p>{saveError}</p>
           {:else if !isDirty && lastSavedAt}
             <p>
-              {t("editor.lastSaved", "Last saved")}
+              {$t("editor.lastSaved", "Last saved")}
               {new Date(lastSavedAt).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -272,7 +272,7 @@
           class="rounded-full border-(--f2z-border-primary) px-4"
           onclick={() => (publishSheetOpen = true)}
         >
-          {t("editor.update", "Update")}
+          {$t("editor.update", "Update")}
         </Button>
       {:else if canSave}
         <Button
@@ -280,20 +280,20 @@
           class="rounded-full px-4 md:px-5"
           onclick={() => (publishSheetOpen = true)}
         >
-          {t("editor.publish", "Publish")}
+          {$t("editor.publish", "Publish")}
         </Button>
       {:else}
         <Tooltip.Root>
           <Tooltip.Trigger>
             <Button size="sm" class="rounded-full px-4 md:px-5" disabled>
-              {t("editor.publish", "Publish")}
+              {$t("editor.publish", "Publish")}
             </Button>
           </Tooltip.Trigger>
           <Tooltip.Content>
             <p>
               {!title.trim()
-                ? t("editor.publishNeedsTitle", "Add a title to publish")
-                : t(
+                ? $t("editor.publishNeedsTitle", "Add a title to publish")
+                : $t(
                     "editor.publishNeedsContent",
                     "Write some content to publish",
                   )}

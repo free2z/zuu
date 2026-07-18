@@ -1,6 +1,7 @@
 import type { Actions, PageServerLoad } from './$types';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { fetchPricing } from '$lib/pricing';
 
 const DEFAULT_API_BASE = 'http://localhost:8000';
 const DEFAULT_PAGE_SIZE = 10;
@@ -183,10 +184,11 @@ export const load: PageServerLoad = async ({ params, cookies, fetch, url }) => {
             page: String(transactionsPage),
         });
 
-        const [subscriptions, transactions, subscribers] = await Promise.all([
+        const [subscriptions, transactions, subscribers, pricing] = await Promise.all([
             safeJson(fetch, `${apiBase}/api/tuzis/my-subscriptions?${subscriptionsQuery.toString()}`, sessionId),
             safeJson(fetch, `${apiBase}/api/stripe/transactions/?${transactionsQuery.toString()}`, sessionId),
             safeJson(fetch, `${apiBase}/api/tuzis/my-subscribers?${subscribersQuery.toString()}`, sessionId),
+            fetchPricing(fetch, apiBase),
         ]);
 
         return {
@@ -194,6 +196,7 @@ export const load: PageServerLoad = async ({ params, cookies, fetch, url }) => {
             subscriptions,
             transactions,
             subscribers,
+            pricing,
             subscriptionOrdering,
             subscriberOrdering,
             subscriptionsPage,

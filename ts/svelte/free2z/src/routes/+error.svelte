@@ -39,11 +39,21 @@
 	});
 
 	function goBack() {
-		history.back();
+		if (window.history.length > 1) {
+			window.history.back();
+			return;
+		}
+
+		void goto('/');
 	}
 </script>
 
-<div class="relative flex-1 w-full flex flex-col items-center justify-center overflow-hidden bg-background">
+<svelte:head>
+	<title>{currentStatus} — {errorInfo.title} | Free2Z</title>
+	<meta name="robots" content="noindex, nofollow, noarchive" />
+</svelte:head>
+
+<div class="relative h-[calc(100vh-3.5rem)] w-full shrink-0 flex flex-col items-center justify-center overflow-hidden bg-background">
 	<!-- Abstract Background (Entire Page) -->
 	<div class="absolute inset-0 overflow-hidden pointer-events-none select-none">
 		<!-- Gradient -->
@@ -93,7 +103,7 @@
 				<ArrowLeft class="w-4 h-4" />
 				Go Back
 			</Button>
-			<Button onclick={() => goto('/')} variant="default" class="w-full sm:w-auto gap-2 min-w-[140px] transition-all  shadow-lg hover:shadow-primary/25">
+			<Button href="/" variant="default" class="w-full sm:w-auto gap-2 min-w-[140px] transition-all  shadow-lg hover:shadow-primary/25">
 				<Home class="w-4 h-4" />
 				Return Home
 			</Button>

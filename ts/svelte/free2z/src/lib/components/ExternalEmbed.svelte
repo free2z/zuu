@@ -2,6 +2,8 @@
   // @ts-ignore: workaround for "svelte/types/index.d.ts is not a module" in some TS setups
   import { onMount, tick } from "svelte";
   import { browser } from "$app/environment";
+  import { env } from "$env/dynamic/public";
+  import DOMPurify from "isomorphic-dompurify";
   import {
     privacyStore,
     extractDomain,
@@ -28,6 +30,15 @@
   let currentUrl = "";
   let embedTheme: "light" | "dark" = "light";
   let isDestroyed = false;
+  let iframelyContainer: HTMLDivElement;
+  let iframelyLoadKey = "";
+  let iframelyLoading = false;
+  let iframelyError = false;
+
+  // This is the same browser-visible key used by the classic UI. Deployments
+  // can replace it without code changes via PUBLIC_IFRAMELY_API_KEY.
+  const iframelyApiKey =
+    env.PUBLIC_IFRAMELY_API_KEY || "c7c62b2d895d05ffeb410c4d535e6823";
 
   type TwitterWidgets = {
     widgets?: {
@@ -58,6 +69,9 @@
     showConsentDialog = false;
     tweetRenderKey = "";
     tweetRenderFailed = false;
+    iframelyLoadKey = "";
+    iframelyLoading = false;
+    iframelyError = false;
   }
 
   $: if (url) {
@@ -179,7 +193,7 @@
 
       // YouTube short URL
       if (hostname === "youtu.be") {
-        const videoId = urlObj.pathname.slice(1);
+        const videoId = urlObj.pathname.split("/").filter(Boolean)[0];
         if (videoId) {
           return `https://www.youtube.com/embed/${videoId}`;
         }
@@ -187,20 +201,10 @@
 
       // Vimeo embed
       if (hostname === "vimeo.com" || hostname.endsWith(".vimeo.com")) {
-        const videoId = urlObj.pathname.split("/")[1];
+        const videoId = /^\/(\d+)(?:\/|$)/.exec(urlObj.pathname)?.[1];
         if (videoId) {
           return `https://player.vimeo.com/video/${videoId}`;
         }
-      }
-
-      // Instagram embed
-      if (hostname === "instagram.com" || hostname === "www.instagram.com") {
-        return `${originalUrl}embed/`;
-      }
-
-      // TikTok embed
-      if (hostname === "tiktok.com" || hostname === "www.tiktok.com") {
-        return `https://www.tiktok.com/embed/${urlObj.pathname}`;
       }
 
       // SoundCloud - use oEmbed or their widget
@@ -330,11 +334,77 @@
     }
   }
 
+  async function renderIframelyEmbed() {
+    const requestedUrl = url;
+    if (
+      !browser ||
+      !hasConsent ||
+      !isVisible ||
+      !usesIframely ||
+      iframelyLoadKey === requestedUrl
+    ) {
+      return;
+    }
+
+    iframelyLoadKey = requestedUrl;
+    iframelyLoading = true;
+    iframelyError = false;
+
+    try {
+      const endpoint = new URL("https://cdn.iframe.ly/api/iframely");
+      endpoint.searchParams.set("url", requestedUrl);
+      endpoint.searchParams.set("key", iframelyApiKey);
+      endpoint.searchParams.set("iframe", "1");
+      endpoint.searchParams.set("omit_script", "1");
+
+      const response = await fetch(endpoint);
+      if (!response.ok) throw new Error(`Iframely returned ${response.status}`);
+      const payload = await response.json();
+      if (isDestroyed || iframelyLoadKey !== requestedUrl) return;
+      if (!payload?.html) {
+        throw new Error(payload?.message || "No embeddable content returned");
+      }
+
+      iframelyLoading = false;
+      await tick();
+      if (!iframelyContainer || isDestroyed) return;
+
+      iframelyContainer.innerHTML = DOMPurify.sanitize(payload.html, {
+        ADD_TAGS: ["iframe"],
+        ADD_ATTR: [
+          "allow",
+          "allowfullscreen",
+          "frameborder",
+          "height",
+          "loading",
+          "referrerpolicy",
+          "sandbox",
+          "scrolling",
+          "src",
+          "style",
+          "width",
+        ],
+        ALLOWED_URI_REGEXP: /^(?:(?:https?):|\/(?!\/)|#|[^:/?#]*(?:[/?#]|$))/i,
+      });
+    } catch (error) {
+      if (iframelyLoadKey !== requestedUrl) return;
+      console.error("[ExternalEmbed] Iframely render failed:", error);
+      iframelyLoading = false;
+      iframelyError = true;
+    }
+  }
+
   $: embedUrl = getEmbedUrl(url);
   $: tweetId = getTweetId(url);
   $: isTwitterEmbed = isTwitterEmbedUrl(url) && !!tweetId;
+  // Known providers get a transformed player URL. Everything else goes
+  // through Iframely instead of attempting to frame a provider web page.
+  $: usesIframely = !isTwitterEmbed && embedUrl === url;
   $: if (browser && hasConsent && isVisible && isTwitterEmbed && embedTheme) {
     tick().then(renderTweetEmbed);
+  }
+  $: if (browser && hasConsent && isVisible && usesIframely && url) {
+    tick().then(renderIframelyEmbed);
   }
 </script>
 
@@ -449,6 +519,24 @@
           </div>
         {/if}
       </div>
+    {:else if usesIframely}
+      <div class="iframely-embed-shell">
+        {#if iframelyLoading}
+          <div class="embed-status">Loading embedded content…</div>
+        {:else if iframelyError}
+          <div class="embed-status">
+            This provider could not be embedded.
+            <a href={url} target="_blank" rel="noopener noreferrer"
+              >Open it directly</a
+            >
+          </div>
+        {:else}
+          <div
+            bind:this={iframelyContainer}
+            class="iframely-embed-target"
+          ></div>
+        {/if}
+      </div>
     {:else}
       <div
         class="relative h-0 w-full overflow-hidden rounded-md bg-card pb-[56.25%]"
@@ -528,5 +616,36 @@
     overflow: hidden !important;
     border-radius: 16px !important;
     clip-path: inset(2px round 16px);
+  }
+
+  .iframely-embed-shell {
+    width: 100%;
+    overflow: hidden;
+    border-radius: 0.75rem;
+  }
+
+  .iframely-embed-target {
+    width: 100%;
+  }
+
+  .iframely-embed-target :global(iframe) {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    border: 0;
+  }
+
+  .embed-status {
+    border: 1px dashed var(--border);
+    border-radius: 0.75rem;
+    background: var(--card);
+    padding: 1.5rem;
+    color: var(--muted-foreground);
+    text-align: center;
+  }
+
+  .embed-status a {
+    margin-left: 0.35rem;
+    color: var(--primary);
   }
 </style>

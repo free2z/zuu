@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { authStore } from '$lib/stores/auth';
-  import { t } from '$lib/i18n';
+  import { tStore as t } from '$lib/i18n';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -99,10 +99,10 @@
         class="text-center text-2xl font-bold flex items-center justify-center gap-2"
       >
         <Smartphone class="h-6 w-6" />
-        {t('common.auth.twoFactorTitle', 'Two-Factor Authentication')}
+        {$t('common.auth.twoFactorTitle', 'Two-Factor Authentication')}
       </DialogTitle>
       <DialogDescription class="text-center">
-        {t(
+        {$t(
           'common.auth.otpDescription',
           'Enter the 6-digit code from your authenticator app'
         )}
@@ -113,7 +113,7 @@
       <!-- OTP Code Field -->
       <div class="space-y-2">
         <Label for="otpCode" class="text-center block">
-          {t('common.auth.verificationCode', 'Verification Code')}
+          {$t('common.auth.verificationCode', 'Verification Code')}
         </Label>
         <Input
           id="otpCode"
@@ -133,7 +133,7 @@
 
       <!-- Helper Text -->
       <p class="text-center text-sm text-gray-600">
-        {t(
+        {$t(
           'common.auth.otpHelp',
           'Open your authenticator app and enter the 6-digit code'
         )}
@@ -148,7 +148,7 @@
           onclick={goBack}
           disabled={isLoading}
         >
-          {t('common.auth.back', 'Back')}
+          {$t('common.auth.back', 'Back')}
         </Button>
 
         <Button
@@ -158,9 +158,9 @@
         >
           {#if isLoading}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {t('common.auth.verifying', 'Verifying...')}
+            {$t('common.auth.verifying', 'Verifying...')}
           {:else}
-            {t('common.auth.verify', 'Verify')}
+            {$t('common.auth.verify', 'Verify')}
           {/if}
         </Button>
       </div>
@@ -177,10 +177,9 @@
             console.log('Trouble with 2FA');
           }}
         >
-          {t('common.auth.troubleWith2FA', 'Having trouble with 2FA?')}
+          {$t('common.auth.troubleWith2FA', 'Having trouble with 2FA?')}
         </Button>
       </div>
     </form>
   </DialogContent>
 </Dialog>
-

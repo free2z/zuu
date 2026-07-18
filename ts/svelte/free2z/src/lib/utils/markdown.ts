@@ -1,9 +1,10 @@
 import { marked } from "marked";
-import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js";
 import katex from "katex";
+import markedFootnote from "marked-footnote";
+import { gfmHeadingId } from "marked-gfm-heading-id";
 import { env } from "$env/dynamic/public";
-import { isExternalEmbedDomain } from "./embed-domains";
+import { sanitizeMarkdownHtml } from "./markdown-sanitize";
 
 type MathToken = {
   type: "blockMath" | "inlineMath";
@@ -11,8 +12,19 @@ type MathToken = {
   text: string;
 };
 
+type DirectiveToken = {
+  type: "blockDirective";
+  raw: string;
+  name: "embed" | "iframe" | "qrcode";
+  value: string;
+  block: boolean;
+};
+
 let markdownConfigured = false;
-const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|mov)$/i;
+const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|mov)(?:[?#].*)?$/i;
+const AUDIO_EXTENSION_PATTERN =
+  /\.(mp3|ogg|wav|m4a|aac|flac|opus)(?:[?#].*)?$/i;
+const FREE2Z_UPLOAD_HOST_PATTERN = /(^|\.)free2z\.(?:cash|com|net)$/i;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   bash: "Bash",
@@ -77,16 +89,35 @@ function getApiUploadUrl(path: string) {
 }
 
 function rewriteFree2zUploadUrl(url: string) {
-  if (!url.includes("free2z.cash/uploadz/")) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
     return url;
   }
 
-  return getApiUploadUrl(url.substring(url.indexOf("/uploadz/")));
+  if (
+    !FREE2Z_UPLOAD_HOST_PATTERN.test(parsed.hostname) ||
+    !parsed.pathname.startsWith("/uploadz/")
+  ) {
+    return url;
+  }
+
+  return getApiUploadUrl(`${parsed.pathname}${parsed.search}${parsed.hash}`);
 }
 
 function renderVideoEmbed(url: string) {
+  const extension = /\.(mp4|webm|mov)(?:[?#].*)?$/i
+    .exec(url)?.[1]
+    .toLowerCase();
+  const mimeType =
+    extension === "webm"
+      ? "video/webm"
+      : extension === "mov"
+        ? "video/quicktime"
+        : "video/mp4";
   return `<video controls class="markdown-video">
-    <source src="${escapeHtmlAttribute(url)}" type="video/mp4">
+    <source src="${escapeHtmlAttribute(url)}" type="${mimeType}">
     Your browser does not support the video tag.
   </video>`;
 }
@@ -95,8 +126,16 @@ function renderExternalEmbedPlaceholder(url: string) {
   return `<div class="external-embed-placeholder" data-embed-url="${escapeHtmlAttribute(url)}"></div>`;
 }
 
+function renderAudioEmbed(url: string) {
+  return `<div class="audio-embed-placeholder" data-audio-url="${escapeHtmlAttribute(url)}"></div>`;
+}
+
 function renderUploadEmbed(uploadPath: string) {
   const fullUrl = getApiUploadUrl(uploadPath);
+
+  if (AUDIO_EXTENSION_PATTERN.test(uploadPath)) {
+    return renderAudioEmbed(fullUrl);
+  }
 
   if (VIDEO_EXTENSION_PATTERN.test(uploadPath)) {
     return renderVideoEmbed(fullUrl);
@@ -106,29 +145,162 @@ function renderUploadEmbed(uploadPath: string) {
 }
 
 function renderHttpEmbed(url: string) {
-  if (isExternalEmbedDomain(url)) {
-    return renderExternalEmbedPlaceholder(url);
+  const rewrittenUrl = rewriteFree2zUploadUrl(url);
+
+  if (AUDIO_EXTENSION_PATTERN.test(rewrittenUrl)) {
+    return renderAudioEmbed(rewrittenUrl);
   }
 
-  if (VIDEO_EXTENSION_PATTERN.test(url)) {
-    return renderVideoEmbed(rewriteFree2zUploadUrl(url));
+  if (VIDEO_EXTENSION_PATTERN.test(rewrittenUrl)) {
+    return renderVideoEmbed(rewrittenUrl);
   }
 
   return renderExternalEmbedPlaceholder(url);
 }
 
-function processCustomEmbeds(content: string) {
-  return content.replace(/::embed\[([^\]]+)\]/gi, (match, url) => {
-    const trimmedUrl = url.trim();
+function renderDirective(token: DirectiveToken) {
+  const value = token.value.trim();
+  if (!value) return escapeHtml(token.raw);
 
-    if (trimmedUrl.startsWith("/uploadz/")) {
-      return renderUploadEmbed(trimmedUrl);
+  let rendered: string;
+  if (token.name === "qrcode") {
+    rendered = `<div class="qrcode-embed" data-qr-value="${escapeHtmlAttribute(value)}"></div>`;
+  } else if (value.startsWith("/uploadz/")) {
+    rendered = renderUploadEmbed(value);
+  } else {
+    const safeUrl = getSafeHttpUrl(value);
+    rendered = safeUrl ? renderHttpEmbed(safeUrl) : escapeHtml(token.raw);
+  }
+
+  return token.block ? `${rendered}\n` : rendered;
+}
+
+function parseCodeInfo(info = "", lineCount = 0) {
+  const language = info.trim().split(/\s+/)[0]?.toLowerCase() || "";
+  const highlightedLines = new Set<number>();
+  const rangeMatch = /\{([^}]+)\}/.exec(info);
+
+  for (const part of rangeMatch?.[1]?.split(",") || []) {
+    const range = /^(\d+)(?:-(\d+))?$/.exec(part.trim());
+    if (!range) continue;
+    const start = Number(range[1]);
+    const end = Number(range[2] || range[1]);
+    const boundedStart = Math.max(1, start);
+    const boundedEnd = Math.min(lineCount, end);
+    for (let line = boundedStart; line <= boundedEnd; line += 1) {
+      highlightedLines.add(line);
+    }
+  }
+
+  return {
+    language,
+    highlightedLines,
+    showLineNumbers: /(?:^|\s)showLineNumbers(?:\s|$)/i.test(info),
+  };
+}
+
+function splitHighlightedCodeIntoLines(html: string) {
+  const lines = [""];
+  const openSpans: string[] = [];
+  const tokens = html.split(/(<span\b[^>]*>|<\/span>|\n)/g);
+
+  for (const token of tokens) {
+    if (token === "\n") {
+      lines[lines.length - 1] += "</span>".repeat(openSpans.length);
+      lines.push(openSpans.join(""));
+    } else if (token.startsWith("<span")) {
+      openSpans.push(token);
+      lines[lines.length - 1] += token;
+    } else if (token === "</span>") {
+      openSpans.pop();
+      lines[lines.length - 1] += token;
+    } else {
+      lines[lines.length - 1] += token;
+    }
+  }
+
+  return lines;
+}
+
+function renderCodeBlock(code: string, info = "") {
+  const {
+    language: requested,
+    highlightedLines,
+    showLineNumbers,
+  } = parseCodeInfo(info, code.split("\n").length);
+  const language =
+    requested && hljs.getLanguage(requested) ? requested : "plaintext";
+  const safeLanguage = language.replace(/[^a-z0-9_-]/gi, "");
+
+  if (requested === "mermaid") {
+    return `<pre><code class="language-mermaid">${escapeHtml(code)}</code></pre>\n`;
+  }
+
+  const highlightedCode =
+    language === "plaintext"
+      ? escapeHtml(code)
+      : hljs.highlight(code, { language }).value;
+  const highlighted = splitHighlightedCodeIntoLines(highlightedCode)
+    .map((html, index) => {
+      const lineNumber = index + 1;
+      const highlightClass = highlightedLines.has(lineNumber)
+        ? " code-line-highlighted"
+        : "";
+      return `<span class="code-line${highlightClass}">${html || " "}</span>`;
+    })
+    .join("");
+  const lineNumberClass = showLineNumbers ? " show-line-numbers" : "";
+
+  return `<pre><code class="hljs language-${safeLanguage}${lineNumberClass}">${highlighted}</code></pre>\n`;
+}
+
+function normalizeF2zFootnotes(content: string) {
+  const lines = content.split("\n");
+  const normalized: string[] = [];
+  let fenceMarker: { character: string; length: number } | null = null;
+
+  for (const line of lines) {
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence && !fenceMarker) {
+      const marker = fence[1];
+      const suffix = fence[2];
+      if (marker[0] !== "`" || !suffix.includes("`")) {
+        fenceMarker = { character: marker[0], length: marker.length };
+      }
+    } else if (fence && fenceMarker) {
+      const marker = fence[1];
+      if (
+        marker[0] === fenceMarker.character &&
+        marker.length >= fenceMarker.length &&
+        !fence[2].trim()
+      ) {
+        fenceMarker = null;
+      }
     }
 
-    const safeUrl = getSafeHttpUrl(trimmedUrl);
+    // The reference zpage places its definition directly after the reference.
+    // marked-footnote follows CommonMark block boundaries, so make that common
+    // classic-f2z shape explicit without changing examples inside code fences.
+    if (
+      !fenceMarker &&
+      /^ {0,3}\[\^[^\]]+\]:/.test(line) &&
+      normalized.at(-1)?.trim()
+    ) {
+      normalized.push("");
+    }
 
-    return safeUrl ? renderHttpEmbed(safeUrl) : escapeHtml(match);
-  });
+    normalized.push(line);
+  }
+
+  return normalized.join("\n");
+}
+
+function stripLeadingFrontmatter(content: string) {
+  const match =
+    /^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(
+      content,
+    );
+  return match ? content.slice(match[0].length) : content;
 }
 
 function configureMarkdown() {
@@ -143,45 +315,57 @@ function configureMarkdown() {
 
   const renderer = new marked.Renderer();
 
+  renderer.code = function ({ text, lang }) {
+    return renderCodeBlock(text, lang || "");
+  };
+
+  // Match classic react-markdown behavior: author-supplied raw HTML is shown
+  // as text, not interpreted as DOM. Generated f2z directive HTML is emitted
+  // by extension renderers and is unaffected by this renderer.
+  renderer.html = function ({ text }) {
+    return escapeHtml(text);
+  };
+
   renderer.image = function ({ href, title, text }) {
     if (href && href.startsWith("/uploadz/")) {
-      const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
-      href = `${apiBase}${href}`;
-    }
-
-    if (href && href.includes("free2z.cash/uploadz/")) {
-      const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
-      const uploadPath = href.substring(href.indexOf("/uploadz/"));
-      href = `${apiBase}${uploadPath}`;
+      href = getApiUploadUrl(href);
+    } else if (href) {
+      href = rewriteFree2zUploadUrl(href);
     }
 
     const titleAttr = title ? ` title="${escapeHtmlAttribute(title)}"` : "";
     return `<img src="${escapeHtmlAttribute(href)}" alt="${escapeHtmlAttribute(text)}"${titleAttr} />`;
   };
 
-  marked.use(
-    markedHighlight({
-      langPrefix: "hljs language-",
-      highlight(code, lang) {
-        const language = lang && hljs.getLanguage(lang) ? lang : "plaintext";
-        return hljs.highlight(code, { language }).value;
-      },
-    }),
-  );
-
   marked.use({
     extensions: [
       {
+        name: "blockDirective",
+        level: "block",
+        tokenizer(src) {
+          const match =
+            /^ {0,3}::(embed|iframe|qrcode)\[([^\]\n]+)\][ \t]*(?:\n|$)/i.exec(
+              src,
+            );
+          if (!match) return undefined;
+          return {
+            type: "blockDirective",
+            raw: match[0],
+            name: match[1].toLowerCase(),
+            value: match[2],
+            block: true,
+          } as DirectiveToken;
+        },
+        renderer(token) {
+          return renderDirective(token as DirectiveToken);
+        },
+      },
+      {
         name: "blockMath",
         level: "block",
-        start(src) {
-          const match = /(?:\$\$|\\\[)/.exec(src);
-          return match?.index;
-        },
         tokenizer(src) {
           const rules = [
             /^(?: {0,3})\$\$[ \t]*\n([\s\S]+?)\n\$\$[ \t]*(?:\n|$)/,
-            /^(?: {0,3})\$\$([^\n]+?)\$\$[ \t]*(?:\n|$)/,
             /^(?: {0,3})\\\[[ \t]*\n([\s\S]+?)\n\\\][ \t]*(?:\n|$)/,
             /^(?: {0,3})\\\[([^\n]+?)\\\][ \t]*(?:\n|$)/,
           ];
@@ -212,15 +396,12 @@ function configureMarkdown() {
         name: "inlineMath",
         level: "inline",
         start(src) {
-          const match = /(?:\$|\\\()/.exec(src);
+          const match = /(?:\$\$|\\\()/.exec(src);
           return match?.index;
         },
         tokenizer(src) {
-          if (src.startsWith("$$") || src.startsWith("\\[")) {
-            return undefined;
-          }
-
-          const dollarMatch = /^\$((?:\\.|[^\\$\n])+?)\$(?!\$)/.exec(src);
+          const dollarMatch =
+            /^\$\$((?:\\.|[^\\$\n]|\$(?!\$))+?)\$\$(?!\$)/.exec(src);
           if (dollarMatch) {
             const text = dollarMatch[1] ?? "";
             if (text.trim() === text && text.length > 0) {
@@ -251,28 +432,36 @@ function configureMarkdown() {
     renderer,
   });
 
+  marked.use(markedFootnote());
+  marked.use(gfmHeadingId());
+
   markdownConfigured = true;
 }
 
-export function processMarkdown(content: string): string {
+function renderMarkdown(content: string): string {
   if (!content) return "";
 
   try {
     configureMarkdown();
 
-    const processedContent = processCustomEmbeds(content);
-    const result = marked(processedContent);
+    const result = marked(
+      normalizeF2zFootnotes(stripLeadingFrontmatter(content)),
+    );
 
     if (typeof result === "string") {
-      return result;
+      return sanitizeMarkdownHtml(result);
     }
 
     console.warn("Async markdown processing not yet supported");
-    return processedContent;
+    return sanitizeMarkdownHtml(content);
   } catch (error) {
     console.error("Error processing markdown:", error);
-    return content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return escapeHtml(content);
   }
+}
+
+export function processMarkdown(content: string): string {
+  return renderMarkdown(content);
 }
 
 export function getCodeLanguageInfo(languageClass = "") {
@@ -312,9 +501,26 @@ export function extractPlainText(content: string, maxLength = 160): string {
   if (!content) return "";
 
   try {
-    const htmlContent = processMarkdown(content);
+    const htmlContent = processMarkdown(content)
+      .replace(
+        /<section\b[^>]*class="[^"]*\bfootnotes\b[^"]*"[^>]*>[\s\S]*<\/section>\s*$/i,
+        "",
+      )
+      .replace(
+        /<sup>\s*<a\b(?=[^>]*\bdata-footnote-ref\b)[^>]*>[\s\S]*?<\/a>\s*<\/sup>/gi,
+        "",
+      );
     const textContent = htmlContent
       .replace(/<[^>]*>/g, "")
+      .replace(/&#(\d+);/g, (_, value) => String.fromCodePoint(Number(value)))
+      .replace(/&#x([\da-f]+);/gi, (_, value) =>
+        String.fromCodePoint(Number.parseInt(value, 16)),
+      )
+      .replaceAll("&amp;", "&")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
       .replace(/\s+/g, " ")
       .trim();
 

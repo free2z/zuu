@@ -1,32 +1,46 @@
-import { browser } from '$app/environment';
-import i18n from '@sveltekit-i18n/base';
-import parser from '@sveltekit-i18n/parser-default';
-import { writable, derived } from 'svelte/store';
+import { browser } from "$app/environment";
+import i18n from "@sveltekit-i18n/base";
+import parser from "@sveltekit-i18n/parser-default";
+import { writable, derived, get } from "svelte/store";
+import {
+  DEFAULT_LOCALE,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
+  normalizeLocale,
+  resolveLocale,
+} from "./locale.js";
 
-const defaultLocale = 'en';
+export type SupportedLocale = "en" | "es" | "fr";
 
-// Get browser locale with fallback
-function getBrowserLocale(): string {
-  if (!browser) return defaultLocale;
+export const languageOptions: ReadonlyArray<{
+  code: SupportedLocale;
+  label: string;
+}> = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Español" },
+  { code: "fr", label: "Français" },
+];
 
-  // Get the browser's preferred language
-  const browserLang =
-    window.navigator.language || window.navigator.languages?.[0];
+function getInitialLocale(): SupportedLocale {
+  if (!browser) return DEFAULT_LOCALE;
 
-  if (!browserLang) return defaultLocale;
+  let savedLocale: string | null = null;
+  try {
+    savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  } catch {
+    // Storage can be unavailable in privacy-focused browser modes.
+  }
 
-  // Extract just the language code (e.g., 'en' from 'en-US')
-  const langCode = browserLang.split('-')[0].toLowerCase();
-
-  // Check if we support this language
-  const supportedLocales = ['en', 'es', 'fr'];
-  return supportedLocales.includes(langCode) ? langCode : defaultLocale;
+  return resolveLocale({
+    savedLocale,
+    browserLocale: window.navigator.languages?.[0] || window.navigator.language,
+  }) as SupportedLocale;
 }
 
 // Load translations statically for SSR
-import enTranslations from './locales/en.json';
-import esTranslations from './locales/es.json';
-import frTranslations from './locales/fr.json';
+import enTranslations from "./locales/en.json";
+import esTranslations from "./locales/es.json";
+import frTranslations from "./locales/fr.json";
 
 const translations = {
   en: enTranslations,
@@ -37,22 +51,34 @@ const translations = {
 // Simple translation function that works in SSR
 function getTranslation(
   key: string,
-  currentLocale: string = defaultLocale
+  currentLocale: string = DEFAULT_LOCALE,
 ): string {
   try {
-    const keys = key.replace('common.', '').split('.');
+    const keys = key.replace("common.", "").split(".");
     let result: any =
       translations[currentLocale as keyof typeof translations] ||
-      translations[defaultLocale as keyof typeof translations];
+      translations[DEFAULT_LOCALE as keyof typeof translations];
 
     for (const k of keys) {
       result = result?.[k];
     }
 
-    return typeof result === 'string' ? result : key;
+    return typeof result === "string" ? result : key;
   } catch {
     return key;
   }
+}
+
+function interpolate(template: string, args: any[]) {
+  const values = args.find(
+    (value) => value && typeof value === 'object' && !Array.isArray(value)
+  ) as Record<string, unknown> | undefined;
+  if (!values) return template;
+
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key: string) => {
+    const value = values[key];
+    return value === undefined || value === null ? match : String(value);
+  });
 }
 
 /** @type {import('@sveltekit-i18n/parser-default').Config} */
@@ -61,45 +87,62 @@ const config = {
   loaders: [
     // English
     {
-      locale: 'en',
-      key: '',
+      locale: "en",
+      key: "",
       loader: async () => translations.en,
     },
     // Spanish
     {
-      locale: 'es',
-      key: '',
+      locale: "es",
+      key: "",
       loader: async () => translations.es,
     },
     // French
     {
-      locale: 'fr',
-      key: '',
+      locale: "fr",
+      key: "",
       loader: async () => translations.fr,
     },
   ],
-  fallbackLocale: defaultLocale,
-  initialLocale: getBrowserLocale(),
+  fallbackLocale: DEFAULT_LOCALE,
+  initialLocale: getInitialLocale(),
 };
 
 const i18nInstance = new i18n(config);
 
 // Create stores
-export const locale = writable(defaultLocale);
+export const locale = writable<SupportedLocale>(getInitialLocale());
 export const loading = writable(false);
+
+export function setLocale(nextLocale: string): void {
+  const normalizedLocale = normalizeLocale(
+    nextLocale,
+  ) as SupportedLocale | null;
+  if (!normalizedLocale) return;
+
+  locale.set(normalizedLocale);
+
+  if (!browser) return;
+
+  document.documentElement.lang = normalizedLocale;
+  try {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, normalizedLocale);
+  } catch {
+    // The in-memory selection still works when persistence is unavailable.
+  }
+}
 
 // Create a simple t function that works in SSR and client
 export function t(key: string, fallback?: string, ...args: any[]): string {
-  const currentLocale = browser ? getBrowserLocale() : defaultLocale;
-  const translation = getTranslation(key, currentLocale);
-  return translation !== key ? translation : fallback || key;
+  const translation = getTranslation(key, get(locale));
+  return interpolate(translation !== key ? translation : fallback || key, args);
 }
 
 // Also export as a store for reactive usage
 export const tStore = derived(locale, ($locale) => {
   return (key: string, fallback?: string, ...args: any[]) => {
     const translation = getTranslation(key, $locale);
-    return translation !== key ? translation : fallback || key;
+    return interpolate(translation !== key ? translation : fallback || key, args);
   };
 });
 
@@ -108,12 +151,14 @@ export const locales = i18nInstance.locales;
 export const loadTranslations = i18nInstance.loadTranslations;
 
 if (browser) {
-  const currentLocale = getBrowserLocale();
-  locale.set(currentLocale);
+  const currentLocale = get(locale);
+  document.documentElement.lang = currentLocale;
   loading.set(true);
 
-  console.log('Initializing i18n with locale:', currentLocale);
+  console.log("Initializing i18n with locale:", currentLocale);
 
   // Since we're using static imports, we don't need to load translations
   loading.set(false);
 }
+
+export { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, SUPPORTED_LOCALES };

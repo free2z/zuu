@@ -9,6 +9,7 @@
     Link2,
     Quote,
     Code,
+    Sigma,
     Strikethrough,
   } from "@lucide/svelte";
   import { editorShortcuts, getShortcutLabel } from "./shortcuts";
@@ -127,6 +128,16 @@
       class="h-8 w-8 p-0"
     >
       <Code class="h-4 w-4" />
+    </Button>
+
+    <Button
+      variant="ghost"
+      size="sm"
+      onclick={() => wrapSelection("$$")}
+      title="Inline Math ($$…$$)"
+      class="h-8 w-8 p-0"
+    >
+      <Sigma class="h-4 w-4" />
     </Button>
   </div>
 {/if}

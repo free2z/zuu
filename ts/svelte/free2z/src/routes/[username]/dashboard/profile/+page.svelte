@@ -5,7 +5,11 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
   import MediaUploader from '$lib/components/media/MediaUploader.svelte';
+  import MarkdownContent from '$lib/components/MarkdownContent.svelte';
+  import SocialLinks from '$lib/components/profile/SocialLinks.svelte';
   import { formatRelativeTime } from '$lib/utils/date';
+  import { processMarkdown } from '$lib/utils/markdown';
+  import { parseBioFrontmatter } from '$lib/utils/bio';
   import { FileText, Sparkles, Users, Star, Wallet, CheckCircle2, Edit3, Eye, UploadCloud, User } from '@lucide/svelte';
 
   export let data: PageData;
@@ -50,6 +54,8 @@
 
   $: avatarUrl = buildImageUrl(creator.avatar_image);
   $: bannerUrl = buildImageUrl(creator.banner_image);
+  $: parsedBio = parseBioFrontmatter(creator.description || '');
+  $: bioHtml = processMarkdown(parsedBio.body);
 </script>
 
 <svelte:head>
@@ -201,9 +207,18 @@
             <CardTitle class="text-base">Creator Bio</CardTitle>
           </CardHeader>
           <CardContent class="space-y-4">
-            <p class="text-sm text-muted-foreground leading-relaxed">
-              {creator.description || 'Add a bio to tell supporters what you are creating.'}
-            </p>
+            {#if parsedBio.socials.length}
+              <SocialLinks links={parsedBio.socials} />
+            {/if}
+            {#if parsedBio.body.trim()}
+              <div class="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
+                <MarkdownContent html={bioHtml} />
+              </div>
+            {:else}
+              <p class="text-sm text-muted-foreground leading-relaxed">
+                Add a bio to tell supporters what you are creating.
+              </p>
+            {/if}
             
             <div class="pt-4 border-t space-y-3">
               <div class="flex items-center justify-between">
@@ -333,4 +348,3 @@
     </div>
   </div>
 </main>
-

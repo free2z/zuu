@@ -1,6 +1,6 @@
 <script lang="ts">
   import { currentUser } from '$lib/stores/auth';
-  import { t } from '$lib/i18n';
+  import { tStore as t } from '$lib/i18n';
   import Button from '$lib/components/ui/button/button.svelte';
   import UnifiedAuthModal from '$lib/components/auth/UnifiedAuthModal.svelte';
   import OTPModal from './OTPModal.svelte';
@@ -72,5 +72,5 @@
   type="button"
   class="px-3"
 >
-  {t('common.auth.signIn', 'Sign In')}
+  {$t('common.auth.signIn', 'Sign In')}
 </Button>

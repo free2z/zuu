@@ -32,7 +32,14 @@ export function extractDomain(url: string): string {
  * Uses the centralized domain list from embed-domains.ts
  */
 export function isExternalEmbed(url: string): boolean {
-  return isExternalEmbedDomain(url);
+  if (isExternalEmbedDomain(url)) return true;
+
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /**

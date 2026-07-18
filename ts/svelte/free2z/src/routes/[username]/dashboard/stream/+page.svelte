@@ -6,11 +6,11 @@
     import {  currentUser } from '$lib/stores/auth';
     import { goto } from '$app/navigation';
     import { StreamService } from '$lib/services/stream';
-    import { initDyteMeeting } from '$lib/utils/dyte-manager';
+    import { initRtkMeeting } from '$lib/utils/rtk-manager';
     import { liveStreamStore, participantCount, isConnected } from '$lib/stores/liveStreamStore';
     import type { StreamType } from '$lib/stores/liveStreamStore';
-    import { defineCustomElements } from '@dytesdk/ui-kit/loader';
-    import { provideDyteDesignSystem } from '@dytesdk/ui-kit';
+    import { defineCustomElements } from '@cloudflare/realtimekit-ui/loader';
+    import { provideRtkDesignSystem } from '@cloudflare/realtimekit-ui';
     import { Users, Radio, DollarSign, Video, Lock, WifiOff, Mic, Settings } from '@lucide/svelte';
     import { Button, buttonVariants } from '$lib/components/ui/button';
     import { Input } from '$lib/components/ui/input';
@@ -46,7 +46,7 @@
     let settingsOpen = false;
 
     $: if (meetingEl) {
-        provideDyteDesignSystem(meetingEl, {
+        provideRtkDesignSystem(meetingEl, {
             theme: 'dark',
             borderRadius: 'rounded',
             borderWidth: 'thin',
@@ -197,8 +197,8 @@
                 }
             };
 
-            // 2. Initialize Dyte Meeting
-            const { cleanup: cleanupFn, meeting: meetingInstance } = await initDyteMeeting({
+            // 2. Initialize RealtimeKit Meeting
+            const { cleanup: cleanupFn, meeting: meetingInstance } = await initRtkMeeting({
                 authToken: auth_token,
                 streamType,
                 isHost: true,
@@ -472,7 +472,7 @@
             </div>
 
         {:else if meeting}
-            <!-- Dyte Meeting Interface -->
+            <!-- RealtimeKit Meeting Interface -->
             <div class="relative w-full h-full bg-[#060f06] rounded-2xl overflow-hidden shadow-2xl border border-white/10">
                 <!-- Participant Count Overlay -->
                 <div class="absolute top-4 left-4 z-10 flex items-center gap-2 pointer-events-none">
@@ -487,14 +487,13 @@
                     </div>
                 </div>
 
-                <!-- @ts-ignore -->
-                <dyte-meeting
+                <rtk-meeting
                     bind:this={meetingEl}
                     mode="fill"
-                    meeting={meeting}
+                    {meeting}
                     show-setup-screen={true}
                     class="w-full h-full"
-                ></dyte-meeting>
+                ></rtk-meeting>
             </div>
         {/if}
     </div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import { onMount } from "svelte";
   import { get } from "svelte/store";
   import { toast } from "svelte-sonner";
@@ -851,7 +851,7 @@
       return null;
     }
 
-    return `${file.name || "Image"} ${t(
+    return `${file.name || "Image"} ${$t(
       "editor.imageTooLarge",
       "exceeds your upload limit of",
     )} ${formatByteLimit(limit)}.`;
@@ -859,7 +859,7 @@
 
   async function startInlineUploads(files: File[], offset: number) {
     const jobs = files.map((file) => ({ file, token: createUploadToken() }));
-    const label = t("editor.uploadingImage", "Uploading image…");
+    const label = $t("editor.uploadingImage", "Uploading image…");
     const placeholderBlock = jobs
       .map((job) => buildUploadPlaceholder(job.token, label))
       .join("\n");
@@ -891,12 +891,12 @@
           // which surfaces as a fetch TypeError instead of an HTTP error.
           const message =
             error instanceof TypeError
-              ? t(
+              ? $t(
                   "editor.imageUploadRejected",
                   "Upload failed — the file may exceed your upload limit.",
                 )
               : error?.message ||
-                t("editor.imageUploadFailed", "Image upload failed.");
+                $t("editor.imageUploadFailed", "Image upload failed.");
           toast.error(message);
         }
       }),
@@ -918,7 +918,7 @@
 
     if (!sourcePath) {
       throw new Error(
-        t("editor.cloudImageOpenFailed", "Unable to open that image."),
+        $t("editor.cloudImageOpenFailed", "Unable to open that image."),
       );
     }
 
@@ -932,7 +932,7 @@
 
     if (!response.ok) {
       throw new Error(
-        t("editor.cloudImageOpenFailed", "Unable to open that image."),
+        $t("editor.cloudImageOpenFailed", "Unable to open that image."),
       );
     }
 
@@ -1008,7 +1008,7 @@
 
     if (!images.length) {
       toast.error(
-        t("editor.onlyImagesDrop", "Only image files can be dropped here."),
+        $t("editor.onlyImagesDrop", "Only image files can be dropped here."),
       );
       return;
     }
@@ -1073,7 +1073,7 @@
   class={`writing-area-textarea min-h-[400px] w-full resize-none overflow-hidden rounded-md border-none bg-transparent font-sans text-[1.125rem] leading-relaxed text-foreground transition-shadow outline-none placeholder:text-muted-foreground placeholder:opacity-40 ${
     dragActive ? "bg-primary/5 ring-2 ring-primary/40" : ""
   }`}
-  placeholder={t(
+  placeholder={$t(
     "editor.contentPlaceholder",
     "Start writing your story... (Type / for commands, @ to mention)",
   )}

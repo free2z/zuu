@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import { toast } from "svelte-sonner";
   import { Crop, Loader2 } from "@lucide/svelte";
 
@@ -294,10 +294,10 @@
   <Dialog.Content class="sm:max-w-[820px]">
     <Dialog.Header>
       <Dialog.Title>
-        {t("editor.cropCoverTitle", "Crop cover image")}
+        {$t("editor.cropCoverTitle", "Crop cover image")}
       </Dialog.Title>
       <Dialog.Description>
-        {t(
+        {$t(
           "editor.cropCoverDescription",
           "Drag the box to choose the part of your image to feature. Drag a corner to resize. The saved cover will be 1600 × 400.",
         )}
@@ -375,7 +375,7 @@
       </div>
 
       <p class="text-xs text-muted-foreground">
-        {t(
+        {$t(
           "editor.cropCoverTip",
           "Drag inside the box to reposition it, or grab a corner to change how much of the image is included.",
         )}
@@ -388,7 +388,7 @@
         onclick={() => onOpenChange(false)}
         disabled={uploading}
       >
-        {t("common.cancel", "Cancel")}
+        {$t("common.cancel", "Cancel")}
       </Button>
       <Button onclick={() => void handleApply()} disabled={uploading || !ready}>
         {#if uploading}
@@ -396,7 +396,7 @@
         {:else}
           <Crop class="h-4 w-4" />
         {/if}
-        {t("editor.applyCoverCrop", "Apply Cover")}
+        {$t("editor.applyCoverCrop", "Apply Cover")}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

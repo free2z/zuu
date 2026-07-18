@@ -11,6 +11,9 @@ import {
     type EventNotification,
 } from '$lib/api/events/eventNotificationsApi';
 
+export type EventReadFilter = 'all' | 'unread' | 'read';
+export type EventSortOrder = 'newest' | 'oldest';
+
 interface EventNotificationsState {
     initialized: boolean;
     loadingInitial: boolean;
@@ -19,6 +22,8 @@ interface EventNotificationsState {
     unreadCount: number;
     hasEvents: boolean;
     filter: EventFeedFilter;
+    readFilter: EventReadFilter;
+    sortOrder: EventSortOrder;
     events: EventNotification[];
     nextPageUrl: string | null;
     error: string | null;
@@ -32,10 +37,23 @@ const initialState: EventNotificationsState = {
     unreadCount: 0,
     hasEvents: false,
     filter: 'social',
+    readFilter: 'all',
+    sortOrder: 'newest',
     events: [],
     nextPageUrl: null,
     error: null,
 };
+
+const SOCIAL_EVENT_TYPES = new Set([
+    'VOTE_COMMENT_RECEIVED',
+    'NEW_REPLY',
+    'PAGE_UPDATE',
+    'PAGE_VOTE',
+    'DONATION_SENT',
+    'DONATION_RECEIVED',
+    'SUBSCRIPTION_SENT',
+    'SUBSCRIPTION_RECEIVED',
+]);
 
 function dedupeById(events: EventNotification[]): EventNotification[] {
     const seen = new Set<string>();
@@ -53,7 +71,19 @@ function dedupeById(events: EventNotification[]): EventNotification[] {
 }
 
 function createEventNotificationsStore() {
-    const { subscribe, update, set } = writable<EventNotificationsState>(initialState);
+    const { subscribe, update, set } =
+        writable<EventNotificationsState>(initialState);
+    let requestVersion = 0;
+    let activeLoadMore: Promise<boolean> | null = null;
+
+    function currentSortOrder(): EventSortOrder {
+        let value: EventSortOrder = 'newest';
+        update((state) => {
+            value = state.sortOrder;
+            return state;
+        });
+        return value;
+    }
 
     async function refreshMeta() {
         if (!browser) return;
@@ -94,6 +124,7 @@ function createEventNotificationsStore() {
             return {
                 ...state,
                 loadingInitial: true,
+                loadingMore: shouldForce ? false : state.loadingMore,
                 error: null,
             };
         });
@@ -101,6 +132,13 @@ function createEventNotificationsStore() {
         if (!shouldLoad) {
             return;
         }
+
+        if (shouldForce) {
+            requestVersion += 1;
+            activeLoadMore = null;
+        }
+
+        const currentRequestVersion = requestVersion;
 
         try {
             let filter: EventFeedFilter = 'social';
@@ -111,6 +149,10 @@ function createEventNotificationsStore() {
 
             const response = await fetchEventsPage(1, filter);
 
+            if (currentRequestVersion !== requestVersion) {
+                return;
+            }
+
             update((state) => ({
                 ...state,
                 events: response.results || [],
@@ -119,7 +161,15 @@ function createEventNotificationsStore() {
                 loadingInitial: false,
                 hasEvents: (response.count || 0) > 0,
             }));
+
+            if (currentSortOrder() === 'oldest') {
+                await loadAll();
+            }
         } catch (error: any) {
+            if (currentRequestVersion !== requestVersion) {
+                return;
+            }
+
             update((state) => ({
                 ...state,
                 loadingInitial: false,
@@ -130,10 +180,14 @@ function createEventNotificationsStore() {
     }
 
     async function setFilter(filter: EventFeedFilter) {
+        requestVersion += 1;
+        activeLoadMore = null;
         update((state) => ({
             ...state,
             filter,
             initialized: false,
+            loadingInitial: false,
+            loadingMore: false,
             events: [],
             nextPageUrl: null,
             error: null,
@@ -142,14 +196,36 @@ function createEventNotificationsStore() {
         await loadInitial({ force: true });
     }
 
-    async function loadMore() {
-        if (!browser) return;
+    async function setReadFilter(readFilter: EventReadFilter) {
+        update((state) => ({
+            ...state,
+            readFilter,
+        }));
+    }
+
+    async function setSortOrder(sortOrder: EventSortOrder) {
+        update((state) => ({
+            ...state,
+            sortOrder,
+        }));
+
+        if (sortOrder === 'oldest') {
+            await loadAll();
+        }
+    }
+
+    async function performLoadMore(): Promise<boolean> {
+        if (!browser) return false;
 
         let nextPageUrl: string | null = null;
         let canLoad = false;
 
         update((state) => {
-            if (!state.nextPageUrl || state.loadingMore || state.loadingInitial) {
+            if (
+                !state.nextPageUrl ||
+                state.loadingMore ||
+                state.loadingInitial
+            ) {
                 return state;
             }
 
@@ -163,24 +239,60 @@ function createEventNotificationsStore() {
         });
 
         if (!canLoad || !nextPageUrl) {
-            return;
+            return false;
         }
+
+        const currentRequestVersion = requestVersion;
 
         try {
             const response = await fetchEventsPageByNextUrl(nextPageUrl);
 
+            if (currentRequestVersion !== requestVersion) {
+                return false;
+            }
+
             update((state) => ({
                 ...state,
-                events: dedupeById([...state.events, ...(response.results || [])]),
+                events: dedupeById([
+                    ...state.events,
+                    ...(response.results || []),
+                ]),
                 nextPageUrl: response.next || null,
                 loadingMore: false,
             }));
+            return true;
         } catch (error: any) {
+            if (currentRequestVersion !== requestVersion) {
+                return false;
+            }
+
             update((state) => ({
                 ...state,
                 loadingMore: false,
                 error: error?.message || 'Failed to load more notifications',
             }));
+            return false;
+        }
+    }
+
+    function loadMore(): Promise<boolean> {
+        if (activeLoadMore) {
+            return activeLoadMore;
+        }
+
+        const loadPromise = performLoadMore();
+        activeLoadMore = loadPromise;
+        void loadPromise.finally(() => {
+            if (activeLoadMore === loadPromise) {
+                activeLoadMore = null;
+            }
+        });
+        return loadPromise;
+    }
+
+    async function loadAll() {
+        while (await loadMore()) {
+            // Continue until the API reports that there is no next page.
         }
     }
 
@@ -203,7 +315,9 @@ function createEventNotificationsStore() {
             return {
                 ...state,
                 events,
-                unreadCount: shouldUpdateUnread ? Math.max(0, state.unreadCount - 1) : state.unreadCount,
+                unreadCount: shouldUpdateUnread
+                    ? Math.max(0, state.unreadCount - 1)
+                    : state.unreadCount,
             };
         });
 
@@ -255,10 +369,14 @@ function createEventNotificationsStore() {
             }
 
             const unreadIncrement = event.read ? 0 : 1;
+            const matchesActivity =
+                state.filter === 'all' || SOCIAL_EVENT_TYPES.has(event.type);
 
             return {
                 ...state,
-                events: [event, ...state.events],
+                events: matchesActivity
+                    ? [event, ...state.events]
+                    : state.events,
                 unreadCount: state.unreadCount + unreadIncrement,
                 hasEvents: true,
             };
@@ -266,6 +384,8 @@ function createEventNotificationsStore() {
     }
 
     function clearForLogout() {
+        requestVersion += 1;
+        activeLoadMore = null;
         set(initialState);
     }
 
@@ -275,6 +395,8 @@ function createEventNotificationsStore() {
         loadInitial,
         loadMore,
         setFilter,
+        setReadFilter,
+        setSortOrder,
         markRead,
         markAllRead,
         addIncomingEvent,

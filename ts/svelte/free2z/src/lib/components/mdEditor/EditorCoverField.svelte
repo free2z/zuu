@@ -5,13 +5,22 @@
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tabs from "$lib/components/ui/tabs";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
+  import { isAuthenticated } from "$lib/stores/auth";
   import { toast } from "svelte-sonner";
-  import { ImagePlus, Images, Trash2, UploadCloud } from "@lucide/svelte";
+  import {
+    ImagePlus,
+    Images,
+    Sparkles,
+    Trash2,
+    UploadCloud,
+  } from "@lucide/svelte";
+  import CoverAIPanel from "./CoverAIPanel.svelte";
   import CoverCropDialog from "./CoverCropDialog.svelte";
   import CoverLibraryPanel from "./CoverLibraryPanel.svelte";
   import CoverUploadPanel from "./CoverUploadPanel.svelte";
   import type { CoverLibraryImage, CoverLibraryResponse } from "./coverTypes";
+  import { appendMediaPage } from "./mediaLibrary.js";
   import { resolveMediaUrl, slugify } from "./utils";
 
   interface Props {
@@ -164,7 +173,9 @@
         item.mime_type?.startsWith("image/"),
       );
 
-      libraryItems = reset ? nextItems : [...libraryItems, ...nextItems];
+      libraryItems = reset
+        ? nextItems
+        : appendMediaPage(libraryItems, nextItems);
       libraryHasNext = Boolean(data.next);
       libraryPage = page + 1;
       libraryError = "";
@@ -236,6 +247,17 @@
     }
   }
 
+  async function beginCropFromGeneratedFile(file: File, prompt: string) {
+    await beginCropFromFile(file, prompt || "AI-generated cover");
+  }
+
+  function invalidateLibrary() {
+    libraryItems = [];
+    libraryPage = 1;
+    libraryHasNext = false;
+    libraryError = "";
+  }
+
   async function uploadCroppedCover(blob: Blob) {
     const articleSlug = slugify(title || cropSourceTitle || "zpage-cover");
     const fileName = `${articleSlug || "zpage-cover"}-cover.jpg`;
@@ -281,6 +303,12 @@
       !libraryLoading
     ) {
       void loadLibrary(true);
+    }
+  });
+
+  $effect(() => {
+    if (!$isAuthenticated && assetDialogTab === "ai") {
+      assetDialogTab = "upload";
     }
   });
 
@@ -340,7 +368,7 @@
           class="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/92 px-4 py-2 text-sm text-foreground shadow-sm"
         >
           <UploadCloud class="h-4 w-4 text-primary" />
-          <span>{t("editor.dropCover", "Drop an image here")}</span>
+          <span>{$t("editor.dropCover", "Drop an image here")}</span>
         </div>
       </div>
     {:else if !hasCover()}
@@ -355,10 +383,10 @@
         <p
           class="text-xs font-medium text-muted-foreground/70 transition-colors duration-300 group-hover:text-foreground/80 md:text-sm"
         >
-          {t("editor.coverInlineHint", "Add a cover image")}
+          {$t("editor.coverInlineHint", "Add a cover image")}
         </p>
         <p class="hidden text-[11px] text-muted-foreground/50 md:block">
-          {t("editor.coverInlineSubhint", "Drag and drop, or click to browse")}
+          {$t("editor.coverInlineSubhint", "Drag and drop, or click to browse")}
         </p>
       </div>
     {/if}
@@ -377,7 +405,7 @@
           }}
         >
           <ImagePlus class="h-3.5 w-3.5" />
-          {t("editor.changeCover", "Change")}
+          {$t("editor.changeCover", "Change")}
         </Button>
 
         <Button
@@ -390,7 +418,7 @@
           }}
         >
           <Trash2 class="h-3.5 w-3.5" />
-          {t("editor.removeCover", "Remove")}
+          {$t("editor.removeCover", "Remove")}
         </Button>
       </div>
     {/if}
@@ -398,32 +426,46 @@
 </div>
 
 <Dialog.Root bind:open={assetDialogOpen}>
-  <Dialog.Content class="sm:max-w-[760px]">
-    <Dialog.Header>
+  <Dialog.Content
+    class="flex h-[calc(100dvh-2rem)] max-h-[720px] flex-col overflow-hidden p-4 sm:max-w-[760px] sm:p-6"
+  >
+    <Dialog.Header class="shrink-0 pr-6">
       <Dialog.Title
-        >{t("editor.coverDialogTitle", "Choose a cover image")}</Dialog.Title
+        >{$t("editor.coverDialogTitle", "Choose a cover image")}</Dialog.Title
       >
       <Dialog.Description>
-        {t(
+        {$t(
           "editor.coverDialogDescription",
           "Every cover is cropped to a standard 1600 × 400 banner before it is attached to the zpage.",
         )}
       </Dialog.Description>
     </Dialog.Header>
 
-    <Tabs.Root bind:value={assetDialogTab} class="gap-4">
-      <Tabs.List>
+    <Tabs.Root
+      bind:value={assetDialogTab}
+      class="min-h-0 flex-1 gap-4 overflow-hidden"
+    >
+      <Tabs.List class="shrink-0">
         <Tabs.Trigger value="upload">
           <UploadCloud class="h-4 w-4" />
-          {t("editor.uploadTab", "Upload")}
+          {$t("editor.uploadTab", "Upload")}
         </Tabs.Trigger>
         <Tabs.Trigger value="library">
           <Images class="h-4 w-4" />
-          {t("editor.libraryTab", "Your Cloud")}
+          {$t("editor.libraryTab", "Your Cloud")}
         </Tabs.Trigger>
+        {#if $isAuthenticated}
+          <Tabs.Trigger value="ai">
+            <Sparkles class="h-4 w-4" />
+            {$t("editor.aiCoverTab", "AI")}
+          </Tabs.Trigger>
+        {/if}
       </Tabs.List>
 
-      <Tabs.Content value="upload" class="space-y-4">
+      <Tabs.Content
+        value="upload"
+        class="min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1"
+      >
         <CoverUploadPanel
           onDragState={handleDragState}
           onDrop={handleDrop}
@@ -431,7 +473,10 @@
         />
       </Tabs.Content>
 
-      <Tabs.Content value="library" class="space-y-4">
+      <Tabs.Content
+        value="library"
+        class="flex min-h-0 flex-col overflow-hidden"
+      >
         <CoverLibraryPanel
           items={libraryItems}
           hasNext={libraryHasNext}
@@ -445,6 +490,17 @@
           onChoose={beginCropFromLibraryItem}
         />
       </Tabs.Content>
+
+      {#if $isAuthenticated}
+        <Tabs.Content value="ai" class="flex min-h-0 flex-col overflow-hidden">
+          <CoverAIPanel
+            {apiBase}
+            {buildMediaUrl}
+            onGenerated={invalidateLibrary}
+            onChoose={beginCropFromGeneratedFile}
+          />
+        </Tabs.Content>
+      {/if}
     </Tabs.Root>
   </Dialog.Content>
 </Dialog.Root>

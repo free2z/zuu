@@ -17,8 +17,10 @@ export const privateStreamCreateResponseSchema = z.object({
 
 export type PrivateStreamCreateResponse = z.infer<typeof privateStreamCreateResponseSchema>;
 
+const streamTypeSchema = z.enum(['broadcast', 'subscribers-only', 'ppv', 'private']);
+
 export const streamInfoSchema = z.object({
-    type: z.enum(['broadcast', 'subscribers-only', 'ppv', 'private']),
+    type: streamTypeSchema,
     participant_count: z.number(),
     price_per_minute: z.number().optional(),
     meeting_id: z.string().optional(),
@@ -26,13 +28,54 @@ export const streamInfoSchema = z.object({
 
 export type StreamInfo = z.infer<typeof streamInfoSchema>;
 
-export const liveStatusResponseSchema = z.object({
+const normalizedLiveStatusResponseSchema = z.object({
     is_live: z.boolean(),
-    participant_count: z.number().optional(),
-    streams: z.array(streamInfoSchema).optional(),
+    participant_count: z.number().default(0),
+    streams: z.array(streamInfoSchema).default([]),
 });
 
+const legacyStreamInfoSchema = z.object({
+    meeting_type: streamTypeSchema,
+    participants: z.number(),
+    price_per_minute: z.number().nullable().optional(),
+    meeting_id: z.string().optional(),
+});
+
+const legacyLiveStatusResponseSchema = z.record(streamTypeSchema, legacyStreamInfoSchema);
+
+export const liveStatusResponseSchema = z.union([
+    normalizedLiveStatusResponseSchema,
+    legacyLiveStatusResponseSchema.transform((response) => {
+        const streams: StreamInfo[] = Object.values(response).map((stream) => ({
+            type: stream.meeting_type,
+            participant_count: stream.participants,
+            ...(stream.price_per_minute == null ? {} : { price_per_minute: stream.price_per_minute }),
+            ...(stream.meeting_id == null ? {} : { meeting_id: stream.meeting_id }),
+        }));
+
+        return {
+            is_live: streams.length > 0,
+            participant_count: streams.reduce((total, stream) => total + stream.participant_count, 0),
+            streams,
+        };
+    }),
+]);
+
 export type LiveStatusResponse = z.infer<typeof liveStatusResponseSchema>;
+
+export const liveStatusQueryKey = (username: string) => ['live-status', username] as const;
+
+export function shouldRetryLiveStatusRequest(failureCount: number, error: unknown) {
+    if (failureCount >= 2 || error instanceof z.ZodError) {
+        return false;
+    }
+
+    if (error instanceof ApiError) {
+        return error.status === 408 || error.status === 429 || error.status >= 500;
+    }
+
+    return !(error instanceof Error && error.name === 'AbortError');
+}
 
 export class PaymentRequiredError extends Error {
     constructor(message: string) {
@@ -87,21 +130,30 @@ export class StreamService {
     }
 
     /**
+     * Fetch and validate a creator's live status.
+     * Unlike checkLiveStatus, this lets request errors propagate so query clients
+     * can retry, back off, and preserve the last known status.
+     */
+    static async fetchLiveStatus(username: string, signal?: AbortSignal): Promise<LiveStatusResponse> {
+        const response = await dyteLiveStatusRetrieve(username, undefined, signal) as unknown;
+        return liveStatusResponseSchema.parse(response);
+    }
+
+    /**
      * Check if a creator is currently live
      * @param username The username to check
      */
     static async checkLiveStatus(username: string): Promise<LiveStatusResponse> {
         try {
-            const response = await dyteLiveStatusRetrieve(username) as unknown;
-            return liveStatusResponseSchema.parse(response);
+            return await this.fetchLiveStatus(username);
         } catch (error) {
             if (error instanceof z.ZodError) {
                 console.error('Live status response validation failed:', error.errors);
             } else {
                 console.error('Failed to check live status:', error);
             }
-            // Default to not live on error
-            return { is_live: false };
+            // Default to not live on request or validation errors
+            return { is_live: false, participant_count: 0, streams: [] };
         }
     }
 

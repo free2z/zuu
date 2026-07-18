@@ -148,6 +148,8 @@ class CreatorView(
             ).prefetch_related(
                 'avatar_image__webp',
                 'banner_image__webp',
+                'avatar_image__variants',
+                'banner_image__variants',
                 'zpage_set'
             ).exclude(
                 models.Q(banner_image__isnull=True)

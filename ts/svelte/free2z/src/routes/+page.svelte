@@ -4,7 +4,11 @@
 	import { Button } from '$lib/components/ui/button';
 	import CreatorCard from '$lib/components/CreatorCard.svelte';
 	import ZpageCard from '$lib/components/ZpageCard.svelte';
+	import SmoothImage from '$lib/components/SmoothImage.svelte';
 	import HomeCTA from '$lib/components/HomeCTA.svelte';
+	import SeoHead from '$lib/components/SeoHead.svelte';
+	import { CANONICAL_ORIGIN, createOrganizationJsonLd, createWebsiteJsonLd } from '$lib/seo';
+	import { extractPlainText } from '$lib/utils/markdown';
 	export let data: {
 		heroStory: any | null;
 		trending: any[];
@@ -13,6 +17,7 @@
 	};
 
 	const apiBase = (env.PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+	const canonicalOrigin = env.PUBLIC_CANONICAL_BASE_URL?.replace(/\/$/, '') || CANONICAL_ORIGIN;
 
 	function buildImageUrl(imagePath?: string | null): string | null {
 		if (!imagePath) return null;
@@ -30,7 +35,7 @@
 	}
 
 	function avatarUrl(c?: any): string | null {
-		const img = c?.avatar_image?.url || c?.avatar_image?.thumbnail;
+		const img = c?.avatar_image?.thumbnail || c?.avatar_image?.url;
 		return buildImageUrl(img);
 	}
 
@@ -42,15 +47,11 @@
 	}
 
 	function truncated(text: string | undefined, len = 140): string {
-		if (!text) return '';
-		const t = String(text).replace(/\s+/g, ' ').trim();
-		if (t.length <= len) return t;
-		const cut = t.slice(0, len);
-		const last = cut.lastIndexOf(' ');
-		return (last > 40 ? cut.slice(0, last) : cut) + '…';
+		return extractPlainText(text || '', len).replace(/\.\.\.$/, '…');
 	}
 
 	const hero = data.heroStory;
+	const heroImage = buildImageUrl(hero?.featured_image?.thumbnail || hero?.featured_image?.url);
 	const trending = data.trending || [];
 	const popular = data.popular || [];
 	const creators = (() => {
@@ -82,12 +83,19 @@
 </script>
 
 
+<SeoHead
+	title="Free2Z — Read. Publish. Get Discovered."
+	description="Independent publishing on Free2Z. Discover trending stories, follow original creators, publish your work, and receive direct support."
+	path="/"
+	structuredData={[createOrganizationJsonLd(canonicalOrigin), createWebsiteJsonLd(canonicalOrigin)]}
+/>
 <svelte:head>
-	<title>Free2Z — Read. Publish. Get Discovered.</title>
-	<meta name="description" content="Modern, multi‑author publishing on Free2Z. Discover trending stories, top creators, and popular reads." />
+	{#if heroImage}
+		<link rel="preload" as="image" href={heroImage} fetchpriority="high" />
+	{/if}
 </svelte:head>
 
-<div class="relative flex flex-col gap-24 py-12 mesh-gradient flex-1">
+<div class="relative flex flex-col gap-16 py-8 sm:gap-24 sm:py-12 mesh-gradient flex-1">
 	<!-- Background Elements -->
 	<div class="absolute inset-0 overflow-hidden pointer-events-none">
 		<!-- Tech Grid Background -->
@@ -102,12 +110,11 @@
 
 	<!-- Top Section: Featured & Popular -->
 	<section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-		<div class="grid lg:grid-cols-12 gap-12">
+		<div class="grid gap-10 lg:grid-cols-12 lg:gap-12">
 			
 			<!-- Featured Post (Left) -->
 			<div class="lg:col-span-8">
 				{#if hero}
-					{@const img = buildImageUrl(hero?.featured_image?.url || hero?.featured_image?.thumbnail)}
 					{@const hav = avatarUrl(hero?.creator)}
 					
 					<div class="group flex flex-col gap-6">
@@ -125,11 +132,15 @@
 
 							<div class="relative aspect-2/1 w-full rounded-2xl overflow-hidden shadow-sm border border-border/50 bg-muted/20 group-hover:border-primary/20 transition-colors">
 								<a href={articleHref(hero)} class="block w-full h-full group/img">
-									{#if img}
-										<img 
-											src={img} 
-											alt={hero?.title} 
-											class="w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-105"
+									{#if heroImage}
+										<SmoothImage
+											src={heroImage}
+											alt={hero?.title}
+											loading="eager"
+											fetchpriority="high"
+											showStatus
+											class="w-full h-full"
+											imgClass="transition-all duration-700 ease-out group-hover:scale-105"
 										/>
 										<div class="absolute inset-0 bg-linear-to-t from-background/10 to-transparent"></div>
 									{:else}
@@ -147,7 +158,7 @@
 									class="group/author absolute bottom-4 left-4 z-10 bg-background/90 backdrop-blur-md border border-border pr-5 pl-1.5 py-1.5 rounded-2xl flex items-center gap-3 shadow-lg hover:scale-105 transition-transform"
 								>
 									<div class="w-8 h-8 rounded-full overflow-hidden border border-primary/20 bg-muted">
-										<img src={hav || undefined} alt={hero?.creator?.username} class="w-full h-full object-cover">
+										<SmoothImage src={hav} alt={hero?.creator?.username} class="w-full h-full" />
 									</div>
 									<div class="flex flex-col leading-none gap-0.5">
 										<span class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">By</span>
@@ -175,7 +186,7 @@
 
 							<!-- Action Area -->
 							<div class="pt-2">
-								<a href={articleHref(hero)} class="inline-flex items-center gap-2 text-primary font-bold group-hover:gap-4 transition-all duration-300">
+								<a href={articleHref(hero)} class="inline-flex min-h-11 items-center gap-2 text-primary font-bold group-hover:gap-4 transition-all duration-300">
 									<span class="relative text-sm tracking-wide uppercase">
 										Read Full Story
 										<span class="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
@@ -201,7 +212,7 @@
 			</div>
 
 			<!-- Popular Reads (Right) -->
-			<div class="lg:col-span-4 space-y-8 pl-4">
+			<div class="space-y-6 lg:col-span-4 lg:space-y-8 lg:pl-4">
 				<div class="flex items-center justify-between pb-2 border-b border-border">
 					<h2 class="text-xl font-black tracking-tight flex items-center gap-2">
 						<span class="text-primary">#</span> Popular Reads
@@ -210,7 +221,7 @@
 						variant="ghost" 
 						href="#trending" 
 						size="sm" 
-						class="text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary gap-1 px-2 h-8"
+						class="min-h-11 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary gap-1 px-2 sm:min-h-8"
 					>
 						View More
 						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -227,7 +238,13 @@
 							<!-- Thumbnail -->
 							<div class="w-20 h-20 shrink-0 rounded-lg overflow-hidden bg-muted border border-border/40 relative shadow-sm group-hover:shadow-md transition-all">
 								{#if thumb}
-									<img src={thumb} alt={p.title} class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+									<SmoothImage
+										src={thumb}
+										alt={p.title}
+										loading="lazy"
+										class="w-full h-full"
+										imgClass="transition-transform duration-500 group-hover:scale-110"
+									/>
 								{:else}
 									<div class="w-full h-full flex items-center justify-center bg-muted/50">
 										<svg class="w-6 h-6 text-muted-foreground/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -252,7 +269,7 @@
 								<div class="flex items-center gap-2 pt-0.5">
 									<div class="w-5 h-5 rounded-full overflow-hidden bg-muted border border-border shrink-0">
 										{#if avatarUrl(p.creator)}
-											<img src={avatarUrl(p.creator)} alt="" class="w-full h-full object-cover" />
+											<SmoothImage src={avatarUrl(p.creator)} alt="" loading="lazy" class="w-full h-full" />
 										{/if}
 									</div>
 									<span class="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors truncate">
@@ -275,7 +292,7 @@
 							{#each topics.slice(0, 8) as t}
 								<a 
 									href="/search?q={encodeURIComponent(t)}" 
-									class="text-xs px-2.5 py-1 rounded-md bg-muted/50 hover:bg-primary/10 hover:text-primary transition-colors font-medium border border-transparent hover:border-primary/20"
+									class="inline-flex min-h-11 items-center rounded-md border border-transparent bg-muted/50 px-2.5 py-1 text-xs font-medium transition-colors hover:border-primary/20 hover:bg-primary/10 hover:text-primary sm:min-h-0"
 								>
 									#{t}
 								</a>
@@ -290,11 +307,11 @@
 	<!-- Topics -->
 	{#if topics.length}
 		<section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-			<div class="glass-card rounded-2xl p-8 sm:p-12 relative overflow-hidden border border-primary/10">
+			<div class="glass-card relative overflow-hidden rounded-2xl border border-primary/10 p-6 sm:p-12">
 				<!-- Animated background glow -->
 				<div class="absolute top-0 right-0 w-96 h-96 bg-primary/10 rounded-full blur-[100px] -mr-32 -mt-32 pointer-events-none animate-pulse"></div>
 				
-				<div class="relative z-10 flex flex-col lg:flex-row lg:items-start gap-12">
+				<div class="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
 					<div class="lg:w-1/3 space-y-6">
 						<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 w-fit">
 							<svg class="w-3 h-3 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
@@ -309,7 +326,7 @@
 						{#each topics as t}
 							<a 
 								href="/search?q={encodeURIComponent(t)}" 
-								class="px-4 py-2 rounded-lg bg-background/50 border border-border hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all duration-300 text-sm font-medium"
+								class="inline-flex min-h-11 items-center rounded-lg border border-border bg-background/50 px-4 py-2 text-sm font-medium transition-all duration-300 hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
 							>
 								#{t}
 							</a>
@@ -325,7 +342,7 @@
 		<!-- Background decorative elements -->
 		<div class="absolute left-0 top-20 w-1/4 h-3/4 bg-primary/5 rounded-full blur-[120px] -z-10 pointer-events-none"></div>
 
-		<div class="flex flex-col sm:flex-row sm:items-end justify-between gap-8 mb-12">
+		<div class="mb-8 flex flex-col justify-between gap-6 sm:mb-12 sm:flex-row sm:items-end sm:gap-8">
 			<div class="space-y-4 max-w-2xl">
 				<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 w-fit">
 					<span class="relative flex h-2 w-2">
@@ -348,16 +365,18 @@
 			<Button 
 				variant="outline" 
 				href="/search"
-				class="shrink-0 group gap-2 "
+				class="min-h-11 shrink-0 group gap-2 sm:min-h-9"
 			>
 				Explore All Trending
 				<svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
 			</Button>
 		</div>
 		
-		<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
-			{#each trending.slice(0, 9) as a (a.free2zaddr)}
-				<ZpageCard story={a} />
+		<div class="grid gap-x-8 gap-y-8 sm:grid-cols-2 sm:gap-y-12 lg:grid-cols-3">
+			{#each trending.slice(0, 9) as a, index (a.free2zaddr)}
+				<div class={index >= 6 ? 'hidden sm:block' : ''}>
+					<ZpageCard story={a} />
+				</div>
 			{/each}
 		</div>
 	</section>
@@ -368,7 +387,7 @@
 			<!-- Decorative background element -->
 			<div class="absolute right-0 top-0 w-1/3 h-full bg-linear-to-b from-primary/5 to-transparent blur-3xl -z-10 pointer-events-none"></div>
 
-			<div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-12">
+			<div class="mb-8 flex flex-col justify-between gap-6 sm:mb-12 sm:flex-row sm:items-end">
 				<div class="space-y-4 max-w-2xl">
 					<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 w-fit">
 						<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
@@ -387,7 +406,7 @@
 			<Button 
 				variant="outline" 
 			href="/creators"
-				class="shrink-0 group gap-2 "
+				class="min-h-11 shrink-0 group gap-2 sm:min-h-9"
 			>
 		View Creator Directory
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
@@ -397,8 +416,8 @@
 			</div>
 			
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 lg:gap-8">
-				{#each creators as creator (creator.username)}
-					<div class="group relative">
+				{#each creators as creator, index (creator.username)}
+					<div class={index >= 5 ? 'group relative min-w-0 hidden sm:block' : 'group relative min-w-0'}>
 						<div class="absolute -inset-px bg-linear-to-b from-primary/30 to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition duration-500 pointer-events-none"></div>
 						<CreatorCard {creator} {avatarUrl} {buildImageUrl} {fmtDate} />
 					</div>
@@ -411,4 +430,3 @@
 	{/if}
 
 </div>
-

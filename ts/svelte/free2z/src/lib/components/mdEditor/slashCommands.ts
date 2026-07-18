@@ -1,6 +1,7 @@
 import type { Component } from "svelte";
 import { t } from "$lib/i18n";
 import {
+  AudioLines,
   Bold,
   Code,
   Heading1,
@@ -13,6 +14,8 @@ import {
   ListOrdered,
   Minus,
   Quote,
+  QrCode,
+  Sigma,
   Strikethrough,
   Table,
 } from "@lucide/svelte";
@@ -123,24 +126,24 @@ export function createSlashCommands(): SlashCommand[] {
     },
     {
       name: "Inline Math",
-      icon: Code,
-      insert: "$x^2$",
+      icon: Sigma,
+      insert: "$$x^2$$",
       description: t("editor.slashCommands.inlineMath", "Insert inline LaTeX"),
       keywords: ["math", "latex", "equation", "katex"],
-      selectionStartOffset: 1,
-      selectionEndOffset: 4,
+      selectionStartOffset: 2,
+      selectionEndOffset: 5,
     },
     {
       name: "Math Block",
-      icon: Code,
+      icon: Sigma,
       insert: "$$\n\\frac{a}{b}\n$$",
       description: t(
         "editor.slashCommands.mathBlock",
         "Insert display LaTeX block",
       ),
       keywords: ["math", "latex", "equation", "katex", "display"],
-      selectionStartOffset: 4,
-      selectionEndOffset: 15,
+      selectionStartOffset: 3,
+      selectionEndOffset: 14,
     },
     {
       name: "Code Block",
@@ -149,6 +152,19 @@ export function createSlashCommands(): SlashCommand[] {
       description: t("editor.slashCommands.code", "Insert code block"),
       keywords: ["fenced", "pre", "block"],
       selectionStartOffset: 7,
+      selectionEndOffset: 11,
+    },
+    {
+      name: "Numbered Code Block",
+      icon: Code,
+      insert:
+        "```js {1,3} showLineNumbers\nconst example = true;\nconsole.log(example);\nreturn example;\n```",
+      description: t(
+        "editor.slashCommands.numberedCode",
+        "Insert code with line numbers and highlighted lines",
+      ),
+      keywords: ["code", "line numbers", "highlight", "fenced", "prism"],
+      selectionStartOffset: 6,
       selectionEndOffset: 11,
     },
     {
@@ -225,6 +241,51 @@ export function createSlashCommands(): SlashCommand[] {
       keywords: ["video", "youtube", "iframe", "oembed"],
       selectionStartOffset: 8,
       selectionEndOffset: 27,
+    },
+    {
+      name: "Audio Embed",
+      icon: AudioLines,
+      insert: "::embed[/uploadz/path/to/audio.mp3]",
+      description: t(
+        "editor.slashCommands.audioEmbed",
+        "Insert an uploaded audio player",
+      ),
+      keywords: ["audio", "music", "mp3", "wav", "upload"],
+      selectionStartOffset: 8,
+      selectionEndOffset: 34,
+    },
+    {
+      name: "Iframe",
+      icon: Link2,
+      insert: "::iframe[https://example.com]",
+      description: t("editor.slashCommands.iframe", "Insert an iframe embed"),
+      keywords: ["iframe", "embed", "oembed", "iframely", "url"],
+      selectionStartOffset: 9,
+      selectionEndOffset: 28,
+    },
+    {
+      name: "QR Code",
+      icon: QrCode,
+      insert: "::qrcode[zcash address or content]",
+      description: t(
+        "editor.slashCommands.qrcode",
+        "Insert a scannable QR code",
+      ),
+      keywords: ["qr", "qrcode", "zcash", "address", "donation"],
+      selectionStartOffset: 9,
+      selectionEndOffset: 33,
+    },
+    {
+      name: "Footnote",
+      icon: ListOrdered,
+      insert: "Text with a footnote[^1].\n\n[^1]: Footnote content",
+      description: t(
+        "editor.slashCommands.footnote",
+        "Insert a footnote reference and definition",
+      ),
+      keywords: ["footnote", "reference", "citation", "note", "gfm"],
+      selectionStartOffset: 33,
+      selectionEndOffset: 49,
     },
     {
       name: "Table",

@@ -1,31 +1,33 @@
-import DyteClient from '@dytesdk/web-core';
-import { liveStreamStore, bindDyteEvents, type StreamType } from '$lib/stores/liveStreamStore';
+import RealtimeKitClient from '@cloudflare/realtimekit';
+import { liveStreamStore, bindRtkEvents, type StreamType } from '$lib/stores/liveStreamStore';
 import { browser } from '$app/environment';
 
-export interface DyteInitOptions {
+export interface RtkInitOptions {
     authToken: string;
     streamType: StreamType;
     isHost: boolean;
-    defaults?: any;
+    defaults?: Record<string, unknown>;
 }
 
 /**
- * Initializes a Dyte meeting and connects it to the Svelte store.
- * @param options Configuration options for the meeting
- * @returns A cleanup function to be called when the component is destroyed
+ * Initializes a RealtimeKit meeting and connects it to the Svelte store.
  */
-export async function initDyteMeeting(options: DyteInitOptions): Promise<{ cleanup: () => Promise<void>, meeting: any, warning?: string }> {
+export async function initRtkMeeting(options: RtkInitOptions): Promise<{
+    cleanup: () => Promise<void>;
+    meeting: RealtimeKitClient | null;
+    warning?: string;
+}> {
     if (!browser) return { cleanup: async () => { }, meeting: null, warning: undefined };
 
     const { authToken, streamType, isHost, defaults } = options;
     let warning: string | undefined;
-    let meeting: any;
+    let meeting: RealtimeKitClient | null = null;
 
     try {
         liveStreamStore.setConnectionStatus('initializing');
 
         try {
-            meeting = await DyteClient.init({
+            meeting = await RealtimeKitClient.init({
                 authToken,
                 defaults: {
                     audio: false,
@@ -33,12 +35,12 @@ export async function initDyteMeeting(options: DyteInitOptions): Promise<{ clean
                     ...defaults
                 }
             });
-        } catch (initError: any) {
-            // Handle permission errors with graceful degradation for hosts
-            if (isHost && (initError.message?.includes('Permission denied') || initError.name === 'NotAllowedError')) {
+        } catch (initError: unknown) {
+            const err = initError as { message?: string; name?: string };
+            if (isHost && (err.message?.includes('Permission denied') || err.name === 'NotAllowedError')) {
                 console.warn('Media permissions denied, attempting fallback to no-media initialization');
                 try {
-                    meeting = await DyteClient.init({
+                    meeting = await RealtimeKitClient.init({
                         authToken,
                         defaults: {
                             audio: false,
@@ -46,49 +48,40 @@ export async function initDyteMeeting(options: DyteInitOptions): Promise<{ clean
                         }
                     });
                     warning = 'Microphone or Camera permission denied. You joined without media. Please check browser settings.';
-                } catch (fallbackError) {
-                    throw initError; // Throw original error if fallback fails
+                } catch {
+                    throw initError;
                 }
             } else {
                 throw initError;
             }
         }
 
-        // Initialize the store with the meeting instance
         liveStreamStore.init(meeting, streamType, isHost);
 
-        // Bind events
-        const unbindEvents = bindDyteEvents(meeting);
+        const unbindEvents = bindRtkEvents(meeting);
 
-        // Listen for room disconnection
         meeting.self.on('roomLeft', ({ state }: { state: string }) => {
             if (state === 'disconnected') {
-                 liveStreamStore.setConnectionStatus('disconnected');
-                 liveStreamStore.setError('Disconnected from the meeting.');
+                liveStreamStore.setConnectionStatus('disconnected');
+                liveStreamStore.setError('Disconnected from the meeting.');
             } else if (state === 'failed') {
-                 liveStreamStore.setConnectionStatus('failed');
-                 liveStreamStore.setError('Connection to the meeting failed.');
+                liveStreamStore.setConnectionStatus('failed');
+                liveStreamStore.setError('Connection to the meeting failed.');
             } else if (state === 'ended') {
-                 liveStreamStore.setConnectionStatus('ended');
+                liveStreamStore.setConnectionStatus('ended');
             }
         });
 
-        // Listen for room join
         meeting.self.on('roomJoined', () => {
-             liveStreamStore.setConnectionStatus('connected');
+            liveStreamStore.setConnectionStatus('connected');
         });
-        
-        // Listen for media permission errors during the call
+
         meeting.self.on('mediaPermissionError', ({ kind }: { kind: string }) => {
             console.warn(`Permission denied for ${kind}`);
-            // We could update the store here, but for now the initial warning covers the join case.
-            // If it happens mid-stream (e.g. user revoked permission), Dyte usually handles the stream track ending.
         });
 
-        // Set status to idle/ready (waiting for user to join via UI)
         liveStreamStore.setConnectionStatus('idle');
 
-        // Return cleanup function and meeting instance
         return {
             cleanup: async () => {
                 unbindEvents();
@@ -101,14 +94,15 @@ export async function initDyteMeeting(options: DyteInitOptions): Promise<{ clean
             warning
         };
 
-    } catch (error: any) {
-        console.error('Failed to initialize Dyte meeting:', error);
-        
+    } catch (error: unknown) {
+        console.error('Failed to initialize RealtimeKit meeting:', error);
+
         let errorMessage = 'Failed to connect to meeting';
-        
-        if (error.message?.includes('Permission denied') || error.name === 'NotAllowedError') {
+        const err = error as { message?: string; name?: string };
+
+        if (err.message?.includes('Permission denied') || err.name === 'NotAllowedError') {
             errorMessage = 'Microphone or Camera permission denied. Please allow access in your browser settings.';
-        } else if (error.message?.includes('Network error') || error.message?.includes('fetch') || error.message?.includes('Failed to fetch')) {
+        } else if (err.message?.includes('Network error') || err.message?.includes('fetch') || err.message?.includes('Failed to fetch')) {
             errorMessage = 'Network connection error. Please check your internet connection.';
         } else if (error instanceof Error) {
             errorMessage = error.message;

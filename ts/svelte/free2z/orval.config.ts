@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 
 const schemaTarget = [
   '../../../py/dj/free2z/openapi/f2z.yaml',
-  '../f2z.yaml'
+  '../../../f2z.yaml'
 ].find((path) => existsSync(path));
 
 if (!schemaTarget) {

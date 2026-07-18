@@ -1,10 +1,12 @@
 <script lang="ts">
   import "../styles/globals.css";
   import "katex/dist/katex.min.css";
+  import "highlight.js/styles/github-dark-dimmed.css";
   import "$lib/i18n"; // Initialize i18n
   import { Toaster } from "$lib/components/ui/sonner/index.js";
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import Navbar from "$lib/components/layout/Navbar.svelte";
+  import Footer from "$lib/components/layout/Footer.svelte";
   import ClassicUiBanner from "$lib/components/layout/ClassicUiBanner.svelte";
   import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
   import { browser } from "$app/environment";
@@ -183,12 +185,22 @@
   $: if (browser && $pageStore.url.pathname) {
     authStore.checkAuth({ silent: true }).catch(console.error);
   }
+
+  $: privateSurface = /\/(dashboard|private)(\/|$)/.test($pageStore.url.pathname)
+    || ['/edit', '/buy-2z', '/login'].includes($pageStore.url.pathname)
+    || $pageStore.url.pathname.startsWith('/checkout/');
 </script>
+
+<svelte:head>
+  {#if privateSurface}
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+  {/if}
+</svelte:head>
 
 <QueryClientProvider client={queryClient}>
   <Tooltip.Provider>
     <Toaster position="bottom-center" />
-    <ModeWatcher defaultMode="dark" />
+    <ModeWatcher />
     <div
       class="flex min-h-screen flex-col"
       style="background: var(--f2z-bg-primary);"
@@ -200,6 +212,9 @@
       <main class="flex flex-1 flex-col px-2 md:p-0">
         <slot />
       </main>
+      {#if !($pageStore.route.id?.includes("dashboard/stream") && $liveStreamStore.meeting)}
+        <Footer />
+      {/if}
     </div>
   </Tooltip.Provider>
 </QueryClientProvider>

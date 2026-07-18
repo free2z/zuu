@@ -6,10 +6,12 @@
   import { browser } from "$app/environment";
   import { onMount, afterUpdate } from "svelte";
   import { mount, unmount } from "svelte";
-  import DOMPurify from "isomorphic-dompurify";
+  import QRCode from "qrcode";
   import ExternalEmbed from "./ExternalEmbed.svelte";
+  import MarkdownAudio from "./MarkdownAudio.svelte";
   import CodeBlockChrome from "./CodeBlockChrome.svelte";
   import { getCodeLanguageInfo } from "$lib/utils/markdown";
+  import { sanitizeMarkdownHtml } from "$lib/utils/markdown-sanitize";
 
   export let html: string;
 
@@ -19,22 +21,8 @@
   let renderRevision = 0;
   let themeObserver: MutationObserver | null = null;
   let wrapCodeBlocks = false;
+  let lastScrolledHash = "";
   const componentInstanceId = ++markdownContentInstanceSequence;
-
-  const markdownSanitizeOptions = {
-    ADD_TAGS: ["video", "source"],
-    ADD_ATTR: [
-      "aria-hidden",
-      "class",
-      "data-embed-url",
-      "href",
-      "src",
-      "title",
-      "alt",
-    ],
-    ALLOWED_URI_REGEXP:
-      /^(?:(?:https?|mailto|tel):|\/(?!\/)|#|[^:/?#]*(?:[/?#]|$))/i,
-  };
 
   function escapeHtml(content: string) {
     return content
@@ -43,10 +31,6 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
-  }
-
-  function sanitizeHtml(content: string) {
-    return DOMPurify.sanitize(content, markdownSanitizeOptions);
   }
 
   function toggleCodeWrap() {
@@ -100,7 +84,9 @@
 
   function setContent() {
     if (!contentContainer) return;
-    contentContainer.innerHTML = sanitizeHtml(html || "");
+    // processMarkdown already sanitizes. Keep a second pass here as defense in
+    // depth because callers may also pass pre-rendered HTML to this component.
+    contentContainer.innerHTML = sanitizeMarkdownHtml(html || "");
   }
 
   function getMermaidTheme() {
@@ -147,6 +133,106 @@
 
       mountedComponents.push({ component, container });
     });
+
+    const audioPlaceholders = contentContainer.querySelectorAll(
+      ".audio-embed-placeholder[data-audio-url]",
+    );
+
+    audioPlaceholders.forEach((placeholder) => {
+      const src = placeholder.getAttribute("data-audio-url");
+      if (!src) return;
+
+      const container = document.createElement("div");
+      placeholder.parentNode?.replaceChild(container, placeholder);
+
+      const component = mount(MarkdownAudio, {
+        target: container,
+        props: { src },
+      });
+
+      mountedComponents.push({ component, container });
+    });
+  }
+
+  function enhanceHeadings() {
+    if (!contentContainer) return;
+
+    const headings = contentContainer.querySelectorAll<HTMLElement>(
+      "h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]",
+    );
+
+    headings.forEach((heading) => {
+      if (heading.querySelector(":scope > .heading-anchor")) return;
+
+      const anchor = document.createElement("a");
+      anchor.className = "heading-anchor";
+      anchor.href = `#${heading.id}`;
+      anchor.setAttribute(
+        "aria-label",
+        `Link to ${heading.textContent || "heading"}`,
+      );
+      anchor.textContent = "#";
+      heading.appendChild(anchor);
+    });
+  }
+
+  function scrollToCurrentHash() {
+    if (!browser || !window.location.hash) return;
+
+    const hash = window.location.hash;
+    if (hash === lastScrolledHash) return;
+
+    let id = hash.slice(1);
+    try {
+      id = decodeURIComponent(id);
+    } catch {}
+
+    const target = document.getElementById(id);
+    if (!target || !contentContainer.contains(target)) return;
+
+    lastScrolledHash = hash;
+    requestAnimationFrame(() => target.scrollIntoView({ block: "start" }));
+  }
+
+  async function mountQrCodes(revision: number) {
+    if (!contentContainer) return;
+
+    const placeholders = Array.from(
+      contentContainer.querySelectorAll<HTMLElement>(
+        ".qrcode-embed[data-qr-value]",
+      ),
+    );
+
+    for (const placeholder of placeholders) {
+      const value = placeholder.getAttribute("data-qr-value");
+      if (!value) continue;
+
+      try {
+        const dataUrl = await QRCode.toDataURL(value, {
+          margin: 1,
+          width: 256,
+          color: { dark: "#000000", light: "#ffffff" },
+        });
+
+        if (revision !== renderRevision) return;
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "markdown-qrcode";
+
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        img.alt = `QR code for ${value}`;
+        img.loading = "lazy";
+        img.decoding = "async";
+        wrapper.appendChild(img);
+
+        placeholder.replaceWith(wrapper);
+      } catch (error) {
+        console.error("Error rendering QR code:", error);
+        // Fall back to showing the raw value rather than a blank box.
+        placeholder.textContent = value;
+      }
+    }
   }
 
   function enhanceCodeBlocks() {
@@ -177,7 +263,12 @@
             className.startsWith("language-") || className.startsWith("lang-"),
         ) || "";
       const info = getCodeLanguageInfo(languageClass);
-      const source = codeBlock.textContent || "";
+      const renderedLines = Array.from(
+        codeBlock.querySelectorAll<HTMLElement>(":scope > .code-line"),
+      );
+      const source = renderedLines.length
+        ? renderedLines.map((line) => line.textContent || "").join("\n")
+        : codeBlock.textContent || "";
 
       const shell = document.createElement("div");
       shell.className = "code-block-shell";
@@ -276,8 +367,11 @@
 
     setContent();
     mountEmbeds();
+    enhanceHeadings();
     enhanceCodeBlocks();
+    void mountQrCodes(currentRevision);
     await renderMermaidDiagrams(currentRevision);
+    scrollToCurrentHash();
   }
 
   onMount(() => {
@@ -348,6 +442,35 @@
     padding: 2.35rem 1rem 0.9rem;
   }
 
+  .markdown-content :global(.code-line) {
+    display: block;
+    min-height: 1.5em;
+    padding-inline: 0.3rem;
+  }
+
+  .markdown-content :global(.code-line-highlighted) {
+    background: color-mix(in srgb, var(--primary), transparent 84%);
+    box-shadow: inset 3px 0 var(--primary);
+  }
+
+  .markdown-content :global(.show-line-numbers) {
+    counter-reset: markdown-code-line;
+  }
+
+  .markdown-content :global(.show-line-numbers .code-line) {
+    counter-increment: markdown-code-line;
+  }
+
+  .markdown-content :global(.show-line-numbers .code-line::before) {
+    content: counter(markdown-code-line);
+    display: inline-block;
+    width: 2.5rem;
+    margin-right: 1rem;
+    color: color-mix(in srgb, currentColor, transparent 55%);
+    text-align: right;
+    user-select: none;
+  }
+
   .markdown-content :global(.code-block-shell[data-wrap="false"] code) {
     min-width: max-content;
     white-space: pre;
@@ -369,5 +492,66 @@
     max-width: 100%;
     height: auto;
     margin: 1.5rem 0;
+  }
+
+  .markdown-content :global(.markdown-qrcode) {
+    display: flex;
+    justify-content: center;
+    margin: 1.5rem 0;
+  }
+
+  .markdown-content :global(.markdown-qrcode img) {
+    width: 256px;
+    max-width: 100%;
+    height: auto;
+    padding: 0.75rem;
+    background: #ffffff;
+    border-radius: 0.65rem;
+  }
+
+  .markdown-content :global(h1[id]),
+  .markdown-content :global(h2[id]),
+  .markdown-content :global(h3[id]),
+  .markdown-content :global(h4[id]),
+  .markdown-content :global(h5[id]),
+  .markdown-content :global(h6[id]),
+  .markdown-content :global(.footnotes li[id]) {
+    scroll-margin-top: 6rem;
+  }
+
+  .markdown-content :global(.heading-anchor) {
+    margin-left: 0.45em;
+    color: var(--primary);
+    font-weight: 500;
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .markdown-content :global(h1:hover > .heading-anchor),
+  .markdown-content :global(h2:hover > .heading-anchor),
+  .markdown-content :global(h3:hover > .heading-anchor),
+  .markdown-content :global(h4:hover > .heading-anchor),
+  .markdown-content :global(h5:hover > .heading-anchor),
+  .markdown-content :global(h6:hover > .heading-anchor),
+  .markdown-content :global(.heading-anchor:focus-visible) {
+    opacity: 1;
+  }
+
+  .markdown-content :global(.footnotes) {
+    margin-top: 2.5rem;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    font-size: 0.9em;
+  }
+
+  .markdown-content :global(.sr-only) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
   }
 </style>

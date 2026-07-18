@@ -1,6 +1,6 @@
 <script lang="ts">
   import { toast } from 'svelte-sonner';
-  import { Button } from '$lib/components/ui/button';
+  import { buttonVariants } from '$lib/components/ui/button';
   import {
     DropdownMenu,
     DropdownMenuTrigger,
@@ -8,30 +8,20 @@
     DropdownMenuItem,
     DropdownMenuSeparator,
   } from '$lib/components/ui/dropdown-menu';
-  import { Share2, Linkedin, Copy, Check } from '@lucide/svelte';
-  import { page } from '$app/state';
+  import { Share2, Linkedin, Copy, Check, Mail } from '@lucide/svelte';
+  import { env } from '$env/dynamic/public';
   import { tStore as t } from '$lib/i18n';
+  import { CANONICAL_ORIGIN } from '$lib/seo';
 
   let { username, displayName }: { username: string, displayName: string } = $props();
 
   let open = $state(false);
   let copied = $state(false);
+  const canonicalOrigin =
+    env.PUBLIC_CANONICAL_BASE_URL?.replace(/\/$/, '') || CANONICAL_ORIGIN;
 
-  // Helper to get current URL properly
   function getCanonical(): string {
-     return page.url.href;
-  }
-
-  function appendUTM(url: string, source: string) {
-    try {
-      const u = new URL(url);
-      if (!u.searchParams.has('utm_source')) u.searchParams.set('utm_source', source);
-      if (!u.searchParams.has('utm_medium')) u.searchParams.set('utm_medium', 'social');
-      if (!u.searchParams.has('utm_campaign')) u.searchParams.set('utm_campaign', 'profile_share');
-      return u.toString();
-    } catch (e) {
-      return url;
-    }
+    return new URL(`/${encodeURIComponent(username)}`, canonicalOrigin).toString();
   }
 
   async function copyLink() {
@@ -47,46 +37,78 @@
     }
   }
 
+  async function shareNative() {
+    if (!navigator.share) {
+      await copyLink();
+      return;
+    }
+    try {
+      await navigator.share({
+        title: `${displayName} on Free2Z`,
+        text: `Discover ${displayName} (@${username}) on Free2Z`,
+        url: getCanonical(),
+      });
+      open = false;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      toast.error($t('pageActions.share.shareFailed', 'Unable to share'));
+    }
+  }
+
   function openShare(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer');
     open = false;
   }
 
   function shareX() {
-    const url = appendUTM(getCanonical(), 'x');
+    const url = getCanonical();
     const text = `Check out ${displayName} (@${username}) on Free2Z`;
     const shareUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
     openShare(shareUrl);
   }
 
   function shareReddit() {
-    const url = appendUTM(getCanonical(), 'reddit');
+    const url = getCanonical();
     const shareUrl = `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(displayName + ' on Free2Z')}`;
     openShare(shareUrl);
   }
 
   function shareLinkedIn() {
-    const url = appendUTM(getCanonical(), 'linkedin');
+    const url = getCanonical();
     const shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`;
     openShare(shareUrl);
   }
 
   function shareTelegram() {
-    const url = appendUTM(getCanonical(), 'telegram');
+    const url = getCanonical();
     const text = `Check out ${displayName} on Free2Z`;
     const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
     openShare(shareUrl);
   }
+
+  function shareFacebook() {
+    const url = getCanonical();
+    openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
+  }
+
+  function shareEmail() {
+    const url = getCanonical();
+    const subject = `${displayName} on Free2Z`;
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Discover ${displayName} on Free2Z:\n\n${url}`)}`;
+    open = false;
+  }
 </script>
 
 <DropdownMenu bind:open>
-  <DropdownMenuTrigger>
-      <Button variant="outline">
-          <Share2 class="size-4 mr-2" /> Share
-      </Button>
+  <DropdownMenuTrigger class={`${buttonVariants({ variant: "outline", size: "sm" })} w-full sm:w-auto`}>
+      <Share2 class="size-4" /> Share
   </DropdownMenuTrigger>
 
   <DropdownMenuContent class="w-56" align="end">
+    <DropdownMenuItem onclick={shareNative}>
+      <Share2 class="w-4 h-4 mr-2" />
+      <span>{$t('pageActions.share.native', 'Share…')}</span>
+    </DropdownMenuItem>
     <DropdownMenuItem onclick={copyLink}>
       {#if copied}
         <Check class="w-4 h-4 mr-2 text-green-500"/>
@@ -119,6 +141,14 @@
       <svg aria-hidden="true" role="img" class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>Telegram</title><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
       <span>Telegram</span>
       </div>
+    </DropdownMenuItem>
+    <DropdownMenuItem onclick={shareFacebook}>
+      <span class="w-4 h-4 mr-2 text-center font-bold" aria-hidden="true">f</span>
+      <span>Facebook</span>
+    </DropdownMenuItem>
+    <DropdownMenuItem onclick={shareEmail}>
+      <Mail class="w-4 h-4 mr-2" />
+      <span>Email</span>
     </DropdownMenuItem>
   </DropdownMenuContent>
 </DropdownMenu>

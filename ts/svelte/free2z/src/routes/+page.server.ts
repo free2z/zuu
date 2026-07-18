@@ -90,11 +90,13 @@ export async function load(event) {
       }
     );
 
-    // Get popular articles sorted by f2z_score for Popular zPages section
+    // Popular Reads: recency-decayed popularity (#528) rather than all-time
+    // f2z_score, so the front page doesn't get permanently owned by 2022
+    // content. homeSort=popular also drops imageless pages (cards need art).
     const popularParams = {
-      ordering: '-f2z_score',
+      homeSort: 'popular',
       page: 1,
-      // Let Django use its default page_size (~10), then slice first 5
+      // Let Django use its default page_size, then slice first 5
     };
 
     console.log('=== POPULAR API CALL DEBUG ===');

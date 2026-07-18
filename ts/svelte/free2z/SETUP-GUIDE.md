@@ -97,7 +97,6 @@ ALLOWED_HOSTS = [
 ```python
 # CORS origins for local/dev usage
 CORS_ORIGIN_WHITELIST = [
-    'https://free2z.com',
     'https://free2z.cash',
     'https://free2give.xyz',
     'http://localhost:3000',
@@ -192,11 +191,11 @@ docker exec -i postgres-free2z psql -U dbuser -d testdb -c "UPDATE g12f_creator 
 ## 6) Run the frontend (UI) ⚛️
 
 ### 6.1) UI config
-The SvelteKit app lives at `ui` in private `tuzi` and at `ts/svelte/free2z` in public `zuu`.
+The SvelteKit app lives at `ts/svelte/free2z`.
 Create (or update) `.env` from `.env.example` in that app directory.
 
 ```zsh
-# from the SvelteKit app directory
+cd ts/svelte/free2z
 cp .env.example .env
 # Make sure the backend URL points to your running Django dev server
 # e.g. in .env:
@@ -206,7 +205,7 @@ cp .env.example .env
 Open a terminal and run:
 
 ```zsh
-# from the SvelteKit app directory
+cd ts/svelte/free2z
 npm install
 npm run dev
 ```

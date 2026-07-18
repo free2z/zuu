@@ -8,6 +8,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
   import { Search } from '@lucide/svelte';
+  import SeoHead from '$lib/components/SeoHead.svelte';
 
   let searchQuery = '';
   let searchInput: HTMLInputElement;
@@ -186,10 +187,12 @@
     return noTpl.replace('{query}', searchQuery);
   })();
 </script>
-<svelte:head>
-  <title>{searchQuery ? `${searchQuery} - Search` : 'Search'} | Free2Z</title>
-  <meta name="description" content="Search Free2Z articles and content" />
-</svelte:head>
+<SeoHead
+  title={`${searchQuery ? `${searchQuery} - Search` : 'Search'} | Free2Z`}
+  description="Search Free2Z articles, creators, and topics."
+  path="/search"
+  robots="noindex, follow"
+/>
 
 <div class="min-h-screen bg-background p-4 md:p-8">
   <div class="max-w-[800px] mx-auto">
@@ -351,5 +354,3 @@
     </div>
   </div>
 </div>
-
-

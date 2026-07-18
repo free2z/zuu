@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Eye } from "@lucide/svelte";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import MarkdownContent from "$lib/components/MarkdownContent.svelte";
 
   let {
@@ -50,9 +50,9 @@
       class="flex h-full flex-col items-center justify-center text-muted-foreground"
     >
       <Eye class="mb-3 h-12 w-12 opacity-20" />
-      <p>{t("editor.noPreview", "Nothing to preview yet")}</p>
+      <p>{$t("editor.noPreview", "Nothing to preview yet")}</p>
       <p class="mt-1 text-xs">
-        {t("editor.startWriting", "Start writing to see your content here")}
+        {$t("editor.startWriting", "Start writing to see your content here")}
       </p>
     </div>
   {/if}

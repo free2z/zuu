@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import { Input } from "$lib/components/ui/input";
   import EditorCoverField from "./EditorCoverField.svelte";
   import EditorContentField from "./EditorContentField.svelte";
@@ -68,7 +68,7 @@
       <Input
         type="text"
         bind:value={description}
-        placeholder={t("editor.subtitle", "Article subtitle or description...")}
+        placeholder={$t("editor.subtitle", "Article subtitle or description...")}
         oninput={() => onDescriptionChange?.()}
       />
     {/if}

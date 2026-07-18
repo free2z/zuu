@@ -4,7 +4,7 @@
   import { env } from '$env/dynamic/public';
   import CreatorCard from '$lib/components/CreatorCard.svelte';
   import CreatorsFilterControls from '$lib/components/CreatorsFilterControls.svelte';
-  import { t, loading } from '$lib/i18n';
+  import { tStore as t, loading } from '$lib/i18n';
   import { creatorList } from '$lib/api/creator/creator';
   import { createZpageList } from '$lib/api/zpage/zpage';
   import { createInfiniteQuery } from '@tanstack/svelte-query';
@@ -15,6 +15,7 @@
   import * as Drawer from "$lib/components/ui/drawer";
   import { Separator } from "$lib/components/ui/separator";
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import SeoHead from '$lib/components/SeoHead.svelte';
   import {
     creatorsFilterStore,
     activeFilterCount as activeFilterCountStore,
@@ -274,21 +275,18 @@
 
 </script>
 
-<svelte:head>
-  <title>Creators Directory - Free2Z</title>
-  <meta
-    name="description"
-    content={$loading
-      ? 'Discover amazing creators sharing their stories and content on Free2Z'
-      : t('creators.pageDescription', 'Discover amazing creators sharing their stories and content on Free2Z')}
-  />
-</svelte:head>
+<SeoHead
+  title="Creators Directory | Free2Z"
+  description="Discover independent creators publishing stories, ideas, and original work on Free2Z."
+  path="/creators"
+  imageAlt="Free2Z creator directory"
+/>
 
 <svelte:window on:scroll={handleWindowScroll} />
 
 <main class="flex-1 bg-background text-foreground font-sans">
 
-  <PageHeader title="Creators" titleSuffix="." subtitle={t('creators.subtitle', 'Discover amazing creators sharing their stories on Free2Z')} />
+  <PageHeader title="Creators" titleSuffix="." subtitle={$t('creators.subtitle', 'Discover amazing creators sharing their stories on Free2Z')} />
 
   <div class="container mx-auto px-4 pt-8 pb-6 lg:pb-12 max-w-7xl">
     
@@ -354,7 +352,7 @@
         </aside>
 
         <!-- Main Grid -->
-        <div class="flex-1 min-w-0 lg:pb-24">
+        <div class="w-full flex-1 min-w-0 lg:pb-24">
             
             <!-- Desktop Main Header (Always Visible) -->
             <div class="hidden lg:flex items-center justify-between mb-4 pb-4 border-b border-border/40 min-h-[57px]">
@@ -403,17 +401,14 @@
                 <!-- Loading state -->
                 <div class="flex flex-wrap gap-4 sm:gap-5 lg:gap-6 transition-all duration-300 justify-center sm:justify-start">
                 {#each Array(12) as _}
-                    <div class="w-full sm:flex-grow sm:basis-[250px] sm:max-w-[320px] sm:aspect-square h-[220px] sm:h-auto border border-border bg-card/10 p-4 space-y-4 animate-pulse relative overflow-hidden rounded-2xl">
-                        <div class="absolute top-0 right-0 p-1">
-                            <div class="w-16 h-1 bg-border/50"></div>
-                        </div>
-                        <div class="w-full h-32 bg-muted/20 border border-border/20"></div>
-                        <div class="flex justify-center -mt-10">
-                             <div class="w-20 h-20 rounded-full bg-muted/40 border-2 border-background"></div>
-                        </div>
-                        <div class="space-y-2 pt-4">
-                            <div class="h-4 bg-muted/30 w-3/4 mx-auto"></div>
-                            <div class="h-3 bg-muted/20 w-1/2 mx-auto"></div>
+                    <div class="w-full min-w-0 sm:flex-grow sm:basis-[250px] sm:max-w-[320px] sm:aspect-square h-28 sm:h-auto border border-border bg-card/10 animate-pulse relative overflow-hidden rounded-2xl flex sm:flex-col sm:p-4">
+                        <div class="h-full w-[34%] sm:h-32 sm:w-full bg-muted/20 sm:border sm:border-border/20 shrink-0"></div>
+                        <div class="flex flex-1 min-w-0 items-center gap-3 pl-0 pr-4 sm:-mt-10 sm:flex-col sm:justify-start sm:gap-4 sm:px-0">
+                            <div class="-ml-7 w-16 h-16 sm:ml-0 sm:w-20 sm:h-20 rounded-full bg-muted/40 border-4 border-background shrink-0"></div>
+                            <div class="space-y-2 min-w-0 flex-1 sm:flex-none sm:w-full">
+                                <div class="h-4 bg-muted/30 w-3/4 sm:mx-auto"></div>
+                                <div class="h-3 bg-muted/20 w-1/2 sm:mx-auto"></div>
+                            </div>
                         </div>
                     </div>
                 {/each}
@@ -435,7 +430,7 @@
                 <!-- Creators grid -->
                 <div class="flex flex-wrap gap-4 sm:gap-5 lg:gap-6 transition-all duration-300 justify-center sm:justify-start">
                 {#each displayedCreators as { creator, latestArticle } (creator.username)}
-                    <div class="group relative w-full sm:flex-grow sm:basis-[250px] sm:max-w-[320px]">
+                    <div class="group relative w-full min-w-0 sm:flex-grow sm:basis-[250px] sm:max-w-[320px]">
                         <CreatorCard {creator} {avatarUrl} {buildImageUrl} {fmtDate} />
                     </div>
                 {/each}
@@ -515,4 +510,3 @@
     </Drawer.Content>
   </Drawer.Root>
 </main>
-

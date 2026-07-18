@@ -8,5 +8,7 @@ target/
 *.pyc
 __pycache__
 wallet/zuuli/dist/
+ts/svelte/free2z/.svelte-kit/
+ts/svelte/free2z/build/
 
 

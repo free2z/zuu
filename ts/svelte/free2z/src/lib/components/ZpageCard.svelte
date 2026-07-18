@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { env } from '$env/dynamic/public';
 	import { Card, CardContent, CardFooter } from '$lib/components/ui/card';
+	import SmoothImage from '$lib/components/SmoothImage.svelte';
+	import { extractPlainText } from '$lib/utils/markdown';
 
 	export let story: any;
+	export let compactOnMobile = false;
 
 	const apiBase = (env.PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -22,7 +25,7 @@
 	}
 
 	function avatarUrl(c: any): string | null {
-		const img = c?.avatar_image?.url || c?.avatar_image?.thumbnail;
+		const img = c?.avatar_image?.thumbnail || c?.avatar_image?.url;
 		return buildImageUrl(img);
 	}
 
@@ -34,27 +37,23 @@
 	}
 
 	function truncated(text: string | undefined, len = 140): string {
-		if (!text) return '';
-		const t = String(text).replace(/\s+/g, ' ').trim();
-		if (t.length <= len) return t;
-		const cut = t.slice(0, len);
-		const last = cut.lastIndexOf(' ');
-		return (last > 40 ? cut.slice(0, last) : cut) + '…';
+		return extractPlainText(text || '', len).replace(/\.\.\.$/, '…');
 	}
 
 	$: img = buildImageUrl(story?.featured_image?.thumbnail || story?.featured_image?.url);
 	$: hav = avatarUrl(story?.creator);
 </script>
 
-<Card class="group relative flex flex-col h-full overflow-hidden rounded-2xl glass-card border border-primary/10 transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_-10px_rgba(132,204,22,0.2)] hover:-translate-y-1 p-0">
+<Card class={`group relative flex h-full overflow-hidden rounded-xl border border-primary/10 p-0 transition-all duration-200 hover:border-primary/30 ${compactOnMobile ? 'min-h-28 flex-row sm:min-h-0 sm:flex-col' : 'flex-col'} glass-card`}>
     <!-- Card Image with Tech Overlay (Link) -->
-    <a href={articleHref(story)} class="relative h-44 overflow-hidden bg-muted block">
+    <a href={articleHref(story)} class={`relative block shrink-0 overflow-hidden bg-muted ${compactOnMobile ? 'w-24 sm:h-44 sm:w-full' : 'h-44 w-full'}`}>
         {#if img}
-            <img 
-                src={img} 
-                alt={story.title} 
+            <SmoothImage
+                src={img}
+                alt={story.title}
                 loading="lazy"
-                class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                class="w-full h-full"
+                imgClass="transition-transform duration-200 group-hover:scale-[1.02]"
             />
             <div class="absolute inset-0 bg-linear-to-t from-background/90 via-transparent to-transparent opacity-60"></div>
         {:else}
@@ -74,33 +73,38 @@
     </a>
     
     <!-- Card Body -->
-    <CardContent class="flex-1 p-5 flex flex-col relative pb-0">
+    <CardContent class={`relative flex flex-1 flex-col ${compactOnMobile ? 'min-w-0 p-3 sm:p-5 sm:pb-0' : 'p-5 pb-0'}`}>
         <!-- Date Badge -->
-        <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <div class="mb-1.5 flex items-center justify-between sm:mb-2">
+            <span class={`${compactOnMobile ? 'text-[11px] leading-none sm:text-xs sm:leading-normal' : 'text-xs'} flex items-center gap-1.5 text-muted-foreground`}>
                 <span class="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary transition-colors"></span>
                 {fmtDate(story.created_at)}
             </span>
         </div>
 
-        <a href={articleHref(story)} class="block mb-4 flex-1">
-            <h3 class="text-xl font-bold leading-snug group-hover:text-primary transition-colors line-clamp-2 mb-2 tracking-tight">
+        <a href={articleHref(story)} class="block flex-1 sm:mb-4">
+            <h3 class={`${compactOnMobile ? 'text-sm leading-tight sm:text-xl sm:leading-snug' : 'text-xl leading-snug'} mb-1.5 line-clamp-2 font-bold tracking-tight transition-colors group-hover:text-primary sm:mb-2 ${compactOnMobile ? 'sm:min-h-[3.5rem]' : 'min-h-[3.5rem]'}`}>
                 {story.title}
             </h3>
-            
-            {#if story?.description || story?.content}
-                <p class="text-sm text-muted-foreground line-clamp-2 leading-relaxed opacity-80">
-                    {truncated(story?.description || story?.content, 100)}
-                </p>
-            {/if}
+
+            <!-- Reserve a fixed blurb area so every card is the same height and
+                 the footer lines up regardless of title/description length.
+                 On compact mobile the reservation only applies at sm+. -->
+            <div class={compactOnMobile ? 'sm:min-h-[2.5rem]' : 'min-h-[2.5rem]'}>
+                {#if story?.description || story?.content}
+                    <p class={`${compactOnMobile ? 'text-xs leading-snug sm:text-sm sm:leading-relaxed' : 'text-sm leading-relaxed'} line-clamp-2 text-muted-foreground opacity-80`}>
+                        {truncated(story?.description || story?.content, 100)}
+                    </p>
+                {/if}
+            </div>
         </a>
         
         </CardContent>
         <!-- Footer: Author & Action -->
-        <CardFooter class="mt-auto pt-3 pb-5 px-5 border-t border-primary/10 flex items-center justify-between gap-3">
-            <a href="/{story?.creator?.username}" class="flex items-center gap-2 group/author z-10">
+        <CardFooter class={`${compactOnMobile ? 'hidden sm:flex' : 'flex'} mt-auto items-center justify-between gap-3 border-t border-primary/10 px-5 pt-3 pb-5`}>
+            <a href="/{story?.creator?.username}" class="flex min-h-11 items-center gap-2 group/author z-10">
                 <div class="relative w-8 h-8 rounded-md overflow-hidden border border-primary/20 group-hover/author:border-primary/50 transition-colors">
-                    <img src={hav || undefined} alt={story?.creator?.username} class="w-full h-full object-cover">
+                    <SmoothImage src={hav} alt={story?.creator?.username} loading="lazy" class="w-full h-full" />
                 </div>
                 <div class="flex flex-col">
                     {#if story?.creator?.full_name}
@@ -118,13 +122,13 @@
                 </div>
             </a>
 
-            <a href={articleHref(story)} class="flex items-center text-[10px] font-mono font-bold text-primary opacity-60 group-hover:opacity-100 transition-all duration-300 gap-1 group-hover:gap-1.5 hover:underline decoration-primary/50 underline-offset-4">
-                READ
+            <a href={articleHref(story)} class="flex min-h-11 min-w-11 items-center justify-end text-[10px] font-mono font-bold text-primary opacity-60 group-hover:opacity-100 transition-all duration-300 gap-1 group-hover:gap-1.5 hover:underline decoration-primary/50 underline-offset-4">
+                Read
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>
             </a>
         </CardFooter>
     <!-- Hover Glow Border Helper -->
-    <div class="absolute inset-0 rounded-2xl pointer-events-none border border-primary/0 group-hover:border-primary/20 transition-colors duration-500"></div>
+    <div class="pointer-events-none absolute inset-0 rounded-xl border border-primary/0 transition-colors duration-200 group-hover:border-primary/20"></div>
 </Card>

@@ -1,11 +1,16 @@
 <script lang="ts">
-    import { page } from '$app/stores';
+    import { env } from '$env/dynamic/public';
     import { authStore } from '$lib/stores/auth';
     import LiveStreamViewer from '$lib/components/stream/LiveStreamViewer.svelte';
     import { Button } from '$lib/components/ui/button';
     import { ArrowLeft } from '@lucide/svelte';
+    import SeoHead from '$lib/components/SeoHead.svelte';
+    import { CANONICAL_ORIGIN, compactText, toAbsoluteUrl } from '$lib/seo';
 
     export let data: any;
+    const canonicalOrigin =
+        env.PUBLIC_CANONICAL_BASE_URL?.replace(/\/$/, '') || CANONICAL_ORIGIN;
+    const mediaOrigin = env.PUBLIC_API_BASE_URL?.replace(/\/$/, '') || canonicalOrigin;
 
     $: ({ username, type, creator } = data);
     $: currentUser = $authStore.creator;
@@ -13,28 +18,27 @@
 
     $: displayName = creator?.full_name || username;
     
-    // SEO
     $: title = `${displayName} is Live! - Free2Z`;
-    $: description = creator?.description 
-        ? `Watch ${displayName}'s live stream. ${creator.description.slice(0, 150)}${creator.description.length > 150 ? '...' : ''}`
-        : `Watch ${displayName}'s live stream on Free2Z.`;
+    $: description = compactText(
+        creator?.description,
+        `Watch ${displayName}'s live stream on Free2Z.`,
+    );
     
-    $: bannerUrl = creator?.banner_image?.url || creator?.banner_image;
-    $: avatarUrl = creator?.avatar_image?.thumbnail || creator?.avatar_image?.url || creator?.avatar_image;
-    $: ogImage = bannerUrl || avatarUrl;
+    $: bannerUrl = creator?.banner_image?.url || creator?.banner_image?.thumbnail ||
+        (typeof creator?.banner_image === 'string' ? creator.banner_image : null);
+    $: avatarUrl = creator?.avatar_image?.thumbnail || creator?.avatar_image?.url ||
+        (typeof creator?.avatar_image === 'string' ? creator.avatar_image : null);
+    $: ogImage = toAbsoluteUrl(bannerUrl || avatarUrl || '/brand/free2z-og.png', mediaOrigin);
 </script>
 
-<svelte:head>
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:type" content="video.other" />
-    <meta property="og:url" content={$page.url.href} />
-    {#if ogImage}
-        <meta property="og:image" content={ogImage} />
-    {/if}
-</svelte:head>
+<SeoHead
+    {title}
+    {description}
+    path={`/live/${encodeURIComponent(username)}`}
+    type="video.other"
+    image={ogImage}
+    imageAlt={`${displayName}'s live stream on Free2Z`}
+/>
 
 <div class="flex-1 bg-black flex flex-col">
     <!-- Header -->

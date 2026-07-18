@@ -5,7 +5,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { FileText, Plus, LayoutGrid, List, Search, Radio, Eye, Pencil } from '@lucide/svelte';
-  import { t } from '$lib/i18n';
+  import { tStore as t } from '$lib/i18n';
   import ZpageCard from '$lib/components/ZpageCard.svelte';
   import { Badge } from '$lib/components/ui/badge';
 
@@ -65,8 +65,8 @@
 </script>
 
 <svelte:head>
-  <title>{t('dashboard.pages.title', 'My Pages')} - {username}</title>
-  <meta name="description" content={t('dashboard.pages.subtitle', 'Manage all your published articles and drafts')} />
+  <title>{$t('dashboard.pages.title', 'My Pages')} - {username}</title>
+  <meta name="description" content={$t('dashboard.pages.subtitle', 'Manage all your published articles and drafts')} />
 </svelte:head>
 
 <main class="flex-1 bg-background text-foreground font-sans relative overflow-hidden selection:bg-primary/30">
@@ -83,7 +83,7 @@
           My <span class="text-primary">Pages</span>
         </h1>
         <p class="text-muted-foreground text-lg max-w-xl leading-relaxed">
-          {t('dashboard.pages.subtitle', 'Manage all your published articles and drafts')}
+          {$t('dashboard.pages.subtitle', 'Manage all your published articles and drafts')}
         </p>
       </div>
       <div class="flex flex-wrap gap-3 w-full md:w-auto">
@@ -93,7 +93,7 @@
          </Button>
          <Button onclick={handleCreateNew} class="gap-2 shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground">
             <Plus class="size-4" />
-            {t('dashboard.pages.createNew', 'Create New Page')}
+            {$t('dashboard.pages.createNew', 'Create New Page')}
          </Button>
       </div>
     </div>
@@ -105,7 +105,7 @@
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" size={18} />
           <Input
             type="text"
-            placeholder={t('dashboard.pages.searchPlaceholder', 'Search pages...')}
+            placeholder={$t('dashboard.pages.searchPlaceholder', 'Search pages...')}
             bind:value={searchQuery}
             onkeydown={(e) => e.key === 'Enter' && handleSearch()}
             class="pl-10 bg-muted/40 border-border focus:border-primary/50 focus:ring-primary/20 transition-all"
@@ -241,7 +241,7 @@
       {:else}
         <div class="text-center py-24 border border-dashed border-border rounded-3xl bg-muted/20">
            <Search class="size-12 text-muted-foreground/30 mx-auto mb-4" />
-           <p class="text-muted-foreground text-lg">{t('dashboard.pages.noSearchResults', 'No pages match your search "{query}"').replace('{query}', searchQuery)}</p>
+           <p class="text-muted-foreground text-lg">{$t('dashboard.pages.noSearchResults', 'No pages match your search "{query}"').replace('{query}', searchQuery)}</p>
            <Button variant="link" onclick={clearSearch} class="mt-2 text-primary">Clear search</Button>
         </div>
       {/if}
@@ -251,13 +251,13 @@
         <div class="bg-primary/10 p-6 rounded-full mb-8 animate-pulse">
             <FileText class="size-16 text-primary" strokeWidth={1.5} />
         </div>
-        <h2 class="text-3xl font-bold text-foreground mb-4 tracking-tight">{t('dashboard.pages.noPagesYet', 'No pages yet')}</h2>
+        <h2 class="text-3xl font-bold text-foreground mb-4 tracking-tight">{$t('dashboard.pages.noPagesYet', 'No pages yet')}</h2>
         <p class="text-lg text-muted-foreground max-w-lg mb-10 leading-relaxed">
-          {t('dashboard.pages.noPagesDescription', 'Get started by creating your first zPage. Share your thoughts, stories, and ideas with the world.')}
+          {$t('dashboard.pages.noPagesDescription', 'Get started by creating your first zPage. Share your thoughts, stories, and ideas with the world.')}
         </p>
         <Button onclick={handleCreateNew} size="lg" class="gap-2 rounded-full px-8 shadow-xl shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground">
           <Plus class="size-5" />
-          {t('dashboard.pages.createFirst', 'Create Your First Page')}
+          {$t('dashboard.pages.createFirst', 'Create Your First Page')}
         </Button>
       </div>
     {/if}

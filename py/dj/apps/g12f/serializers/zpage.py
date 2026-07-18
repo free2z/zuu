@@ -16,6 +16,30 @@ from dj.apps.uploads.serializers import (
 from dj.apps.uploads.models import GenericFile
 
 
+# Reserved sub-route names: a vanity equal to one of these would shadow a real
+# page at /{username}/{vanity}. The site is mid-transition with BOTH UIs live, so
+# this is the UNION of the direct sub-routes under /{username}/ in both:
+#   * new SvelteKit UI: ts/svelte/free2z/src/routes/[username]/{dashboard,private,zpage}
+#     (the dashboard sub-pages live at /{username}/dashboard/*, two segments deep,
+#     so settings/billing/media/etc. can NOT be shadowed by a one-segment vanity)
+#   * classic React UI (App.tsx): /{username}/zpage/:id, /{username}/private/:uuid,
+#     and the live-stream types matched by /:username/:type
+#     (broadcast, ppv, subscribers-only).
+# New/changed vanities must not use these. Be conservative: when unsure, keep.
+# TODO: once the classic React UI is retired, prune the classic-only live-stream
+# entries (broadcast, ppv, subscribers-only). See #567.
+RESERVED_VANITIES = [
+    # Direct sub-routes in the new SvelteKit UI
+    "dashboard",
+    "private",
+    "zpage",
+    # Classic React live-stream types matched by /:username/:type
+    "broadcast",
+    "ppv",
+    "subscribers-only",
+]
+
+
 class zPageDestroySerializer(serializers.ModelSerializer):
     class Meta:
         model = zPage
@@ -89,6 +113,11 @@ class zPageUpdateSerializer(TaggitSerializer, serializers.ModelSerializer):
         # unchanged
         if value == self.instance.vanity:
             return value
+
+        # it would shadow a real sub-route under /{username}/ in the new UI
+        if value in RESERVED_VANITIES:
+            raise serializers.ValidationError(
+                "Vanity is a system reserved name, please choose another!")
 
         # TODO: later when zPage is always under creator,
         # maybe vanity doesn't need to be unique? ;()

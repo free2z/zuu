@@ -6,6 +6,11 @@ declare global {
 			code?: number;
 		}
 	}
+
+	interface HTMLElementTagNameMap {
+		'rtk-meeting': HTMLElement & { meeting?: unknown };
+		'rtk-participants-audio': HTMLElement & { meeting?: unknown };
+	}
 }
 
 export { };

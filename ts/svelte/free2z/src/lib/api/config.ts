@@ -1,5 +1,28 @@
 import { browser } from '$app/environment';
 
+const CSRF_SECRET_LENGTH = 32;
+const CSRF_ALLOWED_CHARS =
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function createCSRFToken(): string {
+  const bytes = new Uint8Array(CSRF_SECRET_LENGTH);
+  const maxUnbiasedValue =
+    Math.floor(256 / CSRF_ALLOWED_CHARS.length) * CSRF_ALLOWED_CHARS.length;
+  let token = '';
+
+  while (token.length < CSRF_SECRET_LENGTH) {
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (byte < maxUnbiasedValue) {
+        token += CSRF_ALLOWED_CHARS[byte % CSRF_ALLOWED_CHARS.length];
+        if (token.length === CSRF_SECRET_LENGTH) break;
+      }
+    }
+  }
+
+  return token;
+}
+
 /**
  * Get CSRF token from cookie
  */
@@ -17,15 +40,12 @@ export async function ensureCSRFToken(): Promise<string | null> {
   let token = getCSRFToken();
   if (token) return token;
 
-  try {
-    // Hit a harmless GET endpoint to allow backend to set csrftoken cookie
-    await fetch('/api/auth/user/', {
-      method: 'GET',
-      credentials: 'include',
-    });
-  } catch {
-    // ignore network errors; we'll attempt POST anyway
-  }
+  // Django accepts an unmasked 32-character CSRF secret when the cookie and
+  // X-CSRFToken header match. Creating it on our own origin avoids making
+  // every write depend on an unrelated auth GET that may be slow or offline.
+  token = createCSRFToken();
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `csrftoken=${token}; Path=/; SameSite=Lax${secure}`;
 
   return getCSRFToken();
 }

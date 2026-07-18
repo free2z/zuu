@@ -51,6 +51,10 @@ INSTALLED_APPS = [
     'knox',
     'django_filters',
     'taggit',
+    # Postgres-native task queue (image variants, #590). Must appear
+    # before the dj.apps that define tasks so its app registry is ready
+    # first (see procrastinate.contrib.django docs).
+    'procrastinate.contrib.django',
     # 'debug_toolbar',
 
     'dj.apps.dyte',
@@ -69,6 +73,8 @@ INSTALLED_APPS = [
     'dj.apps.tax',
     'dj.apps.search',
     'dj.apps.efm',
+    'dj.apps.pricing',
+    'dj.apps.zauth',
 ]
 
 MIDDLEWARE = [
@@ -95,6 +101,11 @@ CORS_ORIGIN_WHITELIST = [
     'http://localhost:8000',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:8000',
+    # ZUULI desktop client's Vite dev server (browser-based dev).
+    # The packaged Tauri app uses tauri-plugin-http (native HTTP, not
+    # subject to browser CORS), so no tauri:// origin is needed here.
+    'http://localhost:1423',
+    'http://127.0.0.1:1423',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -118,10 +129,8 @@ AUTHENTICATION_BACKENDS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    'DEFAULT_PAGINATION_CLASS':
-        # 'rest_framework.pagination.LimitOffsetPagination',
-        'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
+    'DEFAULT_PAGINATION_CLASS': 'dj.free2z.pagination.Free2zPagination',
+    'PAGE_SIZE': 12,
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
     ],
@@ -282,8 +291,6 @@ TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
-USE_L10N = True
-
 USE_TZ = True
 
 
@@ -312,7 +319,16 @@ RTK_API_BASE_URL = os.environ.get(
 # https://github.com/jschneier/django-storages
 # https://github.com/jschneier/django-storages/blob/master/storages/backends/gcloud.py
 # https://django-storages.readthedocs.io/en/latest/backends/gcloud.html
-DEFAULT_FILE_STORAGE = 'storages.backends.gcloud.GoogleCloudStorage'
+# STORAGES replaces the removed DEFAULT_FILE_STORAGE/STATICFILES_STORAGE
+# settings (removed in Django 5.1).
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 GS_BUCKET_NAME = 'free2z-uploads'
 GS_FILE_OVERWRITE = False
 # GS_IS_GZIPPED = True

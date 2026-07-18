@@ -5,7 +5,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Drawer from "$lib/components/ui/drawer";
   import * as Tabs from "$lib/components/ui/tabs";
-  import { Button } from '$lib/components/ui/button';
+  import { Button, buttonVariants } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Switch } from '$lib/components/ui/switch';
   import { Label } from '$lib/components/ui/label';
@@ -17,16 +17,27 @@
 
   let { creator }: { creator: CreatorDetail } = $props();
 
+  const DEFAULT_DONATION_AMOUNT = 2;
+
   let open = $state(false);
   let isDesktop = new MediaQuery("(min-width: 768px)");
   let copied = $state(false);
-  let donationAmount = $state(2);
+  let donationAmount = $state(DEFAULT_DONATION_AMOUNT);
   let anonymous = $state(false);
   let loading = $state(false);
+  let copiedResetTimeout: ReturnType<typeof setTimeout> | undefined;
 
   // Zcash QR Logic
   let qrDataUrl = $state<string | null>(null);
   let qrError = $state(false);
+
+  $effect(() => {
+    if (!open) {
+      donationAmount = DEFAULT_DONATION_AMOUNT;
+      copied = false;
+      clearTimeout(copiedResetTimeout);
+    }
+  });
 
   $effect(() => {
     if (creator?.p2paddr && open) {
@@ -43,16 +54,54 @@
     }
   });
 
+  function copyAddressFallback(address: string) {
+    const textarea = document.createElement('textarea');
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    textarea.value = address;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, address.length);
+
+    try {
+      return document.execCommand('copy');
+    } finally {
+      textarea.remove();
+      previouslyFocused?.focus();
+    }
+  }
+
   async function copyAddress() {
     if (!creator?.p2paddr) return;
+
+    let clipboardError: unknown;
+
     try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API unavailable');
+      }
       await navigator.clipboard.writeText(creator.p2paddr);
-      copied = true;
-      toast.success($t('pageActions.donate.copied', 'Address copied to clipboard'));
-      setTimeout(() => copied = false, 2000);
-    } catch (err) {
-      toast.error($t('pageActions.donate.copyFailed', 'Copy failed'));
+    } catch (error) {
+      clipboardError = error;
+      try {
+        if (!copyAddressFallback(creator.p2paddr)) {
+          throw clipboardError;
+        }
+      } catch {
+        toast.error($t('pageActions.donate.copyFailed', 'Copy failed'));
+        return;
+      }
     }
+
+    copied = true;
+    toast.success($t('pageActions.donate.copied', 'Address copied to clipboard'));
+    clearTimeout(copiedResetTimeout);
+    copiedResetTimeout = setTimeout(() => copied = false, 3000);
   }
 
   // Tuzi Donation Logic
@@ -112,37 +161,39 @@
 </script>
 
 {#snippet content()}
-  <Tabs.Root value="tuzis" class="w-full">
+  <Tabs.Root value="tuzis" class="w-full md:min-h-[506px]">
     <Tabs.List class="grid w-full grid-cols-2 mb-4">
       <Tabs.Trigger value="tuzis" class="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Tuzis (2Z)</Tabs.Trigger>
       <Tabs.Trigger value="zcash">Zcash (ZEC)</Tabs.Trigger>
     </Tabs.List>
     
-    <Tabs.Content value="tuzis" class="space-y-6 py-2">
-      <div class="flex flex-col items-center justify-center gap-4 text-center">
-        <div class="bg-primary/10 rounded-full p-3">
-          <Coins class="size-8 text-primary" />
-        </div>
-        
-        <div class="space-y-1">
-          <h3 class="font-bold text-xl tracking-tight">Donate 2Z</h3>
-          <p class="text-sm text-muted-foreground max-w-[260px] mx-auto leading-relaxed">
-            Support <span class="font-semibold text-foreground">{creator.username}</span> directly.
-          </p>
+    <Tabs.Content value="tuzis" class="py-2 md:h-[446px]">
+      <div class="flex flex-col items-center justify-center gap-4 text-center md:h-full md:justify-between">
+        <div class="flex flex-col items-center gap-4">
+          <div class="bg-primary/10 rounded-full p-3">
+            <Coins class="size-8 text-primary" />
+          </div>
+
+          <div class="space-y-1">
+            <h3 class="font-bold text-xl tracking-tight">Donate 2Z</h3>
+            <p class="text-sm text-muted-foreground max-w-[260px] mx-auto leading-relaxed">
+              Support <span class="font-semibold text-foreground">{creator.username}</span> directly.
+            </p>
+          </div>
         </div>
 
         <div class="w-full max-w-sm space-y-6">
             <div class="space-y-4">
                  <div>
                     <div class="bg-background border border-border rounded-xl p-1 flex items-center">
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            class="h-12 w-12 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/5"
+                        <button
+                            type="button"
+                            aria-label="Decrease donation amount"
+                            class="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-muted-foreground shadow-none transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none"
                             onclick={() => donationAmount = Math.max(1, donationAmount - 1)}
                         >
-                            <span class="text-xl font-bold">−</span>
-                        </Button>
+                            <span class="text-xl font-bold" aria-hidden="true">−</span>
+                        </button>
                         <div class="flex-1 text-center">
                              <Input 
                                 type="number" 
@@ -153,14 +204,14 @@
                             />
                             <div class="text-[10px] uppercase tracking-wider font-medium text-muted-foreground mt-[-4px]">Tuzis</div>
                         </div>
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            class="h-12 w-12 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/5"
+                        <button
+                            type="button"
+                            aria-label="Increase donation amount"
+                            class="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-muted-foreground shadow-none transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none"
                             onclick={() => donationAmount = donationAmount + 1}
                         >
-                            <span class="text-xl font-bold">+</span>
-                        </Button>
+                            <span class="text-xl font-bold" aria-hidden="true">+</span>
+                        </button>
                     </div>
                  </div>
 
@@ -231,13 +282,13 @@
             <div>
                 <div class="bg-white p-3 rounded-xl border">
                     {#if qrDataUrl}
-                        <img src={qrDataUrl} alt="Zcash QR code" width="200" height="200" class="rounded-xl mix-blend-multiply" />
+                        <img src={qrDataUrl} alt="Zcash QR code" width="200" height="200" class="size-[200px] rounded-xl mix-blend-multiply md:size-[180px]" />
                     {:else if qrError}
-                        <div class="w-[200px] h-[200px] flex items-center justify-center text-destructive text-sm text-center p-4 font-medium bg-destructive/5 rounded-xl">
+                        <div class="flex size-[200px] items-center justify-center rounded-xl bg-destructive/5 p-4 text-center text-sm font-medium text-destructive md:size-[180px]">
                             Failed to generate QR code
                         </div>
                     {:else}
-                        <div class="w-[200px] h-[200px] flex items-center justify-center text-muted-foreground text-sm bg-muted/20 rounded-xl animate-pulse">
+                        <div class="flex size-[200px] animate-pulse items-center justify-center rounded-xl bg-muted/20 text-sm text-muted-foreground md:size-[180px]">
                             Generating...
                         </div>
                     {/if}
@@ -256,7 +307,13 @@
                              {creator.p2paddr}
                          </div>
                          <div class="h-6 w-[1px] bg-border"></div>
-                         <Button variant="ghost" size="icon" onclick={copyAddress} class="shrink-0 h-8 w-8 -mr-1">
+                         <Button
+                            variant="ghost"
+                            size="icon"
+                            onclick={copyAddress}
+                            aria-label={copied ? 'Zcash address copied' : 'Copy Zcash address'}
+                            class="shrink-0 h-8 w-8 -mr-1"
+                         >
                             {#if copied}
                                 <Check class="size-4" />
                             {:else}
@@ -288,10 +345,8 @@
 
 {#if isDesktop.current}
   <Dialog.Root bind:open>
-    <Dialog.Trigger>
-        <Button variant="outline">
-            <Wallet class="size-4 mr-2" /> Donate
-        </Button>
+    <Dialog.Trigger class={`${buttonVariants({ variant: "outline", size: "sm" })} w-full sm:w-auto`}>
+        <Wallet class="size-4" /> Donate
     </Dialog.Trigger>
     <Dialog.Content class="sm:max-w-[425px]">
       <Dialog.Header>
@@ -305,10 +360,8 @@
   </Dialog.Root>
 {:else}
   <Drawer.Root bind:open>
-    <Drawer.Trigger>
-        <Button variant="outline">
-            <Wallet class="size-4 mr-2" /> Donate
-        </Button>
+    <Drawer.Trigger class={`${buttonVariants({ variant: "outline", size: "sm" })} w-full`}>
+        <Wallet class="size-4" /> Donate
     </Drawer.Trigger>
     <Drawer.Content>
       <Drawer.Header class="text-left">

@@ -7,7 +7,7 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { Button } from "$lib/components/ui/button";
   import { CATEGORY_CHOICES } from "$lib/types/zpage";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import {
     CalendarClock,
     FileText,
@@ -121,16 +121,16 @@
         class="flex items-center gap-2 text-2xl font-black tracking-tight"
       >
         {isPublished
-          ? t("editor.articleSettings", "Article Settings")
-          : t("editor.readyToPublish", "Ready to publish?")}
+          ? $t("editor.articleSettings", "Article Settings")
+          : $t("editor.readyToPublish", "Ready to publish?")}
       </Sheet.Title>
       <Sheet.Description>
         {isPublished
-          ? t(
+          ? $t(
               "editor.settingsDescription",
               "Update how your article appears and who can read it. Changes apply immediately.",
             )
-          : t(
+          : $t(
               "editor.publishDescription",
               "Add the finishing touches before your article goes live. Everything here is optional.",
             )}
@@ -140,13 +140,13 @@
     <div class="flex-1 space-y-6 overflow-y-auto p-4">
       <div class="space-y-2">
         <Label for="publish-description" class="text-sm font-semibold">
-          {t("editor.subtitleLabel", "Subtitle / Description")}
+          {$t("editor.subtitleLabel", "Subtitle / Description")}
         </Label>
         <Textarea
           id="publish-description"
           bind:value={description}
           rows={3}
-          placeholder={t(
+          placeholder={$t(
             "editor.subtitlePlaceholder",
             "A short teaser shown in previews, search, and social shares...",
           )}
@@ -162,19 +162,19 @@
         >
           {description.trim().length}/{DESCRIPTION_MAX_LENGTH}
           {#if !descriptionTooLong}
-            · {t(
+            · {$t(
               "editor.subtitleHint",
               "Leave blank to get an AI-generated description.",
             )}
           {:else}
-            · {t("editor.subtitleTooLong", "Too long!")}
+            · {$t("editor.subtitleTooLong", "Too long!")}
           {/if}
         </p>
       </div>
 
       <div class="space-y-2">
         <Label for="vanity" class="text-sm font-semibold">
-          {t("editor.vanityLabel", "Vanity URL")}
+          {$t("editor.vanityLabel", "Vanity URL")}
         </Label>
         <Input
           id="vanity"
@@ -202,7 +202,7 @@
 
       <div class="space-y-2">
         <Label class="text-sm font-semibold">
-          {t("editor.categories", "Categories")}
+          {$t("editor.categories", "Categories")}
         </Label>
         <Select.Root
           type="multiple"
@@ -234,7 +234,7 @@
       {#if !isPublished}
         <div class="space-y-2">
           <Label for="publish-at" class="text-sm font-semibold">
-            {t("editor.scheduleLabel", "Schedule (Optional)")}
+            {$t("editor.scheduleLabel", "Schedule (Optional)")}
           </Label>
           <Input
             id="publish-at"
@@ -245,12 +245,12 @@
           />
           <p class="text-xs text-muted-foreground">
             {#if isScheduling}
-              {t(
+              {$t(
                 "editor.scheduleSetHint",
                 "Your article will go live automatically at the chosen time.",
               )}
             {:else}
-              {t("editor.scheduleHint", "Leave empty to publish immediately.")}
+              {$t("editor.scheduleHint", "Leave empty to publish immediately.")}
             {/if}
           </p>
         </div>
@@ -258,7 +258,7 @@
 
       <div class="space-y-2">
         <Label for="zcash-address" class="text-sm font-semibold">
-          {t("editor.zcashLabel", "Zcash Address (Optional Override)")}
+          {$t("editor.zcashLabel", "Zcash Address (Optional Override)")}
         </Label>
         <Input
           id="zcash-address"
@@ -280,7 +280,7 @@
             onCheckedChange={() => onChange?.()}
           />
           <span class="text-sm font-medium">
-            {t("editor.subscribersOnly", "Subscribers Only")}
+            {$t("editor.subscribersOnly", "Subscribers Only")}
           </span>
         </label>
         <p class="text-xs text-muted-foreground">
@@ -299,7 +299,7 @@
           {#if isSaving}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
           {/if}
-          {t("editor.saveSettings", "Save Settings")}
+          {$t("editor.saveSettings", "Save Settings")}
         </Button>
         <Button
           variant="outline"
@@ -308,7 +308,7 @@
           onclick={() => onUnpublish()}
         >
           <Undo2 class="mr-2 h-4 w-4" />
-          {t("editor.revertToDraft", "Revert to Draft")}
+          {$t("editor.revertToDraft", "Revert to Draft")}
         </Button>
       {:else}
         <Button
@@ -324,8 +324,8 @@
             <Send class="mr-2 h-4 w-4" />
           {/if}
           {isScheduling
-            ? t("editor.schedule", "Schedule")
-            : t("editor.publishNow", "Publish Now")}
+            ? $t("editor.schedule", "Schedule")
+            : $t("editor.publishNow", "Publish Now")}
         </Button>
         <Sheet.Close class="w-full">
           {#snippet child({ props })}
@@ -336,7 +336,7 @@
               disabled={isSaving}
             >
               <FileText class="mr-2 h-4 w-4" />
-              {t("editor.keepDraft", "Keep as Draft")}
+              {$t("editor.keepDraft", "Keep as Draft")}
             </Button>
           {/snippet}
         </Sheet.Close>

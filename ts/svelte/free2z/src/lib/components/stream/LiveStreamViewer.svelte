@@ -1,11 +1,12 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { fade } from 'svelte/transition';
-    import { StreamService, PaymentRequiredError, type StreamInfo } from '$lib/services/stream';
-    import { initDyteMeeting } from '$lib/utils/dyte-manager';
+    import { StreamService, PaymentRequiredError, liveStatusQueryKey, type StreamInfo } from '$lib/services/stream';
+    import { useQueryClient } from '@tanstack/svelte-query';
+    import { initRtkMeeting } from '$lib/utils/rtk-manager';
     import { liveStreamStore } from '$lib/stores/liveStreamStore';
     import type { StreamType } from '$lib/stores/liveStreamStore';
-    import { defineCustomElements } from '@dytesdk/ui-kit/loader';
+    import { defineCustomElements } from '@cloudflare/realtimekit-ui/loader';
     import { Loader2, AlertCircle, Lock, WifiOff, RefreshCw, VideoOff, MicOff, CameraOff } from '@lucide/svelte';
     import Button from '../ui/button/button.svelte';
     import SubscribeToCreator from './SubscribeToCreator.svelte';
@@ -13,10 +14,13 @@
     import { createCreatorRetrieve } from '$lib/api/creator/creator';
     import { toast } from 'svelte-sonner';
     import { goto } from '$app/navigation';
+    import { authStore } from '$lib/stores/auth';
 
     export let username: string;
     export let streamType: StreamType = 'broadcast';
     export let isHost: boolean = false;
+
+    const queryClient = useQueryClient();
 
     let loading = true;
     let error: string | null = null;
@@ -57,10 +61,12 @@
         toast.info('The stream has ended.');
         loading = false;
         error = null;
+        void queryClient.invalidateQueries({ queryKey: liveStatusQueryKey(username) });
     }
     
     const creatorQuery = createCreatorRetrieve(username);
     $: creator = $creatorQuery.data;
+    $: isSubscribed = Boolean($authStore.creator?.stars?.includes(username));
 
     function handleOnline() {
         liveStreamStore.setOffline(false);
@@ -76,7 +82,7 @@
     }
 
     onMount(async () => {
-        // Register Dyte web components
+        // Register RealtimeKit web components
         defineCustomElements();
         
         window.addEventListener('online', handleOnline);
@@ -117,7 +123,7 @@
             const { auth_token } = await StreamService.initStream(username, streamType);
 
             // 2. Initialize Meeting
-            const result = await initDyteMeeting({
+            const result = await initRtkMeeting({
                 authToken: auth_token,
                 streamType,
                 isHost,
@@ -128,6 +134,7 @@
             });
             cleanup = result.cleanup;
             warning = result.warning || null;
+            void queryClient.invalidateQueries({ queryKey: liveStatusQueryKey(username) });
             
             if (warning) {
                 toast.warning(warning, { duration: 8000 });
@@ -160,7 +167,7 @@
             } else if (streamType === 'subscribers-only' && isPaymentRequired) {
                  toast.info('Subscribers only stream.', {
                     action: {
-                        label: 'Subscribe',
+                        label: isSubscribed ? 'Manage' : 'Subscribe',
                         onClick: openSubscribe
                     },
                     duration: 8000
@@ -268,7 +275,7 @@
                     class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-full font-medium mt-4"
                     onclick={openSubscribe}
                 >
-                    Subscribe to {username}
+                    {isSubscribed ? 'Manage subscription' : `Subscribe to ${username}`}
                 </Button>
             {:else if streamType === 'ppv' && isPaymentRequired}
                  <div class="flex flex-col gap-2 mt-4 w-full">
@@ -307,14 +314,13 @@
             {/if}
         </div>
     {:else if meeting}
-        <!-- Dyte Meeting Component -->
-        <!-- @ts-ignore - Web Component -->
-        <dyte-meeting
+        <!-- RealtimeKit Meeting Component -->
+        <rtk-meeting
             mode="fill"
-            meeting={meeting}
+            {meeting}
             show-setup-screen={false}
             class="w-full h-full"
-        ></dyte-meeting>
+        ></rtk-meeting>
 
         <!-- Persistent Warning for Host (e.g. Permission Denied) -->
         {#if warning && isHost}

@@ -7,7 +7,7 @@
   import { isAuthenticated } from "$lib/stores/auth";
   import { eventNotifications } from "$lib/stores/eventNotifications";
   import { Button } from "$lib/components/ui/button";
-  import { BookOpen, Bell, MessagesSquare, Search } from "@lucide/svelte";
+  import { Bell, MessagesSquare, Search } from "@lucide/svelte";
   import LiveIndicator from "$lib/components/stream/LiveIndicator.svelte";
   import { currentUser } from "$lib/stores/auth";
   import SearchCommand from "$lib/components/layout/SearchCommand.svelte";
@@ -175,18 +175,6 @@
         <MessagesSquare class="size-4" />
       </Button>
 
-      <Button
-        href="https://free2z.com/docs/"
-        target="_blank"
-        variant="ghost"
-        size="icon-sm"
-        class="hidden sm:inline-flex {iconButtonClass}"
-        aria-label="Documentation"
-        title="Documentation"
-      >
-        <BookOpen class="size-4" />
-      </Button>
-
       {#if $isAuthenticated}
         <Button
           variant="ghost"
@@ -234,7 +222,7 @@
                   aria-label="Switch to the classic Free2Z site"
                 >
                   <img
-                    src="/logo512.png"
+                    src="/favicon.ico"
                     alt=""
                     class="size-5 object-contain opacity-60 grayscale transition-all duration-200 group-hover:scale-110 group-hover:opacity-100 group-hover:grayscale-0 group-focus-visible:scale-110 group-focus-visible:opacity-100 group-focus-visible:grayscale-0"
                   />

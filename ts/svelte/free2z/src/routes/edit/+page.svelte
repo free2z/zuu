@@ -4,7 +4,8 @@
   import { onDestroy } from "svelte";
   import type { PageData } from "./$types";
   import { toast } from "svelte-sonner";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
+  import { apiFetch } from "$lib/api/config";
   import EditorComposer from "$lib/components/mdEditor/EditorComposer.svelte";
   import EditorPreview from "$lib/components/mdEditor/EditorPreview.svelte";
   import EditorStats from "$lib/components/mdEditor/EditorStats.svelte";
@@ -32,10 +33,10 @@
   type SavePayload = {
     title: string;
     content: string;
-    description?: string;
+    description: string;
     tags: string[];
-    vanity?: string;
-    p2paddr?: string;
+    vanity: string;
+    p2paddr: string;
     featured_image?: number | null;
     is_published: boolean;
     is_subscriber_only: boolean;
@@ -89,6 +90,7 @@
   let destroyed = false;
   let currentSavePromise: Promise<boolean> | null = null;
   let pendingNavigationFlush = false;
+  let bypassNextNavigationGuard = false;
 
   const isDirty = $derived(changeVersion !== savedVersion);
 
@@ -201,10 +203,12 @@
       // Strip in-flight "Uploading image…" placeholders from the outgoing
       // payload only — local state keeps them until the upload resolves.
       content: stripUploadPlaceholders(content).trim(),
-      description: description.trim() || undefined,
+      // Keep cleared optional fields in the payload. Omitting them from a
+      // PUT makes DRF preserve the previous value instead of clearing it.
+      description: description.trim(),
       tags: [...selectedCategories],
-      vanity: vanity.trim() || undefined,
-      p2paddr: zcashAddress.trim() || undefined,
+      vanity: vanity.trim(),
+      p2paddr: zcashAddress.trim(),
       featured_image: showCover ? coverImageId : null,
       is_published: isPublished,
       is_subscriber_only: isSubscriberOnly,
@@ -361,26 +365,46 @@
 
     try {
       const payload = { ...buildSavePayload(), ...overrides };
-      const response = await fetch("/edit", {
-        method: "POST",
-        redirect: "manual",
+      const currentIdentifier = currentZPage?.free2zaddr;
+      const isCreate = !currentIdentifier;
+      const saveUrl = currentIdentifier
+        ? `/api/zpage/${encodeURIComponent(currentIdentifier)}/`
+        : "/api/zpage/";
+      const response = await apiFetch(saveUrl, {
+        method: isCreate ? "POST" : "PUT",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          identifier: currentZPage?.free2zaddr ?? "new",
-          ...payload,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        validationErrors = result.validationErrors ?? {};
-        saveError = result.error || "Failed to save article";
+        const vanityError = Array.isArray(result.vanity)
+          ? result.vanity[0]
+          : result.vanity;
+        const titleError = Array.isArray(result.title)
+          ? result.title[0]
+          : result.title;
+        validationErrors = {
+          vanity: vanityError,
+          title: titleError,
+        };
+        saveError =
+          result.detail ||
+          result.message ||
+          result.error ||
+          (vanityError || titleError
+            ? "Please fix the validation errors"
+            : "Failed to save article");
 
-        if (result.redirectTo && browser) {
-          goto(result.redirectTo);
+        if (
+          response.status === 401 ||
+          (response.status === 403 &&
+            /authentication|credentials|session/i.test(saveError || ""))
+        ) {
+          goto("/?login=true");
           return false;
         }
 
@@ -400,8 +424,8 @@
         return false;
       }
 
-      if (!result.zpage || !result.identifier) {
-        saveError = "The server did not confirm that the article was saved.";
+      if (!result.free2zaddr) {
+        saveError = "The API did not confirm that the article was saved.";
 
         if (!isAuto) {
           toast.error(saveError);
@@ -411,13 +435,15 @@
       }
 
       const isClean = changeVersion === versionAtSaveStart;
+      const savedZPage = result as ZPage;
+      const savedIdentifier = savedZPage.vanity || savedZPage.free2zaddr;
 
-      applySavedZPage(result.zpage, isClean);
-      updateEditorUrl(result.identifier);
+      applySavedZPage(savedZPage, isClean);
+      updateEditorUrl(savedIdentifier);
 
       validationErrors = {};
       saveError = null;
-      lastSavedAt = result.savedAt ?? Date.now();
+      lastSavedAt = Date.now();
       savedVersion = versionAtSaveStart;
       autoSaveRetries = 0;
 
@@ -425,8 +451,13 @@
         scheduleAutoSave();
       }
 
-      if (!isAuto && (successMessage || result.message)) {
-        toast.success(successMessage || result.message);
+      if (!isAuto) {
+        toast.success(
+          successMessage ||
+            (isCreate
+              ? "Article saved successfully"
+              : "Article updated successfully"),
+        );
       }
 
       return true;
@@ -487,7 +518,23 @@
     Boolean(content.trim() && (title.trim() || !isPublished)),
   );
 
+  async function navigateWithoutUnsavedGuard(destination: string) {
+    bypassNextNavigationGuard = true;
+
+    try {
+      await goto(destination);
+    } finally {
+      // Usually the editor is destroyed by a successful navigation. Reset
+      // this if navigation is rejected so later attempts remain protected.
+      bypassNextNavigationGuard = false;
+    }
+  }
+
   beforeNavigate((navigation) => {
+    if (bypassNextNavigationGuard) {
+      return;
+    }
+
     if (navigation.type === "leave") {
       // Tab close / hard reload: cancel() triggers the native
       // "leave site?" confirmation.
@@ -522,16 +569,16 @@
         }
 
         if (saved && !isDirty) {
-          await goto(destination);
+          await navigateWithoutUnsavedGuard(destination);
           return;
         }
 
         const confirmed = confirm(
-          t("editor.unsavedLeave", "You have unsaved changes. Leave anyway?"),
+          $t("editor.unsavedLeave", "You have unsaved changes. Leave anyway?"),
         );
 
         if (confirmed) {
-          await goto(destination);
+          await navigateWithoutUnsavedGuard(destination);
         } else if (isDirty) {
           scheduleAutoSave();
         }
@@ -540,7 +587,7 @@
     }
 
     const confirmed = confirm(
-      t("editor.unsavedLeave", "You have unsaved changes. Leave anyway?"),
+      $t("editor.unsavedLeave", "You have unsaved changes. Leave anyway?"),
     );
 
     if (!confirmed) {
@@ -567,7 +614,7 @@
 </script>
 
 <svelte:head>
-  <title>{t("editor.title", "Write Article")} - Free2Z</title>
+  <title>{$t("editor.title", "Write Article")} - Free2Z</title>
 </svelte:head>
 
 <div class="flex min-h-[calc(100vh-4rem)] w-full flex-col bg-background">
@@ -599,9 +646,8 @@
   <div class="relative flex flex-1 flex-col lg:flex-row">
     {#if mode === "write" || mode === "split"}
       <div
-        class="flex flex-col border-b border-border bg-background lg:border-r lg:border-b-0 {mode ===
-        'split'
-          ? 'w-full lg:w-1/2'
+        class="flex flex-col bg-background {mode === 'split'
+          ? 'w-full border-b border-border lg:w-1/2 lg:border-r lg:border-b-0'
           : 'w-full'}"
       >
         <EditorComposer

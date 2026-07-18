@@ -19,13 +19,48 @@ from dj.apps.otp.utils import verify_token
 UserModel = get_user_model()
 
 
+# Reserved top-level names: a username equal to one of these would shadow a real
+# page at /{username}. The site is mid-transition with BOTH UIs live, so this is
+# the UNION of the real top-level route segments of the new SvelteKit UI
+# (ts/svelte/free2z/src/routes/, incl. its (public)/ and (auth)/ route groups)
+# and the classic React UI (ts/react/free2z/src/App.tsx), plus a few genuinely
+# system-reserved names and the nginx UI-switch routes. Be conservative: when
+# unsure whether a name is a live route, keep it reserved.
+# TODO: once the classic React UI is retired, prune the classic-only entries
+# (ai, begin, events, find, micvizz, profile, secretbackdrop, storytime, tools).
+# See #567.
 FORBIDDEN_USERNAMES = [
-    "zpage", "api", "creator", "adminzzz", "djstatic",
-    "find", "terms", "privacy-policy", "profile", "edit", "begin",
-    "ai",
-    "zpages",
-    "podcasts",
+    # System / backend-reserved names
+    "api",
+    "adminzzz",
+    "djstatic",
+    "terms",
+    "privacy-policy",
+    # nginx UI-switch routes (only exist where both UIs are served)
+    "try-new-ui",
+    "classic-ui",
+    # New SvelteKit UI top-level routes (routes/, (public)/, (auth)/)
+    "article",
+    "buy-2z",
+    "checkout",
     "converse",
+    "creators",
+    "edit",
+    "live",
+    "login",
+    "projects",
+    "reset-password",
+    "search",
+    # Classic React UI top-level routes (App.tsx) — prune when classic retires
+    "ai",
+    "begin",
+    "events",
+    "find",
+    "micvizz",
+    "profile",
+    "secretbackdrop",
+    "storytime",
+    "tools",
 ]
 
 

@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { ActionData, PageData } from './$types';
+  import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { env } from '$env/dynamic/public';
+  import { fetchPricing, readCachedPricing, tuziPerZec, isEstimate, type Pricing } from '$lib/pricing';
   import { page } from '$app/stores';
   import { cn } from '$lib/utils.js';
   import QRCode from 'qrcode';
@@ -45,11 +47,17 @@
   let initializedPaymentTab = false;
   let billingTab: string = 'subscriptions';
   let initializedBillingTab = false;
-// TODO: this should be dinamyc,
-  const TUZI_PER_ZEC = 2500;
+  // Live, spread-adjusted 2Z-per-ZEC rate from /api/pricing/ (issue #579).
+  // Seeded from SSR only (reading localStorage here would diverge from the
+  // server render and cause a hydration mismatch); the cached price and live
+  // refresh are applied in onMount below.
+  let livePricing: Pricing | null = data.pricing ?? null;
+  $: TUZI_PER_ZEC = tuziPerZec(livePricing);
+  $: priceIsEstimate = isEstimate(livePricing);
   const MAX_CHECKOUT_QUANTITY = 1_000_000;
   const MAX_SUBSCRIPTION_MAX_PRICE = 1_000_000;
-  const DEFAULT_F2Z_ZCASH_ADDRESS = 'zs1lm4vumxdpuz08w237n0lpxz490uq5nxasz6mql555f96hql4h7kc3ucf2a42j7mp0slck2uvjjk';
+  const DEFAULT_F2Z_ZCASH_ADDRESS =
+    'u1ac9rjvjddcnshvawyc39qujxgll2yu07w5gehstq72z6rjmzurf5c9f65jjedfaedx2h8ajlc6ya0qyfec9mexkwajnfxj00m3a63p2zva6xr9s5ll08yfylth5wkunwvfk0c7qclz436wrc63q2f6089at5l4dxaz6avuq86sxvufyx3c9972cc0y5w3zlyf5erc40cghlwsn4alpk';
 
   $: creator = data.creator;
   $: subscriptions = data.subscriptions?.results || [];
@@ -69,6 +77,28 @@
 
   $: stripePublicKey = env.PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
   $: f2zZcashAddress = env.PUBLIC_F2Z_ZCASH_ADDRESS || DEFAULT_F2Z_ZCASH_ADDRESS;
+
+  const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, '') || '';
+  // Keep the ZEC conversion rate live while the tab is open.
+  onMount(() => {
+    let cancelled = false;
+    // If SSR had no price, seed instantly from the last cached one (browser
+    // only — done here, not at init, to avoid a hydration mismatch).
+    if (!livePricing) {
+      const cached = readCachedPricing();
+      if (cached) livePricing = cached;
+    }
+    const refresh = async () => {
+      const pricing = await fetchPricing(fetch, apiBase);
+      if (!cancelled && pricing) livePricing = pricing;
+    };
+    refresh();
+    const timer = setInterval(refresh, 45_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  });
   $: totalCents = Math.trunc(quantity * 1.05) + 100;
   $: feeAmount = totalCents - 100 - quantity;
   $: zecAmount = zcashAmount2z / TUZI_PER_ZEC;
@@ -266,7 +296,7 @@
             </p>
             <a
               class="text-sm text-primary hover:underline font-medium inline-flex items-center gap-1"
-              href="https://free2z.com/docs/revenue-sharing/"
+              href="https://free2z.cash/docs/revenue-sharing/"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -469,6 +499,16 @@
                   <p class="text-xs font-medium text-primary">
                     Approximately <span class="font-mono">{zecAmount.toFixed(8)} ZEC</span>
                   </p>
+                  <p class="text-[10px] text-muted-foreground">
+                    {priceIsEstimate ? 'Estimated rate' : 'Live rate'}: <span class="font-mono">{Math.round(TUZI_PER_ZEC).toLocaleString()} 2Z / ZEC</span>{#if livePricing}
+                      &middot; ZEC ≈ ${Number(livePricing.zec_usd).toLocaleString(undefined, { maximumFractionDigits: 2 })}{#if priceIsEstimate}
+                        <span class="text-amber-600">(estimate)</span>{/if}{/if}
+                  </p>
+                  {#if priceIsEstimate}
+                    <p class="text-[10px] text-amber-600">
+                      Live price unavailable — this ZEC amount is an estimate. You'll be credited based on the ZEC actually received.
+                    </p>
+                  {/if}
                 </div>
 
                 <div class="space-y-4">

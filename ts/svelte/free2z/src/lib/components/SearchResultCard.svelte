@@ -1,11 +1,12 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { formatDistanceToNow } from 'date-fns';
-  import { t } from '$lib/i18n';
+  import { tStore as t } from '$lib/i18n';
   import { env } from '$env/dynamic/public';
   import * as Avatar from "$lib/components/ui/avatar/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Card, CardContent } from "$lib/components/ui/card";
+  import { extractPlainText } from '$lib/utils/markdown';
 
   export let article: any;
 
@@ -48,17 +49,7 @@
 
   // Format article content for excerpt
   function getExcerpt(content: string, maxLength: number = 200): string {
-    if (!content) return '';
-
-    // Strip HTML tags
-    const strippedContent = content.replace(/<[^>]*>/g, '');
-
-    // Truncate to maxLength
-    if (strippedContent.length <= maxLength) {
-      return strippedContent;
-    }
-
-    return strippedContent.substring(0, maxLength).trim() + '...';
+    return extractPlainText(content, maxLength);
   }
 
   // Format date
@@ -139,14 +130,14 @@
 
           <div class="flex flex-col gap-1 min-w-0">
             <span class="text-sm font-medium text-foreground">
-              {t('common.meta.createdBy')}
-              {article?.creator?.username || t('common.meta.unknown')}
+              {$t('common.meta.createdBy')}
+              {article?.creator?.username || $t('common.meta.unknown')}
             </span>
             <span class="text-xs text-muted-foreground">
               {#if article?.updated_at !== article?.created_at}
-                {t('common.article.updatedOn')} {updatedDate}
+                {$t('common.article.updatedOn')} {updatedDate}
               {:else}
-                {t('common.article.publishedOn')} {createdDate}
+                {$t('common.article.publishedOn')} {createdDate}
               {/if}
             </span>
           </div>

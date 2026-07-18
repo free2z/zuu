@@ -8,7 +8,7 @@
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { z } from 'zod';
   import { authStore } from '$lib/stores/auth';
-  import { t } from '$lib/i18n';
+  import { tStore as t } from '$lib/i18n';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
@@ -218,9 +218,11 @@
 
   // Modal view states
   type ModalView = 'login' | 'signup' | 'resetPassword' | 'checkEmail';
+  type InitialModalView = Extract<ModalView, 'login' | 'signup'>;
 
   // Props
   export let open = false;
+  export let initialView: InitialModalView = 'login';
 
   // Event dispatcher
   const dispatch = createEventDispatcher<{
@@ -230,7 +232,7 @@
   }>();
 
   // Current view state
-  let currentView: ModalView = 'login';
+  let currentView: ModalView = initialView;
 
   // Form state
   let username = '';
@@ -249,22 +251,22 @@
 
   // Reactive validation schemas that use current translations
   $: loginSchema = z.object({
-    username: z.string().min(1, t('auth.errors.usernameRequired')).max(128, t('auth.errors.usernameTooLong')),
-    password: z.string().min(8, t('auth.errors.passwordMinLength')),
+    username: z.string().min(1, $t('auth.errors.usernameRequired')).max(128, $t('auth.errors.usernameTooLong')),
+    password: z.string().min(8, $t('auth.errors.passwordMinLength')),
   });
 
   $: signupSchema = z.object({
-    username: z.string().min(1, t('auth.errors.usernameRequired')).max(128, t('auth.errors.usernameTooLong')),
-    password: z.string().min(8, t('auth.errors.passwordMinLength')),
-    confirmPassword: z.string().min(8, t('auth.errors.confirmPassword')),
-    email: z.string().email(t('auth.errors.invalidEmail')).optional().or(z.literal('')),
+    username: z.string().min(1, $t('auth.errors.usernameRequired')).max(128, $t('auth.errors.usernameTooLong')),
+    password: z.string().min(8, $t('auth.errors.passwordMinLength')),
+    confirmPassword: z.string().min(8, $t('auth.errors.confirmPassword')),
+    email: z.string().email($t('auth.errors.invalidEmail')).optional().or(z.literal('')),
   }).refine((data) => data.password === data.confirmPassword, {
-    message: t('auth.errors.passwordsNotMatch'),
+    message: $t('auth.errors.passwordsNotMatch'),
     path: ['confirmPassword'],
   });
 
   $: resetPasswordSchema = z.object({
-    email: z.string().email(t('auth.errors.validEmailRequired')),
+    email: z.string().email($t('auth.errors.validEmailRequired')),
   });
 
   // Keep submitted values alive until the in-flight auth attempt settles.
@@ -283,7 +285,7 @@
     showPassword = false;
     showConfirmPassword = false;
     isLoading = false;
-    currentView = 'login';
+    currentView = initialView;
     if (!dev) {
       recaptchaToken = '';
     }
@@ -547,23 +549,23 @@
     let feedback = [];
 
     if (password.length >= 8) score += 1;
-    else feedback.push(t('auth.passwordStrength.requirements.length'));
+    else feedback.push($t('auth.passwordStrength.requirements.length'));
 
     if (/[a-z]/.test(password)) score += 1;
-    else feedback.push(t('auth.passwordStrength.requirements.lowercase'));
+    else feedback.push($t('auth.passwordStrength.requirements.lowercase'));
 
     if (/[A-Z]/.test(password)) score += 1;
-    else feedback.push(t('auth.passwordStrength.requirements.uppercase'));
+    else feedback.push($t('auth.passwordStrength.requirements.uppercase'));
 
     if (/\d/.test(password)) score += 1;
-    else feedback.push(t('auth.passwordStrength.requirements.number'));
+    else feedback.push($t('auth.passwordStrength.requirements.number'));
 
     if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) score += 1;
-    else feedback.push(t('auth.passwordStrength.requirements.special'));
+    else feedback.push($t('auth.passwordStrength.requirements.special'));
 
     const feedbackText = feedback.length
-      ? `${t('auth.passwordStrength.weak').replace('{missing}', feedback.join(', '))}`
-      : t('auth.passwordStrength.strong');
+      ? `${$t('auth.passwordStrength.weak').replace('{missing}', feedback.join(', '))}`
+      : $t('auth.passwordStrength.strong');
 
     return { score, feedback: feedbackText };
   }
@@ -573,13 +575,13 @@
 
 {#snippet AuthTitleText()}
   {#if currentView === 'login'}
-    {t('auth.loginTitle')}
+    {$t('auth.loginTitle')}
   {:else if currentView === 'signup'}
-    {t('auth.signupTitle')}
+    {$t('auth.signupTitle')}
   {:else if currentView === 'resetPassword'}
-    {t('auth.resetPasswordTitle')}
+    {$t('auth.resetPasswordTitle')}
   {:else if currentView === 'checkEmail'}
-    {t('auth.checkEmailTitle')}
+    {$t('auth.checkEmailTitle')}
   {/if}
 {/snippet}
 
@@ -593,14 +595,14 @@
         <Button
           variant="default"
           type="button"
-          class="w-full gap-3 bg-black text-white hover:bg-neutral-900"
+          class="w-full gap-3 bg-black text-white hover:bg-neutral-900 dark:bg-neutral-800 dark:hover:bg-neutral-700"
           onclick={handleTwitterLogin}
           disabled={isLoading}
         >
           <svg class="h-5 w-5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path>
           </svg>
-          {t('auth.twitterSignIn')}
+          {$t('auth.twitterSignIn')}
         </Button>
         <div class="my-6 flex items-center text-sm text-(--f2z-text-secondary)">
           <div class="h-px flex-1 bg-(--f2z-border-primary)"></div>
@@ -612,12 +614,12 @@
       <!-- Login Form -->
       <form on:submit|preventDefault={handleSubmit} class="flex flex-col gap-4">
         <div class="flex flex-col gap-2">
-          <Label forId="username">{t('auth.username')}</Label>
+          <Label forId="username">{$t('auth.username')}</Label>
           <Input
             id="username"
             type="text"
             bind:value={username}
-            placeholder={t('auth.usernamePlaceholder')}
+            placeholder={$t('auth.usernamePlaceholder')}
             disabled={isLoading}
             class={errors.username ? 'border-red-500' : ''}
           />
@@ -627,13 +629,13 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          <Label forId="password">{t('auth.password')}</Label>
+          <Label forId="password">{$t('auth.password')}</Label>
           <div class="relative">
             <Input
               id="password"
               type={showPassword ? 'text' : 'password'}
               bind:value={password}
-              placeholder={t('auth.passwordPlaceholder')}
+              placeholder={$t('auth.passwordPlaceholder')}
               disabled={isLoading}
               class={errors.password ? 'border-red-500' : ''}
             />
@@ -666,7 +668,7 @@
             onclick={switchToResetPassword}
             disabled={isLoading}
           >
-            {t('auth.forgotPassword')}
+            {$t('auth.forgotPassword')}
           </Button>
         </div>
 
@@ -685,15 +687,15 @@
         >
           {#if isLoading}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {t('auth.signingIn')}
+            {$t('auth.signingIn')}
           {:else}
-            {t('auth.logIn')}
+            {$t('auth.logIn')}
           {/if}
         </Button>
 
         <!-- Sign up link -->
         <p class="mt-0 text-center text-sm text-(--f2z-text-secondary)">
-          {t('auth.needAccount')}
+          {$t('auth.needAccount')}
           <Button
             variant="link"
             type="button"
@@ -701,7 +703,7 @@
             onclick={switchToSignup}
             disabled={isLoading}
           >
-            {t('auth.signUpLink')}
+            {$t('auth.signUpLink')}
           </Button>
         </p>
       </form>
@@ -714,14 +716,14 @@
         <Button
           variant="default"
           type="button"
-          class="w-full gap-3 bg-black text-white hover:bg-neutral-900"
+          class="w-full gap-3 bg-black text-white hover:bg-neutral-900 dark:bg-neutral-800 dark:hover:bg-neutral-700"
           onclick={handleTwitterLogin}
           disabled={isLoading}
         >
           <svg class="h-5 w-5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path>
           </svg>
-          {t('auth.twitterSignUp')}
+          {$t('auth.twitterSignUp')}
         </Button>
         <div class="my-6 flex items-center text-sm text-(--f2z-text-secondary)">
           <div class="h-px flex-1 bg-(--f2z-border-primary)"></div>
@@ -733,12 +735,12 @@
       <!-- Signup Form -->
       <form on:submit|preventDefault={handleSubmit} class="flex flex-col gap-4">
         <div class="flex flex-col gap-2">
-          <Label forId="signup-username">{t('auth.username')}</Label>
+          <Label forId="signup-username">{$t('auth.username')}</Label>
           <Input
             id="signup-username"
             type="text"
             bind:value={username}
-            placeholder={t('auth.signupUsernamePlaceholder')}
+            placeholder={$t('auth.signupUsernamePlaceholder')}
             disabled={isLoading}
             class={errors.username ? 'border-red-500' : ''}
           />
@@ -748,13 +750,13 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          <Label forId="signup-password">{t('auth.password')}</Label>
+          <Label forId="signup-password">{$t('auth.password')}</Label>
           <div class="relative">
             <Input
               id="signup-password"
               type={showPassword ? 'text' : 'password'}
               bind:value={password}
-              placeholder={t('auth.signupPasswordPlaceholder')}
+              placeholder={$t('auth.signupPasswordPlaceholder')}
               disabled={isLoading}
               class={errors.password ? 'border-red-500' : ''}
             />
@@ -792,13 +794,13 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          <Label forId="confirm-password">{t('auth.confirmPassword')}</Label>
+          <Label forId="confirm-password">{$t('auth.confirmPassword')}</Label>
           <div class="relative">
             <Input
               id="confirm-password"
               type={showConfirmPassword ? 'text' : 'password'}
               bind:value={confirmPassword}
-              placeholder={t('auth.confirmPasswordPlaceholder')}
+              placeholder={$t('auth.confirmPasswordPlaceholder')}
               disabled={isLoading}
               class={errors.confirmPassword ? 'border-red-500' : ''}
             />
@@ -823,16 +825,16 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          <Label forId="email">{t('auth.emailRecommended')}</Label>
+          <Label forId="email">{$t('auth.emailRecommended')}</Label>
           <Input
             id="email"
             type="email"
             bind:value={email}
-            placeholder={t('auth.emailPlaceholder')}
+            placeholder={$t('auth.emailPlaceholder')}
             disabled={isLoading}
             class={errors.email ? 'border-red-500' : ''}
           />
-          <p class="m-0 text-xs text-(--f2z-text-secondary)">{t('auth.emailHelp')}</p>
+          <p class="m-0 text-xs text-(--f2z-text-secondary)">{$t('auth.emailHelp')}</p>
           {#if errors.email}
             <p class="m-0 text-sm text-red-500">{errors.email}</p>
           {/if}
@@ -840,8 +842,8 @@
 
         <!-- Terms -->
         <p class="m-0 text-center text-xs text-(--f2z-text-secondary)">
-          {t('auth.termsText')}
-          <a href="/terms" target="_blank" class="text-(--f2z-accent-primary) no-underline hover:underline">{t('auth.termsLink')}</a>
+          {$t('auth.termsText')}
+          <a href="/terms" target="_blank" class="text-(--f2z-accent-primary) no-underline hover:underline">{$t('auth.termsLink')}</a>
         </p>
 
         <!-- General Error -->
@@ -859,15 +861,15 @@
         >
           {#if isLoading}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {t('auth.creatingAccount')}
+            {$t('auth.creatingAccount')}
           {:else}
-            {t('auth.signUp')}
+            {$t('auth.signUp')}
           {/if}
         </Button>
 
         <!-- Login link -->
         <p class="mt-0 text-center text-sm text-(--f2z-text-secondary)">
-          {t('auth.haveAccount')}
+          {$t('auth.haveAccount')}
           <Button
             variant="link"
             type="button"
@@ -875,7 +877,7 @@
             onclick={switchToLogin}
             disabled={isLoading}
           >
-            {t('auth.signInLink')}
+            {$t('auth.signInLink')}
           </Button>
         </p>
       </form>
@@ -884,16 +886,16 @@
       <!-- PASSWORD RESET VIEW -->
       <form on:submit|preventDefault={handleSubmit} class="flex flex-col gap-4">
         <p class="mb-6 text-center text-sm leading-6 text-(--f2z-text-secondary)">
-          {t('auth.resetPasswordDescription')}
+          {$t('auth.resetPasswordDescription')}
         </p>
 
         <div class="flex flex-col gap-2">
-          <Label forId="reset-email">{t('auth.email')}</Label>
+          <Label forId="reset-email">{$t('auth.email')}</Label>
           <Input
             id="reset-email"
             type="email"
             bind:value={resetEmail}
-            placeholder={t('auth.emailPlaceholder')}
+            placeholder={$t('auth.emailPlaceholder')}
             disabled={isLoading}
             class={errors.email ? 'border-red-500' : ''}
           />
@@ -917,15 +919,15 @@
         >
           {#if isLoading}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {t('auth.sending')}
+            {$t('auth.sending')}
           {:else}
-            {t('auth.sendResetLink')}
+            {$t('auth.sendResetLink')}
           {/if}
         </Button>
 
         <!-- Back to login -->
         <p class="mt-0 text-center text-sm text-(--f2z-text-secondary)">
-          {t('auth.rememberPassword')}
+          {$t('auth.rememberPassword')}
           <Button
             variant="link"
             type="button"
@@ -933,7 +935,7 @@
             onclick={switchToLogin}
             disabled={isLoading}
           >
-            {t('auth.signInLink')}
+            {$t('auth.signInLink')}
           </Button>
         </p>
       </form>
@@ -942,13 +944,13 @@
       <!-- EMAIL VERIFICATION VIEW -->
       <div class="space-y-4 text-center">
         <p class="m-0 text-sm leading-6 text-(--f2z-text-secondary)">
-          {t('auth.checkEmailDescription')}
+          {$t('auth.checkEmailDescription')}
         </p>
         <p class="m-0 wrap-break-word rounded-md bg-(--f2z-bg-tertiary) p-3 text-base font-semibold text-(--f2z-text-primary)">
           {pendingEmail}
         </p>
         <p class="m-0 text-sm leading-6 text-(--f2z-text-secondary)">
-          {t('auth.checkEmailInstruction')}
+          {$t('auth.checkEmailInstruction')}
         </p>
 
         <!-- General Error -->
@@ -966,9 +968,9 @@
         >
           {#if isLoading}
             <Loader2 class="h-4 w-4 animate-spin" />
-            {t('auth.confirming')}
+            {$t('auth.confirming')}
           {:else}
-            {t('auth.confirmEmail')}
+            {$t('auth.confirmEmail')}
           {/if}
         </Button>
       </div>
@@ -1027,7 +1029,7 @@
       </Drawer.Header>
       {@render AuthBody()}
       <Drawer.Footer class="pt-2">
-        <Drawer.Close disabled={isRecaptchaPending}>{t('common.cancel','Cancel')}</Drawer.Close>
+        <Drawer.Close disabled={isRecaptchaPending}>{$t('common.cancel','Cancel')}</Drawer.Close>
       </Drawer.Footer>
     </Drawer.Content>
   </Drawer.Root>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Check } from "@lucide/svelte";
   import * as Avatar from "$lib/components/ui/avatar";
-  import { t } from "$lib/i18n";
+  import { tStore as t } from "$lib/i18n";
   import type { CreatorList } from "$lib/api/f2z.schemas";
   import { getMenuPositionStyle } from "./menuPosition";
   import { resolveMediaUrl } from "./utils";
@@ -37,7 +37,7 @@
     class="flex shrink-0 items-center justify-between border-b bg-muted/50 px-3 py-2"
   >
     <span class="text-xs font-medium text-muted-foreground"
-      >{t("editor.mentionMenu.title", "Mention a creator")}</span
+      >{$t("editor.mentionMenu.title", "Mention a creator")}</span
     >
     <span class="font-mono text-[10px] text-muted-foreground opacity-70"
       >↑↓ Navigate · ↵ Select · Esc Close</span
@@ -97,8 +97,8 @@
     {#if mentionResults.length === 0}
       <div class="py-6 text-center text-sm text-muted-foreground">
         {isLoading
-          ? t("editor.mentionMenu.searching", "Searching creators…")
-          : t("editor.mentionMenu.empty", "No creators found.")}
+          ? $t("editor.mentionMenu.searching", "Searching creators…")
+          : $t("editor.mentionMenu.empty", "No creators found.")}
       </div>
     {/if}
   </div>
