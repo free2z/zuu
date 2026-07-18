@@ -19,8 +19,9 @@ of external git repos. These are organized by category:
 
 ### Core Protocol
 
-* [z/zcash/](https://github.com/zcash) — librustzcash, orchard, sapling-crypto, halo2, pasta_curves, incrementalmerkletree, zcash_note_encryption, zcash_spec, zip32, zips, lightwallet-protocol, zcash-devtool, lightwalletd, zcash (legacy)
+* [z/zcash/](https://github.com/zcash) — librustzcash, orchard, sapling-crypto, halo2, pasta_curves, incrementalmerkletree, zcash_note_encryption, zcash_spec, zip32, zips, lightwallet-protocol, zcash-devtool, lightwalletd, zallet (zcashd wallet replacement), zcash (legacy)
 * [z/ZcashFoundation/](https://github.com/ZcashFoundation) — zebra, frost, z3
+* [z/zakura-core/](https://github.com/zakura-core) — zakura (Zcash full node, built for scale)
 
 ### Wallets & SDKs
 

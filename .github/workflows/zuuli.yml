@@ -1,0 +1,162 @@
+name: wallet/zuuli
+
+# Guards ZUULI against dependency bumps breaking the build.
+#
+# ZUULI's Rust backend (wallet/plugins/tauri-plugin-zcash) depends on the
+# librustzcash crates via *path* dependencies into the z/zcash/librustzcash
+# submodule. Bumping that submodule (or the crates.io / npm deps) can break
+# compilation, so this workflow compiles both halves of the app:
+#
+#   - frontend: tsc typecheck + vite build
+#   - rust:     cargo build of the Tauri lib (pulls the plugin + librustzcash)
+#
+# It runs on PRs/pushes that touch the app or its dependency inputs, and a
+# weekly `upstream-canary` job proactively rebuilds against the *latest*
+# librustzcash + refreshed crates to catch upstream drift before we bump.
+
+on:
+  pull_request:
+    paths:
+      - 'wallet/zuuli/**'
+      - 'wallet/plugins/**'
+      - 'z/zcash/librustzcash'
+      - '.gitmodules'
+      - '.github/workflows/zuuli.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'wallet/zuuli/**'
+      - 'wallet/plugins/**'
+      - 'z/zcash/librustzcash'
+      - '.gitmodules'
+      - '.github/workflows/zuuli.yml'
+  workflow_dispatch:
+  schedule:
+    # Mondays 07:00 UTC — upstream-canary only (see job `if:` guards).
+    - cron: '0 7 * * 1'
+
+concurrency:
+  group: zuuli-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Frontend: TypeScript typecheck + production bundle.
+  # ---------------------------------------------------------------------------
+  frontend:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+
+      - name: Install dependencies
+        working-directory: wallet/zuuli
+        run: npm ci
+
+      - name: Typecheck + build (tsc && vite build)
+        working-directory: wallet/zuuli
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Rust: compile the Tauri backend against the pinned librustzcash submodule.
+  # This is the check that catches librustzcash API breakage from a dep bump.
+  # ---------------------------------------------------------------------------
+  rust:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      # Shared target dir so the app build and the standalone plugin build reuse
+      # the same compiled librustzcash artifacts instead of building it twice.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only fetch the one submodule the build needs — the rest of z/ is huge
+      # (zebra, zcashd, zashi, ...) and irrelevant to compiling ZUULI.
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential curl wget file pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wallet/zuuli/src-tauri -> ${{ github.workspace }}/target
+
+      # --locked: the committed Cargo.lock must build as-is. Bumping the
+      # librustzcash submodule changes the path-dep resolution, so whoever bumps
+      # it must also commit the regenerated lock — this makes that non-optional.
+      #
+      # This compiles tauri-plugin-zcash and all librustzcash path deps. Because
+      # the app graph does not enable extra Cargo features beyond what the plugin
+      # itself declares, a plugin that free-rides on an undeclared feature fails
+      # here too — so this single build is enough to catch feature-hygiene bugs.
+      - name: Build Tauri backend (plugin + librustzcash path deps)
+        run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+
+  # ---------------------------------------------------------------------------
+  # Canary: rebuild against the LATEST librustzcash main + refreshed crates.
+  # Runs weekly (and on manual dispatch) so upstream breakage shows up as an
+  # early warning here, before someone bumps the submodule in a PR.
+  # ---------------------------------------------------------------------------
+  upstream-canary:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch + bump librustzcash to latest main
+        run: |
+          git submodule update --init z/zcash/librustzcash
+          git -C z/zcash/librustzcash fetch origin main
+          git -C z/zcash/librustzcash checkout origin/main
+          echo "librustzcash now at: $(git -C z/zcash/librustzcash rev-parse --short HEAD)"
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential curl wget file pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wallet/zuuli/src-tauri
+
+      - name: Refresh crates.io deps to latest compatible
+        run: cargo update --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+
+      - name: Build against latest upstream
+        run: cargo build --manifest-path wallet/zuuli/src-tauri/Cargo.toml

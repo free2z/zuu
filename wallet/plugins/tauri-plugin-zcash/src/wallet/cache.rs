@@ -43,7 +43,10 @@ impl BlockSource for MemBlockCache {
 
 #[async_trait]
 impl BlockCache for MemBlockCache {
-    fn get_tip_height(&self, range: Option<&ScanRange>) -> Result<Option<BlockHeight>, Self::Error> {
+    fn get_tip_height(
+        &self,
+        range: Option<&ScanRange>,
+    ) -> Result<Option<BlockHeight>, <Self as BlockSource>::Error> {
         let inner = self.0.read().unwrap();
         Ok(match range {
             Some(range) => inner
@@ -54,7 +57,7 @@ impl BlockCache for MemBlockCache {
         })
     }
 
-    async fn read(&self, range: &ScanRange) -> Result<Vec<CompactBlock>, Self::Error> {
+    async fn read(&self, range: &ScanRange) -> Result<Vec<CompactBlock>, <Self as BlockSource>::Error> {
         let inner = self.0.read().unwrap();
         Ok(inner
             .range(range.block_range().start..range.block_range().end)
@@ -62,7 +65,7 @@ impl BlockCache for MemBlockCache {
             .collect())
     }
 
-    async fn insert(&self, compact_blocks: Vec<CompactBlock>) -> Result<(), Self::Error> {
+    async fn insert(&self, compact_blocks: Vec<CompactBlock>) -> Result<(), <Self as BlockSource>::Error> {
         let mut inner = self.0.write().unwrap();
         for block in compact_blocks {
             let height = block.height();
@@ -71,7 +74,7 @@ impl BlockCache for MemBlockCache {
         Ok(())
     }
 
-    async fn delete(&self, range: ScanRange) -> Result<(), Self::Error> {
+    async fn delete(&self, range: ScanRange) -> Result<(), <Self as BlockSource>::Error> {
         let mut inner = self.0.write().unwrap();
         let keys: Vec<_> = inner
             .range(range.block_range().start..range.block_range().end)

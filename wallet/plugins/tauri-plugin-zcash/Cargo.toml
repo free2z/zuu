@@ -12,12 +12,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-tonic = { version = "0.14", default-features = false }
+# We use `tonic::transport::Channel` directly (see wallet/client.rs) to connect to
+# lightwalletd over TLS, so declare those features here rather than relying on them
+# leaking in via zcash_client_backend's feature unification (which breaks clean builds).
+tonic = { version = "0.14", default-features = false, features = ["transport", "tls-webpki-roots"] }
 bip0039 = "0.12"
 secrecy = "0.8"
 rand = "0.8"
 tracing = "0.1"
-rusqlite = { version = "0.37", features = ["bundled"] }
+# `array` for rusqlite::vtab::array (see wallet/storage.rs) — the `array` feature
+# is what actually gates that module (it implies `vtab` + `modern_sqlite`).
+# Declared explicitly for the same reason as tonic above: don't rely on another
+# crate's feature unification to turn it on, or clean builds break.
+rusqlite = { version = "0.37", features = ["bundled", "array"] }
 zip32 = { version = "0.2", default-features = false }
 nonempty = "0.11"
 async-trait = "0.1"
@@ -27,9 +34,11 @@ uuid = { version = "1", features = ["v4"] }
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework = { version = "3", features = ["OSX_10_15"] }
-
+# Zcash crates — path deps into the z/zcash/librustzcash submodule. These MUST
+# live in [dependencies] (cross-platform). They were previously under the macOS
+# target table below, which made them macOS-only: on Linux/Windows the whole
+# zcash stack vanished from the graph and every build failed with
+# `unresolved import zcash_protocol`. macOS-only builds never noticed.
 zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic", "lightwalletd-tonic-transport", "lightwalletd-tonic-tls-webpki-roots", "sync", "orchard", "transparent-inputs"] }
 zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["orchard", "transparent-inputs"] }
 zcash_primitives = { path = "../../../z/zcash/librustzcash/zcash_primitives" }
@@ -39,6 +48,9 @@ zcash_protocol = { path = "../../../z/zcash/librustzcash/components/zcash_protoc
 zcash_address = { path = "../../../z/zcash/librustzcash/components/zcash_address" }
 zip321 = { path = "../../../z/zcash/librustzcash/components/zip321" }
 pczt = { path = "../../../z/zcash/librustzcash/pczt" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", features = ["OSX_10_15"] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
