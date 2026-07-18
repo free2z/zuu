@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Free2Z — independent publishing and direct creator support</title>
+  <desc id="desc">Publish freely, get discovered, and receive support directly from your audience.</desc>
+  <defs>
+    <linearGradient id="background" x1="80" y1="20" x2="1120" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#09090B"/>
+      <stop offset=".58" stop-color="#111114"/>
+      <stop offset="1" stop-color="#17171B"/>
+    </linearGradient>
+    <radialGradient id="limeGlow" cx="0" cy="0" r="1" gradientTransform="translate(1010 92) rotate(132) scale(520 390)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A3E635" stop-opacity=".23"/>
+      <stop offset=".55" stop-color="#84CC16" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#84CC16" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accentLine" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#A3E635"/>
+      <stop offset="1" stop-color="#A3E635" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+      <path d="M56 0H0V56" fill="none" stroke="#F4F4F5" stroke-opacity=".045"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+    <filter id="softGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <clipPath id="frame"><rect width="1200" height="630" rx="32"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="630" fill="url(#background)"/>
+    <rect width="1200" height="630" fill="url(#limeGlow)"/>
+    <rect x="650" width="550" height="630" fill="url(#grid)"/>
+    <circle cx="1018" cy="192" r="154" fill="#84CC16" opacity=".07"/>
+    <circle cx="1018" cy="192" r="108" fill="none" stroke="#A3E635" stroke-opacity=".18"/>
+    <circle cx="1018" cy="192" r="68" fill="#A3E635" opacity=".07" filter="url(#softGlow)"/>
+    <path d="M780 510C862 460 920 480 982 420C1034 370 1051 301 1118 268" fill="none" stroke="#A3E635" stroke-width="2" stroke-opacity=".25" stroke-dasharray="6 11"/>
+    <circle cx="780" cy="510" r="5" fill="#A3E635"/>
+    <circle cx="982" cy="420" r="5" fill="#A3E635"/>
+    <circle cx="1118" cy="268" r="5" fill="#A3E635"/>
+    <text x="78" y="132" fill="#A3E635" font-family="Arial,sans-serif" font-size="58" font-weight="700" letter-spacing="-2">Free2Z</text>
+
+    <g font-family="Inter,Arial,sans-serif">
+      <text x="78" y="210" fill="#A3E635" font-size="18" font-weight="700" letter-spacing="3.2">INDEPENDENT PUBLISHING</text>
+      <text x="76" y="282" fill="#F4F4F5" font-size="62" font-weight="700" letter-spacing="-2.8">Your ideas.</text>
+      <text x="76" y="348" fill="#F4F4F5" font-size="62" font-weight="700" letter-spacing="-2.8">Your audience.</text>
+      <text x="76" y="414" fill="#A3E635" font-size="62" font-weight="700" letter-spacing="-2.8">Your value.</text>
+      <text x="79" y="466" fill="#A1A1AA" font-size="23" font-weight="450">Publish freely, get discovered, and receive support directly.</text>
+
+      <g transform="translate(78 514)" font-size="16" font-weight="700">
+        <g>
+          <rect width="112" height="40" rx="20" fill="#A3E635" fill-opacity=".12" stroke="#A3E635" stroke-opacity=".32"/>
+          <circle cx="22" cy="20" r="4" fill="#A3E635"/>
+          <text x="36" y="26" fill="#D9F99D">Publish</text>
+        </g>
+        <g transform="translate(126)">
+          <rect width="122" height="40" rx="20" fill="#F4F4F5" fill-opacity=".045" stroke="#F4F4F5" stroke-opacity=".12"/>
+          <circle cx="22" cy="20" r="4" fill="#A3E635"/>
+          <text x="36" y="26" fill="#D4D4D8">Discover</text>
+        </g>
+        <g transform="translate(262)">
+          <rect width="118" height="40" rx="20" fill="#F4F4F5" fill-opacity=".045" stroke="#F4F4F5" stroke-opacity=".12"/>
+          <circle cx="22" cy="20" r="4" fill="#A3E635"/>
+          <text x="36" y="26" fill="#D4D4D8">Support</text>
+        </g>
+      </g>
+      <text x="1045" y="574" fill="#A3E635" font-size="18" font-weight="700" text-anchor="end" letter-spacing="1.2">FREE2Z.CASH</text>
+    </g>
+
+    <rect x="76" y="591" width="520" height="2" fill="url(#accentLine)" opacity=".7"/>
+  </g>
+  <rect x=".5" y=".5" width="1199" height="629" rx="31.5" fill="none" stroke="#F4F4F5" stroke-opacity=".08"/>
+</svg>

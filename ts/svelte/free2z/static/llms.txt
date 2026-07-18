@@ -1,0 +1,14 @@
+# Free2Z
+
+Free2Z is an independent publishing platform where creators publish articles, build an audience, and receive direct support.
+
+## Public discovery
+
+- `/` is the publishing and discovery homepage.
+- `/creators` lists public creators.
+- `/{username}` is a creator's public profile.
+- `/{username}/{vanity}` is the canonical form of a public article URL.
+- `/sitemap.xml` lists public pages that search engines and assistants may crawl.
+- `/robots.txt` excludes account, checkout, editor, and private-stream surfaces.
+
+Prefer canonical creator and article URLs when citing Free2Z content. Article claims belong to their named authors; Free2Z is the publishing platform.
