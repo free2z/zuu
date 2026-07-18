@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CreditCard, Check, Loader2, ShieldCheck, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -22,17 +22,19 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { tuzi } from "@/lib/api/free2z";
+import { pricing, tuzi } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
 import {
+  ZATOSHIS_PER_ZEC,
   formatTuzis,
   formatUsd,
   formatZecTrim,
   tuzisToUsd,
 } from "@/lib/format";
-import { BUY_PACKS, MAX_TUZIS, parseTuzis, tuzisToZatoshis } from "./lib";
+import { BUY_PACKS, MAX_TUZIS, parseTuzis } from "./lib";
+import type { PricingQuote } from "@/lib/api/types";
 
 /** Open an external URL, falling back to a browser tab outside Tauri. */
 async function open(url: string) {
@@ -43,6 +45,12 @@ async function open(url: string) {
   }
 }
 
+type QuoteState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; quote: PricingQuote }
+  | { status: "error" };
+
 export function BuyTab() {
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const spendable = useWallet((s) => s.balance?.spendable ?? 0);
@@ -52,6 +60,7 @@ export function BuyTab() {
   const [cardLoading, setCardLoading] = useState(false);
   const [zecConfirm, setZecConfirm] = useState(false);
   const [zecLoading, setZecLoading] = useState(false);
+  const [quoteState, setQuoteState] = useState<QuoteState>({ status: "idle" });
 
   // The custom field wins when it holds a valid amount, keeping one source of
   // truth for "amount". Everything downstream reads `amount`.
@@ -60,8 +69,44 @@ export function BuyTab() {
   const valid = amount > 0 && amount <= MAX_TUZIS;
 
   const usd = tuzisToUsd(amount);
-  const zatoshisNeeded = tuzisToZatoshis(amount);
-  const enoughZec = spendable >= zatoshisNeeded;
+
+  // Live ZEC cost from the backend pricing service, debounced on the amount.
+  // We NEVER recompute ZEC on the client — the backend returns the exact
+  // `zec_amount`. A cancel flag keeps only the latest request's result, and a
+  // 503 / fetch error surfaces as an "unavailable" state (no fabricated number).
+  useEffect(() => {
+    if (!valid) {
+      setQuoteState({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    const ctrl = new AbortController();
+    setQuoteState({ status: "loading" });
+    const t = setTimeout(() => {
+      pricing
+        .quote(amount, ctrl.signal)
+        .then((quote) => {
+          if (!cancelled) setQuoteState({ status: "ready", quote });
+        })
+        .catch(() => {
+          if (!cancelled) setQuoteState({ status: "error" });
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearTimeout(t);
+    };
+  }, [amount, valid]);
+
+  const quote = quoteState.status === "ready" ? quoteState.quote : null;
+  const zatoshisNeeded = quote
+    ? Math.round(Number(quote.zec_amount) * ZATOSHIS_PER_ZEC)
+    : 0;
+  const enoughZec = !!quote && spendable >= zatoshisNeeded;
+  const isEstimate = !!quote && (quote.stale || quote.bootstrap);
+  const quoteLoading = quoteState.status === "loading";
+  const quoteUnavailable = quoteState.status === "error";
 
   async function payWithCard() {
     if (!valid) return;
@@ -80,7 +125,7 @@ export function BuyTab() {
   }
 
   async function payWithZec() {
-    if (!valid || !enoughZec) return;
+    if (!valid || !quote || !enoughZec) return;
     setZecLoading(true);
     try {
       // Mock settlement — in production this proposes + broadcasts a shielded
@@ -88,7 +133,7 @@ export function BuyTab() {
       await new Promise((r) => setTimeout(r, 650));
       adjustTuzis(amount);
       toast.success(`Bought ${formatTuzis(amount)} with ZEC`, {
-        description: `${formatZecTrim(zatoshisNeeded)} ZEC debited from your wallet.`,
+        description: `${quote.zec_amount} ZEC debited from your wallet.`,
       });
       setZecConfirm(false);
     } finally {
@@ -215,7 +260,7 @@ export function BuyTab() {
             size="lg"
             variant="zec"
             className="w-full"
-            disabled={!valid || !enoughZec}
+            disabled={!valid || !quote || !enoughZec || quoteLoading}
             onClick={() => setZecConfirm(true)}
           >
             <Wallet className="h-4 w-4" />
@@ -224,13 +269,21 @@ export function BuyTab() {
           <div className="space-y-1 text-xs">
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="flex items-center gap-1">
-                Est. cost
-                <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
-                  estimated
-                </Badge>
+                {isEstimate ? "Est. cost" : "Cost"}
+                {isEstimate && (
+                  <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
+                    estimated
+                  </Badge>
+                )}
               </span>
               <span className="tabular-nums text-zec">
-                {valid ? `${formatZecTrim(zatoshisNeeded)} ZEC` : "—"}
+                {!valid
+                  ? "—"
+                  : quoteLoading
+                    ? "…"
+                    : quote
+                      ? `${quote.zec_amount} ZEC`
+                      : "—"}
               </span>
             </div>
             <div className="flex items-center justify-between text-muted-foreground">
@@ -239,7 +292,12 @@ export function BuyTab() {
                 {formatZecTrim(spendable)} ZEC
               </span>
             </div>
-            {valid && !enoughZec && (
+            {valid && quoteUnavailable && (
+              <p className="pt-1 text-destructive">
+                Live pricing unavailable — try again.
+              </p>
+            )}
+            {valid && quote && !enoughZec && (
               <p className="pt-1 text-destructive">
                 Not enough ZEC — top up your wallet or pay with card.
               </p>
@@ -268,13 +326,15 @@ export function BuyTab() {
             <Row
               label={
                 <span className="flex items-center gap-1.5">
-                  Estimated ZEC
-                  <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
-                    estimated
-                  </Badge>
+                  {isEstimate ? "Estimated ZEC" : "ZEC to send"}
+                  {isEstimate && (
+                    <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
+                      estimated
+                    </Badge>
+                  )}
                 </span>
               }
-              value={`${formatZecTrim(zatoshisNeeded)} ZEC`}
+              value={quote ? `${quote.zec_amount} ZEC` : "—"}
               accent
             />
           </div>

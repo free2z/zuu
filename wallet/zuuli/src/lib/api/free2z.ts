@@ -24,6 +24,8 @@ import type {
   DyteJoinTicket,
   Livestream,
   Paginated,
+  PricingQuote,
+  PricingSnapshot,
   PromptResponse,
   SimpleCreator,
   StreamKind,
@@ -520,5 +522,74 @@ export const discover = {
       anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
+  },
+};
+
+
+// ─── Pricing (live 2Z ↔ ZEC) ──────────────────────────────────────
+// Live price discovery for the "pay with ZEC" buy path. The backend aggregates
+// ZEC/USD across exchanges and computes the exact ZEC to send; the client just
+// displays it and NEVER recomputes ZEC from a hardcoded rate. Both endpoints
+// are public (AllowAny) — hence `anonymous: true`. On no price the backend
+// returns 503; callers must show "unavailable", not a fabricated number.
+
+// A plausible current ZEC/USD used ONLY by mock mode (browser / VITE_MOCK=1) so
+// the buy screen renders offline. Deliberately not the old hardcoded $42; the
+// real number always comes from /api/pricing.
+const MOCK_ZEC_USD = 55;
+const MOCK_SPREAD = 0.1;
+const MOCK_TUZIS_PER_ZEC = MOCK_ZEC_USD * (1 - MOCK_SPREAD) * 100; // 4950
+
+export const pricing = {
+  /** Current pricing snapshot (GET /api/pricing/). Public, no auth. */
+  async current(): Promise<PricingSnapshot> {
+    if (useMock()) {
+      await delay(120);
+      return {
+        zec_usd: MOCK_ZEC_USD.toFixed(2),
+        spread: MOCK_SPREAD.toFixed(2),
+        tuzis_per_zec: MOCK_TUZIS_PER_ZEC.toFixed(4),
+        tuzi_per_usd: 100,
+        usd_per_tuzi: "0.01",
+        num_sources: 4,
+        sources: {
+          kraken: (MOCK_ZEC_USD - 0.12).toFixed(2),
+          coinbase: (MOCK_ZEC_USD + 0.08).toFixed(2),
+          binance: (MOCK_ZEC_USD - 0.05).toFixed(2),
+          gemini: (MOCK_ZEC_USD + 0.11).toFixed(2),
+        },
+        updated_at: new Date().toISOString(),
+        stale: false,
+        bootstrap: false,
+        card: { percent_fee: "0.05", flat_fee_cents: 100 },
+      };
+    }
+    return request<PricingSnapshot>("/api/pricing/", { anonymous: true });
+  },
+
+  /**
+   * Exact ZEC/card amounts to buy `tuzis` 2Z (GET /api/pricing/quote/?tuzis=N).
+   * The backend returns the precise `zec_amount` to send — display it directly.
+   */
+  async quote(tuzis: number, signal?: AbortSignal): Promise<PricingQuote> {
+    if (useMock()) {
+      await delay(180);
+      const zecAmount = Math.ceil((tuzis / MOCK_TUZIS_PER_ZEC) * 1e8) / 1e8;
+      return {
+        tuzis,
+        zec_amount: zecAmount.toFixed(8),
+        card_cents: Math.floor(tuzis * 1.05) + 100,
+        tuzis_per_zec: MOCK_TUZIS_PER_ZEC.toFixed(4),
+        zec_usd: MOCK_ZEC_USD.toFixed(2),
+        updated_at: new Date().toISOString(),
+        stale: false,
+        bootstrap: false,
+      };
+    }
+    return request<PricingQuote>("/api/pricing/quote/", {
+      query: { tuzis },
+      anonymous: true,
+      signal,
+    });
   },
 };
