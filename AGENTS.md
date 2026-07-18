@@ -11,6 +11,9 @@ our apps building. Our software (ZUULI especially) is experimental. When those
 two goals conflict, **ecosystem progress wins over our own short-term
 stability.**
 
+- **Parallel agents:** see [docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md)
+  for how multiple agents collaborate through issues/worktrees/PRs.
+
 ## The prime directive: stay on the bleeding edge, and contribute the fixes
 
 We track upstream **HEAD** (the tracked branch in `.gitmodules`, usually `main`)

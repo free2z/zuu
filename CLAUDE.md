@@ -19,3 +19,5 @@ Per-project specifics:
 - `wallet/plugins/tauri-plugin-zcash/CLAUDE.md` — Rust plugin, build commands,
   librustzcash API gotchas.
 - `.github/workflows/zuuli.yml` — CI that proves dependency bumps still build.
+- `docs/PARALLEL-AGENTS.md` — how parallel agents collaborate through GitHub
+  (worktrees/issues/PRs).
