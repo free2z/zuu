@@ -2,5 +2,13 @@
   "identifier": "default",
   "description": "Capability for the main ZUULI window",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:default", "zcash:default"]
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "zcash:default",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://free2z.cash/*" }]
+    }
+  ]
 }
