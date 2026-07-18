@@ -559,6 +559,18 @@
           "markdownDescription": "Denies the set_lightwalletd_url command without any pre-configured scope."
         },
         {
+          "description": "Enables the sign_challenge command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sign-challenge",
+          "markdownDescription": "Enables the sign_challenge command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sign_challenge command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sign-challenge",
+          "markdownDescription": "Denies the sign_challenge command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_sync command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-sync",
@@ -619,10 +631,10 @@
           "markdownDescription": "Denies the validate_address command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-execute-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`",
+          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-execute-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`\n- `allow-sign-challenge`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-execute-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`"
+          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-get-seed-phrase`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-execute-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`\n- `allow-sign-challenge`"
         }
       ]
     }

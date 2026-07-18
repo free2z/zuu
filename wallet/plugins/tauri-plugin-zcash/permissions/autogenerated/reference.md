@@ -30,6 +30,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-parse-payment-uri`
 - `allow-unlock-wallet`
 - `allow-validate-address`
+- `allow-sign-challenge`
 
 ## Permission Table
 
@@ -608,6 +609,32 @@ Enables the set_lightwalletd_url command without any pre-configured scope.
 <td>
 
 Denies the set_lightwalletd_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-sign-challenge`
+
+</td>
+<td>
+
+Enables the sign_challenge command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-sign-challenge`
+
+</td>
+<td>
+
+Denies the sign_challenge command without any pre-configured scope.
 
 </td>
 </tr>

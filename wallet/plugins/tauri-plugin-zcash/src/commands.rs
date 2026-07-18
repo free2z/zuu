@@ -825,3 +825,70 @@ pub(crate) async fn parse_payment_uri<R: Runtime>(
         label,
     })
 }
+
+/// Sign a "Login with Zcash" challenge for a given account.
+///
+/// Produces a real, server-verifiable Zcash transparent-address message
+/// signature ("ZUULI Zcash Login v1") — exactly what `zcashd signmessage`
+/// emits, so the backend verifies it with `zcashd verifymessage(address,
+/// signature, challenge)`. Returns the derived transparent P2PKH `address`, the
+/// original `challenge`, the base64 `signature`, and the hex compressed
+/// `pubkey`. See [`keys::sign_challenge`] for the exact scheme.
+#[command]
+pub(crate) async fn sign_challenge<R: Runtime>(
+    app: AppHandle<R>,
+    args: SignChallengeArgs,
+) -> Result<SignedChallenge> {
+    let zcash = app.zcash();
+
+    if !zcash.state.is_initialized().await {
+        return Err(Error::WalletNotInitialized);
+    }
+
+    // Ensure the seed is in memory, reloading from the keychain if needed
+    // (mirrors get_spending_key).
+    {
+        let seed_guard = zcash.state.seed.lock().await;
+        if seed_guard.is_none() {
+            drop(seed_guard);
+            let wallet_id = zcash
+                .state
+                .active_wallet_id()
+                .await
+                .ok_or(Error::WalletNotInitialized)?;
+            let data_dir = zcash.state.data_dir.clone();
+            let wid = wallet_id.clone();
+            if let Ok(phrase) = tokio::task::spawn_blocking(move || {
+                keychain::get_seed_phrase(&data_dir, &wid)
+            })
+            .await
+            .map_err(|e| Error::KeyError(format!("keychain task panicked: {e}")))?
+            {
+                if let Ok(mnemonic) = keys::parse_mnemonic(&phrase) {
+                    *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
+                }
+            }
+        }
+    }
+
+    // Sign the challenge with the account's transparent P2PKH key. The returned
+    // address is the mainnet t-address the backend passes to `verifymessage`.
+    let seed_guard = zcash.state.seed.lock().await;
+    let seed = seed_guard.as_ref().ok_or(Error::KeyError(
+        "seed not available — re-enter your recovery phrase in Settings".into(),
+    ))?;
+
+    let signed = keys::sign_challenge(
+        seed.expose_secret(),
+        args.account_index,
+        &args.challenge,
+    )?;
+    drop(seed_guard);
+
+    Ok(SignedChallenge {
+        address: signed.address,
+        challenge: args.challenge,
+        signature: signed.signature,
+        pubkey: signed.pubkey,
+    })
+}

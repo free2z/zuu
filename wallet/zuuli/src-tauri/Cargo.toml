@@ -3,6 +3,7 @@ name = "zuuli"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85.1"
+description = "ZUULI by 2Z Inc — Zcash-native wallet, AI, livestreaming and articles."
 
 [lib]
 name = "zuuli_lib"
@@ -16,4 +17,5 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Shared Zcash engine (librustzcash under the hood) — the "zuuallet guts".
 tauri-plugin-zcash = { path = "../../plugins/tauri-plugin-zcash" }

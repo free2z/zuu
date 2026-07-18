@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+.vite
+*.local
+.DS_Store
+
+# Tauri
+src-tauri/target
+src-tauri/gen/schemas
+
+# env
+.env.local

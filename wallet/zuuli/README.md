@@ -1,123 +1,57 @@
+<div align="center">
+
 # ZUULI
 
-A privacy-first desktop wallet for Zcash, built with Tauri v2, React, and librustzcash.
+**by 2Z Inc**
 
-## Quick start
+*Your Z. Your keys. Your universe.*
 
-### Prerequisites
+A Zcash-native desktop app: a cutting-edge wallet fused with the free2z
+platform — AI, livestreaming, articles, and a credit economy — all metered in
+**2Zs**, all shielded by default.
 
-- [Rust](https://rustup.rs/) 1.85.1+ (edition 2024)
-- [Node.js](https://nodejs.org/) 18+
-- [Tauri CLI](https://tauri.app/start/): `cargo install tauri-cli`
-- Git submodules initialized: `git submodule update --init --recursive` (for `z/zcash/librustzcash`)
+</div>
 
-### Development
+---
+
+## What ZUULI does
+
+- 🔑 **Login with Zcash** — your key is your identity. No password, no email, no
+  KYC, no third party. Sign a challenge (ZIP-304), your address becomes a W3C
+  DID. Associate an existing free2z account if you have one.
+- 🪙 **A real Zcash wallet, right here** — create/restore, sync, send, receive,
+  history. Powered by `librustzcash` via `tauri-plugin-zcash` (the same engine
+  as the `zuuallet` reference wallet).
+- 🤖 **AI from every provider, anonymously** — OpenAI, Anthropic, xAI, Kimi, and
+  open-source models on our hardware. You go through the free2z API, so the
+  provider never sees *you*. Priced cost-plus, rounded up to whole 2Zs.
+- 📡 **Livestreaming** — start a broadcast, subscriber-only, PPV, or private
+  stream. Discover what's live. Join a PPV stream by spending 2Zs.
+- ✍️ **Articles** — read a feed, or author your own with a live markdown editor.
+- 💸 **The 2Z economy** — buy 2Zs with a card *or* with ZEC from your in-app
+  wallet. Donate 2Zs or ZEC to creators without ever leaving the app.
+
+## The 2Z (Tuzi)
+
+`1 Tuzi = 1 US cent`. Everything metered — an AI prompt, a PPV seat — is charged
+at our upstream cost plus a thin margin, **rounded up** to the nearest 2Z. If a
+prompt costs us `$0.0323478`, you pay `4 2Z`.
+
+## Run it
 
 ```bash
-cd wallet/zuuli
 npm install
-npm run tauri dev
+npm run dev          # browser, mock mode — the whole app, no backend needed
+npm run tauri dev    # the real desktop app with a live Zcash wallet
 ```
 
-This starts both the Vite dev server (port 1421) and the Tauri backend.
+In a plain browser ZUULI runs in **mock mode** with realistic data so you can
+explore every screen. Inside the Tauri shell it drives the real wallet engine
+and the real free2z API.
 
-### Production build
+## How it's built
 
-```bash
-cd wallet/zuuli
-npm run tauri build
-```
+React 18 · TypeScript · Vite · Tailwind · shadcn/ui · Tauri v2 · Zustand.
+See [CLAUDE.md](./CLAUDE.md) for architecture and the shared `src/lib/` contract.
 
-## Architecture
-
-### Frontend
-
-- **React 18** — component-based UI
-- **TypeScript 5** — strict types mirroring Rust models
-- **TailwindCSS 3** — utility-first styling
-- **Zustand v5** — single global store, no React context
-- **Vite 6** — dev server and bundler
-
-### Backend
-
-- **Tauri v2** — desktop app framework (Rust process + webview)
-- **tauri-plugin-zcash** — Rust plugin wrapping librustzcash (at `wallet/plugins/tauri-plugin-zcash/`)
-- **librustzcash** — forked, path deps from `z/zcash/librustzcash`
-
-### IPC
-
-All backend communication goes through `@tauri-apps/api/core` `invoke()` calls to plugin commands. The TypeScript API wrapper lives at `src/lib/tauri.ts`.
-
-## Directory structure
-
-```
-wallet/zuuli/
-  src/
-    App.tsx              — Root component, page router, global sync start
-    main.tsx             — React entry point
-    pages/
-      Welcome.tsx        — Landing page (create or restore)
-      CreateWallet.tsx   — New wallet flow (mnemonic generation)
-      RestoreWallet.tsx  — Restore from seed phrase + birthday height
-      Home.tsx           — Main dashboard (balance, address, recent txs)
-      Send.tsx           — Send form (propose -> review -> execute)
-      Receive.tsx        — Receive page (unified address + QR code)
-      History.tsx        — Transaction history with pagination
-      Settings.tsx       — Seed phrase backup, viewing key, lightwalletd URL
-      WalletPicker.tsx   — Multi-wallet management (create, switch, rename, delete)
-    components/
-      NavBar.tsx         — Bottom nav (mobile) / sidebar nav (desktop)
-      BalanceDisplay.tsx — Formatted ZEC balance with pending indicators
-      AddressCard.tsx    — Unified address display with copy button
-      SyncBar.tsx        — Sync progress bar (listens to zcash://sync-progress events)
-      QrScanner.tsx      — Camera-based QR code scanner (ZIP-321 payment URIs)
-      SeedPhraseGrid.tsx — Numbered grid display for BIP-39 seed phrases
-    hooks/
-      useWallet.ts       — Wallet status checking, initialization flow
-      useSync.ts         — Sync start/stop, progress event listener
-      useBalance.ts      — Balance polling, address fetching
-    store/
-      wallet.ts          — Zustand store (page, walletStatus, balance, syncStatus, transactions, etc.)
-    lib/
-      tauri.ts           — TypeScript wrappers for all 25 plugin commands
-      format.ts          — Number formatting utilities (zatoshis -> ZEC display)
-    types/
-      index.ts           — TypeScript interfaces matching Rust serde models
-  src-tauri/
-    Cargo.toml           — Tauri backend dependencies
-    tauri.conf.json      — Tauri config (window size, CSP, bundle settings)
-    capabilities/        — Tauri v2 capability permissions
-```
-
-## Design system
-
-- **Background**: zinc-900 (`#18181b`) / zinc-950 (`#09090b`)
-- **Accent**: purple-500 (`#a855f7`)
-- **Text**: zinc-100 primary, zinc-400 secondary
-- **Touch targets**: `min-tap` class for 44px minimum touch area
-- **Accessibility**: ARIA labels on all interactive elements, semantic HTML
-
-## Key flows
-
-### Create wallet
-
-Welcome -> CreateWallet -> (generates mnemonic, fetches chain tip birthday) -> shows seed phrase -> Home
-
-### Restore wallet
-
-Welcome -> RestoreWallet -> (enter seed phrase + optional birthday height) -> Home
-
-### Send
-
-Home -> Send -> (enter address, amount, optional memo) -> Proposing (ZIP-317 fee calculation) -> Review (amount + fee) -> Executing (prove + sign + broadcast) -> Success (txid)
-
-### Sync
-
-Background sync starts automatically after wallet is active. Polls every 30s for new blocks. Progress emitted via `zcash://sync-progress` Tauri events, displayed in the SyncBar.
-
-## Configuration
-
-- **lightwalletd URL**: Default `https://zec.rocks:443`, configurable in Settings
-- **CSP**: `default-src 'self'; connect-src 'self' https://*.zec.rocks; style-src 'self' 'unsafe-inline'`
-- **Window**: 1200x800 default, 360x600 minimum
-- **App identifier**: `com.free2z.zuuli`
+Part of [the ZUU](../../README.md) — the Zcash User Universe.
