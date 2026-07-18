@@ -108,8 +108,11 @@ export const mockWallet = {
     };
   },
   startSync() {
+    // Idempotent, like the real engine: resuming an already-caught-up wallet
+    // keeps it synced (it just watches for new blocks) rather than rewinding.
+    // Only rewind for a fresh wallet that has never synced.
     syncing = true;
-    synced = tip - 3200;
+    if (synced >= tip) synced = tip;
   },
   stopSync() {
     syncing = false;

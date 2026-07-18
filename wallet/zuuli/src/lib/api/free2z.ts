@@ -6,8 +6,9 @@
 // This module is the CONTRACT every feature imports. Keep the return types stable.
 
 import { useMock } from "../platform";
+import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
-import { basicLogin, mediaUrl, request, setToken } from "./http";
+import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
   mockAiReply,
   mockArticles,
@@ -23,7 +24,11 @@ import type {
   AuthUser,
   DyteJoinTicket,
   Livestream,
+  LoginResult,
+  OtpStatus,
   Paginated,
+  PricingQuote,
+  PricingSnapshot,
   PromptResponse,
   SimpleCreator,
   StreamKind,
@@ -157,15 +162,89 @@ function inferProvider(model: string): AIModel["provider"] {
 }
 
 // ─── Auth / session ─────────────────────────────────────────────────────────
+
+/** Mock: which usernames should exercise the 2FA (OTP) step, and the code that clears it. */
+const MOCK_OTP_CODE = "123456";
+function mockOtpEnabled(username: string): boolean {
+  return MOCK_OTP || username.toLowerCase().includes("otp");
+}
+
 export const auth = {
-  /** Classic username/password → Knox token (HTTP Basic auth under the hood). */
-  async login(username: string, password: string): Promise<AuthUser> {
+  /**
+   * Classic username/password sign-in (a first-class login method, peer to
+   * Login with Zcash).
+   *
+   * Real flow:
+   *   1. `basicLogin` → Knox Basic-auth login (`/api/token/login/`) mints a token.
+   *   2. `otpStatus()` (authenticated with that token) reports whether the
+   *      account has TOTP 2FA enabled.
+   *   3. If 2FA is ON we DROP the token and return `otp_required`, so an
+   *      abandoned code prompt never leaves a live session behind; the caller
+   *      finishes via `completeOtp`. If 2FA is OFF, the login is complete.
+   *
+   * (Knox's own login endpoint does not enforce OTP, so the second factor is
+   * gated here on the client — see the follow-up note about a token-upgrading
+   * OTP endpoint on the backend.)
+   */
+  async login(username: string, password: string): Promise<LoginResult> {
     if (useMock()) {
       await delay();
+      if (mockOtpEnabled(username)) return { status: "otp_required", username };
+      setToken("mock-knox-token");
+      return { status: "complete", user: { ...mockUser, username } };
+    }
+    await basicLogin(username, password); // sets the Knox token
+    const { enabled } = await auth.otpStatus();
+    if (enabled) {
+      setToken(null); // don't persist a session behind an unfinished 2FA prompt
+      return { status: "otp_required", username };
+    }
+    return { status: "complete", user: await auth.me() };
+  },
+
+  /** Whether the currently-authenticated account has TOTP 2FA enabled. */
+  async otpStatus(): Promise<OtpStatus> {
+    if (useMock()) {
+      await delay(120);
+      return { enabled: false };
+    }
+    return request<OtpStatus>("/api/otp/status/");
+  },
+
+  /**
+   * Finish a username/password login that requires 2FA. The backend's
+   * `/api/otp/login/` verifies the 6-digit TOTP `code` (it re-checks the
+   * password too); a wrong code throws. On success we mint a fresh Knox token
+   * via Basic-auth login and load the profile.
+   */
+  async completeOtp(
+    username: string,
+    password: string,
+    code: string,
+  ): Promise<AuthUser> {
+    if (useMock()) {
+      await delay();
+      if (code !== MOCK_OTP_CODE) {
+        throw new Error("That code didn't match. (Mock mode expects 123456.)");
+      }
       setToken("mock-knox-token");
       return { ...mockUser, username };
     }
-    await basicLogin(username, password);
+    try {
+      await request("/api/otp/login/", {
+        method: "POST",
+        anonymous: true,
+        body: { username, password, token: code },
+      });
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 400 || e.status === 401)) {
+        throw new Error(
+          "That code didn't match. Check your authenticator app and try again.",
+        );
+      }
+      throw e;
+    }
+    await basicLogin(username, password); // establish the real session token
     return auth.me();
   },
 
@@ -520,5 +599,74 @@ export const discover = {
       anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
+  },
+};
+
+
+// ─── Pricing (live 2Z ↔ ZEC) ──────────────────────────────────────
+// Live price discovery for the "pay with ZEC" buy path. The backend aggregates
+// ZEC/USD across exchanges and computes the exact ZEC to send; the client just
+// displays it and NEVER recomputes ZEC from a hardcoded rate. Both endpoints
+// are public (AllowAny) — hence `anonymous: true`. On no price the backend
+// returns 503; callers must show "unavailable", not a fabricated number.
+
+// A plausible current ZEC/USD used ONLY by mock mode (browser / VITE_MOCK=1) so
+// the buy screen renders offline. Deliberately not the old hardcoded $42; the
+// real number always comes from /api/pricing.
+const MOCK_ZEC_USD = 55;
+const MOCK_SPREAD = 0.1;
+const MOCK_TUZIS_PER_ZEC = MOCK_ZEC_USD * (1 - MOCK_SPREAD) * 100; // 4950
+
+export const pricing = {
+  /** Current pricing snapshot (GET /api/pricing/). Public, no auth. */
+  async current(): Promise<PricingSnapshot> {
+    if (useMock()) {
+      await delay(120);
+      return {
+        zec_usd: MOCK_ZEC_USD.toFixed(2),
+        spread: MOCK_SPREAD.toFixed(2),
+        tuzis_per_zec: MOCK_TUZIS_PER_ZEC.toFixed(4),
+        tuzi_per_usd: 100,
+        usd_per_tuzi: "0.01",
+        num_sources: 4,
+        sources: {
+          kraken: (MOCK_ZEC_USD - 0.12).toFixed(2),
+          coinbase: (MOCK_ZEC_USD + 0.08).toFixed(2),
+          binance: (MOCK_ZEC_USD - 0.05).toFixed(2),
+          gemini: (MOCK_ZEC_USD + 0.11).toFixed(2),
+        },
+        updated_at: new Date().toISOString(),
+        stale: false,
+        bootstrap: false,
+        card: { percent_fee: "0.05", flat_fee_cents: 100 },
+      };
+    }
+    return request<PricingSnapshot>("/api/pricing/", { anonymous: true });
+  },
+
+  /**
+   * Exact ZEC/card amounts to buy `tuzis` 2Z (GET /api/pricing/quote/?tuzis=N).
+   * The backend returns the precise `zec_amount` to send — display it directly.
+   */
+  async quote(tuzis: number, signal?: AbortSignal): Promise<PricingQuote> {
+    if (useMock()) {
+      await delay(180);
+      const zecAmount = Math.ceil((tuzis / MOCK_TUZIS_PER_ZEC) * 1e8) / 1e8;
+      return {
+        tuzis,
+        zec_amount: zecAmount.toFixed(8),
+        card_cents: Math.floor(tuzis * 1.05) + 100,
+        tuzis_per_zec: MOCK_TUZIS_PER_ZEC.toFixed(4),
+        zec_usd: MOCK_ZEC_USD.toFixed(2),
+        updated_at: new Date().toISOString(),
+        stale: false,
+        bootstrap: false,
+      };
+    }
+    return request<PricingQuote>("/api/pricing/quote/", {
+      query: { tuzis },
+      anonymous: true,
+      signal,
+    });
   },
 };

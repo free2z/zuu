@@ -4,9 +4,11 @@ import path from "node:path";
 
 const host = process.env.TAURI_DEV_HOST;
 // Where the dev/`tauri dev` proxy forwards /api and /uploadz. Defaults to
-// production; point it at a local backend to test unshipped endpoints, e.g.
+// staging (stage.free2z.cash tracks latest main) during development; override
+// to point at production or a local backend to test unshipped endpoints, e.g.
+//   VITE_F2Z_PROXY=https://free2z.cash npm run tauri dev
 //   VITE_F2Z_PROXY=http://localhost:8000 npm run tauri dev
-const apiTarget = process.env.VITE_F2Z_PROXY || "https://free2z.cash";
+const apiTarget = process.env.VITE_F2Z_PROXY || "https://stage.free2z.cash";
 
 // ZUULI dev server runs on 1423 so it never collides with the zuuallet
 // reference wallet (1421). Tauri drives this via beforeDevCommand.

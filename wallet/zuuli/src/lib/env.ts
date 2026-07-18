@@ -12,9 +12,11 @@ function readEnv(key: string, fallback: string): string {
 }
 
 // In dev / `tauri dev` (import.meta.env.DEV), talk to the API via a same-origin
-// relative base so the Vite proxy handles it (no CORS). In a production build
-// use the absolute host (reached through tauri-plugin-http, which isn't subject
-// to browser CORS). Override either with VITE_F2Z_API / VITE_F2Z_MEDIA.
+// relative base so the Vite proxy handles it (no CORS). The proxy target
+// defaults to staging (stage.free2z.cash) during development — see
+// vite.config.ts / VITE_F2Z_PROXY. In a production build use the absolute host
+// below (reached through tauri-plugin-http, which isn't subject to browser
+// CORS). Override either with VITE_F2Z_API / VITE_F2Z_MEDIA.
 const IS_DEV = Boolean(
   (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
 );
@@ -32,6 +34,14 @@ export const MEDIA_BASE = readEnv("VITE_F2Z_MEDIA", DEFAULT_API).replace(/\/$/, 
  * in a plain browser where CORS would otherwise block the real API).
  */
 export const FORCE_MOCK = readEnv("VITE_MOCK", "") === "1";
+
+/**
+ * Mock-only: force the username/password path to require a 2FA (OTP) code so
+ * the code-entry step can be exercised offline (VITE_MOCK_OTP=1). Even without
+ * this flag, any mock username containing "otp" triggers the 2FA step. The mock
+ * accepts the code `123456`.
+ */
+export const MOCK_OTP = readEnv("VITE_MOCK_OTP", "") === "1";
 
 /** Dyte SDK base — used to construct join URLs for livestreams. */
 export const DYTE_BASE = readEnv("VITE_DYTE_BASE", "https://app.dyte.io");
