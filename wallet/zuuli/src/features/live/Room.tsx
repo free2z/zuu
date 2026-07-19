@@ -319,11 +319,14 @@ function JoinPanel({
   const price = stream.price_tuzis;
   const affordable = tuzis >= price;
 
-  async function doJoin(action?: () => Promise<void>): Promise<boolean> {
+  async function doJoin(
+    action?: () => Promise<void>,
+    joinSecret?: string,
+  ): Promise<boolean> {
     setBusy(true);
     try {
       if (action) await action();
-      const ticket = await live.join(stream.username, stream.kind);
+      const ticket = await live.join(stream.username, stream.kind, joinSecret);
       onJoined(ticket);
       return true;
     } catch (e) {
@@ -498,7 +501,7 @@ function JoinPanel({
             onSubmit={(e) => {
               e.preventDefault();
               if (!secret.trim() || busy) return;
-              void doJoin();
+              void doJoin(undefined, secret);
             }}
           >
             <div className="space-y-1.5">

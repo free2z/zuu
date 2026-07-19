@@ -518,19 +518,44 @@ export const live = {
   /**
    * Join a stream. For PPV/subscriber streams the backend debits 2Zs / checks
    * entitlement before returning a ticket; a 402 means "buy more 2Zs / subscribe".
+   *
+   * Private streams are gated by a server-issued secret that the viewer must
+   * supply. They join at a DISTINCT endpoint — POST /api/dyte/{username}/private/{secret}
+   * (a UUID path segment) — where the backend 404s a wrong/absent secret; the
+   * plain POST /api/dyte/{username}/private route only lets the creator manage
+   * their room. All other kinds go to POST /api/dyte/{username}/{type}.
    */
-  async join(username: string, kind: StreamKind): Promise<DyteJoinTicket> {
+  async join(
+    username: string,
+    kind: StreamKind,
+    secret?: string,
+  ): Promise<DyteJoinTicket> {
     if (useMock()) {
       await delay(600);
+      if (kind === "private" && !mockSecretUnlocks(secret)) {
+        throw new Error(
+          `That secret didn't unlock the room. (Mock mode expects "${MOCK_ROOM_SECRET}".)`,
+        );
+      }
       return { authToken: "mock-part", meetingId: "mock", roomName: "zuuli-live", as: "participant" };
     }
-    const r = await request<{ meeting_id: string; auth_token: string }>(
-      `/api/dyte/${username}/${TYPE_FROM_KIND[kind]}`,
-      { method: "POST" },
-    );
-    return { authToken: r.auth_token, meetingId: r.meeting_id, as: "participant" };
+    const path =
+      kind === "private"
+        ? `/api/dyte/${username}/private/${encodeURIComponent((secret ?? "").trim())}`
+        : `/api/dyte/${username}/${TYPE_FROM_KIND[kind]}`;
+    // The private-join response omits meeting_id (returns { e2ee, auth_token }).
+    const r = await request<{ meeting_id?: string; auth_token: string }>(path, {
+      method: "POST",
+    });
+    return { authToken: r.auth_token, meetingId: r.meeting_id ?? "", as: "participant" };
   },
 };
+
+/** Mock private-room secret so the private-join gate is demoable offline. */
+const MOCK_ROOM_SECRET = "let-me-in";
+function mockSecretUnlocks(secret?: string): boolean {
+  return (secret ?? "").trim().toLowerCase() === MOCK_ROOM_SECRET;
+}
 
 // ─── Tuzi (2Z) economy ───────────────────────────────────────────────────────
 export const tuzi = {
@@ -539,10 +564,16 @@ export const tuzi = {
       await delay();
       return mockTransactions;
     }
+    // /api/stripe/transactions/ is the card-purchase ledger: every row is a
+    // BUY that credits 2Zs (tuzis_credited is a PositiveIntegerField, so it is
+    // never a debit). Preserve any kind the payload carries and default to
+    // "buy" for these purchases rather than blanket-overwriting every row.
+    // (The full spend mix — tips/AI/PPV/subscriptions — lives in the /api/events/
+    // ledger; ActivityTab scopes its "Total spent" to whatever spend it sees.)
     const page = await request<Paginated<TuziTransaction>>(
       "/api/stripe/transactions/",
     );
-    return (page.results ?? []).map((t) => ({ ...t, kind: "buy" as const }));
+    return (page.results ?? []).map((t) => ({ ...t, kind: t.kind ?? "buy" }));
   },
 
   /**

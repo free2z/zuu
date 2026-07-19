@@ -76,19 +76,6 @@ const freshSteps = (): Steps => ({
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** A one-time nonce, from the CSPRNG when available. */
-function makeNonce(): string {
-  const c = globalThis.crypto;
-  if (c && "getRandomValues" in c) {
-    const bytes = new Uint8Array(16);
-    c.getRandomValues(bytes);
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  return (
-    Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
-  );
-}
-
 function errMessage(e: unknown): string {
   if (e instanceof Error && e.message) return e.message;
   if (typeof e === "string" && e) return e;
@@ -132,15 +119,18 @@ export function useZcashLogin(): ZcashLoginState {
   // The crypto half of the flow: challenge → sign → verify → session.
   const runCrypto = useCallback(async () => {
     try {
-      // 2 — Request a challenge + resolve the address to sign with.
+      // 2 — Resolve the address, then ask the SERVER for the challenge to
+      //     sign. The one-time, timestamped nonce must come from free2z so it
+      //     can record/expire it and reject replays — a client-minted string
+      //     would carry no such binding.
       setStep("challenge", "active");
       await wait(450);
-      const challenge = `zuuli-login:${makeNonce()}:${Date.now()}`;
       const addr = await wallet.getUnifiedAddress(0);
       setAddress(addr);
+      const { challenge } = await auth.zcashChallenge(addr);
       setStep("challenge", "done");
 
-      // 3 — Sign the challenge with the wallet key (ZIP-304).
+      // 3 — Sign the server's exact challenge with the wallet key (ZIP-304).
       setStep("sign", "active");
       await wait(500);
       const signed = await wallet.signChallenge(challenge);
