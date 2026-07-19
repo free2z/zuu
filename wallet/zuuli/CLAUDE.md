@@ -8,6 +8,12 @@ credit economy — with **Login with Zcash** (no password, no email, no KYC).
 It is distinct from **`../zuuallet`**, the whitelabel *reference* wallet. Both
 apps share the Zcash engine in `../plugins/tauri-plugin-zcash` (the "guts").
 
+> **IRON RULE (trunk workflow):** local `main` is read-only — it only ever
+> fast-forwards from `origin/main`. Never commit or merge to local `main`; every
+> change goes through a worktree branched off `origin/main` → PR → squash-merge
+> on the remote. Full rule: [`../../AGENTS.md`](../../AGENTS.md) and
+> [`../../docs/PARALLEL-AGENTS.md`](../../docs/PARALLEL-AGENTS.md).
+
 ## Build / check commands
 
 ```bash
