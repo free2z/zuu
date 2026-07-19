@@ -5,6 +5,7 @@ import {
   Plus,
   Wallet as WalletIcon,
   LogOut,
+  ShieldCheck,
   User,
   UserCog,
   Search,
@@ -129,6 +130,9 @@ export function TopBar() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/buy")}>
               <Coins /> Buy 2Zs
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate("/kyc")}>
+              <ShieldCheck /> Apply for revenue share
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>
