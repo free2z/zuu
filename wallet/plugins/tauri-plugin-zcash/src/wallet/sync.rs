@@ -59,12 +59,23 @@ pub async fn start_sync<R: Runtime>(
     Ok(())
 }
 
-/// Read the max scanned block height from the read-only DB.
-/// Uses `block_max_scanned()` which queries `MAX(height) FROM blocks` —
-/// the actual highest scanned block, NOT the chain tip.
-async fn read_scanned_height(read_db: &Mutex<Option<WalletDatabase>>) -> u64 {
+/// Read the max scanned block height from the read-only DB, floored at the
+/// wallet birthday.
+///
+/// `block_max_scanned()` queries `MAX(height) FROM blocks` — the actual highest
+/// scanned block, NOT the chain tip. It returns `None` for a wallet that has not
+/// yet written any scanned block: a freshly created wallet whose birthday is the
+/// chain tip has essentially nothing to scan, so `block_max_scanned()` stays
+/// `None`. Reporting `0` in that case makes a caught-up wallet look like it must
+/// scan the entire chain from Sapling, and the sync loop's `synced >= tip` check
+/// never fires so it spins forever (issue #180). Everything below the birthday is
+/// not the wallet's to scan, so we floor the scanned height at the birthday.
+async fn read_scanned_height(
+    read_db: &Mutex<Option<WalletDatabase>>,
+    birthday_height: u64,
+) -> u64 {
     let db_guard = read_db.lock().await;
-    if let Some(db) = db_guard.as_ref() {
+    let scanned = if let Some(db) = db_guard.as_ref() {
         db.block_max_scanned()
             .ok()
             .flatten()
@@ -72,20 +83,29 @@ async fn read_scanned_height(read_db: &Mutex<Option<WalletDatabase>>) -> u64 {
             .unwrap_or(0)
     } else {
         0
-    }
+    };
+    scanned.max(birthday_height)
 }
 
-/// Read the birthday height from the read-only DB.
-async fn read_birthday_height(read_db: &Mutex<Option<WalletDatabase>>) -> u64 {
+/// Read the wallet birthday height from the read-only DB.
+///
+/// Returns `None` when the birthday cannot be read (no wallet open, or the query
+/// fails). Callers substitute the chain tip in that case — a wallet whose
+/// birthday is unknown must NEVER be treated as needing a scan from Sapling
+/// activation (that silent `419200` fallback is what produced the
+/// "0 / 3.4M full-chain scan" symptom in issue #180). For any real wallet
+/// `get_wallet_birthday()` returns `MIN(birthday_height)` across accounts, which
+/// for a freshly created wallet is the chain tip.
+async fn read_birthday_height(read_db: &Mutex<Option<WalletDatabase>>) -> Option<u64> {
     let db_guard = read_db.lock().await;
-    if let Some(db) = db_guard.as_ref() {
-        db.get_wallet_birthday()
-            .ok()
-            .flatten()
-            .map(|h| u64::from(u32::from(h)))
-            .unwrap_or(419200)
-    } else {
-        419200
+    let db = db_guard.as_ref()?;
+    match db.get_wallet_birthday() {
+        Ok(Some(h)) => Some(u64::from(u32::from(h))),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!("failed to read wallet birthday: {e}");
+            None
+        }
     }
 }
 
@@ -129,7 +149,9 @@ async fn sync_task<R: Runtime>(
         }
     };
 
-    let birthday_height = read_birthday_height(&read_db).await;
+    // Read once. `None` means "unknown" — resolved against the chain tip below so
+    // an unreadable birthday can never imply a scan from Sapling activation.
+    let birthday_opt = read_birthday_height(&read_db).await;
     let block_cache = MemBlockCache::default();
 
     // Outer loop: sync to tip, sleep, re-check for new blocks, repeat.
@@ -160,13 +182,17 @@ async fn sync_task<R: Runtime>(
         // Cache the chain tip
         last_known_chain_tip.store(chain_tip, Ordering::Relaxed);
 
+        // Resolve the birthday: if it couldn't be read, assume the tip (nothing to
+        // scan) rather than Sapling activation, so we never full-scan the chain.
+        let birthday_height = birthday_opt.unwrap_or(chain_tip);
+
         // Inner loop: process sync batches until caught up
         loop {
             // Check cancellation
             if !*syncing.read().await {
                 tracing::info!("sync cancelled");
                 // Signal final status and exit
-                let synced_height = read_scanned_height(&read_db).await;
+                let synced_height = read_scanned_height(&read_db, birthday_height).await;
                 let progress = calc_progress(synced_height, chain_tip, birthday_height);
                 *syncing.write().await = false;
                 let _ = app.emit("zcash://sync-progress", &SyncStatus {
@@ -200,7 +226,7 @@ async fn sync_task<R: Runtime>(
             match result {
                 Ok(()) => {
                     // Check progress using block_max_scanned (actual scanned height)
-                    let synced_height = read_scanned_height(&read_db).await;
+                    let synced_height = read_scanned_height(&read_db, birthday_height).await;
 
                     // Keep chain tip fresh: if we've scanned past the cached tip,
                     // those blocks are real — update the cached value so the
@@ -243,7 +269,7 @@ async fn sync_task<R: Runtime>(
         }
 
         // Emit "idle" status (synced, but still watching for new blocks)
-        let synced_height = read_scanned_height(&read_db).await;
+        let synced_height = read_scanned_height(&read_db, birthday_height).await;
         let effective_tip = chain_tip.max(synced_height);
         last_known_chain_tip.store(effective_tip, Ordering::Relaxed);
         let progress = calc_progress(synced_height, effective_tip, birthday_height);
@@ -267,8 +293,9 @@ async fn sync_task<R: Runtime>(
     }
 
     // Final status
-    let synced_height = read_scanned_height(&read_db).await;
     let chain_tip = last_known_chain_tip.load(Ordering::Relaxed);
+    let birthday_height = birthday_opt.unwrap_or(chain_tip);
+    let synced_height = read_scanned_height(&read_db, birthday_height).await;
     let progress = calc_progress(synced_height, chain_tip, birthday_height);
 
     *syncing.write().await = false;
@@ -475,10 +502,14 @@ pub async fn get_sync_status(state: &WalletState) -> Result<SyncStatus> {
     // and let the frontend show "connecting..." instead of hammering lightwalletd.
     let chain_tip = state.last_known_chain_tip.load(Ordering::Relaxed);
 
-    // Use block_max_scanned for actual scan progress
-    let synced_height = read_scanned_height(&state.read_db).await;
+    // An unreadable birthday resolves to the chain tip (nothing to scan), never
+    // Sapling activation — so a caught-up wallet never reports a full-chain scan.
+    let birthday_height = read_birthday_height(&state.read_db)
+        .await
+        .unwrap_or(chain_tip);
 
-    let birthday_height = read_birthday_height(&state.read_db).await;
+    // Use block_max_scanned (floored at the birthday) for actual scan progress.
+    let synced_height = read_scanned_height(&state.read_db, birthday_height).await;
 
     let progress = calc_progress(synced_height, chain_tip, birthday_height);
 
