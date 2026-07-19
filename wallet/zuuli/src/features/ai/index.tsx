@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Coins,
   Cpu,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Square,
@@ -18,11 +19,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/common/Markdown";
 import { ai } from "@/lib/api/free2z";
-import type { AIModel, PromptResponse } from "@/lib/api/types";
+import type { AIModel, Personality } from "@/lib/api/types";
 import { formatTuzis, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/store/session";
 import { ModelPicker } from "./ModelPicker";
+import { PersonalityManager } from "./PersonalityManager";
+import { PersonalityPicker } from "./PersonalityPicker";
 import { pricePerMessage, providerMeta } from "./providers";
 
 interface ChatMessage {
@@ -36,10 +39,19 @@ interface ChatMessage {
   /** Generation was stopped by the user. */
   aborted?: boolean;
   modelName?: string;
+  personalityName?: string;
   tuzisCharged?: number;
   inputTokens?: number;
   outputTokens?: number;
 }
+
+/**
+ * The real conversation endpoint (see `ai.conversations` below) enforces a
+ * 100-2Z minimum balance before it will start a turn — a reserve requirement
+ * the old flat `/api/openai/prompt` endpoint didn't have. Mirrored here so
+ * the composer disables itself before the backend would reject the call.
+ */
+const MIN_TUZIS_TO_CHAT = 100;
 
 const EXAMPLE_PROMPTS = [
   "Explain zero-knowledge proofs like I'm five.",
@@ -52,15 +64,10 @@ let idCounter = 0;
 const nextId = () => `m-${Date.now()}-${idCounter++}`;
 
 /**
- * Wraps ai.prompt so an AbortController rejects the pending call even in mock
- * mode (where the mock resolver ignores the signal).
+ * Races a promise against an AbortController so cancellation works even in
+ * mock mode (whose fixtures ignore the signal they're handed).
  */
-function promptWithAbort(args: {
-  model: AIModel;
-  prompt: string;
-  signal: AbortSignal;
-}): Promise<PromptResponse> {
-  const { signal } = args;
+function withAbort<T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
       reject(new DOMException("Aborted", "AbortError"));
@@ -68,8 +75,7 @@ function promptWithAbort(args: {
     }
     const onAbort = () => reject(new DOMException("Aborted", "AbortError"));
     signal.addEventListener("abort", onAbort, { once: true });
-    ai
-      .prompt(args)
+    run()
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", onAbort));
   });
@@ -81,15 +87,25 @@ function isAbortError(err: unknown): boolean {
     : (err as { name?: string })?.name === "AbortError";
 }
 
+/** Key identifying which (model, personality) pair a live conversation belongs to. */
+function conversationKey(model: AIModel, personality: Personality | null): string {
+  return `${model.id}:${personality?.id ?? "default"}`;
+}
+
 export default function AiFeature() {
   const user = useSession((s) => s.user);
   const tuzis = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
+  const refreshSession = useSession((s) => s.refresh);
 
   const [models, setModels] = useState<AIModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [modelsError, setModelsError] = useState(false);
   const [selected, setSelected] = useState<AIModel | null>(null);
+
+  const [personalities, setPersonalities] = useState<Personality[]>([]);
+  const [personality, setPersonality] = useState<Personality | null>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -97,14 +113,17 @@ export default function AiFeature() {
   const [sessionCost, setSessionCost] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
+  // Which live backend conversation (if any) the next turn continues — pinned
+  // to a single (model, personality) pair for its lifetime.
+  const conversationRef = useRef<{ id: string; key: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const lowBalance = tuzis <= 0;
+  const lowBalance = tuzis < MIN_TUZIS_TO_CHAT;
   const canSend =
     !!selected && !isSending && !lowBalance && input.trim().length > 0;
 
-  // Load models once; default to the first GA model.
+  // Load models + personalities once; default to the first GA model.
   useEffect(() => {
     let active = true;
     ai
@@ -117,6 +136,12 @@ export default function AiFeature() {
       })
       .catch(() => active && setModelsError(true))
       .finally(() => active && setLoadingModels(false));
+    ai.personalities
+      .list()
+      .then((list) => active && setPersonalities(list))
+      .catch(() => {
+        /* personalities are optional — chat still works with the default persona */
+      });
     return () => {
       active = false;
     };
@@ -130,12 +155,19 @@ export default function AiFeature() {
   // Abort any in-flight request on unmount.
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  const startNewChat = useCallback(() => {
+    conversationRef.current = null;
+    setMessages([]);
+    setSessionCost(0);
+  }, []);
+
   const send = useCallback(
     async (text: string) => {
       const prompt = text.trim();
-      if (!prompt || !selected || isSending || tuzis <= 0) return;
+      if (!prompt || !selected || isSending || tuzis < MIN_TUZIS_TO_CHAT) return;
 
       const model = selected;
+      const pers = personality;
       const placeholderId = nextId();
       setMessages((prev) => [
         ...prev,
@@ -146,6 +178,7 @@ export default function AiFeature() {
           content: "",
           pending: true,
           modelName: model.display_name,
+          personalityName: pers?.display_name,
         },
       ]);
       setInput("");
@@ -155,11 +188,44 @@ export default function AiFeature() {
       abortRef.current = controller;
 
       try {
-        const res = await promptWithAbort({
-          model,
-          prompt,
-          signal: controller.signal,
-        });
+        // A conversation is pinned to one (model, personality) pair for its
+        // lifetime — start a new one whenever that pair changes.
+        const key = conversationKey(model, pers);
+        if (!conversationRef.current || conversationRef.current.key !== key) {
+          const convo = await ai.conversations.create({
+            displayName: prompt.slice(0, 60) || "New chat",
+            model,
+            personality: pers,
+          });
+          conversationRef.current = { id: convo.id, key };
+        }
+
+        const beforeTuzis = useSession.getState().tuzis;
+        const res = await withAbort(
+          () =>
+            ai.conversations.sendMessage({
+              conversationId: conversationRef.current!.id,
+              userInput: prompt,
+              model,
+              personality: pers,
+              signal: controller.signal,
+            }),
+          controller.signal,
+        );
+
+        let tuzisCharged = res.tuzis_charged;
+        if (tuzisCharged != null) {
+          // Mock mode (and any endpoint that returns it directly): apply
+          // optimistically.
+          adjustTuzis(-tuzisCharged);
+        } else {
+          // The real conversation endpoint doesn't return a per-message cost
+          // breakdown, so sync the authoritative balance from the account
+          // and derive the exact charge from the delta.
+          await refreshSession();
+          tuzisCharged = Math.max(0, beforeTuzis - useSession.getState().tuzis);
+        }
+
         setMessages((prev) =>
           prev.map((m) =>
             m.id === placeholderId
@@ -168,16 +234,16 @@ export default function AiFeature() {
                   pending: false,
                   content: res.response,
                   modelName: res.model ?? model.display_name,
-                  tuzisCharged: res.tuzis_charged,
+                  personalityName: res.personality ?? pers?.display_name,
+                  tuzisCharged,
                   inputTokens: res.input_tokens,
                   outputTokens: res.output_tokens,
                 }
               : m,
           ),
         );
-        if (res.tuzis_charged) {
-          adjustTuzis(-res.tuzis_charged);
-          setSessionCost((c) => c + (res.tuzis_charged ?? 0));
+        if (tuzisCharged) {
+          setSessionCost((c) => c + (tuzisCharged ?? 0));
         }
       } catch (err) {
         const aborted = isAbortError(err);
@@ -202,7 +268,7 @@ export default function AiFeature() {
         setIsSending(false);
       }
     },
-    [selected, isSending, tuzis, adjustTuzis],
+    [selected, personality, isSending, tuzis, adjustTuzis, refreshSession],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -236,7 +302,7 @@ export default function AiFeature() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {loadingModels ? (
               <Skeleton className="h-10 w-52" />
             ) : modelsError ? (
@@ -251,6 +317,26 @@ export default function AiFeature() {
                 disabled={isSending}
               />
             )}
+            <PersonalityPicker
+              personalities={personalities}
+              value={personality}
+              onChange={setPersonality}
+              onManage={() => setManagerOpen(true)}
+              ownUsername={user?.username}
+              disabled={isSending}
+            />
+            {messages.length > 0 ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 shrink-0 text-muted-foreground"
+                aria-label="Start a new chat"
+                onClick={startNewChat}
+                disabled={isSending}
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
 
           {/* Cost meters */}
@@ -274,7 +360,8 @@ export default function AiFeature() {
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
             <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden />
             <span className="text-foreground">
-              You&rsquo;re out of 2Zs. Top up to keep chatting.
+              You need at least {formatTuzis(MIN_TUZIS_TO_CHAT)} to start
+              chatting. Top up to continue.
             </span>
             <Button asChild size="sm" className="ml-auto">
               <Link to="/buy">Buy 2Zs</Link>
@@ -357,7 +444,9 @@ export default function AiFeature() {
             </span>
             {selected ? (
               <span className="tabular-nums">
-                {selected.display_name} · ~{pricePerMessage(selected)}
+                {selected.display_name}
+                {personality ? ` · ${personality.display_name}` : ""} · ~
+                {pricePerMessage(selected)}
               </span>
             ) : (
               <span />
@@ -365,6 +454,32 @@ export default function AiFeature() {
           </div>
         </div>
       </div>
+
+      <PersonalityManager
+        open={managerOpen}
+        onOpenChange={setManagerOpen}
+        personalities={personalities}
+        ownUsername={user?.username}
+        isAuthed={!!user}
+        onChanged={(change) => {
+          if (change.created) {
+            setPersonalities((prev) => [...prev, change.created!]);
+            setPersonality(change.created);
+          } else if (change.updated) {
+            setPersonalities((prev) =>
+              prev.map((p) => (p.id === change.updated!.id ? change.updated! : p)),
+            );
+            setPersonality((cur) =>
+              cur?.id === change.updated!.id ? change.updated! : cur,
+            );
+          } else if (change.deletedId) {
+            setPersonalities((prev) =>
+              prev.filter((p) => p.id !== change.deletedId),
+            );
+            setPersonality((cur) => (cur?.id === change.deletedId ? null : cur));
+          }
+        }}
+      />
     </div>
   );
 }
@@ -430,6 +545,14 @@ function MessageRow({
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[11px] tabular-nums text-muted-foreground">
             {message.modelName ? (
               <span className="text-foreground/70">{message.modelName}</span>
+            ) : null}
+            {message.personalityName ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="text-foreground/70">
+                  as {message.personalityName}
+                </span>
+              </>
             ) : null}
             {message.tuzisCharged != null ? (
               <>

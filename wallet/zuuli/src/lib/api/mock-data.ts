@@ -12,6 +12,8 @@ import type {
   KycIdentityDocuments,
   KycProfile,
   Livestream,
+  Personality,
+  PersonalityInput,
   PromptResponse,
   SimpleCreator,
   TuziTransaction,
@@ -254,6 +256,68 @@ export const mockModels: AIModel[] = [
     provider: "local",
   },
 ];
+
+// Mutated in place by the CRUD helpers below so create/edit/delete persist
+// across the mock session, mirroring how `mockUser` is updated by `Object.assign`.
+export const mockPersonalities: Personality[] = [
+  {
+    id: "pers-default-helpful",
+    display_name: "Default assistant",
+    system_message: "You are a helpful, privacy-respecting assistant.",
+    is_public: true,
+    creator: null,
+  },
+  {
+    id: "pers-zk-tutor",
+    display_name: "ZK Tutor",
+    system_message:
+      "You are a patient cryptography tutor who explains zero-knowledge proofs, " +
+      "Zcash shielded transactions and Halo2 circuits with concrete analogies " +
+      "before diving into the math. Keep answers concise unless asked to go deeper.",
+    is_public: true,
+    creator: null,
+  },
+  {
+    id: "pers-first-mate",
+    display_name: "Salty First Mate",
+    system_message:
+      "You are a gruff but good-hearted ship's first mate. Answer every " +
+      "question helpfully and accurately, but narrate it like you're on the " +
+      "deck of a privacy-loving pirate ship. Light on the nautical slang — " +
+      "don't overdo it.",
+    is_public: false,
+    creator: mockUser.username,
+  },
+];
+
+let mockPersonalityIdCounter = 0;
+
+export function mockCreatePersonality(input: PersonalityInput): Personality {
+  const personality: Personality = {
+    id: `pers-mock-${Date.now()}-${mockPersonalityIdCounter++}`,
+    display_name: input.display_name,
+    system_message: input.system_message,
+    is_public: input.is_public,
+    creator: mockUser.username,
+  };
+  mockPersonalities.push(personality);
+  return personality;
+}
+
+export function mockUpdatePersonality(
+  id: string,
+  input: Partial<PersonalityInput>,
+): Personality {
+  const existing = mockPersonalities.find((p) => p.id === id);
+  if (!existing) throw new Error("Personality not found");
+  Object.assign(existing, input);
+  return existing;
+}
+
+export function mockDeletePersonality(id: string): void {
+  const idx = mockPersonalities.findIndex((p) => p.id === id);
+  if (idx !== -1) mockPersonalities.splice(idx, 1);
+}
 
 export const mockLivestreams: Livestream[] = [
   {
@@ -548,6 +612,42 @@ export function mockAiReply(prompt: string, modelName: string): PromptResponse {
     prompt,
     response,
     model: modelName,
+    created_at: new Date().toISOString(),
+    input_tokens: Math.ceil(prompt.length / 4),
+    output_tokens: Math.ceil(response.length / 4),
+    tuzis_charged: 4,
+  };
+}
+
+/**
+ * Mock reply for the stateful conversation flow (`ai.conversations.sendMessage`).
+ * Unlike `mockAiReply`, this echoes the active personality's `system_message`
+ * back so it's obvious offline that the personality is what's priming the model.
+ */
+export function mockConversationReply(
+  prompt: string,
+  modelName: string,
+  personality: Personality | null,
+): PromptResponse {
+  const primer = personality
+    ? `*(${modelName}, primed as “${personality.display_name}”)*\n\n` +
+      `_System prompt: "${personality.system_message.slice(0, 160)}${
+        personality.system_message.length > 160 ? "…" : ""
+      }"_\n\n`
+    : `*(${modelName}, default persona — via the free2z API, the provider never sees you)*\n\n`;
+  const response =
+    primer +
+    `You asked: "${prompt.slice(0, 140)}${prompt.length > 140 ? "…" : ""}"\n\n` +
+    `Here's a reply in character. In the live app this streams from the model you ` +
+    `picked, with the personality's system message steering every turn of this ` +
+    `conversation, and you're charged the exact upstream cost plus margin, rounded ` +
+    `up to whole 2Zs.`;
+  return {
+    id: `pr-${Math.abs(hashString(prompt + (personality?.id ?? "")))}`,
+    prompt,
+    response,
+    model: modelName,
+    personality: personality?.display_name,
     created_at: new Date().toISOString(),
     input_tokens: Math.ceil(prompt.length / 4),
     output_tokens: Math.ceil(response.length / 4),

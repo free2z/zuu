@@ -13,19 +13,25 @@ import {
   mockAiReply,
   mockArticleFeed,
   mockArticles,
+  mockConversationReply,
+  mockCreatePersonality,
   mockCreatorDetail,
   mockCreators,
+  mockDeletePersonality,
   mockKycIdentityDocuments,
   mockKycProfile,
   mockKycTaxForm,
   mockLivestreams,
   mockModels,
+  mockPersonalities,
   mockSearchCreators,
   mockSearchPages,
   mockTransactions,
+  mockUpdatePersonality,
   mockUser,
 } from "./mock-data";
 import type {
+  AIConversation,
   AIModel,
   Article,
   ArticleFeedPage,
@@ -44,6 +50,8 @@ import type {
   LoginResult,
   OtpStatus,
   Paginated,
+  Personality,
+  PersonalityInput,
   PricingQuote,
   PricingSnapshot,
   ProfileUpdateInput,
@@ -440,6 +448,34 @@ export const profile = {
 };
 
 // ─── AI ─────────────────────────────────────────────────────────────────────
+
+/** Raw shape of PromptResponseSerializer (`__all__` on the PromptResponse model). */
+interface RawConversationPromptResponse {
+  id: string;
+  user_input: string;
+  response: string;
+  created_at?: string;
+  ai_model?: { display_name?: string } | null;
+  personality?: { display_name?: string } | null;
+}
+
+function normalizeConversationReply(
+  raw: RawConversationPromptResponse,
+  fallbackModelName: string,
+): PromptResponse {
+  return {
+    id: raw.id,
+    prompt: raw.user_input,
+    response: raw.response,
+    model: raw.ai_model?.display_name ?? fallbackModelName,
+    personality: raw.personality?.display_name,
+    created_at: raw.created_at,
+    // The backend doesn't return per-message token/cost breakdown on this
+    // endpoint — callers sync the real charge from the account balance
+    // (`auth.me().tuzis`) instead of guessing it here.
+  };
+}
+
 export const ai = {
   async models(): Promise<AIModel[]> {
     if (useMock()) {
@@ -484,6 +520,131 @@ export const ai = {
       created_at: new Date().toISOString(),
       tuzis_charged: 1,
     };
+  },
+
+  /**
+   * Custom system messages a user can create, edit, share (`is_public`) and
+   * select to prime the AI. Full CRUD over `/api/ai/personalities/`
+   * (DRF ModelViewSet, `IsAuthenticatedOrReadOnly`): GET lists your own plus
+   * public personalities; POST/PATCH/DELETE only ever touch your own.
+   */
+  personalities: {
+    async list(): Promise<Personality[]> {
+      if (useMock()) {
+        await delay();
+        return [...mockPersonalities];
+      }
+      const page = await request<Paginated<Personality>>(
+        "/api/ai/personalities/",
+        { query: { page_size: 100 }, anonymous: true },
+      );
+      return page.results ?? [];
+    },
+
+    async create(input: PersonalityInput): Promise<Personality> {
+      if (useMock()) {
+        await delay();
+        return mockCreatePersonality(input);
+      }
+      return request<Personality>("/api/ai/personalities/", {
+        method: "POST",
+        body: input,
+      });
+    },
+
+    async update(
+      id: string,
+      input: Partial<PersonalityInput>,
+    ): Promise<Personality> {
+      if (useMock()) {
+        await delay();
+        return mockUpdatePersonality(id, input);
+      }
+      return request<Personality>(`/api/ai/personalities/${id}/`, {
+        method: "PATCH",
+        body: input,
+      });
+    },
+
+    async delete(id: string): Promise<void> {
+      if (useMock()) {
+        await delay();
+        mockDeletePersonality(id);
+        return;
+      }
+      await request<void>(`/api/ai/personalities/${id}/`, {
+        method: "DELETE",
+      });
+    },
+  },
+
+  /**
+   * Stateful chat threads (`/api/ai/conversations/`). This is the path that
+   * actually applies a personality's `system_message` to the model: the
+   * flat `ai.prompt()` above (`/api/openai/prompt`) is a fixed legacy
+   * endpoint that ignores both the model and any personality. A
+   * conversation pins one `ai_model` + optional `personality` for its
+   * lifetime; the backend replays every prior turn as history, so real
+   * multi-turn memory is a side benefit of wiring this up.
+   */
+  conversations: {
+    async create(args: {
+      displayName: string;
+      model: AIModel;
+      personality?: Personality | null;
+    }): Promise<AIConversation> {
+      if (useMock()) {
+        await delay(200);
+        return {
+          id: `conv-mock-${Date.now()}`,
+          display_name: args.displayName,
+          ai_model: args.model.id,
+          personality: args.personality?.id ?? null,
+          model_name: args.model.display_name,
+        };
+      }
+      const body: Record<string, unknown> = {
+        display_name: args.displayName,
+        ai_model: args.model.id,
+      };
+      if (args.personality) body.personality = args.personality.id;
+      return request<AIConversation>("/api/ai/conversations/", {
+        method: "POST",
+        body,
+      });
+    },
+
+    /**
+     * Post a turn to an existing conversation. Streams over a websocket on
+     * the backend, but this also resolves synchronously with the full
+     * reply, so callers that don't need live word-by-word streaming (e.g.
+     * this PR's chat UI) can just await it.
+     */
+    async sendMessage(args: {
+      conversationId: string;
+      userInput: string;
+      model: AIModel;
+      personality?: Personality | null;
+      signal?: AbortSignal;
+    }): Promise<PromptResponse> {
+      if (useMock()) {
+        await delay(700);
+        return mockConversationReply(
+          args.userInput,
+          args.model.display_name,
+          args.personality ?? null,
+        );
+      }
+      const raw = await request<RawConversationPromptResponse>(
+        `/api/ai/conversations/${args.conversationId}/promptresponses/`,
+        {
+          method: "POST",
+          body: { user_input: args.userInput },
+          signal: args.signal,
+        },
+      );
+      return normalizeConversationReply(raw, args.model.display_name);
+    },
   },
 };
 
