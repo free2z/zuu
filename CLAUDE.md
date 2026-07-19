@@ -3,6 +3,19 @@
 Read **[AGENTS.md](./AGENTS.md)** first — it is the contribution doctrine for
 this repo:
 
+## eXtreme, Lean, Trunk-based development on steroids
+
+We ship a massive amount of work **in parallel, autonomously, with agents** — not
+by fiddling with a local worktree. The ONLY loop is: (1) something is named that
+needs changing → (2) **subagents** do it in **isolated worktrees** → issues/PRs →
+automated **QA gate + adversarial review** → **squash-merge to `main` on the
+remote** → (3) local `main` is **fast-forwarded from the remote** (already
+reviewed, gated, merged) → repeat.
+
+**Never, ever, do we have a dirty local `main`.** Leaving uncommitted changes on
+the primary checkout for a human to hand-review defeats the whole model — the
+pipeline proves the change is good **before** it reaches local `main`.
+
 ## IRON RULE — local `main` is read-only
 
 **LOCAL `main` NEVER CHANGES EXCEPT BY FAST-FORWARD PULL FROM THE REMOTE.**
@@ -36,6 +49,18 @@ that only ever moves forward, and every change carries a reviewable PR trail.
   transiently → resume `main` once merged**.
 - Moving the **whole ecosystem forward** takes priority over Zuuallet's own
   short-term stability.
+
+## Review governance — required, but never a bottleneck
+
+Branch protection **requires 1 approving review** on `main` — real governance,
+and **colleagues are always subject to it**; no one merges unreviewed. The
+reviewer is almost always an **agent acting on the owner's behalf**, watching PRs
+and approving the instant CI is green so nobody is blocked. Skylar (owner/CEO/CTO)
+moves at the speed of light and, when no reviewer-agent is around, **overrides via
+admin** (`enforce_admins=false`; `gh pr merge --squash --admin` **after** the CI
+`gate` is confirmed green — admin bypasses the *human* check, never the *QA*
+check). In ~99.999% of cases the "human review" is an agent standing in for the
+owner, not a person.
 
 Per-project specifics:
 

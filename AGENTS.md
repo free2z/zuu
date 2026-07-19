@@ -1,5 +1,22 @@
 # Working in `zuu` — the contribution doctrine
 
+## eXtreme, Lean, Trunk-based development on steroids
+
+We ship a massive amount of work **in parallel, autonomously, with agents** — not
+by fiddling with a local worktree. The ONLY loop is:
+
+1. A human (or agent) names something that needs to change.
+2. **Subagents** do the work in **isolated worktrees** → **issues/PRs** →
+   automated **QA gate + adversarial review** → **squash-merge to `main` on the
+   remote**.
+3. Local `main` is **fast-forwarded from the remote** — the changes arrive
+   already reviewed, gated, and merged. Then repeat.
+
+**Never, ever, do we have a dirty local `main`.** Uncommitted changes sitting on
+the primary checkout is a process failure, not a deliverable. Nobody hands the
+human stray local edits to "review" — the whole point is that the PR pipeline
+already proved the change is good **before** it reaches local `main`.
+
 ## IRON RULE — local `main` is read-only
 
 **LOCAL `main` NEVER CHANGES EXCEPT BY FAST-FORWARD PULL FROM THE REMOTE.**
@@ -37,6 +54,19 @@ stability.**
 
 - **Parallel agents:** see [docs/PARALLEL-AGENTS.md](docs/PARALLEL-AGENTS.md)
   for how multiple agents collaborate through issues/worktrees/PRs.
+
+## Review governance — required, but never a bottleneck
+
+Branch protection **requires 1 approving review** on `main` — this is real
+governance, and **colleagues are always subject to it**; no one merges unreviewed.
+The reviewer, though, is almost always an **agent acting on the owner's behalf**,
+watching PRs and approving the instant CI is green so nobody is ever blocked.
+Skylar is the owner/CEO/CTO and moves at the speed of light: when no
+colleague-agent reviewer is around, the owner **overrides via admin** and keeps
+going (`enforce_admins=false`; `gh pr merge --squash --admin` **after** the CI
+`gate` is confirmed green). The admin path bypasses the *human* check, never the
+*QA* check — CI must be verified green first. In ~99.999% of cases the "human
+review" is simply an agent standing in for the owner, not a person.
 
 ## The prime directive: stay on the bleeding edge, and contribute the fixes
 
