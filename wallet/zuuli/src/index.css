@@ -13,6 +13,11 @@
     --popover-foreground: 0 0% 98%;
     --primary: 271 91% 65%;
     --primary-foreground: 0 0% 100%;
+    /* Lighter than --primary: used for hyperlinks in rendered content
+       (articles/zpages/AI chat) so they clear WCAG AA (4.5:1) against the
+       near-black background and card surfaces while staying in the same
+       violet hue as the brand accent. */
+    --link: 271 91% 74%;
     --secondary: 240 4% 20%;
     --secondary-foreground: 0 0% 98%;
     --muted: 240 4% 18%;
@@ -36,6 +41,7 @@
     --popover-foreground: 0 0% 98%;
     --primary: 271 91% 65%;
     --primary-foreground: 0 0% 100%;
+    --link: 271 91% 74%;
     --secondary: 240 5% 18%;
     --secondary-foreground: 0 0% 98%;
     --muted: 240 5% 16%;
