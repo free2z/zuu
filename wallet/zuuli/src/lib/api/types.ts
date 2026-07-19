@@ -48,10 +48,36 @@ export interface AuthUser {
   free2zaddr?: string;
   display_name?: string;
   image?: string | null;
+  /** Own-profile enrichment from GET /api/auth/user/ (owner-only fields). */
+  banner?: string | null;
+  bio?: string | null; // `description` (markdown, ≤1024 chars)
+  /** Zcash address for direct tips (falls back to the account address server-side). */
+  p2paddr?: string | null;
+  /** 2Z price for 30 days of membership (null = no paid tier). */
+  member_price?: number | null;
+  can_stream?: boolean;
+  is_verified?: boolean;
   /** 2Z (Tuzi) credit balance. */
   tuzis: number;
   /** True when this session authenticated via a Zcash address (no password). */
   zcashLinked?: boolean;
+}
+
+/**
+ * Editable fields for the signed-in user's own profile —
+ * PATCH /api/auth/user/ (CreatorProfileUpdateSerializer). Avatar/banner
+ * uploads aren't included yet: the backend takes a `GenericFile` PK from a
+ * separate upload endpoint, not a raw image, so that's a follow-up.
+ */
+export interface ProfileUpdateInput {
+  /** → `full_name`, ≤128 chars. */
+  display_name?: string;
+  /** → `description`, markdown, ≤1024 chars. */
+  bio?: string;
+  /** → `p2paddr`, ≤255 chars. Empty string clears it. */
+  p2paddr?: string;
+  /** → `member_price`. `null` clears the paid tier. */
+  member_price?: number | null;
 }
 
 /** Knox token returned by /api/token/login/. */

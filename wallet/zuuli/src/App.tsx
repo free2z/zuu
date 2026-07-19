@@ -16,6 +16,7 @@ import BuyFeature from "@/features/buy";
 import AuthFeature from "@/features/auth";
 import SearchFeature from "@/features/search";
 import CreatorFeature from "@/features/creator";
+import ProfileFeature from "@/features/profile";
 
 export default function App() {
   const bootstrapSession = useSession((s) => s.bootstrap);
@@ -38,6 +39,7 @@ export default function App() {
             <Route index element={<HomeFeature />} />
             <Route path="/search/*" element={<SearchFeature />} />
             <Route path="/creator/:username/*" element={<CreatorFeature />} />
+            <Route path="/profile" element={<ProfileFeature />} />
             <Route path="/wallet/*" element={<WalletFeature />} />
             <Route path="/ai/*" element={<AiFeature />} />
             <Route path="/live/*" element={<LiveFeature />} />

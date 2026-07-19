@@ -6,6 +6,7 @@ import {
   Wallet as WalletIcon,
   LogOut,
   User,
+  UserCog,
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -120,6 +121,9 @@ export function TopBar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate("/profile")}>
+              <UserCog /> Edit profile
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/wallet")}>
               <WalletIcon /> Wallet
             </DropdownMenuItem>
