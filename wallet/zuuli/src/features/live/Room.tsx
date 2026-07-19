@@ -14,7 +14,6 @@ import {
   Coins,
   Sparkles,
   LogOut,
-  Send,
   ShieldCheck,
   KeyRound,
 } from "lucide-react";
@@ -40,8 +39,8 @@ import { useAsync } from "@/hooks/useAsync";
 import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
-import { cn } from "@/lib/utils";
 import { KIND_META, gradientFor } from "./lib";
+import { Stage } from "./Stage";
 
 interface JustStarted {
   ticket: DyteJoinTicket;
@@ -49,15 +48,6 @@ interface JustStarted {
   title: string;
   price_tuzis: number;
 }
-
-const FAUX_PARTICIPANTS = [
-  "Ava R.",
-  "Marco",
-  "Sol K.",
-  "Nadia",
-  "Ren",
-  "Ivo P.",
-];
 
 export function Room() {
   const { username = "" } = useParams();
@@ -191,9 +181,9 @@ export function Room() {
               </div>
             ) : null}
 
-            {/* Stage center: either the "off-air" identity or the connected state */}
+            {/* Stage center: either the "off-air" identity or the real meeting */}
             {ticket ? (
-              <ConnectedStage ticket={ticket} />
+              <Stage ticket={ticket} />
             ) : (
               <div className="absolute inset-0 grid place-items-center">
                 <div className="flex flex-col items-center gap-3 text-center">
@@ -238,29 +228,28 @@ export function Room() {
           </div>
         </div>
 
-        {/* Right column: join gate OR chat sidebar */}
+        {/* Right column: join gate OR connection details (the real meeting's
+            own chat + participant panels live inside the Stage itself). */}
         <div className="space-y-4">
           {ticket ? (
-            <>
-              {ticket.as === "host" ? (
-                <HostControls
-                  stream={stream}
-                  onEnd={() => {
-                    toast.success("Stream ended");
-                    navigate("/live");
-                  }}
-                />
-              ) : (
-                <ConnectedDetails
-                  ticket={ticket}
-                  onLeave={() => {
-                    toast("You left the stream");
-                    navigate("/live");
-                  }}
-                />
-              )}
-              <ChatSidebar creatorName={creatorName} />
-            </>
+            ticket.as === "host" ? (
+              <HostControls
+                stream={stream}
+                onEnd={() => {
+                  toast.success("Stream ended");
+                  navigate("/live");
+                }}
+              />
+            ) : (
+              <ConnectedDetails
+                ticket={ticket}
+                stream={stream}
+                onLeave={() => {
+                  toast("You left the stream");
+                  navigate("/live");
+                }}
+              />
+            )
           ) : (
             <JoinPanel
               stream={stream}
@@ -288,25 +277,6 @@ function BackLink() {
       <ArrowLeft className="h-4 w-4" aria-hidden />
       All livestreams
     </Link>
-  );
-}
-
-function ConnectedStage({ ticket }: { ticket: DyteJoinTicket }) {
-  return (
-    <div className="absolute inset-0 grid place-items-center px-6 animate-fade-in">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/20 ring-2 ring-emerald-400/40">
-          <ShieldCheck className="h-7 w-7 text-emerald-300" aria-hidden />
-        </div>
-        <div className="text-lg font-semibold text-white">
-          {ticket.as === "host" ? "You're on air" : "You're connected"}
-        </div>
-        <p className="max-w-xs text-xs text-white/70">
-          Live video is powered by Dyte; this build shows the join/entitlement
-          flow end-to-end.
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -539,8 +509,8 @@ function JoinPanel({
         ) : null}
 
         <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-          Live video is powered by Dyte; this build shows the join/entitlement
-          flow end-to-end.
+          Live video is powered by Cloudflare RealtimeKit — mic, camera, and
+          chat all run in the room once you join.
         </p>
       </div>
     </div>
@@ -549,9 +519,11 @@ function JoinPanel({
 
 function ConnectedDetails({
   ticket,
+  stream,
   onLeave,
 }: {
   ticket: DyteJoinTicket;
+  stream: Livestream;
   onLeave: () => void;
 }) {
   return (
@@ -585,7 +557,7 @@ function ConnectedDetails({
         </div>
       </dl>
       <Separator className="my-3" />
-      <ParticipantStrip />
+      <ParticipantStrip count={stream.participants + 1} />
       <Button
         variant="outline"
         className="mt-4 w-full gap-2"
@@ -629,7 +601,7 @@ function HostControls({
         . Manage your broadcast below.
       </p>
       <Separator className="my-3" />
-      <ParticipantStrip />
+      <ParticipantStrip count={stream.participants + 1} />
       <Button variant="destructive" className="mt-4 w-full gap-2" onClick={onEnd}>
         <Radio className="h-4 w-4" aria-hidden />
         End stream
@@ -638,82 +610,23 @@ function HostControls({
   );
 }
 
-function ParticipantStrip() {
+// The real participant roster, active-speaker highlighting, and chat all
+// live inside the mounted `<Stage>` (RealtimeKit's own meeting UI) — this
+// strip is just a lightweight, always-real count for the ZUULI chrome
+// around it.
+function ParticipantStrip({ count }: { count: number }) {
   return (
     <div>
       <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         In the room
       </div>
-      <div className="flex items-center gap-2">
-        <div className="flex -space-x-2">
-          {FAUX_PARTICIPANTS.slice(0, 5).map((name) => (
-            <Avatar
-              key={name}
-              className="h-7 w-7 border-2 border-card"
-              title={name}
-            >
-              <AvatarFallback className="text-[10px]">
-                {initials(name)}
-              </AvatarFallback>
-            </Avatar>
-          ))}
-        </div>
-        <span className="text-xs text-muted-foreground">+ many more</span>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Users className="h-3.5 w-3.5" aria-hidden />
+        <span className="tabular-nums font-medium text-foreground">
+          {count.toLocaleString()}
+        </span>
+        {count === 1 ? "person watching" : "people watching"}
       </div>
-    </div>
-  );
-}
-
-function ChatSidebar({ creatorName }: { creatorName: string }) {
-  return (
-    <div className="flex h-72 flex-col rounded-xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-4 py-3 text-sm font-semibold">
-        Live chat
-      </div>
-      <div className="flex-1 space-y-3 overflow-hidden px-4 py-3 text-xs">
-        <ChatLine who={creatorName} accent>
-          Welcome in — glad you made it.
-        </ChatLine>
-        <ChatLine who="Ava R.">this is going to be good</ChatLine>
-        <ChatLine who="Marco">2Zs well spent, worth it</ChatLine>
-        <ChatLine who="Sol K.">gm from the shielded pool</ChatLine>
-      </div>
-      <div className="border-t border-border p-3">
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Chat is a placeholder in this build"
-            disabled
-            aria-label="Send a chat message"
-          />
-          <Button size="icon" variant="secondary" disabled aria-label="Send">
-            <Send className="h-4 w-4" aria-hidden />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ChatLine({
-  who,
-  accent,
-  children,
-}: {
-  who: string;
-  accent?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="leading-snug">
-      <span
-        className={cn(
-          "font-semibold",
-          accent ? "text-primary" : "text-foreground",
-        )}
-      >
-        {who}
-      </span>{" "}
-      <span className="text-muted-foreground">{children}</span>
     </div>
   );
 }
