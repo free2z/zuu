@@ -22,6 +22,24 @@ use crate::wallet::WalletState;
 /// Interval between sync re-checks after catching up (30 seconds).
 const SYNC_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Known-good MAINNET lightwalletd endpoints used as an ordered fallback list
+/// when the configured endpoint repeatedly fails to stream blocks. All are
+/// `*.zec.rocks`, so they satisfy the app CSP (`connect-src https://*.zec.rocks`)
+/// and match the regional endpoints already offered in the wallet Settings UI —
+/// no invented / unreachable hosts. The configured endpoint is always tried
+/// first; these only extend the rotation.
+const FALLBACK_LIGHTWALLETD_URLS: &[&str] = &[
+    "https://zec.rocks:443",
+    "https://na.zec.rocks:443",
+    "https://eu.zec.rocks:443",
+    "https://ap.zec.rocks:443",
+];
+
+/// Rotate to the next lightwalletd endpoint after this many consecutive scan
+/// failures on the current one. Conservative on purpose: we only switch after
+/// repeated failures so a single transient blip never causes endpoint churn.
+const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+
 /// Start the background sync task.
 pub async fn start_sync<R: Runtime>(
     app: AppHandle<R>,
@@ -44,6 +62,7 @@ pub async fn start_sync<R: Runtime>(
     let read_db = Arc::clone(&state.read_db);
     let network = state.network;
     let last_known_chain_tip = Arc::clone(&state.last_known_chain_tip);
+    let last_sync_error = Arc::clone(&state.last_sync_error);
 
     let handle = tokio::spawn(sync_task(
         app,
@@ -53,6 +72,7 @@ pub async fn start_sync<R: Runtime>(
         read_db,
         network,
         last_known_chain_tip,
+        last_sync_error,
     ));
 
     *state.sync_handle.lock().await = Some(handle);
@@ -130,20 +150,40 @@ async fn sync_task<R: Runtime>(
     read_db: Arc<Mutex<Option<WalletDatabase>>>,
     network: Network,
     last_known_chain_tip: Arc<AtomicU64>,
+    last_sync_error: Arc<RwLock<Option<String>>>,
 ) {
     tracing::info!("sync started with endpoint: {}", lightwalletd_url);
+
+    // Ordered endpoint rotation: the configured endpoint first, then any
+    // known-good fallbacks not already equal to it. On repeated scan failures we
+    // cycle through this list (see `MAX_CONSECUTIVE_FAILURES`) so one endpoint
+    // being unreachable, or accepting the connection but refusing to stream
+    // compact blocks / subtree roots, can no longer wedge sync at 0.0% forever.
+    let mut endpoints: Vec<String> = vec![lightwalletd_url.clone()];
+    for &fb in FALLBACK_LIGHTWALLETD_URLS {
+        if !endpoints.iter().any(|e| e == fb) {
+            endpoints.push(fb.to_string());
+        }
+    }
+    let mut endpoint_idx = 0usize;
+    let mut consecutive_failures = 0u32;
 
     // Connect to lightwalletd
     let mut client = match connect_to_lightwalletd(&lightwalletd_url).await {
         Ok(c) => c,
         Err(e) => {
+            let msg = format!("Can't reach the Zcash network: {e}");
             tracing::error!("failed to connect to lightwalletd: {e}");
+            // Surface the failure instead of dying silently — store it so the
+            // polled `get_sync_status` returns it, and emit for event listeners.
+            *last_sync_error.write().await = Some(msg.clone());
             *syncing.write().await = false;
             let _ = app.emit("zcash://sync-progress", &SyncStatus {
                 syncing: false,
                 synced_height: 0,
                 chain_tip: 0,
                 progress_percent: 0.0,
+                last_error: Some(msg),
             });
             return;
         }
@@ -200,6 +240,7 @@ async fn sync_task<R: Runtime>(
                     synced_height,
                     chain_tip,
                     progress_percent: progress,
+                    last_error: None,
                 });
                 return;
             }
@@ -225,6 +266,11 @@ async fn sync_task<R: Runtime>(
 
             match result {
                 Ok(()) => {
+                    // A pass committed cleanly: reset the failure counter and clear
+                    // any previously surfaced error so the UI leaves the error state.
+                    consecutive_failures = 0;
+                    *last_sync_error.write().await = None;
+
                     // Check progress using block_max_scanned (actual scanned height)
                     let synced_height = read_scanned_height(&read_db, birthday_height).await;
 
@@ -241,6 +287,7 @@ async fn sync_task<R: Runtime>(
                         synced_height,
                         chain_tip: effective_tip,
                         progress_percent: progress,
+                        last_error: None,
                     };
                     let _ = app.emit("zcash://sync-progress", &status);
 
@@ -261,23 +308,81 @@ async fn sync_task<R: Runtime>(
                     }
                 }
                 Err(e) => {
-                    tracing::error!("sync error: {e:?}");
+                    // The error that used to be swallowed here (logged, then a
+                    // silent 30s retry) is the reason a wedged endpoint shows an
+                    // eternal "Syncing 0.0%". Surface it and, after repeated
+                    // failures, rotate to a fallback endpoint to try to recover.
+                    consecutive_failures += 1;
+                    let err_msg = format!("{e:?}");
+                    tracing::error!(
+                        "sync error (attempt {consecutive_failures}): {err_msg}"
+                    );
+
+                    let mut surfaced = format!("Sync trouble — retrying. ({err_msg})");
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES
+                        && endpoints.len() > 1
+                    {
+                        endpoint_idx = (endpoint_idx + 1) % endpoints.len();
+                        let next = endpoints[endpoint_idx].clone();
+                        tracing::warn!(
+                            "rotating lightwalletd endpoint after {consecutive_failures} consecutive failures -> {next}"
+                        );
+                        match connect_to_lightwalletd(&next).await {
+                            Ok(c) => {
+                                client = c;
+                                surfaced = format!("Sync trouble — retrying via {next}");
+                            }
+                            Err(ce) => {
+                                tracing::error!(
+                                    "failed to connect to fallback endpoint {next}: {ce}"
+                                );
+                                surfaced = format!(
+                                    "Can't reach the Zcash network — retrying via {next}"
+                                );
+                            }
+                        }
+                        // Give the new endpoint a fresh streak before rotating again.
+                        consecutive_failures = 0;
+                    }
+
+                    // Store for the polled `get_sync_status`, and emit for
+                    // event listeners. Keep progress fields as-is (still `true`
+                    // syncing — we WILL retry) so the UI shows an error banner
+                    // without losing the caught-up/height context.
+                    *last_sync_error.write().await = Some(surfaced.clone());
+                    let synced_height =
+                        read_scanned_height(&read_db, birthday_height).await;
+                    let progress =
+                        calc_progress(synced_height, chain_tip, birthday_height);
+                    let _ = app.emit("zcash://sync-progress", &SyncStatus {
+                        syncing: true,
+                        synced_height,
+                        chain_tip,
+                        progress_percent: progress,
+                        last_error: Some(surfaced),
+                    });
+
                     // On sync error, break inner loop to retry after sleep
                     break;
                 }
             }
         }
 
-        // Emit "idle" status (synced, but still watching for new blocks)
+        // Emit "idle" status. NOTE: the inner loop breaks here on BOTH a clean
+        // catch-up AND an error, so carry whatever error is currently stored
+        // (the error arm may have just set it) rather than clearing it — a
+        // successful pass is the only thing that clears `last_sync_error`.
         let synced_height = read_scanned_height(&read_db, birthday_height).await;
         let effective_tip = chain_tip.max(synced_height);
         last_known_chain_tip.store(effective_tip, Ordering::Relaxed);
         let progress = calc_progress(synced_height, effective_tip, birthday_height);
+        let last_error = last_sync_error.read().await.clone();
         let _ = app.emit("zcash://sync-progress", &SyncStatus {
             syncing: true,
             synced_height,
             chain_tip: effective_tip,
             progress_percent: progress,
+            last_error,
         });
 
         // Sleep before re-checking for new blocks, with cancellation support
@@ -300,11 +405,13 @@ async fn sync_task<R: Runtime>(
 
     *syncing.write().await = false;
 
+    let last_error = last_sync_error.read().await.clone();
     let _ = app.emit("zcash://sync-progress", &SyncStatus {
         syncing: false,
         synced_height,
         chain_tip,
         progress_percent: progress,
+        last_error,
     });
 }
 
@@ -494,6 +601,7 @@ pub async fn get_sync_status(state: &WalletState) -> Result<SyncStatus> {
             synced_height: 0,
             chain_tip: 0,
             progress_percent: 0.0,
+            last_error: state.last_sync_error.read().await.clone(),
         });
     }
 
@@ -518,5 +626,6 @@ pub async fn get_sync_status(state: &WalletState) -> Result<SyncStatus> {
         synced_height,
         chain_tip,
         progress_percent: progress,
+        last_error: state.last_sync_error.read().await.clone(),
     })
 }

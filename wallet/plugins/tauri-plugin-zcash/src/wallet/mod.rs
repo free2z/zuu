@@ -37,6 +37,11 @@ pub struct WalletState {
     pub sync_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub syncing: Arc<RwLock<bool>>,
     pub last_known_chain_tip: Arc<AtomicU64>,
+    /// Most recent sync error, shared between the background sync task (writer)
+    /// and the `get_sync_status` command (reader). `None` once a pass succeeds.
+    /// Zuuli polls `get_sync_status`, so the error MUST live here — not only in
+    /// the emitted event — for the UI to see it.
+    pub last_sync_error: Arc<RwLock<Option<String>>>,
     pub manifest: Arc<Mutex<manifest::WalletManifest>>,
     pub prover: Arc<Mutex<Option<zcash_proofs::prover::LocalTxProver>>>,
     pub pending_proposal: Arc<Mutex<Option<(u32, WalletProposal)>>>,
@@ -109,6 +114,7 @@ impl WalletState {
             sync_handle: Mutex::new(None),
             syncing: Arc::new(RwLock::new(false)),
             last_known_chain_tip: Arc::new(AtomicU64::new(0)),
+            last_sync_error: Arc::new(RwLock::new(None)),
             manifest: Arc::new(Mutex::new(manifest)),
             prover: Arc::new(Mutex::new(None)),
             pending_proposal: Arc::new(Mutex::new(None)),

@@ -54,6 +54,13 @@ pub struct SyncStatus {
     pub synced_height: u64,
     pub chain_tip: u64,
     pub progress_percent: f32,
+    /// Most recent sync error surfaced to the UI, or `None` when the last pass
+    /// succeeded. This is **additive/optional**: consumers that predate the
+    /// field (e.g. zuuallet) simply ignore it, so adding it does not break them.
+    /// Serializes to `lastError` (camelCase); `#[serde(default)]` keeps
+    /// deserialization tolerant of payloads that omit it.
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

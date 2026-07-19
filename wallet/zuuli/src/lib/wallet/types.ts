@@ -44,6 +44,13 @@ export interface SyncStatus {
   syncedHeight: number;
   chainTip: number;
   progressPercent: number;
+  /**
+   * Most recent sync error, or `null`/absent when the last pass succeeded. The
+   * engine used to swallow scan errors and spin silently at "0.0%"; this field
+   * surfaces them so the UI can show a "Sync trouble — retrying" state instead.
+   * Optional so it stays backward-compatible with payloads that omit it.
+   */
+  lastError?: string | null;
 }
 
 export interface TransactionEntry {
