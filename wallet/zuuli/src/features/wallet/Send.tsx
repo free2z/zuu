@@ -33,7 +33,33 @@ import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
 import { ZecTag } from "./shared";
 
-const MEMO_MAX = 512;
+// Zcash encrypted memos are 512 *bytes* (UTF-8), not 512 characters.
+const MEMO_MAX_BYTES = 512;
+
+// Client-side fee reserve for pre-flight Max / over-balance checks. The real
+// fee is computed by the engine and returned on the proposal; this is the
+// ZIP-317 minimum fee (matches the mock) so we never propose a send that
+// leaves nothing to cover the fee. A fixed reserve works for both memo and
+// no-memo destinations.
+const FEE_RESERVE = 10_000;
+
+const memoEncoder = new TextEncoder();
+
+/** UTF-8 byte length of a memo. */
+function memoByteLength(memo: string): number {
+  return memoEncoder.encode(memo).length;
+}
+
+/** Trim a string to at most `maxBytes` UTF-8 bytes, never splitting a code point. */
+function clampToBytes(value: string, maxBytes: number): string {
+  if (memoByteLength(value) <= maxBytes) return value;
+  let out = "";
+  for (const ch of value) {
+    if (memoByteLength(out + ch) > maxBytes) break;
+    out += ch;
+  }
+  return out;
+}
 
 function toZatoshis(zec: string): number | null {
   const n = Number(zec);
@@ -63,7 +89,11 @@ export function Send() {
   const canReceiveMemo = validation?.valid ? validation.canReceiveMemo : true;
   const zatoshis = toZatoshis(amount);
   const spendable = balance?.spendable ?? 0;
-  const overBalance = zatoshis !== null && zatoshis > spendable;
+  // Largest amount that still leaves room for the network fee.
+  const maxSpendable = Math.max(0, spendable - FEE_RESERVE);
+  // A send costs amount + fee, so anything within one fee of spendable is unfundable.
+  const overBalance = zatoshis !== null && zatoshis + FEE_RESERVE > spendable;
+  const memoBytes = memoByteLength(memo);
 
   // Parse a pasted `zcash:` payment URI and prefill the form.
   const applyUri = useCallback(async (uri: string) => {
@@ -72,7 +102,7 @@ export function Send() {
       setTo(req.address);
       if (req.amount !== null)
         setAmount((req.amount / ZATOSHIS_PER_ZEC).toString());
-      if (req.memo !== null) setMemo(req.memo);
+      if (req.memo !== null) setMemo(clampToBytes(req.memo, MEMO_MAX_BYTES));
       toast.success("Payment request loaded");
     } catch {
       toast.error("Couldn't read that payment link");
@@ -218,10 +248,10 @@ export function Send() {
                   type="button"
                   className="text-xs text-muted-foreground hover:text-foreground"
                   onClick={() =>
-                    setAmount((spendable / ZATOSHIS_PER_ZEC).toString())
+                    setAmount((maxSpendable / ZATOSHIS_PER_ZEC).toString())
                   }
                 >
-                  Max: {formatZecDisplay(spendable)}
+                  Max: {formatZecDisplay(maxSpendable)}
                 </button>
               ) : null}
             </div>
@@ -249,7 +279,7 @@ export function Send() {
               {overBalance ? (
                 <span className="flex items-center gap-1.5 text-destructive">
                   <AlertCircle className="h-3.5 w-3.5" />
-                  Amount exceeds spendable balance
+                  Amount plus network fee exceeds spendable balance
                 </span>
               ) : null}
             </div>
@@ -262,15 +292,20 @@ export function Send() {
                 Memo <span className="text-muted-foreground">(optional)</span>
               </Label>
               {canReceiveMemo ? (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {memo.length}/{MEMO_MAX}
+                <span
+                  className={cn(
+                    "text-xs tabular-nums text-muted-foreground",
+                    memoBytes >= MEMO_MAX_BYTES && "text-destructive",
+                  )}
+                >
+                  {memoBytes}/{MEMO_MAX_BYTES} bytes
                 </span>
               ) : null}
             </div>
             <Textarea
               id="memo"
               value={memo}
-              onChange={(e) => setMemo(e.target.value.slice(0, MEMO_MAX))}
+              onChange={(e) => setMemo(clampToBytes(e.target.value, MEMO_MAX_BYTES))}
               disabled={!canReceiveMemo}
               placeholder={
                 canReceiveMemo
