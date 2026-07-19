@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { BadgeCheck, Loader2, Lock, Save } from "lucide-react";
+import { BadgeCheck, Loader2, Lock, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Avatar,
@@ -103,6 +103,24 @@ function ProfileForm({ user }: { user: AuthUser }) {
           </Button>
         }
       />
+
+      <Card className="mb-6 flex flex-col items-start justify-between gap-3 rounded-xl border-border/60 bg-card/60 p-5 sm:flex-row sm:items-center">
+        <div className="flex items-start gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+            <ShieldCheck className="h-5 w-5" aria-hidden />
+          </div>
+          <div>
+            <div className="font-medium">Creator revenue share</div>
+            <p className="text-sm text-muted-foreground">
+              Verify your identity and complete a tax form to apply for the
+              creator revenue-share program.
+            </p>
+          </div>
+        </div>
+        <Button asChild variant="outline" className="shrink-0">
+          <Link to="/kyc">Apply for revenue share</Link>
+        </Button>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* Form */}

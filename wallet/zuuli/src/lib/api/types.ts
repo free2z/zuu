@@ -283,3 +283,65 @@ export interface PricingQuote {
   stale: boolean;
   bootstrap: boolean;
 }
+
+// ── KYC / creator revenue-share application ─────────────────────────────────
+// Backend: `dj.apps.kyc` (tuzi/py/dj/apps/kyc, mounted at /api/kyc/ per
+// tuzi/py/dj/free2z/settings.py + tuzi/py/dj/free2z/openapi/f2z.yaml). The
+// generated OpenAPI schema for this app carries no request/response bodies
+// (every operation documents only `200`/`204` with no schema), so these
+// shapes are instead confirmed against the working reference client at
+// ts/react/free2z/src/components/KYC*.tsx (KYCBasicInfoStep, KYCTaxFormStep,
+// KYCTaxForm, KYCElectronicSignature, KYCIdentity, KYCLivePhotoCapture,
+// KYCPage) and ts/react/free2z/src/components/RevenueShareLink.tsx, which
+// talk to this same live backend.
+
+/**
+ * Workflow status returned by `application_status` on the KYC profile.
+ * NEW → PENDING (via change-status) → APPROVED (reviewer decision), or
+ * REJECTED. An APPROVED creator can revise + resubmit, which POSTs
+ * change-status again to flip APPROVED back to NEW.
+ */
+export type KycApplicationStatus = "NEW" | "PENDING" | "APPROVED" | "REJECTED";
+
+/** GET/POST /api/kyc/user-profile. */
+export interface KycProfile {
+  is_us: boolean | null;
+  is_individual: boolean | null;
+  application_status: KycApplicationStatus;
+}
+
+/** Fields the applicant sets in the "basic info" step — POST /api/kyc/user-profile. */
+export interface KycProfileInput {
+  is_us: boolean;
+  is_individual: boolean;
+}
+
+/** Which US tax form applies, derived from `is_us` + `is_individual`. */
+export type KycTaxFormKind = "W-9" | "W-8BEN" | "W-8BEN-E";
+
+/** The four identity-document upload slots /api/kyc/identity-documents accepts. */
+export type KycIdentityDocType =
+  | "id_front"
+  | "id_back"
+  | "additional_document"
+  | "live_photo";
+
+/** GET /api/kyc/identity-documents → `{ <doctype>_url }` per uploaded slot. */
+export type KycIdentityDocuments = Partial<
+  Record<`${KycIdentityDocType}_url`, string | null>
+>;
+
+/** GET /api/kyc/get-tax-form-file → `{ file }` (null until a form is uploaded). */
+export interface KycTaxFormFile {
+  file: string | null;
+}
+
+/** POST /api/kyc/upload-tax-form (multipart, field `file`) response. */
+export interface KycTaxFormUploadResult {
+  file_url: string;
+}
+
+/** GET/POST /api/kyc/tax-form-signature. */
+export interface KycTaxFormSignature {
+  tax_form_signature: string | null;
+}

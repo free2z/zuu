@@ -117,7 +117,12 @@ export async function request<T>(
     Accept: "application/json",
     ...opts.headers,
   };
-  if (opts.body !== undefined && !headers["Content-Type"]) {
+  // Multipart bodies (file uploads, e.g. KYC docs) must NOT get a manual
+  // Content-Type — the browser/native fetch sets `multipart/form-data;
+  // boundary=...` itself. Only JSON bodies get the default header.
+  const isFormData =
+    typeof FormData !== "undefined" && opts.body instanceof FormData;
+  if (opts.body !== undefined && !isFormData && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
   const token = getToken();
@@ -129,7 +134,12 @@ export async function request<T>(
   const res = await doFetch(buildUrl(path, opts.query), {
     method: opts.method ?? "GET",
     headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    body:
+      opts.body === undefined
+        ? undefined
+        : isFormData
+          ? (opts.body as FormData)
+          : JSON.stringify(opts.body),
     signal: opts.signal,
     cache: opts.cache,
   });

@@ -15,6 +15,9 @@ import {
   mockArticles,
   mockCreatorDetail,
   mockCreators,
+  mockKycIdentityDocuments,
+  mockKycProfile,
+  mockKycTaxForm,
   mockLivestreams,
   mockModels,
   mockSearchCreators,
@@ -30,6 +33,13 @@ import type {
   AuthUser,
   CreatorDetail,
   DyteJoinTicket,
+  KycIdentityDocType,
+  KycIdentityDocuments,
+  KycProfile,
+  KycProfileInput,
+  KycTaxFormFile,
+  KycTaxFormSignature,
+  KycTaxFormUploadResult,
   Livestream,
   LoginResult,
   OtpStatus,
@@ -932,5 +942,161 @@ export const pricing = {
       anonymous: true,
       signal,
     });
+  },
+};
+
+// ─── KYC / creator revenue-share application ─────────────────────────────────
+// `dj.apps.kyc` (tuzi/py/dj/apps/kyc), mounted at /api/kyc/. This is the
+// APPLICATION flow only — an applicant supplies basic tax-residency info,
+// identity documents, and an e-signed tax form, then advances
+// application_status from NEW to PENDING for review. There is no payout /
+// cash-out surface yet (that backend doesn't exist); APPROVED only unlocks
+// whatever the platform wires up later.
+//
+// The generated OpenAPI schema (tuzi/py/dj/free2z/openapi/f2z.yaml) documents
+// every /api/kyc/* operation with only a bare 200/204 and no request/response
+// body — so every shape below is confirmed instead against the working
+// reference client already talking to this backend:
+// ts/react/free2z/src/components/KYC{BasicInfoStep,TaxFormStep,TaxForm,
+// ElectronicSignature,Identity,LivePhotoCapture,Page}.tsx and
+// RevenueShareLink.tsx.
+export const kyc = {
+  /** GET /api/kyc/user-profile → `{ is_us, is_individual, application_status }`. */
+  async getProfile(): Promise<KycProfile> {
+    if (useMock()) {
+      await delay(150);
+      return { ...mockKycProfile };
+    }
+    return request<KycProfile>("/api/kyc/user-profile");
+  },
+
+  /** POST /api/kyc/user-profile — the "basic info" step (tax residency / entity type). */
+  async saveProfile(input: KycProfileInput): Promise<KycProfile> {
+    if (useMock()) {
+      await delay(300);
+      Object.assign(mockKycProfile, input);
+      return { ...mockKycProfile };
+    }
+    return request<KycProfile>("/api/kyc/user-profile", {
+      method: "POST",
+      body: input,
+    });
+  },
+
+  /** GET /api/kyc/identity-documents → `{ id_front_url, id_back_url, additional_document_url, live_photo_url }`. */
+  async getIdentityDocuments(): Promise<KycIdentityDocuments> {
+    if (useMock()) {
+      await delay(150);
+      return { ...mockKycIdentityDocuments };
+    }
+    return request<KycIdentityDocuments>("/api/kyc/identity-documents");
+  },
+
+  /**
+   * POST /api/kyc/identity-documents (multipart) — the file field name IS the
+   * doc type (`id_front` / `id_back` / `additional_document` / `live_photo`).
+   * Refetches the full set afterward since the endpoint doesn't echo it back.
+   */
+  async uploadIdentityDocument(
+    docType: KycIdentityDocType,
+    file: File,
+  ): Promise<KycIdentityDocuments> {
+    if (useMock()) {
+      await delay(500);
+      mockKycIdentityDocuments[`${docType}_url`] = URL.createObjectURL(file);
+      return { ...mockKycIdentityDocuments };
+    }
+    const form = new FormData();
+    form.append(docType, file);
+    await request("/api/kyc/identity-documents", {
+      method: "POST",
+      body: form,
+    });
+    return kyc.getIdentityDocuments();
+  },
+
+  /** DELETE /api/kyc/identity-documents — body `{ doc_type }`. */
+  async deleteIdentityDocument(docType: KycIdentityDocType): Promise<void> {
+    if (useMock()) {
+      await delay(200);
+      delete mockKycIdentityDocuments[`${docType}_url`];
+      return;
+    }
+    await request("/api/kyc/identity-documents", {
+      method: "DELETE",
+      body: { doc_type: docType },
+    });
+  },
+
+  /** GET /api/kyc/get-tax-form-file → `{ file }` (null until one is uploaded). */
+  async getTaxFormFile(): Promise<KycTaxFormFile> {
+    if (useMock()) {
+      await delay(150);
+      return { file: mockKycTaxForm.file_url };
+    }
+    return request<KycTaxFormFile>("/api/kyc/get-tax-form-file");
+  },
+
+  /** POST /api/kyc/upload-tax-form (multipart, field `file`) → `{ file_url }`. */
+  async uploadTaxForm(file: File): Promise<KycTaxFormUploadResult> {
+    if (useMock()) {
+      await delay(500);
+      const url = URL.createObjectURL(file);
+      mockKycTaxForm.file_url = url;
+      return { file_url: url };
+    }
+    const form = new FormData();
+    form.append("file", file);
+    return request<KycTaxFormUploadResult>("/api/kyc/upload-tax-form", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  /** DELETE /api/kyc/delete-tax-form — no body. */
+  async deleteTaxForm(): Promise<void> {
+    if (useMock()) {
+      await delay(200);
+      mockKycTaxForm.file_url = null;
+      return;
+    }
+    await request("/api/kyc/delete-tax-form", { method: "DELETE" });
+  },
+
+  /** GET /api/kyc/tax-form-signature → `{ tax_form_signature }`. */
+  async getTaxFormSignature(): Promise<KycTaxFormSignature> {
+    if (useMock()) {
+      await delay(150);
+      return { tax_form_signature: mockKycTaxForm.tax_form_signature };
+    }
+    return request<KycTaxFormSignature>("/api/kyc/tax-form-signature");
+  },
+
+  /** POST /api/kyc/tax-form-signature — body `{ tax_form_signature }` (the typed full legal name). */
+  async signTaxForm(signature: string): Promise<void> {
+    if (useMock()) {
+      await delay(300);
+      mockKycTaxForm.tax_form_signature = signature;
+      return;
+    }
+    await request("/api/kyc/tax-form-signature", {
+      method: "POST",
+      body: { tax_form_signature: signature },
+    });
+  },
+
+  /**
+   * POST /api/kyc/change-status — no body; the backend advances the workflow
+   * itself (NEW → PENDING on submit; APPROVED → NEW if a creator reopens their
+   * application to revise + resubmit — mirrors RevenueShareLink.tsx).
+   */
+  async submit(): Promise<void> {
+    if (useMock()) {
+      await delay(400);
+      mockKycProfile.application_status =
+        mockKycProfile.application_status === "APPROVED" ? "NEW" : "PENDING";
+      return;
+    }
+    await request("/api/kyc/change-status", { method: "POST" });
   },
 };

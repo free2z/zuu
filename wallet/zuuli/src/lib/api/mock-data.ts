@@ -9,6 +9,8 @@ import type {
   ArticleFeedParams,
   AuthUser,
   CreatorDetail,
+  KycIdentityDocuments,
+  KycProfile,
   Livestream,
   PromptResponse,
   SimpleCreator,
@@ -605,3 +607,26 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     p2paddr: `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
   };
 }
+
+// ── KYC / creator revenue-share application (mock) ──────────────────────────
+// Mirrors mockUser above: a plain object mutated in place (never reassigned)
+// so edits made while walking the KYC flow in mock mode persist for the rest
+// of the session, exactly like a real profile/status would.
+
+export const mockKycProfile: KycProfile = {
+  is_us: null,
+  is_individual: null,
+  application_status: "NEW",
+};
+
+/** Uploaded identity-document slots (`{ <doctype>_url }`), mock mode. */
+export const mockKycIdentityDocuments: KycIdentityDocuments = {};
+
+/** Uploaded tax-form file + e-signature, mock mode. */
+export const mockKycTaxForm: {
+  file_url: string | null;
+  tax_form_signature: string | null;
+} = {
+  file_url: null,
+  tax_form_signature: null,
+};
