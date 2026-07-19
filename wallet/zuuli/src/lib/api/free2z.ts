@@ -8,6 +8,7 @@
 import { useMock } from "../platform";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
+import { captureOAuthCode } from "../oauth/transport";
 import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
   mockAiReply,
@@ -58,6 +59,8 @@ import type {
   ProfileUpdateInput,
   PromptResponse,
   SimpleCreator,
+  SocialProvider,
+  SocialProvidersStatus,
   StreamKind,
   TuziTransaction,
 } from "./types";
@@ -442,6 +445,114 @@ export const auth = {
     }
     const me = await auth.me();
     return { ...me, zcash_identity: params.address };
+  },
+
+  /**
+   * Which social providers (X / Google / GitHub) the backend currently has
+   * OAuth client credentials configured for — GET /api/auth/social/providers/
+   * (`dj.apps.social`, AllowAny). A provider with no client id/secret set
+   * reports `false` and its `/start` and `/{provider}/` endpoints 503.
+   *
+   * Callers (SocialButtons, LinkedAccounts) render a button ONLY for
+   * providers this reports `true` — with nothing configured (the default,
+   * and the only state today), every key is `false` and nothing renders.
+   * Mock mode mirrors that (all-false) rather than fake a social login.
+   */
+  async socialProviders(): Promise<SocialProvidersStatus> {
+    if (useMock()) {
+      await delay(100);
+      return { x: false, google: false, github: false };
+    }
+    return request<SocialProvidersStatus>("/api/auth/social/providers/", {
+      anonymous: true,
+    });
+  },
+
+  /**
+   * Ask the backend to build the provider's `authorize_url` (it constructs
+   * the PKCE challenge and validates `redirectUri` against its allowlist,
+   * which includes `http://127.0.0.1:*` / `http://localhost:*` for the
+   * desktop loopback transport) — GET /api/auth/social/{provider}/start.
+   * 503s if the provider isn't configured; callers should already have
+   * gated the entry point on `socialProviders()`, so that should only ever
+   * fire on a race with the backend config changing mid-session.
+   */
+  async socialStart(
+    provider: SocialProvider,
+    redirectUri: string,
+  ): Promise<{ authorize_url: string; state: string }> {
+    return request<{ authorize_url: string; state: string }>(
+      `/api/auth/social/${provider}/start`,
+      { query: { redirect_uri: redirectUri }, anonymous: true },
+    );
+  },
+
+  /**
+   * Social login / link with a provider (X / Google / GitHub). Runs the
+   * OAuth authorization-code round trip over the desktop loopback transport
+   * (Tauri) or a web popup fallback (`../oauth/transport.ts`) — the caller
+   * never sees which transport ran, only the resolved `AuthUser`.
+   *
+   * Dual-mode, mirroring `zcashLogin`/`zcashAssociate`:
+   *   - `associate: false` (default) — POSTs anonymously; the backend logs
+   *     in (or creates) the account for that provider identity.
+   *   - `associate: true` — POSTs WITH the current session's knox token
+   *     attached (not anonymous), so the backend links the identity to the
+   *     signed-in account instead. A 409 means the identity is already
+   *     linked elsewhere, or this account already has one for this
+   *     provider — surfaced as one clear message, same as `zcashAssociate`.
+   *
+   * NEVER exercised with real credentials yet: `socialProviders()` reports
+   * every provider unconfigured, so no button in the app can reach this
+   * without the backend owner turning a provider on first.
+   */
+  async socialLogin(
+    provider: SocialProvider,
+    opts: { associate?: boolean } = {},
+  ): Promise<AuthUser> {
+    if (useMock()) {
+      throw new Error(
+        "Social login isn't available in mock mode — no provider is configured yet.",
+      );
+    }
+    const { code, state, redirectUri } = await captureOAuthCode((redirect) =>
+      auth.socialStart(provider, redirect).then((r) => r.authorize_url),
+    );
+    const body = { code, state, redirect_uri: redirectUri };
+
+    if (opts.associate) {
+      try {
+        // Deliberately NOT `anonymous: true` — the point is that the request
+        // carries `Authorization: Token <knox token>`.
+        await request<unknown>(`/api/auth/social/${provider}/`, {
+          method: "POST",
+          body,
+        });
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          throw new Error(
+            "That account is already linked — either to a different free2z account, or this account already has a linked identity for this provider. Unlink it there first, or use a different account.",
+          );
+        }
+        throw e;
+      }
+      const me = await auth.me();
+      return {
+        ...me,
+        social_identities: { ...me.social_identities, [provider]: true },
+      };
+    }
+
+    const tok = await request<{ token: string }>(
+      `/api/auth/social/${provider}/`,
+      { method: "POST", body, anonymous: true },
+    );
+    setToken(tok.token);
+    const me = await auth.me();
+    return {
+      ...me,
+      social_identities: { ...me.social_identities, [provider]: true },
+    };
   },
 };
 

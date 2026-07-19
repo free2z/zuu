@@ -31,12 +31,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SocialButtons } from "@/components/common/SocialButtons";
 import { LINK_STEP_META, useZcashAssociate } from "@/features/auth/useZcashAssociate";
 import { STEP_ORDER, type StepStatus } from "@/features/auth/useZcashChallengeFlow";
 import { SeedReveal } from "@/features/auth/SeedReveal";
 import { truncateAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { AuthUser } from "@/lib/api/types";
+import { SOCIAL_PROVIDERS, type AuthUser, type SocialProvider } from "@/lib/api/types";
 
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === "done") {
@@ -260,9 +261,16 @@ function IdentityRow({ icon, label, detail, action }: IdentityRowProps) {
   );
 }
 
+const SOCIAL_LABEL: Record<SocialProvider, string> = {
+  x: "X",
+  google: "Google",
+  github: "GitHub",
+};
+
 export function LinkedAccounts({ user }: { user: AuthUser }) {
   const identity = user.zcash_identity;
   const did = identity ? `did:zcash:${identity}` : null;
+  const linkedSocial = SOCIAL_PROVIDERS.filter((p) => user.social_identities?.[p]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -299,20 +307,39 @@ export function LinkedAccounts({ user }: { user: AuthUser }) {
           }
         />
 
+        {/* Already-linked social identities, observed by this session after a
+            successful `auth.socialLogin(provider, { associate: true })`. */}
+        {linkedSocial.map((provider) => (
+          <IdentityRow
+            key={provider}
+            icon={<Github className="h-4 w-4" aria-hidden />}
+            label={SOCIAL_LABEL[provider]}
+            detail="Linked"
+            action={<Badge variant="success">Linked</Badge>}
+          />
+        ))}
+
         {/*
-          Extension point: future social identities (X, Google, GitHub, …)
-          render here as additional IdentityRow entries once those OAuth
-          flows exist server-side. Not built yet — see SocialSoon.tsx for the
-          equivalent "coming soon" treatment on the login screen.
+          Real, gated social linking (X / Google / GitHub) — a button renders
+          per provider `useSocialProviders()` reports configured on the
+          backend AND not already linked above. With nothing configured (the
+          default, and the only state today) this falls back to the exact
+          "Coming soon" row that used to be hardcoded here.
         */}
-        <IdentityRow
-          icon={<Github className="h-4 w-4" aria-hidden />}
-          label="X · Google · GitHub"
-          detail="Coming soon"
-          action={
-            <Badge variant="outline" className="text-muted-foreground">
-              Soon
-            </Badge>
+        <SocialButtons
+          associate
+          alreadyLinked={linkedSocial}
+          emptyState={
+            <IdentityRow
+              icon={<Github className="h-4 w-4" aria-hidden />}
+              label="X · Google · GitHub"
+              detail="Coming soon"
+              action={
+                <Badge variant="outline" className="text-muted-foreground">
+                  Soon
+                </Badge>
+              }
+            />
           }
         />
       </div>

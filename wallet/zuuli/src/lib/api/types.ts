@@ -69,7 +69,34 @@ export interface AuthUser {
    * another device won't see it until the backend surfaces it too).
    */
   zcash_identity?: string | null;
+  /**
+   * Which social providers this session has observed as linked, set locally
+   * after a successful `auth.socialLogin(provider, { associate: true })` —
+   * same caveat as `zcash_identity`: GET /api/auth/user/ doesn't echo this
+   * back yet, so it only reflects what THIS session has seen.
+   */
+  social_identities?: Partial<Record<SocialProvider, boolean>>;
 }
+
+// ── Social login (X / Google / GitHub) ──────────────────────────────────────
+// `dj.apps.social` (knox-native, dual-mode like Login with Zcash): anonymous
+// POST logs in/creates an account, POST with a knox token attached links the
+// provider identity to the signed-in account instead. See
+// `src/lib/oauth/transport.ts` for the desktop loopback transport and
+// `auth.socialProviders` / `auth.socialLogin` in `./free2z.ts` for the client.
+export type SocialProvider = "x" | "google" | "github";
+
+export const SOCIAL_PROVIDERS: SocialProvider[] = ["x", "google", "github"];
+
+/**
+ * GET /api/auth/social/providers/ (AllowAny) — which providers the backend
+ * currently has OAuth client credentials configured for. A provider with no
+ * `client_id`/`client_secret` set reports `false` and its `/start` and
+ * `/{provider}/` endpoints 503. Buttons render ONLY for providers reported
+ * `true` here — with nothing configured (today: everything), this returns
+ * all-false and the UI shows no social buttons at all.
+ */
+export type SocialProvidersStatus = Partial<Record<SocialProvider, boolean>>;
 
 /**
  * Editable fields for the signed-in user's own profile —

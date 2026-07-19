@@ -22,3 +22,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Shared Zcash engine (librustzcash under the hood) — the "zuuallet guts".
 tauri-plugin-zcash = { path = "../../plugins/tauri-plugin-zcash" }
+# Tiny blocking HTTP server used ONLY for the desktop OAuth loopback capture
+# (RFC 8252) — binds 127.0.0.1, serves a single request, then shuts down. Kept
+# out of the shared tauri-plugin-zcash crate since it's ZUULI-specific.
+tiny_http = "0.12"

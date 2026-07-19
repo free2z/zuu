@@ -19,9 +19,9 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useWallet } from "@/store/wallet";
+import { SocialButtons } from "@/components/common/SocialButtons";
 import { BrandPanel } from "./BrandPanel";
 import { ClassicLoginForm } from "./ClassicLoginForm";
-import { SocialSoon } from "./SocialSoon";
 import { ZcashLoginFlow } from "./ZcashLoginFlow";
 import { ZShieldInfo } from "./ZShieldInfo";
 
@@ -100,8 +100,9 @@ export default function AuthFeature() {
                   {/* Alternative — email/username + password (with 2FA) */}
                   <ClassicLoginForm />
 
-                  {/* Soon — X / Google, not yet available on desktop */}
-                  <SocialSoon />
+                  {/* X / Google / GitHub — renders only for providers the
+                      backend reports as configured (none, today) */}
+                  <SocialButtons />
 
                   <div className="flex items-center justify-between">
                     <ZShieldInfo>
