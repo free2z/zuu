@@ -13,9 +13,12 @@ import {
   mockAiReply,
   mockArticleFeed,
   mockArticles,
+  mockCreatorDetail,
   mockCreators,
   mockLivestreams,
   mockModels,
+  mockSearchCreators,
+  mockSearchPages,
   mockTransactions,
   mockUser,
 } from "./mock-data";
@@ -25,6 +28,7 @@ import type {
   ArticleFeedPage,
   ArticleFeedParams,
   AuthUser,
+  CreatorDetail,
   DyteJoinTicket,
   Livestream,
   LoginResult,
@@ -52,8 +56,13 @@ interface RawCreator {
   full_name?: string;
   p2paddr?: string;
   avatar_image?: RawImage | null;
+  banner_image?: RawImage | null;
   member_price?: string | null;
   description?: string | null;
+  is_verified?: boolean;
+  can_stream?: boolean;
+  total?: string | number | null;
+  zpages?: number;
 }
 interface RawZPage {
   free2zaddr: string;
@@ -81,6 +90,14 @@ interface RawDyteMeeting {
 }
 
 // ─── Mappers ────────────────────────────────────────────────────────────────
+
+/** Decimal money fields arrive as strings; parse to a whole 2Z or null. */
+function parsePrice(v: string | null | undefined): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 function mapCreator(c: RawCreator): SimpleCreator {
   return {
     username: c.username,
@@ -88,6 +105,30 @@ function mapCreator(c: RawCreator): SimpleCreator {
     display_name: c.full_name || c.username,
     image: mediaUrl(c.avatar_image?.thumbnail || c.avatar_image?.url) ?? null,
     bio: c.description ?? null,
+    is_verified: c.is_verified ?? false,
+    zpages: typeof c.zpages === "number" ? c.zpages : undefined,
+    member_price: parsePrice(c.member_price),
+  };
+}
+
+/** GET /api/creator/{username}/ → the full public CreatorDetail. */
+function mapCreatorDetail(c: RawCreator): CreatorDetail {
+  return {
+    username: c.username,
+    free2zaddr: c.username,
+    display_name: c.full_name || c.username,
+    bio: c.description ?? null,
+    image: mediaUrl(c.avatar_image?.card || c.avatar_image?.url) ?? null,
+    banner:
+      mediaUrl(
+        c.banner_image?.banner || c.banner_image?.card || c.banner_image?.url,
+      ) ?? null,
+    is_verified: c.is_verified ?? false,
+    can_stream: c.can_stream ?? false,
+    member_price: parsePrice(c.member_price),
+    zpages: typeof c.zpages === "number" ? c.zpages : 0,
+    total: c.total != null ? Math.round(Number(c.total)) || 0 : 0,
+    p2paddr: c.p2paddr ?? null,
   };
 }
 
@@ -692,6 +733,74 @@ export const discover = {
       anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
+  },
+
+  /**
+   * Full-corpus creator search — GET /api/creator/?search=<q>. The backend
+   * matches `username` + `full_name` (DRF SearchFilter) and (for the list
+   * action) only surfaces creators that have both an avatar and a banner.
+   * Public, no auth. Ordered by popularity (`-total`) by default.
+   */
+  async searchCreators(query: string): Promise<SimpleCreator[]> {
+    const q = query.trim();
+    if (useMock()) {
+      await delay(200);
+      return mockSearchCreators(q);
+    }
+    if (!q) return [];
+    const page = await request<Paginated<RawCreator>>("/api/creator/", {
+      query: { search: q, page_size: 24, ordering: "-total" },
+      anonymous: true,
+    });
+    return (page.results ?? []).map(mapCreator);
+  },
+
+  /** GET /api/creator/{username}/ → the data-driven public creator profile. */
+  async creator(username: string): Promise<CreatorDetail> {
+    if (useMock()) {
+      await delay(180);
+      return mockCreatorDetail(username);
+    }
+    const c = await request<RawCreator>(
+      `/api/creator/${encodeURIComponent(username)}/`,
+      { anonymous: true },
+    );
+    return mapCreatorDetail(c);
+  },
+
+  /** A creator's published zpages — GET /api/zpage/?username=<username>. */
+  async creatorPages(username: string): Promise<Article[]> {
+    if (useMock()) {
+      await delay(160);
+      return mockArticles.filter(
+        (a) => a.author.username.toLowerCase() === username.toLowerCase(),
+      );
+    }
+    const page = await request<Paginated<RawZPage>>("/api/zpage/", {
+      query: { username, page_size: 12, ordering: "-created_at" },
+      anonymous: true,
+    });
+    return (page.results ?? []).map(mapArticle);
+  },
+
+  /**
+   * Full-corpus page (zpage) search — GET /api/zpage/?search=<q>. The backend's
+   * VectorSearchFilter does semantic ranking (OpenAI embeddings + pgvector)
+   * when a key is present, and falls back to Postgres full-text search
+   * otherwise. Public, no auth.
+   */
+  async searchPages(query: string): Promise<Article[]> {
+    const q = query.trim();
+    if (useMock()) {
+      await delay(220);
+      return mockSearchPages(q);
+    }
+    if (!q) return [];
+    const page = await request<Paginated<RawZPage>>("/api/zpage/", {
+      query: { search: q, page_size: 24 },
+      anonymous: true,
+    });
+    return (page.results ?? []).map(mapArticle);
   },
 };
 

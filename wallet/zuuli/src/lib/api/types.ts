@@ -8,6 +8,37 @@ export interface SimpleCreator {
   display_name?: string;
   image?: string | null;
   bio?: string | null;
+  /** Optional enrichment the creator list/search returns (CreatorList). */
+  is_verified?: boolean;
+  /** Number of zpages the creator has published. */
+  zpages?: number;
+  /** 2Z price for 30 days of membership (null = no paid tier). */
+  member_price?: number | null;
+}
+
+/**
+ * Full public creator profile — GET /api/creator/{username__iexact}/ →
+ * CreatorDetail (anonymous OK). This is the data-driven native creator screen
+ * (issue #163, Option 2): everything below is server-owned, so new creators and
+ * content changes need no app release.
+ */
+export interface CreatorDetail {
+  username: string;
+  free2zaddr: string; // public page slug (== username)
+  display_name: string; // full_name, falling back to username
+  bio?: string | null; // `description` (markdown, ≤1024 chars)
+  image?: string | null; // avatar_image
+  banner?: string | null; // banner_image
+  is_verified: boolean;
+  can_stream: boolean;
+  /** 2Z price for 30 days of membership / livestream access (null = free). */
+  member_price?: number | null;
+  /** Count of published zpages. */
+  zpages: number;
+  /** Follower / score total. */
+  total: number;
+  /** Zcash payment address for direct tips. */
+  p2paddr?: string | null;
 }
 
 export interface AuthUser {

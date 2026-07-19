@@ -6,12 +6,14 @@ import {
   Radio,
   BookOpen,
   Coins,
+  Search,
 } from "lucide-react";
 import { Wordmark } from "@/components/brand/Logo";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/", label: "Discover", icon: Home, end: true },
+  { to: "/search", label: "Search", icon: Search },
   { to: "/live", label: "Livestreams", icon: Radio },
   { to: "/ai", label: "AI", icon: Sparkles },
   { to: "/articles", label: "Articles", icon: BookOpen },
