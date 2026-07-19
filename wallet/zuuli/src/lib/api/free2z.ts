@@ -13,6 +13,7 @@ import {
   mockAiReply,
   mockArticleFeed,
   mockArticles,
+  mockAssociateZcash,
   mockConversationReply,
   mockCreatePersonality,
   mockCreatorDetail,
@@ -397,6 +398,50 @@ export const auth = {
       body: { address },
       anonymous: true,
     });
+  },
+
+  /**
+   * Link a Zcash key to the CURRENTLY SIGNED-IN account ("Linked identities"
+   * in the profile). This hits the exact same dual-mode endpoint as
+   * `zcashLogin` — `POST /api/auth/zcash/login/` — but WITHOUT
+   * `anonymous: true`, so `request()` attaches the stored knox token. Seeing
+   * that token, the backend associates the verified address with the current
+   * account instead of logging in/creating one (`ZcashLoginView` in
+   * `tuzi/py/dj/apps/zauth/views.py`).
+   *
+   * The backend returns 409 for either conflict case: the address is already
+   * linked to a DIFFERENT account, or this account already has a linked
+   * Zcash identity. We can't (and don't need to) distinguish the two for the
+   * user — both mean "pick a different key, or unlink the existing one
+   * first" — so we surface one clear message for any 409.
+   */
+  async zcashAssociate(params: {
+    address: string;
+    challenge: string;
+    signature: string;
+    pubkey?: string;
+  }): Promise<AuthUser> {
+    if (useMock()) {
+      await delay(400);
+      return mockAssociateZcash(params.address);
+    }
+    try {
+      // Deliberately NOT `anonymous: true` — the point of this call is that
+      // the request carries `Authorization: Token <knox token>`.
+      await request<unknown>("/api/auth/zcash/login/", {
+        method: "POST",
+        body: params,
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        throw new Error(
+          "That Zcash key is already linked — either to a different free2z account, or this account already has a linked Zcash identity. Unlink it there first, or sign with a different key.",
+        );
+      }
+      throw e;
+    }
+    const me = await auth.me();
+    return { ...me, zcash_identity: params.address };
   },
 };
 
