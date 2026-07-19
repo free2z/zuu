@@ -3,11 +3,12 @@
 // Drives the challenge/response flow end-to-end:
 //   prepare identity → request challenge → sign (ZIP-304) → verify → session.
 //
-// The wallet key never leaves the device: we generate a challenge locally, the
-// wallet signs it, and only the { address, challenge, signature } triple is
-// sent to free2z, which verifies control of the address and mints a session.
-// The seed phrase is treated as sensitive — held in state only while the user
-// backs it up, then dropped, and never logged.
+// The wallet key never leaves the device: free2z issues a one-time challenge
+// for the wallet's address, the wallet signs that exact challenge, and only the
+// { address, challenge, signature } triple is sent back — free2z verifies
+// control of the address (zcashd `verifymessage`) and mints a session. The
+// seed phrase is treated as sensitive — held in state only while the user backs
+// it up, then dropped, and never logged.
 
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -51,7 +52,7 @@ export const STEP_META: Record<StepKey, StepMeta> = {
   challenge: {
     key: "challenge",
     title: "Requesting a challenge",
-    detail: "Minting a one-time, timestamped nonce for you to sign — it cannot be replayed.",
+    detail: "Asking free2z for a one-time, timestamped nonce to sign — bound to this session, so it can't be replayed.",
   },
   sign: {
     key: "sign",
@@ -80,6 +81,25 @@ function errMessage(e: unknown): string {
   if (e instanceof Error && e.message) return e.message;
   if (typeof e === "string" && e) return e;
   return "Something went wrong. Please try again.";
+}
+
+// A friendly, step-aware message for the user. We NEVER surface the raw backend
+// string (e.g. "Challenge is missing, expired or does not match") — it leaks
+// server internals and doesn't tell the user what to do. Local wallet/key
+// errors ("prepare"/"sign") carry actionable messages we author, so we keep
+// those; server errors ("challenge"/"verify") get a clean, generic message.
+// The raw error is always logged for debugging.
+function friendlyError(stage: StepKey, e: unknown): string {
+  console.error(`Zcash login failed at "${stage}":`, e);
+  switch (stage) {
+    case "prepare":
+    case "sign":
+      return errMessage(e);
+    case "challenge":
+      return "Couldn't start Zcash sign-in with free2z. Check your connection and try again.";
+    case "verify":
+      return "free2z couldn't verify your Zcash signature. Please try again.";
+  }
 }
 
 export interface ZcashLoginState {
@@ -118,31 +138,48 @@ export function useZcashLogin(): ZcashLoginState {
 
   // The crypto half of the flow: challenge → sign → verify → session.
   const runCrypto = useCallback(async () => {
+    // Track which step is in flight so a failure lands on the right row and
+    // gets the right friendly message.
+    let stage: StepKey = "prepare";
     try {
-      // 2 — Resolve the address, then ask the SERVER for the challenge to
-      //     sign. The one-time, timestamped nonce must come from free2z so it
-      //     can record/expire it and reject replays — a client-minted string
-      //     would carry no such binding.
+      // The login identity is the wallet's transparent P2PKH t-address — the
+      // one the plugin signs with and the one free2z verifies via zcashd
+      // `verifymessage`. The server challenge MUST be requested for THIS exact
+      // address: the backend keys the one-time nonce by address, so if we asked
+      // for the challenge under a different address (e.g. the unified u1…
+      // address) than the t1… address we log in with, the login lookup misses
+      // and fails as "challenge does not match".
+      const addr = await wallet.getLoginAddress(0);
+      setAddress(addr);
+
+      // 2 — Ask the SERVER for the challenge to sign. The one-time, timestamped
+      //     nonce must come from free2z so it can record/expire it and reject
+      //     replays — a client-minted string would carry no such binding.
+      stage = "challenge";
       setStep("challenge", "active");
       await wait(450);
-      const addr = await wallet.getUnifiedAddress(0);
-      setAddress(addr);
       const { challenge } = await auth.zcashChallenge(addr);
       setStep("challenge", "done");
 
-      // 3 — Sign the server's exact challenge with the wallet key (ZIP-304).
+      // 3 — Sign the server's exact challenge with the wallet key. Send it
+      //     promptly: server nonces expire.
+      stage = "sign";
       setStep("sign", "active");
       await wait(500);
       const signed = await wallet.signChallenge(challenge);
       setStep("sign", "done");
 
-      // 4 — Verify with free2z; it mints a session token as a side effect.
+      // 4 — Verify with free2z; it mints a session token as a side effect. We
+      //     post the address paired with the signature (identical to `addr`,
+      //     the address the challenge was issued for) and its exact challenge.
+      stage = "verify";
       setStep("verify", "active");
       await wait(400);
       const user = await auth.zcashLogin({
         address: signed.address,
         challenge: signed.challenge,
         signature: signed.signature,
+        pubkey: signed.pubkey,
       });
       setStep("verify", "done");
 
@@ -155,11 +192,8 @@ export function useZcashLogin(): ZcashLoginState {
       await wait(700);
       navigate("/");
     } catch (e) {
-      setError(errMessage(e));
-      setSteps((prev) => {
-        const active = STEP_ORDER.find((k) => prev[k] === "active");
-        return active ? { ...prev, [active]: "error" } : prev;
-      });
+      setStep(stage, "error");
+      setError(friendlyError(stage, e));
       setPhase("error");
     } finally {
       runningRef.current = false;
