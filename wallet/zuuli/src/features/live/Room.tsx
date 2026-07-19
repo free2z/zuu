@@ -70,7 +70,15 @@ export function Room() {
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const user = useSession((s) => s.user);
 
-  const { data, loading } = useAsync(() => live.listPublic(), []);
+  // A host who just went live already has their stream + ticket in navigation
+  // state, so we can render the room immediately and skip the public listing
+  // fetch entirely — keeping the heavy request off the "Go live" entrance frame
+  // so the transition stays smooth. Only a cold visitor (deep link) needs the
+  // listing to resolve which stream this is.
+  const { data, loading } = useAsync(
+    () => (justStarted ? Promise.resolve<Livestream[]>([]) : live.listPublic()),
+    [justStarted],
+  );
 
   // Resolve the stream: prefer the public listing; otherwise synthesize one
   // from the just-started host session (creator's own stream isn't public
@@ -132,7 +140,7 @@ export function Room() {
   const seed = stream.username + stream.title;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-slide-up">
       <BackLink />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -285,7 +293,7 @@ function BackLink() {
 
 function ConnectedStage({ ticket }: { ticket: DyteJoinTicket }) {
   return (
-    <div className="absolute inset-0 grid place-items-center px-6">
+    <div className="absolute inset-0 grid place-items-center px-6 animate-fade-in">
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/20 ring-2 ring-emerald-400/40">
           <ShieldCheck className="h-7 w-7 text-emerald-300" aria-hidden />
