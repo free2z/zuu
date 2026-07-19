@@ -61,7 +61,7 @@ export function ArticleCard({
         </div>
 
         {/* Body */}
-        <div className="flex flex-1 flex-col gap-2 p-5">
+        <div className="flex flex-1 flex-col gap-2 p-5 pb-3">
           <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground transition-colors group-hover:text-primary">
             {article.title}
           </h3>
@@ -70,24 +70,29 @@ export function ArticleCard({
               {article.subtitle}
             </p>
           ) : null}
+        </div>
+      </Link>
 
-          <div className="mt-auto flex items-center gap-3 pt-3">
-            <Avatar className="h-8 w-8">
-              {author.image ? (
-                <AvatarImage src={author.image} alt={name} />
-              ) : null}
-              <AvatarFallback className="text-xs">
-                {initials(name)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-foreground">
-                {name}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {article.published_at ? timeAgo(article.published_at) : ""}
-              </div>
-            </div>
+      {/* Byline — links to the creator, separate from the article link so the
+          two targets don't nest inside one another. */}
+      <Link
+        to={`/creator/${author.username}`}
+        aria-label={`View ${name}’s profile`}
+        className="mt-auto flex items-center gap-3 px-5 pb-5 focus:outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Avatar className="h-8 w-8">
+          {author.image ? (
+            <AvatarImage src={author.image} alt={name} />
+          ) : null}
+          <AvatarFallback className="text-xs">{initials(name)}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-foreground transition-colors hover:text-primary hover:underline">
+            {name}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {article.published_at ? timeAgo(article.published_at) : ""}
           </div>
         </div>
       </Link>

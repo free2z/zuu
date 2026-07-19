@@ -1,17 +1,28 @@
-import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
   Clock,
+  Facebook,
   FileText,
+  Github,
+  Globe,
   Heart,
+  Instagram,
+  Link2,
+  Linkedin,
   Loader2,
   Radio,
+  Send,
+  Twitter,
   UserX,
+  Youtube,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { LucideIcon } from "lucide-react";
 import {
   Avatar,
   AvatarFallback,
@@ -36,9 +47,25 @@ import { Markdown } from "@/components/common/Markdown";
 import { discover, tuzi } from "@/lib/api/free2z";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { parseBioFrontmatter, type SocialLink } from "@/lib/utils/bio";
 import { useAsync } from "@/hooks/useAsync";
 import { useSession } from "@/store/session";
 import type { Article, CreatorDetail } from "@/lib/api/types";
+
+/** Icon per canonical social platform key, falling back to a plain link glyph. */
+const SOCIAL_ICONS: Record<SocialLink["key"], LucideIcon> = {
+  twitter: Twitter,
+  github: Github,
+  instagram: Instagram,
+  youtube: Youtube,
+  facebook: Facebook,
+  linkedin: Linkedin,
+  reddit: Link2,
+  telegram: Send,
+  mastodon: Link2,
+  nostr: Zap,
+  website: Globe,
+};
 
 /** Deterministic violet→fuchsia banner gradient from the username. */
 function bannerGradient(seed: string): string {
@@ -85,6 +112,10 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
   const { data: pages, loading: pagesLoading } = useAsync<Article[]>(
     () => discover.creatorPages(creator.username),
     [creator.username],
+  );
+  const { body: bio, socials } = useMemo(
+    () => parseBioFrontmatter(creator.bio),
+    [creator.bio],
   );
 
   return (
@@ -175,11 +206,34 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
       </div>
 
       {/* Bio */}
-      {creator.bio ? (
+      {bio ? (
         <div className="mt-8 md:px-4">
           <div className="rounded-xl border border-border/60 bg-card/40 p-5">
-            <Markdown>{creator.bio}</Markdown>
+            <Markdown>{bio}</Markdown>
           </div>
+        </div>
+      ) : null}
+
+      {/* Links / socials — parsed from a frontmatter block at the top of the
+          bio (e.g. `---\nsocials:\n  twitter: handle\n---`). */}
+      {socials.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2 md:px-4">
+          {socials.map((social) => {
+            const Icon = SOCIAL_ICONS[social.key];
+            return (
+              <a
+                key={social.key}
+                href={social.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={`${name} on ${social.label}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden />
+                {social.display}
+              </a>
+            );
+          })}
         </div>
       ) : null}
 
@@ -486,7 +540,31 @@ function PageCardSkeleton() {
   );
 }
 
+/**
+ * Context-aware back link: reaching a creator profile from an article byline
+ * (or anywhere else in the app) should return to where the visitor came from,
+ * not dump them on /search. `location.key === "default"` only for the very
+ * first entry in the history stack (a direct link / fresh load), so that's
+ * the one case with nowhere real to go back to.
+ */
 function BackLink() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const hasHistory = location.key !== "default";
+
+  if (hasHistory) {
+    return (
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Back
+      </button>
+    );
+  }
+
   return (
     <Link
       to="/search"

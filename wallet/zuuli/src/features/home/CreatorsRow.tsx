@@ -5,12 +5,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { initials } from "@/lib/format";
 import { discover } from "@/lib/api/free2z";
+import { parseBioFrontmatter } from "@/lib/utils/bio";
 import { useAsync } from "@/hooks/useAsync";
 import type { SimpleCreator } from "@/lib/api/types";
 import { SectionHeader, gradientFor } from "./parts";
 
 function CreatorCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
+  // Bios may lead with a socials frontmatter block (see lib/utils/bio) — never
+  // show that raw in a plain-text snippet.
+  const { body: bio } = parseBioFrontmatter(creator.bio);
   return (
     <Link
       to={`/creator/${creator.username}`}
@@ -38,9 +42,9 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
             />
           ) : null}
         </div>
-        {creator.bio ? (
+        {bio ? (
           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {creator.bio}
+            {bio}
           </p>
         ) : null}
         <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
