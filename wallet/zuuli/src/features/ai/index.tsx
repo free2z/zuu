@@ -286,9 +286,9 @@ export default function AiFeature() {
   const localModel = models.find((m) => m.provider === "local");
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* ── Header rail ─────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/60 bg-background/85 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
+      <div className="shrink-0 border-b border-border/60 bg-background/85 px-4 py-3 backdrop-blur md:px-8">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
@@ -371,7 +371,7 @@ export default function AiFeature() {
       </div>
 
       {/* ── Thread ──────────────────────────────────────────────────── */}
-      <div className="flex-1 py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8">
         {messages.length === 0 ? (
           <EmptyHero
             selected={selected}
@@ -394,7 +394,7 @@ export default function AiFeature() {
       </div>
 
       {/* ── Composer ────────────────────────────────────────────────── */}
-      <div className="sticky bottom-0 z-20 -mx-4 border-t border-border/60 bg-background/85 px-4 pb-3 pt-3 backdrop-blur md:-mx-8 md:px-8">
+      <div className="shrink-0 border-t border-border/60 bg-background/85 px-4 pb-3 pt-3 backdrop-blur md:px-8">
         <div className="mx-auto max-w-3xl">
           <div className="relative rounded-xl border border-border bg-card/60 shadow-sm focus-within:border-primary/60 focus-within:shadow-glow">
             <Textarea
