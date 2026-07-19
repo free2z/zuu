@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
+import { NotFound } from "@/components/common/NotFound";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 
@@ -38,6 +39,9 @@ export default function App() {
             <Route path="/live/*" element={<LiveFeature />} />
             <Route path="/articles/*" element={<ArticlesFeature />} />
             <Route path="/buy/*" element={<BuyFeature />} />
+
+            {/* Catch-all: unknown paths render a NotFound inside the shell */}
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </BrowserRouter>
