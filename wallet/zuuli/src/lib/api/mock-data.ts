@@ -8,6 +8,7 @@ import type {
   ArticleFeedPage,
   ArticleFeedParams,
   AuthUser,
+  CreatorDetail,
   Livestream,
   PromptResponse,
   SimpleCreator,
@@ -29,13 +30,45 @@ const creator = (
   username: string,
   display_name: string,
   bio: string,
-): SimpleCreator => ({ username, free2zaddr: username, display_name, bio, image: null });
+  extra: Partial<SimpleCreator> = {},
+): SimpleCreator => ({
+  username,
+  free2zaddr: username,
+  display_name,
+  bio,
+  image: null,
+  is_verified: false,
+  ...extra,
+});
 
 export const mockCreators: SimpleCreator[] = [
-  creator("zooko", "Zooko", "Founder-ish energy. Shielded by default."),
-  creator("mining_maya", "Maya ⛏️", "Halo2 circuits & late-night proofs."),
-  creator("f2z", "Free2Z", "The zero-knowledge creator platform."),
-  creator("nine", "Nine", "Privacy maximalist. Streams from the void."),
+  creator("zooko", "Zooko", "Founder-ish energy. Shielded by default.", {
+    is_verified: true,
+    zpages: 12,
+    member_price: 500,
+  }),
+  creator("mining_maya", "Maya ⛏️", "Halo2 circuits & late-night proofs.", {
+    is_verified: true,
+    zpages: 7,
+    member_price: 250,
+  }),
+  creator("f2z", "Free2Z", "The zero-knowledge creator platform.", {
+    is_verified: true,
+    zpages: 24,
+    member_price: null,
+  }),
+  creator("nine", "Nine", "Privacy maximalist. Streams from the void.", {
+    zpages: 5,
+    member_price: 100,
+  }),
+  creator("halo_hana", "Hana", "Recursive proofs & zk-SNARK explainers.", {
+    zpages: 9,
+    member_price: 300,
+  }),
+  creator("shielded_sam", "Sam", "On-chain privacy, off-chain vibes.", {
+    zpages: 3,
+    member_price: null,
+  }),
 ];
 
 export const mockModels: AIModel[] = [
@@ -410,4 +443,56 @@ function hashString(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
   return h;
+}
+
+// ─── Discovery / search fixtures ──────────────────────────────────────────────
+
+/** Case-insensitive creator search over username + display name (mock). */
+export function mockSearchCreators(query: string): SimpleCreator[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return mockCreators;
+  return mockCreators.filter(
+    (c) =>
+      c.username.toLowerCase().includes(q) ||
+      (c.display_name || "").toLowerCase().includes(q),
+  );
+}
+
+/** Case-insensitive page search over title/subtitle/body/author (mock). */
+export function mockSearchPages(query: string): Article[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return mockArticles;
+  return mockArticles.filter((a) =>
+    [a.title, a.subtitle, a.content, a.author.display_name, a.author.username]
+      .filter(Boolean)
+      .some((f) => (f as string).toLowerCase().includes(q)),
+  );
+}
+
+/** A full CreatorDetail for the native creator screen (mock). */
+export function mockCreatorDetail(username: string): CreatorDetail {
+  const base = mockCreators.find(
+    (c) => c.username.toLowerCase() === username.toLowerCase(),
+  );
+  const uname = base?.username ?? username;
+  const pages = mockArticles.filter(
+    (a) => a.author.username.toLowerCase() === uname.toLowerCase(),
+  ).length;
+  const seed = Math.abs(hashString(uname));
+  return {
+    username: uname,
+    free2zaddr: uname,
+    display_name: base?.display_name || uname,
+    bio:
+      base?.bio ??
+      "A creator on ZUULI, publishing on Zcash and privacy. Follow along.",
+    image: base?.image ?? null,
+    banner: null,
+    is_verified: base?.is_verified ?? false,
+    can_stream: seed % 2 === 0,
+    member_price: base?.member_price ?? null,
+    zpages: base?.zpages ?? pages,
+    total: (seed % 900) + 42,
+    p2paddr: `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
+  };
 }

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Users, Plus } from "lucide-react";
+import { Users, BadgeCheck, ArrowUpRight } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -12,7 +12,11 @@ import { SectionHeader, gradientFor } from "./parts";
 function CreatorCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors hover:border-primary/40">
+    <Link
+      to={`/creator/${creator.username}`}
+      aria-label={`View ${name}'s profile`}
+      className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div
         className="h-16 w-full"
         style={{ background: gradientFor(creator.username) }}
@@ -25,22 +29,26 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
             {initials(name)}
           </AvatarFallback>
         </Avatar>
-        <div className="mt-2 truncate text-sm font-semibold">{name}</div>
+        <div className="mt-2 flex items-center gap-1 truncate text-sm font-semibold">
+          {name}
+          {creator.is_verified ? (
+            <BadgeCheck
+              className="h-4 w-4 shrink-0 text-primary"
+              aria-label="Verified"
+            />
+          ) : null}
+        </div>
         {creator.bio ? (
           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
             {creator.bio}
           </p>
         ) : null}
-        <Link
-          to={`/live/${creator.username}`}
-          aria-label={`View ${name}'s channel and subscribe`}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-          Subscribe
-        </Link>
+        <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+          View profile
+          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+        </span>
       </div>
-    </div>
+    </Link>
   );
 }
 
