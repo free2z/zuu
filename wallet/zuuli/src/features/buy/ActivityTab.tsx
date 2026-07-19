@@ -57,20 +57,24 @@ export function ActivityTab() {
 
   return (
     <div className="space-y-4">
-      {/* Summary chips */}
-      <div className="grid gap-3 sm:grid-cols-2">
+      {/* Summary chips — "Total spent" only appears once there is real spend
+          (the purchases-only Stripe ledger has none, so it isn't shown as a
+          permanent 0). */}
+      <div className={cn("grid gap-3", spent > 0 && "sm:grid-cols-2")}>
         <SummaryChip
           icon={TrendingUp}
           label="Total bought"
           tuzis={bought}
           tone="credit"
         />
-        <SummaryChip
-          icon={TrendingDown}
-          label="Total spent"
-          tuzis={spent}
-          tone="debit"
-        />
+        {spent > 0 ? (
+          <SummaryChip
+            icon={TrendingDown}
+            label="Total spent"
+            tuzis={spent}
+            tone="debit"
+          />
+        ) : null}
       </div>
 
       {/* Rows */}
