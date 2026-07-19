@@ -22,9 +22,22 @@ export function Discovery() {
   const { data, loading, reload } = useAsync(() => live.listPublic(), []);
   const [filter, setFilter] = useState<Filter>("all");
 
+  // Refresh the listing periodically, but never while the tab is hidden (no
+  // point hammering the API in the background), and refresh once on return so
+  // the grid is current the moment the user comes back. The API-layer TTL cache
+  // collapses any overlap, so this can't stack into a retry storm.
   useEffect(() => {
-    const interval = window.setInterval(reload, 15_000);
-    return () => window.clearInterval(interval);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) reload();
+    }, 15_000);
+    const onVisible = () => {
+      if (!document.hidden) reload();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [reload]);
 
   const streams = useMemo(() => {

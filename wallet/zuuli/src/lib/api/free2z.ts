@@ -476,33 +476,56 @@ export const articles = {
 };
 
 // ─── Livestreams (dyte) ──────────────────────────────────────────────────────
+
+// Client-side cache for the public livestream listing. Discovery polls every
+// 15s, and the Room + home LiveRail each read the listing on entry — without a
+// cache, every visit re-hammers the API. A short TTL keeps the grid fresh while
+// collapsing bursts, and a shared in-flight promise dedupes concurrent callers
+// so simultaneous mounts issue a single request instead of a fanout.
+const LISTING_TTL_MS = 10_000;
+let listingCache: { at: number; data: Livestream[] } | null = null;
+let listingInFlight: Promise<Livestream[]> | null = null;
+
 export const live = {
-  async listPublic(): Promise<Livestream[]> {
+  /**
+   * Public livestream listing. Served from a short-lived client cache (TTL) so
+   * navigating to/around Livestreams doesn't re-hammer the backend.
+   *
+   * The `/api/dyte/public/` list endpoint already carries `live_now` per
+   * meeting, so a single request answers "who is available" — we trust that
+   * flag instead of fanning out one `/live-status` probe per creator, which was
+   * an O(creators) N+1 that made the tab spin. Pass `{ force: true }` to bypass
+   * the cache (e.g. a manual refresh).
+   */
+  async listPublic(opts?: { force?: boolean }): Promise<Livestream[]> {
     if (useMock()) {
       await delay();
       return mockLivestreams;
     }
-    const page = await request<Paginated<RawDyteMeeting>>("/api/dyte/public/", {
-      query: { page_size: 48 },
-      anonymous: true,
-      cache: "no-store",
-    });
-    const meetings = page.results ?? [];
-    const streams = meetings.map(mapLivestream);
+    const fresh =
+      !opts?.force &&
+      listingCache &&
+      Date.now() - listingCache.at < LISTING_TTL_MS;
+    if (fresh) return listingCache!.data;
+    // Coalesce concurrent callers onto one request.
+    if (listingInFlight) return listingInFlight;
 
-    // `live_now` is maintained by provider webhooks and can remain true when
-    // an end event is delayed or lost. Reconcile every listing with the live
-    // provider session so stale meetings never appear as currently live.
-    const statuses = await Promise.all(
-      streams.map((stream) => live.status(stream.username, stream.kind)),
-    );
-    return streams
-      .map((stream, index) => ({
-        ...stream,
-        live: statuses[index].live,
-        participants: statuses[index].participants,
-      }))
-      .filter((stream) => stream.live);
+    listingInFlight = (async () => {
+      const page = await request<Paginated<RawDyteMeeting>>(
+        "/api/dyte/public/",
+        { query: { page_size: 48 }, anonymous: true, cache: "no-store" },
+      );
+      const streams = (page.results ?? [])
+        .map(mapLivestream)
+        .filter((stream) => stream.live);
+      listingCache = { at: Date.now(), data: streams };
+      return streams;
+    })();
+    try {
+      return await listingInFlight;
+    } finally {
+      listingInFlight = null;
+    }
   },
 
   async status(
@@ -548,6 +571,9 @@ export const live = {
       `/api/dyte/${me.username}/${TYPE_FROM_KIND[kind]}`,
       { method: "POST" },
     );
+    // A new live meeting just changed the availability set; drop the cached
+    // listing so the next Discovery/LiveRail read reflects it.
+    listingCache = null;
     return { authToken: r.auth_token, meetingId: r.meeting_id, as: "host" };
   },
 
