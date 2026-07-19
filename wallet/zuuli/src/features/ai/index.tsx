@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/common/Markdown";
 import { ai } from "@/lib/api/free2z";
 import type { AIModel, PromptResponse } from "@/lib/api/types";
-import { formatTuzis, formatUsd, initials, tuzisToUsd } from "@/lib/format";
+import { formatTuzis, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/store/session";
 import { ModelPicker } from "./ModelPicker";
@@ -259,14 +259,12 @@ export default function AiFeature() {
               icon={Coins}
               label="This session"
               value={formatTuzis(sessionCost)}
-              sub={formatUsd(tuzisToUsd(sessionCost))}
               accent="text-primary"
             />
             <Meter
               icon={Wallet}
               label="Balance"
               value={formatTuzis(tuzis)}
-              sub={formatUsd(tuzisToUsd(tuzis))}
               accent={lowBalance ? "text-destructive" : "text-foreground"}
             />
           </div>
@@ -375,13 +373,11 @@ function Meter({
   icon: Icon,
   label,
   value,
-  sub,
   accent,
 }: {
   icon: typeof Coins;
   label: string;
   value: string;
-  sub: string;
   accent: string;
 }) {
   return (
@@ -393,7 +389,6 @@ function Meter({
       <div className={cn("text-sm font-semibold tabular-nums", accent)}>
         {value}
       </div>
-      <div className="text-[10px] tabular-nums text-muted-foreground">{sub}</div>
     </div>
   );
 }

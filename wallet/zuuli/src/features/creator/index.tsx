@@ -355,7 +355,7 @@ function TipButton({ creator }: { creator: CreatorDetail }) {
         <DialogHeader>
           <DialogTitle>Tip {name}</DialogTitle>
           <DialogDescription>
-            Send 2Zs straight to the creator. 1 2Z = 1 cent.
+            Send 2Zs straight to the creator, from your platform credit balance.
           </DialogDescription>
         </DialogHeader>
 

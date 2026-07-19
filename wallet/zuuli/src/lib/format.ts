@@ -1,17 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Money & units for ZUULI.
 //
-// Two currencies live here:
-//   • ZEC — the on-chain asset. Amounts are zatoshis (1 ZEC = 1e8 zatoshis).
-//   • 2Z  ("Tuzi") — free2z platform credits. 1 Tuzi = 1 US cent ($0.01).
+// ZEC is the on-chain asset here (amounts are zatoshis, 1 ZEC = 1e8 zatoshis).
 //
-// The 2Z model is cost-plus: whatever an upstream service costs us in USD,
-// we round *up* to a whole number of 2Zs. Example from the spec:
+// 2Z ("Tuzi") is a free2z **platform credit** — not a currency, token, or
+// investment. It has a *purchase price* (you buy it for a fiat/ZEC amount,
+// same as any other prepaid credit) but no cash-out, redemption, or exchange
+// value: 2Z only ever spends on platform features (AI, tips, PPV,
+// subscriptions). `TUZIS_PER_USD` below is an internal cost-plus accounting
+// constant used to price purchases and meter AI usage — it is not a
+// user-facing exchange rate and must never be displayed as one (no "1 2Z =
+// $X" / "worth $X" next to a balance).
+//
+// The 2Z pricing model is cost-plus: whatever an upstream service costs us
+// in USD, we round *up* to a whole number of 2Zs. Example from the spec:
 //   a prompt that costs us $0.0323478  →  ceil(3.23478¢)  →  4 2Zs.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const ZATOSHIS_PER_ZEC = 100_000_000;
-export const TUZIS_PER_USD = 100; // 1 Tuzi === 1 cent
+export const TUZIS_PER_USD = 100; // internal cost-plus accounting constant, not a displayed exchange rate
 
 /** Format zatoshis as a plain ZEC string (8dp). */
 export function formatZec(zatoshis: number): string {
@@ -40,7 +47,12 @@ export function usdToTuzis(usd: number): number {
   return Math.max(0, Math.ceil(usd * TUZIS_PER_USD));
 }
 
-/** Convert 2Zs back to a USD number (exact, for display). */
+/**
+ * Convert a 2Z amount to a USD number, exact. Use ONLY to show the fiat
+ * *purchase price* of a 2Z pack/top-up (e.g. "2,000 2Z for $20") — never
+ * to show the "value" of an existing balance or a spend, which would imply
+ * 2Z is redeemable for cash.
+ */
 export function tuzisToUsd(tuzis: number): number {
   return tuzis / TUZIS_PER_USD;
 }
@@ -50,7 +62,7 @@ export function formatTuzis(tuzis: number): string {
   return `${Math.round(tuzis).toLocaleString()} 2Z`;
 }
 
-/** USD display for a 2Z balance/price. */
+/** USD display for a 2Z purchase price. Do not use for balances or spends. */
 export function formatUsd(usd: number): string {
   return usd.toLocaleString(undefined, {
     style: "currency",
