@@ -61,6 +61,14 @@ export interface AuthUser {
   tuzis: number;
   /** True when this session authenticated via a Zcash address (no password). */
   zcashLinked?: boolean;
+  /**
+   * The Zcash t-address linked to this account for authentication (as a DID,
+   * `did:zcash:<address>`), if any — set locally after a successful
+   * `auth.zcashAssociate()` call. Not yet exposed by GET /api/auth/user/, so
+   * this reflects only what THIS session has observed (a fresh login on
+   * another device won't see it until the backend surfaces it too).
+   */
+  zcash_identity?: string | null;
 }
 
 /**

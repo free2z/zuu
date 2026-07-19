@@ -37,7 +37,32 @@ export const mockUser: AuthUser = {
   is_verified: false,
   tuzis: 4210,
   zcashLinked: true,
+  // Starts UNLINKED so the profile's "Linked identities" panel is demoable
+  // end-to-end in mock mode: "Link Zcash key" flips this to the signed
+  // address (see `mockAssociateZcash`).
+  zcash_identity: null,
 };
+
+/**
+ * Mock `auth.zcashAssociate()` — links `address` to the mock account, mirroring
+ * the real backend's dual-mode `/api/auth/zcash/login/` (authenticated call =
+ * associate). Mutates `mockUser` in place (never reassigned) so the linked
+ * state persists across the mock session, same pattern as `profile.update`.
+ *
+ * Throws the same friendly conflict message the real 409 path throws
+ * (`auth.zcashAssociate`) if this account is already linked to a DIFFERENT
+ * address — so re-running the flow against a fresh key demoes the conflict
+ * state instead of always silently succeeding.
+ */
+export function mockAssociateZcash(address: string): AuthUser {
+  if (mockUser.zcash_identity && mockUser.zcash_identity !== address) {
+    throw new Error(
+      "That Zcash key is already linked — either to a different free2z account, or this account already has a linked Zcash identity. Unlink it there first, or sign with a different key.",
+    );
+  }
+  Object.assign(mockUser, { zcash_identity: address, zcashLinked: true });
+  return { ...mockUser };
+}
 
 const creator = (
   username: string,

@@ -18,6 +18,7 @@ import { profile } from "@/lib/api/free2z";
 import { initials } from "@/lib/format";
 import { useSession } from "@/store/session";
 import type { AuthUser } from "@/lib/api/types";
+import { LinkedAccounts } from "./LinkedAccounts";
 
 const BIO_MAX = 1024;
 const NAME_MAX = 128;
@@ -121,6 +122,10 @@ function ProfileForm({ user }: { user: AuthUser }) {
           <Link to="/kyc">Apply for revenue share</Link>
         </Button>
       </Card>
+
+      <div className="mb-6">
+        <LinkedAccounts user={user} />
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* Form */}
