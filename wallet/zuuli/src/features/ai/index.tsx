@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/common/Markdown";
 import { ai } from "@/lib/api/free2z";
+import { ApiError } from "@/lib/api/http";
 import type { AIModel, Personality } from "@/lib/api/types";
 import { formatTuzis, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -123,14 +124,16 @@ export default function AiFeature() {
   const canSend =
     !!selected && !isSending && !lowBalance && input.trim().length > 0;
 
-  // Load models + personalities once; default to the first GA model.
+  // Load models + personalities once; default to the highest-`order` GA
+  // model (the API already returns them sorted by `-order`, so this is the
+  // first GA entry — the one most likely to actually work).
   useEffect(() => {
     let active = true;
     ai
       .models()
       .then((list) => {
         if (!active) return;
-        const sorted = [...list].sort((a, b) => a.order - b.order);
+        const sorted = [...list].sort((a, b) => b.order - a.order);
         setModels(sorted);
         setSelected(sorted.find((m) => m.is_ga) ?? sorted[0] ?? null);
       })
@@ -247,6 +250,15 @@ export default function AiFeature() {
         }
       } catch (err) {
         const aborted = isAbortError(err);
+        const genericMessage =
+          "Sorry — the model could not be reached. Please try again.";
+        const detail =
+          err instanceof ApiError &&
+          err.body &&
+          typeof (err.body as { detail?: unknown }).detail === "string"
+            ? (err.body as { detail: string }).detail
+            : undefined;
+        const errorMessage = detail ?? genericMessage;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === placeholderId
@@ -255,14 +267,12 @@ export default function AiFeature() {
                   pending: false,
                   aborted,
                   error: !aborted,
-                  content: aborted
-                    ? "_Generation stopped._"
-                    : "Sorry — the model could not be reached. Please try again.",
+                  content: aborted ? "_Generation stopped._" : errorMessage,
                 }
               : m,
           ),
         );
-        if (!aborted) toast.error("The model could not be reached.");
+        if (!aborted) toast.error(detail ?? "The model could not be reached.");
       } finally {
         abortRef.current = null;
         setIsSending(false);

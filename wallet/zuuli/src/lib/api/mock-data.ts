@@ -203,7 +203,10 @@ export const mockModels: AIModel[] = [
     system_message: "You are a helpful assistant.",
     max_tokens: 4096,
     is_ga: true,
-    order: 7,
+    // Highest `order` of the catalog, mirroring stage (gpt-4o = 200 there):
+    // it's the one GA model with a verified id + API key, so it must win
+    // the default-model pick (see features/ai/index.tsx).
+    order: 200,
     input_price: "0.0000025",
     output_price: "0.00001",
     markup: "1.15",
