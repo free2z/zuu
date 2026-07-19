@@ -1,10 +1,9 @@
 // ZUULI — Login.
 //
 // A standalone, full-viewport auth page (mounted at /login, outside the app
-// shell). Login is just login: the screen offers several methods as peers —
-// email/username + password (with 2FA when enabled), Continue with Zcash, and
-// (soon) X / Google. No single method is the "showpiece"; Zcash is one clearly
-// offered option among equals.
+// shell). ZUULI is Zcash-native, so Login with Zcash leads as the default,
+// prominent choice — passwordless, no email, no KYC. Email/username + password
+// (with 2FA when enabled) and, soon, X / Google follow below as alternatives.
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -73,32 +72,35 @@ export default function AuthFeature() {
                 </div>
               ) : (
                 <>
-                  {/* Method 1 — email/username + password (first-class) */}
-                  <ClassicLoginForm />
+                  {/* Primary method — Login with Zcash (default, passwordless) */}
+                  <div className="space-y-2">
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="w-full justify-center text-sm font-semibold"
+                      onClick={() => setMethod("zcash")}
+                    >
+                      <ShieldCheck className="h-4 w-4" aria-hidden />
+                      Continue with Zcash
+                    </Button>
+                    <p className="text-center text-xs text-muted-foreground">
+                      Passwordless — prove control of your Zcash key. No email,
+                      no KYC.
+                    </p>
+                  </div>
 
                   <div className="flex items-center gap-3">
                     <Separator className="flex-1" />
                     <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                      or continue with
+                      or use a password
                     </span>
                     <Separator className="flex-1" />
                   </div>
 
-                  {/* Method 2 — Continue with Zcash (a peer option) */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full justify-center"
-                    onClick={() => setMethod("zcash")}
-                  >
-                    <ShieldCheck className="h-4 w-4 text-primary" aria-hidden />
-                    Continue with Zcash
-                    <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-primary">
-                      Passwordless
-                    </span>
-                  </Button>
+                  {/* Alternative — email/username + password (with 2FA) */}
+                  <ClassicLoginForm />
 
-                  {/* Methods 3 & 4 — X / Google, not yet available on desktop */}
+                  {/* Soon — X / Google, not yet available on desktop */}
                   <SocialSoon />
 
                   <div className="flex items-center justify-between">

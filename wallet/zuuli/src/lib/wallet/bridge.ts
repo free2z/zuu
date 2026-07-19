@@ -120,4 +120,22 @@ export const wallet = {
     if (useMock()) return mockWallet.signChallenge(challenge);
     return invoke("sign_challenge", { args: { challenge, accountIndex } });
   },
+
+  /**
+   * The account's Login-with-Zcash identity: the transparent P2PKH t-address
+   * the plugin signs challenges with and free2z verifies via zcashd
+   * `verifymessage`. The plugin exposes this address only as a side effect of
+   * signing, so we derive it by signing a local probe that is NEVER
+   * transmitted. Callers MUST request the server challenge for exactly this
+   * address — the returned value equals `signChallenge().address`, so the
+   * challenge the server issues is keyed to the same address the login POST
+   * carries.
+   */
+  async getLoginAddress(accountIndex = 0): Promise<string> {
+    const probe = await wallet.signChallenge(
+      "ZUULI-Login:identity-probe",
+      accountIndex,
+    );
+    return probe.address;
+  },
 };
