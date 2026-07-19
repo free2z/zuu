@@ -15,6 +15,9 @@ import type {
   TuziTransaction,
 } from "./types";
 
+// Mutated in place (via `Object.assign`, never reassigned — an ES module
+// import binding can't be reassigned from outside) so a saved profile edit
+// (`profile.update`) persists across the mock session and reflects in `auth.me()`.
 export const mockUser: AuthUser = {
   id: 1,
   username: "skyl",
@@ -22,6 +25,12 @@ export const mockUser: AuthUser = {
   free2zaddr: "skyl",
   display_name: "Skylar",
   image: null,
+  banner: null,
+  bio: "Building on Zcash. Shielded by default.",
+  p2paddr: "",
+  member_price: null,
+  can_stream: false,
+  is_verified: false,
   tuzis: 4210,
   zcashLinked: true,
 };

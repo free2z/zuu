@@ -36,6 +36,7 @@ import type {
   Paginated,
   PricingQuote,
   PricingSnapshot,
+  ProfileUpdateInput,
   PromptResponse,
   SimpleCreator,
   StreamKind,
@@ -296,15 +297,20 @@ export const auth = {
   async me(): Promise<AuthUser> {
     if (useMock()) {
       await delay(120);
-      return mockUser;
+      return { ...mockUser };
     }
     const u = await request<{
       username: string;
       email?: string;
       full_name?: string;
-      p2paddr?: string;
+      description?: string | null;
+      p2paddr?: string | null;
+      member_price?: string | null;
+      can_stream?: boolean;
+      is_verified?: boolean;
       tuzis?: string;
       avatar_image?: RawImage | null;
+      banner_image?: RawImage | null;
     }>("/api/auth/user/");
     return {
       username: u.username,
@@ -312,6 +318,15 @@ export const auth = {
       free2zaddr: u.username,
       display_name: u.full_name || u.username,
       image: mediaUrl(u.avatar_image?.thumbnail || u.avatar_image?.url) ?? null,
+      banner:
+        mediaUrl(
+          u.banner_image?.banner || u.banner_image?.card || u.banner_image?.url,
+        ) ?? null,
+      bio: u.description ?? null,
+      p2paddr: u.p2paddr ?? null,
+      member_price: parsePrice(u.member_price),
+      can_stream: u.can_stream ?? false,
+      is_verified: u.is_verified ?? false,
       tuzis: u.tuzis ? Math.floor(Number(u.tuzis)) : 0,
     };
   },
@@ -364,6 +379,53 @@ export const auth = {
       body: { address },
       anonymous: true,
     });
+  },
+};
+
+// ─── Profile (self-edit) ─────────────────────────────────────────────────────
+export const profile = {
+  /**
+   * Update the signed-in user's own profile — PATCH /api/auth/user/, backed by
+   * `CustomUserDetailsView` → `CreatorProfileUpdateSerializer`
+   * (tuzi/py/dj/apps/g12f/{views,serializers}/creator.py). Writable fields used
+   * here: `full_name` (display name), `description` (bio, markdown ≤1024
+   * chars), `p2paddr` (Zcash tip address), `member_price` (2Z / 30 days, `null`
+   * clears the paid tier).
+   *
+   * Avatar/banner aren't wired yet: the backend takes a `GenericFile` primary
+   * key, not a raw image — a creator must first `POST /uploads/single-public`
+   * (multipart) and then reference the returned id here as `avatar_image` /
+   * `banner_image` (this is what the Svelte web app's settings page does). A
+   * follow-up once ZUULI has a general upload flow.
+   *
+   * Returns the refreshed `AuthUser` (a plain refetch via `auth.me()`, since
+   * the PATCH response shape doesn't carry the same mapped fields).
+   */
+  async update(input: ProfileUpdateInput): Promise<AuthUser> {
+    if (useMock()) {
+      await delay(400);
+      Object.assign(mockUser, {
+        ...(input.display_name !== undefined
+          ? { display_name: input.display_name }
+          : {}),
+        ...(input.bio !== undefined ? { bio: input.bio } : {}),
+        ...(input.p2paddr !== undefined ? { p2paddr: input.p2paddr } : {}),
+        ...(input.member_price !== undefined
+          ? { member_price: input.member_price }
+          : {}),
+      });
+      return { ...mockUser };
+    }
+    const body: Record<string, unknown> = {};
+    if (input.display_name !== undefined) body.full_name = input.display_name;
+    if (input.bio !== undefined) body.description = input.bio;
+    if (input.p2paddr !== undefined) body.p2paddr = input.p2paddr;
+    if (input.member_price !== undefined) {
+      body.member_price =
+        input.member_price === null ? null : String(input.member_price);
+    }
+    await request("/api/auth/user/", { method: "PATCH", body });
+    return auth.me();
   },
 };
 
