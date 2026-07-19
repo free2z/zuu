@@ -1,7 +1,17 @@
 import { create } from "zustand";
 import { auth } from "@/lib/api/free2z";
-import { isAuthed, setToken } from "@/lib/api/http";
+import { ApiError, isAuthed, setToken } from "@/lib/api/http";
 import type { AuthUser } from "@/lib/api/types";
+
+/**
+ * `GET /api/auth/user/` 403s (some deployments 401) for anonymous requests —
+ * that's an expected "you're logged out" response, not a real failure, so we
+ * never want it surfacing as an uncaught console error. Anything else (a
+ * network blip, a 5xx) is transient and shouldn't nuke a valid session.
+ */
+function isSessionExpired(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403);
+}
 
 interface SessionState {
   user: AuthUser | null;
@@ -23,6 +33,8 @@ export const useSession = create<SessionState>((set, get) => ({
   tuzis: 0,
 
   async bootstrap() {
+    // No knox token → we're logged out; resolve without ever hitting
+    // `/api/auth/user/` (it 403s for anonymous requests).
     if (!isAuthed()) {
       set({ loading: false });
       return;
@@ -30,8 +42,8 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const user = await auth.me();
       set({ user, tuzis: user.tuzis ?? 0, loading: false });
-    } catch {
-      setToken(null);
+    } catch (err) {
+      if (isSessionExpired(err)) setToken(null);
       set({ user: null, loading: false });
     }
   },
@@ -41,11 +53,18 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async refresh() {
+    // Same guard as `bootstrap` — logged-out callers must never probe
+    // `/api/auth/user/` (see `isSessionExpired` above).
+    if (!isAuthed()) return;
     try {
       const user = await auth.me();
       set({ user, tuzis: user.tuzis ?? 0 });
-    } catch {
-      /* ignore */
+    } catch (err) {
+      if (isSessionExpired(err)) {
+        setToken(null);
+        set({ user: null, tuzis: 0 });
+      }
+      /* otherwise a transient/network error — keep the current session */
     }
   },
 
