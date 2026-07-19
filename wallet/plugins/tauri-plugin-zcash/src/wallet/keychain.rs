@@ -6,8 +6,28 @@ const SERVICE: &str = "com.free2z.zuuli";
 
 /// Store a seed phrase securely.
 ///
+/// Release builds: OS keychain (with biometric on macOS when code-signed)
+/// plus an encrypted file backup that survives binary rebuilds.
+///
+/// Debug builds: `tauri dev` ad-hoc-signs the binary with a signature that
+/// changes on every rebuild, so macOS treats each dev build as a new app and
+/// re-prompts for keychain access every single time ("Always Allow" never
+/// sticks). The encrypted-file backup already exists for exactly this case,
+/// so dev builds write ONLY the encrypted file and never touch the keychain.
+#[cfg(debug_assertions)]
+pub fn store_seed_phrase(data_dir: &Path, wallet_id: &str, phrase: &str) -> Result<()> {
+    encrypted_file::store(data_dir, wallet_id, phrase)
+        .map_err(|e| Error::KeyError(format!("failed to store encrypted seed: {e}")))?;
+
+    tracing::info!("stored seed for wallet {wallet_id} (dev build: encrypted file only, OS keychain skipped)");
+    Ok(())
+}
+
+/// Store a seed phrase securely.
+///
 /// Uses OS keychain (with biometric on macOS when code-signed) plus an
 /// encrypted file backup that survives binary rebuilds in dev mode.
+#[cfg(not(debug_assertions))]
 pub fn store_seed_phrase(data_dir: &Path, wallet_id: &str, phrase: &str) -> Result<()> {
     // Try OS keychain first (biometric on macOS, credential manager elsewhere)
     if let Err(e) = os_keychain::store(wallet_id, phrase) {
@@ -24,7 +44,34 @@ pub fn store_seed_phrase(data_dir: &Path, wallet_id: &str, phrase: &str) -> Resu
 
 /// Retrieve a seed phrase.
 ///
+/// Debug builds: the OS keychain is never consulted (see `store_seed_phrase`
+/// above for why) — try the encrypted file first, then fall back to legacy
+/// keyring only for migrating pre-existing entries.
+#[cfg(debug_assertions)]
+pub fn get_seed_phrase(data_dir: &Path, wallet_id: &str) -> Result<String> {
+    // 1. Try encrypted file (the dev-build primary store)
+    if let Ok(phrase) = encrypted_file::get(data_dir, wallet_id) {
+        tracing::debug!("seed retrieved from encrypted file for wallet {wallet_id} (dev build)");
+        return Ok(phrase);
+    }
+
+    // 2. Try legacy keyring (migration from old code) — no OS keychain access here
+    if let Ok(phrase) = legacy_keyring::get(wallet_id) {
+        tracing::info!("migrating seed from legacy keyring for wallet {wallet_id}");
+        // Re-store in new system for future access
+        let _ = store_seed_phrase(data_dir, wallet_id, &phrase);
+        return Ok(phrase);
+    }
+
+    Err(Error::KeyError(
+        "seed not found in encrypted file or legacy storage".into(),
+    ))
+}
+
+/// Retrieve a seed phrase.
+///
 /// Tries: OS keychain -> encrypted file -> legacy keyring.
+#[cfg(not(debug_assertions))]
 pub fn get_seed_phrase(data_dir: &Path, wallet_id: &str) -> Result<String> {
     // 1. Try OS keychain
     if let Ok(phrase) = os_keychain::get(wallet_id) {
@@ -65,6 +112,11 @@ pub fn delete_seed_phrase(data_dir: &Path, wallet_id: &str) -> Result<()> {
 
 #[cfg(target_os = "macos")]
 mod os_keychain {
+    // In debug builds `store`/`get` are never called (see store_seed_phrase /
+    // get_seed_phrase above) — only `delete` still runs, for cleanup. Silence
+    // the resulting dead_code warnings rather than changing this module.
+    #![cfg_attr(debug_assertions, allow(dead_code))]
+
     use super::SERVICE;
     use security_framework::passwords::{
         delete_generic_password, delete_generic_password_options, get_generic_password,
@@ -152,6 +204,10 @@ mod os_keychain {
 
 #[cfg(not(target_os = "macos"))]
 mod os_keychain {
+    // Same rationale as the macOS module above: `store`/`get` go unused in
+    // debug builds once dev never calls into the OS keychain.
+    #![cfg_attr(debug_assertions, allow(dead_code))]
+
     use super::SERVICE;
 
     pub fn store(wallet_id: &str, phrase: &str) -> std::result::Result<(), String> {
