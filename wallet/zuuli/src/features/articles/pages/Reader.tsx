@@ -103,14 +103,25 @@ export function Reader() {
           ) : null}
 
           <div className="flex items-center gap-3 pt-2">
-            <Avatar>
-              {author.image ? (
-                <AvatarImage src={author.image} alt={name} />
-              ) : null}
-              <AvatarFallback>{initials(name)}</AvatarFallback>
-            </Avatar>
+            <Link
+              to={`/creator/${author.username}`}
+              aria-label={`View ${name}’s profile`}
+              className="shrink-0"
+            >
+              <Avatar>
+                {author.image ? (
+                  <AvatarImage src={author.image} alt={name} />
+                ) : null}
+                <AvatarFallback>{initials(name)}</AvatarFallback>
+              </Avatar>
+            </Link>
             <div className="text-sm">
-              <div className="font-medium text-foreground">{name}</div>
+              <Link
+                to={`/creator/${author.username}`}
+                className="font-medium text-foreground transition-colors hover:text-primary hover:underline"
+              >
+                {name}
+              </Link>
               <div className="flex items-center gap-2 text-muted-foreground">
                 {article.published_at ? (
                   <span>{formatPublished(article.published_at)}</span>

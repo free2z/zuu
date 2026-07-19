@@ -51,11 +51,16 @@ const creator = (
 });
 
 export const mockCreators: SimpleCreator[] = [
-  creator("zooko", "Zooko", "Founder-ish energy. Shielded by default.", {
-    is_verified: true,
-    zpages: 12,
-    member_price: 500,
-  }),
+  creator(
+    "zooko",
+    "Zooko",
+    "---\nsocials:\n  twitter: zooko\n  github: zooko\n  website: electriccoin.co\n---\n\nFounder-ish energy. Shielded by default.",
+    {
+      is_verified: true,
+      zpages: 12,
+      member_price: 500,
+    },
+  ),
   creator("mining_maya", "Maya ⛏️", "Halo2 circuits & late-night proofs.", {
     is_verified: true,
     zpages: 7,
