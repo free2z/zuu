@@ -17,7 +17,7 @@ import { discover, tuzi } from "@/lib/api/free2z";
 import type { SimpleCreator } from "@/lib/api/types";
 import { useSession } from "@/store/session";
 import { cn } from "@/lib/utils";
-import { formatTuzis, formatUsd, initials, tuzisToUsd } from "@/lib/format";
+import { formatTuzis, initials } from "@/lib/format";
 import { MAX_TUZIS, TIP_PRESETS, parseTuzis } from "./lib";
 
 export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
@@ -162,9 +162,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               aria-label="Custom tip amount in 2Z"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium tabular-nums text-muted-foreground">
-              {custom.trim() && parseTuzis(custom) > 0
-                ? formatUsd(tuzisToUsd(parseTuzis(custom)))
-                : "2Z"}
+              2Z
             </span>
           </div>
         </div>
@@ -189,11 +187,6 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               <div className="text-xl font-bold tabular-nums">
                 {validAmount ? formatTuzis(amount) : "—"}
               </div>
-              {validAmount && (
-                <div className="text-xs tabular-nums text-muted-foreground">
-                  {formatUsd(tuzisToUsd(amount))}
-                </div>
-              )}
             </div>
           </div>
           <div className="flex items-center justify-between border-t border-border pt-3 text-sm">

@@ -4,11 +4,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
-import { formatUsd, formatZecTrim, tuzisToUsd } from "@/lib/format";
+import { formatZecTrim } from "@/lib/format";
 
 /**
- * The "two balances, one app" hero: 2Z credit balance front and centre with
- * its USD value, and the on-chain ZEC spendable alongside.
+ * The "two balances, one app" hero: 2Z platform-credit balance front and
+ * centre, and the on-chain ZEC spendable alongside. The 2Z balance is shown
+ * in 2Z units only — it's a spendable credit, not a cash value, so we never
+ * print a "$X" equivalent next to it.
  */
 export function BalanceHero() {
   const tuzis = useSession((s) => s.tuzis);
@@ -34,8 +36,8 @@ export function BalanceHero() {
             </span>
             <span className="text-lg font-semibold text-primary">2Z</span>
           </div>
-          <div className="text-sm text-muted-foreground tabular-nums">
-            {formatUsd(tuzisToUsd(tuzis))} in spendable credit
+          <div className="text-sm text-muted-foreground">
+            Spendable platform credit
           </div>
         </div>
 

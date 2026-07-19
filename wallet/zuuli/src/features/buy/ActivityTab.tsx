@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { tuzi } from "@/lib/api/free2z";
 import type { TuziTransaction } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { formatTuzis, formatUsd, timeAgo, tuzisToUsd } from "@/lib/format";
+import { formatTuzis, timeAgo } from "@/lib/format";
 import { kindMeta, kindIconClass } from "./lib";
 
 export function ActivityTab() {
@@ -122,9 +122,6 @@ export function ActivityTab() {
                   >
                     {credit ? "+" : "−"}
                     {formatTuzis(Math.abs(t.tuzis_credited))}
-                  </div>
-                  <div className="text-xs tabular-nums text-muted-foreground">
-                    {formatUsd(tuzisToUsd(Math.abs(t.tuzis_credited)))}
                   </div>
                 </div>
               </div>

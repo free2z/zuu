@@ -61,7 +61,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
         <DialogHeader>
           <DialogTitle>Tip {name}</DialogTitle>
           <DialogDescription>
-            Send 2Zs straight to the author. 1 2Z = 1 cent.
+            Send 2Zs straight to the author, from your platform credit balance.
           </DialogDescription>
         </DialogHeader>
 

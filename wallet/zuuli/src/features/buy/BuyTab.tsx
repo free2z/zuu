@@ -321,7 +321,7 @@ export function BuyTab() {
           </DialogHeader>
           <div className="space-y-3 rounded-lg border border-border bg-secondary/40 p-4 text-sm">
             <Row label="You receive" value={formatTuzis(amount)} strong />
-            <Row label="USD value" value={formatUsd(usd)} />
+            <Row label="Price" value={formatUsd(usd)} />
             <Separator />
             <Row
               label={
