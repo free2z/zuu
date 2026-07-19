@@ -121,6 +121,8 @@ export interface PromptResponse {
   prompt: string;
   response: string;
   model?: string;
+  /** Display name of the personality that primed this reply, if any. */
+  personality?: string;
   created_at?: string;
   /** 2Zs charged for this exchange (cost-plus, rounded up). */
   tuzis_charged?: number;
@@ -128,13 +130,46 @@ export interface PromptResponse {
   output_tokens?: number;
 }
 
+/**
+ * A custom system message a user can create, edit and select to prime the AI
+ * (`/api/ai/personalities/`, DRF ModelViewSet). Anyone can read public
+ * personalities (plus their own private ones); only the creator can edit or
+ * delete theirs. `creator` is omitted/undefined for built-in, creator-less
+ * public personalities.
+ */
+export interface Personality {
+  id: string;
+  display_name: string;
+  system_message: string;
+  is_public: boolean;
+  /** Username of the creator; absent for built-in personalities. */
+  creator?: string | null;
+}
+
+/** Body for creating/editing a personality — everything but the server-set fields. */
+export interface PersonalityInput {
+  display_name: string;
+  system_message: string;
+  is_public: boolean;
+}
+
+/**
+ * A stateful chat thread (`/api/ai/conversations/`). Pairs one `ai_model`
+ * with an optional `personality` for the lifetime of the thread — the
+ * backend replays `prompt_response_set` as history on every turn, so
+ * switching model or personality starts a new conversation.
+ */
 export interface AIConversation {
   id: string;
-  title?: string;
-  model?: string;
+  display_name: string;
+  ai_model: string;
+  personality?: string | null;
+  model_name?: string;
+  is_public?: boolean;
+  is_subscriber_only?: boolean;
   created_at?: string;
   updated_at?: string;
-  is_public?: boolean;
+  tags?: string[];
   promptresponses?: PromptResponse[];
 }
 
