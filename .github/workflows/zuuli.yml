@@ -1,0 +1,115 @@
+name: wallet/zuuli
+
+# CI gate for the ZUULI app (wallet/zuuli) — a Vite + React 18 + TS 5 frontend.
+#
+# Nothing else in the repo covered wallet/zuuli/** before this workflow, so
+# ZUULI changes could merge with zero automated QA. As we move to autonomous,
+# human-review-free merging, ZUULI needs a required CI gate.
+#
+# Modeled on tuzi's CI (.github/workflows/ci.yml): the workflow triggers on
+# EVERY pull_request (and merge_group), NOT on a workflow-level `paths:` filter.
+# That is deliberate — a required status check must report on every PR, and a
+# workflow gated by `on.<event>.paths` simply does not run when a PR misses the
+# paths, which leaves a required check "pending" forever and blocks unrelated
+# PRs. Instead, the `changes` job path-filters via git diff and the real `build`
+# job skips when a PR does not touch ZUULI. The `gate` job then aggregates the
+# results with always() so branch protection can require a single stable check
+# ("gate") that passes when the real jobs succeed OR are legitimately skipped,
+# and fails only on a genuine failure/cancel.
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: zuuli-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Path filter so non-ZUULI PRs skip the build job (but the workflow — and
+  # therefore the `gate` job — still runs, so the required check always reports).
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      zuuli: ${{ steps.filter.outputs.zuuli }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The filter diffs against the event base locally instead of calling
+          # the pull-request files API, so the base commit must be present.
+          fetch-depth: 0
+      - name: Detect changed areas
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::warning::Base commit is unavailable; running all checks."
+            echo "zuuli=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          zuuli=false
+          while IFS= read -r file; do
+            case "$file" in
+              wallet/zuuli/*|.github/workflows/zuuli.yml) zuuli=true ;;
+            esac
+          done < <(git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA")
+
+          echo "zuuli=$zuuli" >> "$GITHUB_OUTPUT"
+
+  # Real quality checks: typecheck (tsc --noEmit) + production build
+  # (tsc && vite build). No lint or unit-test scripts are configured in
+  # wallet/zuuli/package.json yet, so there is nothing to run for those — add a
+  # step here once `lint`/`test` scripts exist.
+  build:
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Build (tsc && vite build)
+        run: npm run build
+
+  # Single required status check for branch protection / a future merge queue.
+  # The `build` job above skips via the `changes` path filter, which would leave
+  # its status "pending" forever if required directly. This aggregator runs
+  # always() and passes when every needed job is success or skipped, failing
+  # only on a real failure/cancel — so a skipped check can't be gamed.
+  gate:
+    needs: [changes, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required jobs succeeded (or were legitimately skipped)
+        run: |
+          results="${{ needs.changes.result }} ${{ needs.build.result }}"
+          echo "Job results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "A required job did not pass: $r"; exit 1
+            fi
+          done
+          echo "All required jobs passed or were skipped."
