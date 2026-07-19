@@ -1,7 +1,7 @@
 // Composite wallet UI pieces: sync bar, address card, transaction row.
 import { QRCodeSVG } from "qrcode.react";
 import { Link } from "react-router-dom";
-import { ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -20,12 +20,22 @@ import { CopyButton } from "./shared";
  * just quietly reflects state: "Syncing… N%" while catching up, "Synced" once
  * at the chain tip. The engine keeps reporting `syncing: true` even when caught
  * up (it watches for new blocks), so "caught up" is judged by height.
+ *
+ * When the engine surfaces a `lastError` (e.g. lightwalletd unreachable, or a
+ * scan pass that keeps failing), we show a distinct "Sync trouble — retrying"
+ * state instead of an eternal, silent "Syncing 0.0%". The engine keeps retrying
+ * on its own (and rotates lightwalletd endpoints), so this is informational, not
+ * a dead end; it clears automatically on the next successful pass.
  */
 export function SyncBar({ sync }: { sync: SyncStatus | null }) {
   const pct = sync ? Math.min(100, Math.max(0, sync.progressPercent)) : 0;
   const connecting = sync === null || sync.chainTip === 0;
   const caughtUp =
     sync !== null && sync.chainTip > 0 && sync.syncedHeight >= sync.chainTip;
+  // Only treat an error as active while not caught up — a successful pass clears
+  // `lastError` on the backend, but guard here too so a stale value never sticks.
+  const errorMsg = !caughtUp ? (sync?.lastError ?? null) : null;
+  const hasError = errorMsg !== null && errorMsg !== "";
 
   return (
     <Card className="rounded-xl p-4" role="status" aria-live="polite">
@@ -34,6 +44,11 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
           <>
             <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
             <span>Synced</span>
+          </>
+        ) : hasError ? (
+          <>
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" aria-hidden />
+            <span className="text-amber-400">Sync trouble — retrying</span>
           </>
         ) : connecting ? (
           <>
@@ -51,17 +66,28 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
         )}
       </div>
 
-      <p className="mt-0.5 truncate text-xs tabular-nums text-muted-foreground">
-        {sync && !connecting
-          ? `${formatHeight(sync.syncedHeight)} / ${formatHeight(sync.chainTip)}`
-          : "Waiting for chain tip…"}
+      <p
+        className={cn(
+          "mt-0.5 truncate text-xs tabular-nums text-muted-foreground",
+          hasError && "text-amber-400/80",
+        )}
+        title={hasError ? errorMsg : undefined}
+      >
+        {hasError
+          ? errorMsg
+          : sync && !connecting
+            ? `${formatHeight(sync.syncedHeight)} / ${formatHeight(sync.chainTip)}`
+            : "Waiting for chain tip…"}
       </p>
 
       {!caughtUp ? (
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-            style={{ width: `${pct}%` }}
+            className={cn(
+              "h-full rounded-full transition-[width] duration-500 ease-out",
+              hasError ? "bg-amber-400" : "bg-primary",
+            )}
+            style={{ width: `${hasError ? Math.max(pct, 4) : pct}%` }}
             role="progressbar"
             aria-valuenow={Math.round(pct)}
             aria-valuemin={0}
