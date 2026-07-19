@@ -7038,7 +7038,7 @@ dependencies = [
 
 [[package]]
 name = "zcash_client_backend"
-version = "0.24.0-rc.1"
+version = "0.23.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7088,7 +7088,7 @@ dependencies = [
 
 [[package]]
 name = "zcash_client_sqlite"
-version = "0.22.0-rc.1"
+version = "0.21.1"
 dependencies = [
  "bip32",
  "bitflags 2.13.1",
@@ -7400,7 +7400,7 @@ dependencies = [
 
 [[package]]
 name = "zip321"
-version = "0.9.0-rc.1"
+version = "0.8.0"
 dependencies = [
  "base64 0.22.1",
  "nom",
