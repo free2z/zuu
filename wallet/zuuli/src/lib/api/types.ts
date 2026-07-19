@@ -95,6 +95,41 @@ export interface Article {
   votes?: number;
   published_at?: string;
   reading_minutes?: number;
+  /** Free-form topic tags (zpage `tags`), used for AND-filtering the feed. */
+  tags?: string[];
+}
+
+/**
+ * How the article feed is ranked (`?homeSort=` on /api/zpage/):
+ * - `popular` — recency-decayed "fresh" ranking (the ZUULI default).
+ * - `score`   — all-time `-f2z_score`.
+ * - `updated` — most-recently-updated first.
+ * - `random`  — shuffled.
+ */
+export type ArticleSort = "popular" | "score" | "updated" | "random";
+
+/** Query for a page of the article feed. */
+export interface ArticleFeedParams {
+  sort?: ArticleSort;
+  /** AND-filtered topic tags. */
+  tags?: string[];
+  /** Semantic/vector search query (`?search=`). */
+  search?: string;
+  category?: string;
+  /** 1-based page number (DRF PageNumber pagination). */
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * One page of the article feed. `next` is the next page number to request, or
+ * `null` at the end of the corpus — so infinite scroll never needs the raw
+ * `next` URL (which can point at a CORS-disallowed host).
+ */
+export interface ArticleFeedPage {
+  items: Article[];
+  next: number | null;
+  count: number;
 }
 
 // ── Livestreams (dyte) ──────────────────────────────────────────────────────

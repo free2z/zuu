@@ -11,6 +11,7 @@ import { usdToTuzis } from "../format";
 import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
   mockAiReply,
+  mockArticleFeed,
   mockArticles,
   mockCreators,
   mockLivestreams,
@@ -21,6 +22,8 @@ import {
 import type {
   AIModel,
   Article,
+  ArticleFeedPage,
+  ArticleFeedParams,
   AuthUser,
   DyteJoinTicket,
   Livestream,
@@ -107,6 +110,7 @@ function mapArticle(z: RawZPage): Article {
     votes: z.f2z_score ? Math.round(Number(z.f2z_score)) : 0,
     published_at: z.publish_at || z.created_at,
     reading_minutes: readingMinutes(z.content),
+    tags: z.tags ?? [],
   };
 }
 
@@ -386,18 +390,50 @@ export function estimateTuzis(
 
 // ─── Articles (zpage) ────────────────────────────────────────────────────────
 export const articles = {
-  async feed(params?: { category?: string }): Promise<Article[]> {
+  /**
+   * A page of the article feed (zpages). Supports the full backend contract on
+   * GET /api/zpage/: DRF PageNumber pagination (`?page=&page_size=`), ranking
+   * (`?homeSort=`, default **`popular`** = recency-decayed "fresh"), AND-filtered
+   * tags (`?tags=a,b`), semantic vector search (`?search=`) and `?category=`.
+   *
+   * Returns `{ items, next, count }` where `next` is the next page number (or
+   * `null` at the end), so callers can drive infinite scroll without touching
+   * the raw `next` URL. Mock mode paginates/filters the fixtures the same way.
+   */
+  async feed(params: ArticleFeedParams = {}): Promise<ArticleFeedPage> {
+    const page = params.page ?? 1;
+    const pageSize = params.pageSize ?? 24;
+    const sort = params.sort ?? "popular";
+    const tags = params.tags?.filter(Boolean) ?? [];
+    const search = params.search?.trim() || undefined;
+
     if (useMock()) {
       await delay();
-      return params?.category
-        ? mockArticles.filter((a) => a.category === params.category)
-        : mockArticles;
+      return mockArticleFeed({
+        sort,
+        tags,
+        search,
+        category: params.category,
+        page,
+        pageSize,
+      });
     }
-    const page = await request<Paginated<RawZPage>>("/api/zpage/", {
-      query: { page_size: 24, homeSort: "score", category: params?.category },
+    const res = await request<Paginated<RawZPage>>("/api/zpage/", {
+      query: {
+        page,
+        page_size: pageSize,
+        homeSort: sort,
+        tags: tags.length ? tags.join(",") : undefined,
+        search,
+        category: params.category,
+      },
       anonymous: true,
     });
-    return (page.results ?? []).map(mapArticle);
+    return {
+      items: (res.results ?? []).map(mapArticle),
+      next: res.next ? page + 1 : null,
+      count: res.count ?? 0,
+    };
   },
 
   async get(idOrSlug: string | number): Promise<Article> {

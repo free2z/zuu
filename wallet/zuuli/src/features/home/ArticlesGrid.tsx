@@ -87,8 +87,12 @@ function ArticleSkeleton() {
 }
 
 export function ArticlesGrid() {
-  const { data, loading } = useAsync(() => articles.feed(), []);
-  const top = (data ?? []).slice(0, 3);
+  // Fresh (recency-decayed) — just the first few for the home rail.
+  const { data, loading } = useAsync(
+    () => articles.feed({ sort: "popular", pageSize: 3 }),
+    [],
+  );
+  const top = (data?.items ?? []).slice(0, 3);
 
   return (
     <div>
