@@ -1,5 +1,29 @@
 # Working in `zuu` — the contribution doctrine
 
+## IRON RULE — local `main` is read-only
+
+**LOCAL `main` NEVER CHANGES EXCEPT BY FAST-FORWARD PULL FROM THE REMOTE.**
+No agent — and no human — ever commits or merges to local `main`. Not once, not
+for a "trivial" one-liner. Every change, without exception, flows through this
+exact cycle:
+
+1. `git fetch origin`, then create a **worktree branched from `origin/main`**
+   (never from local `main`):
+   `git worktree add -b <type>/<slug> <path> origin/main`.
+2. Make the changes in the worktree; verify.
+3. Push the branch to `origin` and open a **PR** against `main`.
+4. **Squash-merge the PR onto the REMOTE** `origin/main` (`gh pr merge --squash`,
+   honoring the repo's merge queue / required checks).
+5. Local `main` is updated **only** by `git pull --ff-only origin main` in the
+   primary working tree. It must ALWAYS equal `origin/main` and must NEVER be
+   ahead of the remote.
+
+**Why this is absolute:** an un-pushed commit on local `main` is not saved —
+`git reset --hard origin/main` or a fresh re-clone silently destroys it, and
+nothing is durable until it lands on `origin`. Keeping local `main` a pure
+fast-forward mirror of the remote means the human always sits on a clean `main`
+that only ever moves forward, and every change carries a reviewable PR trail.
+
 `zuu` is a **synthetic monorepo**. The `z/` directory vendors Zcash-ecosystem
 repos as git submodules (`z/{github-org}/{repo}`) so we can depend on them **in
 source** — build, test, and integrate against real upstream code rather than
