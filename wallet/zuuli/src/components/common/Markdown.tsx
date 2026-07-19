@@ -1,6 +1,85 @@
+import type { AnchorHTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
+import { useNavigate } from "react-router-dom";
 import remarkGfm from "remark-gfm";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { isTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+
+/**
+ * True for links that must leave the app (http/https/mailto/tel and any other
+ * absolute scheme). Relative paths and in-page hashes stay inside the SPA.
+ */
+function isExternalHref(href: string): boolean {
+  if (!href) return false;
+  // Protocol-relative (`//host/…`) is external.
+  if (href.startsWith("//")) return true;
+  // In-app anchors / relative / query-only links are internal.
+  if (href.startsWith("#") || href.startsWith("/") || href.startsWith("?"))
+    return false;
+  // Any `scheme:` prefix (http:, https:, mailto:, tel:, …) is external.
+  return /^[a-z][a-z0-9+.-]*:/i.test(href);
+}
+
+/** Open an external URL out-of-app, never in the SPA's own webview. */
+async function openExternal(url: string) {
+  if (isTauri()) {
+    // Desktop: hand off to the OS default handler via tauri-plugin-opener so
+    // the wallet's own webview is never navigated away.
+    try {
+      await openUrl(url);
+      return;
+    } catch {
+      // Fall through to a browser tab (also covers non-http schemes).
+    }
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/**
+ * Markdown anchor. Article/AI content is remote/untrusted: external links open
+ * outside the app (OS browser on desktop, new tab in the browser build) and
+ * always carry `rel="noopener noreferrer"`; internal links use the router so
+ * the running SPA is never blown away.
+ */
+function MarkdownLink({
+  href,
+  children,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  const navigate = useNavigate();
+
+  if (href && isExternalHref(href)) {
+    return (
+      <a
+        {...rest}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          void openExternal(href);
+        }}
+      >
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <a
+      {...rest}
+      href={href ?? "#"}
+      onClick={(e) => {
+        if (!href) return;
+        e.preventDefault();
+        navigate(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
 
 /**
  * Themed markdown renderer used by Articles and AI chat. Styled inline (no
@@ -32,7 +111,12 @@ export function Markdown({
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{ a: MarkdownLink }}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }
