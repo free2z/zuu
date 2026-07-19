@@ -19,6 +19,10 @@ module.exports = {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
         },
+        // Lighter violet used for hyperlinks in rendered content (see
+        // src/index.css) so link text meets WCAG AA contrast on dark
+        // backgrounds without changing the app-wide --primary accent.
+        link: "hsl(var(--link))",
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",

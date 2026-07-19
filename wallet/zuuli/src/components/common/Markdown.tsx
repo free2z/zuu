@@ -100,7 +100,11 @@ export function Markdown({
         "[&_h2]:mt-6 [&_h2]:text-xl [&_h2]:font-semibold",
         "[&_h3]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold",
         "[&_p]:leading-relaxed",
-        "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-4",
+        // `text-link` (not `text-primary`): the brand violet at 65% lightness
+        // only clears ~4.3:1 against card surfaces, short of WCAG AA (4.5:1)
+        // for body-sized link text. `--link` is the same hue, lightened to
+        // 74%, which clears AA on every surface content renders on.
+        "[&_a]:text-link [&_a]:underline [&_a]:underline-offset-4 [&_a]:hover:decoration-2",
         "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6",
         "[&_li]:my-1",
         "[&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
