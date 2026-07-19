@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Radio, Loader2 } from "lucide-react";
+import { Radio, Loader2, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { live } from "@/lib/api/free2z";
+import { ApiError } from "@/lib/api/http";
 import { useSession } from "@/store/session";
 import { formatTuzis } from "@/lib/format";
 import type { StreamKind } from "@/lib/api/types";
@@ -59,12 +60,40 @@ export function GoLiveDialog() {
         },
       });
     } catch (e) {
+      // Defense-in-depth: even though the control is auth-gated below, a session
+      // can expire between load and submit. Intercept the auth failure with a
+      // friendly redirect instead of surfacing the raw backend 401 text
+      // ("Authentication credentials were not provided.").
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        setOpen(false);
+        toast.error("Sign in to go live", {
+          description: "Your session ended — please sign in again.",
+        });
+        navigate("/login");
+        return;
+      }
       toast.error("Could not start stream", {
         description: e instanceof Error ? e.message : "Please try again.",
       });
     } finally {
       setStarting(false);
     }
+  }
+
+  // Going live requires an account. When signed out, don't offer a broadcast
+  // action that can only fail — route the user to sign in instead.
+  if (!user) {
+    return (
+      <Button
+        size="lg"
+        variant="outline"
+        className="gap-2"
+        onClick={() => navigate("/login")}
+      >
+        <LogIn className="h-4 w-4" aria-hidden />
+        Authenticate to go live
+      </Button>
+    );
   }
 
   return (
