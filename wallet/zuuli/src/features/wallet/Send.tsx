@@ -180,7 +180,7 @@ export function Send() {
       const txid = await wallet.executeSend(proposal.proposalId);
       setDialogOpen(false);
       toast.success("Transaction sent", {
-        description: `txid ${truncateAddress(txid, 8)}`,
+        description: `txid ${truncateAddress(txid)}`,
       });
       await refreshBalance();
       navigate("/wallet/history");
@@ -355,8 +355,8 @@ export function Send() {
           {proposal ? (
             <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
               <Row label="To">
-                <span className="font-mono text-xs">
-                  {truncateAddress(to.trim(), 12)}
+                <span className="break-all font-mono text-xs">
+                  {truncateAddress(to.trim())}
                 </span>
               </Row>
               <Row label="Amount">

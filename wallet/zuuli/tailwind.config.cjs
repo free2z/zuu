@@ -77,6 +77,14 @@ module.exports = {
           from: { opacity: "0", transform: "translateY(10px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // Dialog/modal entrance. Keeps the `-translate-x/y-1/2` centering baked
+        // into the transform so the content never jumps off-center mid-anim
+        // (a plain translateY keyframe overrides the centering and makes the
+        // panel jerk in from the lower-right before snapping to center).
+        "dialog-in": {
+          from: { opacity: "0", transform: "translate(-50%, -48%) scale(0.97)" },
+          to: { opacity: "1", transform: "translate(-50%, -50%) scale(1)" },
+        },
         "pulse-live": {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.4" },
@@ -90,6 +98,7 @@ module.exports = {
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.3s ease-out",
         "slide-up": "slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+        "dialog-in": "dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
         "pulse-live": "pulse-live 1.4s ease-in-out infinite",
       },
       boxShadow: {

@@ -112,7 +112,7 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
 
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs text-muted-foreground/70">
-            {truncateAddress(tx.txid, 10)}
+            {truncateAddress(tx.txid)}
           </span>
           <CopyButton
             value={tx.txid}

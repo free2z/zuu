@@ -156,7 +156,7 @@ export function ZcashLoginFlow() {
             Signing as
           </span>
           <code className="font-mono text-xs text-foreground" title={address}>
-            {truncateAddress(address, 10)}
+            {truncateAddress(address)}
           </code>
         </div>
       )}

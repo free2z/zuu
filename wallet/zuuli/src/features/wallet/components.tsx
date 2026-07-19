@@ -98,8 +98,8 @@ export function AddressCard({
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Your unified address
         </div>
-        <div className="truncate font-mono text-sm text-foreground">
-          {truncateAddress(address, 14)}
+        <div className="break-all font-mono text-sm text-foreground">
+          {truncateAddress(address)}
         </div>
         <div className="pt-1">
           <CopyButton
@@ -151,8 +151,8 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
             {tx.memo}
           </p>
         ) : (
-          <p className="truncate font-mono text-xs text-muted-foreground/70">
-            {truncateAddress(tx.txid, 10)}
+          <p className="break-all font-mono text-xs text-muted-foreground/70">
+            {truncateAddress(tx.txid)}
           </p>
         )}
       </div>

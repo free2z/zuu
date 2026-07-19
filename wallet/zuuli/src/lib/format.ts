@@ -60,9 +60,24 @@ export function formatUsd(usd: number): string {
   });
 }
 
-export function truncateAddress(address: string, chars = 8): string {
-  if (address.length <= chars * 2 + 3) return address;
-  return `${address.slice(0, chars)}…${address.slice(-chars)}`;
+/**
+ * Shorten a long value (Zcash address, txid) for display while keeping the
+ * security-relevant *trailing* characters visible — those are what a human
+ * checks when verifying an address.
+ *
+ * Renders the first `head` and last `tail` characters joined by a single
+ * middle ellipsis (e.g. `u1st8hhxjv…q7x9gge4kd`). It never emits more than one
+ * ellipsis and always preserves the last `tail` characters. Only the rendered
+ * string is shortened — the full value is untouched, so callers keep it intact
+ * for copying/QR.
+ *
+ * NOTE: render the result WITHOUT a CSS `truncate`/`text-ellipsis` class. That
+ * clips the already-shortened string and clobbers the trailing digits with a
+ * second ellipsis. Use `break-all` if wrapping is a concern.
+ */
+export function truncateAddress(value: string, head = 8, tail = 10): string {
+  if (value.length <= head + tail + 1) return value;
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
 export function formatDate(timestamp: number | null): string {
