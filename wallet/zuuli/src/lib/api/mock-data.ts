@@ -5,6 +5,8 @@
 import type {
   AIModel,
   Article,
+  ArticleFeedPage,
+  ArticleFeedParams,
   AuthUser,
   Livestream,
   PromptResponse,
@@ -158,7 +160,7 @@ export const mockLivestreams: Livestream[] = [
   },
 ];
 
-export const mockArticles: Article[] = [
+const featuredArticles: Article[] = [
   {
     id: 1,
     slug: "why-shielded-by-default",
@@ -173,6 +175,7 @@ export const mockArticles: Article[] = [
     votes: 128,
     published_at: new Date(Date.now() - 2 * 86400000).toISOString(),
     reading_minutes: 6,
+    tags: ["zcash", "privacy", "shielded"],
   },
   {
     id: 2,
@@ -188,6 +191,7 @@ export const mockArticles: Article[] = [
     votes: 74,
     published_at: new Date(Date.now() - 1 * 86400000).toISOString(),
     reading_minutes: 4,
+    tags: ["ai", "2z", "privacy"],
   },
   {
     id: 3,
@@ -203,8 +207,152 @@ export const mockArticles: Article[] = [
     votes: 203,
     published_at: new Date(Date.now() - 6 * 3600000).toISOString(),
     reading_minutes: 5,
+    tags: ["zcash", "identity", "auth"],
   },
 ];
+
+// A broader synthetic corpus so mock mode can demo infinite scroll, tag
+// filtering and search over more than a single page.
+const GEN_CATEGORIES = [
+  "Zcash",
+  "Technology",
+  "Education",
+  "Community",
+  "Privacy",
+  "Research",
+];
+const GEN_TAG_POOL = [
+  "zcash",
+  "privacy",
+  "ai",
+  "halo2",
+  "mining",
+  "wallet",
+  "zk",
+  "governance",
+  "tutorial",
+  "opinion",
+  "research",
+  "lightning",
+  "nym",
+  "defi",
+];
+const GEN_TITLE_A = [
+  "Building",
+  "Understanding",
+  "A Field Guide to",
+  "Notes on",
+  "Rethinking",
+  "The Case for",
+  "Deep Dive:",
+  "Practical",
+  "Inside",
+  "The Future of",
+];
+const GEN_TITLE_B = [
+  "Halo2 Circuits",
+  "Shielded Pools",
+  "Note Commitments",
+  "the 2Z Economy",
+  "Viewing Keys",
+  "Trusted Setup",
+  "Light Clients",
+  "Unified Addresses",
+  "Zero-Knowledge Proofs",
+  "Private Payments",
+  "Wallet Sync",
+  "Recursive SNARKs",
+];
+
+function genArticles(n: number): Article[] {
+  const out: Article[] = [];
+  for (let i = 0; i < n; i++) {
+    const c = mockCreators[i % mockCreators.length];
+    const cat = GEN_CATEGORIES[i % GEN_CATEGORIES.length];
+    const t1 = GEN_TAG_POOL[i % GEN_TAG_POOL.length];
+    const t2 = GEN_TAG_POOL[(i * 5 + 3) % GEN_TAG_POOL.length];
+    const title = `${GEN_TITLE_A[i % GEN_TITLE_A.length]} ${
+      GEN_TITLE_B[(i * 3) % GEN_TITLE_B.length]
+    }`;
+    const daysAgo = (i + 1) * 0.9; // strictly increasing → deterministic recency order
+    out.push({
+      id: 100 + i,
+      slug: `mock-article-${100 + i}`,
+      free2zaddr: c.username,
+      title,
+      subtitle:
+        "A worked example from the Zcash community, written for ZUULI's mock corpus.",
+      content: `# ${title}\n\nThis is placeholder long-form content for the mock feed so ZUULI is fully explorable offline. It covers ${t1} and ${t2} in enough depth to demo the reader.`,
+      image: null,
+      category: cat,
+      author: c,
+      votes: (i * 37 + 11) % 320,
+      published_at: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+      reading_minutes: 3 + (i % 8),
+      tags: Array.from(new Set([cat.toLowerCase(), t1, t2])),
+    });
+  }
+  return out;
+}
+
+export const mockArticles: Article[] = [...featuredArticles, ...genArticles(57)];
+
+function articleTime(a: Article): number {
+  const t = a.published_at ? new Date(a.published_at).getTime() : 0;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Mock counterpart to `articles.feed` — applies tag AND-filter, a naive
+ * substring "search", the requested ranking and PageNumber pagination over the
+ * fixtures, so infinite scroll / filters / search all work with no backend.
+ */
+export function mockArticleFeed(
+  params: Required<Pick<ArticleFeedParams, "page" | "pageSize" | "sort">> &
+    Pick<ArticleFeedParams, "tags" | "search" | "category">,
+): ArticleFeedPage {
+  const { page, pageSize, sort } = params;
+  let list = [...mockArticles];
+
+  if (params.category) {
+    list = list.filter((a) => a.category === params.category);
+  }
+  if (params.tags?.length) {
+    const want = params.tags.map((t) => t.toLowerCase());
+    list = list.filter((a) => {
+      const have = (a.tags ?? []).map((t) => t.toLowerCase());
+      return want.every((t) => have.includes(t)); // AND
+    });
+  }
+  if (params.search) {
+    const q = params.search.toLowerCase();
+    list = list.filter((a) =>
+      [a.title, a.subtitle ?? "", a.content, (a.tags ?? []).join(" ")]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }
+
+  // Ranking. `search` results arrive already relevance-ordered from the real
+  // backend, so mock leaves the filtered order alone in that case.
+  if (!params.search) {
+    if (sort === "updated" || sort === "popular") {
+      // Newest first; `popular` is recency-decayed and reads as fresh here.
+      list.sort((a, b) => articleTime(b) - articleTime(a));
+    } else if (sort === "score") {
+      list.sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+    } else if (sort === "random") {
+      list.sort((a, b) => (hashString(a.slug ?? "") % 97) - (hashString(b.slug ?? "") % 97));
+    }
+  }
+
+  const count = list.length;
+  const start = (page - 1) * pageSize;
+  const items = list.slice(start, start + pageSize);
+  const next = start + pageSize < count ? page + 1 : null;
+  return { items, next, count };
+}
 
 export const mockTransactions: TuziTransaction[] = [
   {
