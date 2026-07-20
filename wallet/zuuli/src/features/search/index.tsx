@@ -5,6 +5,7 @@ import {
   BookOpen,
   Clock,
   FileText,
+  Radio,
   Search as SearchIcon,
   Users,
   X,
@@ -235,6 +236,18 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
               className="h-4 w-4 shrink-0 text-primary"
               aria-label="Verified"
             />
+          ) : null}
+          {/* Server-computed live flag on the creator list payload — renders
+              only when the creator is actually broadcasting right now. Absent
+              on older backends (`undefined`), so the badge just doesn't show. */}
+          {creator.is_live ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#f43f5e]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#f43f5e]"
+              aria-label="Live now"
+            >
+              <Radio className="h-3 w-3" aria-hidden />
+              Live
+            </span>
           ) : null}
         </div>
         <div className="truncate text-xs text-muted-foreground">

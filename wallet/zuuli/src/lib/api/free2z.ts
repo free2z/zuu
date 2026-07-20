@@ -99,6 +99,8 @@ interface RawCreator {
   can_stream?: boolean;
   total?: string | number | null;
   zpages?: number;
+  /** Server-computed "is this creator live right now" (Dyte room state). */
+  is_live?: boolean;
 }
 interface RawZPage {
   free2zaddr: string;
@@ -144,6 +146,9 @@ function mapCreator(c: RawCreator): SimpleCreator {
     is_verified: c.is_verified ?? false,
     zpages: typeof c.zpages === "number" ? c.zpages : undefined,
     member_price: parsePrice(c.member_price),
+    // Pass through as-is: `undefined` (field absent) is meaningful — it lets
+    // consumers distinguish "backend doesn't report live state" from "not live".
+    is_live: c.is_live,
   };
 }
 
@@ -161,6 +166,10 @@ function mapCreatorDetail(c: RawCreator): CreatorDetail {
       ) ?? null,
     is_verified: c.is_verified ?? false,
     can_stream: c.can_stream ?? false,
+    // Preserve `undefined` (older backend) vs `false` (confirmed offline) so
+    // the creator screen can fall back to a live-status probe only when the
+    // payload genuinely can't tell it.
+    is_live: c.is_live,
     member_price: parsePrice(c.member_price),
     zpages: typeof c.zpages === "number" ? c.zpages : 0,
     total: c.total != null ? Math.round(Number(c.total)) || 0 : 0,
