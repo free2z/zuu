@@ -303,6 +303,17 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
   const [justSubscribed, setJustSubscribed] = useState<Subscription | null>(
     null,
   );
+  // Cancelling / resuming only flips auto-renew server-side (DELETE sets
+  // `max_price` to 0; a fresh POST restores it) — the membership ROW lives on
+  // until `expires`, so `mySubscriptions` keeps returning it either way. These
+  // two optimistic overrides let the dialog reflect the user's latest action
+  // instantly, before the background `reloadSubscriptions` refetch lands.
+  const [renewOverride, setRenewOverride] = useState<boolean | null>(null);
+  // For a free follow there's no "access until expires" — unfollowing should
+  // remove the follow outright. But the backend/mock keeps the row (DELETE only
+  // stops renewal), so we track the unfollow intent locally to drop the follow
+  // from the UI immediately and keep it dropped across the refetch.
+  const [unfollowed, setUnfollowed] = useState(false);
 
   const price = creator.member_price ?? 0;
   const enough = price <= balance;
@@ -317,13 +328,19 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
     (s) => s.star.username.toLowerCase() === creator.username.toLowerCase(),
   );
   const sub = remoteSub ?? justSubscribed;
-  const subscribed = Boolean(sub);
+  const subscribed = unfollowed ? false : Boolean(sub);
   // `max_price === 0` means the fan cancelled auto-renew (DELETE
   // /api/tuzis/subscribe/{username}) — access still runs to `expires`, it
-  // just won't recur.
-  const renewing = sub ? Number(sub.max_price ?? 0) > 0 : true;
+  // just won't recur. `renewOverride` reflects a just-issued cancel/resume
+  // before the refetch confirms it.
+  const renewing =
+    renewOverride ?? (sub ? Number(sub.max_price ?? 0) > 0 : true);
 
-  async function subscribe() {
+  // A fresh subscribe and a resume-renewal are the same backend call — POST
+  // /api/tuzis/subscribe/{username} get-or-creates the membership and (re)sets
+  // renewal at the current price — so they share one runner and differ only in
+  // the copy and whether the dialog stays open to show the flipped state.
+  async function runSubscribe(mode: "subscribe" | "resume") {
     if (!user) {
       navigate("/login");
       return;
@@ -331,8 +348,12 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
     setBusy(true);
     try {
       await tuzi.subscribe(creator.username);
+      // Debit only after the POST succeeds, and only for a paid tier — never
+      // credit/debit on failure.
       if (price > 0) adjustTuzis(-price);
       const expires = new Date(Date.now() + 30 * 86400000).toISOString();
+      setUnfollowed(false);
+      if (mode === "resume") setRenewOverride(true);
       setJustSubscribed({
         fan: {
           username: user.username,
@@ -342,32 +363,52 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
         expires,
         max_price: String(price),
       });
-      toast.success(`Subscribed to ${name}`, {
-        description:
-          price > 0
-            ? `Renews monthly · ${formatTuzis(price)}. You've unlocked ${name}'s subscriber posts and livestreams.`
-            : `You've unlocked ${name}'s subscriber posts and livestreams.`,
-      });
-      setOpen(false);
+      if (mode === "resume") {
+        toast.success(`Auto-renew resumed for ${name}`, {
+          description:
+            price > 0
+              ? `Your membership renews monthly · ${formatTuzis(price)}.`
+              : `Your membership will keep renewing.`,
+        });
+        // Keep the dialog open so it re-renders into the resumed state.
+      } else {
+        toast.success(`Subscribed to ${name}`, {
+          description:
+            price > 0
+              ? `Renews monthly · ${formatTuzis(price)}. You've unlocked ${name}'s subscriber posts and livestreams.`
+              : `You've unlocked ${name}'s subscriber posts and livestreams.`,
+        });
+        setOpen(false);
+      }
       void reloadSubscriptions();
     } catch {
-      toast.error("Couldn't complete the subscription. Please try again.");
+      toast.error(
+        mode === "resume"
+          ? "Couldn't resume auto-renew. Please try again."
+          : "Couldn't complete the subscription. Please try again.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  async function unsubscribe() {
+  const subscribe = () => runSubscribe("subscribe");
+  const resumeRenewal = () => runSubscribe("resume");
+
+  // Paid tier: cancel auto-renew. Access continues to `expires`; only renewal
+  // stops. The dialog stays open so it re-renders into the "Resume renewal"
+  // state.
+  async function cancelRenewal() {
     setBusy(true);
     try {
       await tuzi.unsubscribe(creator.username);
+      setRenewOverride(false);
       setJustSubscribed(null);
       toast.success("Membership won't renew", {
         description: sub?.expires
           ? `You'll keep access to ${name}'s subscriber posts and livestreams until ${formatMembershipDate(sub.expires)}.`
           : undefined,
       });
-      setOpen(false);
       void reloadSubscriptions();
     } catch {
       toast.error("Couldn't update your membership. Please try again.");
@@ -376,13 +417,32 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
     }
   }
 
+  // Free follow: undo the follow entirely.
+  async function unfollow() {
+    setBusy(true);
+    try {
+      await tuzi.unsubscribe(creator.username);
+      setUnfollowed(true);
+      setJustSubscribed(null);
+      toast.success(`Unfollowed ${name}`);
+      void reloadSubscriptions();
+    } catch {
+      toast.error("Couldn't unfollow. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!creator.member_price) {
-    // No paid tier — a plain follow/subscribe, reflected the same way.
+    // No paid tier — a plain follow/unfollow toggle.
     return (
       <Button
         variant={subscribed ? "secondary" : "default"}
-        onClick={subscribe}
-        disabled={busy || subscribed}
+        onClick={subscribed ? unfollow : subscribe}
+        disabled={busy}
+        aria-label={
+          subscribed ? `Unfollow ${name}` : `Follow ${name}`
+        }
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -440,13 +500,40 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
               Close
             </Button>
             {renewing ? (
-              <Button variant="outline" onClick={unsubscribe} disabled={busy}>
+              <Button
+                variant="outline"
+                onClick={cancelRenewal}
+                disabled={busy}
+                aria-label={`Turn off auto-renew for your ${name} membership`}
+              >
                 {busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                 ) : null}
                 Cancel membership
               </Button>
-            ) : null}
+            ) : enough ? (
+              <Button
+                onClick={resumeRenewal}
+                disabled={busy}
+                aria-label={`Resume auto-renew for your ${name} membership`}
+              >
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : null}
+                Resume renewal
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setOpen(false);
+                  navigate("/buy");
+                }}
+              >
+                Not enough 2Z — buy more
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
