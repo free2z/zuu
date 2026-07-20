@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
 import { Check, Copy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { visit } from "unist-util-visit";
 
 import remarkDirective from "remark-directive";
 import remarkGfm from "remark-gfm";
@@ -24,8 +25,26 @@ import { cn } from "@/lib/utils";
 import remarkOembed from "@/lib/markdown/remark-oembed";
 import remarkQrCodePlugin from "@/lib/markdown/remark-qrcode";
 import Mermaid from "@/components/common/Mermaid";
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
 import "./markdown.css";
+
+/**
+ * Rendering variants:
+ *   • "article"  — trusted, creator/AI long-form content. Full rich pipeline:
+ *                  auto-loading images, native video/audio embeds, QR codes,
+ *                  mermaid diagrams.
+ *   • "comment"  — UNTRUSTED, user-supplied comment bodies. Hardened: remote
+ *                  images and media embeds degrade to plain external LINKS (no
+ *                  silent network beacons that deanonymize readers by IP), and
+ *                  `::qrcode` / mermaid are shown as text/code rather than a
+ *                  scannable QR or rendered diagram (phishing + perf). This is
+ *                  the primary render-layer privacy fix; see also the CSP note
+ *                  in `src-tauri/tauri.conf.json` (intentionally NOT tightened
+ *                  for images because trusted article markdown legitimately
+ *                  hotlinks arbitrary hosts).
+ */
+export type MarkdownVariant = "article" | "comment";
 
 /**
  * True for links that must leave the app (http/https/mailto/tel and any other
@@ -185,11 +204,15 @@ function CodeBlock({
   );
 }
 
-/** Extract a YouTube video id from the common URL shapes. */
+/**
+ * Extract a YouTube video id from the common URL shapes. Hostnames are matched
+ * EXACTLY (not `endsWith`), so a lookalike like `notyoutube.com` never slips
+ * through the allowlist.
+ */
 function youTubeId(url: URL): string | null {
   const host = url.hostname.replace(/^www\./, "");
   if (host === "youtu.be") return url.pathname.slice(1) || null;
-  if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+  if (host === "youtube.com" || host === "youtube-nocookie.com") {
     if (url.pathname.startsWith("/embed/"))
       return url.pathname.split("/")[2] || null;
     return url.searchParams.get("v");
@@ -197,9 +220,10 @@ function youTubeId(url: URL): string | null {
   return null;
 }
 
-/** Extract a numeric Vimeo id. */
+/** Extract a numeric Vimeo id (exact-host match only). */
 function vimeoId(url: URL): string | null {
-  if (!url.hostname.replace(/^www\./, "").endsWith("vimeo.com")) return null;
+  const host = url.hostname.replace(/^www\./, "");
+  if (host !== "vimeo.com" && host !== "player.vimeo.com") return null;
   const m = url.pathname.match(/\/(\d+)/);
   return m ? m[1] : null;
 }
@@ -212,8 +236,19 @@ function vimeoId(url: URL): string | null {
  *   • .mp4/... → native <video controls>
  *   • .mp3/... → native <audio controls>
  *   • anything else → a plain external link.
+ *
+ * In the "comment" (untrusted) variant, NOTHING auto-loads: every embed
+ * degrades to a plain external link. Native <video>/<audio> from an arbitrary
+ * attacker host would silently beacon every reader's IP on render, and even the
+ * fixed YouTube/Vimeo iframes ping third parties — neither is acceptable for
+ * anonymous, unmoderated comment content in a wallet.
  */
-function SafeEmbed({ url }: { url: string }) {
+function SafeEmbed({ url, variant }: { url: string; variant: MarkdownVariant }) {
+  // Untrusted comments never auto-load remote media — always a link.
+  if (variant === "comment") {
+    return <MarkdownLink href={url}>{url}</MarkdownLink>;
+  }
+
   let parsed: URL | null = null;
   try {
     parsed = new URL(url);
@@ -272,11 +307,68 @@ function SafeEmbed({ url }: { url: string }) {
   return <MarkdownLink href={url}>{url}</MarkdownLink>;
 }
 
+// ── Math DoS guard (defense-in-depth) ───────────────────────────────────────
+// A comment body of `$$` + `{`×400 + … + `}`×400 + `$$` makes rehype-mathjax
+// recurse until it throws `RangeError: Maximum call stack size exceeded`
+// SYNCHRONOUSLY inside React render. The <Markdown> ErrorBoundary is the
+// primary fix (degrade to plain text), but we ALSO neutralize the expression
+// before it ever reaches MathJax: any `$$…$$` / `$…$` whose source is absurdly
+// long or brace-nested far past anything real math needs is converted back to a
+// plain code node showing the raw TeX. Legitimate math is nowhere near these
+// caps.
+const MATH_MAX_LEN = 3000;
+const MATH_MAX_BRACE_DEPTH = 30;
+
+function maxBraceDepth(s: string): number {
+  let depth = 0;
+  let max = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "{") {
+      depth++;
+      if (depth > max) max = depth;
+    } else if (ch === "}" && depth > 0) {
+      depth--;
+    }
+  }
+  return max;
+}
+
 /**
- * Themed markdown renderer used by Articles and AI chat. Styled inline (no
- * tailwind-typography dependency) so it always matches the ZUULI dark theme.
+ * remark plugin (must run AFTER remark-math): defuses pathological math nodes
+ * by turning them into plain `code`/`inlineCode` so rehype-mathjax never sees
+ * them and cannot stack-overflow the render.
  *
- * Feature parity with the free2z web renderer:
+ * @type {import('unified').Plugin<[], import('mdast').Root>}
+ */
+function remarkMathGuard() {
+  return (tree: any) => {
+    visit(tree, (node: any) => {
+      if (node.type !== "math" && node.type !== "inlineMath") return;
+      const value: string = node.value ?? "";
+      if (
+        value.length > MATH_MAX_LEN ||
+        maxBraceDepth(value) > MATH_MAX_BRACE_DEPTH
+      ) {
+        node.type = node.type === "math" ? "code" : "inlineCode";
+        node.lang = null;
+        node.meta = null;
+        // Drop any math-specific hast hints so the default code handler runs.
+        if (node.data) {
+          delete node.data.hName;
+          delete node.data.hProperties;
+        }
+      }
+    });
+  };
+}
+
+/**
+ * Themed markdown renderer used by Articles, AI chat, and comments. Styled
+ * inline (no tailwind-typography dependency) so it always matches the ZUULI
+ * dark theme.
+ *
+ * Feature parity with the free2z web renderer (article variant):
  *   • display math (`$$…$$`) via remark-math + rehype-mathjax/svg (offline SVG),
  *   • syntax highlight + opt-in line numbers via rehype-prism-plus,
  *   • mermaid diagrams (lazy-loaded), `::qrcode[addr]`, safe `::embed[URL]`,
@@ -284,16 +376,25 @@ function SafeEmbed({ url }: { url: string }) {
  *
  * Raw HTML stays ESCAPED (react-markdown's default — no rehype-raw): a wallet
  * must never render untrusted HTML.
+ *
+ * The whole render is wrapped in an ErrorBoundary that degrades to the plain,
+ * escaped source text — so no single body (however malicious) can throw during
+ * render and unmount the surrounding page. Pass `variant="comment"` for
+ * untrusted user content (see `MarkdownVariant`).
  */
 export function Markdown({
   children,
   className,
+  variant = "article",
 }: {
   children: string;
   className?: string;
+  variant?: MarkdownVariant;
 }) {
-  // Memoize on content: mathjax/mermaid/prism are expensive, and AI streaming
-  // re-renders this on every token.
+  const isComment = variant === "comment";
+
+  // Memoize on content + variant: mathjax/mermaid/prism are expensive, and AI
+  // streaming re-renders this on every token.
   const rendered = useMemo(
     () => (
       <ReactMarkdown
@@ -303,6 +404,8 @@ export function Markdown({
           remarkQrCodePlugin,
           remarkGfm,
           [remarkMath, { singleDollarTextMath: false }],
+          // AFTER remark-math so the math nodes already exist to be defused.
+          remarkMathGuard,
         ]}
         rehypePlugins={[
           rehypeMathjaxSvg,
@@ -312,6 +415,15 @@ export function Markdown({
         components={{
           a: MarkdownLink,
           pre: CodeBlock,
+          // Untrusted comments: remote images become plain external links so
+          // they never auto-load and beacon the reader's IP to an attacker.
+          img: isComment
+            ? ({ src, alt }) => (
+                <MarkdownLink href={typeof src === "string" ? src : "#"}>
+                  {alt || (typeof src === "string" ? src : "image")}
+                </MarkdownLink>
+              )
+            : undefined,
           table: ({ node, ...props }) => (
             <div className="overflow-x-auto">
               <table {...props} />
@@ -320,7 +432,11 @@ export function Markdown({
           code({ node, className: codeClass, children: codeChildren, ...rest }) {
             // Directive- and fence-driven custom renderers.
             if (/language-mermaid/.test(codeClass || "")) {
-              return <Mermaid chart={childrenToText(codeChildren)} />;
+              // Comments: don't render arbitrary diagrams (perf + surface) —
+              // fall through to a plain code block showing the source.
+              if (!isComment) {
+                return <Mermaid chart={childrenToText(codeChildren)} />;
+              }
             }
             if (codeClass === "qrcode-display") {
               const addr =
@@ -328,6 +444,16 @@ export function Markdown({
                 node?.properties?.["data-qr-code-addr"]?.toString() ||
                 "";
               if (addr) {
+                // Untrusted comments: never render a scannable QR of an
+                // attacker-chosen string inside wallet chrome (phishing aid) —
+                // show the raw value as text so it's clearly user-supplied.
+                if (isComment) {
+                  return (
+                    <code className="break-all text-xs text-muted-foreground">
+                      {addr}
+                    </code>
+                  );
+                }
                 return (
                   <span className="my-4 flex flex-col items-center gap-2">
                     <span className="rounded-lg bg-white p-3">
@@ -345,7 +471,7 @@ export function Markdown({
                 node?.properties?.["dataEmbedUrl"]?.toString() ||
                 node?.properties?.["data-embed-url"]?.toString() ||
                 "";
-              if (url) return <SafeEmbed url={url} />;
+              if (url) return <SafeEmbed url={url} variant={variant} />;
             }
 
             return (
@@ -359,7 +485,7 @@ export function Markdown({
         {children}
       </ReactMarkdown>
     ),
-    [children],
+    [children, variant, isComment],
   );
 
   return (
@@ -401,7 +527,22 @@ export function Markdown({
         className,
       )}
     >
-      {rendered}
+      {/*
+        Per-body error boundary: a malicious/oversized body (e.g. a MathJax
+        stack overflow that slips past the guard above) degrades to its plain,
+        escaped source text instead of throwing during render and taking the
+        surrounding page down. `resetKeys` retries when the content changes.
+      */}
+      <ErrorBoundary
+        resetKeys={[children, variant]}
+        fallback={
+          <div className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
+            {children}
+          </div>
+        }
+      >
+        {rendered}
+      </ErrorBoundary>
     </div>
   );
 }

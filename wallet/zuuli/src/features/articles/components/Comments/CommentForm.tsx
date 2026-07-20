@@ -113,7 +113,9 @@ export function CommentForm({
       {preview ? (
         <div className="min-h-[6rem] w-full min-w-0 overflow-x-auto rounded-md border border-border bg-background/50 px-3 py-2">
           {content.trim() ? (
-            <Markdown>{content}</Markdown>
+            // Preview with the same hardened variant the posted comment uses,
+            // so what you see is what readers get.
+            <Markdown variant="comment">{content}</Markdown>
           ) : (
             <p className="text-sm text-muted-foreground">Nothing to preview yet.</p>
           )}
