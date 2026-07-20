@@ -58,9 +58,81 @@ Checklist:
 
 All four registration points (commands.rs handler, lib.rs invoke_handler, build.rs COMMANDS, models.rs) must be in sync or the build fails.
 
+## Sync driver (`src/wallet/sync.rs`)
+
+We **do not** use `zcash_client_backend::sync::run()`. Upstream documents it as a
+reference implementation (no progress reporting, no interruption, no enhancement,
+no parallelism), and it unconditionally calls `update_subtree_roots()` with
+`start_index: 0` on **every** invocation. Driving it from a 30s poll loop meant a
+fully caught-up wallet re-downloaded and re-inserted every subtree root — measured
+at **1129 Sapling + 767 Orchard = 1896 roots every 30 seconds**. That is why
+"catch up 2 blocks" took minutes.
+
+`sync.rs` now drives the flow itself, modelled on
+`z/zcash/zcash-devtool/src/commands/wallet/sync.rs`:
+
+```
+update_chain_tip → reorg-while-idle check → refresh_subtree_roots (incremental)
+  → loop { suggest_scan_ranges → clamp to BATCH_SIZE → download_blocks
+           → download_chain_state → scan_cached_blocks → delete cached batch
+           → emit progress → enhance_transactions }
+```
+
+Key points:
+
+- **Subtree roots are incremental.** `WalletSummary::next_{sapling,orchard,ironwood}_subtree_index()`
+  gives the first index the wallet still needs; it is passed as
+  `GetSubtreeRootsArg::start_index` *and* as the `start_index` argument to
+  `put_*_subtree_roots`. A caught-up wallet transfers **zero** roots.
+- **Cadence:** refreshed at startup, whenever `suggest_scan_ranges()` is non-empty
+  (so the shards covering what we are about to scan are always present), and
+  otherwise at most every `SUBTREE_ROOT_REFRESH_INTERVAL` (15 min). A shard is
+  2^16 note commitments — on mainnet a new one completes on the order of days, so
+  15 min is ~2 orders of magnitude tighter than needed.
+  `refresh_subtree_roots_if_stale()` is the hook for witness-dependent ops (sends).
+- **Pool-agnostic:** `fetch_subtree_roots::<H>()` is generic over the Merkle hash
+  type, inferred from the `put_*_subtree_roots` call site — so neither `sapling`
+  nor `orchard` needs to be a direct dependency of this crate, and adding a pool
+  is a three-line call. Sapling, Orchard **and Ironwood** are all handled.
+- **Ironwood failure policy — nothing latches on a network error.** Sapling/Orchard
+  fetch errors fail the pass (surfaced + endpoint rotation). Ironwood errors are
+  swallowed instead, because a pre-activation lightwalletd may legitimately reject
+  `ShieldedProtocol::Ironwood` and that must not wedge sync. To keep that from
+  silently degrading a session: it takes `IRONWOOD_MAX_CONSECUTIVE_FAILURES` (3)
+  consecutive failures to *suspend* the pool, the suspension expires after
+  `IRONWOOD_RETRY_BACKOFF` (30 min), any success resets it, endpoint rotation
+  clears it, and every step logs at `warn!`. The only true latch is
+  `ironwood_backend_tracks`, set from a purely local observation (we fed the
+  wallet roots and `next_ironwood_subtree_index()` did not advance ⇒ the backend
+  uses the no-op default impl). `zcash_client_sqlite` **does** override
+  `put_ironwood_subtree_roots`, so that branch is inert belt-and-braces for us.
+- **Adaptive poll:** `SYNC_POLL_INTERVAL_MIN` (2s) right after a pass that scanned
+  blocks, doubling up to `SYNC_POLL_INTERVAL_MAX` (30s) once idle.
+- **Reorgs:** a `ChainError::Scan` continuity error rewinds to
+  `err.at_height() - REORG_REWIND_MARGIN` (10), falling back to `at_height - 2`
+  when the requested height has no commitment-tree checkpoint, and re-applies the
+  chain tip afterwards. A tip that is *below* our max scanned height with a
+  *different* block hash is also treated as a reorg (a bare height comparison
+  would ratchet the wallet backwards whenever we hit a lagging server).
+- **Block cache:** still `MemBlockCache` — `FsBlockDb` is behind librustzcash's
+  `unstable` feature and `BlockDb` has no write API. Memory is bounded by the
+  driver: one `BATCH_SIZE` (2500) batch is held, then deleted right after scanning.
+- **Preserved behavior:** issue #180 birthday/`block_max_scanned` handling,
+  endpoint rotation after `MAX_CONSECUTIVE_FAILURES`, `last_sync_error`
+  surface/clear semantics, `syncing`-flag cancellation, the `zcash://sync-progress`
+  event shape, and `enhance_transactions` memo retrieval.
+
+Follow-up candidates (deliberately **not** in scope): librustzcash's
+`sync-decryptor` feature (parallel trial decryption), and a persistent block cache
+once a non-`unstable` writable block source exists.
+
 ## Concurrency rules
 
-- **`state.db`** (`Arc<Mutex>`) — the write DB. Held by the sync task during batch processing. **Never hold this lock in UI command handlers** — use `state.read_db` instead.
+- **`state.db`** (`Arc<Mutex>`) — the write DB. The sync driver takes it only for
+  short local operations (`update_chain_tip`, `scan_cached_blocks`,
+  `put_*_subtree_roots`, `truncate_to_height`) and **never** across network I/O:
+  block/root/tree-state streaming all happens with no lock held. **Never hold this
+  lock in UI command handlers** — use `state.read_db` instead.
 - **`state.read_db`** (`Arc<Mutex>`) — read-only DB connection for non-blocking UI reads. Safe to lock briefly in any command.
 - **Wallet switching** — stops sync (sets `syncing = false` + aborts handle), swaps `read_db` immediately, swaps `db` in a background task (waits for sync to release its lock).
 - **Keychain ops** — always run in `tokio::task::spawn_blocking` because macOS Keychain APIs are synchronous and may prompt for biometric.
