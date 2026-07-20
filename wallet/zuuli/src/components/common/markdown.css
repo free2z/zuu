@@ -1,0 +1,300 @@
+/*
+ * Markdown rendering CSS for the ZUULI pipeline. Ported from the free2z web
+ * renderer (MathMarkdown.css) and re-themed for ZUULI's dark, violet UI.
+ *
+ * Everything is scoped under `.zuuli-markdown` so it can never leak into the
+ * rest of the app, and so its specificity (0,2,x) reliably wins over the
+ * wrapper's Tailwind arbitrary-variant rules ([&_pre] etc. = 0,1,1).
+ *
+ * Colors use VSCode-dark token hues (which read well on a dark surface); the
+ * code surface itself uses the app's own --background token so it sits a shade
+ * below the surrounding card.
+ */
+
+.zuuli-markdown {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ *
+ * Code blocks (rehype-prism-plus)
+ * ------------------------------------------------------------------ */
+
+.zuuli-markdown pre[class*="language-"],
+.zuuli-markdown code[class*="language-"] {
+  color: #d4d4d4;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-shadow: none;
+  font-family: Menlo, Monaco, Consolas, "Andale Mono", "Ubuntu Mono",
+    "Courier New", monospace;
+  direction: ltr;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  line-height: 1.6;
+  -moz-tab-size: 4;
+  -o-tab-size: 4;
+  tab-size: 4;
+  -webkit-hyphens: none;
+  -moz-hyphens: none;
+  -ms-hyphens: none;
+  hyphens: none;
+}
+
+.zuuli-markdown pre[class*="language-"]::selection,
+.zuuli-markdown code[class*="language-"]::selection,
+.zuuli-markdown pre[class*="language-"] *::selection,
+.zuuli-markdown code[class*="language-"] *::selection {
+  text-shadow: none;
+  background: #264f78;
+}
+
+.zuuli-markdown pre[class*="language-"] {
+  padding: 1em;
+  margin: 0.5em 0;
+  overflow: auto;
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+}
+
+.zuuli-markdown :not(pre) > code[class*="language-"] {
+  padding: 0.1em 0.3em;
+  border-radius: 0.3em;
+  color: #db4c69;
+  background: hsl(var(--background));
+}
+
+/* ------------------------------------------------------------------ *
+ * Prism tokens
+ * ------------------------------------------------------------------ */
+
+.zuuli-markdown .namespace {
+  opacity: 0.7;
+}
+.zuuli-markdown code .token.doctype .token.doctype-tag {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.doctype .token.name {
+  color: #9cdcfe;
+}
+.zuuli-markdown code .token.comment,
+.zuuli-markdown code .token.prolog {
+  color: #6a9955;
+}
+.zuuli-markdown code .token.punctuation,
+.zuuli-markdown code .language-html .language-css .token.punctuation,
+.zuuli-markdown code .language-html .language-javascript .token.punctuation {
+  color: #d4d4d4;
+}
+.zuuli-markdown code .token.property,
+.zuuli-markdown code .token.tag,
+.zuuli-markdown code .token.boolean,
+.zuuli-markdown code .token.number,
+.zuuli-markdown code .token.constant,
+.zuuli-markdown code .token.symbol,
+.zuuli-markdown code .token.inserted,
+.zuuli-markdown code .token.unit {
+  color: #b5cea8;
+}
+.zuuli-markdown code .token.selector,
+.zuuli-markdown code .token.attr-name,
+.zuuli-markdown code .token.string,
+.zuuli-markdown code .token.char,
+.zuuli-markdown code .token.builtin,
+.zuuli-markdown code .token.deleted {
+  color: #ce9178;
+}
+.zuuli-markdown code .language-css .token.string.url {
+  text-decoration: underline;
+}
+.zuuli-markdown code .token.operator,
+.zuuli-markdown code .token.entity {
+  color: #d4d4d4;
+}
+.zuuli-markdown code .token.operator.arrow {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.atrule {
+  color: #ce9178;
+}
+.zuuli-markdown code .token.atrule .token.rule {
+  color: #c586c0;
+}
+.zuuli-markdown code .token.atrule .token.url {
+  color: #9cdcfe;
+}
+.zuuli-markdown code .token.atrule .token.url .token.function {
+  color: #dcdcaa;
+}
+.zuuli-markdown code .token.atrule .token.url .token.punctuation {
+  color: #d4d4d4;
+}
+.zuuli-markdown code .token.keyword {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.keyword.module,
+.zuuli-markdown code .token.keyword.control-flow {
+  color: #c586c0;
+}
+.zuuli-markdown code .token.function,
+.zuuli-markdown code .token.function .token.maybe-class-name {
+  color: #dcdcaa;
+}
+.zuuli-markdown code .token.regex {
+  color: #d16969;
+}
+.zuuli-markdown code .token.important {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.italic {
+  font-style: italic;
+}
+.zuuli-markdown code .token.constant {
+  color: #9cdcfe;
+}
+.zuuli-markdown code .token.class-name,
+.zuuli-markdown code .token.maybe-class-name {
+  color: #4ec9b0;
+}
+.zuuli-markdown code .token.console,
+.zuuli-markdown code .token.parameter,
+.zuuli-markdown code .token.interpolation {
+  color: #9cdcfe;
+}
+.zuuli-markdown code .token.punctuation.interpolation-punctuation {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.boolean {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.property,
+.zuuli-markdown code .token.variable,
+.zuuli-markdown code .token.imports .token.maybe-class-name,
+.zuuli-markdown code .token.exports .token.maybe-class-name {
+  color: #9cdcfe;
+}
+.zuuli-markdown code .token.selector,
+.zuuli-markdown code .token.escape {
+  color: #d7ba7d;
+}
+.zuuli-markdown code .token.tag {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.tag .token.punctuation,
+.zuuli-markdown code .token.cdata {
+  color: #808080;
+}
+.zuuli-markdown code .token.attr-name {
+  color: #9cdcfe;
+}
+.zuuli-markdown code .token.attr-value,
+.zuuli-markdown code .token.attr-value .token.punctuation {
+  color: #ce9178;
+}
+.zuuli-markdown code .token.attr-value .token.punctuation.attr-equals {
+  color: #d4d4d4;
+}
+.zuuli-markdown code .token.entity {
+  color: #569cd6;
+}
+.zuuli-markdown code .token.namespace {
+  color: #4ec9b0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Line numbers + line highlighting (rehype-prism-plus, showLineNumbers)
+ * ------------------------------------------------------------------ */
+
+.zuuli-markdown pre[class*="language-"] > code[class*="language-"] {
+  position: relative;
+  z-index: 1;
+}
+
+.zuuli-markdown .code-highlight {
+  float: left;
+  min-width: 100%;
+}
+
+.zuuli-markdown .code-line {
+  display: block;
+  padding-left: 16px;
+  padding-right: 16px;
+  margin-left: -16px;
+  margin-right: -16px;
+  border-left-width: 4px;
+  border-left-color: rgba(0, 0, 0, 0);
+}
+
+.zuuli-markdown .code-line.inserted {
+  background-color: rgba(16, 185, 129, 0.2);
+}
+
+.zuuli-markdown .code-line.deleted {
+  background-color: rgba(239, 68, 68, 0.2);
+}
+
+.zuuli-markdown .highlight-line {
+  margin-left: -16px;
+  margin-right: -16px;
+  background-color: hsl(var(--primary) / 0.15);
+  border-left-width: 4px;
+  border-left-color: hsl(var(--primary));
+}
+
+.zuuli-markdown .line-number::before {
+  display: inline-block;
+  width: 1.25rem;
+  text-align: right;
+  margin-right: 16px;
+  margin-left: -8px;
+  color: hsl(var(--muted-foreground));
+  content: attr(line);
+}
+
+/* ------------------------------------------------------------------ *
+ * Math (rehype-mathjax/svg) — themed for a dark surface (no white-bg hack).
+ * MathJax SVG paths use `currentColor`, so inheriting the foreground color is
+ * all that is needed to make equations legible on the dark UI.
+ * ------------------------------------------------------------------ */
+
+.zuuli-markdown mjx-container {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  color: hsl(var(--foreground));
+}
+
+.zuuli-markdown mjx-container svg {
+  max-width: 100%;
+  display: block;
+  margin: 0.5em auto;
+}
+
+/* ------------------------------------------------------------------ *
+ * Footnotes (remark-gfm) — legible, and not clipped.
+ * ------------------------------------------------------------------ */
+
+.zuuli-markdown .footnotes {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.zuuli-markdown .footnotes h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+/* Give in-page anchor targets (footnotes + heading slugs) breathing room so a
+ * smooth-scroll never parks them flush against the top of a scroll container. */
+.zuuli-markdown [id] {
+  scroll-margin-top: 5rem;
+}
