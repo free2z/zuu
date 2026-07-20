@@ -26,3 +26,44 @@ tauri-plugin-zcash = { path = "../../plugins/tauri-plugin-zcash" }
 # (RFC 8252) — binds 127.0.0.1, serves a single request, then shuts down. Kept
 # out of the shared tauri-plugin-zcash crate since it's ZUULI-specific.
 tiny_http = "0.12"
+
+# ---------------------------------------------------------------------------
+# Build profiles. DO NOT DELETE — this is load-bearing for `tauri dev` usability.
+#
+# This package is its own workspace root (there is no `[workspace]` above it and
+# no repo-root Cargo.toml), so `[profile.*]` declared here IS honored for the
+# whole dependency graph — including the `tauri-plugin-zcash` path dep and the
+# librustzcash path deps in `z/zcash/librustzcash`.
+#
+# Why: `npm run tauri dev` builds the *dev* profile. At the Cargo default of
+# `opt-level = 0`, the entire Zcash crypto stack (sapling-crypto, orchard,
+# halo2_proofs, bls12_381, pasta_curves, group/ff, incrementalmerkletree /
+# shardtree, blake2b_simd, zcash_note_encryption) runs unoptimized. Trial
+# decryption, Pedersen hashing and shardtree inserts are then 20-100x slower
+# than release, and chain sync crawls — minutes to advance a couple of blocks.
+#
+# The fix is the standard Zashi / zcash-devtool pattern: optimize dependencies,
+# leave our own crates at opt-level 0 so edit-rebuild stays fast.
+# ---------------------------------------------------------------------------
+
+[profile.dev]
+# Our own crates: unoptimized so incremental rebuilds stay quick and debugging
+# (breakpoints, variable inspection) behaves.
+opt-level = 0
+
+[profile.dev.package."*"]
+# Every dependency — crucially the Zcash crypto stack — gets fully optimized.
+# Deps are compiled once and cached, so this costs a single cold build and buys
+# back orders of magnitude on sync speed in `tauri dev`.
+opt-level = 3
+
+[profile.dev.build-override]
+# Build scripts and proc macros also run at opt-level 0 by default; several
+# Zcash deps do real work in build.rs. Cheap win on cold builds.
+opt-level = 3
+
+[profile.release]
+# Release already implies opt-level = 3; these squeeze out the rest for shipped
+# binaries at the cost of slower link times.
+lto = "thin"
+codegen-units = 1
