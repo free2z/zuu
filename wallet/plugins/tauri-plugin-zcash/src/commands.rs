@@ -612,11 +612,23 @@ pub(crate) async fn get_account_balance<R: Runtime>(
             if let Some(balance) = summary.account_balances().get(account_id) {
                 let sapling = balance.sapling_balance();
                 let orchard = balance.orchard_balance();
+                // Ironwood is the third shielded pool introduced by NU6.3; after
+                // activation Orchard is spend-only and new shielded value accrues
+                // to Ironwood, so it must be included in every shielded total.
+                let ironwood = balance.ironwood_balance();
 
-                let total = u64::from(sapling.total()) + u64::from(orchard.total());
-                let spendable = u64::from(sapling.spendable_value()) + u64::from(orchard.spendable_value());
-                let change_pending = u64::from(sapling.change_pending_confirmation()) + u64::from(orchard.change_pending_confirmation());
-                let value_pending = u64::from(sapling.value_pending_spendability()) + u64::from(orchard.value_pending_spendability());
+                let total = u64::from(sapling.total())
+                    + u64::from(orchard.total())
+                    + u64::from(ironwood.total());
+                let spendable = u64::from(sapling.spendable_value())
+                    + u64::from(orchard.spendable_value())
+                    + u64::from(ironwood.spendable_value());
+                let change_pending = u64::from(sapling.change_pending_confirmation())
+                    + u64::from(orchard.change_pending_confirmation())
+                    + u64::from(ironwood.change_pending_confirmation());
+                let value_pending = u64::from(sapling.value_pending_spendability())
+                    + u64::from(orchard.value_pending_spendability())
+                    + u64::from(ironwood.value_pending_spendability());
 
                 return Ok(AccountBalance {
                     account_index: args.account_index,

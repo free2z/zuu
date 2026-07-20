@@ -214,7 +214,13 @@ pub async fn propose_send_all(
             .ok_or(Error::SendError("no balance for account".into()))?;
         let sapling = balance.sapling_balance();
         let orchard = balance.orchard_balance();
-        u64::from(sapling.spendable_value()) + u64::from(orchard.spendable_value())
+        // Ironwood is a third shielded pool (NU6.3); after activation, Orchard
+        // becomes spend-only and new shielded value lands in Ironwood, so it must
+        // be counted or the wallet will report a false "insufficient balance".
+        let ironwood = balance.ironwood_balance();
+        u64::from(sapling.spendable_value())
+            + u64::from(orchard.spendable_value())
+            + u64::from(ironwood.spendable_value())
     };
 
     if spendable <= 10000 {
@@ -386,6 +392,8 @@ pub async fn execute_send(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
+        // `expiry_height: None` keeps the builder-derived expiry for every step.
+        None,
     )
     .map_err(|e| Error::SendError(format!("failed to create transaction: {e:?}")))?;
 
