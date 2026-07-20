@@ -92,21 +92,26 @@ export const mockCreators: SimpleCreator[] = [
       is_verified: true,
       zpages: 12,
       member_price: 500,
+      // Live now (subscriber stream, see mockLivestreams) — demos is_live:true.
+      is_live: true,
     },
   ),
   creator("mining_maya", "Maya ⛏️", "Halo2 circuits & late-night proofs.", {
     is_verified: true,
     zpages: 7,
     member_price: 250,
+    is_live: true, // PPV stream live now.
   }),
   creator("f2z", "Free2Z", "The zero-knowledge creator platform.", {
     is_verified: true,
     zpages: 24,
     member_price: null,
+    is_live: false, // Offline — demos is_live:false (button hidden).
   }),
   creator("nine", "Nine", "Privacy maximalist. Streams from the void.", {
     zpages: 5,
     member_price: 100,
+    is_live: true, // Broadcast live now.
   }),
   creator("halo_hana", "Hana", "Recursive proofs & zk-SNARK explainers.", {
     zpages: 9,
@@ -793,10 +798,21 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     (a) => a.author.username.toLowerCase() === uname.toLowerCase(),
   ).length;
   const seed = Math.abs(hashString(uname));
+  // Known mock creators report a concrete `is_live` (derived from
+  // mockLivestreams, the same source the live.status poll reads, so the payload
+  // gate and the poll agree). An UNKNOWN username returns `undefined` on
+  // purpose — it stands in for a backend that predates the field, so the
+  // creator screen's graceful fallback (probe live.status on mount) is demoable.
+  const isLive = base
+    ? mockLivestreams.some(
+        (l) => l.live && l.username.toLowerCase() === uname.toLowerCase(),
+      )
+    : undefined;
   return {
     username: uname,
     free2zaddr: uname,
     display_name: base?.display_name || uname,
+    is_live: isLive,
     bio:
       base?.bio ??
       "A creator on ZUULI, publishing on Zcash and privacy. Follow along.",

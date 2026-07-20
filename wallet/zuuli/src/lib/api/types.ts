@@ -14,6 +14,13 @@ export interface SimpleCreator {
   zpages?: number;
   /** 2Z price for 30 days of membership (null = no paid tier). */
   member_price?: number | null;
+  /**
+   * Whether this creator is broadcasting a livestream RIGHT NOW — computed
+   * server-side from the Dyte live-room state and returned on the creator
+   * list/search payload. `undefined` when talking to a backend that predates
+   * the field (callers fall back to the live-status probe). See `CreatorDetail.is_live`.
+   */
+  is_live?: boolean;
 }
 
 /**
@@ -31,6 +38,15 @@ export interface CreatorDetail {
   banner?: string | null; // banner_image
   is_verified: boolean;
   can_stream: boolean;
+  /**
+   * Whether this creator is broadcasting a livestream RIGHT NOW — computed
+   * server-side from the Dyte live-room state, so the "Watch live" affordance
+   * can render instantly from the payload with no per-profile probe on mount.
+   * `undefined` when the field isn't present (older backend during a deploy
+   * window); callers fall back to the `live.status()` probe in that case, and
+   * a light background poll keeps it accurate while the profile stays open.
+   */
+  is_live?: boolean;
   /** 2Z price for 30 days of membership / livestream access (null = free). */
   member_price?: number | null;
   /** Count of published zpages. */

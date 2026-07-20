@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -118,16 +118,10 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
     [creator.bio],
   );
   // "Watch live" must only appear when this creator is ACTUALLY live right now.
-  // `CreatorDetail` carries no live flag (only the internal `can_stream`
-  // eligibility), so we probe the dedicated live-status endpoint for this one
-  // creator (one request for the profile being viewed, not an N+1). Absent /
-  // failed probes resolve to `live: false`, so the affordance stays hidden
-  // unless there's a confirmed live stream.
-  const { data: liveStatus } = useAsync(
-    () => live.status(creator.username),
-    [creator.username],
-  );
-  const isLive = liveStatus?.live ?? false;
+  // Gate it on the server-computed `is_live` from the creator payload so the
+  // button renders instantly with NO probe on mount. See `useLiveGate` for the
+  // graceful fallback (older backend) and the light poll that keeps it accurate.
+  const isLive = useLiveGate(creator.username, creator.is_live);
 
   return (
     <div className="animate-slide-up pb-6">
@@ -276,6 +270,63 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Resolve whether a creator is live, fast AND accurate:
+ *
+ *  1. **Instant** — seed state from `payloadIsLive` (the server-computed
+ *     `is_live` on the creator payload), so the very first render gates
+ *     "Watch live" correctly with NO network request on mount.
+ *  2. **Graceful fallback** — if the payload omits the field (`undefined`,
+ *     e.g. an older backend mid-deploy), probe the cheap `live.status`
+ *     endpoint once on mount so nothing breaks during the deploy window.
+ *  3. **Accurate over time** — a creator can go live/offline while the profile
+ *     is open, so poll the same light `live.status` endpoint on a 30s interval
+ *     and correct the button. We never refetch the heavy creator profile here.
+ *
+ * The interval and in-flight guard are torn down on unmount / username change,
+ * so navigating away leaves no lingering timers or requests.
+ */
+const LIVE_POLL_MS = 30_000;
+
+function useLiveGate(
+  username: string,
+  payloadIsLive: boolean | undefined,
+): boolean {
+  // Initialise from the payload so the first paint is already correct.
+  const [isLive, setIsLive] = useState<boolean>(payloadIsLive ?? false);
+  // Track whether THIS mount has ever had a definitive answer, so an initial
+  // `undefined` payload triggers the fallback probe immediately.
+  const hasPayload = payloadIsLive !== undefined;
+
+  useEffect(() => {
+    // Reset to the payload value whenever we switch creators (or the payload
+    // arrives) — keeps the instant gate correct without waiting on a probe.
+    setIsLive(payloadIsLive ?? false);
+
+    let alive = true;
+    const probe = async () => {
+      try {
+        const s = await live.status(username);
+        if (alive) setIsLive(s.live);
+      } catch {
+        // Keep the last known value on a failed probe rather than flicker.
+      }
+    };
+
+    // Fallback: only probe on mount when the payload couldn't tell us.
+    if (!hasPayload) void probe();
+
+    // Light poll keeps the button accurate while the profile stays mounted.
+    const timer = setInterval(probe, LIVE_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [username, payloadIsLive, hasPayload]);
+
+  return isLive;
 }
 
 // ─── Subscribe ────────────────────────────────────────────────────────────────
