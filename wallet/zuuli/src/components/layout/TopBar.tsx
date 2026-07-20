@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
+  ArrowLeft,
   Coins,
   Plus,
   Wallet as WalletIcon,
@@ -33,10 +34,35 @@ export function TopBar() {
   const { user, tuzis, logout } = useSession();
   const balance = useWallet((s) => s.balance);
   const navigate = useNavigate();
+  const location = useLocation();
   const [q, setQ] = useState("");
+
+  // This is an app, not a browser — surface a persistent back affordance so
+  // fans can retreat from any screen. React Router stamps a monotonic `idx`
+  // onto `window.history.state` for every in-app entry, so `idx > 0` means
+  // there is a real prior in-app screen to return to (a fresh load / deep
+  // link starts at 0). Reading it during render keyed on `location` keeps it
+  // reactive. Hidden on the root/home route, where "back" is meaningless, so
+  // it never dead-ends the user out of the app.
+  const historyIdx =
+    (window.history.state?.idx as number | undefined) ?? 0;
+  const canGoBack = historyIdx > 0 && location.pathname !== "/";
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur">
+      {/* Global back — available on every screen inside the shell */}
+      {canGoBack ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+          className="min-tap h-9 w-9 shrink-0"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+      ) : null}
+
       {/* Global search */}
       <form
         role="search"

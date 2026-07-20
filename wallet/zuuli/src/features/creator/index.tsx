@@ -29,7 +29,6 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,7 +44,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
-import { discover, tuzi } from "@/lib/api/free2z";
+import { discover, live, tuzi } from "@/lib/api/free2z";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { parseBioFrontmatter, type SocialLink } from "@/lib/utils/bio";
@@ -118,6 +117,17 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
     () => parseBioFrontmatter(creator.bio),
     [creator.bio],
   );
+  // "Watch live" must only appear when this creator is ACTUALLY live right now.
+  // `CreatorDetail` carries no live flag (only the internal `can_stream`
+  // eligibility), so we probe the dedicated live-status endpoint for this one
+  // creator (one request for the profile being viewed, not an N+1). Absent /
+  // failed probes resolve to `live: false`, so the affordance stays hidden
+  // unless there's a confirmed live stream.
+  const { data: liveStatus } = useAsync(
+    () => live.status(creator.username),
+    [creator.username],
+  );
+  const isLive = liveStatus?.live ?? false;
 
   return (
     <div className="animate-slide-up pb-6">
@@ -181,16 +191,17 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
                 </span>{" "}
                 score
               </span>
-              {creator.can_stream ? (
-                <Badge variant="live">Can stream</Badge>
-              ) : null}
+              {/* `can_stream` is an INTERNAL streaming-eligibility flag we track
+                  server-side — it is deliberately NOT surfaced to fans. Whether
+                  a creator is *currently* live is a separate signal, handled by
+                  the live-status probe on the "Watch live" action below. */}
             </div>
           </div>
         </div>
 
         {/* Actions */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 pb-1">
-          {creator.can_stream ? (
+          {isLive ? (
             <Button asChild variant="outline">
               <Link
                 to={`/live/${creator.username}`}
