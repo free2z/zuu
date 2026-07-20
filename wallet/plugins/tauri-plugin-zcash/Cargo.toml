@@ -62,3 +62,40 @@ security-framework = { version = "3", features = ["OSX_10_15"] }
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
 tauri-build = "2"
+
+# ---------------------------------------------------------------------------
+# Build profiles. DO NOT DELETE — see the identical blocks in
+# wallet/zuuli/src-tauri/Cargo.toml and wallet/zuuallet/src-tauri/Cargo.toml.
+#
+# This crate is its own workspace root, so these profiles apply when it is built
+# or tested standalone (`cargo test -p tauri-plugin-zcash` from this directory).
+# When it is consumed as a path dep by zuuli/zuuallet, THEIR profiles win — which
+# is why the same block is duplicated there.
+#
+# Why: at Cargo's default `opt-level = 0`, the whole Zcash crypto stack
+# (sapling-crypto, orchard, halo2_proofs, bls12_381, pasta_curves, group/ff,
+# incrementalmerkletree / shardtree, blake2b_simd, zcash_note_encryption) runs
+# unoptimized. Trial decryption, Pedersen hashing and shardtree inserts are then
+# 20-100x slower than release and chain sync crawls. Standard Zashi /
+# zcash-devtool pattern: optimize dependencies, keep our own crates cheap to
+# rebuild.
+# ---------------------------------------------------------------------------
+
+[profile.dev]
+# Our own crate: unoptimized so incremental rebuilds stay quick and debugging
+# (breakpoints, variable inspection) behaves.
+opt-level = 0
+
+[profile.dev.package."*"]
+# Every dependency — crucially the Zcash crypto stack — gets fully optimized.
+# Deps are compiled once and cached, so this costs a single cold build.
+opt-level = 3
+
+[profile.dev.build-override]
+# Build scripts and proc macros also run at opt-level 0 by default; several
+# Zcash deps do real work in build.rs. Cheap win on cold builds.
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
