@@ -14,6 +14,23 @@ const apiTarget = process.env.VITE_F2Z_PROXY || "https://stage.free2z.cash";
 // reference wallet (1421). Tauri drives this via beforeDevCommand.
 export default defineConfig(async () => ({
   plugins: [react()],
+  // `mathjax-full` (pulled in by rehype-mathjax for offline SVG math in the
+  // Markdown renderer) reads its version via `eval('require')(...)` UNLESS a
+  // global `PACKAGE_VERSION` is defined — see mathjax-full/js/components/
+  // version.js. Vite/rollup provide no runtime `require`, so without this the
+  // bundle throws "require is not defined" the moment any math renders. Baking
+  // the constant in kills that dead branch. `optimizeDeps.esbuildOptions.define`
+  // does the same for the dev pre-bundled copy.
+  define: {
+    PACKAGE_VERSION: JSON.stringify("3.2.1"),
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        PACKAGE_VERSION: JSON.stringify("3.2.1"),
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
