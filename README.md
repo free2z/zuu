@@ -25,7 +25,8 @@ of external git repos. These are organized by category:
 
 ### Wallets & SDKs
 
-* [z/Electric-Coin-Company/](https://github.com/Electric-Coin-Company) — zashi-android, zashi-ios, zcash-android-wallet-sdk, zcash-swift-wallet-sdk
+* [z/zodl-inc/](https://github.com/zodl-inc) — zodl-android, zodl-ios (the former ECC "Zashi" wallets; the team left ECC in January 2026 to form ZODL, the Zcash Open Development Lab, and rebranded)
+* [z/zcash/](https://github.com/zcash) — zcash-android-wallet-sdk, zcash-swift-wallet-sdk (mobile wallet SDKs, transferred from Electric-Coin-Company to the zcash org)
 * [z/hhanh00/](https://github.com/hhanh00) — warp, zwallet
 
 ### Community

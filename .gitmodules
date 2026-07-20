@@ -70,21 +70,21 @@
 	path = z/ZcashFoundation/z3
 	url = https://github.com/ZcashFoundation/z3
 	branch = dev
-[submodule "z/Electric-Coin-Company/zashi-android"]
-	path = z/Electric-Coin-Company/zashi-android
-	url = https://github.com/Electric-Coin-Company/zashi-android
+[submodule "z/zodl-inc/zodl-android"]
+	path = z/zodl-inc/zodl-android
+	url = https://github.com/zodl-inc/zodl-android
 	branch = main
-[submodule "z/Electric-Coin-Company/zashi-ios"]
-	path = z/Electric-Coin-Company/zashi-ios
-	url = https://github.com/Electric-Coin-Company/zashi-ios
+[submodule "z/zodl-inc/zodl-ios"]
+	path = z/zodl-inc/zodl-ios
+	url = https://github.com/zodl-inc/zodl-ios
 	branch = main
-[submodule "z/Electric-Coin-Company/zcash-android-wallet-sdk"]
-	path = z/Electric-Coin-Company/zcash-android-wallet-sdk
-	url = https://github.com/Electric-Coin-Company/zcash-android-wallet-sdk
+[submodule "z/zcash/zcash-android-wallet-sdk"]
+	path = z/zcash/zcash-android-wallet-sdk
+	url = https://github.com/zcash/zcash-android-wallet-sdk
 	branch = main
-[submodule "z/Electric-Coin-Company/zcash-swift-wallet-sdk"]
-	path = z/Electric-Coin-Company/zcash-swift-wallet-sdk
-	url = https://github.com/Electric-Coin-Company/zcash-swift-wallet-sdk
+[submodule "z/zcash/zcash-swift-wallet-sdk"]
+	path = z/zcash/zcash-swift-wallet-sdk
+	url = https://github.com/zcash/zcash-swift-wallet-sdk
 	branch = main
 [submodule "z/hhanh00/zwallet"]
 	path = z/hhanh00/zwallet
