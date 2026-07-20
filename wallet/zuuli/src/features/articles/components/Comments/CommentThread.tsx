@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { comments as commentsApi } from "@/lib/api/free2z";
 import type { Comment, CommentContentType } from "@/lib/api/types";
@@ -16,19 +16,32 @@ interface CommentThreadProps {
 
 /** One comment plus its (recursively threaded) replies. */
 export function CommentThread({ comment, contentType, depth = 0 }: CommentThreadProps) {
-  // Bumped whenever a reply is posted under this comment, to refetch children.
-  const [reload, setReload] = useState(0);
+  // Track the direct-child count locally so posting a reply immediately (a)
+  // reveals the reply and (b) updates the count badge (F5) — both without a
+  // full section reload.
+  const [numChildren, setNumChildren] = useState(comment.num_children);
+  // Replies posted from THIS session, appended locally so we never re-pull the
+  // whole reply set just to show a comment we already have in hand (F7).
+  const [extraReplies, setExtraReplies] = useState<Comment[]>([]);
 
   return (
     <div className="min-w-0 space-y-3">
       <CommentCard
         comment={comment}
-        onReplied={() => setReload((n) => n + 1)}
+        numChildren={numChildren}
+        onReplied={(reply) => {
+          setExtraReplies((prev) => [...prev, reply]);
+          setNumChildren((n) => n + 1);
+        }}
       />
       <CommentReplies
         parentUuid={comment.uuid}
         contentType={contentType}
-        reload={reload}
+        // Fetch only when the SERVER says this node has direct children. Leaves
+        // (num_children === 0) make ZERO network requests (F2 — no per-node
+        // waterfall); locally-posted replies come in via `extraReplies`.
+        serverChildCount={comment.num_children}
+        extraReplies={extraReplies}
         depth={depth + 1}
       />
     </div>
@@ -38,41 +51,60 @@ export function CommentThread({ comment, contentType, depth = 0 }: CommentThread
 interface CommentRepliesProps {
   parentUuid: string;
   contentType: CommentContentType;
-  reload: number;
+  serverChildCount: number;
+  extraReplies: Comment[];
   depth: number;
 }
 
 function CommentReplies({
   parentUuid,
   contentType,
-  reload,
+  serverChildCount,
+  extraReplies,
   depth,
 }: CommentRepliesProps) {
-  const [replies, setReplies] = useState<Comment[]>([]);
+  const [fetched, setFetched] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const acc: Comment[] = [];
-      let page: number | null = 1;
-      while (page) {
-        const res = await commentsApi.listReplies(parentUuid, { page });
-        acc.push(...res.items);
-        page = res.next;
-      }
-      setReplies(acc);
-    } catch {
-      // A failed reply fetch shouldn't tear down the whole thread; leave the
-      // existing replies in place.
-    } finally {
-      setLoading(false);
-    }
-  }, [parentUuid]);
-
   useEffect(() => {
-    void load();
-  }, [load, reload]);
+    // F2: skip the /replies/ GET entirely for leaves. Only nodes the server
+    // reports as having children pay for a fetch.
+    if (serverChildCount <= 0) return;
+
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const acc: Comment[] = [];
+        let page: number | null = 1;
+        while (page) {
+          const res = await commentsApi.listReplies(parentUuid, { page });
+          acc.push(...res.items);
+          page = res.next;
+        }
+        if (!cancelled) setFetched(acc);
+      } catch {
+        // A failed reply fetch shouldn't tear down the whole thread; leave the
+        // existing replies in place.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally not keyed on `extraReplies`: a new local reply is merged in
+    // below without re-hitting the network (F7).
+  }, [parentUuid, serverChildCount]);
+
+  // Merge server replies with locally-posted ones, deduped by uuid so a reply
+  // that later also arrives from the server can't render twice.
+  const replies = useMemo(() => {
+    if (!extraReplies.length) return fetched;
+    const seen = new Set(fetched.map((r) => r.uuid));
+    return [...fetched, ...extraReplies.filter((r) => !seen.has(r.uuid))];
+  }, [fetched, extraReplies]);
 
   if (!replies.length) {
     return loading ? (

@@ -18,11 +18,19 @@ import { CommentForm } from "./CommentForm";
 
 interface CommentCardProps {
   comment: Comment;
-  /** Called after a reply is posted so the thread can refetch its children. */
+  /**
+   * Live direct-reply count, tracked by the parent thread so a freshly-posted
+   * reply bumps the badge immediately (F5). Falls back to the comment's own
+   * `num_children` when the thread doesn't override it.
+   */
+  numChildren?: number;
+  /** Called after a reply is posted so the thread can show it + bump its count. */
   onReplied: (reply: Comment) => void;
 }
 
-export function CommentCard({ comment, onReplied }: CommentCardProps) {
+export function CommentCard({ comment, numChildren, onReplied }: CommentCardProps) {
+  const user = useSession((s) => s.user);
+  const balance = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const [replying, setReplying] = useState(false);
   const [score, setScore] = useState(comment.tuzis);
@@ -30,13 +38,23 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
   const [voting, setVoting] = useState(false);
 
   const name = comment.author.username;
+  const childCount = numChildren ?? comment.num_children;
+
+  // Voting costs 1 2Z (POST /vote/). It requires an account AND a balance —
+  // gate the rail so logged-out or broke users can't fire a request that
+  // would just 401/402, and can't drive the optimistic balance negative.
+  const canVote = !!user && balance >= 1;
 
   async function vote(dir: "up" | "down") {
-    if (voting || voted === dir) return;
+    if (voting || voted === dir || !canVote) return;
     setVoting(true);
     // Optimistic: reflect the new score + spend 1 2Z immediately.
     const prevScore = score;
     const prevVoted = voted;
+    // Capture the exact pre-debit balance so a failure restores it precisely.
+    // (Blindly refunding +1 would MINT phantom 2Z whenever the debit had been
+    // clamped at 0 — hence restore the delta, not a fixed +1.)
+    const prevBalance = useSession.getState().tuzis;
     setScore((s) => s + (dir === "up" ? 1 : -1));
     setVoted(dir);
     adjustTuzis(-1);
@@ -45,7 +63,7 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
     } catch {
       setScore(prevScore);
       setVoted(prevVoted);
-      adjustTuzis(1);
+      adjustTuzis(prevBalance - useSession.getState().tuzis);
       toast.error("Could not record your vote.");
     } finally {
       setVoting(false);
@@ -55,6 +73,12 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
   async function submitReply(body: CommentInput) {
     return commentsApi.createReply(comment.uuid, body);
   }
+
+  const voteHint = !user
+    ? "Log in to vote"
+    : balance < 1
+      ? "You need 2Z to vote"
+      : undefined;
 
   return (
     <div className="min-w-0 rounded-xl border border-border bg-card/60 p-4">
@@ -67,7 +91,8 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
             className="h-7 w-7 min-tap"
             aria-label="Upvote comment"
             aria-pressed={voted === "up"}
-            disabled={voting}
+            disabled={voting || !canVote}
+            title={voteHint}
             onClick={() => vote("up")}
           >
             <ChevronUp
@@ -84,7 +109,8 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
             className="h-7 w-7 min-tap"
             aria-label="Downvote comment"
             aria-pressed={voted === "down"}
-            disabled={voting}
+            disabled={voting || !canVote}
+            title={voteHint}
             onClick={() => vote("down")}
           >
             <ChevronDown
@@ -130,7 +156,10 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
           </h4>
 
           <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-muted-foreground">
-            <Markdown>{comment.content}</Markdown>
+            {/* Untrusted, unmoderated user content: comment variant degrades
+                remote images/embeds/QRs to links/text and is wrapped in an
+                error boundary so a malicious body can never crash the page. */}
+            <Markdown variant="comment">{comment.content}</Markdown>
           </div>
 
           <div className="flex items-center gap-2 pt-1">
@@ -144,10 +173,10 @@ export function CommentCard({ comment, onReplied }: CommentCardProps) {
               <Reply className="h-4 w-4" aria-hidden />
               Reply
             </Button>
-            {comment.num_children > 0 ? (
+            {childCount > 0 ? (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-                {comment.num_children}
+                {childCount}
               </span>
             ) : null}
           </div>
