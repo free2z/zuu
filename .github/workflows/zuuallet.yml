@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Only fetch the one submodule the build needs — the rest of z/ is huge
-      # (zebra, zcashd, zashi, ...) and irrelevant to compiling Zuuallet.
+      # (zebra, zcashd, zodl, ...) and irrelevant to compiling Zuuallet.
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
 
