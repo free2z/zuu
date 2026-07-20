@@ -217,7 +217,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
     <Link
       to={`/creator/${creator.username}`}
       aria-label={`View ${name}'s profile`}
-      className="group flex items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Avatar className="h-12 w-12 shrink-0">
         {creator.image ? <AvatarImage src={creator.image} alt={name} /> : null}
@@ -240,7 +240,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
         <div className="truncate text-xs text-muted-foreground">
           @{creator.username}
         </div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {typeof creator.zpages === "number" ? (
             <span className="tabular-nums">{creator.zpages} pages</span>
           ) : null}
@@ -250,7 +250,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
             // rather than showing a bare, ambiguous "200 2Z/mo".
             <Badge
               variant="sub"
-              className="tabular-nums"
+              className="max-w-full tabular-nums"
               aria-label={`Membership price: ${formatTuzis(creator.member_price)} per month`}
             >
               Membership · {formatTuzis(creator.member_price)}/mo
@@ -270,7 +270,7 @@ function PageResultRow({ article }: { article: Article }) {
     <Link
       to={`/articles/${article.slug ?? article.id}`}
       aria-label={`Read “${article.title}”`}
-      className="group flex gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="hidden h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary sm:block">
         {article.image ? (
@@ -287,11 +287,11 @@ function PageResultRow({ article }: { article: Article }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
-          <h3 className="truncate font-semibold leading-snug group-hover:text-primary">
+          <h3 className="min-w-0 truncate font-semibold leading-snug group-hover:text-primary">
             {article.title}
           </h3>
           {article.category ? (
-            <Badge variant="secondary" className="shrink-0">
+            <Badge variant="secondary" className="max-w-[40%] shrink-0 truncate">
               {article.category}
             </Badge>
           ) : null}
@@ -301,12 +301,12 @@ function PageResultRow({ article }: { article: Article }) {
             {body}
           </p>
         ) : null}
-        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate">by {name}</span>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="min-w-0 max-w-full truncate">by {name}</span>
           {article.published_at ? (
             <>
               <span aria-hidden>·</span>
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex shrink-0 items-center gap-1">
                 <Clock className="h-3 w-3" aria-hidden />
                 {timeAgo(article.published_at)}
               </span>
