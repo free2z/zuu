@@ -16,6 +16,7 @@ import type {
   PersonalityInput,
   PromptResponse,
   SimpleCreator,
+  Subscription,
   TuziTransaction,
 } from "./types";
 
@@ -628,6 +629,72 @@ export const mockTransactions: TuziTransaction[] = [
     counterparty: "zooko",
   },
 ];
+
+/** The mock signed-in user as a `SimpleCreator` (the `fan` side of a `Subscription`). */
+function mockFan(): SimpleCreator {
+  return {
+    username: mockUser.username,
+    free2zaddr: mockUser.free2zaddr ?? mockUser.username,
+    display_name: mockUser.display_name,
+    image: mockUser.image,
+  };
+}
+
+/**
+ * The mock signed-in user's active memberships — mirrors GET
+ * /api/tuzis/my-subscriptions (`fan=request.user`, `expires__gt=now`).
+ * Mutated in place (via `push`/field writes, never reassigned) by
+ * `mockSubscribe`/`mockUnsubscribe`, same pattern as `mockUser` above, so a
+ * subscribe in one screen is reflected everywhere that refetches this list.
+ *
+ * Seeded with one already-active membership (mining_maya) so BOTH the
+ * "Member" and "Subscribe" states are demoable without doing anything first.
+ */
+export const mockSubscriptions: Subscription[] = [
+  {
+    fan: mockFan(),
+    star: mockCreators[1], // mining_maya, member_price 250
+    expires: new Date(Date.now() + 18 * 86400000).toISOString(),
+    max_price: String(mockCreators[1].member_price ?? 0),
+  },
+];
+
+/**
+ * Mock `tuzi.subscribe(username)`. Mirrors `CreatorSubscribeView.post`:
+ * get-or-create a `Subscription` for (star, fan) and extend it 30 days from
+ * now, at the creator's current `member_price`.
+ */
+export function mockSubscribe(username: string): Subscription {
+  const star: SimpleCreator =
+    mockCreators.find((c) => c.username.toLowerCase() === username.toLowerCase()) ??
+    { username, free2zaddr: username, display_name: username };
+  const expires = new Date(Date.now() + 30 * 86400000).toISOString();
+  const maxPrice = String(star.member_price ?? 0);
+
+  const existing = mockSubscriptions.find(
+    (s) => s.star.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (existing) {
+    existing.expires = expires;
+    existing.max_price = maxPrice;
+    return existing;
+  }
+  const sub: Subscription = { fan: mockFan(), star, expires, max_price: maxPrice };
+  mockSubscriptions.push(sub);
+  return sub;
+}
+
+/**
+ * Mock `tuzi.unsubscribe(username)`. Mirrors `CreatorSubscribeView.delete`:
+ * sets `max_price` to 0 so the membership won't renew. The row (and access)
+ * stays until `expires` — it does not disappear from `mySubscriptions`.
+ */
+export function mockUnsubscribe(username: string): void {
+  const existing = mockSubscriptions.find(
+    (s) => s.star.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (existing) existing.max_price = "0";
+}
 
 export function mockAiReply(prompt: string, modelName: string): PromptResponse {
   const response =

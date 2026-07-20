@@ -104,7 +104,16 @@ export function Markdown({
         // only clears ~4.3:1 against card surfaces, short of WCAG AA (4.5:1)
         // for body-sized link text. `--link` is the same hue, lightened to
         // 74%, which clears AA on every surface content renders on.
-        "[&_a]:text-link [&_a]:underline [&_a]:underline-offset-4 [&_a]:hover:decoration-2",
+        //
+        // `[&_a:hover]:decoration-2` (NOT `[&_a]:hover:decoration-2`): the
+        // hover pseudo-class must bind to the `a` itself inside the arbitrary
+        // selector. `[&_a]:hover:decoration-2` instead compiles to
+        // `.container:hover a { … }` — hovering ANYWHERE over the container
+        // (e.g. the card the bio/article renders inside) thickens every link
+        // at once. `[&_a:hover]:decoration-2` compiles to
+        // `.container a:hover { … }`, so only the specific anchor under the
+        // cursor is affected.
+        "[&_a]:text-link [&_a]:underline [&_a]:underline-offset-4 [&_a:hover]:decoration-2",
         "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6",
         "[&_li]:my-1",
         "[&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
