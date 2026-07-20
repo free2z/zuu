@@ -16,6 +16,11 @@ import {
   mockArticles,
   mockAssociateZcash,
   mockConversationReply,
+  mockCommentCreate,
+  mockCommentReplies,
+  mockCommentReplyCreate,
+  mockCommentVote,
+  mockComments,
   mockCreatePersonality,
   mockCreatorDetail,
   mockCreators,
@@ -42,6 +47,10 @@ import type {
   ArticleFeedPage,
   ArticleFeedParams,
   AuthUser,
+  Comment,
+  CommentContentType,
+  CommentInput,
+  CommentVote,
   CreatorDetail,
   DyteJoinTicket,
   KycIdentityDocType,
@@ -906,6 +915,160 @@ export const articles = {
       },
     });
     return mapArticle(z);
+  },
+};
+
+// ─── Comments (threaded, on zpages) ──────────────────────────────────────────
+
+/** Raw wire shape of a comment (CommentListSerializer). */
+interface RawComment {
+  uuid: string;
+  author: { username: string; avatar_image?: RawImage | null };
+  parent: string | null;
+  headline: string;
+  content: string;
+  tuzis: number | string;
+  created_at: string;
+  updated_at: string;
+  tags?: string[];
+  num_children?: number;
+  content_url?: string | null;
+}
+
+function mapComment(c: RawComment): Comment {
+  return {
+    uuid: c.uuid,
+    author: {
+      username: c.author.username,
+      avatar_image:
+        mediaUrl(
+          c.author.avatar_image?.thumbnail || c.author.avatar_image?.url,
+        ) ?? null,
+    },
+    parent: c.parent ?? null,
+    headline: c.headline,
+    content: c.content,
+    tuzis: Math.round(Number(c.tuzis)) || 0,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+    tags: c.tags ?? [],
+    num_children: c.num_children ?? 0,
+    content_url: c.content_url ?? null,
+  };
+}
+
+/** One page of comments — `next` is the next page number (or null at the end). */
+export interface CommentPage {
+  items: Comment[];
+  next: number | null;
+  count: number;
+}
+
+export const comments = {
+  /**
+   * Top-level comments on a content object — GET
+   * /api/comments/{type}/{uuid}/?parent__isnull=True. `uuid` is the zpage's
+   * `free2zaddr` (a canonical UUID). DRF PageNumber pagination.
+   *
+   * NB: the backend's zpage list/create view 404s unless the target zpage has a
+   * truthy vanity slug OR is addressed by its `free2zaddr` — always pass
+   * `article.free2zaddr` here, never the vanity slug.
+   */
+  async list(
+    type: CommentContentType,
+    uuid: string,
+    opts: { rootsOnly?: boolean; page?: number } = {},
+  ): Promise<CommentPage> {
+    const page = opts.page ?? 1;
+    if (useMock()) {
+      await delay(180);
+      return mockComments(uuid, { rootsOnly: opts.rootsOnly ?? true, page });
+    }
+    const res = await request<Paginated<RawComment>>(
+      `/api/comments/${type}/${encodeURIComponent(uuid)}/`,
+      {
+        query: {
+          page,
+          ...(opts.rootsOnly ? { parent__isnull: "True" } : {}),
+        },
+        anonymous: true,
+      },
+    );
+    return {
+      items: (res.results ?? []).map(mapComment),
+      next: res.next ? page + 1 : null,
+      count: res.count ?? 0,
+    };
+  },
+
+  /** Replies to a parent comment — GET /api/comments/{uuid}/replies/. */
+  async listReplies(
+    parentUuid: string,
+    opts: { page?: number } = {},
+  ): Promise<CommentPage> {
+    const page = opts.page ?? 1;
+    if (useMock()) {
+      await delay(150);
+      return mockCommentReplies(parentUuid, { page });
+    }
+    const res = await request<Paginated<RawComment>>(
+      `/api/comments/${encodeURIComponent(parentUuid)}/replies/`,
+      { query: { page }, anonymous: true },
+    );
+    return {
+      items: (res.results ?? []).map(mapComment),
+      next: res.next ? page + 1 : null,
+      count: res.count ?? 0,
+    };
+  },
+
+  /**
+   * Create a top-level comment — POST /api/comments/{type}/{uuid}/. Requires
+   * Knox auth and costs `tuzis` (≥1), deducted from the author's balance.
+   */
+  async create(
+    type: CommentContentType,
+    uuid: string,
+    body: CommentInput,
+  ): Promise<Comment> {
+    if (useMock()) {
+      await delay(300);
+      return mockCommentCreate(uuid, body);
+    }
+    const c = await request<RawComment>(
+      `/api/comments/${type}/${encodeURIComponent(uuid)}/`,
+      { method: "POST", body: { ...body, parent: null } },
+    );
+    return mapComment(c);
+  },
+
+  /**
+   * Reply to a comment — POST /api/comments/{uuid}/replies/. Inherits the
+   * parent's content object. Requires auth and costs `tuzis`.
+   */
+  async createReply(parentUuid: string, body: CommentInput): Promise<Comment> {
+    if (useMock()) {
+      await delay(300);
+      return mockCommentReplyCreate(parentUuid, body);
+    }
+    const c = await request<RawComment>(
+      `/api/comments/${encodeURIComponent(parentUuid)}/replies/`,
+      { method: "POST", body },
+    );
+    return mapComment(c);
+  },
+
+  /** Vote on a comment — POST /api/comments/{uuid}/vote/ (costs 1 2Z). */
+  async vote(uuid: string, dir: CommentVote): Promise<void> {
+    if (useMock()) {
+      await delay(150);
+      mockCommentVote(uuid, dir);
+      return;
+    }
+    await request(`/api/comments/${encodeURIComponent(uuid)}/vote/`, {
+      method: "POST",
+      body: { vote: dir },
+    });
   },
 };
 

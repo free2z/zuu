@@ -226,6 +226,54 @@ export interface Article {
   tags?: string[];
 }
 
+// ── Comments (threaded, on zpages / AI conversations) ───────────────────────
+// Backend: `/api/comments/` (confirmed against tuzi f2z.yaml). Comments are
+// TITLED (`headline` required, ≤100 chars) and cost `tuzis` to post (≥1, spent
+// from the author's balance; also the vote weight/score). Threading is a
+// self-FK `parent` (to_field uuid): roots via `?parent__isnull=True`, replies
+// via `/api/comments/{parent}/replies/`. Nesting is unbounded.
+
+/** The content object a thread of comments hangs off of. */
+export type CommentContentType = "zpage" | "ai_conversation";
+
+/** Author of a comment (CommentListSerializer.author). */
+export interface CommentAuthor {
+  username: string;
+  /** Avatar URL (mapped from `avatar_image.thumbnail`/`url`), if any. */
+  avatar_image?: string | null;
+}
+
+/** One comment — shape from `CommentListSerializer`. */
+export interface Comment {
+  uuid: string;
+  author: CommentAuthor;
+  /** Parent comment uuid (self-FK), or `null` for a top-level comment. */
+  parent: string | null;
+  /** Required title, ≤100 chars. */
+  headline: string;
+  /** Markdown body, ≤1000 chars. */
+  content: string;
+  /** Weight spent to post (≥1); doubles as the vote score. */
+  tuzis: number;
+  created_at: string;
+  updated_at: string;
+  tags?: string[];
+  /** Number of direct replies. */
+  num_children: number;
+  /** Link back to the content object the comment lives on, if any. */
+  content_url?: string | null;
+}
+
+/** Body for creating a comment / reply (POST). */
+export interface CommentInput {
+  headline: string;
+  content: string;
+  tuzis: number;
+}
+
+/** Vote direction — POST /api/comments/{uuid}/vote/ (costs 1 2Z). */
+export type CommentVote = "up" | "down";
+
 /**
  * How the article feed is ranked (`?homeSort=` on /api/zpage/):
  * - `popular` — recency-decayed "fresh" ranking (the ZUULI default).

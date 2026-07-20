@@ -16,6 +16,7 @@ import { articles } from "@/lib/api/free2z";
 import { initials } from "@/lib/format";
 import type { Article } from "@/lib/api/types";
 import { TipDialog } from "../components/TipDialog";
+import { CommentsSection } from "../components/Comments";
 import { coverGradient, formatPublished } from "../lib";
 
 type Status = "loading" | "ready" | "missing";
@@ -89,17 +90,19 @@ export function Reader() {
   const name = author.display_name || author.username;
 
   return (
-    <article className="animate-slide-up pb-28">
-      <div className="mx-auto max-w-3xl">
+    <article className="animate-slide-up w-full min-w-0 overflow-x-clip pb-28">
+      <div className="mx-auto w-full min-w-0 max-w-3xl">
         <BackLink />
 
-        <header className="mt-6 space-y-4">
+        <header className="mt-6 min-w-0 space-y-4">
           {article.category ? <Badge>{article.category}</Badge> : null}
-          <h1 className="text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+          <h1 className="break-words text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {article.title}
           </h1>
           {article.subtitle ? (
-            <p className="text-lg text-muted-foreground">{article.subtitle}</p>
+            <p className="break-words text-lg text-muted-foreground">
+              {article.subtitle}
+            </p>
           ) : null}
 
           <div className="flex items-center gap-3 pt-2">
@@ -158,9 +161,13 @@ export function Reader() {
           ) : null}
         </div>
 
-        <div className="mt-10">
+        <div className="mt-10 min-w-0 max-w-full break-words">
           <Markdown>{article.content}</Markdown>
         </div>
+
+        {article.free2zaddr ? (
+          <CommentsSection uuid={article.free2zaddr} contentType="zpage" />
+        ) : null}
       </div>
 
       {/* Sticky action bar */}
