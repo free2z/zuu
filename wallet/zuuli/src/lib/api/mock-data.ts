@@ -8,6 +8,9 @@ import type {
   ArticleFeedPage,
   ArticleFeedParams,
   AuthUser,
+  Comment,
+  CommentInput,
+  CommentVote,
   CreatorDetail,
   KycIdentityDocuments,
   KycProfile,
@@ -830,3 +833,158 @@ export const mockKycTaxForm: {
   file_url: null,
   tax_form_signature: null,
 };
+
+// ── Comments (threaded, mock) ───────────────────────────────────────────────
+// A small in-memory thread store so the Reader's comments section is fully
+// demoable offline (VITE_MOCK=1): a couple of titled roots on the first
+// featured zpage, one with a nested reply chain, realistic 2Z weights. Mutated
+// in place (posts/votes persist for the session), mirroring the real backend.
+
+interface MockCommentPage {
+  items: Comment[];
+  next: number | null;
+  count: number;
+}
+
+/** content uuid (zpage free2zaddr) each comment lives on, by comment uuid. */
+const mockCommentContent = new Map<string, string>();
+/** Flat store of every mock comment (roots + replies). */
+const mockCommentStore: Comment[] = [];
+
+function mockAuthor(c: SimpleCreator): Comment["author"] {
+  return { username: c.username, avatar_image: c.image ?? null };
+}
+
+function seedComment(
+  contentUuid: string,
+  author: SimpleCreator,
+  parent: string | null,
+  headline: string,
+  content: string,
+  tuzis: number,
+  minutesAgo: number,
+): Comment {
+  const uuid = `mock-comment-${mockCommentStore.length + 1}`;
+  const ts = new Date(Date.now() - minutesAgo * 60000).toISOString();
+  const comment: Comment = {
+    uuid,
+    author: mockAuthor(author),
+    parent,
+    headline,
+    content,
+    tuzis,
+    created_at: ts,
+    updated_at: ts,
+    tags: [],
+    num_children: 0,
+    content_url: null,
+  };
+  mockCommentStore.push(comment);
+  mockCommentContent.set(uuid, contentUuid);
+  if (parent) {
+    const p = mockCommentStore.find((x) => x.uuid === parent);
+    if (p) p.num_children += 1;
+  }
+  return comment;
+}
+
+// Seed a lively thread on the first featured zpage ("zooko").
+(() => {
+  const content = featuredArticles[0].free2zaddr!;
+  const root1 = seedComment(
+    content,
+    mockCreators[3],
+    null,
+    "This reframed privacy for me",
+    "The **asymmetry** point is the whole game. Transparency for the powerful, privacy for everyone else — shielded-by-default finally flips it.",
+    42,
+    180,
+  );
+  const reply1 = seedComment(
+    content,
+    mockCreators[0],
+    root1.uuid,
+    "Exactly the intent",
+    "That inversion was the design goal from day one. The default is what most people actually get.",
+    18,
+    120,
+  );
+  seedComment(
+    content,
+    mockCreators[4],
+    reply1.uuid,
+    "And it compounds",
+    "Once the shielded pool is the norm, the anonymity set grows for *everyone* — privacy as a public good, literally.",
+    7,
+    64,
+  );
+  seedComment(
+    content,
+    mockCreators[1],
+    null,
+    "Small nit on the trusted setup",
+    "Great piece. Worth noting Halo2 drops the trusted setup entirely — might be worth a follow-up article.",
+    23,
+    45,
+  );
+})();
+
+export function mockComments(
+  contentUuid: string,
+  opts: { rootsOnly: boolean; page: number },
+): MockCommentPage {
+  const items = mockCommentStore
+    .filter(
+      (c) =>
+        mockCommentContent.get(c.uuid) === contentUuid &&
+        (opts.rootsOnly ? c.parent === null : true),
+    )
+    .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
+  return { items, next: null, count: items.length };
+}
+
+export function mockCommentReplies(
+  parentUuid: string,
+  _opts: { page: number },
+): MockCommentPage {
+  const items = mockCommentStore
+    .filter((c) => c.parent === parentUuid)
+    .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
+  return { items, next: null, count: items.length };
+}
+
+export function mockCommentCreate(
+  contentUuid: string,
+  body: CommentInput,
+): Comment {
+  return seedComment(
+    contentUuid,
+    mockUser as unknown as SimpleCreator,
+    null,
+    body.headline,
+    body.content,
+    body.tuzis,
+    0,
+  );
+}
+
+export function mockCommentReplyCreate(
+  parentUuid: string,
+  body: CommentInput,
+): Comment {
+  const content = mockCommentContent.get(parentUuid) ?? "";
+  return seedComment(
+    content,
+    mockUser as unknown as SimpleCreator,
+    parentUuid,
+    body.headline,
+    body.content,
+    body.tuzis,
+    0,
+  );
+}
+
+export function mockCommentVote(uuid: string, dir: CommentVote): void {
+  const c = mockCommentStore.find((x) => x.uuid === uuid);
+  if (c) c.tuzis = Math.max(0, c.tuzis + (dir === "up" ? 1 : -1));
+}
