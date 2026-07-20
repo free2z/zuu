@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
-  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -22,7 +21,6 @@ import { ai } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
 import type { AIModel, Personality } from "@/lib/api/types";
 import { formatTuzis, initials } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { useSession } from "@/store/session";
 import { ModelPicker } from "./ModelPicker";
 import { PersonalityManager } from "./PersonalityManager";
@@ -149,6 +147,27 @@ export default function AiFeature() {
       active = false;
     };
   }, []);
+
+  // Auto-grow the composer from ~1 row up to a ~40vh (≈7-row) cap, then let it
+  // scroll internally. scrollHeight-based, so no extra dependency. Runs on every
+  // input change (incl. programmatic prefill/clear) and on viewport resize so
+  // the 40vh ceiling tracks the window.
+  const autosizeInput = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const cap = Math.round(window.innerHeight * 0.4);
+    el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
+  }, []);
+
+  useEffect(() => {
+    autosizeInput();
+  }, [input, autosizeInput]);
+
+  useEffect(() => {
+    window.addEventListener("resize", autosizeInput);
+    return () => window.removeEventListener("resize", autosizeInput);
+  }, [autosizeInput]);
 
   // Keep the latest message in view.
   useEffect(() => {
@@ -296,45 +315,51 @@ export default function AiFeature() {
   const localModel = models.find((m) => m.provider === "local");
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
       {/* ── Header rail ─────────────────────────────────────────────── */}
-      <div className="shrink-0 border-b border-border/60 bg-background/85 px-4 py-3 backdrop-blur md:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-              <Sparkles className="h-5 w-5" aria-hidden />
+      <div className="shrink-0 border-b border-border/60 bg-background/85 px-4 py-2.5 backdrop-blur md:px-8">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {/* Identity — subtitle folds away on narrow widths */}
+          <div className="flex min-w-0 shrink-0 items-center gap-2.5">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+              <Sparkles className="h-[18px] w-[18px]" aria-hidden />
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold leading-tight">AI Studio</h1>
-              <p className="truncate text-xs text-muted-foreground">
+              <p className="hidden truncate text-[11px] leading-tight text-muted-foreground sm:block">
                 Anonymous, multi-provider — metered in 2Zs
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Controls — one graceful row that right-aligns on wide, wraps on narrow */}
+          <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             {loadingModels ? (
-              <Skeleton className="h-10 w-52" />
+              <Skeleton className="h-10 min-w-0 flex-1 sm:w-52 sm:flex-initial" />
             ) : modelsError ? (
               <span className="text-sm text-destructive">
                 Couldn&rsquo;t load models
               </span>
             ) : (
-              <ModelPicker
-                models={models}
-                value={selected}
-                onChange={setSelected}
+              <div className="min-w-0 flex-1 sm:flex-initial">
+                <ModelPicker
+                  models={models}
+                  value={selected}
+                  onChange={setSelected}
+                  disabled={isSending}
+                />
+              </div>
+            )}
+            <div className="min-w-0 flex-1 sm:flex-initial">
+              <PersonalityPicker
+                personalities={personalities}
+                value={personality}
+                onChange={setPersonality}
+                onManage={() => setManagerOpen(true)}
+                ownUsername={user?.username}
                 disabled={isSending}
               />
-            )}
-            <PersonalityPicker
-              personalities={personalities}
-              value={personality}
-              onChange={setPersonality}
-              onManage={() => setManagerOpen(true)}
-              ownUsername={user?.username}
-              disabled={isSending}
-            />
+            </div>
             {messages.length > 0 ? (
               <Button
                 variant="ghost"
@@ -347,22 +372,20 @@ export default function AiFeature() {
                 <RotateCcw className="h-4 w-4" />
               </Button>
             ) : null}
-          </div>
-
-          {/* Cost meters */}
-          <div className="flex items-center gap-2 sm:ml-auto">
-            <Meter
-              icon={Coins}
-              label="This session"
-              value={formatTuzis(sessionCost)}
-              accent="text-primary"
-            />
-            <Meter
-              icon={Wallet}
-              label="Balance"
-              value={formatTuzis(tuzis)}
-              accent={lowBalance ? "text-destructive" : "text-foreground"}
-            />
+            {sessionCost > 0 ? (
+              <div
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5"
+                title="Spent this session"
+              >
+                <Coins className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+                <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                  This session
+                </span>
+                <span className="text-xs font-semibold tabular-nums text-primary">
+                  {formatTuzis(sessionCost)}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -381,7 +404,7 @@ export default function AiFeature() {
       </div>
 
       {/* ── Thread ──────────────────────────────────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 md:px-8">
         {messages.length === 0 ? (
           <EmptyHero
             selected={selected}
@@ -420,7 +443,7 @@ export default function AiFeature() {
                   ? "Buy 2Zs to start chatting…"
                   : `Message ${selected?.display_name ?? "the model"}…`
               }
-              className="max-h-48 min-h-[52px] resize-none border-0 bg-transparent py-3.5 pl-4 pr-14 text-[15px] focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="max-h-[40vh] min-h-[52px] resize-none overflow-y-auto border-0 bg-transparent py-3.5 pl-4 pr-14 text-[15px] focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <div className="absolute bottom-2.5 right-2.5">
               {isSending ? (
@@ -494,30 +517,6 @@ export default function AiFeature() {
   );
 }
 
-function Meter({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: typeof Coins;
-  label: string;
-  value: string;
-  accent: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card/50 px-3 py-1.5">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        <Icon className="h-3 w-3" aria-hidden />
-        {label}
-      </div>
-      <div className={cn("text-sm font-semibold tabular-nums", accent)}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
 function MessageRow({
   message,
   userLabel,
@@ -544,11 +543,13 @@ function MessageRow({
     <div className="flex animate-slide-up justify-start gap-3">
       <AssistantGlyph />
       <div className="min-w-0 max-w-[85%]">
-        <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3">
+        <div className="overflow-hidden rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3">
           {message.pending ? (
             <ThinkingDots />
           ) : (
-            <Markdown className="space-y-3 text-[15px]">{message.content}</Markdown>
+            <Markdown className="space-y-3 break-words text-[15px]">
+              {message.content}
+            </Markdown>
           )}
         </div>
         {!message.pending && !message.aborted && !message.error ? (

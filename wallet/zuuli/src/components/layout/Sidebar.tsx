@@ -59,7 +59,7 @@ export function Sidebar() {
 /** Bottom tab bar for narrow / mobile widths. */
 export function MobileTabBar() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-card/95 backdrop-blur md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-bottom))] border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       {NAV.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}
@@ -67,7 +67,7 @@ export function MobileTabBar() {
           end={end}
           className={({ isActive }) =>
             cn(
-              "flex flex-1 flex-col items-center gap-1 py-2 text-[10px]",
+              "flex flex-1 flex-col items-center justify-center gap-1 text-[10px]",
               isActive ? "text-primary" : "text-muted-foreground",
             )
           }

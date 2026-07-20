@@ -144,7 +144,7 @@ function ModelInfo({ model }: { model: AIModel }) {
         <Button
           variant="ghost"
           size="icon"
-          className="h-9 w-9 shrink-0 text-muted-foreground"
+          className="hidden h-9 w-9 shrink-0 text-muted-foreground sm:inline-flex"
           aria-label={`About ${model.display_name}`}
         >
           <Info className="h-4 w-4" />
