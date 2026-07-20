@@ -28,7 +28,10 @@ import {
   mockPersonalities,
   mockSearchCreators,
   mockSearchPages,
+  mockSubscribe,
+  mockSubscriptions,
   mockTransactions,
+  mockUnsubscribe,
   mockUpdatePersonality,
   mockUser,
 } from "./mock-data";
@@ -62,6 +65,7 @@ import type {
   SocialProvider,
   SocialProvidersStatus,
   StreamKind,
+  Subscription,
   TuziTransaction,
 } from "./types";
 
@@ -1104,9 +1108,48 @@ export const tuzi = {
   async subscribe(username: string): Promise<void> {
     if (useMock()) {
       await delay(400);
+      mockSubscribe(username);
       return;
     }
     await request(`/api/tuzis/subscribe/${username}`, { method: "POST" });
+  },
+
+  /**
+   * The CURRENT user's active memberships — GET /api/tuzis/my-subscriptions.
+   * The backend has no "am I subscribed to creator X" flag on
+   * `GET /api/creator/{username}/` (CreatorDetailSerializer carries only
+   * `member_price`, not a per-viewer status), and `/api/tuzis/my-subscribers`
+   * is the inverse (who subscribes to the SIGNED-IN creator, not who the
+   * signed-in user subscribes to). This is the one real endpoint that answers
+   * "am I subscribed, and to whom": it's already scoped to `fan=request.user`
+   * and filtered server-side to `expires__gt=now`, so every row here is a
+   * live membership. Callers match on `star.username` to find the status for
+   * a specific creator.
+   */
+  async mySubscriptions(): Promise<Subscription[]> {
+    if (useMock()) {
+      await delay(150);
+      return [...mockSubscriptions];
+    }
+    const page = await request<Paginated<Subscription>>(
+      "/api/tuzis/my-subscriptions",
+    );
+    return page.results ?? [];
+  },
+
+  /**
+   * Cancel auto-renewal — DELETE /api/tuzis/subscribe/{username}. Mirrors the
+   * backend exactly: this sets `max_price` to 0 so the membership won't
+   * recur, it does NOT revoke access already paid for. The membership stays
+   * active (and keeps showing in `mySubscriptions`) until `expires`.
+   */
+  async unsubscribe(username: string): Promise<void> {
+    if (useMock()) {
+      await delay(300);
+      mockUnsubscribe(username);
+      return;
+    }
+    await request(`/api/tuzis/subscribe/${username}`, { method: "DELETE" });
   },
 };
 

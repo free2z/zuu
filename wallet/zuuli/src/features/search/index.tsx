@@ -245,8 +245,15 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
             <span className="tabular-nums">{creator.zpages} pages</span>
           ) : null}
           {creator.member_price ? (
-            <Badge variant="sub" className="tabular-nums">
-              {formatTuzis(creator.member_price)}/mo
+            // "Membership": this is what it costs to SUBSCRIBE to this
+            // creator, not the viewer's own spend — make that unmistakable
+            // rather than showing a bare, ambiguous "200 2Z/mo".
+            <Badge
+              variant="sub"
+              className="tabular-nums"
+              aria-label={`Membership price: ${formatTuzis(creator.member_price)} per month`}
+            >
+              Membership · {formatTuzis(creator.member_price)}/mo
             </Badge>
           ) : null}
         </div>

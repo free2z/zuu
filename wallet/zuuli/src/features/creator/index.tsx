@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
+  Check,
   Clock,
   Facebook,
   FileText,
@@ -50,7 +51,7 @@ import { cn } from "@/lib/utils";
 import { parseBioFrontmatter, type SocialLink } from "@/lib/utils/bio";
 import { useAsync } from "@/hooks/useAsync";
 import { useSession } from "@/store/session";
-import type { Article, CreatorDetail } from "@/lib/api/types";
+import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
 
 /** Icon per canonical social platform key, falling back to a plain link glyph. */
 const SOCIAL_ICONS: Record<SocialLink["key"], LucideIcon> = {
@@ -267,6 +268,15 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
 }
 
 // ─── Subscribe ────────────────────────────────────────────────────────────────
+/** "Aug 14" style short date for a membership renewal/expiry. */
+function formatMembershipDate(iso?: string): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function SubscribeButton({ creator }: { creator: CreatorDetail }) {
   const name = creator.display_name || creator.username;
   const navigate = useNavigate();
@@ -275,9 +285,32 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Set the instant `subscribe()` succeeds so the button reflects the new
+  // state immediately, even before `reloadSubscriptions` below lands (and
+  // even if that refetch fails) — see the comment on `tuzi.mySubscriptions`
+  // for why this is the only backend source of subscription status.
+  const [justSubscribed, setJustSubscribed] = useState<Subscription | null>(
+    null,
+  );
 
   const price = creator.member_price ?? 0;
   const enough = price <= balance;
+
+  const { data: subscriptions, reload: reloadSubscriptions } = useAsync<
+    Subscription[]
+  >(
+    () => (user ? tuzi.mySubscriptions() : Promise.resolve([])),
+    [user?.username, creator.username],
+  );
+  const remoteSub = subscriptions?.find(
+    (s) => s.star.username.toLowerCase() === creator.username.toLowerCase(),
+  );
+  const sub = remoteSub ?? justSubscribed;
+  const subscribed = Boolean(sub);
+  // `max_price === 0` means the fan cancelled auto-renew (DELETE
+  // /api/tuzis/subscribe/{username}) — access still runs to `expires`, it
+  // just won't recur.
+  const renewing = sub ? Number(sub.max_price ?? 0) > 0 : true;
 
   async function subscribe() {
     if (!user) {
@@ -288,8 +321,24 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
     try {
       await tuzi.subscribe(creator.username);
       if (price > 0) adjustTuzis(-price);
-      toast.success(`Subscribed to ${name}`);
+      const expires = new Date(Date.now() + 30 * 86400000).toISOString();
+      setJustSubscribed({
+        fan: {
+          username: user.username,
+          free2zaddr: user.free2zaddr ?? user.username,
+        },
+        star: { username: creator.username, free2zaddr: creator.free2zaddr },
+        expires,
+        max_price: String(price),
+      });
+      toast.success(`Subscribed to ${name}`, {
+        description:
+          price > 0
+            ? `Renews monthly · ${formatTuzis(price)}. You've unlocked ${name}'s subscriber posts and livestreams.`
+            : `You've unlocked ${name}'s subscriber posts and livestreams.`,
+      });
       setOpen(false);
+      void reloadSubscriptions();
     } catch {
       toast.error("Couldn't complete the subscription. Please try again.");
     } finally {
@@ -297,34 +346,124 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
     }
   }
 
+  async function unsubscribe() {
+    setBusy(true);
+    try {
+      await tuzi.unsubscribe(creator.username);
+      setJustSubscribed(null);
+      toast.success("Membership won't renew", {
+        description: sub?.expires
+          ? `You'll keep access to ${name}'s subscriber posts and livestreams until ${formatMembershipDate(sub.expires)}.`
+          : undefined,
+      });
+      setOpen(false);
+      void reloadSubscriptions();
+    } catch {
+      toast.error("Couldn't update your membership. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!creator.member_price) {
-    // No paid tier — a plain follow/subscribe.
+    // No paid tier — a plain follow/subscribe, reflected the same way.
     return (
-      <Button onClick={subscribe} disabled={busy}>
+      <Button
+        variant={subscribed ? "secondary" : "default"}
+        onClick={subscribe}
+        disabled={busy || subscribed}
+      >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : subscribed ? (
+          <Check className="h-4 w-4" aria-hidden />
         ) : null}
-        Subscribe
+        {subscribed ? "Following" : "Subscribe"}
       </Button>
+    );
+  }
+
+  if (subscribed) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button
+            variant="secondary"
+            className="border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+            aria-label={`Manage your ${name} membership`}
+          >
+            <Check className="h-4 w-4" aria-hidden />
+            Member
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Your membership to {name}</DialogTitle>
+            <DialogDescription>
+              {renewing
+                ? "Unlocks subscriber posts and livestreams. Renews automatically each month."
+                : "Auto-renew is off — you'll keep access until it expires."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-xl border border-border bg-card/50 p-4">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm text-muted-foreground">
+                Membership price
+              </span>
+              <span className="text-xl font-bold tabular-nums">
+                {formatTuzis(price)}
+                <span className="text-sm font-normal text-muted-foreground">
+                  /mo
+                </span>
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {renewing ? "Renews" : "Access ends"}{" "}
+              {sub?.expires ? formatMembershipDate(sub.expires) : "soon"}
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+              Close
+            </Button>
+            {renewing ? (
+              <Button variant="outline" onClick={unsubscribe} disabled={busy}>
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : null}
+                Cancel membership
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button aria-label={`Subscribe to ${name}`}>Subscribe</Button>
+        <Button aria-label={`Subscribe to ${name} · ${formatTuzis(price)}/mo`}>
+          Subscribe · {formatTuzis(price)}/mo
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Subscribe to {name}</DialogTitle>
           <DialogDescription>
-            Membership unlocks subscriber posts and livestreams for 30 days.
+            This is {name}'s membership price — what it costs you to become a
+            subscriber. It unlocks their subscriber posts and livestreams for
+            30 days.
           </DialogDescription>
         </DialogHeader>
 
         <div className="rounded-xl border border-border bg-card/50 p-4">
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-muted-foreground">Monthly</span>
+            <span className="text-sm text-muted-foreground">
+              Membership · monthly
+            </span>
             <span className="text-xl font-bold tabular-nums">
               {formatTuzis(price)}
             </span>
