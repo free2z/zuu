@@ -152,14 +152,27 @@ impl WalletManifest {
         }
     }
 
-    /// Set the active wallet by ID.
-    pub fn set_active(&mut self, data_dir: &Path, wallet_id: &str) -> bool {
-        if self.wallets.iter().any(|w| w.id == wallet_id) {
-            self.active_wallet_id = Some(wallet_id.to_string());
-            self.save(data_dir);
-            true
-        } else {
-            false
+    /// Durably set the active wallet by ID.
+    ///
+    /// Persistence failure restores the previous in-memory selection so the
+    /// manifest can never advertise a context that was not committed on disk.
+    pub fn set_active(
+        &mut self,
+        data_dir: &Path,
+        wallet_id: &str,
+    ) -> std::io::Result<bool> {
+        if !self.wallets.iter().any(|w| w.id == wallet_id) {
+            return Ok(false);
+        }
+
+        let previous_active = self.active_wallet_id.clone();
+        self.active_wallet_id = Some(wallet_id.to_string());
+        match self.save_atomic(data_dir) {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                self.active_wallet_id = previous_active;
+                Err(error)
+            }
         }
     }
 
@@ -382,6 +395,23 @@ mod replacement_tests {
         assert_eq!(reloaded.active_wallet_id.as_deref(), Some(entry.id.as_str()));
         assert_eq!(reloaded.wallets.len(), 1);
         std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn active_wallet_persistence_failure_rolls_back_memory() {
+        let parent = test_dir("activate-rollback");
+        let invalid_data_dir = parent.join("not-a-directory");
+        std::fs::write(&invalid_data_dir, b"file").expect("create invalid data directory");
+        let first = WalletManifest::prepare_wallet("First".into(), Some(1));
+        let second = WalletManifest::prepare_wallet("Second".into(), Some(2));
+        let mut manifest = WalletManifest {
+            wallets: vec![first.clone(), second.clone()],
+            active_wallet_id: Some(first.id.clone()),
+        };
+
+        assert!(manifest.set_active(&invalid_data_dir, &second.id).is_err());
+        assert_eq!(manifest.active_wallet_id.as_deref(), Some(first.id.as_str()));
+        std::fs::remove_dir_all(parent).expect("remove test directory");
     }
 
     #[test]

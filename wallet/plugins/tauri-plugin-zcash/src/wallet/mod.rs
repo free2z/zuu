@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use secrecy::SecretVec;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, MutexGuard, RwLock};
 use zeroize::Zeroizing;
 use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_protocol::consensus::Network;
@@ -27,6 +27,14 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
 /// Type alias for our concrete WalletDb.
 pub type WalletDatabase =
     zcash_client_sqlite::WalletDb<rusqlite::Connection, Network, zcash_client_sqlite::util::SystemClock, rand::rngs::OsRng>;
+
+/// Proof that an identity-sensitive operation owns the wallet transition.
+/// Custody retrieval requires this token so a future caller cannot accidentally
+/// split active-ID lookup, DB validation, native fetch, and seed installation
+/// across a concurrent switch or deletion.
+pub struct WalletTransitionGuard<'a> {
+    _guard: MutexGuard<'a, ()>,
+}
 
 pub struct WalletState {
     pub network: Network,
@@ -128,6 +136,12 @@ impl WalletState {
         manifest.active_wallet_id.clone()
     }
 
+    pub async fn lock_wallet_transition(&self) -> WalletTransitionGuard<'_> {
+        WalletTransitionGuard {
+            _guard: self.wallet_transition.lock().await,
+        }
+    }
+
     pub async fn store_seed_phrase(&self, wallet_id: &str, phrase: &str) -> crate::Result<()> {
         let store = self.seed_store.clone();
         let wallet_id = wallet_id.to_owned();
@@ -139,7 +153,21 @@ impl WalletState {
 
     /// Retrieve and, when necessary, migrate a seed only after proving that its
     /// derived UFVK is the one recorded in the active wallet database.
-    pub async fn get_seed_phrase(&self, wallet_id: &str) -> crate::Result<Zeroizing<String>> {
+    pub async fn get_seed_phrase(
+        &self,
+        _transition: &WalletTransitionGuard<'_>,
+        wallet_id: &str,
+    ) -> crate::Result<Zeroizing<String>> {
+        let active_wallet_id = self
+            .active_wallet_id()
+            .await
+            .ok_or(crate::error::Error::WalletNotInitialized)?;
+        if active_wallet_id != wallet_id {
+            return Err(crate::error::Error::KeyError(
+                "refusing to retrieve custody for a non-active wallet".into(),
+            ));
+        }
+
         let expected_ufvk = {
             let db_guard = self.read_db.lock().await;
             match db_guard.as_ref() {

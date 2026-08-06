@@ -96,6 +96,17 @@ async fn cleanup_committed_wallet(
     }
 }
 
+fn open_wallet_context(
+    data_dir: &std::path::Path,
+    wallet: &crate::wallet::manifest::WalletEntry,
+    network: zcash_protocol::consensus::Network,
+) -> Result<(crate::wallet::WalletDatabase, crate::wallet::WalletDatabase)> {
+    let db_path = data_dir.join(&wallet.db_filename);
+    let db = storage::init_wallet_db(&db_path, network)?;
+    let read_db = storage::open_read_db(&db_path, network)?;
+    Ok((db, read_db))
+}
+
 #[command]
 pub(crate) async fn create_wallet<R: Runtime>(
     app: AppHandle<R>,
@@ -108,10 +119,12 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let word_count = args.mnemonic_word_count.unwrap_or(24);
     let wallet_name = args.name.unwrap_or_else(|| "Default".to_string());
 
-    // Stop any running sync (fire-and-forget)
+    // Stop any running sync and wait until it has released the old write DB.
+    // The transition lock prevents another wallet operation from interleaving.
     *zcash.state.syncing.write().await = false;
     if let Some(h) = zcash.state.sync_handle.lock().await.take() {
         h.abort();
+        let _ = h.await;
     }
 
     let mnemonic = keys::generate_mnemonic(word_count)?;
@@ -236,24 +249,16 @@ pub(crate) async fn create_wallet<R: Runtime>(
         }
     }
 
-    // Do not expose the new DB as active until native custody and the durable
-    // manifest have both committed.
+    // Complete the entire context swap before releasing the transition lock or
+    // returning. A caller must never observe the new manifest/read DB/seed while
+    // mutations still target the previous wallet's write DB.
+    *zcash.state.db.lock().await = Some(db);
     *zcash.state.read_db.lock().await = Some(read_db);
-
-    // Store seed in memory for the session
     *zcash.state.seed.lock().await = Some(seed);
+    drop(transition_guard);
 
-    // Swap write db in background (waits for old sync to release lock)
-    let db_arc = Arc::clone(&zcash.state.db);
-    let app2 = app.clone();
-    tokio::spawn(async move {
-        let _transition_guard = transition_guard;
-        *db_arc.lock().await = Some(db);
-        tracing::info!("write db ready for new wallet");
-        // Auto-start sync once write db is available
-        let zcash2 = app2.zcash();
-        let _ = crate::wallet::sync::start_sync(app2.clone(), &zcash2.state).await;
-    });
+    // Auto-start sync only after the new context is fully installed.
+    let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
 
     Ok(WalletCreated {
         seed_phrase: mnemonic.phrase().to_string(),
@@ -275,10 +280,11 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     let birthday_height = args.birthday_height.unwrap_or(419200); // sapling activation
     let wallet_name = args.name.unwrap_or_else(|| "Restored".to_string());
 
-    // Stop any running sync (fire-and-forget)
+    // Stop any running sync and wait until it has released the old write DB.
     *zcash.state.syncing.write().await = false;
     if let Some(h) = zcash.state.sync_handle.lock().await.take() {
         h.abort();
+        let _ = h.await;
     }
 
     // Connect to lightwalletd
@@ -408,24 +414,13 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         }
     }
 
-    // Do not expose the restored DB until native custody and the durable
-    // manifest have both committed.
+    // Complete the write/read/seed swap before returning; see create_wallet.
+    *zcash.state.db.lock().await = Some(db);
     *zcash.state.read_db.lock().await = Some(read_db);
-
-    // Store seed in memory
     *zcash.state.seed.lock().await = Some(seed);
+    drop(transition_guard);
 
-    // Swap write db in background (waits for old sync to release lock)
-    let db_arc = Arc::clone(&zcash.state.db);
-    let app2 = app.clone();
-    tokio::spawn(async move {
-        let _transition_guard = transition_guard;
-        *db_arc.lock().await = Some(db);
-        tracing::info!("write db ready for restored wallet");
-        // Auto-start sync once write db is available
-        let zcash2 = app2.zcash();
-        let _ = crate::wallet::sync::start_sync(app2.clone(), &zcash2.state).await;
-    });
+    let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
 
     Ok(serde_json::json!({ "success": true }))
 }
@@ -435,6 +430,7 @@ pub(crate) async fn get_wallet_status<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<WalletStatus> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     let initialized = zcash.state.is_initialized().await;
     let has_seed = zcash.state.seed.lock().await.is_some();
 
@@ -472,11 +468,12 @@ pub(crate) async fn get_seed_phrase<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<String> {
     let zcash = app.zcash();
+    let transition_guard = zcash.state.lock_wallet_transition().await;
     let wallet_id = zcash.state.active_wallet_id().await
         .ok_or(Error::WalletNotInitialized)?;
     zcash
         .state
-        .get_seed_phrase(&wallet_id)
+        .get_seed_phrase(&transition_guard, &wallet_id)
         .await
         .map(|phrase| phrase.to_string())
 }
@@ -487,7 +484,7 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
     args: UnlockWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
-    let _transition_guard = zcash.state.wallet_transition.lock().await;
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
 
     // Parse and validate the mnemonic
     let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
@@ -566,6 +563,7 @@ pub(crate) async fn get_viewing_key<R: Runtime>(
     args: AccountIdArgs,
 ) -> Result<String> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
 
     if !zcash.state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
@@ -600,6 +598,7 @@ pub(crate) async fn get_spending_key<R: Runtime>(
     args: AccountIdArgs,
 ) -> Result<SpendingKeyStatus> {
     let zcash = app.zcash();
+    let transition_guard = zcash.state.lock_wallet_transition().await;
 
     // If seed is not in memory, try to reload from keychain
     {
@@ -608,7 +607,10 @@ pub(crate) async fn get_spending_key<R: Runtime>(
             drop(seed_guard);
             let wallet_id = zcash.state.active_wallet_id().await
                 .ok_or(Error::WalletNotInitialized)?;
-            let phrase = zcash.state.get_seed_phrase(&wallet_id).await?;
+            let phrase = zcash
+                .state
+                .get_seed_phrase(&transition_guard, &wallet_id)
+                .await?;
             let mnemonic = keys::parse_mnemonic(&phrase)?;
             *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
         }
@@ -638,6 +640,7 @@ pub(crate) async fn list_wallets<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Vec<WalletInfo>> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     let manifest = zcash.state.manifest.lock().await;
     let active_id = manifest.active_wallet_id.clone();
 
@@ -656,56 +659,77 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     args: SwitchWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
-    let transition_guard = Arc::clone(&zcash.state.wallet_transition)
+    let _transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
 
-    // Signal sync to stop (non-blocking — don't wait for the batch to finish)
+    // Resolve and open the complete target context before changing any current
+    // wallet state. A corrupt/unopenable target therefore leaves the active
+    // manifest, DB handles, seed, sync, and proposal untouched.
+    let wallet_entry = {
+        let manifest = zcash.state.manifest.lock().await;
+        manifest
+            .wallets
+            .iter()
+            .find(|wallet| wallet.id == args.wallet_id)
+            .cloned()
+            .ok_or_else(|| Error::Other("wallet not found".into()))?
+    };
+    let (new_db, new_read_db) = open_wallet_context(
+        &zcash.state.data_dir,
+        &wallet_entry,
+        zcash.state.network,
+    )?;
+
+    // Stop and join sync so it cannot retain or mutate the previous write DB
+    // while the new context is installed.
     *zcash.state.syncing.write().await = false;
-    {
-        let handle = zcash.state.sync_handle.lock().await.take();
-        if let Some(h) = handle {
-            h.abort();
-            // Don't await — the sync batch may take seconds to hit a yield point.
-            // The write db swap below runs in the background and will wait.
-        }
+    let handle = zcash.state.sync_handle.lock().await.take();
+    if let Some(handle) = handle {
+        handle.abort();
+        let _ = handle.await;
     }
 
-    // Clear any pending proposal from the previous wallet
-    *zcash.state.pending_proposal.lock().await = None;
-
-    // Update manifest
-    let wallet_entry = {
+    // Hold every context slot while committing the active selection. There is
+    // no await between the durable manifest mutation and the in-memory swap.
+    let mut db_guard = zcash.state.db.lock().await;
+    let mut read_db_guard = zcash.state.read_db.lock().await;
+    let mut seed_guard = zcash.state.seed.lock().await;
+    let activation = {
         let mut manifest = zcash.state.manifest.lock().await;
-        if !manifest.set_active(&zcash.state.data_dir, &args.wallet_id) {
-            return Err(Error::Other("wallet not found".into()));
-        }
-        manifest.get_active().unwrap().clone()
+        manifest.set_active(&zcash.state.data_dir, &args.wallet_id)
     };
+    let activated = match activation {
+        Ok(activated) => activated,
+        Err(error) => {
+            drop(seed_guard);
+            drop(read_db_guard);
+            drop(db_guard);
+            let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
+            return Err(Error::DatabaseError(format!(
+                "failed to persist active wallet: {error}"
+            )));
+        }
+    };
+    if !activated {
+        drop(seed_guard);
+        drop(read_db_guard);
+        drop(db_guard);
+        let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
+        return Err(Error::Other("wallet not found".into()));
+    }
+    *db_guard = Some(new_db);
+    *read_db_guard = Some(new_read_db);
+    *seed_guard = None;
+    drop(seed_guard);
+    drop(read_db_guard);
+    drop(db_guard);
 
-    // Open new connections
-    let db_path = zcash.state.data_dir.join(&wallet_entry.db_filename);
-    let new_db = storage::init_wallet_db(&db_path, zcash.state.network)?;
-    let new_read_db = storage::open_read_db(&db_path, zcash.state.network)?;
-
-    // Swap read_db immediately (instant — all UI reads use this)
-    *zcash.state.read_db.lock().await = Some(new_read_db);
+    // Only committed transitions invalidate the previous wallet's proposal.
+    *zcash.state.pending_proposal.lock().await = None;
 
     // Reset chain tip cache
     zcash.state.last_known_chain_tip.store(0, std::sync::atomic::Ordering::Relaxed);
-
-    // Switching changes database context but does not itself need spending
-    // authority. Keep the new wallet locked; the next explicit reveal/spend
-    // action authenticates against native custody and surfaces any backend error.
-    *zcash.state.seed.lock().await = None;
-
-    // Swap write db in background — waits for aborted sync to release the lock
-    let db_arc = Arc::clone(&zcash.state.db);
-    tokio::spawn(async move {
-        let _transition_guard = transition_guard;
-        *db_arc.lock().await = Some(new_db);
-        tracing::info!("write db swapped for switched wallet");
-    });
 
     Ok(())
 }
@@ -716,6 +740,7 @@ pub(crate) async fn rename_wallet<R: Runtime>(
     args: RenameWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     let mut manifest = zcash.state.manifest.lock().await;
     if !manifest.rename_wallet(&zcash.state.data_dir, &args.wallet_id, args.name) {
         return Err(Error::Other("wallet not found".into()));
@@ -729,7 +754,7 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     args: DeleteWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
-    let transition_guard = Arc::clone(&zcash.state.wallet_transition)
+    let _transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
 
@@ -741,6 +766,7 @@ pub(crate) async fn delete_wallet<R: Runtime>(
         *zcash.state.syncing.write().await = false;
         if let Some(handle) = zcash.state.sync_handle.lock().await.take() {
             handle.abort();
+            let _ = handle.await;
         }
         *zcash.state.pending_proposal.lock().await = None;
     }
@@ -787,6 +813,7 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     // If we deleted the active wallet, switch to the new active
     if deletion.was_active {
         if let Some((_entry, db, read_db)) = prepared_active {
+            *zcash.state.db.lock().await = Some(db);
             *zcash.state.read_db.lock().await = Some(read_db);
             // Do not prompt while finalizing a destructive transition. The next
             // explicit spend/reveal action authenticates against native custody.
@@ -796,22 +823,14 @@ pub(crate) async fn delete_wallet<R: Runtime>(
                 .last_known_chain_tip
                 .store(0, std::sync::atomic::Ordering::Relaxed);
 
-            let db_arc = Arc::clone(&zcash.state.db);
-            let cleanup = deletion.cleanup;
-            let cleanup_data_dir = zcash.state.data_dir.clone();
-            let cleanup_seed_store = zcash.state.seed_store.clone();
-            tokio::spawn(async move {
-                let _transition_guard = transition_guard;
-                *db_arc.lock().await = Some(db);
-                if let Some(cleanup) = cleanup {
-                    cleanup_committed_wallet(
-                        cleanup_data_dir,
-                        cleanup,
-                        cleanup_seed_store,
-                    )
-                    .await;
-                }
-            });
+            if let Some(cleanup) = deletion.cleanup {
+                cleanup_committed_wallet(
+                    zcash.state.data_dir.clone(),
+                    cleanup,
+                    zcash.state.seed_store.clone(),
+                )
+                .await;
+            }
             return Ok(());
         }
     }
@@ -983,6 +1002,73 @@ mod deletion_tests {
         );
         std::fs::remove_dir_all(data_dir).expect("remove test data dir");
     }
+
+    #[test]
+    fn failed_switch_preparation_preserves_active_manifest() {
+        let data_dir =
+            std::env::temp_dir().join(format!("zuuli-switch-command-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create test data dir");
+
+        let active = wallet(&uuid::Uuid::new_v4().to_string());
+        let target = wallet(&uuid::Uuid::new_v4().to_string());
+        let manifest = WalletManifest {
+            wallets: vec![active.clone(), target.clone()],
+            active_wallet_id: Some(active.id.clone()),
+        };
+        manifest.save(&data_dir);
+
+        // A directory at the SQLite path deterministically makes target
+        // preparation fail before the active selection can be committed.
+        std::fs::create_dir(data_dir.join(&target.db_filename))
+            .expect("create invalid target database path");
+        assert!(open_wallet_context(
+            &data_dir,
+            &target,
+            zcash_protocol::consensus::Network::MainNetwork,
+        )
+        .is_err());
+
+        assert_eq!(manifest.active_wallet_id.as_deref(), Some(active.id.as_str()));
+        let persisted = WalletManifest::load(&data_dir);
+        assert_eq!(
+            persisted.active_wallet_id.as_deref(),
+            Some(active.id.as_str())
+        );
+        std::fs::remove_dir_all(data_dir).expect("remove test data dir");
+    }
+
+    #[tokio::test]
+    async fn transition_lock_keeps_wallet_identity_stable_during_custody_window() {
+        let transition = Arc::new(tokio::sync::Mutex::new(()));
+        let manifest = Arc::new(tokio::sync::Mutex::new(WalletManifest {
+            wallets: vec![wallet("wallet-a"), wallet("wallet-b")],
+            active_wallet_id: Some("wallet-a".into()),
+        }));
+        let custody_guard = Arc::clone(&transition).lock_owned().await;
+        let (attempted_tx, attempted_rx) = tokio::sync::oneshot::channel();
+        let switch_transition = Arc::clone(&transition);
+        let switch_manifest = Arc::clone(&manifest);
+
+        let switch = tokio::spawn(async move {
+            attempted_tx.send(()).expect("signal attempted switch");
+            let _switch_guard = switch_transition.lock_owned().await;
+            switch_manifest.lock().await.active_wallet_id = Some("wallet-b".into());
+        });
+        attempted_rx.await.expect("switch task started");
+        tokio::task::yield_now().await;
+
+        assert_eq!(
+            manifest.lock().await.active_wallet_id.as_deref(),
+            Some("wallet-a"),
+            "a custody operation holding the transition keeps its DB identity stable",
+        );
+        drop(custody_guard);
+        switch.await.expect("switch completes after custody window");
+        assert_eq!(
+            manifest.lock().await.active_wallet_id.as_deref(),
+            Some("wallet-b")
+        );
+    }
 }
 
 // --- Existing commands ---
@@ -992,6 +1078,7 @@ pub(crate) async fn create_account<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<AccountInfo> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::accounts::create_account(&zcash.state).await
 }
 
@@ -1000,6 +1087,7 @@ pub(crate) async fn list_accounts<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Vec<AccountInfo>> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::accounts::list_accounts(&zcash.state).await
 }
 
@@ -1009,6 +1097,7 @@ pub(crate) async fn get_account_balance<R: Runtime>(
     args: AccountIdArgs,
 ) -> Result<AccountBalance> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
 
     if !zcash.state.is_initialized().await {
         return Ok(AccountBalance {
@@ -1082,6 +1171,7 @@ pub(crate) async fn get_unified_address<R: Runtime>(
     args: AccountIdArgs,
 ) -> Result<String> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
 
     if !zcash.state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
@@ -1114,6 +1204,7 @@ pub(crate) async fn start_sync<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<()> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::sync::start_sync(app.clone(), &zcash.state).await
 }
 
@@ -1122,6 +1213,7 @@ pub(crate) async fn stop_sync<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<()> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::sync::stop_sync(&zcash.state).await
 }
 
@@ -1147,6 +1239,7 @@ pub(crate) async fn propose_send<R: Runtime>(
     args: ProposeSendArgs,
 ) -> Result<SendProposal> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::propose_send(
         &zcash.state,
         &args.to,
@@ -1162,6 +1255,7 @@ pub(crate) async fn propose_send_all<R: Runtime>(
     args: ProposeSendAllArgs,
 ) -> Result<SendProposal> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::propose_send_all(
         &zcash.state,
         &args.to,
@@ -1176,6 +1270,7 @@ pub(crate) async fn execute_send<R: Runtime>(
     args: ExecuteSendArgs,
 ) -> Result<String> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::execute_send(&zcash.state, args.proposal_id).await
 }
 
@@ -1185,6 +1280,7 @@ pub(crate) async fn get_transaction_history<R: Runtime>(
     args: TransactionHistoryArgs,
 ) -> Result<Vec<TransactionEntry>> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::history::get_transaction_history(
         &zcash.state,
         args.account_index,
@@ -1278,6 +1374,7 @@ pub(crate) async fn sign_challenge<R: Runtime>(
     args: SignChallengeArgs,
 ) -> Result<SignedChallenge> {
     let zcash = app.zcash();
+    let transition_guard = zcash.state.lock_wallet_transition().await;
 
     if !zcash.state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
@@ -1294,7 +1391,10 @@ pub(crate) async fn sign_challenge<R: Runtime>(
                 .active_wallet_id()
                 .await
                 .ok_or(Error::WalletNotInitialized)?;
-            let phrase = zcash.state.get_seed_phrase(&wallet_id).await?;
+            let phrase = zcash
+                .state
+                .get_seed_phrase(&transition_guard, &wallet_id)
+                .await?;
             let mnemonic = keys::parse_mnemonic(&phrase)?;
             *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
         }
