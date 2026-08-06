@@ -1951,7 +1951,7 @@ mod tests {
         intent.txid = "unavailable".into();
         intent.txid_bytes.clear();
         intent.raw_transaction.clear();
-        intent.recovery_error = Some("transaction creation was interrupted".into());
+        intent.recovery_error = Some(INTERRUPTED_CREATION_RECOVERY_ERROR.into());
         persist_pending_broadcast(&directory, &intent).expect("persist send intent");
 
         let loaded = load_pending_broadcast(&directory, &intent.wallet_id)
@@ -1960,6 +1960,7 @@ mod tests {
         assert!(loaded.recovery_error.is_some());
         assert_eq!(loaded.proposal_id, intent.proposal_id);
         assert!(loaded.public_status().recovery_required);
+        assert!(loaded.public_status().can_discard);
         assert!(ensure_no_unresolved_broadcast(Some(&loaded)).is_err());
 
         clear_pending_broadcast(&directory, &intent.wallet_id).expect("clear send intent");
