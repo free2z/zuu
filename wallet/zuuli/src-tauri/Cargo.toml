@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2.4.9"
 # Native HTTP client used by the frontend (@tauri-apps/plugin-http) to reach the
 # free2z backend without browser CORS — powers Login with Zcash and every API call.
 tauri-plugin-http = "2"
@@ -26,6 +27,8 @@ tauri-plugin-zcash = { path = "../../plugins/tauri-plugin-zcash" }
 # (RFC 8252) — binds 127.0.0.1, serves a single request, then shuts down. Kept
 # out of the shared tauri-plugin-zcash crate since it's ZUULI-specific.
 tiny_http = "0.12"
+url = "2"
+getrandom = "0.3"
 
 # ---------------------------------------------------------------------------
 # Build profiles. DO NOT DELETE — this is load-bearing for `tauri dev` usability.

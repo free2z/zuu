@@ -4,6 +4,10 @@ mod oauth;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // RFC 8252 private-use redirect for iOS/Android social OAuth. The
+        // plugin registers only cash.free2z.zuuli://oauth/callback; oauth.rs
+        // independently validates the full URL, state and calling session.
+        .plugin(tauri_plugin_deep_link::init())
         // Native HTTP client the frontend uses (@tauri-apps/plugin-http) to call
         // the free2z API without browser CORS — required for Login with Zcash.
         .plugin(tauri_plugin_http::init())
@@ -16,9 +20,18 @@ pub fn run() {
         // until invoked; the frontend only calls these commands once the
         // backend reports a provider is configured.
         .manage(oauth::OauthLoopbackState::default())
+        .manage(oauth::OauthMobileState::default())
         .invoke_handler(tauri::generate_handler![
             oauth::oauth_loopback_start,
             oauth::oauth_loopback_wait,
+            oauth::oauth_loopback_cancel,
+            oauth::oauth_callback_transport,
+            oauth::oauth_mobile_arm,
+            oauth::oauth_mobile_pending,
+            oauth::oauth_mobile_claim,
+            oauth::oauth_mobile_resume,
+            oauth::oauth_mobile_finish,
+            oauth::oauth_mobile_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

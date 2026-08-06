@@ -1,12 +1,15 @@
-import { lazy, Suspense, useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { NotFound } from "@/components/common/NotFound";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
+import { auth } from "@/lib/api/free2z";
+import { recoverMobileOAuth } from "@/lib/oauth/transport";
 
 import AuthFeature from "@/features/auth";
 
@@ -37,6 +40,41 @@ function RouteFallback() {
   );
 }
 
+/** Finish a mobile OAuth callback that cold-started or resumed the app. */
+function MobileOAuthRecovery() {
+  const navigate = useNavigate();
+  const setUser = useSession((state) => state.setUser);
+  const sessionLoading = useSession((state) => state.loading);
+  const started = useRef(false);
+
+  useEffect(() => {
+    // The pending record is bound to the Knox session that initiated it.
+    // Wait until bootstrap has validated/cleared that token before recovery.
+    if (sessionLoading) return;
+    // React StrictMode deliberately reruns effects in development. The native
+    // state is one-shot too, but this guard avoids two backend exchanges.
+    if (started.current) return;
+    started.current = true;
+    void recoverMobileOAuth()
+      .then(async (capture) => {
+        if (!capture) return;
+        const user = await auth.completeSocialOAuth(capture);
+        setUser(user);
+        toast.success(capture.associate ? "Account linked" : "Welcome to ZUULI", {
+          description: `Finished ${capture.provider} sign-in after returning to the app.`,
+        });
+        if (!capture.associate) navigate("/", { replace: true });
+      })
+      .catch((error) => {
+        toast.error("Couldn't finish sign-in", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      });
+  }, [navigate, sessionLoading, setUser]);
+
+  return null;
+}
+
 export default function App() {
   const bootstrapSession = useSession((s) => s.bootstrap);
   const bootstrapWallet = useWallet((s) => s.bootstrap);
@@ -49,6 +87,7 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={200}>
       <BrowserRouter>
+        <MobileOAuthRecovery />
         <Routes>
           {/* Full-screen auth, outside the app shell — kept eager so /login is instant */}
           <Route path="/login" element={<AuthFeature />} />
