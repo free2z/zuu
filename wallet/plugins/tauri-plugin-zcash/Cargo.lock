@@ -5104,8 +5104,6 @@ dependencies = [
  "keyring",
  "libc",
  "nonempty",
- "objc2",
- "objc2-foundation",
  "rand 0.8.5",
  "ripemd 0.1.3",
  "rusqlite",

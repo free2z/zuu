@@ -27,15 +27,26 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
             .app_local_data_dir()
             .map_err(|e| crate::error::Error::Io(std::io::Error::other(e.to_string())))?;
         if local_data_dir != data_dir {
-            let local_migration =
-                crate::app_data_migration::prepare(&local_data_dir, &app.config().identifier)
-                    .map_err(|error| crate::error::Error::Other(error.to_string()))?;
-            tracing::info!(?local_migration, "ZUULI local app-data directory prepared");
+            match crate::app_data_migration::prepare(&local_data_dir, &app.config().identifier) {
+                Ok(local_migration) => {
+                    tracing::info!(?local_migration, "ZUULI local app-data directory prepared");
+                }
+                Err(error) => {
+                    // This tree contains WebView/session state, never wallet
+                    // identity. Preserve both trees and let the WebView start
+                    // signed out rather than making its migration block access
+                    // to a successfully prepared wallet.
+                    tracing::warn!(
+                        %error,
+                        "could not migrate ZUULI local WebView data; preserving it and continuing"
+                    );
+                }
+            }
         }
     }
 
     let seed_store = SeedStore::platform(data_dir.clone());
-    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store);
+    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store)?;
 
     Ok(Zcash {
         _app: app.clone(),

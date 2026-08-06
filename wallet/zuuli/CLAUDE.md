@@ -43,8 +43,9 @@ profiles, API keys, keystores, or local SDK paths.
 
 `cash.free2z.zuuli` replaces the unreleased `com.2zinc.zuuli` identifier.
 The Zcash plugin migrates reachable legacy application data before wallet state
-initialization and fails closed if both identities exist. Preserve the atomic
-cutover and mobile sandbox constraints documented in
+initialization. It fails closed on two wallet identities while quarantining a
+canonical tree that contains only state from the pre-migration build. Preserve
+the atomic cutover and mobile sandbox constraints documented in
 [`docs/app-data-identifier-migration.md`](docs/app-data-identifier-migration.md);
 never merge two identity directories or add an insecure mobile import path.
 

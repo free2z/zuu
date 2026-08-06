@@ -70,7 +70,7 @@ keyring = { version = "3.6.3", features = ["linux-native-sync-persistent", "cryp
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", features = ["windows-native"] }
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem"] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }

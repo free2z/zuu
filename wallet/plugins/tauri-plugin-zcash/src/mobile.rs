@@ -43,7 +43,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
             )
         })?;
         handle
-            .run_mobile_plugin("excludeDataFromBackup", DataPathArgs { path })
+            .run_mobile_plugin::<()>("excludeDataFromBackup", DataPathArgs { path })
             .map_err(|error| {
                 crate::error::Error::Other(format!(
                     "could not exclude the iOS wallet data directory from backup: {error}"
@@ -53,7 +53,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 
     let native_store: Arc<dyn SecureStore> = Arc::new(MobileSecretStore(handle));
     let seed_store = SeedStore::new(data_dir.clone(), native_store);
-    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store);
+    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store)?;
 
     Ok(Zcash {
         _app: app.clone(),

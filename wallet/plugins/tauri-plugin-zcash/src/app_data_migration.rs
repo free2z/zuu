@@ -26,6 +26,7 @@ const LEGACY_IDENTIFIER: &str = "com.2zinc.zuuli";
 const CANONICAL_IDENTIFIER: &str = "cash.free2z.zuuli";
 const JOURNAL_FILENAME: &str = ".zuuli-migration-com.2zinc.zuuli-to-cash.free2z.zuuli.json";
 const JOURNAL_TEMP_PREFIX: &str = ".zuuli-migration-prepared-";
+const DISPLACED_CANONICAL_FILENAME: &str = ".cash.free2z.zuuli-before-legacy-migration";
 const PROTOCOL_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +109,7 @@ pub(crate) fn prepare(
                 "Tauri resolved an unexpected canonical directory name: {name:?}"
             )));
         }
+        fs::create_dir_all(parent)?;
 
         let source = parent.join(LEGACY_IDENTIFIER);
         migrate_paths(&source, data_dir, parent, &mut |_| Ok(()))
@@ -127,14 +129,57 @@ where
     ensure_sibling(parent, destination, CANONICAL_IDENTIFIER)?;
 
     let journal_path = parent.join(JOURNAL_FILENAME);
-    let had_journal = path_exists_no_follow(&journal_path)?;
+    let mut had_journal = path_exists_no_follow(&journal_path)?;
+    let resumed = had_journal;
 
     if had_journal {
         read_and_validate_journal(&journal_path)?;
     }
 
-    let source_exists = path_exists_no_follow(source)?;
-    let destination_exists = path_exists_no_follow(destination)?;
+    let mut source_exists = path_exists_no_follow(source)?;
+    let mut destination_exists = path_exists_no_follow(destination)?;
+
+    // A canonical-ID build existed briefly before this migration shipped. It
+    // may have created only an empty directory or WebView/session state while
+    // the real wallet remained under the legacy ID. Preserve that non-wallet
+    // tree under a fixed quarantine name, then atomically give the canonical
+    // path to the legacy wallet. A destination containing any wallet identity
+    // marker is a real conflict and is never displaced.
+    if source_exists && destination_exists {
+        validate_tree(source)?;
+        validate_root(destination)?;
+        if contains_wallet_identity(destination)? {
+            return Err(MigrationError::Conflict);
+        }
+        let displaced = parent.join(DISPLACED_CANONICAL_FILENAME);
+        if path_exists_no_follow(&displaced)? {
+            return Err(MigrationError::InvalidState(
+                "pre-migration canonical-data quarantine already exists".to_owned(),
+            ));
+        }
+        if !had_journal {
+            install_journal(parent, &journal_path)?;
+            had_journal = true;
+            hook(MigrationStep::JournalPrepared)?;
+        }
+        if let Err(error) = rename_no_replace(destination, &displaced) {
+            let destination_remains = path_exists_no_follow(destination)?;
+            let displaced_exists = path_exists_no_follow(&displaced)?;
+            if destination_remains && !displaced_exists {
+                finish_journal(&journal_path, parent)?;
+                return Err(error.into());
+            }
+            if destination_remains || !displaced_exists {
+                return Err(MigrationError::InvalidState(
+                    "canonical-data quarantine rename ended ambiguously".to_owned(),
+                ));
+            }
+        }
+        sync_directory(parent)?;
+        hook(MigrationStep::CanonicalDisplaced)?;
+        source_exists = path_exists_no_follow(source)?;
+        destination_exists = path_exists_no_follow(destination)?;
+    }
 
     match (source_exists, destination_exists) {
         (true, true) => return Err(MigrationError::Conflict),
@@ -150,7 +195,7 @@ where
             return Ok(MigrationOutcome::Recovered);
         }
         (false, true) => {
-            validate_tree(destination)?;
+            validate_root(destination)?;
             return Ok(MigrationOutcome::AlreadyCanonical);
         }
         (false, false) => {
@@ -196,7 +241,7 @@ where
 
     finish_journal(&journal_path, parent)?;
     hook(MigrationStep::JournalRemoved)?;
-    Ok(if had_journal {
+    Ok(if resumed {
         MigrationOutcome::Recovered
     } else {
         MigrationOutcome::Migrated
@@ -206,6 +251,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MigrationStep {
     JournalPrepared,
+    CanonicalDisplaced,
     DirectoryRenamed,
     JournalRemoved,
 }
@@ -227,6 +273,26 @@ fn path_exists_no_follow(path: &Path) -> Result<bool, MigrationError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error.into()),
     }
+}
+
+fn contains_wallet_identity(root: &Path) -> Result<bool, MigrationError> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name == "wallets.json"
+            || name == ".seeds"
+            || name == "wallet.sqlite"
+            || name == "wallet.sqlite-wal"
+            || name == "wallet.sqlite-shm"
+            || (name.starts_with("wallet_") && name.contains(".sqlite"))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -367,18 +433,15 @@ fn finish_journal(path: &Path, parent: &Path) -> Result<(), MigrationError> {
 /// state.  A directory rename does not traverse links, but accepting one would
 /// allow later manifest/database opens to escape the application sandbox.
 fn validate_tree(root: &Path) -> Result<(), MigrationError> {
-    let metadata = fs::symlink_metadata(root)?;
-    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
-        return Err(MigrationError::InvalidState(
-            "app-data root is not a regular directory".to_owned(),
-        ));
-    }
+    let root_metadata = validate_root(root)?;
 
     let mut pending = vec![root.to_path_buf()];
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
             let metadata = fs::symlink_metadata(entry.path())?;
+            reject_reparse_point(&metadata)?;
+            reject_cross_device_entry(&root_metadata, &metadata)?;
             let file_type = metadata.file_type();
             if file_type.is_symlink() {
                 return Err(MigrationError::InvalidState(
@@ -387,7 +450,9 @@ fn validate_tree(root: &Path) -> Result<(), MigrationError> {
             }
             if file_type.is_dir() {
                 pending.push(entry.path());
-            } else if !file_type.is_file() {
+            } else if file_type.is_file() {
+                reject_hard_linked_file(&entry.path(), &metadata)?;
+            } else {
                 return Err(MigrationError::InvalidState(
                     "app-data contains a non-file filesystem object".to_owned(),
                 ));
@@ -395,6 +460,130 @@ fn validate_tree(root: &Path) -> Result<(), MigrationError> {
         }
     }
     Ok(())
+}
+
+fn validate_root(root: &Path) -> Result<fs::Metadata, MigrationError> {
+    let root_metadata = fs::symlink_metadata(root)?;
+    reject_reparse_point(&root_metadata)?;
+    if !root_metadata.file_type().is_dir() || root_metadata.file_type().is_symlink() {
+        return Err(MigrationError::InvalidState(
+            "app-data root is not a regular directory".to_owned(),
+        ));
+    }
+    Ok(root_metadata)
+}
+
+#[cfg(unix)]
+fn reject_cross_device_entry(
+    root: &fs::Metadata,
+    entry: &fs::Metadata,
+) -> Result<(), MigrationError> {
+    use std::os::unix::fs::MetadataExt;
+
+    if root.dev() != entry.dev() {
+        return Err(MigrationError::InvalidState(
+            "app-data crosses a filesystem mount boundary".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn reject_cross_device_entry(
+    _root: &fs::Metadata,
+    _entry: &fs::Metadata,
+) -> Result<(), MigrationError> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn reject_reparse_point(metadata: &fs::Metadata) -> Result<(), MigrationError> {
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(MigrationError::InvalidState(
+            "app-data contains a Windows reparse point".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn reject_reparse_point(_metadata: &fs::Metadata) -> Result<(), MigrationError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn reject_hard_linked_file(_path: &Path, metadata: &fs::Metadata) -> Result<(), MigrationError> {
+    use std::os::unix::fs::MetadataExt;
+
+    if metadata.nlink() != 1 {
+        return Err(MigrationError::InvalidState(
+            "app-data contains a hard-linked file".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn reject_hard_linked_file(path: &Path, _metadata: &fs::Metadata) -> Result<(), MigrationError> {
+    if windows_link_count(path)? != 1 {
+        return Err(MigrationError::InvalidState(
+            "app-data contains a hard-linked file".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn windows_link_count(path: &Path) -> std::io::Result<u32> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle, OPEN_EXISTING,
+    };
+
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    // SAFETY: `wide` is NUL-terminated and valid for this call. Zero desired
+    // access is sufficient for metadata queries, and OPEN_REPARSE_POINT keeps
+    // the validation anchored on the named object rather than following it.
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    // SAFETY: `handle` is valid and `information` points to writable storage.
+    let result = unsafe { GetFileInformationByHandle(handle, information.as_mut_ptr()) };
+    let query_error = if result == 0 {
+        Some(std::io::Error::last_os_error())
+    } else {
+        None
+    };
+    // SAFETY: The handle was returned by CreateFileW and is closed exactly once.
+    let close_result = unsafe { CloseHandle(handle) };
+    if let Some(error) = query_error {
+        return Err(error);
+    }
+    if close_result == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: GetFileInformationByHandle succeeded and initialized the struct.
+    Ok(unsafe { information.assume_init() }.nNumberOfLinks)
 }
 
 #[cfg(unix)]
@@ -514,17 +703,134 @@ mod tests {
     }
 
     #[test]
-    fn even_empty_destination_is_a_conflict_instead_of_an_overwrite_window() {
+    fn empty_pre_migration_destination_is_preserved_then_legacy_wallet_takes_canonical_path() {
         let fixture = Fixture::new("empty-conflict");
         fixture.write_wallet_payload();
         fs::create_dir(&fixture.destination).expect("create empty destination");
 
-        assert!(matches!(
-            fixture.migrate(&mut |_| Ok(())),
-            Err(MigrationError::Conflict)
-        ));
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("migrate wallet"),
+            MigrationOutcome::Migrated
+        );
+        assert!(!fixture.source.exists());
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read migrated wallet"),
+            b"manifest"
+        );
+        assert_eq!(
+            fs::read_dir(fixture.root.join(DISPLACED_CANONICAL_FILENAME))
+                .expect("read preserved empty canonical directory")
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn non_wallet_canonical_state_is_quarantined_without_mixing() {
+        let fixture = Fixture::new("canonical-session");
+        fixture.write_wallet_payload();
+        fs::create_dir_all(fixture.destination.join("WebView/Local Storage"))
+            .expect("create canonical WebView state");
+        fs::write(
+            fixture.destination.join("WebView/Local Storage/token"),
+            b"new-id session",
+        )
+        .expect("write canonical session");
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("migrate wallet"),
+            MigrationOutcome::Migrated
+        );
+
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read migrated wallet"),
+            b"manifest"
+        );
+        assert_eq!(
+            fs::read(
+                fixture
+                    .root
+                    .join(DISPLACED_CANONICAL_FILENAME)
+                    .join("WebView/Local Storage/token")
+            )
+            .expect("read quarantined session"),
+            b"new-id session"
+        );
+    }
+
+    #[test]
+    fn interruption_after_canonical_quarantine_resumes_without_mixing() {
+        let fixture = Fixture::new("quarantine-interruption");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create canonical state");
+        fs::write(fixture.destination.join("session"), b"canonical session")
+            .expect("write canonical session");
+        let mut fail_once = |step| {
+            if step == MigrationStep::CanonicalDisplaced {
+                Err(MigrationError::InvalidState("injected stop".to_owned()))
+            } else {
+                Ok(())
+            }
+        };
+
+        assert!(fixture.migrate(&mut fail_once).is_err());
+        assert!(fixture.source.exists());
+        assert!(!fixture.destination.exists());
+        assert_eq!(
+            fs::read(
+                fixture
+                    .root
+                    .join(DISPLACED_CANONICAL_FILENAME)
+                    .join("session")
+            )
+            .expect("read quarantined session"),
+            b"canonical session"
+        );
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("resume migration"),
+            MigrationOutcome::Recovered
+        );
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read migrated wallet"),
+            b"manifest"
+        );
+    }
+
+    #[test]
+    fn interruption_before_canonical_quarantine_resumes_without_mixing() {
+        let fixture = Fixture::new("pre-quarantine-interruption");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create canonical state");
+        fs::write(fixture.destination.join("session"), b"canonical session")
+            .expect("write canonical session");
+        let mut fail_once = |step| {
+            if step == MigrationStep::JournalPrepared {
+                Err(MigrationError::InvalidState("injected stop".to_owned()))
+            } else {
+                Ok(())
+            }
+        };
+
+        assert!(fixture.migrate(&mut fail_once).is_err());
         assert!(fixture.source.exists());
         assert!(fixture.destination.exists());
+        assert!(fixture.root.join(JOURNAL_FILENAME).exists());
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("resume migration"),
+            MigrationOutcome::Recovered
+        );
+        assert_eq!(
+            fs::read(
+                fixture
+                    .root
+                    .join(DISPLACED_CANONICAL_FILENAME)
+                    .join("session")
+            )
+            .expect("read quarantined session"),
+            b"canonical session"
+        );
     }
 
     #[test]
@@ -555,6 +861,17 @@ mod tests {
             0
         );
         assert!(fixture.root.join(JOURNAL_FILENAME).exists());
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("resume race"),
+            MigrationOutcome::Recovered
+        );
+        assert!(!fixture.source.exists());
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read migrated source"),
+            b"manifest"
+        );
+        assert!(fixture.root.join(DISPLACED_CANONICAL_FILENAME).is_dir());
     }
 
     #[test]
@@ -644,6 +961,59 @@ mod tests {
         assert!(!fixture.root.join(JOURNAL_FILENAME).exists());
     }
 
+    #[test]
+    fn hard_linked_payload_fails_closed_without_moving_anything() {
+        let fixture = Fixture::new("hard-link");
+        fixture.write_wallet_payload();
+        let outside = fixture.root.join("outside-wallet.sqlite");
+        fs::hard_link(fixture.source.join("wallet_alpha.sqlite"), &outside)
+            .expect("create external hard link");
+
+        let error = fixture
+            .migrate(&mut |_| Ok(()))
+            .expect_err("reject hard-linked payload");
+
+        assert!(matches!(error, MigrationError::InvalidState(_)));
+        assert!(fixture.source.exists());
+        assert_eq!(fs::read(outside).expect("read outside alias"), b"database");
+        assert!(!fixture.destination.exists());
+        assert!(!fixture.root.join(JOURNAL_FILENAME).exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn directory_junction_fails_closed_without_traversal() {
+        use std::process::Command;
+
+        let fixture = Fixture::new("junction");
+        fixture.write_wallet_payload();
+        let outside = fixture.root.join("outside-state");
+        fs::create_dir(&outside).expect("create outside directory");
+        fs::write(outside.join("sentinel"), b"outside").expect("write outside sentinel");
+        let junction = fixture.source.join("junction");
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .status()
+            .expect("invoke mklink");
+        assert!(status.success(), "create directory junction");
+
+        let error = fixture
+            .migrate(&mut |_| Ok(()))
+            .expect_err("reject directory junction");
+
+        assert!(matches!(error, MigrationError::InvalidState(_)));
+        assert!(fixture.source.exists());
+        assert_eq!(
+            fs::read(outside.join("sentinel")).expect("read outside sentinel"),
+            b"outside"
+        );
+        assert!(!fixture.destination.exists());
+        assert!(!fixture.root.join(JOURNAL_FILENAME).exists());
+        fs::remove_dir(junction).expect("remove test junction without traversing it");
+    }
+
     #[cfg(unix)]
     #[test]
     fn broken_source_symlink_is_not_mistaken_for_an_absent_legacy_directory() {
@@ -672,6 +1042,23 @@ mod tests {
             fixture.migrate(&mut |_| Ok(())).expect("repeat"),
             MigrationOutcome::AlreadyCanonical
         );
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn new_install_creates_a_missing_platform_data_parent() {
+        let root = std::env::temp_dir().join(format!(
+            "zuuli-missing-data-parent-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let destination = root.join("nested").join(CANONICAL_IDENTIFIER);
+
+        assert_eq!(
+            prepare(&destination, CANONICAL_IDENTIFIER).expect("prepare new install"),
+            MigrationOutcome::Created
+        );
+        assert!(destination.is_dir());
+        fs::remove_dir_all(root).expect("remove test directory");
     }
 
     #[test]

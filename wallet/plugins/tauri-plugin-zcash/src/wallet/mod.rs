@@ -62,28 +62,32 @@ pub struct WalletState {
 }
 
 impl WalletState {
-    pub fn new(data_dir: PathBuf, network: Network, seed_store: keychain::SeedStore) -> Self {
+    pub fn new(
+        data_dir: PathBuf,
+        network: Network,
+        seed_store: keychain::SeedStore,
+    ) -> crate::Result<Self> {
         // Load or create the manifest, migrating legacy wallet.sqlite if needed
-        let mut manifest = manifest::WalletManifest::load(&data_dir);
-        manifest.migrate_legacy(&data_dir);
+        let mut manifest = manifest::WalletManifest::load(&data_dir)?;
+        manifest.migrate_legacy(&data_dir)?;
 
-        // If there's an active wallet, try to open its DB and load seed from keychain
+        // If there's an active wallet, reopen it without a create-if-missing flag.
         let (db, read_db) = if let Some(active) = manifest.get_active() {
             let db_path = data_dir.join(&active.db_filename);
-            match storage::init_wallet_db(&db_path, network) {
+            match storage::open_existing_wallet_db(&db_path, network) {
                 Ok(db) => {
                     tracing::info!("reopened existing wallet: {} ({})", active.name, active.id);
-                    let rdb = match storage::open_read_db(&db_path, network) {
-                        Ok(rdb) => Some(rdb),
-                        Err(e) => {
-                            tracing::warn!("failed to open read-only db: {e}");
+                    let read_db = match storage::open_read_db(&db_path, network) {
+                        Ok(read_db) => Some(read_db),
+                        Err(error) => {
+                            tracing::warn!("failed to open read-only db: {error}");
                             None
                         }
                     };
-                    (Some(db), rdb)
+                    (Some(db), read_db)
                 }
-                Err(e) => {
-                    tracing::error!("failed to reopen wallet {}: {e}", active.id);
+                Err(error) => {
+                    tracing::error!("failed to reopen wallet {}: {error}", active.id);
                     (None, None)
                 }
             }
@@ -91,7 +95,7 @@ impl WalletState {
             (None, None)
         };
 
-        Self {
+        Ok(Self {
             network,
             data_dir,
             db: Arc::new(Mutex::new(db)),
@@ -113,7 +117,7 @@ impl WalletState {
             prover: Arc::new(Mutex::new(None)),
             pending_proposal: Arc::new(Mutex::new(None)),
             proposal_counter: Arc::new(AtomicU32::new(0)),
-        }
+        })
     }
 
     pub async fn is_initialized(&self) -> bool {

@@ -34,25 +34,74 @@ impl WalletManifest {
         data_dir.join("wallets.json")
     }
 
-    /// Load manifest from disk, or create empty if none exists.
-    pub fn load(data_dir: &Path) -> Self {
+    /// Load the manifest from disk, or create an empty one if none exists.
+    ///
+    /// A present but unreadable or invalid manifest is never treated as an
+    /// empty wallet set. Doing so could make startup adopt a legacy database
+    /// into a new manifest and silently discard the user's real wallet list.
+    pub fn load(data_dir: &Path) -> std::io::Result<Self> {
         let path = Self::manifest_path(data_dir);
         #[cfg(windows)]
-        if let Err(e) = recover_manifest_backup(&path, &manifest_backup_path(data_dir)) {
-            tracing::error!("failed to recover wallet manifest backup: {e}");
-        }
-        if path.exists() {
-            match std::fs::read_to_string(&path) {
-                Ok(contents) => match serde_json::from_str(&contents) {
-                    Ok(m) => return m,
-                    Err(e) => tracing::error!("failed to parse wallets.json: {e}"),
-                },
-                Err(e) => tracing::error!("failed to read wallets.json: {e}"),
+        recover_manifest_backup(&path, &manifest_backup_path(data_dir))?;
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata)
+                if metadata.file_type().is_file() && !metadata.file_type().is_symlink() =>
+            {
+                let contents = std::fs::read_to_string(&path)?;
+                let manifest: Self = serde_json::from_str(&contents)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+                manifest.validate()?;
+                return Ok(manifest);
             }
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "wallets.json is not a regular file",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
         }
-        Self {
+        Ok(Self {
             wallets: Vec::new(),
             active_wallet_id: None,
+        })
+    }
+
+    fn validate(&self) -> std::io::Result<()> {
+        let invalid =
+            |message: String| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+        let mut ids = std::collections::HashSet::new();
+        let mut filenames = std::collections::HashSet::new();
+        for wallet in &self.wallets {
+            if wallet.id.is_empty() || !ids.insert(wallet.id.as_str()) {
+                return Err(invalid(
+                    "wallet manifest contains an empty or duplicate wallet ID".into(),
+                ));
+            }
+            let path = Path::new(&wallet.db_filename);
+            let single_normal_component = matches!(
+                path.components().collect::<Vec<_>>().as_slice(),
+                [std::path::Component::Normal(_)]
+            );
+            let expected_shape = wallet.db_filename == "wallet.sqlite"
+                || (wallet.db_filename.starts_with("wallet_")
+                    && wallet.db_filename.ends_with(".sqlite"));
+            if !single_normal_component
+                || !expected_shape
+                || !filenames.insert(wallet.db_filename.as_str())
+            {
+                return Err(invalid(
+                    "wallet manifest contains an unsafe or duplicate database filename".into(),
+                ));
+            }
+        }
+        match self.active_wallet_id.as_deref() {
+            Some(active) if ids.contains(active) => Ok(()),
+            None if self.wallets.is_empty() => Ok(()),
+            _ => Err(invalid(
+                "wallet manifest active identity is inconsistent with its wallet list".into(),
+            )),
         }
     }
 
@@ -63,40 +112,69 @@ impl WalletManifest {
         }
     }
 
-    /// Migrate legacy wallet.sqlite (no manifest) to the new format.
-    pub fn migrate_legacy(&mut self, data_dir: &Path) {
+    /// Adopt a legacy `wallet.sqlite` into the manifest without renaming it.
+    ///
+    /// SQLite's `-wal` and `-shm` files are part of the live database state.
+    /// Keeping the basename stable preserves the triplet atomically; only the
+    /// new manifest needs to be committed. Persistence failure rolls back the
+    /// in-memory mutation and leaves every legacy file untouched.
+    pub fn migrate_legacy(&mut self, data_dir: &Path) -> std::io::Result<bool> {
         if !self.wallets.is_empty() {
-            return; // Already have wallets, no migration needed
+            return Ok(false); // Already have wallets, no migration needed
         }
 
         let legacy_path = data_dir.join("wallet.sqlite");
-        if !legacy_path.exists() {
-            return; // No legacy wallet
+        match std::fs::symlink_metadata(&legacy_path) {
+            Ok(metadata)
+                if metadata.file_type().is_file() && !metadata.file_type().is_symlink() => {}
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "legacy wallet.sqlite is not a regular file",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        }
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = data_dir.join(format!("wallet.sqlite{suffix}"));
+            match std::fs::symlink_metadata(&sidecar) {
+                Ok(metadata)
+                    if metadata.file_type().is_file() && !metadata.file_type().is_symlink() => {}
+                Ok(_) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("legacy SQLite sidecar {suffix} is not a regular file"),
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
         }
 
+        let previous_active = self.active_wallet_id.clone();
         let id = uuid::Uuid::new_v4().to_string();
-        let db_filename = format!("wallet_{id}.sqlite");
-        let new_path = data_dir.join(&db_filename);
-
-        // Rename the file
-        if let Err(e) = std::fs::rename(&legacy_path, &new_path) {
-            tracing::error!("failed to migrate legacy wallet.sqlite: {e}");
-            return;
-        }
-
-        tracing::info!("migrated legacy wallet.sqlite -> {db_filename}");
-
         let entry = WalletEntry {
             id: id.clone(),
             name: "Default".to_string(),
-            db_filename,
+            db_filename: "wallet.sqlite".to_string(),
             birthday_height: None,
             created_at: chrono_now(),
         };
 
         self.wallets.push(entry);
         self.active_wallet_id = Some(id);
-        self.save(data_dir);
+        match self.save_atomic(data_dir) {
+            Ok(_) => {
+                tracing::info!("adopted legacy wallet.sqlite into the wallet manifest");
+                Ok(true)
+            }
+            Err(error) => {
+                self.wallets.clear();
+                self.active_wallet_id = previous_active;
+                Err(error)
+            }
+        }
     }
 
     /// Get the active wallet entry.
@@ -111,10 +189,7 @@ impl WalletManifest {
     /// Callers initialize the database and commit native seed custody before
     /// passing the entry to `commit_wallet`. This prevents a failed secure-store
     /// operation from leaving an active manifest entry with no spending key.
-    pub fn prepare_wallet(
-        name: String,
-        birthday_height: Option<u64>,
-    ) -> WalletEntry {
+    pub fn prepare_wallet(name: String, birthday_height: Option<u64>) -> WalletEntry {
         let id = uuid::Uuid::new_v4().to_string();
         let db_filename = format!("wallet_{id}.sqlite");
         let entry = WalletEntry {
@@ -156,11 +231,7 @@ impl WalletManifest {
     ///
     /// Persistence failure restores the previous in-memory selection so the
     /// manifest can never advertise a context that was not committed on disk.
-    pub fn set_active(
-        &mut self,
-        data_dir: &Path,
-        wallet_id: &str,
-    ) -> std::io::Result<bool> {
+    pub fn set_active(&mut self, data_dir: &Path, wallet_id: &str) -> std::io::Result<bool> {
         if !self.wallets.iter().any(|w| w.id == wallet_id) {
             return Ok(false);
         }
@@ -264,11 +335,7 @@ impl WalletManifest {
             #[cfg(not(windows))]
             std::fs::rename(&temp_path, &path)?;
             #[cfg(windows)]
-            replace_manifest_with_backup(
-                &temp_path,
-                &path,
-                &manifest_backup_path(data_dir),
-            )?;
+            replace_manifest_with_backup(&temp_path, &path, &manifest_backup_path(data_dir))?;
             #[cfg(windows)]
             if let Err(e) = std::fs::OpenOptions::new()
                 .write(true)
@@ -318,11 +385,7 @@ fn recover_manifest_backup(path: &Path, backup: &Path) -> std::io::Result<()> {
 /// second rename fails. This is compiled in tests on every host so the recovery
 /// protocol does not rely on an untested `cfg(windows)` branch.
 #[cfg(any(windows, test))]
-fn replace_manifest_with_backup(
-    temp: &Path,
-    path: &Path,
-    backup: &Path,
-) -> std::io::Result<()> {
+fn replace_manifest_with_backup(temp: &Path, path: &Path, backup: &Path) -> std::io::Result<()> {
     recover_manifest_backup(path, backup)?;
     if backup.exists() {
         std::fs::remove_file(backup)?;
@@ -367,10 +430,8 @@ mod replacement_tests {
     use super::*;
 
     fn test_dir(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "zuuli-manifest-{label}-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("zuuli-manifest-{label}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create test directory");
         dir
     }
@@ -389,10 +450,16 @@ mod replacement_tests {
         assert!(!WalletManifest::manifest_path(&data_dir).exists());
 
         assert!(manifest.commit_wallet(&data_dir, entry.clone()).unwrap());
-        assert_eq!(manifest.active_wallet_id.as_deref(), Some(entry.id.as_str()));
+        assert_eq!(
+            manifest.active_wallet_id.as_deref(),
+            Some(entry.id.as_str())
+        );
         assert_eq!(manifest.wallets.len(), 1);
-        let reloaded = WalletManifest::load(&data_dir);
-        assert_eq!(reloaded.active_wallet_id.as_deref(), Some(entry.id.as_str()));
+        let reloaded = WalletManifest::load(&data_dir).expect("load committed manifest");
+        assert_eq!(
+            reloaded.active_wallet_id.as_deref(),
+            Some(entry.id.as_str())
+        );
         assert_eq!(reloaded.wallets.len(), 1);
         std::fs::remove_dir_all(data_dir).expect("remove test directory");
     }
@@ -410,8 +477,129 @@ mod replacement_tests {
         };
 
         assert!(manifest.set_active(&invalid_data_dir, &second.id).is_err());
-        assert_eq!(manifest.active_wallet_id.as_deref(), Some(first.id.as_str()));
+        assert_eq!(
+            manifest.active_wallet_id.as_deref(),
+            Some(first.id.as_str())
+        );
         std::fs::remove_dir_all(parent).expect("remove test directory");
+    }
+
+    #[test]
+    fn legacy_database_adoption_preserves_sqlite_triplet_byte_for_byte() {
+        let data_dir = test_dir("legacy-adoption");
+        let db = data_dir.join("wallet.sqlite");
+        let wal = data_dir.join("wallet.sqlite-wal");
+        let shm = data_dir.join("wallet.sqlite-shm");
+        std::fs::write(&db, b"database bytes").expect("write legacy database");
+        std::fs::write(&wal, b"uncheckpointed transactions").expect("write legacy WAL");
+        std::fs::write(&shm, b"shared-memory index").expect("write legacy SHM");
+
+        let mut manifest = WalletManifest {
+            wallets: Vec::new(),
+            active_wallet_id: None,
+        };
+        assert!(
+            manifest
+                .migrate_legacy(&data_dir)
+                .expect("adopt legacy wallet")
+        );
+
+        assert_eq!(
+            std::fs::read(&db).expect("read database"),
+            b"database bytes"
+        );
+        assert_eq!(
+            std::fs::read(&wal).expect("read WAL"),
+            b"uncheckpointed transactions"
+        );
+        assert_eq!(
+            std::fs::read(&shm).expect("read SHM"),
+            b"shared-memory index"
+        );
+        let active = manifest.get_active().expect("active legacy wallet");
+        assert_eq!(active.db_filename, "wallet.sqlite");
+        let active_id = active.id.clone();
+        let persisted = WalletManifest::load(&data_dir).expect("load legacy manifest");
+        assert_eq!(persisted.get_active().unwrap().db_filename, "wallet.sqlite");
+        assert!(
+            !manifest
+                .migrate_legacy(&data_dir)
+                .expect("repeat legacy adoption")
+        );
+        assert!(!data_dir.join(format!("wallet_{active_id}.sqlite")).exists());
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn failed_legacy_manifest_commit_leaves_files_and_memory_untouched() {
+        let data_dir = test_dir("legacy-rollback");
+        let db = data_dir.join("wallet.sqlite");
+        let wal = data_dir.join("wallet.sqlite-wal");
+        let shm = data_dir.join("wallet.sqlite-shm");
+        std::fs::write(&db, b"database bytes").expect("write legacy database");
+        std::fs::write(&wal, b"wal bytes").expect("write legacy WAL");
+        std::fs::write(&shm, b"shm bytes").expect("write legacy SHM");
+        std::fs::create_dir(data_dir.join("wallets.json"))
+            .expect("block atomic manifest replacement");
+        let mut manifest = WalletManifest {
+            wallets: Vec::new(),
+            active_wallet_id: None,
+        };
+
+        assert!(manifest.migrate_legacy(&data_dir).is_err());
+
+        assert!(manifest.wallets.is_empty());
+        assert!(manifest.active_wallet_id.is_none());
+        assert_eq!(
+            std::fs::read(&db).expect("read database"),
+            b"database bytes"
+        );
+        assert_eq!(std::fs::read(&wal).expect("read WAL"), b"wal bytes");
+        assert_eq!(std::fs::read(&shm).expect("read SHM"), b"shm bytes");
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn corrupt_manifest_fails_closed() {
+        let data_dir = test_dir("corrupt-load");
+        std::fs::write(data_dir.join("wallets.json"), b"not json").expect("write corrupt manifest");
+        std::fs::write(data_dir.join("wallet.sqlite"), b"legacy database")
+            .expect("write legacy database");
+
+        let error = WalletManifest::load(&data_dir).expect_err("corrupt manifest must fail");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            std::fs::read(data_dir.join("wallet.sqlite")).expect("read legacy database"),
+            b"legacy database"
+        );
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn manifest_database_path_escape_fails_closed() {
+        let data_dir = test_dir("path-escape");
+        let id = uuid::Uuid::new_v4().to_string();
+        let manifest = WalletManifest {
+            wallets: vec![WalletEntry {
+                id: id.clone(),
+                name: "Escaped".into(),
+                db_filename: "../../outside.sqlite".into(),
+                birthday_height: None,
+                created_at: chrono_now(),
+            }],
+            active_wallet_id: Some(id),
+        };
+        std::fs::write(
+            WalletManifest::manifest_path(&data_dir),
+            serde_json::to_vec(&manifest).expect("serialize unsafe manifest"),
+        )
+        .expect("write unsafe manifest");
+
+        let error = WalletManifest::load(&data_dir).expect_err("reject path escape");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
     }
 
     #[test]
@@ -426,7 +614,10 @@ mod replacement_tests {
 
         replace_manifest_with_backup(&temp, &path, &backup).expect("replace manifest");
 
-        assert_eq!(std::fs::read(&path).expect("read manifest"), b"new manifest");
+        assert_eq!(
+            std::fs::read(&path).expect("read manifest"),
+            b"new manifest"
+        );
         assert!(!temp.exists());
         assert!(!backup.exists());
         std::fs::remove_dir_all(data_dir).expect("remove test directory");
@@ -442,7 +633,10 @@ mod replacement_tests {
 
         assert!(replace_manifest_with_backup(&missing_temp, &path, &backup).is_err());
 
-        assert_eq!(std::fs::read(&path).expect("read manifest"), b"old manifest");
+        assert_eq!(
+            std::fs::read(&path).expect("read manifest"),
+            b"old manifest"
+        );
         assert!(!backup.exists());
         std::fs::remove_dir_all(data_dir).expect("remove test directory");
     }
@@ -457,7 +651,10 @@ mod replacement_tests {
 
         replace_manifest_with_backup(&temp, &path, &backup).expect("install manifest");
 
-        assert_eq!(std::fs::read(&path).expect("read manifest"), b"first manifest");
+        assert_eq!(
+            std::fs::read(&path).expect("read manifest"),
+            b"first manifest"
+        );
         assert!(!backup.exists());
         std::fs::remove_dir_all(data_dir).expect("remove test directory");
     }

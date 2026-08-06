@@ -145,10 +145,11 @@ jobs:
         with:
           workspaces: wallet/plugins/tauri-plugin-zcash
 
-      - name: Check native custody backend
+      - name: Test native app-data migration backend
         run: >-
-          cargo check --locked
+          cargo test --locked
           --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+          app_data_migration
 
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.

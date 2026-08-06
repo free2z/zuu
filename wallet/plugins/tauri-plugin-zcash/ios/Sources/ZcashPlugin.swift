@@ -22,7 +22,7 @@ private struct DataPathArgs: Decodable {
 final class ZcashPlugin: Plugin {
     @objc func excludeDataFromBackup(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(DataPathArgs.self)
-        let url = URL(fileURLWithPath: args.path, isDirectory: true)
+        var url = URL(fileURLWithPath: args.path, isDirectory: true)
         do {
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
