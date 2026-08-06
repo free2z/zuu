@@ -453,7 +453,7 @@ fn map_keyring_error(error: keyring::Error) -> SecureStoreError {
             }
         }
         keyring::Error::BadEncoding(mut bytes) => {
-            bytes.zeroize();
+            zeroize::Zeroize::zeroize(&mut bytes);
             SecureStoreError::Corrupt
         }
         other => SecureStoreError::Backend(other.to_string()),
