@@ -27,7 +27,10 @@ final class ZcashPlugin: Plugin {
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
             try url.setResourceValues(values)
-            let stored = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            // Reconstruct the URL so verification cannot be satisfied by the
+            // resource-value cache on the value that performed the write.
+            let verificationURL = URL(fileURLWithPath: args.path, isDirectory: true)
+            let stored = try verificationURL.resourceValues(forKeys: [.isExcludedFromBackupKey])
             guard stored.isExcludedFromBackup == true else {
                 reject(invoke, code: "unavailable", message: "backup exclusion did not persist")
                 return

@@ -304,16 +304,23 @@ fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
     let destination = CString::new(destination.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
-    // SAFETY: Both C strings live for the call and point to valid NUL-terminated
-    // path bytes. RENAME_NOREPLACE makes destination nonexistence part of the
-    // atomic filesystem operation instead of a racy pre-check.
+    // SAFETY: Both C strings live for the syscall and point to valid
+    // NUL-terminated path bytes. Calling the kernel ABI directly also supports
+    // musl targets where libc exposes SYS_renameat2 but not a renameat2 wrapper.
+    // RENAME_NOREPLACE makes destination nonexistence part of the atomic
+    // filesystem operation instead of a racy pre-check.
     let result = unsafe {
-        libc::renameat2(
+        libc::syscall(
+            libc::SYS_renameat2 as libc::c_long,
             libc::AT_FDCWD,
             source.as_ptr(),
             libc::AT_FDCWD,
             destination.as_ptr(),
-            libc::RENAME_NOREPLACE,
+            // Android's libc exposes this constant as c_int even though the
+            // renameat2 flags parameter is c_uint. Linux exposes both as
+            // c_uint, so the explicit cast keeps the shared implementation
+            // type-correct on both targets.
+            libc::RENAME_NOREPLACE as libc::c_uint,
         )
     };
     if result == 0 {

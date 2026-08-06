@@ -17,7 +17,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
         .map_err(|error| crate::error::Error::Other(error.to_string()))?;
     tracing::info!(?migration, "ZUULI app-data directory prepared");
 
-    // Linux and Windows place WebView state (including localStorage) under
+    // Tauri resolves WebView state (including localStorage) through
     // app_local_data_dir. It is the same path as app_data_dir on Linux/macOS,
     // but a distinct LocalAppData sibling on Windows. Prepare it before Tauri
     // creates the WebView so the identifier cutover cannot orphan that tree.
