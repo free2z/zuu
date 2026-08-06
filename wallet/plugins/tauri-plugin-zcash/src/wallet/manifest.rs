@@ -320,7 +320,20 @@ impl WalletManifest {
     }
 
     fn save_atomic(&self, data_dir: &Path) -> std::io::Result<bool> {
+        self.validate()?;
         let path = Self::manifest_path(data_dir);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata)
+                if metadata.file_type().is_file() && !metadata.file_type().is_symlink() => {}
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "wallets.json replacement target is not a regular file",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
         let temp_path = data_dir.join(format!(".wallets-{}.tmp", uuid::Uuid::new_v4()));
         let json = serde_json::to_vec_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
