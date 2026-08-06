@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use secrecy::SecretVec;
 use tokio::sync::{Mutex, RwLock};
+use zeroize::Zeroizing;
 use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_protocol::consensus::Network;
 
@@ -130,53 +131,67 @@ impl WalletState {
     pub async fn store_seed_phrase(&self, wallet_id: &str, phrase: &str) -> crate::Result<()> {
         let store = self.seed_store.clone();
         let wallet_id = wallet_id.to_owned();
-        let phrase = phrase.to_owned();
-        tokio::task::spawn_blocking(move || store.store_seed_phrase(&wallet_id, &phrase))
+        let phrase = Zeroizing::new(phrase.to_owned());
+        tokio::task::spawn_blocking(move || store.store_seed_phrase(&wallet_id, phrase.as_str()))
             .await
             .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
     }
 
     /// Retrieve and, when necessary, migrate a seed only after proving that its
     /// derived UFVK is the one recorded in the active wallet database.
-    pub async fn get_seed_phrase(&self, wallet_id: &str) -> crate::Result<String> {
+    pub async fn get_seed_phrase(&self, wallet_id: &str) -> crate::Result<Zeroizing<String>> {
         let expected_ufvk = {
             let db_guard = self.read_db.lock().await;
-            let db = db_guard.as_ref().ok_or(crate::error::Error::WalletNotInitialized)?;
-            let account_id = db
-                .get_account_ids()
-                .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
-                .first()
-                .copied()
-                .ok_or_else(|| crate::error::Error::KeyError("wallet has no account to validate seed migration".into()))?;
-            db.get_account(account_id)
-                .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
-                .and_then(|account| account.ufvk().cloned())
-                .ok_or_else(|| crate::error::Error::KeyError("wallet has no viewing key to validate seed migration".into()))?
-                .encode(&self.network)
+            match db_guard.as_ref() {
+                Some(db) => {
+                    let account_id = db
+                        .get_account_ids()
+                        .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
+                        .first()
+                        .copied()
+                        .ok_or_else(|| crate::error::Error::KeyError("wallet has no account to validate seed migration".into()))?;
+                    Some(
+                        db.get_account(account_id)
+                            .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
+                            .and_then(|account| account.ufvk().cloned())
+                            .ok_or_else(|| crate::error::Error::KeyError("wallet has no viewing key to validate seed migration".into()))?
+                            .encode(&self.network),
+                    )
+                }
+                None => None,
+            }
         };
 
         let store = self.seed_store.clone();
         let wallet_id = wallet_id.to_owned();
         let network = self.network;
         tokio::task::spawn_blocking(move || {
-            store.get_seed_phrase_validated(&wallet_id, |phrase| {
-                let mnemonic = keys::parse_mnemonic(phrase)?;
-                let seed = keys::mnemonic_to_seed(&mnemonic);
-                let derived = keys::derive_usk(
-                    secrecy::ExposeSecret::expose_secret(&seed),
-                    &network,
-                    0,
-                )?
-                .to_unified_full_viewing_key()
-                .encode(&network);
-                if derived == expected_ufvk {
-                    Ok(())
-                } else {
-                    Err(crate::error::Error::KeyError(
-                        "seed phrase does not match this wallet".into(),
-                    ))
-                }
-            })
+            if let Some(expected_ufvk) = expected_ufvk {
+                store.get_seed_phrase_validated(&wallet_id, |phrase| {
+                    let mnemonic = keys::parse_mnemonic(phrase)?;
+                    let seed = keys::mnemonic_to_seed(&mnemonic);
+                    let derived = keys::derive_usk(
+                        secrecy::ExposeSecret::expose_secret(&seed),
+                        &network,
+                        0,
+                    )?
+                    .to_unified_full_viewing_key()
+                    .encode(&network);
+                    if derived == expected_ufvk {
+                        Ok(())
+                    } else {
+                        Err(crate::error::Error::KeyError(
+                            "seed phrase does not match this wallet".into(),
+                        ))
+                    }
+                })
+            } else {
+                tracing::warn!(
+                    wallet_id,
+                    "wallet database unavailable; revealing native seed without legacy migration"
+                );
+                store.get_native_seed_phrase(&wallet_id)
+            }
         })
         .await
         .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?

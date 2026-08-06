@@ -68,7 +68,6 @@ final class ZcashPlugin: Plugin {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecUseAuthenticationContext as String] = context
-        query[kSecUseOperationPrompt as String] = "Unlock ZUULI wallet"
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)

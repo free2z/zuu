@@ -106,10 +106,12 @@ impl WalletManifest {
             .and_then(|id| self.wallets.iter().find(|w| &w.id == id))
     }
 
-    /// Add a new wallet and set it as active.
-    pub fn add_wallet(
-        &mut self,
-        data_dir: &Path,
+    /// Allocate a wallet identity without making it visible or durable.
+    ///
+    /// Callers initialize the database and commit native seed custody before
+    /// passing the entry to `commit_wallet`. This prevents a failed secure-store
+    /// operation from leaving an active manifest entry with no spending key.
+    pub fn prepare_wallet(
         name: String,
         birthday_height: Option<u64>,
     ) -> WalletEntry {
@@ -122,10 +124,32 @@ impl WalletManifest {
             birthday_height,
             created_at: chrono_now(),
         };
-        self.wallets.push(entry.clone());
-        self.active_wallet_id = Some(id);
-        self.save(data_dir);
         entry
+    }
+
+    /// Durably add a fully initialized wallet and set it active.
+    ///
+    /// An error rolls the in-memory mutation back. `false` means the manifest
+    /// replacement is visible but directory durability could not be confirmed;
+    /// the wallet remains committed so its database and native seed stay
+    /// reachable on restart.
+    pub(crate) fn commit_wallet(
+        &mut self,
+        data_dir: &Path,
+        entry: WalletEntry,
+    ) -> std::io::Result<bool> {
+        let previous_active = self.active_wallet_id.clone();
+        let id = entry.id.clone();
+        self.wallets.push(entry);
+        self.active_wallet_id = Some(id);
+        match self.save_atomic(data_dir) {
+            Ok(durable) => Ok(durable),
+            Err(error) => {
+                self.wallets.pop();
+                self.active_wallet_id = previous_active;
+                Err(error)
+            }
+        }
     }
 
     /// Set the active wallet by ID.
@@ -336,6 +360,28 @@ mod replacement_tests {
         ));
         std::fs::create_dir_all(&dir).expect("create test directory");
         dir
+    }
+
+    #[test]
+    fn prepared_wallet_is_invisible_until_durable_commit() {
+        let data_dir = test_dir("staged-add");
+        let mut manifest = WalletManifest {
+            wallets: Vec::new(),
+            active_wallet_id: None,
+        };
+        let entry = WalletManifest::prepare_wallet("Staged".into(), Some(42));
+
+        assert!(manifest.wallets.is_empty());
+        assert!(manifest.active_wallet_id.is_none());
+        assert!(!WalletManifest::manifest_path(&data_dir).exists());
+
+        assert!(manifest.commit_wallet(&data_dir, entry.clone()).unwrap());
+        assert_eq!(manifest.active_wallet_id.as_deref(), Some(entry.id.as_str()));
+        assert_eq!(manifest.wallets.len(), 1);
+        let reloaded = WalletManifest::load(&data_dir);
+        assert_eq!(reloaded.active_wallet_id.as_deref(), Some(entry.id.as_str()));
+        assert_eq!(reloaded.wallets.len(), 1);
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
     }
 
     #[test]

@@ -97,6 +97,7 @@ jobs:
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev \
             libxdo-dev \
+            libdbus-1-dev \
             libssl-dev \
             build-essential curl wget file pkg-config
 
@@ -151,6 +152,7 @@ jobs:
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev \
             libxdo-dev \
+            libdbus-1-dev \
             libssl-dev \
             build-essential curl wget file pkg-config
 

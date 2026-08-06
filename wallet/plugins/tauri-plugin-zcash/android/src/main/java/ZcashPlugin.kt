@@ -56,32 +56,46 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(StoreSeedArgs::class.java)
         val plaintext = args.phrase.toByteArray(Charsets.UTF_8)
         try {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-            authenticate(
-                invoke,
-                cipher,
-                onSuccess = { authenticated ->
-                    try {
-                        val ciphertext = authenticated.doFinal(plaintext)
-                        val record = ByteBuffer.allocate(1 + authenticated.iv.size + ciphertext.size)
-                            .put(RECORD_VERSION)
-                            .put(authenticated.iv)
-                            .put(ciphertext)
-                            .array()
-                        if (!prefs.edit().putString(prefKey(args.walletId), Base64.encodeToString(record, Base64.NO_WRAP)).commit()) {
-                            reject(invoke, "unavailable", "secure ciphertext persistence failed")
-                        } else {
-                            invoke.resolve()
-                        }
-                    } catch (error: Exception) {
-                        rejectCrypto(invoke, error)
-                    } finally {
-                        plaintext.fill(0)
+            val key = getOrCreateKey()
+            val encrypt: (Cipher) -> Unit = { authenticated ->
+                try {
+                    val ciphertext = authenticated.doFinal(plaintext)
+                    val record = ByteBuffer.allocate(1 + authenticated.iv.size + ciphertext.size)
+                        .put(RECORD_VERSION)
+                        .put(authenticated.iv)
+                        .put(ciphertext)
+                        .array()
+                    if (!prefs.edit().putString(prefKey(args.walletId), Base64.encodeToString(record, Base64.NO_WRAP)).commit()) {
+                        reject(invoke, "unavailable", "secure ciphertext persistence failed")
+                    } else {
+                        invoke.resolve()
                     }
-                },
-                onFailure = { plaintext.fill(0) }
-            )
+                } catch (error: Exception) {
+                    rejectCrypto(invoke, error)
+                } finally {
+                    plaintext.fill(0)
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                    init(Cipher.ENCRYPT_MODE, key)
+                }
+                authenticateCipher(invoke, cipher, encrypt, onFailure = { plaintext.fill(0) })
+            } else {
+                // Android 10 cannot combine DEVICE_CREDENTIAL with a CryptoObject.
+                // Authenticate first, then use the short-duration authorized key.
+                authenticateUser(invoke, onSuccess = {
+                    try {
+                        val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                            init(Cipher.ENCRYPT_MODE, key)
+                        }
+                        encrypt(cipher)
+                    } catch (error: Exception) {
+                        plaintext.fill(0)
+                        rejectCrypto(invoke, error)
+                    }
+                }, onFailure = { plaintext.fill(0) })
+            }
         } catch (error: Exception) {
             plaintext.fill(0)
             rejectCrypto(invoke, error)
@@ -100,9 +114,8 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
             }
             val iv = record.copyOfRange(1, 1 + IV_LENGTH)
             val ciphertext = record.copyOfRange(1 + IV_LENGTH, record.size)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, requireKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
-            authenticate(invoke, cipher, onSuccess = { authenticated ->
+            val key = requireKey()
+            val decrypt: (Cipher) -> Unit = { authenticated ->
                 var plaintext: ByteArray? = null
                 try {
                     plaintext = authenticated.doFinal(ciphertext)
@@ -113,7 +126,25 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
                     plaintext?.fill(0)
                     ciphertext.fill(0)
                 }
-            })
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                    init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+                }
+                authenticateCipher(invoke, cipher, decrypt, onFailure = { ciphertext.fill(0) })
+            } else {
+                authenticateUser(invoke, onSuccess = {
+                    try {
+                        val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                            init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+                        }
+                        decrypt(cipher)
+                    } catch (error: Exception) {
+                        ciphertext.fill(0)
+                        rejectCrypto(invoke, error)
+                    }
+                }, onFailure = { ciphertext.fill(0) })
+            }
         } catch (error: Exception) {
             rejectCrypto(invoke, error)
         }
@@ -132,7 +163,7 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    private fun authenticate(
+    private fun authenticateCipher(
         invoke: Invoke,
         cipher: Cipher,
         onSuccess: (Cipher) -> Unit,
@@ -170,14 +201,65 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
                         reject(invoke, code, errString.toString())
                     }
                 })
-            val info = BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Unlock ZUULI wallet")
-                .setSubtitle("Authenticate to use the wallet seed")
-                .setAllowedAuthenticators(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG)
-                .setNegativeButtonText("Cancel")
-                .build()
+            val info = promptInfo()
             prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
         }
+    }
+
+    private fun authenticateUser(
+        invoke: Invoke,
+        onSuccess: () -> Unit,
+        onFailure: () -> Unit = {}
+    ) {
+        val host = activity as? FragmentActivity
+        if (host == null) {
+            onFailure()
+            reject(invoke, "unavailable", "authentication host activity is unavailable")
+            return
+        }
+        activity.runOnUiThread {
+            val prompt = BiometricPrompt(host, ContextCompat.getMainExecutor(host),
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        onSuccess()
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        onFailure()
+                        rejectAuthentication(invoke, errorCode, errString)
+                    }
+                })
+            prompt.authenticate(promptInfo())
+        }
+    }
+
+    private fun promptInfo(): BiometricPrompt.PromptInfo {
+        val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        } else {
+            // AndroidX supports WEAK | DEVICE_CREDENTIAL on API 29 for the
+            // non-CryptoObject flow used above.
+            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        }
+        return BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock ZUULI wallet")
+            .setSubtitle("Authenticate to use the wallet seed")
+            .setAllowedAuthenticators(authenticators)
+            .build()
+    }
+
+    private fun rejectAuthentication(invoke: Invoke, errorCode: Int, errString: CharSequence) {
+        val code = when (errorCode) {
+            BiometricPrompt.ERROR_USER_CANCELED,
+            BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+            BiometricPrompt.ERROR_CANCELED -> "auth_cancelled"
+            BiometricPrompt.ERROR_LOCKOUT,
+            BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> "locked"
+            else -> "unavailable"
+        }
+        reject(invoke, code, errString.toString())
     }
 
     private fun getOrCreateKey(): SecretKey {
@@ -194,13 +276,18 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
                 .setRandomizedEncryptionRequired(true)
                 .setUnlockedDeviceRequired(true)
                 .setUserAuthenticationRequired(true)
+                .setInvalidatedByBiometricEnrollment(false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+            builder.setUserAuthenticationParameters(
+                0,
+                KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+            )
         } else {
-            // API 29's -1 duration is the per-operation equivalent. The Cipher
-            // is authorized by the BiometricPrompt CryptoObject above.
+            // API 29 cannot use device credentials with a CryptoObject. A short
+            // authorization window supports PIN/pattern/password without ever
+            // making the non-exportable key generally available.
             @Suppress("DEPRECATION")
-            builder.setUserAuthenticationValidityDurationSeconds(-1)
+            builder.setUserAuthenticationValidityDurationSeconds(AUTH_WINDOW_SECONDS)
         }
         generator.init(builder.build())
         return generator.generateKey()
@@ -216,7 +303,7 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         when (error) {
             is AEADBadTagException -> reject(invoke, "corrupt", "secure seed authentication failed")
             is UserNotAuthenticatedException -> reject(invoke, "locked", "device authentication is required")
-            is KeyPermanentlyInvalidatedException -> reject(invoke, "locked", "biometric enrollment changed; restore the wallet")
+            is KeyPermanentlyInvalidatedException -> reject(invoke, "corrupt", "device security changed; restore the wallet from its recovery phrase")
             else -> reject(invoke, "unavailable", error.message ?: error.javaClass.simpleName)
         }
     }
@@ -234,6 +321,7 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_LENGTH = 12
         private const val GCM_TAG_BITS = 128
+        private const val AUTH_WINDOW_SECONDS = 15
         private const val RECORD_VERSION: Byte = 1
     }
 }

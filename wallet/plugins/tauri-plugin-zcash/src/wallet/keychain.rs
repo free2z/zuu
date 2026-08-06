@@ -13,6 +13,7 @@ use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const SERVICE: &str = "cash.free2z.zuuli.seed.v1";
 const LEGACY_SERVICE: &str = "com.free2z.zuuli";
 
@@ -71,6 +72,7 @@ impl SeedStore {
     /// Persist a seed only in native secure storage, then read it back before
     /// reporting success. No filesystem fallback is created in debug or release.
     pub fn store_seed_phrase(&self, wallet_id: &str, phrase: &str) -> Result<()> {
+        validate_wallet_id(wallet_id)?;
         self.backend.store(wallet_id, phrase).map_err(Error::from)?;
         let confirmed = self.backend.get(wallet_id).map_err(Error::from)?;
         if confirmed.as_str() != phrase {
@@ -86,10 +88,15 @@ impl SeedStore {
     /// compares the seed-derived UFVK with the wallet database UFVK). This keeps
     /// the migration boundary incapable of blessing a valid mnemonic belonging
     /// to a different wallet.
-    pub fn get_seed_phrase_validated<F>(&self, wallet_id: &str, validate: F) -> Result<String>
+    pub fn get_seed_phrase_validated<F>(
+        &self,
+        wallet_id: &str,
+        validate: F,
+    ) -> Result<Zeroizing<String>>
     where
         F: Fn(&str) -> Result<()>,
     {
+        validate_wallet_id(wallet_id)?;
         match self.backend.get(wallet_id) {
             Ok(phrase) => {
                 validate(phrase.as_str()).map_err(|error| {
@@ -97,8 +104,8 @@ impl SeedStore {
                         "wallet identity validation rejected the native seed: {error}"
                     ))
                 })?;
-                self.cleanup_legacy_duplicate(wallet_id, phrase.as_str())?;
-                return Ok(phrase.to_string());
+                self.cleanup_legacy_duplicate(wallet_id, phrase.as_str());
+                return Ok(phrase);
             }
             Err(SecureStoreError::NotFound) => {}
             Err(error) => return Err(error.into()),
@@ -124,7 +131,7 @@ impl SeedStore {
         phrase: Zeroizing<String>,
         validate: &F,
         delete_legacy: D,
-    ) -> Result<String>
+    ) -> Result<Zeroizing<String>>
     where
         F: Fn(&str) -> Result<()>,
         D: FnOnce() -> std::result::Result<(), SecureStoreError>,
@@ -153,46 +160,65 @@ impl SeedStore {
             wallet_id,
             "migrated legacy seed into platform secure storage"
         );
-        Ok(phrase.to_string())
+        Ok(phrase)
     }
 
     /// Finish cleanup after an earlier migration reached native readback but
     /// failed deleting its legacy source. This makes retries idempotent without
     /// ever preferring legacy material over a validated native record.
-    fn cleanup_legacy_duplicate(&self, wallet_id: &str, native: &str) -> Result<()> {
+    fn cleanup_legacy_duplicate(&self, wallet_id: &str, native: &str) {
         match legacy_file::get(&self.data_dir, wallet_id) {
             Ok(legacy) => {
                 if legacy.as_str() != native {
-                    return Err(SecureStoreError::Migration(
-                        "native and legacy seed records disagree; preserving both".into(),
-                    )
-                    .into());
+                    tracing::warn!(
+                        wallet_id,
+                        "native and legacy seed records disagree; preserving both and using validated native custody"
+                    );
+                } else if let Err(error) = legacy_file::delete(&self.data_dir, wallet_id) {
+                    tracing::warn!(wallet_id, "could not remove duplicate legacy seed: {error}");
                 }
-                legacy_file::delete(&self.data_dir, wallet_id).map_err(Error::from)?;
             }
             Err(SecureStoreError::NotFound) => {}
-            Err(error) => return Err(error.into()),
+            Err(error) => tracing::warn!(
+                wallet_id,
+                "could not inspect duplicate legacy seed; validated native custody remains authoritative: {error}"
+            ),
         }
 
         match legacy_keyring::get(wallet_id) {
             Ok(legacy) => {
                 if legacy.as_str() != native {
-                    return Err(SecureStoreError::Migration(
-                        "native and legacy keyring seed records disagree; preserving both".into(),
-                    )
-                    .into());
+                    tracing::warn!(
+                        wallet_id,
+                        "native and legacy keyring records disagree; preserving both and using validated native custody"
+                    );
+                } else if let Err(error) = legacy_keyring::delete(wallet_id) {
+                    tracing::warn!(
+                        wallet_id,
+                        "could not remove duplicate legacy keyring seed: {error}"
+                    );
                 }
-                legacy_keyring::delete(wallet_id).map_err(Error::from)?;
             }
             Err(SecureStoreError::NotFound) => {}
-            Err(error) => return Err(error.into()),
+            Err(error) => tracing::warn!(
+                wallet_id,
+                "could not inspect duplicate legacy keyring seed; validated native custody remains authoritative: {error}"
+            ),
         }
-        Ok(())
+    }
+
+    /// Recover an authoritative native record when the wallet database cannot
+    /// be opened. This path deliberately never probes or migrates legacy data,
+    /// because migration cannot be UFVK-validated without the database.
+    pub fn get_native_seed_phrase(&self, wallet_id: &str) -> Result<Zeroizing<String>> {
+        validate_wallet_id(wallet_id)?;
+        self.backend.get(wallet_id).map_err(Error::from)
     }
 
     /// Delete native and legacy records. Not-found is idempotent; every other
     /// backend or filesystem error is surfaced to the wallet transition.
     pub fn delete_seed_phrase(&self, wallet_id: &str) -> Result<()> {
+        validate_wallet_id(wallet_id)?;
         match self.backend.delete(wallet_id) {
             Ok(()) | Err(SecureStoreError::NotFound) => {}
             Err(error) => return Err(error.into()),
@@ -206,6 +232,17 @@ impl SeedStore {
             Err(error) => Err(error.into()),
         }
     }
+}
+
+fn validate_wallet_id(wallet_id: &str) -> Result<()> {
+    let parsed = uuid::Uuid::parse_str(wallet_id)
+        .map_err(|_| Error::KeyError("invalid wallet identifier for secure storage".into()))?;
+    if parsed.hyphenated().to_string() != wallet_id {
+        return Err(Error::KeyError(
+            "wallet identifier must use canonical lowercase UUID form".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -242,6 +279,7 @@ impl SecureStore for UnavailableStore {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::{SERVICE, SecureStore, SecureStoreError};
+    use security_framework::access_control::{ProtectionMode, SecAccessControl};
     use security_framework::passwords::{
         AccessControlOptions, PasswordOptions, delete_generic_password_options, generic_password,
         set_generic_password_options,
@@ -252,19 +290,18 @@ mod macos {
 
     impl SecureStore for MacKeychain {
         fn store(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
-            let mut protected_options = options(wallet_id, true);
-            protected_options.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-            match set_generic_password_options(phrase.as_bytes(), protected_options)
-                .map_err(map_error)
-            {
+            match store_protected(wallet_id, phrase) {
                 Ok(()) => Ok(()),
-                // Ad-hoc development signatures cannot use the protected
-                // keychain. A user-presence protected login-keychain item is
-                // still native custody; cancellation/lock never falls through.
+                // Ad-hoc development signatures cannot always use the data-
+                // protection keychain. The login keychain remains OS-native
+                // custody; cancellation/lock never falls through.
                 Err(SecureStoreError::Unavailable) => {
-                    let mut login = options(wallet_id, false);
-                    login.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-                    set_generic_password_options(phrase.as_bytes(), login).map_err(map_error)
+                    tracing::warn!(
+                        wallet_id,
+                        "data-protection Keychain unavailable; using the native login Keychain"
+                    );
+                    set_generic_password_options(phrase.as_bytes(), options(wallet_id, false))
+                        .map_err(map_error)
                 }
                 Err(error) => Err(error),
             }
@@ -298,7 +335,35 @@ mod macos {
             {
                 return protected;
             }
-            delete_generic_password_options(options(wallet_id, false)).map_err(map_error)
+            match delete_generic_password_options(options(wallet_id, false)).map_err(map_error) {
+                Ok(()) => Ok(()),
+                Err(SecureStoreError::NotFound) if protected.is_ok() => Ok(()),
+                other => other,
+            }
+        }
+    }
+
+    fn store_protected(wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
+        // Updating an existing access-controlled item with the ACL in the
+        // SecItemUpdate search query yields errSecParam. Authenticate/read it
+        // first, then update by service/account while preserving its ACL.
+        match generic_password(options(wallet_id, true)).map_err(map_error) {
+            Ok(mut old) => {
+                old.zeroize();
+                set_generic_password_options(phrase.as_bytes(), options(wallet_id, true))
+                    .map_err(map_error)
+            }
+            Err(SecureStoreError::NotFound) => {
+                let access = SecAccessControl::create_with_protection(
+                    Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
+                    AccessControlOptions::USER_PRESENCE.bits(),
+                )
+                .map_err(map_error)?;
+                let mut protected = options(wallet_id, true);
+                protected.set_access_control(access);
+                set_generic_password_options(phrase.as_bytes(), protected).map_err(map_error)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -311,7 +376,7 @@ mod macos {
         options
     }
 
-    fn map_error(error: security_framework::base::Error) -> SecureStoreError {
+    pub(super) fn map_error(error: security_framework::base::Error) -> SecureStoreError {
         match error.code() {
             -25300 => SecureStoreError::NotFound,    // errSecItemNotFound
             -128 => SecureStoreError::AuthCancelled, // errSecUserCanceled
@@ -408,7 +473,14 @@ mod legacy_file {
 
     pub fn get(data_dir: &Path, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
         let ciphertext = read_required(&seeds_dir(data_dir).join(format!("{wallet_id}.enc")))?;
-        let mut key_bytes = read_required(&seeds_dir(data_dir).join("salt"))?;
+        // Once the ciphertext exists, a missing key is corruption rather than
+        // absence. Classifying an incomplete legacy record as `NotFound` would
+        // incorrectly authorize probing a different migration source.
+        let mut key_bytes = match read_required(&seeds_dir(data_dir).join("salt")) {
+            Ok(key) => key,
+            Err(SecureStoreError::NotFound) => return Err(SecureStoreError::Corrupt),
+            Err(error) => return Err(error),
+        };
         if key_bytes.len() != 32 {
             key_bytes.zeroize();
             return Err(SecureStoreError::Corrupt);
@@ -443,7 +515,9 @@ mod legacy_file {
                         .is_some_and(|extension| extension == "enc")
                 })
             })
-            .unwrap_or(false);
+            // A shared legacy key must survive any uncertainty: deleting it
+            // while sibling ciphertext may remain would destroy recovery data.
+            .unwrap_or(true);
         if !has_other_records {
             remove_if_present(&dir.join("salt"))?;
         }
@@ -499,13 +573,40 @@ mod legacy_keyring {
     use super::{LEGACY_SERVICE, SecureStoreError};
     use zeroize::{Zeroize, Zeroizing};
 
+    #[cfg(target_os = "macos")]
+    pub fn get(wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+        use security_framework::passwords::{PasswordOptions, generic_password};
+
+        let key = format!("seed_{wallet_id}");
+        let mut protected = PasswordOptions::new_generic_password(LEGACY_SERVICE, &key);
+        protected.use_protected_keychain();
+        match generic_password(protected).map_err(super::macos::map_error) {
+            Ok(bytes) => String::from_utf8(bytes)
+                .map(Zeroizing::new)
+                .map_err(|error| {
+                    let mut bytes = error.into_bytes();
+                    bytes.zeroize();
+                    SecureStoreError::Corrupt
+                }),
+            Err(SecureStoreError::NotFound | SecureStoreError::Unavailable) => {
+                get_default(wallet_id)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "linux", target_os = "windows"))]
+    pub fn get(wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+        get_default(wallet_id)
+    }
+
     #[cfg(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "linux",
         target_os = "windows"
     ))]
-    pub fn get(wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+    fn get_default(wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
         let entry =
             keyring::Entry::new(LEGACY_SERVICE, &format!("seed_{wallet_id}")).map_err(map_error)?;
         entry.get_password().map(Zeroizing::new).map_err(map_error)
@@ -521,13 +622,42 @@ mod legacy_keyring {
         Err(SecureStoreError::NotFound)
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn delete(wallet_id: &str) -> Result<(), SecureStoreError> {
+        use security_framework::passwords::{PasswordOptions, delete_generic_password_options};
+
+        let key = format!("seed_{wallet_id}");
+        let mut protected = PasswordOptions::new_generic_password(LEGACY_SERVICE, &key);
+        protected.use_protected_keychain();
+        let protected_result =
+            delete_generic_password_options(protected).map_err(super::macos::map_error);
+        if let Err(error) = &protected_result
+            && !matches!(
+                error,
+                SecureStoreError::NotFound | SecureStoreError::Unavailable
+            )
+        {
+            return protected_result;
+        }
+        match delete_default(wallet_id) {
+            Ok(()) => Ok(()),
+            Err(SecureStoreError::NotFound) if protected_result.is_ok() => Ok(()),
+            other => other,
+        }
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "linux", target_os = "windows"))]
+    pub fn delete(wallet_id: &str) -> Result<(), SecureStoreError> {
+        delete_default(wallet_id)
+    }
+
     #[cfg(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "linux",
         target_os = "windows"
     ))]
-    pub fn delete(wallet_id: &str) -> Result<(), SecureStoreError> {
+    fn delete_default(wallet_id: &str) -> Result<(), SecureStoreError> {
         let entry =
             keyring::Entry::new(LEGACY_SERVICE, &format!("seed_{wallet_id}")).map_err(map_error)?;
         entry.delete_credential().map_err(map_error)
@@ -580,13 +710,14 @@ mod tests {
 
     use super::*;
 
-    const WALLET: &str = "wallet-test";
+    const WALLET: &str = "00000000-0000-4000-8000-000000000001";
     const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     #[derive(Default)]
     struct MockStore {
         records: Mutex<HashMap<String, String>>,
         get_errors: Mutex<VecDeque<SecureStoreError>>,
+        get_values: Mutex<VecDeque<String>>,
         store_error: Mutex<Option<SecureStoreError>>,
     }
 
@@ -609,6 +740,9 @@ mod tests {
         fn get(&self, wallet_id: &str) -> std::result::Result<Zeroizing<String>, SecureStoreError> {
             if let Some(error) = self.get_errors.lock().unwrap().pop_front() {
                 return Err(error);
+            }
+            if let Some(value) = self.get_values.lock().unwrap().pop_front() {
+                return Ok(Zeroizing::new(value));
             }
             self.records
                 .lock()
@@ -653,21 +787,34 @@ mod tests {
     }
 
     #[test]
-    fn only_not_found_enters_legacy_migration() {
-        let dir = TestDir::new("fail-closed");
-        legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
-        let backend = Arc::new(MockStore::default());
-        backend
-            .get_errors
-            .lock()
-            .unwrap()
-            .push_back(SecureStoreError::AuthCancelled);
-        let store = SeedStore::new(dir.0.clone(), backend);
+    fn noncanonical_wallet_id_cannot_reach_legacy_paths() {
+        let dir = TestDir::new("wallet-id");
+        let store = SeedStore::new(dir.0.clone(), Arc::new(MockStore::default()));
         let error = store
-            .get_seed_phrase_validated(WALLET, |_| Ok(()))
+            .get_seed_phrase_validated("../../escape", |_| Ok(()))
             .unwrap_err();
-        assert!(error.to_string().contains("cancelled"));
-        assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
+        assert!(error.to_string().contains("invalid wallet identifier"));
+        assert!(!dir.0.join(".seeds").exists());
+    }
+
+    #[test]
+    fn only_not_found_enters_legacy_migration() {
+        for error in [
+            SecureStoreError::AuthCancelled,
+            SecureStoreError::AuthenticationFailed,
+            SecureStoreError::Locked,
+            SecureStoreError::Corrupt,
+            SecureStoreError::Unavailable,
+            SecureStoreError::Backend("injected".into()),
+        ] {
+            let dir = TestDir::new("fail-closed");
+            legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
+            let backend = Arc::new(MockStore::default());
+            backend.get_errors.lock().unwrap().push_back(error);
+            let store = SeedStore::new(dir.0.clone(), backend);
+            assert!(store.get_seed_phrase_validated(WALLET, |_| Ok(())).is_err());
+            assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
+        }
     }
 
     #[test]
@@ -682,7 +829,7 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        assert_eq!(phrase, PHRASE);
+        assert_eq!(phrase.as_str(), PHRASE);
         assert_eq!(backend.records.lock().unwrap().get(WALLET).unwrap(), PHRASE);
         assert!(!dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
         assert!(!dir.0.join(".seeds").join("salt").exists());
@@ -702,6 +849,170 @@ mod tests {
         let store = SeedStore::new(dir.0.clone(), backend.clone());
         assert!(store.get_seed_phrase_validated(WALLET, |_| Ok(())).is_err());
         assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
+    }
+
+    #[test]
+    fn incomplete_legacy_record_is_corrupt_not_absent() {
+        let dir = TestDir::new("missing-legacy-key");
+        legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
+        fs::remove_file(dir.0.join(".seeds").join("salt")).unwrap();
+        assert_eq!(
+            legacy_file::get(&dir.0, WALLET).unwrap_err(),
+            SecureStoreError::Corrupt
+        );
+        assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
+    }
+
+    #[test]
+    fn validated_native_seed_wins_even_when_duplicate_cleanup_is_corrupt() {
+        let dir = TestDir::new("native-with-corrupt-duplicate");
+        legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
+        fs::remove_file(dir.0.join(".seeds").join("salt")).unwrap();
+        let backend = Arc::new(MockStore::default());
+        backend
+            .records
+            .lock()
+            .unwrap()
+            .insert(WALLET.into(), PHRASE.into());
+        let store = SeedStore::new(dir.0.clone(), backend);
+
+        let phrase = store
+            .get_seed_phrase_validated(WALLET, |candidate| {
+                assert_eq!(candidate, PHRASE);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(phrase.as_str(), PHRASE);
+        assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
+    }
+
+    #[test]
+    fn native_seed_still_requires_wallet_identity_validation() {
+        let dir = TestDir::new("native-identity");
+        let backend = Arc::new(MockStore::default());
+        backend
+            .records
+            .lock()
+            .unwrap()
+            .insert(WALLET.into(), PHRASE.into());
+        let store = SeedStore::new(dir.0.clone(), backend);
+
+        let error = store
+            .get_seed_phrase_validated(WALLET, |_| Err(Error::KeyError("foreign UFVK".into())))
+            .unwrap_err();
+        assert!(error.to_string().contains("identity validation rejected"));
+    }
+
+    #[test]
+    fn database_recovery_path_never_migrates_legacy_data() {
+        let dir = TestDir::new("native-recovery-only");
+        legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
+        let store = SeedStore::new(dir.0.clone(), Arc::new(MockStore::default()));
+
+        assert!(matches!(
+            store.get_native_seed_phrase(WALLET).unwrap_err(),
+            Error::KeyError(_)
+        ));
+        assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
+    }
+
+    #[test]
+    fn migration_preserves_legacy_at_validation_store_readback_and_cleanup_boundaries() {
+        // Validation rejection.
+        let validation_dir = TestDir::new("validation-failure");
+        legacy_file::write_fixture(&validation_dir.0, WALLET, PHRASE);
+        let validation_backend = Arc::new(MockStore::default());
+        let validation_store = SeedStore::new(validation_dir.0.clone(), validation_backend.clone());
+        assert!(
+            validation_store
+                .get_seed_phrase_validated(WALLET, |_| {
+                    Err(Error::KeyError("injected identity mismatch".into()))
+                })
+                .is_err()
+        );
+        assert!(validation_backend.records.lock().unwrap().is_empty());
+        assert!(
+            validation_dir
+                .0
+                .join(".seeds")
+                .join(format!("{WALLET}.enc"))
+                .exists()
+        );
+
+        // Native write rejection.
+        let write_dir = TestDir::new("write-failure");
+        legacy_file::write_fixture(&write_dir.0, WALLET, PHRASE);
+        let write_backend = Arc::new(MockStore::default());
+        *write_backend.store_error.lock().unwrap() = Some(SecureStoreError::Unavailable);
+        let write_store = SeedStore::new(write_dir.0.clone(), write_backend);
+        assert!(
+            write_store
+                .get_seed_phrase_validated(WALLET, |_| Ok(()))
+                .is_err()
+        );
+        assert!(
+            write_dir
+                .0
+                .join(".seeds")
+                .join(format!("{WALLET}.enc"))
+                .exists()
+        );
+
+        // Native readback mismatch.
+        let mismatch_dir = TestDir::new("readback-mismatch");
+        legacy_file::write_fixture(&mismatch_dir.0, WALLET, PHRASE);
+        let mismatch_backend = Arc::new(MockStore::default());
+        mismatch_backend
+            .get_errors
+            .lock()
+            .unwrap()
+            .push_back(SecureStoreError::NotFound);
+        mismatch_backend
+            .get_values
+            .lock()
+            .unwrap()
+            .push_back("different native phrase".into());
+        let mismatch_store = SeedStore::new(mismatch_dir.0.clone(), mismatch_backend);
+        assert!(
+            mismatch_store
+                .get_seed_phrase_validated(WALLET, |_| Ok(()))
+                .is_err()
+        );
+        assert!(
+            mismatch_dir
+                .0
+                .join(".seeds")
+                .join(format!("{WALLET}.enc"))
+                .exists()
+        );
+
+        // Legacy cleanup rejection after successful native write/readback.
+        let cleanup_dir = TestDir::new("cleanup-failure");
+        legacy_file::write_fixture(&cleanup_dir.0, WALLET, PHRASE);
+        let cleanup_backend = Arc::new(MockStore::default());
+        let cleanup_store = SeedStore::new(cleanup_dir.0.clone(), cleanup_backend.clone());
+        let phrase = legacy_file::get(&cleanup_dir.0, WALLET).unwrap();
+        assert!(
+            cleanup_store
+                .migrate(WALLET, phrase, &|_| Ok(()), || {
+                    Err(SecureStoreError::Migration(
+                        "injected cleanup failure".into(),
+                    ))
+                })
+                .is_err()
+        );
+        assert_eq!(
+            cleanup_backend.records.lock().unwrap().get(WALLET).unwrap(),
+            PHRASE
+        );
+        assert!(
+            cleanup_dir
+                .0
+                .join(".seeds")
+                .join(format!("{WALLET}.enc"))
+                .exists()
+        );
     }
 
     #[test]

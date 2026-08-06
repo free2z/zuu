@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tauri::{command, AppHandle, Runtime};
 
 use secrecy::ExposeSecret;
+use zeroize::Zeroizing;
 use zcash_client_backend::data_api::{Account, AccountBirthday, BirthdayError, WalletRead, WalletWrite};
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_client_backend::proto::service::BlockId;
@@ -140,28 +141,103 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let birthday = AccountBirthday::from_treestate(tree_state, None)
         .map_err(|e| Error::DatabaseError(format!("failed to create birthday: {}", format_birthday_error(e))))?;
 
-    // Create new wallet entry in manifest
-    let wallet_entry = {
-        let mut manifest = zcash.state.manifest.lock().await;
-        manifest.add_wallet(&zcash.state.data_dir, wallet_name, Some(tip_height))
-    };
+    // Allocate an identity, but keep it out of the durable manifest until its
+    // database and native seed custody have both committed.
+    let wallet_entry = crate::wallet::manifest::WalletManifest::prepare_wallet(
+        wallet_name,
+        Some(tip_height),
+    );
 
     // Initialize database at new path — local variable, no mutex needed yet
     let db_path = zcash.state.data_dir.join(&wallet_entry.db_filename);
-    let mut db = storage::init_wallet_db(&db_path, zcash.state.network)?;
+    let mut db = match storage::init_wallet_db(&db_path, zcash.state.network) {
+        Ok(db) => db,
+        Err(error) => {
+            crate::wallet::manifest::cleanup_wallet_database_files(
+                &zcash.state.data_dir,
+                &wallet_entry.db_filename,
+            );
+            return Err(error);
+        }
+    };
 
     // Create account on the local db (no mutex contention)
-    let (_account_id, _usk) = db
-        .create_account(&wallet_entry.name, &seed, &birthday, None)
-        .map_err(|e| Error::DatabaseError(format!("failed to create account: {e}")))?;
+    if let Err(error) = db.create_account(&wallet_entry.name, &seed, &birthday, None) {
+        drop(db);
+        crate::wallet::manifest::cleanup_wallet_database_files(
+            &zcash.state.data_dir,
+            &wallet_entry.db_filename,
+        );
+        return Err(Error::DatabaseError(format!(
+            "failed to create account: {error}"
+        )));
+    }
+
+    let read_db = match storage::open_read_db(&db_path, zcash.state.network) {
+        Ok(db) => db,
+        Err(error) => {
+            drop(db);
+            crate::wallet::manifest::cleanup_wallet_database_files(
+                &zcash.state.data_dir,
+                &wallet_entry.db_filename,
+            );
+            return Err(error);
+        }
+    };
 
     // Platform-native custody is mandatory; there is no filesystem fallback.
-    let phrase = mnemonic.phrase().to_string();
-    zcash.state.store_seed_phrase(&wallet_entry.id, &phrase).await?;
+    let phrase = Zeroizing::new(mnemonic.phrase().to_string());
+    if let Err(error) = zcash
+        .state
+        .store_seed_phrase(&wallet_entry.id, phrase.as_str())
+        .await
+    {
+        if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
+            tracing::warn!(
+                wallet_id = wallet_entry.id,
+                "native seed commit failed and rollback also failed: {cleanup_error}"
+            );
+        }
+        drop(read_db);
+        drop(db);
+        crate::wallet::manifest::cleanup_wallet_database_files(
+            &zcash.state.data_dir,
+            &wallet_entry.db_filename,
+        );
+        return Err(error);
+    }
 
-    // Do not expose the new DB as active until native custody has committed and
-    // read back the spending authority.
-    let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
+    let manifest_commit = {
+        let mut manifest = zcash.state.manifest.lock().await;
+        manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
+    };
+    match manifest_commit {
+        Ok(true) => {}
+        Ok(false) => tracing::warn!(
+            wallet_id = wallet_entry.id,
+            "new wallet manifest is visible but directory durability was not confirmed"
+        ),
+        Err(error) => {
+            if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
+                tracing::warn!(
+                    wallet_id = wallet_entry.id,
+                    "manifest commit failed and orphan native seed cleanup also failed: {cleanup_error}"
+                );
+            }
+            drop(read_db);
+            drop(db);
+            crate::wallet::manifest::cleanup_wallet_database_files(
+                &zcash.state.data_dir,
+                &wallet_entry.db_filename,
+            );
+            return Err(Error::DatabaseError(format!(
+                "failed to commit wallet manifest: {error}"
+            )));
+        }
+    }
+
+    // Do not expose the new DB as active until native custody and the durable
+    // manifest have both committed.
     *zcash.state.read_db.lock().await = Some(read_db);
 
     // Store seed in memory for the session
@@ -237,31 +313,103 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     let birthday = AccountBirthday::from_treestate(tree_state, Some(recover_until))
         .map_err(|e| Error::DatabaseError(format!("failed to create birthday: {}", format_birthday_error(e))))?;
 
-    // Create new wallet entry in manifest
-    let wallet_entry = {
-        let mut manifest = zcash.state.manifest.lock().await;
-        manifest.add_wallet(&zcash.state.data_dir, wallet_name, Some(birthday_height))
-    };
+    // Allocate an identity, but keep it out of the durable manifest until its
+    // database and native seed custody have both committed.
+    let wallet_entry = crate::wallet::manifest::WalletManifest::prepare_wallet(
+        wallet_name,
+        Some(birthday_height),
+    );
 
     // Initialize database — local variable, no mutex needed yet
     let db_path = zcash.state.data_dir.join(&wallet_entry.db_filename);
-    let mut db = storage::init_wallet_db(&db_path, zcash.state.network)?;
+    let mut db = match storage::init_wallet_db(&db_path, zcash.state.network) {
+        Ok(db) => db,
+        Err(error) => {
+            crate::wallet::manifest::cleanup_wallet_database_files(
+                &zcash.state.data_dir,
+                &wallet_entry.db_filename,
+            );
+            return Err(error);
+        }
+    };
 
     // Create account on the local db (no mutex contention)
-    let (_account_id, _usk) = db
-        .create_account(&wallet_entry.name, &seed, &birthday, None)
-        .map_err(|e| Error::DatabaseError(format!("failed to create account: {e}")))?;
+    if let Err(error) = db.create_account(&wallet_entry.name, &seed, &birthday, None) {
+        drop(db);
+        crate::wallet::manifest::cleanup_wallet_database_files(
+            &zcash.state.data_dir,
+            &wallet_entry.db_filename,
+        );
+        return Err(Error::DatabaseError(format!(
+            "failed to create account: {error}"
+        )));
+    }
+
+    let read_db = match storage::open_read_db(&db_path, zcash.state.network) {
+        Ok(db) => db,
+        Err(error) => {
+            drop(db);
+            crate::wallet::manifest::cleanup_wallet_database_files(
+                &zcash.state.data_dir,
+                &wallet_entry.db_filename,
+            );
+            return Err(error);
+        }
+    };
 
     // Platform-native custody is mandatory; there is no filesystem fallback.
-    let phrase_str = mnemonic.phrase().to_string();
-    zcash
+    let phrase_str = Zeroizing::new(mnemonic.phrase().to_string());
+    if let Err(error) = zcash
         .state
-        .store_seed_phrase(&wallet_entry.id, &phrase_str)
-        .await?;
+        .store_seed_phrase(&wallet_entry.id, phrase_str.as_str())
+        .await
+    {
+        if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
+            tracing::warn!(
+                wallet_id = wallet_entry.id,
+                "native seed commit failed and rollback also failed: {cleanup_error}"
+            );
+        }
+        drop(read_db);
+        drop(db);
+        crate::wallet::manifest::cleanup_wallet_database_files(
+            &zcash.state.data_dir,
+            &wallet_entry.db_filename,
+        );
+        return Err(error);
+    }
 
-    // Do not expose the restored DB until native custody has committed and
-    // read back the spending authority.
-    let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
+    let manifest_commit = {
+        let mut manifest = zcash.state.manifest.lock().await;
+        manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
+    };
+    match manifest_commit {
+        Ok(true) => {}
+        Ok(false) => tracing::warn!(
+            wallet_id = wallet_entry.id,
+            "restored wallet manifest is visible but directory durability was not confirmed"
+        ),
+        Err(error) => {
+            if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
+                tracing::warn!(
+                    wallet_id = wallet_entry.id,
+                    "manifest commit failed and orphan native seed cleanup also failed: {cleanup_error}"
+                );
+            }
+            drop(read_db);
+            drop(db);
+            crate::wallet::manifest::cleanup_wallet_database_files(
+                &zcash.state.data_dir,
+                &wallet_entry.db_filename,
+            );
+            return Err(Error::DatabaseError(format!(
+                "failed to commit wallet manifest: {error}"
+            )));
+        }
+    }
+
+    // Do not expose the restored DB until native custody and the durable
+    // manifest have both committed.
     *zcash.state.read_db.lock().await = Some(read_db);
 
     // Store seed in memory
@@ -326,7 +474,11 @@ pub(crate) async fn get_seed_phrase<R: Runtime>(
     let zcash = app.zcash();
     let wallet_id = zcash.state.active_wallet_id().await
         .ok_or(Error::WalletNotInitialized)?;
-    zcash.state.get_seed_phrase(&wallet_id).await
+    zcash
+        .state
+        .get_seed_phrase(&wallet_id)
+        .await
+        .map(|phrase| phrase.to_string())
 }
 
 #[command]
@@ -341,12 +493,23 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
     let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
     let seed = keys::mnemonic_to_seed(&mnemonic);
 
-    // Determine which wallet to unlock (active or specified)
-    let wallet_id = match args.wallet_id {
-        Some(id) => id,
-        None => zcash.state.active_wallet_id().await
-            .ok_or(Error::WalletNotInitialized)?,
-    };
+    // The open read DB belongs to the active wallet. Never validate against it
+    // and then write the phrase under a different wallet's custody slot.
+    let active_wallet_id = zcash
+        .state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
+    if args
+        .wallet_id
+        .as_deref()
+        .is_some_and(|requested| requested != active_wallet_id.as_str())
+    {
+        return Err(Error::KeyError(
+            "cannot unlock a non-active wallet; switch wallets first".into(),
+        ));
+    }
+    let wallet_id = active_wallet_id;
 
     // Verify the seed matches the wallet's UFVK:
     // 1. Derive USK from the provided seed
@@ -384,8 +547,11 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
     }
 
     // Store in platform-native custody only.
-    let phrase = args.seed_phrase.clone();
-    zcash.state.store_seed_phrase(&wallet_id, &phrase).await?;
+    let phrase = Zeroizing::new(mnemonic.phrase().to_string());
+    zcash
+        .state
+        .store_seed_phrase(&wallet_id, phrase.as_str())
+        .await?;
 
     // Set seed in memory
     *zcash.state.seed.lock().await = Some(seed);
