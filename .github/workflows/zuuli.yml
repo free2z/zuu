@@ -32,7 +32,7 @@ jobs:
     outputs:
       zuuli: ${{ steps.filter.outputs.zuuli }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Diff locally instead of relying on the pull-request files API.
           fetch-depth: 0
@@ -80,9 +80,9 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Fetch only the in-source dependency required by the app/plugin graph.
       - name: Fetch librustzcash submodule
@@ -159,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
