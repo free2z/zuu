@@ -1,0 +1,15 @@
+# Uncomment the next line to define a global platform for your project
+
+target 'zuuli_iOS' do
+  platform :ios, '18.0'
+  # Pods for zuuli_iOS
+end
+
+# Delete the generated deployment target so pods inherit the app's Podfile target.
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
+    end
+  end
+end

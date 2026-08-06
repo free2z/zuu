@@ -1,7 +1,8 @@
 {
-  "identifier": "default",
-  "description": "Desktop capability for the main ZUULI window",
-  "platforms": ["linux", "macOS", "windows"],
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Mobile capability for the main ZUULI webview",
+  "platforms": ["iOS", "android"],
   "windows": ["main"],
   "permissions": [
     "core:default",
