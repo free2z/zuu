@@ -88,11 +88,15 @@ The `propose_send_all` command uses an iterative approach (up to 3 retries) to c
 
 ## Security model
 
-### Seed storage (3-tier fallback)
+### Native seed custody
 
-1. **macOS Keychain** (preferred) — Uses `security-framework` with `USER_PRESENCE` access control for Touch ID/biometric. Falls back to basic login keychain if not code-signed.
-2. **Encrypted file** — ChaCha20-Poly1305 encryption with a random 32-byte salt, stored in `$DATA_DIR/.seeds/`. Files are `chmod 600` on Unix.
-3. **Legacy keyring** (read-only migration) — Reads from old `keyring` crate storage and migrates to tiers 1+2.
+- **iOS:** Keychain, `WhenUnlockedThisDeviceOnly`, non-synchronizable, with user presence.
+- **Android:** non-exportable AndroidKeyStore AES-256 key, device authentication, and randomized AES-GCM ciphertext in app-private, backup-excluded preferences.
+- **macOS:** data-protection Keychain with user presence and `ThisDeviceOnly`; ad-hoc development builds may fall back to the native login Keychain when the protected store is unavailable.
+- **Linux:** persistent Secret Service storage. Access follows the user's desktop collection-lock policy and may not prompt while that collection is unlocked.
+- **Windows:** Windows Credential Manager. Access follows the signed-in user's credential-vault policy and does not promise a per-read presence prompt.
+
+There is no encrypted-file fallback for new writes. Historical `.seeds/*.enc` and old keyring records are read-only migration inputs. Migration occurs only after native storage reports `NotFound`, validates the seed-derived UFVK, writes and reads back the native record, and deletes the legacy record last. Every other native error fails closed.
 
 ### Key safety
 

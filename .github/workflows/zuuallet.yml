@@ -123,6 +123,33 @@ jobs:
           cargo test --locked
           --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
+  # Compile the target-specific Keychain and Credential Manager adapters on
+  # their native hosts. Linux Secret Service is covered by the `rust` job.
+  custody-platforms:
+    if: github.event_name != 'schedule'
+    name: custody / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wallet/plugins/tauri-plugin-zcash
+
+      - name: Check native custody backend
+        run: >-
+          cargo check --locked
+          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.
   # Runs weekly (and on manual dispatch) so upstream breakage shows up as an

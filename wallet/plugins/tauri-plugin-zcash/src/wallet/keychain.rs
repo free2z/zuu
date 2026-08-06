@@ -789,11 +789,15 @@ mod tests {
     #[test]
     fn noncanonical_wallet_id_cannot_reach_legacy_paths() {
         let dir = TestDir::new("wallet-id");
-        let store = SeedStore::new(dir.0.clone(), Arc::new(MockStore::default()));
+        let backend = Arc::new(MockStore::default());
+        let store = SeedStore::new(dir.0.clone(), backend.clone());
+        assert!(store.store_seed_phrase("../../escape", PHRASE).is_err());
         let error = store
             .get_seed_phrase_validated("../../escape", |_| Ok(()))
             .unwrap_err();
         assert!(error.to_string().contains("invalid wallet identifier"));
+        assert!(store.delete_seed_phrase("../../escape").is_err());
+        assert!(backend.records.lock().unwrap().is_empty());
         assert!(!dir.0.join(".seeds").exists());
     }
 
