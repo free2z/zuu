@@ -2,6 +2,7 @@ use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Manager, Runtime};
 
 use crate::wallet::WalletState;
+use crate::wallet::keychain::SeedStore;
 use zcash_protocol::consensus::Network;
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -14,7 +15,8 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
         .map_err(|e| crate::error::Error::Io(std::io::Error::other(e.to_string())))?;
     std::fs::create_dir_all(&data_dir)?;
 
-    let state = WalletState::new(data_dir, Network::MainNetwork);
+    let seed_store = SeedStore::platform(data_dir.clone());
+    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store);
 
     Ok(Zcash {
         _app: app.clone(),
