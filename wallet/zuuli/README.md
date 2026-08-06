@@ -6,9 +6,9 @@
 
 *Your Z. Your keys. Your universe.*
 
-A Zcash-native desktop app: a cutting-edge wallet fused with the free2z
-platform — AI, livestreaming, articles, and a credit economy — all metered in
-**2Zs**, all shielded by default.
+A Zcash-native app for desktop and mobile: a cutting-edge wallet fused with the
+free2z platform — AI, livestreaming, articles, and a credit economy — all
+metered in **2Zs**, all shielded by default.
 
 </div>
 
@@ -43,11 +43,23 @@ prompt costs us `$0.0323478`, you pay `4 2Z`.
 npm install
 npm run dev          # browser, mock mode — the whole app, no backend needed
 npm run tauri dev    # the real desktop app with a live Zcash wallet
+npm run tauri -- ios dev
+npm run tauri -- android dev
 ```
 
 In a plain browser ZUULI runs in **mock mode** with realistic data so you can
-explore every screen. Inside the Tauri shell it drives the real wallet engine
+explore every screen. Inside a Tauri shell it drives the real wallet engine
 and the real free2z API.
+
+The committed native projects live under `src-tauri/gen/apple` and
+`src-tauri/gen/android`. ZUULI uses application identifier
+`cash.free2z.zuuli`, targets iOS 18+, and supports Android API 29+ while
+compiling against API 36. Mobile builds require the corresponding Xcode or
+Android SDK/NDK toolchain; signing credentials stay outside the repository.
+This identifier replaces the unreleased development identifier
+`com.2zinc.zuuli`. Existing development data remains in the old application
+data directory until the tracked migration is implemented; do not treat the
+identity cutover as deletion or manually discard that directory (see #230).
 
 ## How it's built
 

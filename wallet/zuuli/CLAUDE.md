@@ -23,9 +23,28 @@ npm run typecheck          # tsc --noEmit
 npm run build              # tsc && vite build
 npm run dev                # vite dev server on :1423 (browser = mock mode)
 npm run tauri dev          # full desktop app (real wallet)
+npm run tauri -- ios dev   # iOS simulator/device through Xcode
+npm run tauri -- ios build # unsigned/signing-configured iOS archive as applicable
+npm run tauri -- android dev
+npm run tauri -- android build # Android APK/AAB
 ```
 
 The web dev server runs on **1423** so it never collides with zuuallet (1421).
+
+The generated native projects are committed in `src-tauri/gen/apple` and
+`src-tauri/gen/android`; do not rerun `tauri ios init` or `tauri android init`
+casually because regeneration can overwrite intentional platform settings.
+The canonical application identifier is `cash.free2z.zuuli`. The iOS deployment
+target is 18.0; Android uses min API 29 and target/compile API 36. Keep
+`package.json`, `src-tauri/Cargo.toml`, `tauri.conf.json`, and native package
+versions aligned. Keep iOS privacy strings in `src-tauri/Info.ios.plist` as the
+regeneration source of truth. Never commit signing certificates, provisioning
+profiles, API keys, keystores, or local SDK paths.
+
+`cash.free2z.zuuli` replaces the unreleased `com.2zinc.zuuli` identifier.
+Existing development wallet data remains under the old Tauri application-data
+directory. Preserve it until the tracked, separately tested migration lands;
+never infer that an empty new directory means the old data was erased (#230).
 
 ## Stack
 
@@ -40,7 +59,7 @@ The web dev server runs on **1423** so it never collides with zuuallet (1421).
 Every data path has a real implementation AND a mock fallback, chosen at
 runtime by `src/lib/platform.ts`:
 
-- **Tauri desktop** (`isTauri()`): the wallet bridge calls the real
+- **Tauri desktop/mobile** (`isTauri()`): the wallet bridge calls the real
   `tauri-plugin-zcash` commands (librustzcash); the API layer hits the real
   free2z backend.
 - **Plain browser / `VITE_MOCK=1`**: realistic fixtures (`src/lib/api/mock-data.ts`,
