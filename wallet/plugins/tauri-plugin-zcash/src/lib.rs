@@ -89,8 +89,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                 tauri::RunEvent::Exit
                     | tauri::RunEvent::ExitRequested { .. }
                     | tauri::RunEvent::WindowEvent {
-                        event: tauri::WindowEvent::Focused(false)
-                            | tauri::WindowEvent::Suspended,
+                        event: tauri::WindowEvent::Focused(false),
                         ..
                     }
             );

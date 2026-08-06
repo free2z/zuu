@@ -108,8 +108,10 @@ final class ZcashPlugin: Plugin {
         switch status {
         case errSecItemNotFound:
             code = "not_found"
-        case errSecUserCanceled, errSecAuthFailed:
+        case errSecUserCanceled:
             code = "auth_cancelled"
+        case errSecAuthFailed:
+            code = "auth_failed"
         case errSecInteractionNotAllowed:
             code = "locked"
         case errSecDecode:

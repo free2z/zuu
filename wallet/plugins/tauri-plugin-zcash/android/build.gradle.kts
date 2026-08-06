@@ -34,4 +34,5 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.8")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
     implementation(project(":tauri-android"))
+    testImplementation("junit:junit:4.13.2")
 }

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use thiserror::Error as ThisError;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 
@@ -22,6 +22,8 @@ pub enum SecureStoreError {
     NotFound,
     #[error("secure-storage authentication was cancelled")]
     AuthCancelled,
+    #[error("secure-storage authentication failed")]
+    AuthenticationFailed,
     #[error("secure storage is locked")]
     Locked,
     #[error("secure seed record is corrupt")]
@@ -89,18 +91,28 @@ impl SeedStore {
         F: Fn(&str) -> Result<()>,
     {
         match self.backend.get(wallet_id) {
-            Ok(phrase) => return Ok(phrase.to_string()),
+            Ok(phrase) => {
+                validate(phrase.as_str()).map_err(|error| {
+                    SecureStoreError::Migration(format!(
+                        "wallet identity validation rejected the native seed: {error}"
+                    ))
+                })?;
+                self.cleanup_legacy_duplicate(wallet_id, phrase.as_str())?;
+                return Ok(phrase.to_string());
+            }
             Err(SecureStoreError::NotFound) => {}
             Err(error) => return Err(error.into()),
         }
 
         match legacy_file::get(&self.data_dir, wallet_id) {
-            Ok(phrase) => self.migrate(wallet_id, phrase, validate, || {
+            Ok(phrase) => self.migrate(wallet_id, phrase, &validate, || {
                 legacy_file::delete(&self.data_dir, wallet_id)
             }),
             Err(SecureStoreError::NotFound) => {
                 let phrase = legacy_keyring::get(wallet_id).map_err(Error::from)?;
-                self.migrate(wallet_id, phrase, validate, || legacy_keyring::delete(wallet_id))
+                self.migrate(wallet_id, phrase, &validate, || {
+                    legacy_keyring::delete(wallet_id)
+                })
             }
             Err(error) => Err(error.into()),
         }
@@ -110,7 +122,7 @@ impl SeedStore {
         &self,
         wallet_id: &str,
         phrase: Zeroizing<String>,
-        validate: F,
+        validate: &F,
         delete_legacy: D,
     ) -> Result<String>
     where
@@ -118,10 +130,14 @@ impl SeedStore {
         D: FnOnce() -> std::result::Result<(), SecureStoreError>,
     {
         validate(phrase.as_str()).map_err(|error| {
-            SecureStoreError::Migration(format!("wallet identity validation rejected the seed: {error}"))
+            SecureStoreError::Migration(format!(
+                "wallet identity validation rejected the seed: {error}"
+            ))
         })?;
 
-        self.backend.store(wallet_id, phrase.as_str()).map_err(Error::from)?;
+        self.backend
+            .store(wallet_id, phrase.as_str())
+            .map_err(Error::from)?;
         let confirmed = self.backend.get(wallet_id).map_err(Error::from)?;
         if confirmed.as_str() != phrase.as_str() {
             return Err(SecureStoreError::Migration(
@@ -133,8 +149,45 @@ impl SeedStore {
         // This is intentionally last. Any validation, write, or readback error
         // leaves the legacy record untouched so recovery remains possible.
         delete_legacy().map_err(Error::from)?;
-        tracing::info!(wallet_id, "migrated legacy seed into platform secure storage");
+        tracing::info!(
+            wallet_id,
+            "migrated legacy seed into platform secure storage"
+        );
         Ok(phrase.to_string())
+    }
+
+    /// Finish cleanup after an earlier migration reached native readback but
+    /// failed deleting its legacy source. This makes retries idempotent without
+    /// ever preferring legacy material over a validated native record.
+    fn cleanup_legacy_duplicate(&self, wallet_id: &str, native: &str) -> Result<()> {
+        match legacy_file::get(&self.data_dir, wallet_id) {
+            Ok(legacy) => {
+                if legacy.as_str() != native {
+                    return Err(SecureStoreError::Migration(
+                        "native and legacy seed records disagree; preserving both".into(),
+                    )
+                    .into());
+                }
+                legacy_file::delete(&self.data_dir, wallet_id).map_err(Error::from)?;
+            }
+            Err(SecureStoreError::NotFound) => {}
+            Err(error) => return Err(error.into()),
+        }
+
+        match legacy_keyring::get(wallet_id) {
+            Ok(legacy) => {
+                if legacy.as_str() != native {
+                    return Err(SecureStoreError::Migration(
+                        "native and legacy keyring seed records disagree; preserving both".into(),
+                    )
+                    .into());
+                }
+                legacy_keyring::delete(wallet_id).map_err(Error::from)?;
+            }
+            Err(SecureStoreError::NotFound) => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
     }
 
     /// Delete native and legacy records. Not-found is idempotent; every other
@@ -188,24 +241,43 @@ impl SecureStore for UnavailableStore {
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use super::{SecureStore, SecureStoreError, SERVICE};
+    use super::{SERVICE, SecureStore, SecureStoreError};
     use security_framework::passwords::{
-        delete_generic_password_options, generic_password, set_generic_password_options,
-        AccessControlOptions, PasswordOptions,
+        AccessControlOptions, PasswordOptions, delete_generic_password_options, generic_password,
+        set_generic_password_options,
     };
-    use zeroize::Zeroizing;
+    use zeroize::{Zeroize, Zeroizing};
 
     pub struct MacKeychain;
 
     impl SecureStore for MacKeychain {
         fn store(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
-            let mut options = options(wallet_id);
-            options.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-            set_generic_password_options(phrase.as_bytes(), options).map_err(map_error)
+            let mut protected_options = options(wallet_id, true);
+            protected_options.set_access_control_options(AccessControlOptions::USER_PRESENCE);
+            match set_generic_password_options(phrase.as_bytes(), protected_options)
+                .map_err(map_error)
+            {
+                Ok(()) => Ok(()),
+                // Ad-hoc development signatures cannot use the protected
+                // keychain. A user-presence protected login-keychain item is
+                // still native custody; cancellation/lock never falls through.
+                Err(SecureStoreError::Unavailable) => {
+                    let mut login = options(wallet_id, false);
+                    login.set_access_control_options(AccessControlOptions::USER_PRESENCE);
+                    set_generic_password_options(phrase.as_bytes(), login).map_err(map_error)
+                }
+                Err(error) => Err(error),
+            }
         }
 
         fn get(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
-            let data = generic_password(options(wallet_id)).map_err(map_error)?;
+            let data = match generic_password(options(wallet_id, true)).map_err(map_error) {
+                Ok(data) => data,
+                Err(SecureStoreError::NotFound | SecureStoreError::Unavailable) => {
+                    generic_password(options(wallet_id, false)).map_err(map_error)?
+                }
+                Err(error) => return Err(error),
+            };
             String::from_utf8(data)
                 .map(Zeroizing::new)
                 .map_err(|error| {
@@ -216,24 +288,38 @@ mod macos {
         }
 
         fn delete(&self, wallet_id: &str) -> Result<(), SecureStoreError> {
-            delete_generic_password_options(options(wallet_id)).map_err(map_error)
+            let protected =
+                delete_generic_password_options(options(wallet_id, true)).map_err(map_error);
+            if let Err(error) = &protected
+                && !matches!(
+                    error,
+                    SecureStoreError::NotFound | SecureStoreError::Unavailable
+                )
+            {
+                return protected;
+            }
+            delete_generic_password_options(options(wallet_id, false)).map_err(map_error)
         }
     }
 
-    fn options(wallet_id: &str) -> PasswordOptions {
+    fn options(wallet_id: &str, protected: bool) -> PasswordOptions {
         let key = format!("seed_{wallet_id}");
         let mut options = PasswordOptions::new_generic_password(SERVICE, &key);
-        options.use_protected_keychain();
+        if protected {
+            options.use_protected_keychain();
+        }
         options
     }
 
     fn map_error(error: security_framework::base::Error) -> SecureStoreError {
         match error.code() {
-            -25300 => SecureStoreError::NotFound,       // errSecItemNotFound
-            -128 | -25293 => SecureStoreError::AuthCancelled, // errSecUserCanceled/AuthFailed
-            -25308 => SecureStoreError::Locked,         // errSecInteractionNotAllowed
-            -26275 => SecureStoreError::Corrupt,        // errSecDecode
-            -25291 => SecureStoreError::Unavailable,    // errSecNotAvailable
+            -25300 => SecureStoreError::NotFound,    // errSecItemNotFound
+            -128 => SecureStoreError::AuthCancelled, // errSecUserCanceled
+            -25293 => SecureStoreError::AuthenticationFailed, // errSecAuthFailed
+            -25308 => SecureStoreError::Locked,      // errSecInteractionNotAllowed
+            -26275 => SecureStoreError::Corrupt,     // errSecDecode
+            -25291 => SecureStoreError::Unavailable, // errSecNotAvailable
+            -2070 | -34018 => SecureStoreError::Unavailable, // internal/missing entitlement
             _ => SecureStoreError::Backend(error.to_string()),
         }
     }
@@ -241,7 +327,7 @@ mod macos {
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod native_keyring {
-    use super::{map_keyring_error, SecureStore, SecureStoreError};
+    use super::{SecureStore, SecureStoreError, map_keyring_error};
     use zeroize::Zeroizing;
 
     pub struct KeyringStore {
@@ -261,7 +347,9 @@ mod native_keyring {
 
     impl SecureStore for KeyringStore {
         fn store(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
-            self.entry(wallet_id)?.set_password(phrase).map_err(map_keyring_error)
+            self.entry(wallet_id)?
+                .set_password(phrase)
+                .map_err(map_keyring_error)
         }
 
         fn get(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
@@ -272,7 +360,9 @@ mod native_keyring {
         }
 
         fn delete(&self, wallet_id: &str) -> Result<(), SecureStoreError> {
-            self.entry(wallet_id)?.delete_credential().map_err(map_keyring_error)
+            self.entry(wallet_id)?
+                .delete_credential()
+                .map_err(map_keyring_error)
         }
     }
 }
@@ -347,7 +437,10 @@ mod legacy_file {
         let has_other_records = fs::read_dir(&dir)
             .map(|entries| {
                 entries.filter_map(Result::ok).any(|entry| {
-                    entry.path().extension().is_some_and(|extension| extension == "enc")
+                    entry
+                        .path()
+                        .extension()
+                        .is_some_and(|extension| extension == "enc")
                 })
             })
             .unwrap_or(false);
@@ -391,7 +484,10 @@ mod legacy_file {
         rand::rngs::OsRng.fill_bytes(&mut key);
         let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
         let ciphertext = cipher
-            .encrypt(Nonce::from_slice(&legacy_nonce(wallet_id)), phrase.as_bytes())
+            .encrypt(
+                Nonce::from_slice(&legacy_nonce(wallet_id)),
+                phrase.as_bytes(),
+            )
             .unwrap();
         fs::write(dir.join("salt"), key).unwrap();
         fs::write(dir.join(format!("{wallet_id}.enc")), ciphertext).unwrap();
@@ -401,33 +497,58 @@ mod legacy_file {
 
 mod legacy_keyring {
     use super::{LEGACY_SERVICE, SecureStoreError};
-    use zeroize::Zeroizing;
+    use zeroize::{Zeroize, Zeroizing};
 
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "windows"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
     pub fn get(wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
-        let entry = keyring::Entry::new(LEGACY_SERVICE, &format!("seed_{wallet_id}"))
-            .map_err(map_error)?;
+        let entry =
+            keyring::Entry::new(LEGACY_SERVICE, &format!("seed_{wallet_id}")).map_err(map_error)?;
         entry.get_password().map(Zeroizing::new).map_err(map_error)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )))]
     pub fn get(_: &str) -> Result<Zeroizing<String>, SecureStoreError> {
         Err(SecureStoreError::NotFound)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "windows"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
     pub fn delete(wallet_id: &str) -> Result<(), SecureStoreError> {
-        let entry = keyring::Entry::new(LEGACY_SERVICE, &format!("seed_{wallet_id}"))
-            .map_err(map_error)?;
+        let entry =
+            keyring::Entry::new(LEGACY_SERVICE, &format!("seed_{wallet_id}")).map_err(map_error)?;
         entry.delete_credential().map_err(map_error)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )))]
     pub fn delete(_: &str) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::NotFound)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "windows"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
     fn map_error(error: keyring::Error) -> SecureStoreError {
         match error {
             keyring::Error::NoEntry => SecureStoreError::NotFound,
@@ -453,6 +574,7 @@ mod legacy_keyring {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::collections::VecDeque;
     use std::fs;
     use std::sync::Mutex;
 
@@ -464,21 +586,28 @@ mod tests {
     #[derive(Default)]
     struct MockStore {
         records: Mutex<HashMap<String, String>>,
-        get_error: Mutex<Option<SecureStoreError>>,
+        get_errors: Mutex<VecDeque<SecureStoreError>>,
         store_error: Mutex<Option<SecureStoreError>>,
     }
 
     impl SecureStore for MockStore {
-        fn store(&self, wallet_id: &str, phrase: &str) -> std::result::Result<(), SecureStoreError> {
+        fn store(
+            &self,
+            wallet_id: &str,
+            phrase: &str,
+        ) -> std::result::Result<(), SecureStoreError> {
             if let Some(error) = self.store_error.lock().unwrap().take() {
                 return Err(error);
             }
-            self.records.lock().unwrap().insert(wallet_id.into(), phrase.into());
+            self.records
+                .lock()
+                .unwrap()
+                .insert(wallet_id.into(), phrase.into());
             Ok(())
         }
 
         fn get(&self, wallet_id: &str) -> std::result::Result<Zeroizing<String>, SecureStoreError> {
-            if let Some(error) = self.get_error.lock().unwrap().take() {
+            if let Some(error) = self.get_errors.lock().unwrap().pop_front() {
                 return Err(error);
             }
             self.records
@@ -528,7 +657,11 @@ mod tests {
         let dir = TestDir::new("fail-closed");
         legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
         let backend = Arc::new(MockStore::default());
-        *backend.get_error.lock().unwrap() = Some(SecureStoreError::AuthCancelled);
+        backend
+            .get_errors
+            .lock()
+            .unwrap()
+            .push_back(SecureStoreError::AuthCancelled);
         let store = SeedStore::new(dir.0.clone(), backend);
         let error = store
             .get_seed_phrase_validated(WALLET, |_| Ok(()))
@@ -561,11 +694,12 @@ mod tests {
         legacy_file::write_fixture(&dir.0, WALLET, PHRASE);
         let backend = Arc::new(MockStore::default());
         // First get reports not-found; readback after store reports unavailable.
-        *backend.get_error.lock().unwrap() = Some(SecureStoreError::NotFound);
+        backend
+            .get_errors
+            .lock()
+            .unwrap()
+            .extend([SecureStoreError::NotFound, SecureStoreError::Unavailable]);
         let store = SeedStore::new(dir.0.clone(), backend.clone());
-        // The one-shot error above is consumed by the initial lookup, so inject
-        // readback failure from store via a backend dedicated to this boundary.
-        *backend.store_error.lock().unwrap() = Some(SecureStoreError::Unavailable);
         assert!(store.get_seed_phrase_validated(WALLET, |_| Ok(())).is_err());
         assert!(dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
     }
@@ -578,7 +712,10 @@ mod tests {
         let mut bytes = fs::read(&path).unwrap();
         bytes[0] ^= 0x80;
         fs::write(&path, bytes).unwrap();
-        assert_eq!(legacy_file::get(&dir.0, WALLET).unwrap_err(), SecureStoreError::Corrupt);
+        assert_eq!(
+            legacy_file::get(&dir.0, WALLET).unwrap_err(),
+            SecureStoreError::Corrupt
+        );
         assert!(path.exists());
     }
 
@@ -587,6 +724,7 @@ mod tests {
         let errors = [
             SecureStoreError::NotFound,
             SecureStoreError::AuthCancelled,
+            SecureStoreError::AuthenticationFailed,
             SecureStoreError::Locked,
             SecureStoreError::Corrupt,
             SecureStoreError::Unavailable,

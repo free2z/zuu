@@ -155,13 +155,14 @@ pub(crate) async fn create_wallet<R: Runtime>(
         .create_account(&wallet_entry.name, &seed, &birthday, None)
         .map_err(|e| Error::DatabaseError(format!("failed to create account: {e}")))?;
 
-    // Swap read_db immediately (instant — UI reads from this)
-    let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
-    *zcash.state.read_db.lock().await = Some(read_db);
-
     // Platform-native custody is mandatory; there is no filesystem fallback.
     let phrase = mnemonic.phrase().to_string();
     zcash.state.store_seed_phrase(&wallet_entry.id, &phrase).await?;
+
+    // Do not expose the new DB as active until native custody has committed and
+    // read back the spending authority.
+    let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
+    *zcash.state.read_db.lock().await = Some(read_db);
 
     // Store seed in memory for the session
     *zcash.state.seed.lock().await = Some(seed);
@@ -251,16 +252,17 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         .create_account(&wallet_entry.name, &seed, &birthday, None)
         .map_err(|e| Error::DatabaseError(format!("failed to create account: {e}")))?;
 
-    // Swap read_db immediately (instant — UI reads from this)
-    let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
-    *zcash.state.read_db.lock().await = Some(read_db);
-
     // Platform-native custody is mandatory; there is no filesystem fallback.
     let phrase_str = mnemonic.phrase().to_string();
     zcash
         .state
         .store_seed_phrase(&wallet_entry.id, &phrase_str)
         .await?;
+
+    // Do not expose the restored DB until native custody has committed and
+    // read back the spending authority.
+    let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
+    *zcash.state.read_db.lock().await = Some(read_db);
 
     // Store seed in memory
     *zcash.state.seed.lock().await = Some(seed);
@@ -526,10 +528,10 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     // Reset chain tip cache
     zcash.state.last_known_chain_tip.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    // Switching is explicit user intent, so native custody may authenticate.
-    let phrase = zcash.state.get_seed_phrase(&wallet_entry.id).await?;
-    let mnemonic = keys::parse_mnemonic(&phrase)?;
-    *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
+    // Switching changes database context but does not itself need spending
+    // authority. Keep the new wallet locked; the next explicit reveal/spend
+    // action authenticates against native custody and surfaces any backend error.
+    *zcash.state.seed.lock().await = None;
 
     // Swap write db in background — waits for aborted sync to release the lock
     let db_arc = Arc::clone(&zcash.state.db);

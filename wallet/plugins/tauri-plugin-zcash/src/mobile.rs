@@ -3,8 +3,8 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tauri::{
-    plugin::{mobile::PluginInvokeError, PluginApi, PluginHandle},
     AppHandle, Manager, Runtime,
+    plugin::{PluginApi, PluginHandle, mobile::PluginInvokeError},
 };
 use zeroize::Zeroizing;
 
@@ -53,13 +53,7 @@ struct MobileSecretStore<R: Runtime>(PluginHandle<R>);
 impl<R: Runtime> SecureStore for MobileSecretStore<R> {
     fn store(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
         self.0
-            .run_mobile_plugin(
-                "storeSeed",
-                StoreSeedArgs {
-                    wallet_id,
-                    phrase,
-                },
-            )
+            .run_mobile_plugin("storeSeed", StoreSeedArgs { wallet_id, phrase })
             .map_err(map_mobile_error)
     }
 
@@ -100,11 +94,14 @@ fn map_mobile_error(error: PluginInvokeError) -> SecureStoreError {
         PluginInvokeError::InvokeRejected(response) => match response.code.as_deref() {
             Some("not_found") => SecureStoreError::NotFound,
             Some("auth_cancelled") => SecureStoreError::AuthCancelled,
+            Some("auth_failed") => SecureStoreError::AuthenticationFailed,
             Some("locked") => SecureStoreError::Locked,
             Some("corrupt") => SecureStoreError::Corrupt,
             Some("unavailable") => SecureStoreError::Unavailable,
             _ => SecureStoreError::Backend(
-                response.message.unwrap_or_else(|| "native plugin rejected the request".into()),
+                response
+                    .message
+                    .unwrap_or_else(|| "native plugin rejected the request".into()),
             ),
         },
         PluginInvokeError::CannotDeserializeResponse(_) => SecureStoreError::Corrupt,
@@ -130,10 +127,29 @@ mod tests {
 
     #[test]
     fn native_error_codes_remain_distinct() {
-        assert_eq!(map_mobile_error(rejected("not_found")), SecureStoreError::NotFound);
-        assert_eq!(map_mobile_error(rejected("auth_cancelled")), SecureStoreError::AuthCancelled);
-        assert_eq!(map_mobile_error(rejected("locked")), SecureStoreError::Locked);
-        assert_eq!(map_mobile_error(rejected("corrupt")), SecureStoreError::Corrupt);
-        assert_eq!(map_mobile_error(rejected("unavailable")), SecureStoreError::Unavailable);
+        assert_eq!(
+            map_mobile_error(rejected("not_found")),
+            SecureStoreError::NotFound
+        );
+        assert_eq!(
+            map_mobile_error(rejected("auth_cancelled")),
+            SecureStoreError::AuthCancelled
+        );
+        assert_eq!(
+            map_mobile_error(rejected("auth_failed")),
+            SecureStoreError::AuthenticationFailed
+        );
+        assert_eq!(
+            map_mobile_error(rejected("locked")),
+            SecureStoreError::Locked
+        );
+        assert_eq!(
+            map_mobile_error(rejected("corrupt")),
+            SecureStoreError::Corrupt
+        );
+        assert_eq!(
+            map_mobile_error(rejected("unavailable")),
+            SecureStoreError::Unavailable
+        );
     }
 }

@@ -4,6 +4,7 @@ package cash.free2z.zuuli.zcash
 
 import android.app.Activity
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyPermanentlyInvalidatedException
@@ -138,7 +139,11 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         onFailure: () -> Unit = {}
     ) {
         val host = activity as? FragmentActivity
-            ?: return reject(invoke, "unavailable", "biometric host activity is unavailable")
+        if (host == null) {
+            onFailure()
+            reject(invoke, "unavailable", "biometric host activity is unavailable")
+            return
+        }
         activity.runOnUiThread {
             val prompt = BiometricPrompt(host, ContextCompat.getMainExecutor(host),
                 object : BiometricPrompt.AuthenticationCallback() {
@@ -179,8 +184,7 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
+        val builder = KeyGenParameterSpec.Builder(
                 KEY_ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
             )
@@ -190,9 +194,15 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
                 .setRandomizedEncryptionRequired(true)
                 .setUnlockedDeviceRequired(true)
                 .setUserAuthenticationRequired(true)
-                .setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
-                .build()
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+        } else {
+            // API 29's -1 duration is the per-operation equivalent. The Cipher
+            // is authorized by the BiometricPrompt CryptoObject above.
+            @Suppress("DEPRECATION")
+            builder.setUserAuthenticationValidityDurationSeconds(-1)
+        }
+        generator.init(builder.build())
         return generator.generateKey()
     }
 

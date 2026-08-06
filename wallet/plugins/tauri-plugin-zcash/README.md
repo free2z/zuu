@@ -34,7 +34,7 @@ The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 | `src/wallet/mod.rs` | `WalletState` struct, `WalletDatabase` and `WalletProposal` type aliases |
 | `src/wallet/send.rs` | Propose/execute send flow, Sapling parameter management and download |
 | `src/wallet/sync.rs` | Background sync task with 30s polling, emits `zcash://sync-progress` events |
-| `src/wallet/keychain.rs` | Tiered seed storage: macOS Keychain (biometric) > encrypted file (ChaCha20-Poly1305) > legacy keyring |
+| `src/wallet/keychain.rs` | Fail-closed native seed custody plus UFVK-validated, one-way migration of legacy records |
 | `src/wallet/manifest.rs` | Multi-wallet JSON manifest (`wallets.json`), legacy migration from single-wallet layout |
 | `src/wallet/accounts.rs` | Account creation and listing |
 | `src/wallet/keys.rs` | BIP-39 mnemonic generation, seed derivation, USK derivation |
@@ -52,7 +52,7 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `create_wallet` | `CreateWalletArgs { mnemonicWordCount?, name? }` | `WalletCreated` | Generate new wallet with BIP-39 mnemonic, fetch birthday from chain tip |
 | `restore_wallet` | `RestoreWalletArgs { seedPhrase, birthdayHeight?, name? }` | `{ success: true }` | Restore wallet from existing seed phrase |
 | `get_wallet_status` | — | `WalletStatus` | Check if wallet is initialized, has seed, synced height, active wallet info |
-| `get_seed_phrase` | — | `String` | Retrieve seed phrase from secure storage (keychain/encrypted file) |
+| `get_seed_phrase` | — | `String` | Authenticate and retrieve the seed from platform-native custody |
 | `get_viewing_key` | `AccountIdArgs { accountIndex }` | `String` | Get encoded UFVK for an account |
 | `get_spending_key` | `AccountIdArgs { accountIndex }` | `SpendingKeyStatus` | Verify spending authority (does NOT expose raw key) |
 | `list_wallets` | — | `Vec<WalletInfo>` | List all wallets in the manifest |
