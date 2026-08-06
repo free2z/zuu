@@ -15,6 +15,12 @@ use crate::error::{Error, Result};
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 const SERVICE: &str = "cash.free2z.zuuli.seed.v1";
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "windows"
+))]
 const LEGACY_SERVICE: &str = "com.free2z.zuuli";
 
 #[derive(Debug, Clone, PartialEq, Eq, ThisError)]
@@ -570,8 +576,22 @@ mod legacy_file {
 }
 
 mod legacy_keyring {
-    use super::{LEGACY_SERVICE, SecureStoreError};
-    use zeroize::{Zeroize, Zeroizing};
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
+    use super::LEGACY_SERVICE;
+    use super::SecureStoreError;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
+    use zeroize::Zeroize;
+    use zeroize::Zeroizing;
 
     #[cfg(target_os = "macos")]
     pub fn get(wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
