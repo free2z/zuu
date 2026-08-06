@@ -98,6 +98,7 @@ export interface ExecuteSendResult {
 export interface PendingSendStatus extends ExecuteSendResult {
   proposalId: number;
   recoveryRequired: boolean;
+  canDiscard: boolean;
 }
 
 /**

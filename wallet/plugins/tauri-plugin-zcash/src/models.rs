@@ -168,6 +168,7 @@ pub struct PendingSendStatus {
     pub status: BroadcastStatus,
     pub message: Option<String>,
     pub recovery_required: bool,
+    pub can_discard: bool,
 }
 
 #[derive(Debug, Deserialize)]

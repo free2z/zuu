@@ -233,6 +233,7 @@ export function Send() {
           ...result,
           proposalId: proposal.proposalId,
           recoveryRequired: false,
+          canDiscard: false,
         });
         toast.warning("Broadcast status unknown", {
           description: "Retrying will rebroadcast the same transaction safely.",
@@ -285,7 +286,7 @@ export function Send() {
   }, [navigate, refreshBalance]);
 
   const onDiscardUnrecoverable = useCallback(async () => {
-    if (!pendingSend?.recoveryRequired) return;
+    if (!pendingSend?.canDiscard) return;
     const confirmed = window.confirm(
       "Only continue if you checked wallet history and verified that no payment was sent. Discarding this recovery lock can allow a replacement payment.",
     );
@@ -315,8 +316,10 @@ export function Send() {
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status">
               <p className="font-medium">A previous broadcast is unresolved</p>
               <p className="mt-1 text-xs">
-                {pendingSend.recoveryRequired
+                {pendingSend.canDiscard
                   ? "Transaction creation was interrupted and exact retry data is unavailable. Check wallet history before unlocking sends."
+                  : pendingSend.recoveryRequired
+                    ? "The recovery journal could not be decoded safely. It remains locked to preserve possible transaction evidence; restore or reconcile the wallet data before sending again."
                   : "ZUULI recovered the exact transaction after restart. Retry it before creating another payment."}
               </p>
               <p className="mt-1 break-all font-mono text-xs opacity-75">
@@ -457,17 +460,23 @@ export function Send() {
             size="lg"
             className="w-full"
             disabled={
-              (!hasUnknownBroadcast && !canReview) || preparingParams || reviewing || sending
+              (!hasUnknownBroadcast && !canReview) ||
+              preparingParams ||
+              reviewing ||
+              sending ||
+              Boolean(pendingSend?.recoveryRequired && !pendingSend.canDiscard)
             }
             onClick={
-              pendingSend?.recoveryRequired
+              pendingSend?.canDiscard
                 ? onDiscardUnrecoverable
+                : pendingSend?.recoveryRequired
+                  ? undefined
                 : pendingSend?.status === "unknown"
                   ? onRetryPending
                   : onReview
             }
           >
-            {pendingSend?.recoveryRequired ? (
+            {pendingSend?.canDiscard ? (
               sending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -476,6 +485,8 @@ export function Send() {
               ) : (
                 "I checked history — unlock sends"
               )
+            ) : pendingSend?.recoveryRequired ? (
+              "Recovery data locked"
             ) : pendingSend?.status === "unknown" ? (
               sending ? (
                 <>

@@ -56,6 +56,8 @@ pub struct PendingBroadcast {
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const INTERRUPTED_CREATION_RECOVERY_ERROR: &str =
+    "Transaction creation was interrupted; automatic rebroadcast is unavailable. Inspect wallet history before creating another payment.";
 // A consensus-valid transaction is far smaller than this even after JSON's
 // integer-array expansion. Bound both allocation and streaming reads so a
 // local malformed journal cannot exhaust process memory during startup.
@@ -469,6 +471,7 @@ impl PendingBroadcast {
             status: self.status,
             message: self.message.clone(),
             recovery_required: self.recovery_error.is_some(),
+            can_discard: is_manually_discardable(self),
         }
     }
 }
@@ -565,7 +568,13 @@ fn ensure_no_unresolved_broadcast(pending: Option<&PendingBroadcast>) -> Result<
 
 fn is_manually_discardable(record: &PendingBroadcast) -> bool {
     record.status == BroadcastStatus::Unknown
-        && record.recovery_error.is_some()
+        // Only the exact, successfully-decoded creation intent written by this
+        // process is discardable. A synthetic record produced by a transient
+        // read error or corrupt journal may still hide exact retry bytes, so it
+        // must remain fail-closed for forensic recovery instead of being
+        // unlinked by the UI escape hatch.
+        && record.recovery_error.as_deref() == Some(INTERRUPTED_CREATION_RECOVERY_ERROR)
+        && record.txid == "unavailable"
         && record.txid_bytes.is_empty()
         && record.raw_transaction.is_empty()
 }
@@ -1089,10 +1098,7 @@ pub async fn execute_send(
         ),
         attempts: 0,
         had_ambiguous_attempt: false,
-        recovery_error: Some(
-            "Transaction creation was interrupted; automatic rebroadcast is unavailable. Inspect wallet history before creating another payment."
-                .into(),
-        ),
+        recovery_error: Some(INTERRUPTED_CREATION_RECOVERY_ERROR.into()),
     };
     persist_pending_broadcast(&state.data_dir, &intent)?;
     *broadcast_guard = Some(intent);
@@ -1708,6 +1714,8 @@ mod tests {
         record.txid = "unavailable".into();
         record.txid_bytes.clear();
         record.raw_transaction.clear();
+        assert!(!is_manually_discardable(&record));
+        record.recovery_error = Some(INTERRUPTED_CREATION_RECOVERY_ERROR.into());
         assert!(is_manually_discardable(&record));
     }
 
@@ -1925,6 +1933,7 @@ mod tests {
             .expect("corrupt state must remain represented");
         assert_eq!(loaded.status, BroadcastStatus::Unknown);
         assert!(loaded.recovery_error.is_some());
+        assert!(!is_manually_discardable(&loaded));
         assert!(ensure_no_unresolved_broadcast(Some(&loaded)).is_err());
 
         clear_pending_broadcast(&directory, wallet_id).expect("clear recovery state");

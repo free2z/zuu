@@ -205,6 +205,7 @@ export function Send() {
             ...result,
             proposalId: proposal.proposalId,
             recoveryRequired: false,
+            canDiscard: false,
           });
         }
         setSendError(
@@ -271,7 +272,7 @@ export function Send() {
   };
 
   const handleDiscardUnrecoverable = async () => {
-    if (!pendingSend?.recoveryRequired) return;
+    if (!pendingSend?.canDiscard) return;
     const confirmed = window.confirm(
       "Only continue if you checked wallet history and verified that no payment was sent. Discarding this recovery lock can allow a replacement payment.",
     );
@@ -395,8 +396,10 @@ export function Send() {
         <div className="flex gap-3">
           <button
             onClick={() => {
-              if (pendingSend?.recoveryRequired) {
+              if (pendingSend?.canDiscard) {
                 void handleDiscardUnrecoverable();
+              } else if (pendingSend?.recoveryRequired) {
+                return;
               } else if (broadcastStatus === "unknown") {
                 void handleRetryPending();
               } else if (broadcastStatus === "rejected") {
@@ -411,10 +414,13 @@ export function Send() {
                 setStep("form");
               }
             }}
+            disabled={Boolean(pendingSend?.recoveryRequired && !pendingSend.canDiscard)}
             className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
           >
-            {pendingSend?.recoveryRequired
+            {pendingSend?.canDiscard
               ? "I Checked History — Unlock Sends"
+              : pendingSend?.recoveryRequired
+              ? "Recovery Data Locked"
               : broadcastStatus === "unknown"
               ? "Retry Recovered Transaction"
               : broadcastStatus === "rejected"
