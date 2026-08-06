@@ -73,7 +73,7 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `execute_send` | `ExecuteSendArgs { proposalId }` | `ExecuteSendResult` | Prove/sign once, persist exact bytes, broadcast, and return accepted/rejected/unknown status |
 | `get_pending_send` | — | `PendingSendStatus?` | Recover an unresolved broadcast after a remount, restart, or wallet switch |
 | `retry_pending_send` | — | `ExecuteSendResult` | Query and rebroadcast the exact persisted transaction; never signs a replacement |
-| `discard_unrecoverable_send` | `DiscardUnrecoverableSendArgs { proposalId, confirmation }` | `()` | After explicit wallet-history review, discard only an interrupted/corrupt creation intent that has no exact retry bytes |
+| `discard_unrecoverable_send` | `DiscardUnrecoverableSendArgs { proposalId, confirmation }` | `()` | After explicit wallet-history review, discard only an interrupted/corrupt record with no exact retry bytes |
 | `get_transaction_history` | `TransactionHistoryArgs { accountIndex, offset?, limit? }` | `Vec<TransactionEntry>` | Query transaction history with pagination |
 | `set_lightwalletd_url` | `SetLightwalletdUrlArgs { url }` | `()` | Change the lightwalletd endpoint |
 | `parse_payment_uri` | `ParsePaymentUriArgs { uri }` | `PaymentRequest` | Parse a ZIP-321 payment URI |
@@ -87,7 +87,7 @@ Sending ZEC follows a propose-then-execute pattern:
 2. **`propose_send`** or **`propose_send_all`** — Creates a transaction proposal using `GreedyInputSelector` and `SingleOutputChangeStrategy` with ZIP-317 fees. The proposal is cached in `pending_proposal`. Returns the calculated fee and total.
 3. **`execute_send`** — Takes the `proposal_id`, derives the USK from the in-memory seed, creates the transaction with `create_proposed_transactions`, serializes it, persists an exact recovery record, and broadcasts via lightwalletd gRPC.
 4. **Resolve ambiguity** — `accepted` and definite `rejected` responses are explicit. Timeouts and transport failures set a durable ambiguity flag, return `unknown`, block replacement proposals, and survive process restart. `retry_pending_send` first queries the txid, then rebroadcasts only the persisted raw bytes. A later rejection cannot downgrade an actually ambiguous attempt. Once the wallet is fully scanned beyond the transaction expiry height and lightwalletd reports the txid absent, the record resolves to rejected and new sends are safe.
-5. **Interrupted creation recovery** — A fail-closed intent is durable before proving/signing begins. If exact transaction bytes cannot be recovered after a crash, the UI requires the operator to inspect wallet history and explicitly confirm before `discard_unrecoverable_send` unlocks sends. Complete unknown broadcasts can never use this manual path.
+5. **Unrecoverable-state escape hatch** — A fail-closed intent is durable before proving/signing begins. If exact transaction bytes cannot be recovered after a crash or journal structure is corrupt, the UI requires the operator to inspect wallet history and explicitly confirm before `discard_unrecoverable_send` unlocks sends. A complete transaction can never use this manual path: if its wallet DB row is missing, the exact raw bytes remain locked for retry until the DB is restored or the network accepts them.
 
 The `propose_send_all` command uses an iterative approach (up to 3 retries) to converge on the maximum sendable amount after ZIP-317 fee deduction.
 

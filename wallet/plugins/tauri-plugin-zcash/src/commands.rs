@@ -74,9 +74,22 @@ fn cleanup_committed_wallet_blocking<F>(
 where
     F: FnOnce(&str) -> Result<()>,
 {
-    send::clear_pending_broadcast(data_dir, &cleanup.wallet_id)?;
+    // The manifest deletion is already committed. Cleanup steps are therefore
+    // independent and best-effort: an unsafe/corrupt journal must not prevent
+    // deletion of the wallet DB or leave its native seed behind.
+    let journal_result = send::clear_pending_broadcast(data_dir, &cleanup.wallet_id);
     crate::wallet::manifest::cleanup_wallet_database_files(data_dir, &cleanup.db_filename);
-    delete_seed(&cleanup.wallet_id)
+    let seed_result = delete_seed(&cleanup.wallet_id);
+    match (journal_result, seed_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(journal), Ok(())) => Err(Error::Other(format!(
+            "wallet data was deleted but pending-send cleanup failed: {journal}"
+        ))),
+        (Ok(()), Err(seed)) => Err(seed),
+        (Err(journal), Err(seed)) => Err(Error::Other(format!(
+            "pending-send cleanup failed ({journal}); native seed cleanup also failed ({seed})"
+        ))),
+    }
 }
 
 async fn cleanup_committed_wallet(
@@ -92,8 +105,8 @@ async fn cleanup_committed_wallet(
     .await
     {
         Ok(Ok(())) => {}
-        Ok(Err(e)) => tracing::warn!("wallet deleted but secure seed cleanup failed: {e}"),
-        Err(e) => tracing::warn!("wallet deleted but seed cleanup task failed: {e}"),
+        Ok(Err(e)) => tracing::warn!("wallet deleted but post-commit cleanup was incomplete: {e}"),
+        Err(e) => tracing::warn!("wallet deleted but cleanup task failed: {e}"),
     }
 }
 
@@ -106,6 +119,26 @@ fn open_wallet_context(
     let db = storage::init_wallet_db(&db_path, network)?;
     let read_db = storage::open_read_db(&db_path, network)?;
     Ok((db, read_db))
+}
+
+/// Lazily authenticate and install spending authority for the active wallet.
+/// The transition token proves that active-ID lookup, UFVK validation in native
+/// custody, and the in-memory seed installation all refer to one wallet.
+async fn ensure_active_seed_loaded(
+    state: &crate::wallet::WalletState,
+    transition: &crate::wallet::WalletTransitionGuard<'_>,
+) -> Result<()> {
+    if state.seed.lock().await.is_some() {
+        return Ok(());
+    }
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
+    let phrase = state.get_seed_phrase(transition, &wallet_id).await?;
+    let mnemonic = keys::parse_mnemonic(&phrase)?;
+    *state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
+    Ok(())
 }
 
 #[command]
@@ -612,21 +645,7 @@ pub(crate) async fn get_spending_key<R: Runtime>(
     let zcash = app.zcash();
     let transition_guard = zcash.state.lock_wallet_transition().await;
 
-    // If seed is not in memory, try to reload from keychain
-    {
-        let seed_guard = zcash.state.seed.lock().await;
-        if seed_guard.is_none() {
-            drop(seed_guard);
-            let wallet_id = zcash.state.active_wallet_id().await
-                .ok_or(Error::WalletNotInitialized)?;
-            let phrase = zcash
-                .state
-                .get_seed_phrase(&transition_guard, &wallet_id)
-                .await?;
-            let mnemonic = keys::parse_mnemonic(&phrase)?;
-            *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
-        }
-    }
+    ensure_active_seed_loaded(&zcash.state, &transition_guard).await?;
 
     // Now try to use the seed
     let seed_guard = zcash.state.seed.lock().await;
@@ -1023,6 +1042,51 @@ mod deletion_tests {
         std::fs::remove_dir_all(data_dir).expect("remove test data dir");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unsafe_journal_never_prevents_committed_db_and_seed_cleanup() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let data_dir = std::env::temp_dir().join(format!(
+            "zuuli-delete-unsafe-journal-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data dir");
+        let deleted = wallet(&uuid::Uuid::new_v4().to_string());
+        let db_path = data_dir.join(&deleted.db_filename);
+        std::fs::write(&db_path, b"wallet database").expect("write test database");
+        store_seed_sentinel(&data_dir, &deleted.id);
+
+        let victim = data_dir.join("journal-victim");
+        std::fs::write(&victim, b"must not change").expect("write victim");
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600))
+            .expect("secure victim permissions");
+        let journal = data_dir.join(format!("pending-send-{}.json", deleted.id));
+        symlink(&victim, &journal).expect("create unsafe journal symlink");
+
+        let result = cleanup_committed_wallet_blocking(
+            &data_dir,
+            AuthorizedWalletCleanup {
+                wallet_id: deleted.id.clone(),
+                db_filename: deleted.db_filename.clone(),
+            },
+            |wallet_id| {
+                std::fs::remove_file(seed_sentinel(&data_dir, wallet_id)).map_err(Error::from)
+            },
+        );
+        assert!(result.is_err(), "unsafe journal remains reportable");
+        assert!(!db_path.exists(), "committed DB cleanup must still run");
+        assert!(
+            !seed_sentinel(&data_dir, &deleted.id).exists(),
+            "committed native seed cleanup must still run"
+        );
+        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+
+        std::fs::remove_file(journal).expect("remove journal symlink");
+        std::fs::remove_file(victim).expect("remove victim");
+        std::fs::remove_dir(data_dir).expect("remove test data dir");
+    }
+
     #[test]
     fn failed_switch_preparation_preserves_active_manifest() {
         let data_dir =
@@ -1290,7 +1354,8 @@ pub(crate) async fn execute_send<R: Runtime>(
     args: ExecuteSendArgs,
 ) -> Result<ExecuteSendResult> {
     let zcash = app.zcash();
-    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let transition_guard = zcash.state.lock_wallet_transition().await;
+    ensure_active_seed_loaded(&zcash.state, &transition_guard).await?;
     crate::wallet::send::execute_send(&zcash.state, args.proposal_id).await
 }
 
@@ -1299,6 +1364,7 @@ pub(crate) async fn get_pending_send<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Option<PendingSendStatus>> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::get_pending_send(&zcash.state).await
 }
 
@@ -1307,6 +1373,7 @@ pub(crate) async fn retry_pending_send<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<ExecuteSendResult> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::retry_pending_send(&zcash.state).await
 }
 
@@ -1316,6 +1383,7 @@ pub(crate) async fn discard_unrecoverable_send<R: Runtime>(
     args: DiscardUnrecoverableSendArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::discard_unrecoverable_send(
         &zcash.state,
         args.proposal_id,
@@ -1409,25 +1477,7 @@ pub(crate) async fn sign_challenge<R: Runtime>(
         return Err(Error::WalletNotInitialized);
     }
 
-    // Ensure the seed is in memory, reloading from the keychain if needed
-    // (mirrors get_spending_key).
-    {
-        let seed_guard = zcash.state.seed.lock().await;
-        if seed_guard.is_none() {
-            drop(seed_guard);
-            let wallet_id = zcash
-                .state
-                .active_wallet_id()
-                .await
-                .ok_or(Error::WalletNotInitialized)?;
-            let phrase = zcash
-                .state
-                .get_seed_phrase(&transition_guard, &wallet_id)
-                .await?;
-            let mnemonic = keys::parse_mnemonic(&phrase)?;
-            *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
-        }
-    }
+    ensure_active_seed_loaded(&zcash.state, &transition_guard).await?;
 
     // Sign the challenge with the account's transparent P2PKH key. The returned
     // address is the mainnet t-address the backend passes to `verifymessage`.

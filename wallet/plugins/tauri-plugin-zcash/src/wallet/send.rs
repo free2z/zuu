@@ -1,7 +1,11 @@
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::{fs::OpenOptions, io::Write, path::Path};
+use std::{
+    fs::{File, Metadata, OpenOptions},
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
 
 use secrecy::ExposeSecret;
 use zcash_client_backend::data_api::wallet::{
@@ -52,6 +56,10 @@ pub struct PendingBroadcast {
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+// A consensus-valid transaction is far smaller than this even after JSON's
+// integer-array expansion. Bound both allocation and streaming reads so a
+// local malformed journal cannot exhaust process memory during startup.
+const MAX_PENDING_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 
 fn pending_broadcast_path(data_dir: &Path, wallet_id: &str) -> Result<std::path::PathBuf> {
     if wallet_id.is_empty()
@@ -62,6 +70,211 @@ fn pending_broadcast_path(data_dir: &Path, wallet_id: &str) -> Result<std::path:
         return Err(Error::DatabaseError("invalid wallet identifier".into()));
     }
     Ok(data_dir.join(format!("pending-send-{wallet_id}.json")))
+}
+
+fn validate_recovery_metadata(metadata: &Metadata, label: &str) -> Result<()> {
+    if !metadata.file_type().is_file() {
+        return Err(Error::DatabaseError(format!(
+            "pending send {label} is not a regular file"
+        )));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(Error::DatabaseError(format!(
+                "pending send {label} has an unsafe link count"
+            )));
+        }
+        if metadata.mode() & 0o077 != 0 {
+            return Err(Error::DatabaseError(format!(
+                "pending send {label} has unsafe permissions"
+            )));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(Error::DatabaseError(format!(
+                "pending send {label} is an unsafe reparse point"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn validate_windows_file_handle(file: &File, label: &str) -> Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is owned by `file` for the duration of this call and
+    // `information` points to a correctly-sized writable Win32 structure.
+    let succeeded = unsafe {
+        GetFileInformationByHandle(file.as_raw_handle().cast(), &mut information)
+    };
+    if succeeded == 0 {
+        return Err(Error::DatabaseError(format!(
+            "pending send {label} link metadata could not be read: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    if information.nNumberOfLinks != 1 {
+        return Err(Error::DatabaseError(format!(
+            "pending send {label} has an unsafe link count"
+        )));
+    }
+    Ok(())
+}
+
+fn open_recovery_file(path: &Path, label: &str) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Inspect the directory entry itself instead of traversing a reparse
+        // point. Handle metadata below then rejects every reparse point.
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+
+    let file = options.open(path).map_err(|error| {
+        Error::DatabaseError(format!(
+            "pending send {label} could not be opened safely: {error}"
+        ))
+    })?;
+    let metadata = file.metadata().map_err(|error| {
+        Error::DatabaseError(format!(
+            "pending send {label} metadata could not be read: {error}"
+        ))
+    })?;
+    validate_recovery_metadata(&metadata, label)?;
+    #[cfg(windows)]
+    validate_windows_file_handle(&file, label)?;
+    Ok(file)
+}
+
+/// Validate a journal pathname without following links. The returned boolean
+/// records whether the exact directory entry existed at validation time.
+fn validate_recovery_path(path: &Path, label: &str) -> Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            validate_recovery_metadata(&metadata, label)?;
+            // `MetadataExt::number_of_links` is unstable on Windows. Validate
+            // the opened handle with the stable Win32 API instead, which also
+            // closes the path-metadata/open race for hard-link checks.
+            #[cfg(windows)]
+            drop(open_recovery_file(path, label)?);
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(Error::DatabaseError(format!(
+            "pending send {label} could not be inspected: {error}"
+        ))),
+    }
+}
+
+fn read_recovery_file(path: &Path, label: &str) -> Result<Option<Vec<u8>>> {
+    if !validate_recovery_path(path, label)? {
+        return Ok(None);
+    }
+
+    let file = open_recovery_file(path, label)?;
+    let metadata = file.metadata().map_err(|error| {
+        Error::DatabaseError(format!(
+            "pending send {label} metadata could not be read: {error}"
+        ))
+    })?;
+    if metadata.len() > MAX_PENDING_JOURNAL_BYTES {
+        return Err(Error::DatabaseError(format!(
+            "pending send {label} exceeds the recovery size limit"
+        )));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_PENDING_JOURNAL_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            Error::DatabaseError(format!(
+                "pending send {label} could not be read: {error}"
+            ))
+        })?;
+    if bytes.len() as u64 > MAX_PENDING_JOURNAL_BYTES {
+        return Err(Error::DatabaseError(format!(
+            "pending send {label} exceeds the recovery size limit"
+        )));
+    }
+    Ok(Some(bytes))
+}
+
+struct TemporaryJournal {
+    path: PathBuf,
+}
+
+impl Drop for TemporaryJournal {
+    fn drop(&mut self) {
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(
+                "failed to clean exact pending send temporary file: {error}"
+            ),
+        }
+    }
+}
+
+fn create_unique_journal(data_dir: &Path, wallet_id: &str) -> Result<(File, TemporaryJournal)> {
+    for _ in 0..16 {
+        let path = data_dir.join(format!(
+            ".pending-send-{wallet_id}-{}.tmp",
+            uuid::Uuid::new_v4()
+        ));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        match options.open(&path) {
+            Ok(file) => return Ok((file, TemporaryJournal { path })),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(Error::DatabaseError(format!(
+                    "failed to create unique pending send recovery state: {error}"
+                )));
+            }
+        }
+    }
+    Err(Error::DatabaseError(
+        "failed to allocate unique pending send recovery state".into(),
+    ))
+}
+
+#[cfg(unix)]
+fn sync_recovery_directory(data_dir: &Path) -> Result<()> {
+    OpenOptions::new()
+        .read(true)
+        .open(data_dir)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| {
+            Error::DatabaseError(format!(
+                "failed to sync pending send recovery directory: {error}"
+            ))
+        })
 }
 
 pub(crate) fn load_pending_broadcast(
@@ -81,36 +294,30 @@ pub(crate) fn load_pending_broadcast(
         recovery_error: Some(message),
     };
     let path = pending_broadcast_path(data_dir, wallet_id).ok()?;
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
+    let bytes = match read_recovery_file(&path, "recovery state") {
+        Ok(Some(bytes)) => bytes,
         #[cfg(windows)]
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Ok(None) => {
             let backup = path.with_extension("json.bak");
-            match std::fs::read(backup) {
-                Ok(bytes) => bytes,
-                Err(backup_error)
-                    if backup_error.kind() == std::io::ErrorKind::NotFound =>
-                {
-                    return None;
-                }
-                Err(backup_error) => {
-                    let message = format!(
-                        "pending send recovery backup could not be read: {backup_error}"
-                    );
+            match read_recovery_file(&backup, "recovery backup") {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => return None,
+                Err(error) => {
+                    let message = error.to_string();
                     tracing::error!("{message}");
                     return Some(corrupt(message));
                 }
             }
         }
         #[cfg(not(windows))]
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Ok(None) => return None,
         Err(error) => {
-            let message = format!("pending send recovery state could not be read: {error}");
+            let message = error.to_string();
             tracing::error!("{message}");
             return Some(corrupt(message));
         }
     };
-    let record: PendingBroadcast = match serde_json::from_slice(&bytes) {
+    let mut record: PendingBroadcast = match serde_json::from_slice(&bytes) {
         Ok(record) => record,
         Err(error) => {
             let message = format!("pending send recovery state is invalid: {error}");
@@ -132,52 +339,61 @@ pub(crate) fn load_pending_broadcast(
             "pending send recovery state failed structural validation".into(),
         ));
     }
+    // A short-lived pre-release build marked a complete transaction as
+    // unrecoverable when its wallet DB row was missing. Exact raw bytes are
+    // still retryable, so migrate that state back to the non-discardable retry
+    // path rather than letting a history gap authorize a replacement payment.
+    if record.recovery_error.is_some() && !record.raw_transaction.is_empty() {
+        record.recovery_error = None;
+        record.message = Some(
+            "The wallet database is missing this transaction; only retry these exact saved bytes or restore the wallet database."
+                .into(),
+        );
+    }
     Some(record)
 }
 
 fn persist_pending_broadcast(data_dir: &Path, record: &PendingBroadcast) -> Result<()> {
     let path = pending_broadcast_path(data_dir, &record.wallet_id)?;
-    let temporary = path.with_extension("json.tmp");
+    let backup = path.with_extension("json.bak");
+    let stable_exists = validate_recovery_path(&path, "recovery state")?;
+    let backup_exists = validate_recovery_path(&backup, "recovery backup")?;
+    #[cfg(not(windows))]
+    let _ = (stable_exists, backup_exists);
     let bytes = serde_json::to_vec(record)
         .map_err(|error| Error::DatabaseError(format!("failed to encode pending send: {error}")))?;
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+    if bytes.len() as u64 > MAX_PENDING_JOURNAL_BYTES {
+        return Err(Error::DatabaseError(
+            "pending send recovery state exceeds the size limit".into(),
+        ));
     }
-    let mut file = options.open(&temporary).map_err(|error| {
-        Error::DatabaseError(format!("failed to create pending send recovery state: {error}"))
-    })?;
+    let (mut file, temporary) = create_unique_journal(data_dir, &record.wallet_id)?;
     file.write_all(&bytes).map_err(|error| {
         Error::DatabaseError(format!("failed to write pending send recovery state: {error}"))
     })?;
     file.sync_all().map_err(|error| {
         Error::DatabaseError(format!("failed to sync pending send recovery state: {error}"))
     })?;
+    drop(file);
     #[cfg(windows)]
     {
         // Windows rename does not replace an existing file. Preserve the old
         // record as a recovery fallback so there is never a crash window with
         // no durable evidence that a send may have happened.
-        let backup = path.with_extension("json.bak");
-        if path.exists() {
-            match std::fs::remove_file(&backup) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(Error::DatabaseError(format!(
+        if stable_exists {
+            if backup_exists {
+                std::fs::remove_file(&backup).map_err(|error| {
+                    Error::DatabaseError(format!(
                         "failed to prepare pending send recovery backup: {error}"
-                    )));
-                }
+                    ))
+                })?;
             }
             std::fs::rename(&path, &backup).map_err(|error| {
                 Error::DatabaseError(format!(
                     "failed to preserve pending send recovery backup: {error}"
                 ))
             })?;
-            if let Err(error) = std::fs::rename(&temporary, &path) {
+            if let Err(error) = std::fs::rename(&temporary.path, &path) {
                 let _ = std::fs::rename(&backup, &path);
                 return Err(Error::DatabaseError(format!(
                     "failed to commit pending send recovery state: {error}"
@@ -187,7 +403,7 @@ fn persist_pending_broadcast(data_dir: &Path, record: &PendingBroadcast) -> Resu
                 tracing::warn!("pending send recovery backup remains after commit: {error}");
             }
         } else {
-            std::fs::rename(&temporary, &path).map_err(|error| {
+            std::fs::rename(&temporary.path, &path).map_err(|error| {
                 Error::DatabaseError(format!(
                     "failed to commit pending send recovery state: {error}"
                 ))
@@ -195,47 +411,41 @@ fn persist_pending_broadcast(data_dir: &Path, record: &PendingBroadcast) -> Resu
         }
     }
     #[cfg(not(windows))]
-    std::fs::rename(&temporary, &path).map_err(|error| {
+    std::fs::rename(&temporary.path, &path).map_err(|error| {
         Error::DatabaseError(format!("failed to commit pending send recovery state: {error}"))
     })?;
     // On Unix, fsync the directory as well as the file. Without this, a crash
     // after lightwalletd accepts the transaction can lose the directory entry
     // and make the next launch incorrectly believe no send is pending.
     #[cfg(unix)]
-    OpenOptions::new()
-        .read(true)
-        .open(data_dir)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| {
-            Error::DatabaseError(format!(
-                "failed to sync pending send recovery directory: {error}"
-            ))
-        })?;
+    sync_recovery_directory(data_dir)?;
     Ok(())
 }
 
 pub(crate) fn clear_pending_broadcast(data_dir: &Path, wallet_id: &str) -> Result<()> {
     let path = pending_broadcast_path(data_dir, wallet_id)?;
-    #[cfg(windows)]
-    {
-        let backup = path.with_extension("json.bak");
-        match std::fs::remove_file(backup) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(Error::DatabaseError(format!(
-                    "failed to clear pending send recovery backup: {error}"
-                )));
-            }
-        }
+    let backup = path.with_extension("json.bak");
+    let stable_exists = validate_recovery_path(&path, "recovery state")?;
+    let backup_exists = validate_recovery_path(&backup, "recovery backup")?;
+    if backup_exists {
+        std::fs::remove_file(&backup).map_err(|error| {
+            Error::DatabaseError(format!(
+                "failed to clear pending send recovery backup: {error}"
+            ))
+        })?;
     }
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(Error::DatabaseError(format!(
-            "failed to clear pending send recovery state: {error}"
-        ))),
+    if stable_exists {
+        std::fs::remove_file(path).map_err(|error| {
+            Error::DatabaseError(format!(
+                "failed to clear pending send recovery state: {error}"
+            ))
+        })?;
     }
+    #[cfg(unix)]
+    if stable_exists || backup_exists {
+        sync_recovery_directory(data_dir)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn ensure_wallet_has_no_unknown_send(data_dir: &Path, wallet_id: &str) -> Result<()> {
@@ -353,6 +563,17 @@ fn ensure_no_unresolved_broadcast(pending: Option<&PendingBroadcast>) -> Result<
     }
 }
 
+fn is_manually_discardable(record: &PendingBroadcast) -> bool {
+    record.status == BroadcastStatus::Unknown
+        && record.recovery_error.is_some()
+        && record.txid_bytes.is_empty()
+        && record.raw_transaction.is_empty()
+}
+
+fn remote_lookup_matches(record: &PendingBroadcast, returned_bytes: &[u8]) -> bool {
+    returned_bytes == record.raw_transaction
+}
+
 /// Commit proposal state only when proposal construction succeeded. Keeping
 /// this transition small and deterministic makes it impossible for a rejected
 /// proposal to become executable.
@@ -385,17 +606,11 @@ fn classify_broadcast_response(
             status: BroadcastStatus::Accepted,
             message: None,
         },
-        Some((code, message)) => {
-            let normalized = message.to_ascii_lowercase();
-            let already_known = [
-                "already known",
-                "already in mempool",
-                "already in the mempool",
-                "already in block chain",
-                "already in blockchain",
-            ]
-            .iter()
-            .any(|needle| normalized.contains(needle));
+        Some((code, _message)) => {
+            // RPC_VERIFY_ALREADY_IN_CHAIN is a fixed protocol code. Never let
+            // attacker-controlled response text turn an arbitrary rejection
+            // into acceptance and erase the only retry journal.
+            let already_known = code == -27;
             if already_known {
                 ExecuteSendResult {
                     txid,
@@ -1032,9 +1247,10 @@ pub async fn discard_unrecoverable_send(
             "pending transaction does not match the active wallet".into(),
         ));
     }
-    if record.status != BroadcastStatus::Unknown || record.recovery_error.is_none() {
+    if !is_manually_discardable(record) {
         return Err(Error::SendError(
-            "only an unrecoverable pending-send record can be discarded manually".into(),
+            "only an unrecoverable record without exact retry bytes can be discarded manually"
+                .into(),
         ));
     }
     clear_pending_broadcast(&state.data_dir, &wallet_id)?;
@@ -1088,16 +1304,17 @@ async fn local_pending_state(
         Ok(transaction) => transaction,
         Err(error) => {
             let message =
-                "Pending transaction data is missing from the wallet database. Check wallet history before unlocking sends."
+                "The wallet database is missing this transaction. The exact saved transaction remains locked for retry; restore the wallet database if reconciliation cannot complete."
                     .to_string();
             record.message = Some(message.clone());
-            record.recovery_error = Some(message);
+            tracing::warn!(txid = %record.txid, "pending transaction is missing from the wallet database; retaining exact retry bytes");
             if let Err(persist_error) = persist_pending_broadcast(&state.data_dir, record) {
                 tracing::error!(
                     "failed to persist missing-transaction recovery state: {persist_error}"
                 );
             }
-            return Err(error);
+            tracing::debug!("wallet database lookup detail: {error}");
+            return Ok(LocalPendingState::Pending);
         }
     };
     let expiry_height = transaction.expiry_height();
@@ -1210,16 +1427,22 @@ async fn broadcast_record(
         )
         .await;
         match lookup {
-            Ok(Ok(_)) => {
-                return Ok(apply_broadcast_result(
-                    state,
-                    record,
-                    ExecuteSendResult {
-                        txid: record.txid.clone(),
-                        status: BroadcastStatus::Accepted,
-                        message: None,
-                    },
-                ));
+            Ok(Ok(response)) => {
+                let returned = response.into_inner();
+                if remote_lookup_matches(record, &returned.data) {
+                    return Ok(apply_broadcast_result(
+                        state,
+                        record,
+                        ExecuteSendResult {
+                            txid: record.txid.clone(),
+                            status: BroadcastStatus::Accepted,
+                            message: None,
+                        },
+                    ));
+                }
+                tracing::warn!(
+                    "lightwalletd returned different bytes for the pending txid; retaining recovery state and rebroadcasting the exact local transaction"
+                );
             }
             Ok(Err(status)) if status.code() == tonic::Code::NotFound => {
                 if local_pending_state(state, record).await? == LocalPendingState::Expired {
@@ -1460,6 +1683,35 @@ mod tests {
     }
 
     #[test]
+    fn attacker_controlled_already_known_text_cannot_fake_acceptance() {
+        let result = classify_broadcast_response(
+            "txid".into(),
+            false,
+            Some((-26, "already in block chain".into())),
+        );
+        assert_eq!(result.status, BroadcastStatus::Rejected);
+    }
+
+    #[test]
+    fn txid_lookup_requires_the_exact_persisted_transaction_bytes() {
+        let record = pending(BroadcastStatus::Unknown);
+        assert!(remote_lookup_matches(&record, &record.raw_transaction));
+        assert!(!remote_lookup_matches(&record, &[9, 9, 9]));
+    }
+
+    #[test]
+    fn complete_transaction_is_never_manually_discardable() {
+        let mut record = pending(BroadcastStatus::Unknown);
+        record.recovery_error = Some("wallet DB row missing".into());
+        assert!(!is_manually_discardable(&record));
+
+        record.txid = "unavailable".into();
+        record.txid_bytes.clear();
+        record.raw_transaction.clear();
+        assert!(is_manually_discardable(&record));
+    }
+
+    #[test]
     fn pending_broadcast_survives_state_reconstruction() {
         let directory = std::env::temp_dir().join(format!(
             "zuuli-pending-send-test-{}",
@@ -1482,6 +1734,173 @@ mod tests {
     }
 
     #[test]
+    fn legacy_missing_db_error_migrates_complete_transaction_to_exact_retry() {
+        let directory = std::env::temp_dir().join(format!(
+            "zuuli-pending-send-missing-db-migration-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).expect("create test directory");
+        let mut record = pending(BroadcastStatus::Unknown);
+        record.recovery_error = Some("wallet DB row missing".into());
+        persist_pending_broadcast(&directory, &record).expect("persist legacy recovery state");
+
+        let loaded = load_pending_broadcast(&directory, &record.wallet_id)
+            .expect("load complete recovery state");
+        assert!(loaded.recovery_error.is_none());
+        assert_eq!(loaded.raw_transaction, record.raw_transaction);
+        assert!(!is_manually_discardable(&loaded));
+        assert!(ensure_no_unresolved_broadcast(Some(&loaded)).is_err());
+
+        clear_pending_broadcast(&directory, &record.wallet_id).expect("clear recovery state");
+        std::fs::remove_dir(&directory).expect("remove test directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unique_temporary_file_never_follows_stale_deterministic_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = std::env::temp_dir().join(format!(
+            "zuuli-pending-send-stale-temp-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).expect("create test directory");
+        let victim = directory.join("victim");
+        std::fs::write(&victim, b"must not change").expect("write victim");
+        let stale = pending_broadcast_path(&directory, "wallet_test")
+            .expect("journal path")
+            .with_extension("json.tmp");
+        symlink(&victim, &stale).expect("create stale temporary symlink");
+
+        let record = pending(BroadcastStatus::Unknown);
+        persist_pending_broadcast(&directory, &record)
+            .expect("unique create-new temporary must bypass stale name");
+        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        assert!(
+            std::fs::symlink_metadata(&stale)
+                .expect("stale link remains untouched")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            load_pending_broadcast(&directory, &record.wallet_id)
+                .expect("load committed journal")
+                .raw_transaction,
+            record.raw_transaction
+        );
+
+        clear_pending_broadcast(&directory, &record.wallet_id).expect("clear journal");
+        std::fs::remove_file(stale).expect("remove stale link");
+        std::fs::remove_file(victim).expect("remove victim");
+        std::fs::remove_dir(directory).expect("remove test directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linked_stable_and_backup_paths_fail_closed_without_touching_targets() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let directory = std::env::temp_dir().join(format!(
+            "zuuli-pending-send-linked-path-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).expect("create test directory");
+        let victim = directory.join("victim");
+        std::fs::write(&victim, b"must not change").expect("write victim");
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600))
+            .expect("secure victim permissions");
+        let record = pending(BroadcastStatus::Unknown);
+        let stable = pending_broadcast_path(&directory, &record.wallet_id)
+            .expect("journal path");
+        symlink(&victim, &stable).expect("create stable symlink");
+
+        let loaded = load_pending_broadcast(&directory, &record.wallet_id)
+            .expect("unsafe stable path must remain represented");
+        assert!(loaded.recovery_error.is_some());
+        assert!(persist_pending_broadcast(&directory, &record).is_err());
+        assert!(clear_pending_broadcast(&directory, &record.wallet_id).is_err());
+        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        std::fs::remove_file(&stable).expect("remove stable symlink");
+
+        let backup = stable.with_extension("json.bak");
+        symlink(&victim, &backup).expect("create backup symlink");
+        assert!(persist_pending_broadcast(&directory, &record).is_err());
+        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        std::fs::remove_file(backup).expect("remove backup symlink");
+        std::fs::remove_file(victim).expect("remove victim");
+        std::fs::remove_dir(directory).expect("remove test directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hardlinked_stable_path_fails_closed_without_truncating_inode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = std::env::temp_dir().join(format!(
+            "zuuli-pending-send-hardlink-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).expect("create test directory");
+        let victim = directory.join("victim");
+        std::fs::write(&victim, b"must not change").expect("write victim");
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600))
+            .expect("secure victim permissions");
+        let record = pending(BroadcastStatus::Unknown);
+        let stable = pending_broadcast_path(&directory, &record.wallet_id)
+            .expect("journal path");
+        std::fs::hard_link(&victim, &stable).expect("create stable hardlink");
+
+        let loaded = load_pending_broadcast(&directory, &record.wallet_id)
+            .expect("unsafe hardlink must remain represented");
+        assert!(loaded.recovery_error.is_some());
+        assert!(persist_pending_broadcast(&directory, &record).is_err());
+        assert!(clear_pending_broadcast(&directory, &record.wallet_id).is_err());
+        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+
+        std::fs::remove_file(stable).expect("remove hardlink");
+        std::fs::remove_file(victim).expect("remove victim");
+        std::fs::remove_dir(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn oversized_recovery_state_fails_closed_without_reading_or_truncating_it() {
+        let directory = std::env::temp_dir().join(format!(
+            "zuuli-pending-send-oversized-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).expect("create test directory");
+        let wallet_id = "wallet_test";
+        let stable = pending_broadcast_path(&directory, wallet_id)
+            .expect("journal path");
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&stable)
+            .expect("create oversized journal");
+        file.set_len(MAX_PENDING_JOURNAL_BYTES + 1)
+            .expect("extend oversized journal");
+        drop(file);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stable, std::fs::Permissions::from_mode(0o600))
+                .expect("secure journal permissions");
+        }
+
+        let loaded = load_pending_broadcast(&directory, wallet_id)
+            .expect("oversized state must remain represented");
+        assert!(loaded.recovery_error.is_some());
+        assert_eq!(
+            std::fs::metadata(&stable).expect("journal metadata").len(),
+            MAX_PENDING_JOURNAL_BYTES + 1,
+            "fail-closed loading must not truncate attacker-controlled input"
+        );
+
+        clear_pending_broadcast(&directory, wallet_id).expect("clear oversized journal");
+        std::fs::remove_dir(directory).expect("remove test directory");
+    }
+
+    #[test]
     fn corrupt_recovery_state_fails_closed() {
         let directory = std::env::temp_dir().join(format!(
             "zuuli-pending-send-corrupt-test-{}",
@@ -1494,6 +1913,13 @@ mod tests {
             b"not-json",
         )
         .expect("write corrupt recovery state");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = pending_broadcast_path(&directory, wallet_id).expect("recovery path");
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                .expect("secure corrupt state permissions");
+        }
 
         let loaded = load_pending_broadcast(&directory, wallet_id)
             .expect("corrupt state must remain represented");
