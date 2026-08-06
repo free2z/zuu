@@ -22,10 +22,13 @@ fn format_birthday_error(e: BirthdayError) -> String {
 }
 
 struct CommittedWalletDeletion {
+    was_active: bool,
+    cleanup: Option<AuthorizedWalletCleanup>,
+}
+
+struct AuthorizedWalletCleanup {
     wallet_id: String,
     db_filename: String,
-    was_active: bool,
-    cleanup_authorized: bool,
 }
 
 /// Validate and remove a wallet from the manifest/DB deletion path.
@@ -54,21 +57,28 @@ fn commit_wallet_deletion(
         })?;
 
     Ok(CommittedWalletDeletion {
-        wallet_id: durable.entry.id,
-        db_filename: durable.entry.db_filename,
         was_active,
-        cleanup_authorized: durable.cleanup_authorized,
+        cleanup: durable.cleanup_authorized.then_some(AuthorizedWalletCleanup {
+            wallet_id: durable.entry.id,
+            db_filename: durable.entry.db_filename,
+        }),
     })
+}
+
+fn cleanup_committed_wallet_blocking(
+    data_dir: &std::path::Path,
+    cleanup: AuthorizedWalletCleanup,
+) -> Result<()> {
+    crate::wallet::manifest::cleanup_wallet_database_files(data_dir, &cleanup.db_filename);
+    keychain::delete_seed_phrase(data_dir, &cleanup.wallet_id)
 }
 
 async fn cleanup_committed_wallet(
     data_dir: std::path::PathBuf,
-    wallet_id: String,
-    db_filename: String,
+    cleanup: AuthorizedWalletCleanup,
 ) {
     match tokio::task::spawn_blocking(move || {
-        crate::wallet::manifest::cleanup_wallet_database_files(&data_dir, &db_filename);
-        keychain::delete_seed_phrase(&data_dir, &wallet_id)
+        cleanup_committed_wallet_blocking(&data_dir, cleanup)
     })
     .await
     {
@@ -656,20 +666,13 @@ pub(crate) async fn delete_wallet<R: Runtime>(
                 .store(0, std::sync::atomic::Ordering::Relaxed);
 
             let db_arc = Arc::clone(&zcash.state.db);
-            let cleanup_authorized = deletion.cleanup_authorized;
+            let cleanup = deletion.cleanup;
             let cleanup_data_dir = zcash.state.data_dir.clone();
-            let cleanup_wallet_id = deletion.wallet_id;
-            let cleanup_db_filename = deletion.db_filename;
             tokio::spawn(async move {
                 let _transition_guard = transition_guard;
                 *db_arc.lock().await = Some(db);
-                if cleanup_authorized {
-                    cleanup_committed_wallet(
-                        cleanup_data_dir,
-                        cleanup_wallet_id,
-                        cleanup_db_filename,
-                    )
-                    .await;
+                if let Some(cleanup) = cleanup {
+                    cleanup_committed_wallet(cleanup_data_dir, cleanup).await;
                 }
             });
             return Ok(());
@@ -681,13 +684,8 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     // requires a confirmed-durable manifest replacement and happens only after
     // active DB handles have been swapped. It is best-effort because returning
     // an error after commit would invite an ambiguous destructive retry.
-    if deletion.cleanup_authorized {
-        cleanup_committed_wallet(
-            zcash.state.data_dir.clone(),
-            deletion.wallet_id,
-            deletion.db_filename,
-        )
-        .await;
+    if let Some(cleanup) = deletion.cleanup {
+        cleanup_committed_wallet(zcash.state.data_dir.clone(), cleanup).await;
     }
 
     Ok(())
@@ -815,11 +813,11 @@ mod deletion_tests {
         let deletion = commit_wallet_deletion(&mut manifest, &data_dir, &first.id)
             .expect("deletion should commit");
         assert!(deletion.was_active);
-        assert!(deletion.cleanup_authorized);
+        assert!(deletion.cleanup.is_some());
         assert_eq!(manifest.active_wallet_id, Some(second.id.clone()));
-        assert!(!first_db.exists(), "database cleanup follows manifest commit");
-        assert!(!first_wal.exists(), "WAL cleanup follows manifest commit");
-        assert!(!first_shm.exists(), "SHM cleanup follows manifest commit");
+        assert!(first_db.exists(), "commit must not consume database cleanup");
+        assert!(first_wal.exists(), "commit must not consume WAL cleanup");
+        assert!(first_shm.exists(), "commit must not consume SHM cleanup");
         assert_eq!(
             keychain::get_seed_phrase(&data_dir, &first.id)
                 .expect("seed remains until the commit token is consumed"),
@@ -830,10 +828,15 @@ mod deletion_tests {
         assert_eq!(persisted.wallets.len(), 1);
         assert_eq!(persisted.active_wallet_id, Some(second.id));
 
-        keychain::delete_seed_phrase(&data_dir, &deletion.wallet_id)
+        let cleanup = deletion.cleanup.expect("cleanup token");
+        let deleted_wallet_id = cleanup.wallet_id.clone();
+        cleanup_committed_wallet_blocking(&data_dir, cleanup)
             .expect("consume cleanup authorization");
+        assert!(!first_db.exists(), "token consumption removes database");
+        assert!(!first_wal.exists(), "token consumption removes WAL");
+        assert!(!first_shm.exists(), "token consumption removes SHM");
         assert!(
-            keychain::get_seed_phrase(&data_dir, &deletion.wallet_id).is_err(),
+            keychain::get_seed_phrase(&data_dir, &deleted_wallet_id).is_err(),
             "authorized cleanup removes the real encrypted seed"
         );
         std::fs::remove_dir_all(data_dir).expect("remove test data dir");

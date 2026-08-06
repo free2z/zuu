@@ -37,6 +37,10 @@ impl WalletManifest {
     /// Load manifest from disk, or create empty if none exists.
     pub fn load(data_dir: &Path) -> Self {
         let path = Self::manifest_path(data_dir);
+        #[cfg(windows)]
+        if let Err(e) = recover_manifest_backup(&path, &manifest_backup_path(data_dir)) {
+            tracing::error!("failed to recover wallet manifest backup: {e}");
+        }
         if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(contents) => match serde_json::from_str(&contents) {
@@ -146,7 +150,7 @@ impl WalletManifest {
         }
     }
 
-    /// Durably remove a wallet from the manifest, then clean up its DB file.
+    /// Durably remove a wallet from the manifest and return cleanup authority.
     ///
     /// If manifest persistence fails, the in-memory mutation is rolled back and
     /// the DB remains in place. External state such as a keychain seed must not
@@ -174,12 +178,7 @@ impl WalletManifest {
             }
         };
 
-        // A confirmed-durable manifest no longer references this wallet. DB
-        // cleanup is best-effort; a leftover DB is recoverable orphaned data,
-        // not a wallet whose seed was erased while its manifest entry survived.
-        if cleanup_authorized {
-            cleanup_wallet_database_files(data_dir, &entry.db_filename);
-        } else {
+        if !cleanup_authorized {
             tracing::warn!(
                 "wallet manifest replacement was visible but not confirmed durable; preserving database and seed"
             );
@@ -225,9 +224,20 @@ impl WalletManifest {
                 .open(&temp_path)?;
             temp.write_all(&json)?;
             temp.sync_all()?;
+            #[cfg(not(windows))]
             std::fs::rename(&temp_path, &path)?;
             #[cfg(windows)]
-            if let Err(e) = std::fs::File::open(&path).and_then(|file| file.sync_all()) {
+            replace_manifest_with_backup(
+                &temp_path,
+                &path,
+                &manifest_backup_path(data_dir),
+            )?;
+            #[cfg(windows)]
+            if let Err(e) = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .and_then(|file| file.sync_all())
+            {
                 tracing::warn!(
                     "wallet manifest replaced but file durability could not be confirmed: {e}"
                 );
@@ -250,6 +260,57 @@ impl WalletManifest {
     }
 }
 
+#[cfg(any(windows, test))]
+fn manifest_backup_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("wallets.json.backup")
+}
+
+/// Restore the last complete manifest after interruption between the two
+/// Windows replacement renames. If the new manifest is present, it wins.
+#[cfg(any(windows, test))]
+fn recover_manifest_backup(path: &Path, backup: &Path) -> std::io::Result<()> {
+    if !path.exists() && backup.exists() {
+        std::fs::rename(backup, path)?;
+        tracing::warn!("recovered wallet manifest from interrupted replacement");
+    }
+    Ok(())
+}
+
+/// Windows cannot portably rename over an existing destination. Preserve the
+/// old manifest, install the synced temp file, and restore the backup if the
+/// second rename fails. This is compiled in tests on every host so the recovery
+/// protocol does not rely on an untested `cfg(windows)` branch.
+#[cfg(any(windows, test))]
+fn replace_manifest_with_backup(
+    temp: &Path,
+    path: &Path,
+    backup: &Path,
+) -> std::io::Result<()> {
+    recover_manifest_backup(path, backup)?;
+    if backup.exists() {
+        std::fs::remove_file(backup)?;
+    }
+
+    let had_manifest = path.exists();
+    if had_manifest {
+        std::fs::rename(path, backup)?;
+    }
+
+    if let Err(e) = std::fs::rename(temp, path) {
+        if had_manifest {
+            let _ = std::fs::rename(backup, path);
+        }
+        return Err(e);
+    }
+
+    if had_manifest {
+        if let Err(e) = std::fs::remove_file(backup) {
+            tracing::warn!("wallet manifest replaced but backup cleanup failed: {e}");
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn cleanup_wallet_database_files(data_dir: &Path, filename: &str) {
     for db_path in [
         data_dir.join(filename),
@@ -261,6 +322,85 @@ pub(crate) fn cleanup_wallet_database_files(data_dir: &Path, filename: &str) {
                 tracing::warn!("wallet removed but database cleanup failed: {e}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::*;
+
+    fn test_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "zuuli-manifest-{label}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create test directory");
+        dir
+    }
+
+    #[test]
+    fn backup_replacement_installs_new_manifest_and_removes_backup() {
+        let data_dir = test_dir("replace");
+        let path = WalletManifest::manifest_path(&data_dir);
+        let backup = manifest_backup_path(&data_dir);
+        let temp = data_dir.join("wallets.tmp");
+        std::fs::write(&path, b"old manifest").expect("write old manifest");
+        std::fs::write(&backup, b"stale backup").expect("write stale backup");
+        std::fs::write(&temp, b"new manifest").expect("write new manifest");
+
+        replace_manifest_with_backup(&temp, &path, &backup).expect("replace manifest");
+
+        assert_eq!(std::fs::read(&path).expect("read manifest"), b"new manifest");
+        assert!(!temp.exists());
+        assert!(!backup.exists());
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn failed_install_restores_previous_manifest() {
+        let data_dir = test_dir("rollback");
+        let path = WalletManifest::manifest_path(&data_dir);
+        let backup = manifest_backup_path(&data_dir);
+        let missing_temp = data_dir.join("missing.tmp");
+        std::fs::write(&path, b"old manifest").expect("write old manifest");
+
+        assert!(replace_manifest_with_backup(&missing_temp, &path, &backup).is_err());
+
+        assert_eq!(std::fs::read(&path).expect("read manifest"), b"old manifest");
+        assert!(!backup.exists());
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn backup_replacement_installs_first_manifest() {
+        let data_dir = test_dir("first");
+        let path = WalletManifest::manifest_path(&data_dir);
+        let backup = manifest_backup_path(&data_dir);
+        let temp = data_dir.join("wallets.tmp");
+        std::fs::write(&temp, b"first manifest").expect("write new manifest");
+
+        replace_manifest_with_backup(&temp, &path, &backup).expect("install manifest");
+
+        assert_eq!(std::fs::read(&path).expect("read manifest"), b"first manifest");
+        assert!(!backup.exists());
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn interrupted_replacement_recovers_complete_backup() {
+        let data_dir = test_dir("recover");
+        let path = WalletManifest::manifest_path(&data_dir);
+        let backup = manifest_backup_path(&data_dir);
+        std::fs::write(&backup, b"complete old manifest").expect("write backup");
+
+        recover_manifest_backup(&path, &backup).expect("recover manifest");
+
+        assert_eq!(
+            std::fs::read(&path).expect("read recovered manifest"),
+            b"complete old manifest"
+        );
+        assert!(!backup.exists());
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
     }
 }
 
