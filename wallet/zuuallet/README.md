@@ -6,7 +6,7 @@ A privacy-first desktop wallet for Zcash, built with Tauri v2, React, and librus
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) 1.85.1+ (edition 2024)
+- [Rust](https://rustup.rs/) 1.88+ (edition 2024)
 - [Node.js](https://nodejs.org/) 18+
 - [Tauri CLI](https://tauri.app/start/): `cargo install tauri-cli`
 - Git submodules initialized: `git submodule update --init --recursive` (for `z/zcash/librustzcash`)

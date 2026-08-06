@@ -2,7 +2,7 @@
 name = "tauri-plugin-zcash"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85.1"
+rust-version = "1.88"
 description = "Tauri plugin for Zcash wallet operations"
 links = "tauri-plugin-zcash"
 
