@@ -662,6 +662,7 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     let _transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
+    let _send_operation = zcash.state.send_operation.lock().await;
 
     // Resolve and open the complete target context before changing any current
     // wallet state. A corrupt/unopenable target therefore leaves the active
@@ -727,6 +728,7 @@ pub(crate) async fn switch_wallet<R: Runtime>(
 
     // Only committed transitions invalidate the previous wallet's proposal.
     *zcash.state.pending_proposal.lock().await = None;
+    *zcash.state.pending_broadcast.lock().await = None;
 
     // Reset chain tip cache
     zcash.state.last_known_chain_tip.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -1268,7 +1270,7 @@ pub(crate) async fn propose_send_all<R: Runtime>(
 pub(crate) async fn execute_send<R: Runtime>(
     app: AppHandle<R>,
     args: ExecuteSendArgs,
-) -> Result<String> {
+) -> Result<ExecuteSendResult> {
     let zcash = app.zcash();
     let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::execute_send(&zcash.state, args.proposal_id).await
@@ -1302,35 +1304,14 @@ pub(crate) async fn set_lightwalletd_url<R: Runtime>(
 
 #[command]
 pub(crate) async fn validate_address<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     args: ValidateAddressArgs,
 ) -> Result<AddressValidation> {
-    match zcash_address::ZcashAddress::try_from_encoded(&args.address) {
-        Ok(_) => {
-            let addr = &args.address;
-            let (address_type, can_receive_memo) = if addr.starts_with("u1") {
-                ("unified", true)
-            } else if addr.starts_with("zs") {
-                ("sapling", true)
-            } else if addr.starts_with("t1") || addr.starts_with("t3") {
-                ("transparent", false)
-            } else if addr.starts_with("tex") {
-                ("tex", false)
-            } else {
-                ("unknown", false)
-            };
-            Ok(AddressValidation {
-                valid: true,
-                address_type: Some(address_type.to_string()),
-                can_receive_memo,
-            })
-        }
-        Err(_) => Ok(AddressValidation {
-            valid: false,
-            address_type: None,
-            can_receive_memo: false,
-        }),
-    }
+    let zcash = app.zcash();
+    Ok(crate::wallet::send::validate_recipient_address(
+        &zcash.state.network,
+        &args.address,
+    ))
 }
 
 #[command]

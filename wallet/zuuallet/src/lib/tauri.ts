@@ -12,6 +12,7 @@ import type {
   AddressValidation,
   SaplingParamsStatus,
   SendProposal,
+  ExecuteSendResult,
 } from "../types";
 
 export async function createWallet(
@@ -139,7 +140,7 @@ export async function proposeSendAll(
   });
 }
 
-export async function executeSend(proposalId: number): Promise<string> {
+export async function executeSend(proposalId: number): Promise<ExecuteSendResult> {
   return invoke("plugin:zcash|execute_send", {
     args: { proposalId },
   });

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletStore } from "../store/wallet";
 import * as api from "../lib/tauri";
 import { formatZecDisplay, formatZec, truncateAddress } from "../lib/format";
-import type { AddressValidation, SendProposal } from "../types";
+import type { AddressValidation, BroadcastStatus, SendProposal } from "../types";
 import { QrScanner } from "../components/QrScanner";
 
 const MIN_FEE_ESTIMATE = 10000; // 0.0001 ZEC — minimum ZIP-317 fee for display only
@@ -17,6 +17,7 @@ export function Send() {
   const [memo, setMemo] = useState("");
   const [step, setStep] = useState<SendStep>("form");
   const [txid, setTxid] = useState<string | null>(null);
+  const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatus | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
   // Proposal state
@@ -163,8 +164,17 @@ export function Send() {
       }
 
       const result = await api.executeSend(proposal.proposalId);
-      setTxid(result);
-      setStep("success");
+      setTxid(result.txid);
+      setBroadcastStatus(result.status);
+      if (result.status === "accepted") {
+        setStep("success");
+      } else {
+        setSendError(
+          result.message ??
+            "Broadcast status is unresolved. Retry rebroadcasts the same transaction.",
+        );
+        setStep("error");
+      }
     } catch (e) {
       const errorStr = String(e);
       // Auto-repropose on stale proposal
@@ -178,8 +188,17 @@ export function Send() {
             setProposal(newProposal);
             try {
               const result = await api.executeSend(newProposal.proposalId);
-              setTxid(result);
-              setStep("success");
+              setTxid(result.txid);
+              setBroadcastStatus(result.status);
+              if (result.status === "accepted") {
+                setStep("success");
+              } else {
+                setSendError(
+                  result.message ??
+                    "Broadcast status is unresolved. Retry rebroadcasts the same transaction.",
+                );
+                setStep("error");
+              }
               return;
             } catch (e2) {
               setSendError(String(e2));
@@ -210,6 +229,7 @@ export function Send() {
     setMemo("");
     setMaxMode(false);
     setTxid(null);
+    setBroadcastStatus(null);
     setStep("form");
     setSendError(null);
     setProposal(null);
@@ -305,16 +325,23 @@ export function Send() {
         <p className="text-sm text-zinc-400 break-all mb-6">{sendError}</p>
         <div className="flex gap-3">
           <button
-            onClick={() => setStep("form")}
+            onClick={() => {
+              if (txid && proposal) {
+                void handleConfirmSend();
+              } else {
+                setStep("form");
+              }
+            }}
             className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
           >
-            Try Again
+            {txid && proposal ? "Retry Same Transaction" : "Try Again"}
           </button>
           <button
             onClick={resetForm}
+            disabled={broadcastStatus === "unknown"}
             className="flex-1 py-3 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors"
           >
-            Cancel
+            {broadcastStatus === "unknown" ? "Resolve Broadcast First" : "Cancel"}
           </button>
         </div>
       </div>

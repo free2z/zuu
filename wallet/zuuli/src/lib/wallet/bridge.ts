@@ -11,8 +11,10 @@ import type {
   AccountBalance,
   AccountInfo,
   AddressValidation,
+  ExecuteSendResult,
   PaymentRequest,
   SendProposal,
+  SaplingParamsStatus,
   SignedChallenge,
   SyncStatus,
   TransactionEntry,
@@ -106,7 +108,12 @@ export const wallet = {
     return invoke("propose_send", { args: { to, amount, memo } });
   },
 
-  async executeSend(proposalId: number): Promise<string> {
+  async ensureSaplingParams(): Promise<SaplingParamsStatus> {
+    if (useMock()) return mockWallet.ensureSaplingParams();
+    return invoke("ensure_sapling_params");
+  },
+
+  async executeSend(proposalId: number): Promise<ExecuteSendResult> {
     if (useMock()) return mockWallet.executeSend();
     return invoke("execute_send", { args: { proposalId } });
   },

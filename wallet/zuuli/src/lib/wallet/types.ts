@@ -73,6 +73,7 @@ export interface AddressValidation {
   valid: boolean;
   addressType: string | null;
   canReceiveMemo: boolean;
+  error?: string | null;
 }
 
 export interface SendProposal {
@@ -80,6 +81,18 @@ export interface SendProposal {
   amount: number;
   fee: number;
   total: number;
+}
+
+export interface SaplingParamsStatus {
+  ready: boolean;
+}
+
+export type BroadcastStatus = "accepted" | "rejected" | "unknown";
+
+export interface ExecuteSendResult {
+  txid: string;
+  status: BroadcastStatus;
+  message: string | null;
 }
 
 /**
