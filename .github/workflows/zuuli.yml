@@ -1,54 +1,61 @@
 name: wallet/zuuli
 
-# CI gate for the ZUULI app (wallet/zuuli) — a Vite + React 18 + TS 5 frontend.
-#
-# Nothing else in the repo covered wallet/zuuli/** before this workflow, so
-# ZUULI changes could merge with zero automated QA. As we move to autonomous,
-# human-review-free merging, ZUULI needs a required CI gate.
-#
-# Modeled on tuzi's CI (.github/workflows/ci.yml): the workflow triggers on
-# EVERY pull_request (and merge_group), NOT on a workflow-level `paths:` filter.
-# That is deliberate — a required status check must report on every PR, and a
-# workflow gated by `on.<event>.paths` simply does not run when a PR misses the
-# paths, which leaves a required check "pending" forever and blocks unrelated
-# PRs. Instead, the `changes` job path-filters via git diff and the real `build`
-# job skips when a PR does not touch ZUULI. The `gate` job then aggregates the
-# results with always() so branch protection can require a single stable check
-# ("gate") that passes when the real jobs succeed OR are legitimately skipped,
-# and fails only on a genuine failure/cancel.
+# Stable, full-stack required check for ZUULI. The workflow runs for every PR
+# and merge-group event so branch protection always receives `gate`; expensive
+# jobs skip only after the checked-out diff proves that no release-impacting
+# ZUULI surface changed.
 
 on:
   pull_request:
   merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: zuuli-${{ github.event.pull_request.number || github.ref }}
+  # PR updates supersede older runs; post-merge/manual runs use run_id and are
+  # never cancelled merely because another main build started.
+  group: zuuli-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.run_id }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
-  # Path filter so non-ZUULI PRs skip the build job (but the workflow — and
-  # therefore the `gate` job — still runs, so the required check always reports).
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       zuuli: ${{ steps.filter.outputs.zuuli }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          # The filter diffs against the event base locally instead of calling
-          # the pull-request files API, so the base commit must be present.
+          # Diff locally instead of relying on the pull-request files API.
           fetch-depth: 0
-      - name: Detect changed areas
+
+      - name: Detect release-impacting ZUULI changes
         id: filter
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-            echo "::warning::Base commit is unavailable; running all checks."
+          # Manual runs, first pushes, and incomplete event payloads fail open
+          # into the full test suite, never into an unverified skip.
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::notice::No usable base commit; running the full ZUULI gate."
+            echo "zuuli=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! changed_files=$(git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA"); then
+            echo "::warning::Diff failed; running the full ZUULI gate."
             echo "zuuli=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -56,17 +63,15 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|.github/workflows/zuuli.yml) zuuli=true ;;
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml)
+                zuuli=true
+                ;;
             esac
-          done < <(git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA")
+          done <<< "$changed_files"
 
           echo "zuuli=$zuuli" >> "$GITHUB_OUTPUT"
 
-  # Real quality checks: typecheck (tsc --noEmit) + production build
-  # (tsc && vite build). No lint or unit-test scripts are configured in
-  # wallet/zuuli/package.json yet, so there is nothing to run for those — add a
-  # step here once `lint`/`test` scripts exist.
-  build:
+  frontend:
     needs: changes
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
@@ -75,41 +80,152 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
           cache-dependency-path: wallet/zuuli/package-lock.json
 
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: npm ci
 
-      - name: Typecheck (tsc --noEmit)
+      # The current lockfile has moderate advisories but no high/critical ones.
+      # Dependency upgrades belong in focused PRs; this gate prevents severity
+      # from regressing while making the existing baseline explicit.
+      - name: Audit dependencies (high and critical)
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --audit-level=high && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+
+      - name: Typecheck
         run: npm run typecheck
 
-      - name: Build (tsc && vite build)
+      - name: Build production frontend
         run: npm run build
 
-  # Single required status check for branch protection / a future merge queue.
-  # The `build` job above skips via the `changes` path filter, which would leave
-  # its status "pending" forever if required directly. This aggregator runs
-  # always() and passes when every needed job is success or skipped, failing
-  # only on a real failure/cancel — so a skipped check can't be gamed.
+  rust_plugin:
+    name: Rust / shared plugin
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      # Fetch only the in-source dependency required by the app/plugin graph.
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential curl wget file pkg-config
+
+      # Keep CI explicit as well as repository-pinned so runner state cannot
+      # silently select a newer compiler.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wallet/plugins/tauri-plugin-zcash
+          key: zuuli-plugin
+
+      - name: Build and test shared Zcash plugin
+        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+
+  # The app and standalone plugin have independent lockfiles and resolve some
+  # crates differently. Run them in parallel so a cold gate takes the slower
+  # job's time instead of compiling both graphs serially.
+  rust_app:
+    name: Rust / ZUULI backend
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential curl wget file pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wallet/zuuli/src-tauri
+          key: zuuli-app
+
+      - name: Build ZUULI Tauri backend
+        run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+
+      - name: Test ZUULI Tauri backend
+        run: cargo test --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
+
+  # Branch protection requires this stable context. It succeeds only when the
+  # change detector and every applicable full-stack job succeeded; legitimate
+  # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, build]
+    needs: [changes, frontend, rust_plugin, rust_app]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify required jobs succeeded (or were legitimately skipped)
+      - name: Verify required jobs succeeded or legitimately skipped
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          RUST_PLUGIN_RESULT: ${{ needs.rust_plugin.result }}
+          RUST_APP_RESULT: ${{ needs.rust_app.result }}
         run: |
-          results="${{ needs.changes.result }} ${{ needs.build.result }}"
-          echo "Job results: $results"
-          for r in $results; do
-            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "A required job did not pass: $r"; exit 1
-            fi
+          set -euo pipefail
+          [ "$CHANGES_RESULT" = "success" ] || {
+            echo "Change detection did not pass: $CHANGES_RESULT"; exit 1;
+          }
+
+          results="$FRONTEND_RESULT $RUST_PLUGIN_RESULT $RUST_APP_RESULT"
+          echo "ZUULI changed: $ZUULI_CHANGED; job results: $results"
+          case "$ZUULI_CHANGED" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) echo "Invalid or missing change-detector output: $ZUULI_CHANGED"; exit 1 ;;
+          esac
+
+          for result in $results; do
+            [ "$result" = "$expected" ] || {
+              echo "Expected every applicable job to be $expected, got: $result"; exit 1;
+            }
           done
-          echo "All required jobs passed or were skipped."
+          echo "The full-stack gate is internally consistent and passed."

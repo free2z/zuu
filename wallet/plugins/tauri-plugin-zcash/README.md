@@ -114,7 +114,7 @@ cd wallet/zuuli && npm run tauri build
 ```
 
 - **Rust edition**: 2024
-- **MSRV**: 1.85.1
+- **MSRV**: 1.88
 - **librustzcash**: path deps at `z/zcash/librustzcash` (forked)
 
 ## Known gotchas
