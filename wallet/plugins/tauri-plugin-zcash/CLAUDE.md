@@ -135,7 +135,7 @@ once a non-`unstable` writable block source exists.
   lock in UI command handlers** — use `state.read_db` instead.
 - **`state.read_db`** (`Arc<Mutex>`) — read-only DB connection for non-blocking UI reads. Safe to lock briefly in any command.
 - **Wallet switching** — stops sync (sets `syncing = false` + aborts handle), swaps `read_db` immediately, swaps `db` in a background task (waits for sync to release its lock).
-- **Keychain ops** — always run in `tokio::task::spawn_blocking` because macOS Keychain APIs are synchronous and may prompt for biometric.
+- **Seed custody** — all seed operations go through `WalletState::{store,get,delete}_seed_phrase`, which use `spawn_blocking` because native APIs are synchronous and may prompt. New data is native-only: macOS/iOS Keychain, AndroidKeyStore-backed AES-GCM, persistent Linux Secret Service, or Windows Credential Manager. Apple/Android enforce device user presence; Linux and Windows follow their signed-in user's unlocked vault/collection policy and may not prompt per read. `.seeds/*.enc` is read-only migration input. Only `SecureStoreError::NotFound` may enter migration; cancellation, lock, corruption, and backend failures fail closed. Migration must validate the seed-derived UFVK, native-write, native-readback, and only then delete legacy material.
 - **Send flow** — `propose_send` locks `db` briefly, stores proposal in `pending_proposal`. `execute_send` locks `db` + `prover`. Both should only be called when sync is idle or will contend.
 
 ## Error handling

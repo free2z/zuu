@@ -4,6 +4,8 @@
 <dict>
   <key>NSCameraUsageDescription</key>
   <string>ZUULI uses the camera when you broadcast or join a live video stream.</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>ZUULI uses Face ID to unlock your wallet seed for recovery and spending.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>ZUULI uses the microphone when you broadcast or join a live stream.</string>
 </dict>

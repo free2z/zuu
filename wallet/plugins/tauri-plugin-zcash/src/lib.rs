@@ -83,5 +83,23 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 
             Ok(())
         })
+        .on_event(|app, event| {
+            let must_lock = matches!(
+                event,
+                tauri::RunEvent::Exit
+                    | tauri::RunEvent::ExitRequested { .. }
+                    | tauri::RunEvent::WindowEvent {
+                        event: tauri::WindowEvent::Focused(false),
+                        ..
+                    }
+            );
+            if must_lock {
+                let seed = app.zcash().state.seed.clone();
+                tauri::async_runtime::spawn(async move {
+                    *seed.lock().await = None;
+                    tracing::debug!("cleared in-memory wallet seed on lifecycle lock");
+                });
+            }
+        })
         .build()
 }

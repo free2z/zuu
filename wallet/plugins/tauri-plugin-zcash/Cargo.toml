@@ -29,10 +29,10 @@ zip32 = { version = "0.2", default-features = false }
 nonempty = "0.11"
 async-trait = "0.1"
 rustls = { version = "0.23", features = ["ring"] }
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 uuid = { version = "1", features = ["v4"] }
 chacha20poly1305 = "0.10"
 sha2 = "0.10"
+zeroize = "1.8"
 # Real Zcash transparent-address message signing ("ZUULI Zcash Login v1"), so the
 # backend can verify with zcashd `verifymessage`. All cross-platform → [dependencies].
 # secp256k1 is already in the tree (via librustzcash); we only add the `recovery`
@@ -56,8 +56,19 @@ zcash_protocol = { path = "../../../z/zcash/librustzcash/components/zcash_protoc
 zcash_address = { path = "../../../z/zcash/librustzcash/components/zcash_address" }
 zip321 = { path = "../../../z/zcash/librustzcash/components/zip321" }
 
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "3", features = ["OSX_10_15"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# `linux-native` alone is kernel keyutils and does not survive reboot. The
+# persistent adapter mirrors into freedesktop Secret Service over D-Bus.
+keyring = { version = "3.6.3", features = ["linux-native-sync-persistent", "crypto-rust"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }

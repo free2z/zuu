@@ -13,7 +13,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use secrecy::SecretVec;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, MutexGuard, RwLock};
+use zeroize::Zeroizing;
+use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_protocol::consensus::Network;
 
 /// Type alias for a cached transaction proposal.
@@ -26,6 +28,14 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
 pub type WalletDatabase =
     zcash_client_sqlite::WalletDb<rusqlite::Connection, Network, zcash_client_sqlite::util::SystemClock, rand::rngs::OsRng>;
 
+/// Proof that an identity-sensitive operation owns the wallet transition.
+/// Custody retrieval requires this token so a future caller cannot accidentally
+/// split active-ID lookup, DB validation, native fetch, and seed installation
+/// across a concurrent switch or deletion.
+pub struct WalletTransitionGuard<'a> {
+    _guard: MutexGuard<'a, ()>,
+}
+
 pub struct WalletState {
     pub network: Network,
     pub data_dir: PathBuf,
@@ -33,6 +43,7 @@ pub struct WalletState {
     /// Read-only DB connection for non-blocking reads during sync.
     pub read_db: Arc<Mutex<Option<WalletDatabase>>>,
     pub seed: Arc<Mutex<Option<SecretVec<u8>>>>,
+    pub seed_store: keychain::SeedStore,
     pub lightwalletd_url: RwLock<String>,
     pub sync_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub syncing: Arc<RwLock<bool>>,
@@ -51,7 +62,7 @@ pub struct WalletState {
 }
 
 impl WalletState {
-    pub fn new(data_dir: PathBuf, network: Network) -> Self {
+    pub fn new(data_dir: PathBuf, network: Network, seed_store: keychain::SeedStore) -> Self {
         // Load or create the manifest, migrating legacy wallet.sqlite if needed
         let mut manifest = manifest::WalletManifest::load(&data_dir);
         manifest.migrate_legacy(&data_dir);
@@ -80,36 +91,16 @@ impl WalletState {
             (None, None)
         };
 
-        // Try to load seed from keychain / encrypted file for active wallet
-        let seed = if let Some(active) = manifest.get_active() {
-            match keychain::get_seed_phrase(&data_dir, &active.id) {
-                Ok(phrase) => {
-                    match keys::parse_mnemonic(&phrase) {
-                        Ok(mnemonic) => {
-                            tracing::info!("loaded seed from secure storage for wallet {}", active.id);
-                            Some(keys::mnemonic_to_seed(&mnemonic))
-                        }
-                        Err(e) => {
-                            tracing::warn!("stored seed invalid for wallet {}: {e}", active.id);
-                            None
-                        }
-                    }
-                }
-                Err(_) => {
-                    tracing::info!("no seed in secure storage for wallet {}", active.id);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
         Self {
             network,
             data_dir,
             db: Arc::new(Mutex::new(db)),
             read_db: Arc::new(Mutex::new(read_db)),
-            seed: Arc::new(Mutex::new(seed)),
+            // Native custody may require user presence. Never prompt during
+            // application setup and never keep spending authority across a
+            // restart; commands load it lazily after an explicit user action.
+            seed: Arc::new(Mutex::new(None)),
+            seed_store,
             lightwalletd_url: RwLock::new(
                 "https://zec.rocks:443".to_string(),
             ),
@@ -143,5 +134,102 @@ impl WalletState {
     pub async fn active_wallet_id(&self) -> Option<String> {
         let manifest = self.manifest.lock().await;
         manifest.active_wallet_id.clone()
+    }
+
+    pub async fn lock_wallet_transition(&self) -> WalletTransitionGuard<'_> {
+        WalletTransitionGuard {
+            _guard: self.wallet_transition.lock().await,
+        }
+    }
+
+    pub async fn store_seed_phrase(&self, wallet_id: &str, phrase: &str) -> crate::Result<()> {
+        let store = self.seed_store.clone();
+        let wallet_id = wallet_id.to_owned();
+        let phrase = Zeroizing::new(phrase.to_owned());
+        tokio::task::spawn_blocking(move || store.store_seed_phrase(&wallet_id, phrase.as_str()))
+            .await
+            .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
+    }
+
+    /// Retrieve and, when necessary, migrate a seed only after proving that its
+    /// derived UFVK is the one recorded in the active wallet database.
+    pub async fn get_seed_phrase(
+        &self,
+        _transition: &WalletTransitionGuard<'_>,
+        wallet_id: &str,
+    ) -> crate::Result<Zeroizing<String>> {
+        let active_wallet_id = self
+            .active_wallet_id()
+            .await
+            .ok_or(crate::error::Error::WalletNotInitialized)?;
+        if active_wallet_id != wallet_id {
+            return Err(crate::error::Error::KeyError(
+                "refusing to retrieve custody for a non-active wallet".into(),
+            ));
+        }
+
+        let expected_ufvk = {
+            let db_guard = self.read_db.lock().await;
+            match db_guard.as_ref() {
+                Some(db) => {
+                    let account_id = db
+                        .get_account_ids()
+                        .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
+                        .first()
+                        .copied()
+                        .ok_or_else(|| crate::error::Error::KeyError("wallet has no account to validate seed migration".into()))?;
+                    Some(
+                        db.get_account(account_id)
+                            .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
+                            .and_then(|account| account.ufvk().cloned())
+                            .ok_or_else(|| crate::error::Error::KeyError("wallet has no viewing key to validate seed migration".into()))?
+                            .encode(&self.network),
+                    )
+                }
+                None => None,
+            }
+        };
+
+        let store = self.seed_store.clone();
+        let wallet_id = wallet_id.to_owned();
+        let network = self.network;
+        tokio::task::spawn_blocking(move || {
+            if let Some(expected_ufvk) = expected_ufvk {
+                store.get_seed_phrase_validated(&wallet_id, |phrase| {
+                    let mnemonic = keys::parse_mnemonic(phrase)?;
+                    let seed = keys::mnemonic_to_seed(&mnemonic);
+                    let derived = keys::derive_usk(
+                        secrecy::ExposeSecret::expose_secret(&seed),
+                        &network,
+                        0,
+                    )?
+                    .to_unified_full_viewing_key()
+                    .encode(&network);
+                    if derived == expected_ufvk {
+                        Ok(())
+                    } else {
+                        Err(crate::error::Error::KeyError(
+                            "seed phrase does not match this wallet".into(),
+                        ))
+                    }
+                })
+            } else {
+                tracing::warn!(
+                    wallet_id,
+                    "wallet database unavailable; revealing native seed without legacy migration"
+                );
+                store.get_native_seed_phrase(&wallet_id)
+            }
+        })
+        .await
+        .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
+    }
+
+    pub async fn delete_seed_phrase(&self, wallet_id: &str) -> crate::Result<()> {
+        let store = self.seed_store.clone();
+        let wallet_id = wallet_id.to_owned();
+        tokio::task::spawn_blocking(move || store.delete_seed_phrase(&wallet_id))
+            .await
+            .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
     }
 }
