@@ -25,6 +25,9 @@ Default permissions for the Zcash wallet plugin
 - `allow-propose-send`
 - `allow-propose-send-all`
 - `allow-execute-send`
+- `allow-get-pending-send`
+- `allow-retry-pending-send`
+- `allow-discard-unrecoverable-send`
 - `allow-get-transaction-history`
 - `allow-set-lightwalletd-url`
 - `allow-parse-payment-uri`
@@ -122,6 +125,32 @@ Denies the delete_wallet command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-discard-unrecoverable-send`
+
+</td>
+<td>
+
+Enables the discard_unrecoverable_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-discard-unrecoverable-send`
+
+</td>
+<td>
+
+Denies the discard_unrecoverable_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-ensure-sapling-params`
 
 </td>
@@ -193,6 +222,32 @@ Enables the get_account_balance command without any pre-configured scope.
 <td>
 
 Denies the get_account_balance command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-get-pending-send`
+
+</td>
+<td>
+
+Enables the get_pending_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-get-pending-send`
+
+</td>
+<td>
+
+Denies the get_pending_send command without any pre-configured scope.
 
 </td>
 </tr>
@@ -557,6 +612,32 @@ Enables the restore_wallet command without any pre-configured scope.
 <td>
 
 Denies the restore_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-retry-pending-send`
+
+</td>
+<td>
+
+Enables the retry_pending_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-retry-pending-send`
+
+</td>
+<td>
+
+Denies the retry_pending_send command without any pre-configured scope.
 
 </td>
 </tr>

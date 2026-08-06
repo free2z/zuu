@@ -160,6 +160,23 @@ pub struct ExecuteSendResult {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingSendStatus {
+    pub proposal_id: u32,
+    pub txid: String,
+    pub status: BroadcastStatus,
+    pub message: Option<String>,
+    pub recovery_required: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscardUnrecoverableSendArgs {
+    pub proposal_id: u32,
+    pub confirmation: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposeSendAllArgs {

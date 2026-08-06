@@ -95,6 +95,11 @@ export interface ExecuteSendResult {
   message: string | null;
 }
 
+export interface PendingSendStatus extends ExecuteSendResult {
+  proposalId: number;
+  recoveryRequired: boolean;
+}
+
 /**
  * Result of signing a login challenge with the wallet's key. `address` is the
  * account's transparent P2PKH address (the identity subject); `signature` is a

@@ -13,6 +13,7 @@ import type {
   AddressValidation,
   ExecuteSendResult,
   PaymentRequest,
+  PendingSendStatus,
   SendProposal,
   SaplingParamsStatus,
   SignedChallenge,
@@ -116,6 +117,23 @@ export const wallet = {
   async executeSend(proposalId: number): Promise<ExecuteSendResult> {
     if (useMock()) return mockWallet.executeSend();
     return invoke("execute_send", { args: { proposalId } });
+  },
+
+  async getPendingSend(): Promise<PendingSendStatus | null> {
+    if (useMock()) return mockWallet.getPendingSend();
+    return invoke("get_pending_send");
+  },
+
+  async retryPendingSend(): Promise<ExecuteSendResult> {
+    if (useMock()) return mockWallet.retryPendingSend();
+    return invoke("retry_pending_send");
+  },
+
+  async discardUnrecoverableSend(proposalId: number): Promise<void> {
+    if (useMock()) return mockWallet.discardUnrecoverableSend();
+    return invoke("discard_unrecoverable_send", {
+      args: { proposalId, confirmation: "I CHECKED WALLET HISTORY" },
+    });
   },
 
   /**

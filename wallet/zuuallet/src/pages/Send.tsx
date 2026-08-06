@@ -2,7 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletStore } from "../store/wallet";
 import * as api from "../lib/tauri";
 import { formatZecDisplay, formatZec, truncateAddress } from "../lib/format";
-import type { AddressValidation, BroadcastStatus, SendProposal } from "../types";
+import type {
+  AddressValidation,
+  BroadcastStatus,
+  PendingSendStatus,
+  SendProposal,
+} from "../types";
 import { QrScanner } from "../components/QrScanner";
 
 const MIN_FEE_ESTIMATE = 10000; // 0.0001 ZEC — minimum ZIP-317 fee for display only
@@ -19,6 +24,7 @@ export function Send() {
   const [txid, setTxid] = useState<string | null>(null);
   const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatus | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(null);
 
   // Proposal state
   const [proposal, setProposal] = useState<SendProposal | null>(null);
@@ -53,6 +59,30 @@ export function Send() {
       .then(() => setParamsReady(true))
       .catch(() => {/* will retry before execute */})
       .finally(() => setParamsDownloading(false));
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    api.getPendingSend()
+      .then((pending) => {
+        if (!active || pending?.status !== "unknown") return;
+        setTxid(pending.txid);
+        setBroadcastStatus(pending.status);
+        setPendingSend(pending);
+        setSendError(
+          pending.message ??
+            "A previous broadcast is unresolved. Retry the recovered transaction before sending again.",
+        );
+        setStep("error");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setSendError(String(error));
+        setStep("error");
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Validate address with debounce
@@ -167,8 +197,16 @@ export function Send() {
       setTxid(result.txid);
       setBroadcastStatus(result.status);
       if (result.status === "accepted") {
+        setPendingSend(null);
         setStep("success");
       } else {
+        if (result.status === "unknown") {
+          setPendingSend({
+            ...result,
+            proposalId: proposal.proposalId,
+            recoveryRequired: false,
+          });
+        }
         setSendError(
           result.message ??
             "Broadcast status is unresolved. Retry rebroadcasts the same transaction.",
@@ -177,41 +215,28 @@ export function Send() {
       }
     } catch (e) {
       const errorStr = String(e);
-      // Auto-repropose on stale proposal
+      const recovered = await api.getPendingSend().catch(() => null);
+      if (recovered?.status === "unknown") {
+        setPendingSend(recovered);
+        setTxid(recovered.txid);
+        setBroadcastStatus(recovered.status);
+      }
+      // A proposal is process-local and may be stale after a remount or
+      // restart. Re-propose for a fresh review, but never sign automatically:
+      // the user must explicitly confirm the replacement proposal.
       if (errorStr.includes("stale") || errorStr.includes("mismatch") || errorStr.includes("no pending proposal")) {
         try {
           const newProposal = maxMode
             ? await api.proposeSendAll(to.trim(), memo || undefined)
             : await api.proposeSend(to.trim(), proposal.amount, memo || undefined);
-          if (newProposal.fee === proposal.fee) {
-            // Same fee — retry execute immediately
-            setProposal(newProposal);
-            try {
-              const result = await api.executeSend(newProposal.proposalId);
-              setTxid(result.txid);
-              setBroadcastStatus(result.status);
-              if (result.status === "accepted") {
-                setStep("success");
-              } else {
-                setSendError(
-                  result.message ??
-                    "Broadcast status is unresolved. Retry rebroadcasts the same transaction.",
-                );
-                setStep("error");
-              }
-              return;
-            } catch (e2) {
-              setSendError(String(e2));
-              setStep("error");
-              return;
-            }
-          } else {
-            // Fee changed — show updated review
-            setProposal(newProposal);
-            setFeeNotice("Fee updated due to new wallet activity");
-            setStep("review");
-            return;
-          }
+          setProposal(newProposal);
+          setFeeNotice(
+            newProposal.fee === proposal.fee
+              ? "Proposal refreshed after wallet activity"
+              : "Fee updated due to new wallet activity",
+          );
+          setStep("review");
+          return;
         } catch (e2) {
           setSendError(String(e2));
           setStep("error");
@@ -223,6 +248,49 @@ export function Send() {
     }
   };
 
+  const handleRetryPending = async () => {
+    setStep("executing");
+    try {
+      const result = await api.retryPendingSend();
+      setTxid(result.txid);
+      setBroadcastStatus(result.status);
+      if (result.status === "accepted") {
+        setPendingSend(null);
+        setStep("success");
+      } else {
+        setSendError(
+          result.message ??
+            "Broadcast status remains unresolved. No replacement transaction was created.",
+        );
+        setStep("error");
+      }
+    } catch (error) {
+      setSendError(String(error));
+      setStep("error");
+    }
+  };
+
+  const handleDiscardUnrecoverable = async () => {
+    if (!pendingSend?.recoveryRequired) return;
+    const confirmed = window.confirm(
+      "Only continue if you checked wallet history and verified that no payment was sent. Discarding this recovery lock can allow a replacement payment.",
+    );
+    if (!confirmed) return;
+    setStep("executing");
+    try {
+      await api.discardUnrecoverableSend(pendingSend.proposalId);
+      setPendingSend(null);
+      setBroadcastStatus(null);
+      setTxid(null);
+      setProposal(null);
+      setSendError(null);
+      setStep("form");
+    } catch (error) {
+      setSendError(String(error));
+      setStep("error");
+    }
+  };
+
   const resetForm = () => {
     setTo("");
     setAmount("");
@@ -230,6 +298,7 @@ export function Send() {
     setMaxMode(false);
     setTxid(null);
     setBroadcastStatus(null);
+    setPendingSend(null);
     setStep("form");
     setSendError(null);
     setProposal(null);
@@ -326,7 +395,17 @@ export function Send() {
         <div className="flex gap-3">
           <button
             onClick={() => {
-              if (txid && proposal) {
+              if (pendingSend?.recoveryRequired) {
+                void handleDiscardUnrecoverable();
+              } else if (broadcastStatus === "unknown") {
+                void handleRetryPending();
+              } else if (broadcastStatus === "rejected") {
+                setTxid(null);
+                setBroadcastStatus(null);
+                setProposal(null);
+                setSendError(null);
+                setStep("form");
+              } else if (txid && proposal) {
                 void handleConfirmSend();
               } else {
                 setStep("form");
@@ -334,7 +413,15 @@ export function Send() {
             }}
             className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
           >
-            {txid && proposal ? "Retry Same Transaction" : "Try Again"}
+            {pendingSend?.recoveryRequired
+              ? "I Checked History — Unlock Sends"
+              : broadcastStatus === "unknown"
+              ? "Retry Recovered Transaction"
+              : broadcastStatus === "rejected"
+                ? "Edit Payment"
+              : txid && proposal
+                ? "Retry Same Transaction"
+                : "Try Again"}
           </button>
           <button
             onClick={resetForm}
@@ -584,7 +671,9 @@ export function Send() {
                 </span>
               )}
               {!validatingAddress && !addressValidation?.valid && (
-                <span className="text-xs text-red-400">Invalid address</span>
+                <span className="text-xs text-red-400">
+                  {addressValidation?.error ?? "Invalid address"}
+                </span>
               )}
             </div>
           )}

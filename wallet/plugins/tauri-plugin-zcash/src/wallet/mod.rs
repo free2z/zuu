@@ -103,6 +103,13 @@ impl WalletState {
             (None, None)
         };
 
+        let pending_broadcast = manifest
+            .get_active()
+            .and_then(|active| send::load_pending_broadcast(&data_dir, &active.id));
+        let next_proposal_id = pending_broadcast
+            .as_ref()
+            .map_or(0, |pending| pending.proposal_id.saturating_add(1));
+
         Ok(Self {
             network,
             data_dir,
@@ -125,8 +132,8 @@ impl WalletState {
             prover: Arc::new(Mutex::new(None)),
             send_operation: Arc::new(Mutex::new(())),
             pending_proposal: Arc::new(Mutex::new(None)),
-            pending_broadcast: Arc::new(Mutex::new(None)),
-            proposal_counter: Arc::new(AtomicU32::new(0)),
+            pending_broadcast: Arc::new(Mutex::new(pending_broadcast)),
+            proposal_counter: Arc::new(AtomicU32::new(next_proposal_id)),
         })
     }
 

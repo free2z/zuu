@@ -12,7 +12,7 @@ use zcash_keys::keys::UnifiedAddressRequest;
 use crate::error::Error;
 use crate::models::*;
 use crate::wallet::client::connect_to_lightwalletd;
-use crate::wallet::{keys, storage};
+use crate::wallet::{keys, send, storage};
 use crate::{Result, ZcashExt};
 
 fn format_birthday_error(e: BirthdayError) -> String {
@@ -74,6 +74,7 @@ fn cleanup_committed_wallet_blocking<F>(
 where
     F: FnOnce(&str) -> Result<()>,
 {
+    send::clear_pending_broadcast(data_dir, &cleanup.wallet_id)?;
     crate::wallet::manifest::cleanup_wallet_database_files(data_dir, &cleanup.db_filename);
     delete_seed(&cleanup.wallet_id)
 }
@@ -116,6 +117,7 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
+    let _send_guard = Arc::clone(&zcash.state.send_operation).lock_owned().await;
     let word_count = args.mnemonic_word_count.unwrap_or(24);
     let wallet_name = args.name.unwrap_or_else(|| "Default".to_string());
 
@@ -249,6 +251,10 @@ pub(crate) async fn create_wallet<R: Runtime>(
         }
     }
 
+    *zcash.state.pending_proposal.lock().await = None;
+    *zcash.state.pending_broadcast.lock().await =
+        send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
+
     // Complete the entire context swap before releasing the transition lock or
     // returning. A caller must never observe the new manifest/read DB/seed while
     // mutations still target the previous wallet's write DB.
@@ -275,6 +281,7 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     let transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
+    let _send_guard = Arc::clone(&zcash.state.send_operation).lock_owned().await;
     let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
     let seed = keys::mnemonic_to_seed(&mnemonic);
     let birthday_height = args.birthday_height.unwrap_or(419200); // sapling activation
@@ -414,6 +421,10 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         }
     }
 
+    *zcash.state.pending_proposal.lock().await = None;
+    *zcash.state.pending_broadcast.lock().await =
+        send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
+
     // Complete the write/read/seed swap before returning; see create_wallet.
     *zcash.state.db.lock().await = Some(db);
     *zcash.state.read_db.lock().await = Some(read_db);
@@ -485,6 +496,7 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
 ) -> Result<()> {
     let zcash = app.zcash();
     let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let _send_guard = zcash.state.send_operation.lock().await;
 
     // Parse and validate the mnemonic
     let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
@@ -728,7 +740,8 @@ pub(crate) async fn switch_wallet<R: Runtime>(
 
     // Only committed transitions invalidate the previous wallet's proposal.
     *zcash.state.pending_proposal.lock().await = None;
-    *zcash.state.pending_broadcast.lock().await = None;
+    *zcash.state.pending_broadcast.lock().await =
+        send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
 
     // Reset chain tip cache
     zcash.state.last_known_chain_tip.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -759,6 +772,9 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     let _transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
+    let _send_guard = Arc::clone(&zcash.state.send_operation).lock_owned().await;
+
+    send::ensure_wallet_has_no_unknown_send(&zcash.state.data_dir, &args.wallet_id)?;
 
     let deleting_active = {
         let manifest = zcash.state.manifest.lock().await;
@@ -814,12 +830,14 @@ pub(crate) async fn delete_wallet<R: Runtime>(
 
     // If we deleted the active wallet, switch to the new active
     if deletion.was_active {
-        if let Some((_entry, db, read_db)) = prepared_active {
+        if let Some((entry, db, read_db)) = prepared_active {
             *zcash.state.db.lock().await = Some(db);
             *zcash.state.read_db.lock().await = Some(read_db);
             // Do not prompt while finalizing a destructive transition. The next
             // explicit spend/reveal action authenticates against native custody.
             *zcash.state.seed.lock().await = None;
+            *zcash.state.pending_broadcast.lock().await =
+                send::load_pending_broadcast(&zcash.state.data_dir, &entry.id);
             zcash
                 .state
                 .last_known_chain_tip
@@ -1274,6 +1292,36 @@ pub(crate) async fn execute_send<R: Runtime>(
     let zcash = app.zcash();
     let _transition_guard = zcash.state.lock_wallet_transition().await;
     crate::wallet::send::execute_send(&zcash.state, args.proposal_id).await
+}
+
+#[command]
+pub(crate) async fn get_pending_send<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Option<PendingSendStatus>> {
+    let zcash = app.zcash();
+    crate::wallet::send::get_pending_send(&zcash.state).await
+}
+
+#[command]
+pub(crate) async fn retry_pending_send<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<ExecuteSendResult> {
+    let zcash = app.zcash();
+    crate::wallet::send::retry_pending_send(&zcash.state).await
+}
+
+#[command]
+pub(crate) async fn discard_unrecoverable_send<R: Runtime>(
+    app: AppHandle<R>,
+    args: DiscardUnrecoverableSendArgs,
+) -> Result<()> {
+    let zcash = app.zcash();
+    crate::wallet::send::discard_unrecoverable_send(
+        &zcash.state,
+        args.proposal_id,
+        &args.confirmation,
+    )
+    .await
 }
 
 #[command]

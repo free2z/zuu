@@ -90,6 +90,11 @@ export interface ExecuteSendResult {
   message: string | null;
 }
 
+export interface PendingSendStatus extends ExecuteSendResult {
+  proposalId: number;
+  recoveryRequired: boolean;
+}
+
 export interface TransactionHistoryState {
   transactions: TransactionEntry[];
   lastFetched: number | null;
