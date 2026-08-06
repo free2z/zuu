@@ -11,7 +11,7 @@ use zcash_keys::keys::UnifiedAddressRequest;
 use crate::error::Error;
 use crate::models::*;
 use crate::wallet::client::connect_to_lightwalletd;
-use crate::wallet::{keychain, keys, storage};
+use crate::wallet::{keys, storage};
 use crate::{Result, ZcashExt};
 
 fn format_birthday_error(e: BirthdayError) -> String {
@@ -65,20 +65,27 @@ fn commit_wallet_deletion(
     })
 }
 
-fn cleanup_committed_wallet_blocking(
+fn cleanup_committed_wallet_blocking<F>(
     data_dir: &std::path::Path,
     cleanup: AuthorizedWalletCleanup,
-) -> Result<()> {
+    delete_seed: F,
+) -> Result<()>
+where
+    F: FnOnce(&str) -> Result<()>,
+{
     crate::wallet::manifest::cleanup_wallet_database_files(data_dir, &cleanup.db_filename);
-    keychain::delete_seed_phrase(data_dir, &cleanup.wallet_id)
+    delete_seed(&cleanup.wallet_id)
 }
 
 async fn cleanup_committed_wallet(
     data_dir: std::path::PathBuf,
     cleanup: AuthorizedWalletCleanup,
+    seed_store: crate::wallet::keychain::SeedStore,
 ) {
     match tokio::task::spawn_blocking(move || {
-        cleanup_committed_wallet_blocking(&data_dir, cleanup)
+        cleanup_committed_wallet_blocking(&data_dir, cleanup, |wallet_id| {
+            seed_store.delete_seed_phrase(wallet_id)
+        })
     })
     .await
     {
@@ -152,15 +159,9 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
     *zcash.state.read_db.lock().await = Some(read_db);
 
-    // Store seed in keychain + encrypted file (hard error if both fail)
-    let data_dir = zcash.state.data_dir.clone();
-    let wid = wallet_entry.id.clone();
+    // Platform-native custody is mandatory; there is no filesystem fallback.
     let phrase = mnemonic.phrase().to_string();
-    tokio::task::spawn_blocking(move || {
-        keychain::store_seed_phrase(&data_dir, &wid, &phrase)
-    })
-    .await
-    .map_err(|e| Error::KeyError(format!("keychain task panicked: {e}")))??;
+    zcash.state.store_seed_phrase(&wallet_entry.id, &phrase).await?;
 
     // Store seed in memory for the session
     *zcash.state.seed.lock().await = Some(seed);
@@ -254,15 +255,12 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
     *zcash.state.read_db.lock().await = Some(read_db);
 
-    // Store seed in keychain + encrypted file (hard error if both fail)
-    let data_dir = zcash.state.data_dir.clone();
-    let wid = wallet_entry.id.clone();
+    // Platform-native custody is mandatory; there is no filesystem fallback.
     let phrase_str = mnemonic.phrase().to_string();
-    tokio::task::spawn_blocking(move || {
-        keychain::store_seed_phrase(&data_dir, &wid, &phrase_str)
-    })
-    .await
-    .map_err(|e| Error::KeyError(format!("keychain task panicked: {e}")))??;
+    zcash
+        .state
+        .store_seed_phrase(&wallet_entry.id, &phrase_str)
+        .await?;
 
     // Store seed in memory
     *zcash.state.seed.lock().await = Some(seed);
@@ -326,12 +324,7 @@ pub(crate) async fn get_seed_phrase<R: Runtime>(
     let zcash = app.zcash();
     let wallet_id = zcash.state.active_wallet_id().await
         .ok_or(Error::WalletNotInitialized)?;
-    let data_dir = zcash.state.data_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        keychain::get_seed_phrase(&data_dir, &wallet_id)
-    })
-    .await
-    .map_err(|e| Error::KeyError(format!("keychain task panicked: {e}")))?
+    zcash.state.get_seed_phrase(&wallet_id).await
 }
 
 #[command]
@@ -388,15 +381,9 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
         ));
     }
 
-    // Store in new secure system (encrypted file + keychain)
-    let data_dir = zcash.state.data_dir.clone();
-    let wid = wallet_id.clone();
+    // Store in platform-native custody only.
     let phrase = args.seed_phrase.clone();
-    tokio::task::spawn_blocking(move || {
-        keychain::store_seed_phrase(&data_dir, &wid, &phrase)
-    })
-    .await
-    .map_err(|e| Error::KeyError(format!("storage task panicked: {e}")))??;
+    zcash.state.store_seed_phrase(&wallet_id, &phrase).await?;
 
     // Set seed in memory
     *zcash.state.seed.lock().await = Some(seed);
@@ -453,15 +440,9 @@ pub(crate) async fn get_spending_key<R: Runtime>(
             drop(seed_guard);
             let wallet_id = zcash.state.active_wallet_id().await
                 .ok_or(Error::WalletNotInitialized)?;
-            let data_dir = zcash.state.data_dir.clone();
-            let wid = wallet_id.clone();
-            if let Ok(phrase) = tokio::task::spawn_blocking(move || {
-                keychain::get_seed_phrase(&data_dir, &wid)
-            }).await.map_err(|e| Error::KeyError(format!("keychain task panicked: {e}")))? {
-                if let Ok(mnemonic) = keys::parse_mnemonic(&phrase) {
-                    *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
-                }
-            }
+            let phrase = zcash.state.get_seed_phrase(&wallet_id).await?;
+            let mnemonic = keys::parse_mnemonic(&phrase)?;
+            *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
         }
     }
 
@@ -545,18 +526,10 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     // Reset chain tip cache
     zcash.state.last_known_chain_tip.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    // Load seed from keychain
-    let data_dir = zcash.state.data_dir.clone();
-    let wid = wallet_entry.id.clone();
-    let seed = match tokio::task::spawn_blocking(move || {
-        keychain::get_seed_phrase(&data_dir, &wid)
-    }).await {
-        Ok(Ok(phrase)) => {
-            keys::parse_mnemonic(&phrase).ok().map(|m| keys::mnemonic_to_seed(&m))
-        }
-        _ => None,
-    };
-    *zcash.state.seed.lock().await = seed;
+    // Switching is explicit user intent, so native custody may authenticate.
+    let phrase = zcash.state.get_seed_phrase(&wallet_entry.id).await?;
+    let mnemonic = keys::parse_mnemonic(&phrase)?;
+    *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
 
     // Swap write db in background — waits for aborted sync to release the lock
     let db_arc = Arc::clone(&zcash.state.db);
@@ -645,21 +618,11 @@ pub(crate) async fn delete_wallet<R: Runtime>(
 
     // If we deleted the active wallet, switch to the new active
     if deletion.was_active {
-        if let Some((entry, db, read_db)) = prepared_active {
-            let data_dir = zcash.state.data_dir.clone();
-            let wid = entry.id.clone();
-            let seed = match tokio::task::spawn_blocking(move || {
-                keychain::get_seed_phrase(&data_dir, &wid)
-            })
-            .await
-            {
-                Ok(Ok(phrase)) => keys::parse_mnemonic(&phrase)
-                    .ok()
-                    .map(|m| keys::mnemonic_to_seed(&m)),
-                _ => None,
-            };
+        if let Some((_entry, db, read_db)) = prepared_active {
             *zcash.state.read_db.lock().await = Some(read_db);
-            *zcash.state.seed.lock().await = seed;
+            // Do not prompt while finalizing a destructive transition. The next
+            // explicit spend/reveal action authenticates against native custody.
+            *zcash.state.seed.lock().await = None;
             zcash
                 .state
                 .last_known_chain_tip
@@ -668,11 +631,17 @@ pub(crate) async fn delete_wallet<R: Runtime>(
             let db_arc = Arc::clone(&zcash.state.db);
             let cleanup = deletion.cleanup;
             let cleanup_data_dir = zcash.state.data_dir.clone();
+            let cleanup_seed_store = zcash.state.seed_store.clone();
             tokio::spawn(async move {
                 let _transition_guard = transition_guard;
                 *db_arc.lock().await = Some(db);
                 if let Some(cleanup) = cleanup {
-                    cleanup_committed_wallet(cleanup_data_dir, cleanup).await;
+                    cleanup_committed_wallet(
+                        cleanup_data_dir,
+                        cleanup,
+                        cleanup_seed_store,
+                    )
+                    .await;
                 }
             });
             return Ok(());
@@ -685,7 +654,12 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     // active DB handles have been swapped. It is best-effort because returning
     // an error after commit would invite an ambiguous destructive retry.
     if let Some(cleanup) = deletion.cleanup {
-        cleanup_committed_wallet(zcash.state.data_dir.clone(), cleanup).await;
+        cleanup_committed_wallet(
+            zcash.state.data_dir.clone(),
+            cleanup,
+            zcash.state.seed_store.clone(),
+        )
+        .await;
     }
 
     Ok(())
@@ -706,6 +680,17 @@ mod deletion_tests {
         }
     }
 
+    // These tests prove authorization ordering, not custody cryptography. A
+    // sentinel file makes attempted cleanup observable without invoking an OS
+    // keychain or introducing a product fallback path.
+    fn seed_sentinel(data_dir: &std::path::Path, wallet_id: &str) -> std::path::PathBuf {
+        data_dir.join(format!("test-seed-{wallet_id}"))
+    }
+
+    fn store_seed_sentinel(data_dir: &std::path::Path, wallet_id: &str) {
+        std::fs::write(seed_sentinel(data_dir, wallet_id), b"present").unwrap();
+    }
+
     #[test]
     fn last_wallet_rejection_never_authorizes_seed_cleanup() {
         let data_dir =
@@ -715,8 +700,7 @@ mod deletion_tests {
         let wallet = wallet(&format!("only-{}", uuid::Uuid::new_v4()));
         let db_path = data_dir.join(&wallet.db_filename);
         std::fs::write(&db_path, b"wallet database").expect("write test database");
-        keychain::store_seed_phrase(&data_dir, &wallet.id, "actual test seed")
-            .expect("store encrypted seed");
+        store_seed_sentinel(&data_dir, &wallet.id);
 
         let mut manifest = WalletManifest {
             wallets: vec![wallet.clone()],
@@ -734,10 +718,7 @@ mod deletion_tests {
         assert_eq!(manifest.wallets.len(), 1);
         assert_eq!(manifest.active_wallet_id, Some(wallet.id.clone()));
         assert!(db_path.exists(), "wallet database must not be deleted");
-        assert_eq!(
-            keychain::get_seed_phrase(&data_dir, &wallet.id).expect("seed must remain readable"),
-            "actual test seed"
-        );
+        assert!(seed_sentinel(&data_dir, &wallet.id).exists());
         assert_eq!(
             std::fs::read(data_dir.join("wallets.json")).expect("read manifest after attempt"),
             manifest_before,
@@ -757,8 +738,7 @@ mod deletion_tests {
         let second = wallet(&format!("second-{}", uuid::Uuid::new_v4()));
         let first_db = data_dir.join(&first.db_filename);
         std::fs::write(&first_db, b"wallet database").expect("write test database");
-        keychain::store_seed_phrase(&data_dir, &first.id, "actual test seed")
-            .expect("store encrypted seed");
+        store_seed_sentinel(&data_dir, &first.id);
 
         // Force atomic manifest replacement to fail deterministically.
         std::fs::create_dir(data_dir.join("wallets.json")).expect("create manifest-path blocker");
@@ -779,10 +759,7 @@ mod deletion_tests {
         );
         assert_eq!(manifest.active_wallet_id, Some(first.id.clone()));
         assert!(first_db.exists(), "wallet database must not be deleted");
-        assert_eq!(
-            keychain::get_seed_phrase(&data_dir, &first.id).expect("seed must remain readable"),
-            "actual test seed"
-        );
+        assert!(seed_sentinel(&data_dir, &first.id).exists());
 
         std::fs::remove_dir_all(data_dir).expect("remove test data dir");
     }
@@ -801,8 +778,7 @@ mod deletion_tests {
         std::fs::write(&first_db, b"wallet database").expect("write test database");
         std::fs::write(&first_wal, b"wallet WAL").expect("write test WAL");
         std::fs::write(&first_shm, b"wallet SHM").expect("write test SHM");
-        keychain::store_seed_phrase(&data_dir, &first.id, "actual test seed")
-            .expect("store encrypted seed");
+        store_seed_sentinel(&data_dir, &first.id);
 
         let mut manifest = WalletManifest {
             wallets: vec![first.clone(), second.clone()],
@@ -818,11 +794,7 @@ mod deletion_tests {
         assert!(first_db.exists(), "commit must not consume database cleanup");
         assert!(first_wal.exists(), "commit must not consume WAL cleanup");
         assert!(first_shm.exists(), "commit must not consume SHM cleanup");
-        assert_eq!(
-            keychain::get_seed_phrase(&data_dir, &first.id)
-                .expect("seed remains until the commit token is consumed"),
-            "actual test seed"
-        );
+        assert!(seed_sentinel(&data_dir, &first.id).exists());
 
         let persisted = WalletManifest::load(&data_dir);
         assert_eq!(persisted.wallets.len(), 1);
@@ -830,14 +802,16 @@ mod deletion_tests {
 
         let cleanup = deletion.cleanup.expect("cleanup token");
         let deleted_wallet_id = cleanup.wallet_id.clone();
-        cleanup_committed_wallet_blocking(&data_dir, cleanup)
+        cleanup_committed_wallet_blocking(&data_dir, cleanup, |wallet_id| {
+            std::fs::remove_file(seed_sentinel(&data_dir, wallet_id)).map_err(Error::from)
+        })
             .expect("consume cleanup authorization");
         assert!(!first_db.exists(), "token consumption removes database");
         assert!(!first_wal.exists(), "token consumption removes WAL");
         assert!(!first_shm.exists(), "token consumption removes SHM");
         assert!(
-            keychain::get_seed_phrase(&data_dir, &deleted_wallet_id).is_err(),
-            "authorized cleanup removes the real encrypted seed"
+            !seed_sentinel(&data_dir, &deleted_wallet_id).exists(),
+            "authorized cleanup removes the seed sentinel"
         );
         std::fs::remove_dir_all(data_dir).expect("remove test data dir");
     }
@@ -1152,18 +1126,9 @@ pub(crate) async fn sign_challenge<R: Runtime>(
                 .active_wallet_id()
                 .await
                 .ok_or(Error::WalletNotInitialized)?;
-            let data_dir = zcash.state.data_dir.clone();
-            let wid = wallet_id.clone();
-            if let Ok(phrase) = tokio::task::spawn_blocking(move || {
-                keychain::get_seed_phrase(&data_dir, &wid)
-            })
-            .await
-            .map_err(|e| Error::KeyError(format!("keychain task panicked: {e}")))?
-            {
-                if let Ok(mnemonic) = keys::parse_mnemonic(&phrase) {
-                    *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
-                }
-            }
+            let phrase = zcash.state.get_seed_phrase(&wallet_id).await?;
+            let mnemonic = keys::parse_mnemonic(&phrase)?;
+            *zcash.state.seed.lock().await = Some(keys::mnemonic_to_seed(&mnemonic));
         }
     }
 
