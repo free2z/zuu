@@ -5,6 +5,7 @@ use tauri::{
 
 pub use models::*;
 
+mod app_data_migration;
 #[cfg(desktop)]
 mod desktop;
 #[cfg(mobile)]

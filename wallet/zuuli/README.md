@@ -57,9 +57,10 @@ The committed native projects live under `src-tauri/gen/apple` and
 compiling against API 36. Mobile builds require the corresponding Xcode or
 Android SDK/NDK toolchain; signing credentials stay outside the repository.
 This identifier replaces the unreleased development identifier
-`com.2zinc.zuuli`. Existing development data remains in the old application
-data directory until the tracked migration is implemented; do not treat the
-identity cutover as deletion or manually discard that directory (see #230).
+`com.2zinc.zuuli`. Existing development data is handled by the fail-closed
+[identifier migration](docs/app-data-identifier-migration.md); never treat an
+identifier cutover as deletion, manually discard the legacy directory, or mix
+the two identities.
 
 ## How it's built
 

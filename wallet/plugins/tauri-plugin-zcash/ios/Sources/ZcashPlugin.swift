@@ -15,7 +15,29 @@ private struct StoreSeedArgs: Decodable {
     let phrase: String
 }
 
+private struct DataPathArgs: Decodable {
+    let path: String
+}
+
 final class ZcashPlugin: Plugin {
+    @objc func excludeDataFromBackup(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(DataPathArgs.self)
+        let url = URL(fileURLWithPath: args.path, isDirectory: true)
+        do {
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try url.setResourceValues(values)
+            let stored = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            guard stored.isExcludedFromBackup == true else {
+                reject(invoke, code: "unavailable", message: "backup exclusion did not persist")
+                return
+            }
+            invoke.resolve()
+        } catch {
+            reject(invoke, code: "unavailable", message: error.localizedDescription)
+        }
+    }
+
     @objc func storeSeed(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(StoreSeedArgs.self)
         guard let data = args.phrase.data(using: .utf8) else {

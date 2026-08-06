@@ -20,6 +20,7 @@ bip0039 = "0.12"
 secrecy = "0.8"
 rand = "0.8"
 tracing = "0.1"
+libc = "0.2"
 # `array` for rusqlite::vtab::array (see wallet/storage.rs) — the `array` feature
 # is what actually gates that module (it implies `vtab` + `modern_sqlite`).
 # Declared explicitly for the same reason as tonic above: don't rely on another
@@ -69,6 +70,7 @@ keyring = { version = "3.6.3", features = ["linux-native-sync-persistent", "cryp
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", features = ["windows-native"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
