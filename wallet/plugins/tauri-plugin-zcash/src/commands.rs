@@ -21,12 +21,72 @@ fn format_birthday_error(e: BirthdayError) -> String {
     }
 }
 
+struct CommittedWalletDeletion {
+    wallet_id: String,
+    db_filename: String,
+    was_active: bool,
+    cleanup_authorized: bool,
+}
+
+/// Validate and remove a wallet from the manifest/DB deletion path.
+///
+/// Returning this token proves the manifest replacement became visible; its
+/// cleanup flag separately proves crash durability before seed destruction.
+/// Rejected or durability-uncertain deletions cannot erase recovery data.
+fn commit_wallet_deletion(
+    manifest: &mut crate::wallet::manifest::WalletManifest,
+    data_dir: &std::path::Path,
+    wallet_id: &str,
+) -> Result<CommittedWalletDeletion> {
+    let was_active = manifest.active_wallet_id.as_deref() == Some(wallet_id);
+    let durable = manifest
+        .delete_wallet_durable(data_dir, wallet_id)
+        .map_err(|e| match e {
+            crate::wallet::manifest::DeleteWalletError::LastWallet => {
+                Error::Other("cannot delete the last wallet".into())
+            }
+            crate::wallet::manifest::DeleteWalletError::NotFound => {
+                Error::Other("wallet not found".into())
+            }
+            crate::wallet::manifest::DeleteWalletError::Persistence(e) => {
+                Error::DatabaseError(format!("failed to persist wallet deletion: {e}"))
+            }
+        })?;
+
+    Ok(CommittedWalletDeletion {
+        wallet_id: durable.entry.id,
+        db_filename: durable.entry.db_filename,
+        was_active,
+        cleanup_authorized: durable.cleanup_authorized,
+    })
+}
+
+async fn cleanup_committed_wallet(
+    data_dir: std::path::PathBuf,
+    wallet_id: String,
+    db_filename: String,
+) {
+    match tokio::task::spawn_blocking(move || {
+        crate::wallet::manifest::cleanup_wallet_database_files(&data_dir, &db_filename);
+        keychain::delete_seed_phrase(&data_dir, &wallet_id)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("wallet deleted but secure seed cleanup failed: {e}"),
+        Err(e) => tracing::warn!("wallet deleted but seed cleanup task failed: {e}"),
+    }
+}
+
 #[command]
 pub(crate) async fn create_wallet<R: Runtime>(
     app: AppHandle<R>,
     args: CreateWalletArgs,
 ) -> Result<WalletCreated> {
     let zcash = app.zcash();
+    let transition_guard = Arc::clone(&zcash.state.wallet_transition)
+        .lock_owned()
+        .await;
     let word_count = args.mnemonic_word_count.unwrap_or(24);
     let wallet_name = args.name.unwrap_or_else(|| "Default".to_string());
 
@@ -99,6 +159,7 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let db_arc = Arc::clone(&zcash.state.db);
     let app2 = app.clone();
     tokio::spawn(async move {
+        let _transition_guard = transition_guard;
         *db_arc.lock().await = Some(db);
         tracing::info!("write db ready for new wallet");
         // Auto-start sync once write db is available
@@ -118,6 +179,9 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     args: RestoreWalletArgs,
 ) -> Result<serde_json::Value> {
     let zcash = app.zcash();
+    let transition_guard = Arc::clone(&zcash.state.wallet_transition)
+        .lock_owned()
+        .await;
     let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
     let seed = keys::mnemonic_to_seed(&mnemonic);
     let birthday_height = args.birthday_height.unwrap_or(419200); // sapling activation
@@ -197,6 +261,7 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     let db_arc = Arc::clone(&zcash.state.db);
     let app2 = app.clone();
     tokio::spawn(async move {
+        let _transition_guard = transition_guard;
         *db_arc.lock().await = Some(db);
         tracing::info!("write db ready for restored wallet");
         // Auto-start sync once write db is available
@@ -265,6 +330,7 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
     args: UnlockWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
+    let _transition_guard = zcash.state.wallet_transition.lock().await;
 
     // Parse and validate the mnemonic
     let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
@@ -431,6 +497,9 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     args: SwitchWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
+    let transition_guard = Arc::clone(&zcash.state.wallet_transition)
+        .lock_owned()
+        .await;
 
     // Signal sync to stop (non-blocking — don't wait for the batch to finish)
     *zcash.state.syncing.write().await = false;
@@ -482,6 +551,7 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     // Swap write db in background — waits for aborted sync to release the lock
     let db_arc = Arc::clone(&zcash.state.db);
     tokio::spawn(async move {
+        let _transition_guard = transition_guard;
         *db_arc.lock().await = Some(new_db);
         tracing::info!("write db swapped for switched wallet");
     });
@@ -508,55 +578,266 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     args: DeleteWalletArgs,
 ) -> Result<()> {
     let zcash = app.zcash();
-    let was_active = {
+    let transition_guard = Arc::clone(&zcash.state.wallet_transition)
+        .lock_owned()
+        .await;
+
+    let deleting_active = {
         let manifest = zcash.state.manifest.lock().await;
         manifest.active_wallet_id.as_deref() == Some(&args.wallet_id)
     };
-
-    // Delete from keychain + encrypted file
-    let data_dir = zcash.state.data_dir.clone();
-    let wid = args.wallet_id.clone();
-    let _ = tokio::task::spawn_blocking(move || {
-        keychain::delete_seed_phrase(&data_dir, &wid)
-    }).await;
-
-    // Delete from manifest (also deletes DB file)
-    let deleted = {
-        let mut manifest = zcash.state.manifest.lock().await;
-        manifest.delete_wallet(&zcash.state.data_dir, &args.wallet_id)
-    };
-
-    if deleted.is_none() {
-        return Err(Error::Other("cannot delete the last wallet".into()));
+    if deleting_active {
+        *zcash.state.syncing.write().await = false;
+        if let Some(handle) = zcash.state.sync_handle.lock().await.take() {
+            handle.abort();
+        }
+        *zcash.state.pending_proposal.lock().await = None;
     }
 
-    // If we deleted the active wallet, switch to the new active
-    if was_active {
-        let new_active = {
-            let manifest = zcash.state.manifest.lock().await;
-            manifest.get_active().cloned()
-        };
-
-        if let Some(entry) = new_active {
+    // Prepare the replacement wallet before committing an active-wallet
+    // deletion. Once the deletion is durable, no later failure may turn the
+    // command into an ambiguous error that invites a destructive retry.
+    let (deletion, prepared_active) = {
+        let mut manifest = zcash.state.manifest.lock().await;
+        let prepared = if manifest.active_wallet_id.as_deref() == Some(&args.wallet_id) {
+            let deletion_pos = manifest
+                .validate_wallet_deletion(&args.wallet_id)
+                .map_err(|e| match e {
+                    crate::wallet::manifest::DeleteWalletError::LastWallet => {
+                        Error::Other("cannot delete the last wallet".into())
+                    }
+                    crate::wallet::manifest::DeleteWalletError::NotFound => {
+                        Error::Other("wallet not found".into())
+                    }
+                    crate::wallet::manifest::DeleteWalletError::Persistence(e) => {
+                        Error::DatabaseError(e)
+                    }
+                })?;
+            let entry = manifest
+                .wallets
+                .iter()
+                .enumerate()
+                .find(|(index, _)| *index != deletion_pos)
+                .map(|(_, entry)| entry)
+                .ok_or_else(|| Error::Other("wallet manifest has no replacement wallet".into()))?
+                .clone();
             let db_path = zcash.state.data_dir.join(&entry.db_filename);
             let db = storage::init_wallet_db(&db_path, zcash.state.network)?;
             let read_db = storage::open_read_db(&db_path, zcash.state.network)?;
-            *zcash.state.db.lock().await = Some(db);
-            *zcash.state.read_db.lock().await = Some(read_db);
+            Some((entry, db, read_db))
+        } else {
+            None
+        };
+        let deletion =
+            commit_wallet_deletion(&mut manifest, &zcash.state.data_dir, &args.wallet_id)?;
+        (deletion, prepared)
+    };
 
+    // If we deleted the active wallet, switch to the new active
+    if deletion.was_active {
+        if let Some((entry, db, read_db)) = prepared_active {
             let data_dir = zcash.state.data_dir.clone();
             let wid = entry.id.clone();
             let seed = match tokio::task::spawn_blocking(move || {
                 keychain::get_seed_phrase(&data_dir, &wid)
-            }).await {
-                Ok(Ok(phrase)) => keys::parse_mnemonic(&phrase).ok().map(|m| keys::mnemonic_to_seed(&m)),
+            })
+            .await
+            {
+                Ok(Ok(phrase)) => keys::parse_mnemonic(&phrase)
+                    .ok()
+                    .map(|m| keys::mnemonic_to_seed(&m)),
                 _ => None,
             };
+            *zcash.state.read_db.lock().await = Some(read_db);
             *zcash.state.seed.lock().await = seed;
+            zcash
+                .state
+                .last_known_chain_tip
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+
+            let db_arc = Arc::clone(&zcash.state.db);
+            let cleanup_authorized = deletion.cleanup_authorized;
+            let cleanup_data_dir = zcash.state.data_dir.clone();
+            let cleanup_wallet_id = deletion.wallet_id;
+            let cleanup_db_filename = deletion.db_filename;
+            tokio::spawn(async move {
+                let _transition_guard = transition_guard;
+                *db_arc.lock().await = Some(db);
+                if cleanup_authorized {
+                    cleanup_committed_wallet(
+                        cleanup_data_dir,
+                        cleanup_wallet_id,
+                        cleanup_db_filename,
+                    )
+                    .await;
+                }
+            });
+            return Ok(());
         }
     }
 
+    // Previously the seed was deleted before the manifest check, so rejecting
+    // deletion of the last wallet destroyed its recovery data. Cleanup now
+    // requires a confirmed-durable manifest replacement and happens only after
+    // active DB handles have been swapped. It is best-effort because returning
+    // an error after commit would invite an ambiguous destructive retry.
+    if deletion.cleanup_authorized {
+        cleanup_committed_wallet(
+            zcash.state.data_dir.clone(),
+            deletion.wallet_id,
+            deletion.db_filename,
+        )
+        .await;
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod deletion_tests {
+    use super::*;
+    use crate::wallet::manifest::{WalletEntry, WalletManifest};
+
+    fn wallet(id: &str) -> WalletEntry {
+        WalletEntry {
+            id: id.to_string(),
+            name: id.to_string(),
+            db_filename: format!("wallet_{id}.sqlite"),
+            birthday_height: Some(1),
+            created_at: "2026-08-06T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn last_wallet_rejection_never_authorizes_seed_cleanup() {
+        let data_dir =
+            std::env::temp_dir().join(format!("zuuli-delete-command-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create test data dir");
+
+        let wallet = wallet(&format!("only-{}", uuid::Uuid::new_v4()));
+        let db_path = data_dir.join(&wallet.db_filename);
+        std::fs::write(&db_path, b"wallet database").expect("write test database");
+        keychain::store_seed_phrase(&data_dir, &wallet.id, "actual test seed")
+            .expect("store encrypted seed");
+
+        let mut manifest = WalletManifest {
+            wallets: vec![wallet.clone()],
+            active_wallet_id: Some(wallet.id.clone()),
+        };
+        manifest.save(&data_dir);
+        let manifest_before = std::fs::read(data_dir.join("wallets.json"))
+            .expect("read manifest before deletion attempt");
+
+        let deletion = commit_wallet_deletion(&mut manifest, &data_dir, &wallet.id);
+        assert!(deletion.is_err(), "last wallet deletion must be rejected");
+
+        // Seed cleanup requires the token returned by commit_wallet_deletion;
+        // the rejected operation produced no token and cannot reach that phase.
+        assert_eq!(manifest.wallets.len(), 1);
+        assert_eq!(manifest.active_wallet_id, Some(wallet.id.clone()));
+        assert!(db_path.exists(), "wallet database must not be deleted");
+        assert_eq!(
+            keychain::get_seed_phrase(&data_dir, &wallet.id).expect("seed must remain readable"),
+            "actual test seed"
+        );
+        assert_eq!(
+            std::fs::read(data_dir.join("wallets.json")).expect("read manifest after attempt"),
+            manifest_before,
+            "manifest file must not change"
+        );
+
+        std::fs::remove_dir_all(data_dir).expect("remove test data dir");
+    }
+
+    #[test]
+    fn persistence_failure_never_authorizes_seed_cleanup_and_rolls_back() {
+        let data_dir =
+            std::env::temp_dir().join(format!("zuuli-delete-persistence-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create test data dir");
+
+        let first = wallet(&format!("first-{}", uuid::Uuid::new_v4()));
+        let second = wallet(&format!("second-{}", uuid::Uuid::new_v4()));
+        let first_db = data_dir.join(&first.db_filename);
+        std::fs::write(&first_db, b"wallet database").expect("write test database");
+        keychain::store_seed_phrase(&data_dir, &first.id, "actual test seed")
+            .expect("store encrypted seed");
+
+        // Force atomic manifest replacement to fail deterministically.
+        std::fs::create_dir(data_dir.join("wallets.json")).expect("create manifest-path blocker");
+        let mut manifest = WalletManifest {
+            wallets: vec![first.clone(), second],
+            active_wallet_id: Some(first.id.clone()),
+        };
+
+        let deletion = commit_wallet_deletion(&mut manifest, &data_dir, &first.id);
+        assert!(
+            deletion.is_err(),
+            "persistence failure must reject deletion"
+        );
+        assert_eq!(
+            manifest.wallets.len(),
+            2,
+            "in-memory removal must roll back"
+        );
+        assert_eq!(manifest.active_wallet_id, Some(first.id.clone()));
+        assert!(first_db.exists(), "wallet database must not be deleted");
+        assert_eq!(
+            keychain::get_seed_phrase(&data_dir, &first.id).expect("seed must remain readable"),
+            "actual test seed"
+        );
+
+        std::fs::remove_dir_all(data_dir).expect("remove test data dir");
+    }
+
+    #[test]
+    fn successful_commit_is_durable_before_seed_cleanup_is_authorized() {
+        let data_dir =
+            std::env::temp_dir().join(format!("zuuli-delete-success-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create test data dir");
+
+        let first = wallet(&format!("first-{}", uuid::Uuid::new_v4()));
+        let second = wallet(&format!("second-{}", uuid::Uuid::new_v4()));
+        let first_db = data_dir.join(&first.db_filename);
+        let first_wal = data_dir.join(format!("{}-wal", first.db_filename));
+        let first_shm = data_dir.join(format!("{}-shm", first.db_filename));
+        std::fs::write(&first_db, b"wallet database").expect("write test database");
+        std::fs::write(&first_wal, b"wallet WAL").expect("write test WAL");
+        std::fs::write(&first_shm, b"wallet SHM").expect("write test SHM");
+        keychain::store_seed_phrase(&data_dir, &first.id, "actual test seed")
+            .expect("store encrypted seed");
+
+        let mut manifest = WalletManifest {
+            wallets: vec![first.clone(), second.clone()],
+            active_wallet_id: Some(first.id.clone()),
+        };
+        manifest.save(&data_dir);
+
+        let deletion = commit_wallet_deletion(&mut manifest, &data_dir, &first.id)
+            .expect("deletion should commit");
+        assert!(deletion.was_active);
+        assert!(deletion.cleanup_authorized);
+        assert_eq!(manifest.active_wallet_id, Some(second.id.clone()));
+        assert!(!first_db.exists(), "database cleanup follows manifest commit");
+        assert!(!first_wal.exists(), "WAL cleanup follows manifest commit");
+        assert!(!first_shm.exists(), "SHM cleanup follows manifest commit");
+        assert_eq!(
+            keychain::get_seed_phrase(&data_dir, &first.id)
+                .expect("seed remains until the commit token is consumed"),
+            "actual test seed"
+        );
+
+        let persisted = WalletManifest::load(&data_dir);
+        assert_eq!(persisted.wallets.len(), 1);
+        assert_eq!(persisted.active_wallet_id, Some(second.id));
+
+        keychain::delete_seed_phrase(&data_dir, &deletion.wallet_id)
+            .expect("consume cleanup authorization");
+        assert!(
+            keychain::get_seed_phrase(&data_dir, &deletion.wallet_id).is_err(),
+            "authorized cleanup removes the real encrypted seed"
+        );
+        std::fs::remove_dir_all(data_dir).expect("remove test data dir");
+    }
 }
 
 // --- Existing commands ---

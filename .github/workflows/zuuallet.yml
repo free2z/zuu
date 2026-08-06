@@ -117,6 +117,11 @@ jobs:
       - name: Build Tauri backend (plugin + librustzcash path deps)
         run: cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
 
+      - name: Test wallet plugin
+        run: >-
+          cargo test --locked
+          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.
   # Runs weekly (and on manual dispatch) so upstream breakage shows up as an

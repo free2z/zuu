@@ -42,6 +42,8 @@ pub struct WalletState {
     /// Zuuli polls `get_sync_status`, so the error MUST live here — not only in
     /// the emitted event — for the UI to see it.
     pub last_sync_error: Arc<RwLock<Option<String>>>,
+    /// Serializes create/restore/switch/delete through the final write-DB swap.
+    pub wallet_transition: Arc<Mutex<()>>,
     pub manifest: Arc<Mutex<manifest::WalletManifest>>,
     pub prover: Arc<Mutex<Option<zcash_proofs::prover::LocalTxProver>>>,
     pub pending_proposal: Arc<Mutex<Option<(u32, WalletProposal)>>>,
@@ -115,6 +117,7 @@ impl WalletState {
             syncing: Arc::new(RwLock::new(false)),
             last_known_chain_tip: Arc::new(AtomicU64::new(0)),
             last_sync_error: Arc::new(RwLock::new(None)),
+            wallet_transition: Arc::new(Mutex::new(())),
             manifest: Arc::new(Mutex::new(manifest)),
             prover: Arc::new(Mutex::new(None)),
             pending_proposal: Arc::new(Mutex::new(None)),

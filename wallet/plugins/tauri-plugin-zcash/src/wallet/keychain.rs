@@ -101,9 +101,9 @@ pub fn get_seed_phrase(data_dir: &Path, wallet_id: &str) -> Result<String> {
 /// Delete a seed phrase from all storage locations.
 pub fn delete_seed_phrase(data_dir: &Path, wallet_id: &str) -> Result<()> {
     let _ = os_keychain::delete(wallet_id);
-    let _ = encrypted_file::delete(data_dir, wallet_id);
+    let encrypted_result = encrypted_file::delete(data_dir, wallet_id);
     let _ = legacy_keyring::delete(wallet_id);
-    Ok(())
+    encrypted_result.map_err(|e| Error::KeyError(format!("failed to delete encrypted seed: {e}")))
 }
 
 // ---------------------------------------------------------------------------
