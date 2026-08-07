@@ -983,7 +983,7 @@ mod deletion_tests {
         assert!(first_shm.exists(), "commit must not consume SHM cleanup");
         assert!(seed_sentinel(&data_dir, &first.id).exists());
 
-        let persisted = WalletManifest::load(&data_dir);
+        let persisted = WalletManifest::load(&data_dir).expect("load committed manifest");
         assert_eq!(persisted.wallets.len(), 1);
         assert_eq!(persisted.active_wallet_id, Some(second.id));
 
@@ -1029,7 +1029,7 @@ mod deletion_tests {
         .is_err());
 
         assert_eq!(manifest.active_wallet_id.as_deref(), Some(active.id.as_str()));
-        let persisted = WalletManifest::load(&data_dir);
+        let persisted = WalletManifest::load(&data_dir).expect("load active manifest");
         assert_eq!(
             persisted.active_wallet_id.as_deref(),
             Some(active.id.as_str())

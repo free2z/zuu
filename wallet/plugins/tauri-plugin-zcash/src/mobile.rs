@@ -26,16 +26,34 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
         .path()
         .app_data_dir()
         .map_err(|e| crate::error::Error::Io(std::io::Error::other(e.to_string())))?;
-    std::fs::create_dir_all(&data_dir)?;
+    let migration = crate::app_data_migration::prepare(&data_dir, &app.config().identifier)
+        .map_err(|error| crate::error::Error::Other(error.to_string()))?;
+    tracing::info!(?migration, "ZUULI app-data directory prepared");
 
     #[cfg(target_os = "android")]
     let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "ZcashPlugin")?;
     #[cfg(target_os = "ios")]
     let handle = api.register_ios_plugin(init_plugin_zcash)?;
 
+    #[cfg(target_os = "ios")]
+    {
+        let path = data_dir.to_str().ok_or_else(|| {
+            crate::error::Error::Other(
+                "iOS wallet data path is not valid UTF-8; refusing to open it".into(),
+            )
+        })?;
+        handle
+            .run_mobile_plugin::<()>("excludeDataFromBackup", DataPathArgs { path })
+            .map_err(|error| {
+                crate::error::Error::Other(format!(
+                    "could not exclude the iOS wallet data directory from backup: {error}"
+                ))
+            })?;
+    }
+
     let native_store: Arc<dyn SecureStore> = Arc::new(MobileSecretStore(handle));
     let seed_store = SeedStore::new(data_dir.clone(), native_store);
-    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store);
+    let state = WalletState::new(data_dir, Network::MainNetwork, seed_store)?;
 
     Ok(Zcash {
         _app: app.clone(),
@@ -82,6 +100,12 @@ struct SeedKeyArgs<'a> {
 struct StoreSeedArgs<'a> {
     wallet_id: &'a str,
     phrase: &'a str,
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Serialize)]
+struct DataPathArgs<'a> {
+    path: &'a str,
 }
 
 #[derive(Deserialize)]

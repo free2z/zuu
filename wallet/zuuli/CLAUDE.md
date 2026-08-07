@@ -42,9 +42,12 @@ regeneration source of truth. Never commit signing certificates, provisioning
 profiles, API keys, keystores, or local SDK paths.
 
 `cash.free2z.zuuli` replaces the unreleased `com.2zinc.zuuli` identifier.
-Existing development wallet data remains under the old Tauri application-data
-directory. Preserve it until the tracked, separately tested migration lands;
-never infer that an empty new directory means the old data was erased (#230).
+The Zcash plugin migrates reachable legacy application data before wallet state
+initialization. It fails closed on two wallet identities while quarantining a
+canonical tree that contains only state from the pre-migration build. Preserve
+the atomic cutover and mobile sandbox constraints documented in
+[`docs/app-data-identifier-migration.md`](docs/app-data-identifier-migration.md);
+never merge two identity directories or add an insecure mobile import path.
 
 ## Stack
 

@@ -145,9 +145,10 @@ jobs:
         with:
           workspaces: wallet/plugins/tauri-plugin-zcash
 
-      - name: Check native custody backend
+      - name: Test native plugin
         run: >-
-          cargo check --locked
+          cargo test --locked
+          --all-targets
           --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
   # ---------------------------------------------------------------------------
