@@ -1358,6 +1358,28 @@ fn apply_broadcast_result(
     result
 }
 
+fn resolve_local_pending_state(
+    record: &PendingBroadcast,
+    local_state: LocalPendingState,
+) -> Option<ExecuteSendResult> {
+    match local_state {
+        LocalPendingState::Mined => Some(ExecuteSendResult {
+            txid: record.txid.clone(),
+            status: BroadcastStatus::Accepted,
+            message: None,
+        }),
+        LocalPendingState::Expired => Some(ExecuteSendResult {
+            txid: record.txid.clone(),
+            status: BroadcastStatus::Rejected,
+            message: Some(
+                "The wallet has scanned beyond the transaction's expiry height without finding it. It is safe to create a new payment."
+                    .into(),
+            ),
+        }),
+        LocalPendingState::Pending => None,
+    }
+}
+
 async fn broadcast_record(
     state: &WalletState,
     record: &mut PendingBroadcast,
@@ -1366,16 +1388,9 @@ async fn broadcast_record(
         return Err(Error::SendError(error.clone()));
     }
 
-    if local_pending_state(state, record).await? == LocalPendingState::Mined {
-        return Ok(apply_broadcast_result(
-            state,
-            record,
-            ExecuteSendResult {
-                txid: record.txid.clone(),
-                status: BroadcastStatus::Accepted,
-                message: None,
-            },
-        ));
+    let local_state = local_pending_state(state, record).await?;
+    if let Some(result) = resolve_local_pending_state(record, local_state) {
+        return Ok(apply_broadcast_result(state, record, result));
     }
 
     if let Err(error) = persist_pending_broadcast(&state.data_dir, record) {
@@ -1451,19 +1466,9 @@ async fn broadcast_record(
                 );
             }
             Ok(Err(status)) if status.code() == tonic::Code::NotFound => {
-                if local_pending_state(state, record).await? == LocalPendingState::Expired {
-                    return Ok(apply_broadcast_result(
-                        state,
-                        record,
-                        ExecuteSendResult {
-                            txid: record.txid.clone(),
-                            status: BroadcastStatus::Rejected,
-                            message: Some(
-                                "The transaction was not found and the wallet has scanned beyond its expiry height. It is safe to create a new payment."
-                                    .into(),
-                            ),
-                        },
-                    ));
+                let local_state = local_pending_state(state, record).await?;
+                if let Some(result) = resolve_local_pending_state(record, local_state) {
+                    return Ok(apply_broadcast_result(state, record, result));
                 }
             }
             Ok(Err(status)) => tracing::warn!(
@@ -1480,9 +1485,11 @@ async fn broadcast_record(
     // Persist pessimistically before entering the RPC. A process crash during
     // `send_transaction` is itself ambiguous and must survive restart.
     record.had_ambiguous_attempt = true;
+    let attempts_before_attempt = record.attempts;
     record.attempts = record.attempts.saturating_add(1);
     if let Err(error) = persist_pending_broadcast(&state.data_dir, record) {
         record.had_ambiguous_attempt = ambiguity_before_attempt;
+        record.attempts = attempts_before_attempt;
         tracing::error!("refusing to broadcast without durable attempt state: {error}");
         return Ok(apply_broadcast_result(
             state,
@@ -1666,6 +1673,22 @@ mod tests {
             Some((-26, "txn-mempool-conflict".into())),
         );
         assert_eq!(result.status, BroadcastStatus::Unknown);
+    }
+
+    #[test]
+    fn locally_expired_ambiguous_send_resolves_without_rebroadcast() {
+        let mut record = pending(BroadcastStatus::Unknown);
+        record.attempts = 1;
+        record.had_ambiguous_attempt = true;
+
+        let result = resolve_local_pending_state(&record, LocalPendingState::Expired)
+            .expect("expiry must resolve before any remote lookup or rebroadcast");
+
+        assert_eq!(result.status, BroadcastStatus::Rejected);
+        assert_eq!(result.txid, record.txid);
+        assert!(result.message.as_deref().is_some_and(|message| {
+            message.contains("scanned beyond the transaction's expiry height")
+        }));
     }
 
     #[test]
