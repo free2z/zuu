@@ -13,6 +13,8 @@ The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 - **Sync control** — `syncing: Arc<RwLock<bool>>` flag + `sync_handle` for cancellation.
 - **Pending send state** — an in-memory proposal plus per-wallet durable exact-transaction recovery for ambiguous broadcasts.
 - **Manifest** — multi-wallet manifest (`wallets.json`) tracking all wallet DBs.
+- **Cleanup journal** — fsynced `wallet-cleanup.json` authority for idempotent
+  orphan cleanup after deletion or failed create/restore transitions.
 
 ### Key design decisions
 
@@ -25,7 +27,7 @@ The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 
 | File | Description |
 |------|-------------|
-| `src/lib.rs` | Plugin init, registers commands, installs rustls crypto provider |
+| `src/lib.rs` | Plugin init, registers wallet commands, installs rustls crypto provider |
 | `src/commands.rs` | All Tauri command handlers — wallet CRUD, sync, send, keys, addresses |
 | `src/models.rs` | Serde models for command args and return types (all `#[serde(rename_all = "camelCase")]`) |
 | `src/error.rs` | `Error` enum with thiserror, serializes to string for frontend consumption |
@@ -36,6 +38,7 @@ The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 | `src/wallet/sync.rs` | Background sync task with 30s polling, emits `zcash://sync-progress` events |
 | `src/wallet/keychain.rs` | Fail-closed native seed custody plus UFVK-validated, one-way migration of legacy records |
 | `src/wallet/manifest.rs` | Multi-wallet JSON manifest (`wallets.json`), legacy migration from single-wallet layout |
+| `src/wallet/cleanup.rs` | Durable, generation-bound retry journal for DB sidecars and native/legacy custody cleanup |
 | `src/wallet/accounts.rs` | Account creation and listing |
 | `src/wallet/keys.rs` | BIP-39 mnemonic generation, seed derivation, USK derivation |
 | `src/wallet/storage.rs` | SQLite connection management, WAL mode, schema migrations |
@@ -52,6 +55,7 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `create_wallet` | `CreateWalletArgs { mnemonicWordCount?, name? }` | `WalletCreated` | Generate new wallet with BIP-39 mnemonic, fetch birthday from chain tip |
 | `restore_wallet` | `RestoreWalletArgs { seedPhrase, birthdayHeight?, name? }` | `{ success: true }` | Restore wallet from existing seed phrase |
 | `get_wallet_status` | — | `WalletStatus` | Check if wallet is initialized, has seed, synced height, active wallet info |
+| `retry_wallet_cleanup` | — | `WalletCleanupStatus` | Explicitly retry pending orphan cleanup and return diagnostics |
 | `get_seed_phrase` | — | `String` | Authenticate and retrieve the seed from platform-native custody |
 | `get_viewing_key` | `AccountIdArgs { accountIndex }` | `String` | Get encoded UFVK for an account |
 | `get_spending_key` | `AccountIdArgs { accountIndex }` | `SpendingKeyStatus` | Verify spending authority (does NOT expose raw key) |
@@ -106,6 +110,24 @@ TEX recipients are rejected for now because ZIP 320 can produce an ordered two-t
 - **Windows:** Windows Credential Manager. Access follows the signed-in user's credential-vault policy and does not promise a per-read presence prompt.
 
 There is no encrypted-file fallback for new writes. Historical `.seeds/*.enc` and old keyring records are read-only migration inputs. Migration occurs only after native storage reports `NotFound`, validates the seed-derived UFVK, writes and reads back the native record, and deletes the legacy record last. Every other native error fails closed.
+
+### Durable destructive transitions
+
+Wallet deletion writes and fsyncs a cleanup tombstone before removing the
+manifest entry. Create and restore do the same before creating a database or
+native seed record, then cancel the tombstone only after their manifest entry
+is durably reachable. Cleanup advances one idempotent stage at a time across
+the SQLite database, WAL, SHM, legacy file custody, legacy keyring custody, and
+native custody; every successful boundary is persisted before the next stage.
+
+Startup retries the journal before opening database handles. The explicit
+`retry_wallet_cleanup` command runs the same worker under the wallet-transition
+lock, and `WalletStatus.cleanup` surfaces pending stages and errors. Each entry
+binds wallet UUID, `created_at` generation, and database filename. An exact
+active generation cancels a stale rollback tombstone, while any reintroduced
+UUID or reused database filename with a different generation blocks cleanup.
+Uncertain manifest directory durability is resolved only after restart against
+the manifest that actually survived, never by an unsafe same-process guess.
 
 ### Key safety
 

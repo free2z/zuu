@@ -571,6 +571,18 @@
           "markdownDescription": "Denies the retry_pending_send command without any pre-configured scope."
         },
         {
+          "description": "Enables the retry_wallet_cleanup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-retry-wallet-cleanup",
+          "markdownDescription": "Enables the retry_wallet_cleanup command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the retry_wallet_cleanup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-retry-wallet-cleanup",
+          "markdownDescription": "Denies the retry_wallet_cleanup command without any pre-configured scope."
+        },
+        {
           "description": "Enables the send_transaction command without any pre-configured scope.",
           "type": "string",
           "const": "allow-send-transaction",

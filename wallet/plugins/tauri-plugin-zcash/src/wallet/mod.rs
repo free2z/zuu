@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod cache;
 pub mod client;
+pub mod cleanup;
 pub mod history;
 pub mod keychain;
 pub mod keys;
@@ -56,6 +57,8 @@ pub struct WalletState {
     /// Serializes create/restore/switch/delete through the final write-DB swap.
     pub wallet_transition: Arc<Mutex<()>>,
     pub manifest: Arc<Mutex<manifest::WalletManifest>>,
+    /// Last startup or explicit cleanup pass, surfaced through wallet status.
+    pub cleanup_status: Arc<Mutex<crate::models::WalletCleanupStatus>>,
     pub prover: Arc<Mutex<Option<zcash_proofs::prover::LocalTxProver>>>,
     /// Serializes proposal, signing, and broadcast transitions. Individual DB
     /// and prover locks protect data; this lock protects the send state machine
@@ -78,6 +81,26 @@ impl WalletState {
         // Load or create the manifest, migrating legacy wallet.sqlite if needed
         let mut manifest = manifest::WalletManifest::load(&data_dir)?;
         manifest.migrate_legacy(&data_dir)?;
+
+        // Retry orphan cleanup before opening any wallet database handles. A
+        // startup pass may resolve a deletion whose directory fsync was
+        // uncertain by comparing the tombstone with the manifest that actually
+        // survived restart. Stage failures are diagnostic, not startup-fatal;
+        // corrupt journal state is preserved and surfaced rather than ignored.
+        let cleanup_status = match cleanup::retry_pending(
+            &data_dir,
+            &manifest,
+            &seed_store,
+            cleanup::RetryMode::Startup,
+        ) {
+            Ok(report) => crate::models::WalletCleanupStatus::from(report),
+            Err(error) => {
+                tracing::error!("wallet cleanup startup retry failed: {error}");
+                crate::models::WalletCleanupStatus::from(cleanup::CleanupReport::journal_error(
+                    error,
+                ))
+            }
+        };
 
         // If there's an active wallet, reopen it without a create-if-missing flag.
         let (db, read_db) = if let Some(active) = manifest.get_active() {
@@ -129,6 +152,7 @@ impl WalletState {
             last_sync_error: Arc::new(RwLock::new(None)),
             wallet_transition: Arc::new(Mutex::new(())),
             manifest: Arc::new(Mutex::new(manifest)),
+            cleanup_status: Arc::new(Mutex::new(cleanup_status)),
             prover: Arc::new(Mutex::new(None)),
             send_operation: Arc::new(Mutex::new(())),
             pending_proposal: Arc::new(Mutex::new(None)),

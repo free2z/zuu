@@ -645,6 +645,32 @@ Denies the retry_pending_send command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-retry-wallet-cleanup`
+
+</td>
+<td>
+
+Enables the retry_wallet_cleanup command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-retry-wallet-cleanup`
+
+</td>
+<td>
+
+Denies the retry_wallet_cleanup command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-send-transaction`
 
 </td>

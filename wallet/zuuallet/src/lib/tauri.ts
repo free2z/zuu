@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   WalletCreated,
   WalletStatus,
+  WalletCleanupStatus,
   WalletInfo,
   AccountInfo,
   AccountBalance,
@@ -37,6 +38,10 @@ export async function restoreWallet(
 
 export async function getWalletStatus(): Promise<WalletStatus> {
   return invoke("plugin:zcash|get_wallet_status");
+}
+
+export async function retryWalletCleanup(): Promise<WalletCleanupStatus> {
+  return invoke("plugin:zcash|retry_wallet_cleanup");
 }
 
 export async function getSeedPhrase(): Promise<string> {
