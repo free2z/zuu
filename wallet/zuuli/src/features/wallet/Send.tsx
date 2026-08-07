@@ -28,7 +28,12 @@ import {
   truncateAddress,
 } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
-import type { AddressValidation, SendProposal } from "@/lib/wallet/types";
+import type {
+  AddressValidation,
+  ExecuteSendResult,
+  PendingSendStatus,
+  SendProposal,
+} from "@/lib/wallet/types";
 import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
 import { ZecTag } from "./shared";
@@ -67,6 +72,12 @@ function toZatoshis(zec: string): number | null {
   return Math.round(n * ZATOSHIS_PER_ZEC);
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
 export function Send() {
   const navigate = useNavigate();
   const balance = useWallet((s) => s.balance);
@@ -80,8 +91,11 @@ export function Send() {
   const [validating, setValidating] = useState(false);
 
   const [proposal, setProposal] = useState<SendProposal | null>(null);
+  const [preparingParams, setPreparingParams] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [sending, setSending] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<ExecuteSendResult | null>(null);
+  const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const debounceRef = useRef<number | null>(null);
@@ -94,6 +108,23 @@ export function Send() {
   // A send costs amount + fee, so anything within one fee of spendable is unfundable.
   const overBalance = zatoshis !== null && zatoshis + FEE_RESERVE > spendable;
   const memoBytes = memoByteLength(memo);
+  const hasUnknownBroadcast =
+    broadcastResult?.status === "unknown" || pendingSend?.status === "unknown";
+
+  useEffect(() => {
+    let active = true;
+    void wallet
+      .getPendingSend()
+      .then((pending) => {
+        if (active && pending?.status === "unknown") setPendingSend(pending);
+      })
+      .catch((error) => {
+        if (active) toast.error(errorMessage(error, "Couldn't load pending payment state"));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Parse a pasted `zcash:` payment URI and prefill the form.
   const applyUri = useCallback(async (uri: string) => {
@@ -154,9 +185,20 @@ export function Send() {
     !!validation?.valid && zatoshis !== null && !overBalance && !validating;
 
   const onReview = useCallback(async () => {
+    if (hasUnknownBroadcast && proposal) {
+      setDialogOpen(true);
+      return;
+    }
     if (!canReview || zatoshis === null) return;
-    setReviewing(true);
+    setBroadcastResult(null);
+    setPreparingParams(true);
     try {
+      const params = await wallet.ensureSaplingParams();
+      if (!params.ready) {
+        throw new Error("Sapling proving parameters are not ready");
+      }
+      setPreparingParams(false);
+      setReviewing(true);
       const p = await wallet.proposeSend(
         to.trim(),
         zatoshis,
@@ -165,31 +207,103 @@ export function Send() {
       setProposal(p);
       setDialogOpen(true);
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Couldn't build the transaction",
-      );
+      toast.error(errorMessage(e, "Couldn't build the transaction"));
     } finally {
+      setPreparingParams(false);
       setReviewing(false);
     }
-  }, [canReview, zatoshis, to, memo, canReceiveMemo]);
+  }, [hasUnknownBroadcast, proposal, canReview, zatoshis, to, memo, canReceiveMemo]);
 
   const onConfirm = useCallback(async () => {
     if (!proposal) return;
     setSending(true);
     try {
-      const txid = await wallet.executeSend(proposal.proposalId);
-      setDialogOpen(false);
-      toast.success("Transaction sent", {
-        description: `txid ${truncateAddress(txid)}`,
-      });
-      await refreshBalance();
-      navigate("/wallet/history");
+      const result = await wallet.executeSend(proposal.proposalId);
+      setBroadcastResult(result);
+      if (result.status === "accepted") {
+        setPendingSend(null);
+        setDialogOpen(false);
+        toast.success("Transaction sent", {
+          description: `txid ${truncateAddress(result.txid)}`,
+        });
+        await refreshBalance();
+        navigate("/wallet/history");
+      } else if (result.status === "unknown") {
+        setPendingSend({
+          ...result,
+          proposalId: proposal.proposalId,
+          recoveryRequired: false,
+          canDiscard: false,
+        });
+        toast.warning("Broadcast status unknown", {
+          description: "Retrying will rebroadcast the same transaction safely.",
+        });
+      } else {
+        toast.error("Transaction rejected", {
+          description: result.message ?? "The server rejected this transaction.",
+        });
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Send failed");
+      const recovered = await wallet.getPendingSend().catch(() => null);
+      if (recovered?.status === "unknown") setPendingSend(recovered);
+      toast.error(errorMessage(e, "Send failed"));
     } finally {
       setSending(false);
     }
   }, [proposal, refreshBalance, navigate]);
+
+  const onRetryPending = useCallback(async () => {
+    setSending(true);
+    try {
+      const result = await wallet.retryPendingSend();
+      setBroadcastResult(result);
+      if (result.status === "accepted") {
+        setPendingSend(null);
+        toast.success("Transaction broadcast confirmed", {
+          description: `txid ${truncateAddress(result.txid)}`,
+        });
+        await refreshBalance();
+        navigate("/wallet/history");
+      } else if (result.status === "unknown") {
+        setPendingSend((pending) =>
+          pending ? { ...pending, ...result } : null,
+        );
+        toast.warning("Broadcast is still unresolved", {
+          description: "No replacement payment was created.",
+        });
+      } else {
+        setPendingSend(null);
+        setProposal(null);
+        toast.info("Transaction expired without being found", {
+          description: result.message ?? "It is safe to review a new payment.",
+        });
+      }
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't retry the pending transaction"));
+    } finally {
+      setSending(false);
+    }
+  }, [navigate, refreshBalance]);
+
+  const onDiscardUnrecoverable = useCallback(async () => {
+    if (!pendingSend?.canDiscard) return;
+    const confirmed = window.confirm(
+      "Only continue if you checked wallet history and verified that no payment was sent. Discarding this recovery lock can allow a replacement payment.",
+    );
+    if (!confirmed) return;
+    setSending(true);
+    try {
+      await wallet.discardUnrecoverableSend(pendingSend.proposalId);
+      setPendingSend(null);
+      setBroadcastResult(null);
+      setProposal(null);
+      toast.warning("Recovery lock discarded after wallet-history confirmation");
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't discard recovery state"));
+    } finally {
+      setSending(false);
+    }
+  }, [pendingSend]);
 
   return (
     <div className="mx-auto max-w-xl">
@@ -198,6 +312,21 @@ export function Send() {
           <CardTitle>Send ZEC</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
+          {pendingSend?.status === "unknown" ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status">
+              <p className="font-medium">A previous broadcast is unresolved</p>
+              <p className="mt-1 text-xs">
+                {pendingSend.canDiscard
+                  ? "Transaction creation was interrupted and exact retry data is unavailable. Check wallet history before unlocking sends."
+                  : pendingSend.recoveryRequired
+                    ? "The recovery journal could not be decoded safely. It remains locked to preserve possible transaction evidence; restore or reconcile the wallet data before sending again."
+                  : "ZUULI recovered the exact transaction after restart. Retry it before creating another payment."}
+              </p>
+              <p className="mt-1 break-all font-mono text-xs opacity-75">
+                txid {pendingSend.txid}
+              </p>
+            </div>
+          ) : null}
           {/* Recipient */}
           <div className="space-y-1.5">
             <Label htmlFor="to">Recipient address</Label>
@@ -208,6 +337,7 @@ export function Send() {
               placeholder="u1… / zs1… / t1… or paste a zcash: link"
               autoComplete="off"
               spellCheck={false}
+              disabled={hasUnknownBroadcast}
               className={cn(
                 "font-mono",
                 validation && !validation.valid && to.trim() && "border-destructive",
@@ -232,7 +362,7 @@ export function Send() {
                 ) : (
                   <span className="flex items-center gap-1.5 text-destructive">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    Not a recognizable Zcash address
+                    {validation.error ?? "Not a recognizable Zcash address"}
                   </span>
                 )
               ) : null}
@@ -246,6 +376,7 @@ export function Send() {
               {balance ? (
                 <button
                   type="button"
+                  disabled={hasUnknownBroadcast}
                   className="text-xs text-muted-foreground hover:text-foreground"
                   onClick={() =>
                     setAmount((maxSpendable / ZATOSHIS_PER_ZEC).toString())
@@ -263,6 +394,7 @@ export function Send() {
                 placeholder="0.00"
                 inputMode="decimal"
                 type="number"
+                disabled={hasUnknownBroadcast}
                 min="0"
                 step="0.00000001"
                 className={cn(
@@ -306,7 +438,7 @@ export function Send() {
               id="memo"
               value={memo}
               onChange={(e) => setMemo(clampToBytes(e.target.value, MEMO_MAX_BYTES))}
-              disabled={!canReceiveMemo}
+              disabled={!canReceiveMemo || hasUnknownBroadcast}
               placeholder={
                 canReceiveMemo
                   ? "Encrypted note delivered with the payment"
@@ -327,10 +459,51 @@ export function Send() {
             variant="zec"
             size="lg"
             className="w-full"
-            disabled={!canReview || reviewing}
-            onClick={onReview}
+            disabled={
+              (!hasUnknownBroadcast && !canReview) ||
+              preparingParams ||
+              reviewing ||
+              sending ||
+              Boolean(pendingSend?.recoveryRequired && !pendingSend.canDiscard)
+            }
+            onClick={
+              pendingSend?.canDiscard
+                ? onDiscardUnrecoverable
+                : pendingSend?.recoveryRequired
+                  ? undefined
+                : pendingSend?.status === "unknown"
+                  ? onRetryPending
+                  : onReview
+            }
           >
-            {reviewing ? (
+            {pendingSend?.canDiscard ? (
+              sending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Unlocking…
+                </>
+              ) : (
+                "I checked history — unlock sends"
+              )
+            ) : pendingSend?.recoveryRequired ? (
+              "Recovery data locked"
+            ) : pendingSend?.status === "unknown" ? (
+              sending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Retrying exact transaction…
+                </>
+              ) : (
+                "Retry recovered transaction"
+              )
+            ) : hasUnknownBroadcast ? (
+              "Resume pending broadcast"
+            ) : preparingParams ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Preparing proving data…
+              </>
+            ) : reviewing ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Building…
@@ -385,6 +558,30 @@ export function Send() {
             </div>
           ) : null}
 
+          {broadcastResult && broadcastResult.status !== "accepted" ? (
+            <div
+              className={cn(
+                "rounded-lg border p-3 text-sm",
+                broadcastResult.status === "unknown"
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                  : "border-destructive/40 bg-destructive/10 text-destructive",
+              )}
+              role="status"
+            >
+              <p className="font-medium">
+                {broadcastResult.status === "unknown"
+                  ? "Broadcast status unknown"
+                  : "Broadcast rejected"}
+              </p>
+              <p className="mt-1 text-xs opacity-90">
+                {broadcastResult.message}
+              </p>
+              <p className="mt-1 break-all font-mono text-xs opacity-75">
+                txid {broadcastResult.txid}
+              </p>
+            </div>
+          ) : null}
+
           <DialogFooter>
             <Button
               type="button"
@@ -397,7 +594,15 @@ export function Send() {
             <Button
               type="button"
               variant="zec"
-              onClick={onConfirm}
+              onClick={
+                broadcastResult?.status === "rejected"
+                  ? () => {
+                      setDialogOpen(false);
+                      setBroadcastResult(null);
+                      setProposal(null);
+                    }
+                  : onConfirm
+              }
               disabled={sending}
             >
               {sending ? (
@@ -406,7 +611,11 @@ export function Send() {
                   Sending…
                 </>
               ) : (
-                "Confirm & send"
+                broadcastResult?.status === "rejected"
+                  ? "Edit payment"
+                  : broadcastResult
+                    ? "Retry same transaction"
+                    : "Confirm & send"
               )}
             </Button>
           </DialogFooter>

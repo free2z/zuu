@@ -137,6 +137,47 @@ pub struct SendProposal {
     pub total: u64,
 }
 
+/// Result of broadcasting a locally-created transaction.
+///
+/// `Unknown` is deliberately distinct from failure: once a transaction has
+/// been created, a transport error may mean the server accepted it but the
+/// response was lost. Callers may retry the same `proposal_id`; the plugin
+/// will rebroadcast the exact same transaction bytes instead of creating a
+/// second transaction.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum BroadcastStatus {
+    Accepted,
+    Rejected,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteSendResult {
+    pub txid: String,
+    pub status: BroadcastStatus,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingSendStatus {
+    pub proposal_id: u32,
+    pub txid: String,
+    pub status: BroadcastStatus,
+    pub message: Option<String>,
+    pub recovery_required: bool,
+    pub can_discard: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscardUnrecoverableSendArgs {
+    pub proposal_id: u32,
+    pub confirmation: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposeSendAllArgs {
@@ -224,4 +265,6 @@ pub struct AddressValidation {
     pub valid: bool,
     pub address_type: Option<String>,
     pub can_receive_memo: bool,
+    #[serde(default)]
+    pub error: Option<String>,
 }

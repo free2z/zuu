@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-discard-unrecoverable-send"
+description = "Enables the discard_unrecoverable_send command without any pre-configured scope."
+commands.allow = ["discard_unrecoverable_send"]
+
+[[permission]]
+identifier = "deny-discard-unrecoverable-send"
+description = "Denies the discard_unrecoverable_send command without any pre-configured scope."
+commands.deny = ["discard_unrecoverable_send"]

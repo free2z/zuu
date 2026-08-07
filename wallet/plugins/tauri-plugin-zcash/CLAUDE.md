@@ -134,9 +134,9 @@ once a non-`unstable` writable block source exists.
   block/root/tree-state streaming all happens with no lock held. **Never hold this
   lock in UI command handlers** — use `state.read_db` instead.
 - **`state.read_db`** (`Arc<Mutex>`) — read-only DB connection for non-blocking UI reads. Safe to lock briefly in any command.
-- **Wallet switching** — stops sync (sets `syncing = false` + aborts handle), swaps `read_db` immediately, swaps `db` in a background task (waits for sync to release its lock).
+- **Wallet switching** — validates and opens the replacement context first, then stops/joins sync and atomically commits the manifest plus DB/seed context while holding `wallet_transition`.
 - **Seed custody** — all seed operations go through `WalletState::{store,get,delete}_seed_phrase`, which use `spawn_blocking` because native APIs are synchronous and may prompt. New data is native-only: macOS/iOS Keychain, AndroidKeyStore-backed AES-GCM, persistent Linux Secret Service, or Windows Credential Manager. Apple/Android enforce device user presence; Linux and Windows follow their signed-in user's unlocked vault/collection policy and may not prompt per read. `.seeds/*.enc` is read-only migration input. Only `SecureStoreError::NotFound` may enter migration; cancellation, lock, corruption, and backend failures fail closed. Migration must validate the seed-derived UFVK, native-write, native-readback, and only then delete legacy material.
-- **Send flow** — `propose_send` locks `db` briefly, stores proposal in `pending_proposal`. `execute_send` locks `db` + `prover`. Both should only be called when sync is idle or will contend.
+- **Send flow** — `send_operation` serializes proposal/execution/retry with create/restore/switch/delete/unlock transitions. `propose_send` stores an in-memory proposal. `execute_send` signs once, then persists an exact raw-transaction recovery record before bounded network I/O. Ambiguous delivery remains `unknown` across restarts and blocks replacement sends; only `retry_pending_send` may query/rebroadcast those exact bytes. Track actual ambiguity separately from attempt count: definite rejections stay rejected, while an actually ambiguous attempt may never be downgraded until mined or proven expired-and-absent. `discard_unrecoverable_send` is restricted to a successfully decoded interrupted-creation intent with no transaction bytes and requires explicit wallet-history confirmation; unreadable or corrupt journals remain fail-closed. A recovery record with complete transaction bytes remains non-discardable even if its wallet DB row is missing.
 
 ## Error handling
 
@@ -146,5 +146,5 @@ once a non-`unstable` writable block source exists.
 
 ## Testing
 
-- **No test suite yet.** `cargo check` is the primary verification method.
+- Run `cargo test --locked --all-targets`; the send journal and custody deletion paths have focused unit tests in addition to the compile gate.
 - Integration testing requires a running lightwalletd instance and real (or testnet) chain state.

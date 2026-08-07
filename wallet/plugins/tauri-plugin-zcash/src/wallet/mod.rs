@@ -57,7 +57,15 @@ pub struct WalletState {
     pub wallet_transition: Arc<Mutex<()>>,
     pub manifest: Arc<Mutex<manifest::WalletManifest>>,
     pub prover: Arc<Mutex<Option<zcash_proofs::prover::LocalTxProver>>>,
+    /// Serializes proposal, signing, and broadcast transitions. Individual DB
+    /// and prover locks protect data; this lock protects the send state machine
+    /// from two concurrent IPC requests advancing different transitions.
+    pub send_operation: Arc<Mutex<()>>,
     pub pending_proposal: Arc<Mutex<Option<(u32, WalletProposal)>>>,
+    /// The exact serialized transaction produced for the most recently
+    /// executed proposal. It is retained until a newer proposal is executed
+    /// so an ambiguous/rejected broadcast can only retry the same bytes.
+    pub pending_broadcast: Arc<Mutex<Option<send::PendingBroadcast>>>,
     pub proposal_counter: Arc<AtomicU32>,
 }
 
@@ -95,6 +103,13 @@ impl WalletState {
             (None, None)
         };
 
+        let pending_broadcast = manifest
+            .get_active()
+            .and_then(|active| send::load_pending_broadcast(&data_dir, &active.id));
+        let next_proposal_id = pending_broadcast
+            .as_ref()
+            .map_or(0, |pending| pending.proposal_id.saturating_add(1));
+
         Ok(Self {
             network,
             data_dir,
@@ -115,8 +130,10 @@ impl WalletState {
             wallet_transition: Arc::new(Mutex::new(())),
             manifest: Arc::new(Mutex::new(manifest)),
             prover: Arc::new(Mutex::new(None)),
+            send_operation: Arc::new(Mutex::new(())),
             pending_proposal: Arc::new(Mutex::new(None)),
-            proposal_counter: Arc::new(AtomicU32::new(0)),
+            pending_broadcast: Arc::new(Mutex::new(pending_broadcast)),
+            proposal_counter: Arc::new(AtomicU32::new(next_proposal_id)),
         })
     }
 

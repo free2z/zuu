@@ -9,9 +9,9 @@ Tauri v2 plugin that wraps [librustzcash](https://github.com/zcash/librustzcash)
 The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 
 - **Dual DB connections** — a write-locked `db` (used by sync and send, behind `Arc<Mutex>`) and a read-only `read_db` (used by UI queries, never blocks on sync).
-- **In-memory seed** — `SecretVec<u8>` kept in `Arc<Mutex>`, loaded from keychain on startup or unlock.
+- **In-memory seed** — `SecretVec<u8>` kept in `Arc<Mutex>`, loaded lazily from native custody only when an explicit signing or key-access action needs it.
 - **Sync control** — `syncing: Arc<RwLock<bool>>` flag + `sync_handle` for cancellation.
-- **Pending proposal** — cached `(id, Proposal)` for the propose-then-execute send flow.
+- **Pending send state** — an in-memory proposal plus per-wallet durable exact-transaction recovery for ambiguous broadcasts.
 - **Manifest** — multi-wallet manifest (`wallets.json`) tracking all wallet DBs.
 
 ### Key design decisions
@@ -25,7 +25,7 @@ The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 
 | File | Description |
 |------|-------------|
-| `src/lib.rs` | Plugin init, registers all 25 commands, installs rustls crypto provider |
+| `src/lib.rs` | Plugin init, registers commands, installs rustls crypto provider |
 | `src/commands.rs` | All Tauri command handlers — wallet CRUD, sync, send, keys, addresses |
 | `src/models.rs` | Serde models for command args and return types (all `#[serde(rename_all = "camelCase")]`) |
 | `src/error.rs` | `Error` enum with thiserror, serializes to string for frontend consumption |
@@ -70,7 +70,10 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `ensure_sapling_params` | — | `SaplingParamsStatus` | Download Sapling proving parameters if not cached |
 | `propose_send` | `ProposeSendArgs { to, amount, memo? }` | `SendProposal` | Create a send proposal with ZIP-317 fee calculation |
 | `propose_send_all` | `ProposeSendAllArgs { to, memo? }` | `SendProposal` | Create a send-all proposal (max amount minus fee, with retry convergence) |
-| `execute_send` | `ExecuteSendArgs { proposalId }` | `String` (txid) | Execute a previously-proposed send — prove, sign, broadcast |
+| `execute_send` | `ExecuteSendArgs { proposalId }` | `ExecuteSendResult` | Prove/sign once, persist exact bytes, broadcast, and return accepted/rejected/unknown status |
+| `get_pending_send` | — | `PendingSendStatus?` | Recover an unresolved broadcast after a remount, restart, or wallet switch |
+| `retry_pending_send` | — | `ExecuteSendResult` | Query and rebroadcast the exact persisted transaction; never signs a replacement |
+| `discard_unrecoverable_send` | `DiscardUnrecoverableSendArgs { proposalId, confirmation }` | `()` | After explicit wallet-history review, discard only a valid interrupted-creation intent with no transaction bytes |
 | `get_transaction_history` | `TransactionHistoryArgs { accountIndex, offset?, limit? }` | `Vec<TransactionEntry>` | Query transaction history with pagination |
 | `set_lightwalletd_url` | `SetLightwalletdUrlArgs { url }` | `()` | Change the lightwalletd endpoint |
 | `parse_payment_uri` | `ParsePaymentUriArgs { uri }` | `PaymentRequest` | Parse a ZIP-321 payment URI |
@@ -82,9 +85,15 @@ Sending ZEC follows a propose-then-execute pattern:
 
 1. **`ensure_sapling_params`** — Downloads ~50MB of Sapling proving parameters if not already cached. Required before any send.
 2. **`propose_send`** or **`propose_send_all`** — Creates a transaction proposal using `GreedyInputSelector` and `SingleOutputChangeStrategy` with ZIP-317 fees. The proposal is cached in `pending_proposal`. Returns the calculated fee and total.
-3. **`execute_send`** — Takes the `proposal_id`, derives the USK from the in-memory seed, creates the transaction with `create_proposed_transactions`, serializes it, and broadcasts via lightwalletd gRPC.
+3. **`execute_send`** — Takes the `proposal_id`, derives the USK from the in-memory seed, creates the transaction with `create_proposed_transactions`, serializes it, persists an exact recovery record, and broadcasts via lightwalletd gRPC.
+4. **Resolve ambiguity** — `accepted` and definite `rejected` responses are explicit. Timeouts and transport failures set a durable ambiguity flag, return `unknown`, block replacement proposals, and survive process restart. `retry_pending_send` first queries the txid, then rebroadcasts only the persisted raw bytes. A later rejection cannot downgrade an actually ambiguous attempt. Once the wallet is fully scanned beyond the transaction expiry height and lightwalletd reports the txid absent, the record resolves to rejected and new sends are safe.
+5. **Interrupted-creation escape hatch** — A fail-closed intent is durable before proving/signing begins. If a crash leaves that valid intent without transaction bytes, the UI requires the operator to inspect wallet history and explicitly confirm before `discard_unrecoverable_send` unlocks sends. Unreadable or corrupt journals remain fail-closed because they may still contain recoverable transaction evidence. A recovery record with complete transaction bytes can never use this manual path: if its wallet DB row is missing, the exact raw bytes remain locked for retry until the DB is restored or the network accepts them.
 
 The `propose_send_all` command uses an iterative approach (up to 3 retries) to converge on the maximum sendable amount after ZIP-317 fee deduction.
+
+Sapling parameter verification/download runs on the blocking pool and is serialized so concurrent UI requests cannot race the same files. lightwalletd connection and RPC operations have bounded timeouts.
+
+TEX recipients are rejected for now because ZIP 320 can produce an ordered two-transaction proposal. Supporting TEX safely requires durable ordered-batch recovery; accepting it through the single-transaction broadcaster could submit only half of the proposal.
 
 ## Security model
 
@@ -108,7 +117,10 @@ There is no encrypted-file fallback for new writes. Historical `.seeds/*.enc` an
 
 ```bash
 # Check (fast, no linking)
-cargo check --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+cargo +1.88.0 check --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+
+# Run the plugin's wallet/send and lifecycle regression tests
+cargo +1.88.0 test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
 # Build
 cargo build --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
@@ -129,7 +141,7 @@ These are hard-won lessons from working with the librustzcash API:
 - **`ConfirmationsPolicy`** lives at `data_api::wallet::ConfirmationsPolicy` — use `::default()`.
 - **`OvkPolicy`** is at `zcash_client_backend::wallet::OvkPolicy` (NOT `data_api::wallet`).
 - **`SingleOutputChangeStrategy::new`** takes 4 args: `(fee_rule, Option<MemoBytes>, ShieldedProtocol, DustOutputPolicy)`.
-- **`Payment::new`** returns `Option<Self>` and takes `Option<Zatoshis>` for amount.
+- **`Payment::new`** returns `Result<Self, zip321::PaymentError>` and takes `Option<Zatoshis>` for amount.
 - **`propose_transfer`** has a phantom `CommitmentTreeErrT` type param — use turbofish with `zcash_client_sqlite::wallet::commitment_tree::Error`.
 - **`create_proposed_transactions`** has phantom `InputsErrT` + `ChangeErrT` — use `std::convert::Infallible` for both.
 - **`Memo::from_str`** needs `use std::str::FromStr;` in scope.

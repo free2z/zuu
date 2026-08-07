@@ -12,6 +12,8 @@ import type {
   AddressValidation,
   SaplingParamsStatus,
   SendProposal,
+  ExecuteSendResult,
+  PendingSendStatus,
 } from "../types";
 
 export async function createWallet(
@@ -139,9 +141,23 @@ export async function proposeSendAll(
   });
 }
 
-export async function executeSend(proposalId: number): Promise<string> {
+export async function executeSend(proposalId: number): Promise<ExecuteSendResult> {
   return invoke("plugin:zcash|execute_send", {
     args: { proposalId },
+  });
+}
+
+export async function getPendingSend(): Promise<PendingSendStatus | null> {
+  return invoke("plugin:zcash|get_pending_send");
+}
+
+export async function retryPendingSend(): Promise<ExecuteSendResult> {
+  return invoke("plugin:zcash|retry_pending_send");
+}
+
+export async function discardUnrecoverableSend(proposalId: number): Promise<void> {
+  return invoke("plugin:zcash|discard_unrecoverable_send", {
+    args: { proposalId, confirmation: "I CHECKED WALLET HISTORY" },
   });
 }
 
