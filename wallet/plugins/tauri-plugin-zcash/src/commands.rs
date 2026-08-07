@@ -238,6 +238,21 @@ pub(crate) async fn create_wallet<R: Runtime>(
         return Err(error);
     }
 
+    // Narrow destructive authority before publication. If manifest directory
+    // durability is later inconclusive, the wallet can be exposed without any
+    // crash path retaining authority to destroy its recovery custody.
+    if let Err(error) = crate::wallet::cleanup::protect_staged_wallet_custody(
+        &zcash.state.data_dir,
+        &cleanup_authorization,
+    ) {
+        drop(read_db);
+        drop(db);
+        retry_staged_wallet_cleanup(&zcash.state, "recovery custody protection failed").await;
+        return Err(Error::DatabaseError(format!(
+            "failed to protect recovery custody before wallet publication: {error}"
+        )));
+    }
+
     let manifest_commit = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
@@ -249,20 +264,22 @@ pub(crate) async fn create_wallet<R: Runtime>(
                 wallet_id = wallet_entry.id,
                 "new wallet manifest is visible but directory durability was not confirmed"
             );
-            crate::wallet::cleanup::protect_staged_wallet_custody(
-                &zcash.state.data_dir,
-                &cleanup_authorization,
-            )
-            .map_err(|error| {
-                Error::DatabaseError(format!(
-                    "wallet manifest durability is uncertain and recovery custody could not be protected; restart before continuing: {error}"
-                ))
-            })?;
             false
         }
         Err(error) => {
             drop(read_db);
             drop(db);
+            if let Err(cleanup_error) =
+                crate::wallet::cleanup::rearm_staged_wallet_custody_cleanup(
+                    &zcash.state.data_dir,
+                    &cleanup_authorization,
+                )
+            {
+                tracing::warn!(
+                    wallet_id = wallet_entry.id,
+                    "wallet publication failed and custody cleanup could not be re-armed; recovery material is intentionally preserved: {cleanup_error}"
+                );
+            }
             retry_staged_wallet_cleanup(&zcash.state, "wallet manifest commit failed").await;
             return Err(Error::DatabaseError(format!(
                 "failed to commit wallet manifest: {error}"
@@ -426,6 +443,22 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         return Err(error);
     }
 
+    if let Err(error) = crate::wallet::cleanup::protect_staged_wallet_custody(
+        &zcash.state.data_dir,
+        &cleanup_authorization,
+    ) {
+        drop(read_db);
+        drop(db);
+        retry_staged_wallet_cleanup(
+            &zcash.state,
+            "restored recovery custody protection failed",
+        )
+        .await;
+        return Err(Error::DatabaseError(format!(
+            "failed to protect restored recovery custody before wallet publication: {error}"
+        )));
+    }
+
     let manifest_commit = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
@@ -437,20 +470,22 @@ pub(crate) async fn restore_wallet<R: Runtime>(
                 wallet_id = wallet_entry.id,
                 "restored wallet manifest is visible but directory durability was not confirmed"
             );
-            crate::wallet::cleanup::protect_staged_wallet_custody(
-                &zcash.state.data_dir,
-                &cleanup_authorization,
-            )
-            .map_err(|error| {
-                Error::DatabaseError(format!(
-                    "restored wallet manifest durability is uncertain and recovery custody could not be protected; restart before continuing: {error}"
-                ))
-            })?;
             false
         }
         Err(error) => {
             drop(read_db);
             drop(db);
+            if let Err(cleanup_error) =
+                crate::wallet::cleanup::rearm_staged_wallet_custody_cleanup(
+                    &zcash.state.data_dir,
+                    &cleanup_authorization,
+                )
+            {
+                tracing::warn!(
+                    wallet_id = wallet_entry.id,
+                    "restored wallet publication failed and custody cleanup could not be re-armed; recovery material is intentionally preserved: {cleanup_error}"
+                );
+            }
             retry_staged_wallet_cleanup(
                 &zcash.state,
                 "restored wallet manifest commit failed",

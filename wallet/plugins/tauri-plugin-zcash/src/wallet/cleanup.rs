@@ -271,6 +271,29 @@ pub(crate) fn protect_staged_wallet_custody(
     save_durable(data_dir, &journal)
 }
 
+/// Re-arm custody cleanup after manifest publication failed before the wallet
+/// was exposed. Failure remains safe: the durable protection marker wins and
+/// may leak an orphan custody record, but it cannot destroy a published key.
+pub(crate) fn rearm_staged_wallet_custody_cleanup(
+    data_dir: &Path,
+    authorization: &CleanupAuthorization,
+) -> std::io::Result<()> {
+    let mut journal = load(data_dir)?;
+    let operation = journal
+        .operations
+        .iter_mut()
+        .find(|operation| operation.operation_id == authorization.operation_id)
+        .ok_or_else(|| invalid("staged wallet cleanup authorization is missing"))?;
+    if operation.reason != CleanupReason::StagedWalletRollback {
+        return Err(invalid(
+            "cleanup authorization is not a staged wallet rollback",
+        ));
+    }
+    operation.preserve_custody_if_manifest_missing = false;
+    operation.last_error = None;
+    save_durable(data_dir, &journal)
+}
+
 /// Best-effort rollback for a transition that never became visible. Failure is
 /// safe: startup sees the exact active generation and cancels the tombstone.
 pub(crate) fn cancel(data_dir: &Path, authorization: &CleanupAuthorization) -> std::io::Result<()> {
@@ -1030,6 +1053,29 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.contains("preserved recovery custody"))
         );
+    }
+
+    #[test]
+    fn unpublished_wallet_rearms_every_custody_stage_after_manifest_failure() {
+        let dir = TestDir::new("unpublished-rearm");
+        let entry = wallet();
+        let authorization = schedule_staged_wallet_rollback(&dir.0, &entry).unwrap();
+        protect_staged_wallet_custody(&dir.0, &authorization).unwrap();
+        rearm_staged_wallet_custody_cleanup(&dir.0, &authorization).unwrap();
+
+        let mut executed = Vec::new();
+        let report = retry_pending_with(
+            &dir.0,
+            &empty_manifest(),
+            RetryMode::Runtime,
+            |_, stage| {
+                executed.push(stage);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(executed, ALL_STAGES);
+        assert_eq!(report.pending_operations, 0);
     }
 
     #[test]
