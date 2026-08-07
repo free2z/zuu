@@ -249,6 +249,15 @@ pub(crate) async fn create_wallet<R: Runtime>(
                 wallet_id = wallet_entry.id,
                 "new wallet manifest is visible but directory durability was not confirmed"
             );
+            crate::wallet::cleanup::protect_staged_wallet_custody(
+                &zcash.state.data_dir,
+                &cleanup_authorization,
+            )
+            .map_err(|error| {
+                Error::DatabaseError(format!(
+                    "wallet manifest durability is uncertain and recovery custody could not be protected; restart before continuing: {error}"
+                ))
+            })?;
             false
         }
         Err(error) => {
@@ -428,6 +437,15 @@ pub(crate) async fn restore_wallet<R: Runtime>(
                 wallet_id = wallet_entry.id,
                 "restored wallet manifest is visible but directory durability was not confirmed"
             );
+            crate::wallet::cleanup::protect_staged_wallet_custody(
+                &zcash.state.data_dir,
+                &cleanup_authorization,
+            )
+            .map_err(|error| {
+                Error::DatabaseError(format!(
+                    "restored wallet manifest durability is uncertain and recovery custody could not be protected; restart before continuing: {error}"
+                ))
+            })?;
             false
         }
         Err(error) => {

@@ -7,6 +7,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-create-wallet`
 - `allow-restore-wallet`
 - `allow-get-wallet-status`
+- `allow-retry-wallet-cleanup`
 - `allow-get-seed-phrase`
 - `allow-get-viewing-key`
 - `allow-get-spending-key`

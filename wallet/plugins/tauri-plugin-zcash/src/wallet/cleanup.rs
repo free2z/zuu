@@ -43,15 +43,19 @@ enum CleanupStage {
     Database,
     DatabaseWal,
     DatabaseShm,
+    DatabaseRollbackJournal,
+    PendingSendJournal,
     LegacyFileCustody,
     LegacyKeyringCustody,
     NativeCustody,
 }
 
-const ALL_STAGES: [CleanupStage; 6] = [
+const ALL_STAGES: [CleanupStage; 8] = [
     CleanupStage::Database,
     CleanupStage::DatabaseWal,
     CleanupStage::DatabaseShm,
+    CleanupStage::DatabaseRollbackJournal,
+    CleanupStage::PendingSendJournal,
     CleanupStage::LegacyFileCustody,
     CleanupStage::LegacyKeyringCustody,
     CleanupStage::NativeCustody,
@@ -70,6 +74,12 @@ struct CleanupOperation {
     /// durably committed. Rollbacks are executable whenever the exact wallet
     /// generation is absent from the manifest.
     transition_confirmed: bool,
+    /// A create/restore command was allowed to publish this wallet even though
+    /// manifest directory durability was uncertain. If the manifest is absent
+    /// after a crash, database files may be reclaimed, but custody must survive:
+    /// the caller may already have displayed the address and accepted funds.
+    #[serde(default)]
+    preserve_custody_if_manifest_missing: bool,
     remaining: Vec<CleanupStage>,
     #[serde(default)]
     attempts: u64,
@@ -109,7 +119,10 @@ pub(crate) struct CleanupReport {
 impl CleanupReport {
     pub(crate) fn journal_error(error: impl std::fmt::Display) -> Self {
         Self {
-            pending_operations: 1,
+            // The journal could not be decoded, so its operation count is
+            // unknown. Do not fabricate one; blocked + diagnostics carry the
+            // actionable state without pretending to know its contents.
+            pending_operations: 0,
             blocked_operations: 1,
             pending_stages: 0,
             completed_stages: 0,
@@ -168,6 +181,7 @@ fn schedule(
         db_filename: entry.db_filename.clone(),
         reason,
         transition_confirmed: false,
+        preserve_custody_if_manifest_missing: false,
         remaining: ALL_STAGES.to_vec(),
         attempts: 0,
         last_error: None,
@@ -230,6 +244,29 @@ pub(crate) fn confirm_staged_wallet_commit(
         ));
     }
     operation.transition_confirmed = true;
+    operation.last_error = None;
+    save_durable(data_dir, &journal)
+}
+
+/// Protect recovery material before an uncertainty-durable staged wallet is
+/// exposed to its caller. The marker itself must be durable before the command
+/// can install the live context or return the generated mnemonic.
+pub(crate) fn protect_staged_wallet_custody(
+    data_dir: &Path,
+    authorization: &CleanupAuthorization,
+) -> std::io::Result<()> {
+    let mut journal = load(data_dir)?;
+    let operation = journal
+        .operations
+        .iter_mut()
+        .find(|operation| operation.operation_id == authorization.operation_id)
+        .ok_or_else(|| invalid("staged wallet cleanup authorization is missing"))?;
+    if operation.reason != CleanupReason::StagedWalletRollback {
+        return Err(invalid(
+            "cleanup authorization is not a staged wallet rollback",
+        ));
+    }
+    operation.preserve_custody_if_manifest_missing = true;
     operation.last_error = None;
     save_durable(data_dir, &journal)
 }
@@ -335,6 +372,34 @@ where
                 continue;
             }
             ManifestBinding::Absent => {}
+        }
+
+        if snapshot.reason == CleanupReason::StagedWalletRollback
+            && snapshot.preserve_custody_if_manifest_missing
+        {
+            let diagnostic = format!(
+                "cleanup {} wallet {} preserved recovery custody because its published manifest durability was uncertain",
+                snapshot.operation_id, snapshot.wallet_id
+            );
+            if let Some(operation) = journal
+                .operations
+                .iter_mut()
+                .find(|operation| operation.operation_id == operation_id)
+            {
+                operation.remaining.retain(|stage| {
+                    !matches!(
+                        stage,
+                        CleanupStage::LegacyFileCustody
+                            | CleanupStage::LegacyKeyringCustody
+                            | CleanupStage::NativeCustody
+                    )
+                });
+                operation.last_error = None;
+            }
+            // Persist the reduced destructive authority before touching any
+            // stage; a crash can only restore the prior custody protection.
+            save_durable(data_dir, &journal)?;
+            report.diagnostics.push(diagnostic);
         }
 
         if snapshot.reason == CleanupReason::WalletDeletion && !snapshot.transition_confirmed {
@@ -498,6 +563,15 @@ fn execute_stage(
             remove_regular_file(&data_dir.join(format!("{}-shm", operation.db_filename)))
                 .map_err(|e| e.to_string())
         }
+        CleanupStage::DatabaseRollbackJournal => {
+            remove_regular_file(&data_dir.join(format!("{}-journal", operation.db_filename)))
+                .map_err(|e| e.to_string())
+        }
+        CleanupStage::PendingSendJournal => super::send::clear_pending_broadcast(
+            data_dir,
+            &operation.wallet_id,
+        )
+        .map_err(|e| e.to_string()),
         CleanupStage::LegacyFileCustody => seed_store
             .delete_legacy_file_record(&operation.wallet_id)
             .map_err(|e| e.to_string()),
@@ -585,6 +659,13 @@ fn validate_journal(journal: &CleanupJournal) -> std::io::Result<()> {
             .any(|stage| !stages.insert(*stage))
         {
             return Err(invalid("cleanup journal contains duplicate stages"));
+        }
+        if operation.preserve_custody_if_manifest_missing
+            && operation.reason != CleanupReason::StagedWalletRollback
+        {
+            return Err(invalid(
+                "only staged wallet rollback may preserve published custody",
+            ));
         }
     }
     Ok(())
@@ -732,6 +813,12 @@ fn replacement_rename(source: &Path, destination: &Path) -> std::io::Result<()> 
 
 #[cfg(all(test, not(windows)))]
 fn replacement_rename(source: &Path, destination: &Path) -> std::io::Result<()> {
+    if destination.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "Windows-style replacement destination already exists",
+        ));
+    }
     std::fs::rename(source, destination)
 }
 
@@ -906,6 +993,43 @@ mod tests {
         })
         .unwrap();
         assert_eq!(report.pending_operations, 0);
+    }
+
+    #[test]
+    fn published_uncertain_wallet_never_destroys_custody_if_manifest_is_lost() {
+        let dir = TestDir::new("published-uncertain");
+        let entry = wallet();
+        let authorization = schedule_staged_wallet_rollback(&dir.0, &entry).unwrap();
+        protect_staged_wallet_custody(&dir.0, &authorization).unwrap();
+
+        let mut executed = Vec::new();
+        let report = retry_pending_with(
+            &dir.0,
+            &empty_manifest(),
+            RetryMode::Startup,
+            |_, stage| {
+                executed.push(stage);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            executed,
+            vec![
+                CleanupStage::Database,
+                CleanupStage::DatabaseWal,
+                CleanupStage::DatabaseShm,
+                CleanupStage::DatabaseRollbackJournal,
+                CleanupStage::PendingSendJournal,
+            ]
+        );
+        assert_eq!(report.pending_operations, 0);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("preserved recovery custody"))
+        );
     }
 
     #[test]

@@ -12,8 +12,11 @@ interface WalletState {
   sync: SyncStatus | null;
   unifiedAddress: string | null;
   loading: boolean;
+  cleanupRetrying: boolean;
+  cleanupError: string | null;
 
   bootstrap: () => Promise<void>;
+  retryCleanup: () => Promise<void>;
   refreshBalance: () => Promise<void>;
   refreshSync: () => Promise<void>;
   startSyncPolling: () => void;
@@ -40,6 +43,8 @@ export const useWallet = create<WalletState>((set, get) => ({
   sync: null,
   unifiedAddress: null,
   loading: true,
+  cleanupRetrying: false,
+  cleanupError: null,
 
   async bootstrap() {
     try {
@@ -63,6 +68,19 @@ export const useWallet = create<WalletState>((set, get) => ({
       }
     } catch {
       set({ loading: false });
+    }
+  },
+
+  async retryCleanup() {
+    set({ cleanupRetrying: true, cleanupError: null });
+    try {
+      const cleanup = await wallet.retryWalletCleanup();
+      const status = get().status;
+      if (status) set({ status: { ...status, cleanup } });
+    } catch (error) {
+      set({ cleanupError: String(error) });
+    } finally {
+      set({ cleanupRetrying: false });
     }
   },
 
