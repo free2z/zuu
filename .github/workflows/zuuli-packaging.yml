@@ -1,0 +1,297 @@
+name: ZUULI / packaging smoke
+
+on:
+  pull_request:
+    paths:
+      - wallet/zuuli/**
+      - wallet/plugins/**
+      - wallet/rust-toolchain.toml
+      - z/zcash/librustzcash
+      - .gitmodules
+      - .github/workflows/zuuli-packaging.yml
+      - .github/workflows/zuuli-release.yml
+  push:
+    branches: [main]
+    paths:
+      - wallet/zuuli/**
+      - wallet/plugins/**
+      - wallet/rust-toolchain.toml
+      - z/zcash/librustzcash
+      - .gitmodules
+      - .github/workflows/zuuli-packaging.yml
+      - .github/workflows/zuuli-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zuuli-package-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+  ZUULI_NODE_VERSION: "24.18.0"
+  ZUULI_RUST_VERSION: "1.88.0"
+  ZUULI_JAVA_VERSION: "21.0.12"
+  ZUULI_XCODE_VERSION: "26.6"
+  ZUULI_ANDROID_NDK_VERSION: "27.0.12077973"
+
+jobs:
+  contract:
+    name: Release identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - run: npm ci
+      - name: Verify one release identity
+        run: npm run release:verify
+      - name: Exercise immutable manifest generation
+        run: |
+          mkdir release-artifacts
+          cp release.json release-artifacts/identity.json
+          npm run release:manifest -- \
+            --artifacts=release-artifacts \
+            --checksums=release-artifacts/CHECKSUMS.sha256 \
+            --output=release-artifacts/provenance.json
+
+  android:
+    name: Android / unsigned AAB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21.0.12"
+          cache: gradle
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with:
+          toolchain: 1.88.0
+          targets: aarch64-linux-android
+      - name: Install exact Android SDK components
+        run: |
+          java -version 2>&1 | grep -F '21.0.12'
+          set +e
+          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-36' \
+            'build-tools;36.0.0' \
+            'ndk;27.0.12077973' >/dev/null
+          sdk_status=${PIPESTATUS[1]}
+          set -e
+          [[ "$sdk_status" -eq 0 ]] || { echo "sdkmanager failed ($sdk_status)" >&2; exit 1; }
+          source scripts/android-toolchain-env.sh
+          for name in NDK_HOME ANDROID_NDK_HOME \
+            CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER \
+            CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER \
+            CARGO_TARGET_I686_LINUX_ANDROID_LINKER \
+            CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER \
+            CC_aarch64_linux_android CC_armv7_linux_androideabi \
+            CC_i686_linux_android CC_x86_64_linux_android \
+            CXX_aarch64_linux_android CXX_armv7_linux_androideabi \
+            CXX_i686_linux_android CXX_x86_64_linux_android; do
+            echo "$name=${!name}" >> "$GITHUB_ENV"
+          done
+      - run: npm ci
+      - run: npm run release:verify
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - name: Build unsigned arm64 release bundle
+        run: ./node_modules/.bin/tauri android build --ci --aab --target aarch64 -- --locked
+      - name: Collect package
+        run: |
+          mkdir release-artifacts
+          aab=$(find src-tauri/gen/android/app/build/outputs/bundle -type f -name '*.aab' -print -quit)
+          test -n "$aab"
+          cp "$aab" release-artifacts/ZUULI-android-unsigned.aab
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli
+          config: wallet/zuuli/syft.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/release-artifacts/ZUULI-android.sbom.cdx.json
+          upload-artifact: false
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-android.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-android-unsigned-${{ github.sha }}
+          path: wallet/zuuli/release-artifacts
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS / unsigned simulator app
+    runs-on: macos-26
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - name: Select and verify Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with:
+          toolchain: 1.88.0
+          targets: aarch64-apple-ios-sim
+      - run: npm ci
+      - run: npm run release:verify
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - name: Build without signing
+        run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64-sim -- --locked
+      - name: Collect simulator package
+        run: |
+          mkdir release-artifacts
+          app=$(find src-tauri/gen/apple/build -type d -name '*.app' -print -quit)
+          test -n "$app"
+          ditto -c -k --keepParent "$app" release-artifacts/ZUULI-ios-simulator-unsigned.zip
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli
+          config: wallet/zuuli/syft.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/release-artifacts/ZUULI-ios.sbom.cdx.json
+          upload-artifact: false
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-ios.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-ios-simulator-unsigned-${{ github.sha }}
+          path: wallet/zuuli/release-artifacts
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    name: Desktop / ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux packages
+            os: ubuntu-24.04
+            bundles: appimage,deb,rpm
+          - name: macOS universal app
+            os: macos-26
+            bundles: app,dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with:
+          toolchain: 1.88.0
+      - name: Install macOS universal Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Install Linux package dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libxdo-dev libdbus-1-dev \
+            libssl-dev build-essential file pkg-config rpm
+      - name: Select and verify Xcode
+        if: runner.os == 'macOS'
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+      - run: npm ci
+      - run: npm run release:verify
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - name: Build packages
+        run: |
+          if [[ "${{ runner.os }}" == macOS ]]; then
+            ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles '${{ matrix.bundles }}' -- --locked
+          else
+            ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked
+          fi
+      - name: Collect packages
+        run: |
+          mkdir release-artifacts
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \) \
+            -exec cp {} release-artifacts/ \;
+          if [[ "${{ runner.os }}" == macOS ]]; then
+            app=$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print -quit)
+            test -n "$app"
+            ditto -c -k --keepParent "$app" release-artifacts/ZUULI-macos-universal-unsigned.zip
+          fi
+          test -n "$(find release-artifacts -type f -print -quit)"
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli
+          config: wallet/zuuli/syft.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/release-artifacts/ZUULI-desktop.sbom.cdx.json
+          upload-artifact: false
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-desktop.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-${{ runner.os }}-unsigned-${{ github.sha }}
+          path: wallet/zuuli/release-artifacts
+          if-no-files-found: error
+          retention-days: 14

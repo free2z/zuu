@@ -15,6 +15,7 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
+    ndkVersion = "27.0.12077973"
     namespace = "cash.free2z.zuuli"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -23,6 +24,35 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "0.1.0")
+    }
+    val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+    val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")?.takeIf { it.isNotBlank() }
+    val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    val releaseSigningValues = listOf(
+        releaseStoreFile,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword,
+    )
+    if (releaseSigningValues.any { it != null } && releaseSigningValues.any { it == null }) {
+        throw GradleException(
+            "Android release signing is partially configured; set all four ANDROID_KEYSTORE_* variables"
+        )
+    }
+    signingConfigs {
+        if (releaseSigningValues.all { it != null }) {
+            create("releaseFromEnvironment") {
+                val absoluteStoreFile = file(requireNotNull(releaseStoreFile))
+                require(absoluteStoreFile.isAbsolute) {
+                    "ANDROID_KEYSTORE_PATH must be absolute"
+                }
+                storeFile = absoluteStoreFile
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -38,6 +68,9 @@ android {
             }
         }
         getByName("release") {
+            if (releaseSigningValues.all { it != null }) {
+                signingConfig = signingConfigs.getByName("releaseFromEnvironment")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }

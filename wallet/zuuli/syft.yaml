@@ -1,0 +1,9 @@
+exclude:
+  - "**/node_modules/**"
+  - "**/target/**"
+  - "**/dist/**"
+  - "**/release-artifacts/**"
+
+file:
+  metadata:
+    selection: "none"
