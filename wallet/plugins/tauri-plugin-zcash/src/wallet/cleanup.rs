@@ -69,6 +69,13 @@ struct CleanupOperation {
     /// manifest schema that predates this journal.
     generation: String,
     db_filename: String,
+    /// Present for journals written by this version so startup can restore a
+    /// wallet that was published before an inconclusive manifest directory
+    /// fsync. Older journals remain fail-closed instead of deleting its data.
+    #[serde(default)]
+    wallet_name: Option<String>,
+    #[serde(default)]
+    birthday_height: Option<u64>,
     reason: CleanupReason,
     /// Deletions are not executable until both the manifest and this flag are
     /// durably committed. Rollbacks are executable whenever the exact wallet
@@ -179,6 +186,8 @@ fn schedule(
         wallet_id: entry.id.clone(),
         generation: entry.created_at.clone(),
         db_filename: entry.db_filename.clone(),
+        wallet_name: Some(entry.name.clone()),
+        birthday_height: entry.birthday_height,
         reason,
         transition_confirmed: false,
         preserve_custody_if_manifest_missing: false,
@@ -314,15 +323,113 @@ pub(crate) fn retry_pending(
     seed_store: &SeedStore,
     mode: RetryMode,
 ) -> std::io::Result<CleanupReport> {
-    retry_pending_with(data_dir, manifest, mode, |operation, stage| {
-        execute_stage(data_dir, seed_store, operation, stage)
-    })
+    retry_pending_with_scope(
+        data_dir,
+        manifest,
+        mode,
+        RetryScope::All,
+        |operation, stage| execute_stage(data_dir, seed_store, operation, stage),
+    )
 }
 
+/// Resolve manifest uncertainty and reclaim filesystem artifacts before live
+/// database handles are opened, while deferring potentially prompting native
+/// custody APIs to the asynchronous post-setup pass.
+pub(crate) fn retry_pending_filesystem(
+    data_dir: &Path,
+    manifest: &WalletManifest,
+    seed_store: &SeedStore,
+    mode: RetryMode,
+) -> std::io::Result<CleanupReport> {
+    retry_pending_with_scope(
+        data_dir,
+        manifest,
+        mode,
+        RetryScope::FilesystemOnly,
+        |operation, stage| execute_stage(data_dir, seed_store, operation, stage),
+    )
+}
+
+/// Restore a wallet whose create/restore command was published to the caller,
+/// but whose manifest rename did not survive an inconclusive directory fsync.
+/// Reinstating reachability is safer than deleting either the database or key.
+pub(crate) fn recover_published_wallets(
+    data_dir: &Path,
+    manifest: &mut WalletManifest,
+) -> std::io::Result<Vec<String>> {
+    let journal = load(data_dir)?;
+    let mut diagnostics = Vec::new();
+    let recoverable: Vec<CleanupOperation> = journal
+        .operations
+        .iter()
+        .filter(|operation| {
+            operation.reason == CleanupReason::StagedWalletRollback
+                && operation.preserve_custody_if_manifest_missing
+                && matches!(manifest_binding(manifest, operation), ManifestBinding::Absent)
+        })
+        .cloned()
+        .collect();
+    for operation in recoverable {
+        let Some(name) = operation.wallet_name.clone() else {
+            diagnostics.push(format!(
+                "cleanup {} wallet {} is preserved but requires manual manifest recovery",
+                operation.operation_id, operation.wallet_id
+            ));
+            continue;
+        };
+        let entry = WalletEntry {
+            id: operation.wallet_id.clone(),
+            name,
+            db_filename: operation.db_filename.clone(),
+            birthday_height: operation.birthday_height,
+            created_at: operation.generation.clone(),
+        };
+        match manifest.commit_wallet(data_dir, entry) {
+            Ok(true) => diagnostics.push(format!(
+                "restored published wallet {} after an interrupted manifest commit",
+                operation.wallet_id
+            )),
+            Ok(false) => {
+                return Err(std::io::Error::other(format!(
+                    "restored wallet {} is visible but manifest durability remains uncertain",
+                    operation.wallet_id
+                )));
+            }
+            Err(error) => {
+                return Err(std::io::Error::other(format!(
+                    "could not restore published wallet {}: {error}",
+                    operation.wallet_id
+                )));
+            }
+        }
+    }
+    Ok(diagnostics)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetryScope {
+    FilesystemOnly,
+    All,
+}
+
+#[cfg(test)]
 fn retry_pending_with<F>(
     data_dir: &Path,
     manifest: &WalletManifest,
     mode: RetryMode,
+    execute: F,
+) -> std::io::Result<CleanupReport>
+where
+    F: FnMut(&CleanupOperation, CleanupStage) -> Result<(), String>,
+{
+    retry_pending_with_scope(data_dir, manifest, mode, RetryScope::All, execute)
+}
+
+fn retry_pending_with_scope<F>(
+    data_dir: &Path,
+    manifest: &WalletManifest,
+    mode: RetryMode,
+    scope: RetryScope,
     mut execute: F,
 ) -> std::io::Result<CleanupReport>
 where
@@ -401,7 +508,7 @@ where
             && snapshot.preserve_custody_if_manifest_missing
         {
             let diagnostic = format!(
-                "cleanup {} wallet {} preserved recovery custody because its published manifest durability was uncertain",
+                "cleanup {} wallet {} preserved its published database and recovery custody pending manifest recovery",
                 snapshot.operation_id, snapshot.wallet_id
             );
             if let Some(operation) = journal
@@ -409,20 +516,13 @@ where
                 .iter_mut()
                 .find(|operation| operation.operation_id == operation_id)
             {
-                operation.remaining.retain(|stage| {
-                    !matches!(
-                        stage,
-                        CleanupStage::LegacyFileCustody
-                            | CleanupStage::LegacyKeyringCustody
-                            | CleanupStage::NativeCustody
-                    )
-                });
-                operation.last_error = None;
+                operation.attempts = operation.attempts.saturating_add(1);
+                operation.last_error = Some(diagnostic.clone());
             }
-            // Persist the reduced destructive authority before touching any
-            // stage; a crash can only restore the prior custody protection.
             save_durable(data_dir, &journal)?;
+            report.blocked_operations = report.blocked_operations.saturating_add(1);
             report.diagnostics.push(diagnostic);
+            continue;
         }
 
         if snapshot.reason == CleanupReason::WalletDeletion && !snapshot.transition_confirmed {
@@ -464,12 +564,26 @@ where
             .map(|operation| operation.remaining.clone())
             .unwrap_or_default();
         for stage in stages {
-            let snapshot = journal
+            if scope == RetryScope::FilesystemOnly
+                && matches!(
+                    stage,
+                    CleanupStage::LegacyFileCustody
+                        | CleanupStage::LegacyKeyringCustody
+                        | CleanupStage::NativeCustody
+                )
+            {
+                continue;
+            }
+            let Some(snapshot) = journal
                 .operations
                 .iter()
                 .find(|operation| operation.operation_id == operation_id)
                 .cloned()
-                .expect("operation remains until all stages are persisted");
+            else {
+                return Err(invalid(
+                    "cleanup operation disappeared before its progress was persisted",
+                ));
+            };
             match execute(&snapshot, stage) {
                 Ok(()) => {
                     if let Some(operation) = journal
@@ -979,6 +1093,59 @@ mod tests {
     }
 
     #[test]
+    fn startup_filesystem_pass_defers_every_custody_backend() {
+        let dir = TestDir::new("deferred-custody");
+        let entry = wallet();
+        let authorization = schedule_wallet_deletion(&dir.0, &entry).unwrap();
+        authorize_wallet_deletion(&dir.0, &authorization).unwrap();
+        let mut first_pass = Vec::new();
+        let report = retry_pending_with_scope(
+            &dir.0,
+            &empty_manifest(),
+            RetryMode::Startup,
+            RetryScope::FilesystemOnly,
+            |_, stage| {
+                first_pass.push(stage);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            first_pass,
+            vec![
+                CleanupStage::Database,
+                CleanupStage::DatabaseWal,
+                CleanupStage::DatabaseShm,
+                CleanupStage::DatabaseRollbackJournal,
+                CleanupStage::PendingSendJournal,
+            ]
+        );
+        assert_eq!(report.pending_operations, 1);
+        assert_eq!(report.pending_stages, 3);
+
+        let mut deferred = Vec::new();
+        let report = retry_pending_with(
+            &dir.0,
+            &empty_manifest(),
+            RetryMode::Runtime,
+            |_, stage| {
+                deferred.push(stage);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            deferred,
+            vec![
+                CleanupStage::LegacyFileCustody,
+                CleanupStage::LegacyKeyringCustody,
+                CleanupStage::NativeCustody,
+            ]
+        );
+        assert_eq!(report.pending_operations, 0);
+    }
+
+    #[test]
     fn exact_active_generation_waits_if_uncertain_then_startup_cancels_without_cleanup() {
         let dir = TestDir::new("active-cancel");
         let entry = wallet();
@@ -1019,7 +1186,7 @@ mod tests {
     }
 
     #[test]
-    fn published_uncertain_wallet_never_destroys_custody_if_manifest_is_lost() {
+    fn published_uncertain_wallet_never_destroys_database_or_custody_if_manifest_is_lost() {
         let dir = TestDir::new("published-uncertain");
         let entry = wallet();
         let authorization = schedule_staged_wallet_rollback(&dir.0, &entry).unwrap();
@@ -1036,23 +1203,40 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(
-            executed,
-            vec![
-                CleanupStage::Database,
-                CleanupStage::DatabaseWal,
-                CleanupStage::DatabaseShm,
-                CleanupStage::DatabaseRollbackJournal,
-                CleanupStage::PendingSendJournal,
-            ]
-        );
-        assert_eq!(report.pending_operations, 0);
+        assert!(executed.is_empty());
+        assert_eq!(report.pending_operations, 1);
+        assert_eq!(report.blocked_operations, 1);
         assert!(
             report
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.contains("preserved recovery custody"))
+                .any(|diagnostic| diagnostic.contains("preserved its published database"))
         );
+    }
+
+    #[test]
+    fn startup_restores_a_published_wallet_before_cancelling_rollback() {
+        let dir = TestDir::new("published-recovery");
+        let entry = wallet();
+        let authorization = schedule_staged_wallet_rollback(&dir.0, &entry).unwrap();
+        protect_staged_wallet_custody(&dir.0, &authorization).unwrap();
+        let mut manifest = empty_manifest();
+
+        let diagnostics = recover_published_wallets(&dir.0, &mut manifest).unwrap();
+        assert_eq!(manifest.wallets.len(), 1);
+        assert_eq!(manifest.wallets[0].id, entry.id);
+        assert_eq!(manifest.wallets[0].created_at, entry.created_at);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("restored published wallet"))
+        );
+
+        let report = retry_pending_with(&dir.0, &manifest, RetryMode::Startup, |_, _| {
+            panic!("a restored manifest generation must never be cleaned")
+        })
+        .unwrap();
+        assert_eq!(report.pending_operations, 0);
     }
 
     #[test]

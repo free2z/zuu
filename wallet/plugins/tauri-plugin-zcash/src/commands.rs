@@ -56,7 +56,7 @@ fn commit_wallet_deletion(
     })
 }
 
-async fn run_wallet_cleanup_retry(
+pub(crate) async fn run_wallet_cleanup_retry(
     state: &crate::wallet::WalletState,
     mode: crate::wallet::cleanup::RetryMode,
 ) -> WalletCleanupStatus {
@@ -84,6 +84,28 @@ async fn run_wallet_cleanup_retry(
     };
     *state.cleanup_status.lock().await = status.clone();
     status
+}
+
+/// Finish startup custody cleanup after plugin setup has returned, keeping
+/// synchronous/potentially prompting native APIs off the application init
+/// thread. The startup filesystem pass already resolved manifest uncertainty,
+/// so runtime mode is sufficient and cannot reinterpret an in-memory manifest.
+pub(crate) async fn resume_wallet_cleanup_after_setup<R: Runtime>(app: AppHandle<R>) {
+    let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let status = run_wallet_cleanup_retry(
+        &zcash.state,
+        crate::wallet::cleanup::RetryMode::Runtime,
+    )
+    .await;
+    if status.pending_operations > 0 || status.blocked_operations > 0 {
+        tracing::warn!(
+            pending = status.pending_operations,
+            blocked = status.blocked_operations,
+            diagnostics = ?status.diagnostics,
+            "post-setup wallet cleanup remains pending"
+        );
+    }
 }
 
 async fn retry_staged_wallet_cleanup(state: &crate::wallet::WalletState, context: &str) {

@@ -82,20 +82,36 @@ impl WalletState {
         let mut manifest = manifest::WalletManifest::load(&data_dir)?;
         manifest.migrate_legacy(&data_dir)?;
 
-        // Retry orphan cleanup before opening any wallet database handles. A
-        // startup pass may resolve a deletion whose directory fsync was
-        // uncertain by comparing the tombstone with the manifest that actually
-        // survived restart. Stage failures are diagnostic, not startup-fatal;
-        // corrupt journal state is preserved and surfaced rather than ignored.
-        let cleanup_status = match cleanup::retry_pending(
-            &data_dir,
-            &manifest,
-            &seed_store,
-            cleanup::RetryMode::Startup,
-        ) {
-            Ok(report) => crate::models::WalletCleanupStatus::from(report),
+        // A create/restore command may have returned successfully after the
+        // manifest rename became visible but its directory fsync was
+        // inconclusive. If that rename did not survive, restore the exact
+        // journal-bound generation before opening a database or authorizing
+        // any cleanup.
+        let recovery_diagnostics = cleanup::recover_published_wallets(&data_dir, &mut manifest);
+
+        // Resolve manifest uncertainty and filesystem stages before opening DB
+        // handles. Native custody may prompt or block, so those stages are
+        // deliberately deferred to an async post-setup pass.
+        let cleanup_status = match recovery_diagnostics {
+            Ok(recovery_diagnostics) => match cleanup::retry_pending_filesystem(
+                &data_dir,
+                &manifest,
+                &seed_store,
+                cleanup::RetryMode::Startup,
+            ) {
+                Ok(mut report) => {
+                    report.diagnostics.extend(recovery_diagnostics);
+                    crate::models::WalletCleanupStatus::from(report)
+                }
+                Err(error) => {
+                    tracing::error!("wallet cleanup startup retry failed: {error}");
+                    crate::models::WalletCleanupStatus::from(
+                        cleanup::CleanupReport::journal_error(error),
+                    )
+                }
+            },
             Err(error) => {
-                tracing::error!("wallet cleanup startup retry failed: {error}");
+                tracing::error!("published wallet recovery failed: {error}");
                 crate::models::WalletCleanupStatus::from(cleanup::CleanupReport::journal_error(
                     error,
                 ))

@@ -14,7 +14,11 @@ The plugin manages a `WalletState` struct (in `wallet/mod.rs`) with:
 - **Pending send state** — an in-memory proposal plus per-wallet durable exact-transaction recovery for ambiguous broadcasts.
 - **Manifest** — multi-wallet manifest (`wallets.json`) tracking all wallet DBs.
 - **Cleanup journal** — fsynced `wallet-cleanup.json` authority for idempotent
-  orphan cleanup after deletion or failed create/restore transitions.
+  orphan cleanup after deletion or failed create/restore transitions. If a
+  published wallet's manifest rename is lost after an inconclusive directory
+  fsync, startup restores the exact generation from this journal instead of
+  deleting its database or custody. Filesystem stages run before DB open;
+  native custody stages run asynchronously after plugin setup.
 
 ### Key design decisions
 

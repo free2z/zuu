@@ -86,6 +86,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                 app.manage(zcash);
             }
 
+            let cleanup_app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                commands::resume_wallet_cleanup_after_setup(cleanup_app).await;
+            });
+
             Ok(())
         })
         .on_event(|app, event| {
