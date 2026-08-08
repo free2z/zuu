@@ -39,7 +39,6 @@ targets:
     sources:
       - path: Sources
       - path: Assets.xcassets
-      - path: Externals
       - path: zuuli_iOS
       - path: assets
         buildPhase: resources

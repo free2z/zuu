@@ -188,6 +188,31 @@ if (!pbxproj.includes('CODE_SIGN_IDENTITY = "Apple Distribution";'))
   );
 if (!pbxproj.includes('PROVISIONING_PROFILE_SPECIFIER = "ZUULI App Store CI";'))
   failures.push("generated Xcode release provisioning profile is not pinned");
+expect(
+  "XcodeGen link-only Rust archive dependency count",
+  occurrenceCount(project, "- framework: libapp.a\n        embed: false"),
+  1,
+);
+expect(
+  "XcodeGen Rust archive source-tree count",
+  occurrenceCount(project, "\n      - path: Externals\n"),
+  0,
+);
+expect(
+  "generated Xcode Rust archive framework-phase count",
+  occurrenceCount(pbxproj, "libapp.a in Frameworks"),
+  2,
+);
+expect(
+  "generated Xcode Rust archive resource-phase count",
+  occurrenceCount(pbxproj, "libapp.a in Resources"),
+  0,
+);
+expect(
+  "generated Xcode Rust archive file-reference count",
+  occurrenceCount(pbxproj, "/* libapp.a */ = {isa = PBXFileReference;"),
+  1,
+);
 for (const [label, contents] of [
   ["generated Xcode project", pbxproj],
   ["generated iOS plist", plist],

@@ -29,6 +29,26 @@ self_test() (
   fi
   grep -Fq 'archive does not contain exactly one embedded.mobileprovision' <<<"$output" ||
     fail "missing-profile self-test failed for the wrong reason: $output"
+
+  printf 'fixture\n' > "$fixture_dir/root/Payload/ZUULI.app/embedded.mobileprovision"
+  printf 'fixture\n' > "$fixture_dir/root/Payload/ZUULI.app/libapp.a"
+  fixture_ipa="$fixture_dir/static-archive.ipa"
+  (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
+  if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "static-archive self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a forbidden static archive' <<<"$output" ||
+    fail "static-archive self-test failed for the wrong reason: $output"
+
+  rm "$fixture_dir/root/Payload/ZUULI.app/libapp.a"
+  printf '\317\372\355\376\014\000\000\001' > "$fixture_dir/root/Payload/ZUULI.app/Sidecar"
+  fixture_ipa="$fixture_dir/root-binary.ipa"
+  (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
+  if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "root-binary self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a forbidden root binary' <<<"$output" ||
+    fail "root-binary self-test failed for the wrong reason: $output"
 )
 
 darwin_self_test() (
@@ -95,6 +115,20 @@ done < <(
 [[ ${#app_roots[@]} -eq 1 ]] ||
   fail "archive must contain exactly one top-level Payload app, found ${#app_roots[@]}"
 app_root=${app_roots[0]}
+app_prefix="$app_root/"
+forbidden_static_archive=$(awk -v prefix="$app_prefix" '
+  index($0, prefix) == 1 && $0 ~ /\.a$/ { print; exit }
+' <<<"$archive_listing")
+[[ -z "$forbidden_static_archive" ]] ||
+  fail "app bundle contains a forbidden static archive: $forbidden_static_archive"
+forbidden_root_library=$(awk -v prefix="$app_prefix" '
+  index($0, prefix) == 1 {
+    relative = substr($0, length(prefix) + 1)
+    if (relative !~ /\// && relative ~ /\.(dylib|so)$/) { print; exit }
+  }
+' <<<"$archive_listing")
+[[ -z "$forbidden_root_library" ]] ||
+  fail "app bundle contains a forbidden root binary: $forbidden_root_library"
 embedded_archive_path="$app_root/embedded.mobileprovision"
 embedded_count=$(grep -Fxc "$embedded_archive_path" <<<"$archive_listing" || true)
 [[ "$embedded_count" -eq 1 ]] ||
@@ -108,6 +142,13 @@ embedded_profile="$app/embedded.mobileprovision"
 [[ -d "$app" && ! -L "$app" ]] || fail "app bundle is not a regular directory"
 [[ -f "$embedded_profile" && ! -L "$embedded_profile" ]] ||
   fail "embedded provisioning profile is not a regular file"
+while IFS= read -r -d '' root_file; do
+  [[ "$(basename -- "$root_file")" == ZUULI ]] && continue
+  file_kind=$(/usr/bin/file -b "$root_file") || fail "unable to inspect app root file"
+  if [[ "$file_kind" == *Mach-O* || "$file_kind" == *"ar archive"* ]]; then
+    fail "app bundle contains a forbidden root binary: $(basename -- "$root_file")"
+  fi
+done < <(find "$app" -maxdepth 1 -type f -print0)
 cmp -s "$expected_profile" "$embedded_profile" ||
   fail "embedded provisioning profile differs from the protected input"
 
