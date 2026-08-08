@@ -77,6 +77,7 @@ const androidToolchain = read("scripts/android-toolchain-env.sh");
 const gemLock = read("Gemfile.lock");
 const mobileRelease = read("scripts/mobile-release.sh");
 const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
+const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
 
 expect("package.json version", packageJson.version, release.version);
 expect("package-lock.json version", packageLock.version, release.version);
@@ -188,6 +189,41 @@ if (!pbxproj.includes('CODE_SIGN_IDENTITY = "Apple Distribution";'))
   );
 if (!pbxproj.includes('PROVISIONING_PROFILE_SPECIFIER = "ZUULI App Store CI";'))
   failures.push("generated Xcode release provisioning profile is not pinned");
+expect(
+  "XcodeGen link-only Rust archive dependency count",
+  (
+    project.match(
+      /^[ \t]*-[ \t]+framework:[ \t]+libapp\.a[ \t]*\n[ \t]+embed:[ \t]+false[ \t]*$/gm,
+    ) ?? []
+  ).length,
+  1,
+);
+expect(
+  "XcodeGen Rust archive source-tree count",
+  (project.match(/^[ \t]*-[ \t]+path:[ \t]+Externals[ \t]*$/gm) ?? [])
+    .length,
+  0,
+);
+expect(
+  "generated Xcode Rust archive framework-phase count",
+  occurrenceCount(pbxproj, "libapp.a in Frameworks"),
+  2,
+);
+expect(
+  "generated Xcode Rust archive resource-phase count",
+  occurrenceCount(pbxproj, "libapp.a in Resources"),
+  0,
+);
+expect(
+  "generated Xcode Rust archive total build-phase label count",
+  occurrenceCount(pbxproj, "libapp.a in "),
+  2,
+);
+expect(
+  "generated Xcode Rust archive file-reference count",
+  occurrenceCount(pbxproj, "/* libapp.a */ = {isa = PBXFileReference;"),
+  1,
+);
 for (const [label, contents] of [
   ["generated Xcode project", pbxproj],
   ["generated iOS plist", plist],
@@ -486,6 +522,26 @@ if (
 ) {
   failures.push(
     "iOS release must prepare signing keys, build, normalize, inspect the IPA, then validate and upload with Apple",
+  );
+}
+const unsignedIosBuild = packagingWorkflow.indexOf(
+  "./node_modules/.bin/tauri ios build --ci --no-sign",
+);
+const unsignedIosInspection = packagingWorkflow.indexOf(
+  'scripts/verify-ios-ipa.sh --verify-app-structure "${apps[0]}"',
+);
+const unsignedIosCollection = packagingWorkflow.indexOf(
+  "- name: Collect unsigned package",
+);
+if (
+  unsignedIosBuild === -1 ||
+  unsignedIosInspection === -1 ||
+  unsignedIosCollection === -1 ||
+  unsignedIosBuild > unsignedIosInspection ||
+  unsignedIosInspection > unsignedIosCollection
+) {
+  failures.push(
+    "unsigned iOS packaging must build, inspect the app structure, then collect the artifact",
   );
 }
 for (const target of [

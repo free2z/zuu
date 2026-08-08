@@ -230,6 +230,17 @@ jobs:
         # A device archive has the same Rust target as TestFlight. It remains
         # unsigned and this job receives no Apple credentials.
         run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64 -- --locked
+      - name: Verify unsigned iOS bundle structure
+        run: |
+          apps=()
+          while IFS= read -r -d '' app; do apps+=("$app"); done < <(
+            find src-tauri/gen/apple/build -type d -name 'ZUULI.app' -print0
+          )
+          [[ ${#apps[@]} -eq 1 ]] || {
+            echo "expected exactly one unsigned iOS app, found ${#apps[@]}" >&2
+            exit 1
+          }
+          scripts/verify-ios-ipa.sh --verify-app-structure "${apps[0]}"
       - name: Verify post-build iOS project reproducibility
         run: |
           node scripts/normalize-generated-ios-project.mjs

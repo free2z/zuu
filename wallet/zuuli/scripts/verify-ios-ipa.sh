@@ -15,12 +15,55 @@ cleanup_directory() {
   find "$directory" -depth -delete 2>/dev/null || true
 }
 
+is_allowed_bundle_binary() {
+  local relative=$1
+  case "$relative" in
+    ZUULI | Frameworks/*.framework/* | Frameworks/*.dylib | Frameworks/*.so | \
+      PlugIns/*.appex/* | Extensions/*.appex/* | Watch/*.app/* | AppClips/*.app/* | \
+      XPCServices/*.xpc/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+verify_app_structure() {
+  local app=$1 bundle_entry bundle_file relative file_kind main_kind
+  [[ -d "$app" && ! -L "$app" ]] || fail "app bundle is not a regular directory"
+  [[ -f "$app/ZUULI" && ! -L "$app/ZUULI" ]] ||
+    fail "app bundle main executable is not a regular file"
+  main_kind=$(/usr/bin/file -b "$app/ZUULI") ||
+    fail "unable to inspect app bundle main executable"
+  [[ "$main_kind" == *Mach-O* ]] || fail "app bundle main executable is not Mach-O"
+  while IFS= read -r -d '' bundle_entry; do
+    relative=${bundle_entry#"$app/"}
+    if [[ -L "$bundle_entry" || (! -d "$bundle_entry" && ! -f "$bundle_entry") ]]; then
+      fail "app bundle contains a non-regular entry: $relative"
+    fi
+  done < <(find "$app" -mindepth 1 -print0)
+  while IFS= read -r -d '' bundle_file; do
+    relative=${bundle_file#"$app/"}
+    if [[ "$relative" == *.a ]]; then
+      fail "app bundle contains a forbidden static archive: $relative"
+    fi
+    file_kind=$(/usr/bin/file -b "$bundle_file") ||
+      fail "unable to inspect app bundle file: $relative"
+    if [[ "$file_kind" == *"ar archive"* ]]; then
+      fail "app bundle contains a forbidden static archive binary: $relative"
+    fi
+    if [[ "$file_kind" == *Mach-O* ]] && ! is_allowed_bundle_binary "$relative"; then
+      fail "app bundle contains a forbidden standalone binary: $relative"
+    fi
+  done < <(find "$app" -type f -print0)
+}
+
 self_test() (
-  local fixture_dir fixture_ipa output
+  local fixture_app fixture_dir fixture_ipa output
   fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-ipa-self-test.XXXXXX")
   trap 'cleanup_directory "$fixture_dir"' EXIT
-  mkdir -p "$fixture_dir/root/Payload/ZUULI.app"
-  printf 'fixture\n' > "$fixture_dir/root/Payload/ZUULI.app/ZUULI"
+  fixture_app="$fixture_dir/root/Payload/ZUULI.app"
+  mkdir -p "$fixture_app"
+  printf '\317\372\355\376\014\000\000\001' > "$fixture_app/ZUULI"
   printf 'fixture\n' > "$fixture_dir/expected.mobileprovision"
   fixture_ipa="$fixture_dir/missing-profile.ipa"
   (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
@@ -29,6 +72,57 @@ self_test() (
   fi
   grep -Fq 'archive does not contain exactly one embedded.mobileprovision' <<<"$output" ||
     fail "missing-profile self-test failed for the wrong reason: $output"
+
+  printf 'fixture\n' > "$fixture_app/embedded.mobileprovision"
+  printf 'fixture\n' > "$fixture_app/libapp.a"
+  fixture_ipa="$fixture_dir/static-archive.ipa"
+  (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
+  if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "static-archive self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a forbidden static archive' <<<"$output" ||
+    fail "static-archive self-test failed for the wrong reason: $output"
+
+  rm "$fixture_app/libapp.a"
+  printf '\317\372\355\376\014\000\000\001' > "$fixture_app/Sidecar"
+  fixture_ipa="$fixture_dir/root-binary.ipa"
+  (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
+  if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "root-binary self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a forbidden standalone binary: Sidecar' <<<"$output" ||
+    fail "root-binary self-test failed for the wrong reason: $output"
+
+  mkdir "$fixture_app/assets"
+  mv "$fixture_app/Sidecar" "$fixture_app/assets/Sidecar"
+  fixture_ipa="$fixture_dir/nested-binary.ipa"
+  (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
+  if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "nested-binary self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a forbidden standalone binary: assets/Sidecar' <<<"$output" ||
+    fail "nested-binary self-test failed for the wrong reason: $output"
+
+  rm "$fixture_app/assets/Sidecar"
+  printf '!<arch>\n' > "$fixture_app/assets/archive-data"
+  fixture_ipa="$fixture_dir/renamed-static-archive.ipa"
+  (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
+  if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "renamed-static-archive self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a forbidden static archive binary: assets/archive-data' <<<"$output" ||
+    fail "renamed-static-archive self-test failed for the wrong reason: $output"
+
+  rm "$fixture_app/assets/archive-data"
+  "$script_path" --verify-app-structure "$fixture_app" ||
+    fail "clean app-structure self-test unexpectedly failed"
+
+  ln -s ZUULI "$fixture_app/linked-binary"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "symlink self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a non-regular entry: linked-binary' <<<"$output" ||
+    fail "symlink self-test failed for the wrong reason: $output"
 )
 
 darwin_self_test() (
@@ -60,6 +154,12 @@ fi
 if [[ "${1:-}" == --self-test-darwin ]]; then
   [[ $# -eq 1 ]] || fail "--self-test-darwin takes no additional arguments"
   darwin_self_test
+  exit 0
+fi
+
+if [[ "${1:-}" == --verify-app-structure ]]; then
+  [[ $# -eq 2 ]] || fail "--verify-app-structure requires exactly one app path"
+  verify_app_structure "$2"
   exit 0
 fi
 
@@ -105,7 +205,7 @@ trap 'cleanup_directory "$inspect_dir"' EXIT
 /usr/bin/unzip -q "$ipa" -d "$inspect_dir"
 app="$inspect_dir/$app_root"
 embedded_profile="$app/embedded.mobileprovision"
-[[ -d "$app" && ! -L "$app" ]] || fail "app bundle is not a regular directory"
+verify_app_structure "$app"
 [[ -f "$embedded_profile" && ! -L "$embedded_profile" ]] ||
   fail "embedded provisioning profile is not a regular file"
 cmp -s "$expected_profile" "$embedded_profile" ||

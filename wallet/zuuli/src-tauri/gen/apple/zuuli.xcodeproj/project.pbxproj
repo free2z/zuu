@@ -19,7 +19,6 @@
 		D4F951D673376126CE43FFAC /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 53135BE9E6C5277EB10DCCAB /* main.mm */; };
 		EF1033B3BCF4333F214CD239 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF50730DDEE9C016587C33C8 /* UIKit.framework */; };
 		FAC5E5B9C30B29BDDAF05E1E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 00273035D6BF322ED673A7A7 /* LaunchScreen.storyboard */; };
-		FEB4633D9B5302D8A1E7DE89 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 895018E8D7EB83F50A3788B2 /* libapp.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,7 +31,6 @@
 		759DD8A882A530239EF1E304 /* zuuli_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = zuuli_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		77F42168F58D14ADCE84DD98 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		79A6AC0BBBECBC836243B2A2 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
-		895018E8D7EB83F50A3788B2 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		8E2241BC3BAC928AEA585784 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		9B15EF6F08F4C43D51A325CA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		A0DC69B5F5D0C4B020198D94 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -81,14 +79,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		14892246B7815CA438A147EC /* Externals */ = {
-			isa = PBXGroup;
-			children = (
-				99EBA03AB175C293A205632C /* arm64 */,
-			);
-			path = Externals;
-			sourceTree = "<group>";
-		};
 		3C5E39E543F32DA41F2C6963 /* src */ = {
 			isa = PBXGroup;
 			children = (
@@ -98,14 +88,6 @@
 			);
 			name = src;
 			path = ../../src;
-			sourceTree = "<group>";
-		};
-		570D646A14CDC4502E15C81E /* release */ = {
-			isa = PBXGroup;
-			children = (
-				895018E8D7EB83F50A3788B2 /* libapp.a */,
-			);
-			path = release;
 			sourceTree = "<group>";
 		};
 		651D4A879A200EBC89CC2D3D /* bindings */ = {
@@ -122,14 +104,6 @@
 				D7C323E050A672F07EC2508F /* zuuli */,
 			);
 			path = Sources;
-			sourceTree = "<group>";
-		};
-		99EBA03AB175C293A205632C /* arm64 */ = {
-			isa = PBXGroup;
-			children = (
-				570D646A14CDC4502E15C81E /* release */,
-			);
-			path = arm64;
 			sourceTree = "<group>";
 		};
 		A2ADBE166F291E3DA7EA1D86 /* Frameworks */ = {
@@ -162,20 +136,12 @@
 				6BAF0CAD6D6AB94CAB16251E /* assets */,
 				A0DC69B5F5D0C4B020198D94 /* Assets.xcassets */,
 				00273035D6BF322ED673A7A7 /* LaunchScreen.storyboard */,
-				14892246B7815CA438A147EC /* Externals */,
 				797F2FB502FD39B9A9FDD95D /* Sources */,
 				3C5E39E543F32DA41F2C6963 /* src */,
 				00DEF184AA79D7159DC00C8B /* zuuli_iOS */,
 				A2ADBE166F291E3DA7EA1D86 /* Frameworks */,
 				0EDEDC95DA795B7BF5E0D308 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		"TEMP_3DB7166F-B106-41A0-A2C4-27870FF810F3" /* x86_64 */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = x86_64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -242,7 +208,6 @@
 				87F0E2CFE7042521EF298841 /* Assets.xcassets in Resources */,
 				FAC5E5B9C30B29BDDAF05E1E /* LaunchScreen.storyboard in Resources */,
 				61596CE92793FA64110C7451 /* assets in Resources */,
-				FEB4633D9B5302D8A1E7DE89 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
