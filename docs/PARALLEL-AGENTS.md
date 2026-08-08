@@ -41,11 +41,19 @@ that only ever moves forward, and every change carries a reviewable PR trail.
 6. **Partition file surfaces** across concurrent tasks so parallel PRs don't collide. Sequence dependent work; land shared/foundational changes first.
 7. **Clean up immediately after merge.** Before removal, verify all of these:
 
-   - Record the PR's `headRefName` as `B` and `headRefOid` as `H`. Require
-     GitHub to report the PR merged, `git branch --show-current` to equal `B`,
-     and both `git rev-parse HEAD` and `git rev-parse refs/heads/$B` to equal
-     `H`. A clean worktree alone does not detect the wrong branch, unpushed or
-     post-PR commits, and squash-merging breaks normal ancestry checks.
+   - Record the PR's `headRefName` as `B`, `headRefOid` as `H`, and merge-commit
+     OID as `M`. Require GitHub to report that the PR merged into `main` in the
+     repository configured as `origin`. Fetch `origin`, then require `M` to be
+     an ancestor of `origin/main`, `git branch --show-current` to equal `B`, and
+     both `git rev-parse HEAD` and `git rev-parse "refs/heads/$B"` to equal
+     `H`. A clean worktree alone does not detect the wrong PR or branch,
+     unpushed or post-PR commits, and squash-merging breaks normal ancestry
+     checks.
+   - Inspect both `git reflog show HEAD` and
+     `git reflog show "refs/heads/$B"`. Before removing either recovery log,
+     preserve every commit worth keeping on a ref pushed to a durable remote;
+     if any reflog entry's disposition is uncertain, stop and ask the owner.
+     Never rely on these reflogs remaining available after cleanup.
    - `git status --short --untracked-files=all --ignore-submodules=none` is
      empty, then inspect the same command with `--ignored=matching`. These
      explicit options prevent user configuration from hiding files without
@@ -60,10 +68,10 @@ that only ever moves forward, and every change carries a reviewable PR trail.
      files or per-worktree Git metadata inside submodules.
 
    Then remove the worktree and atomically delete its local branch with
-   `git update-ref -d refs/heads/$B $H` (squash merges make `git branch -d`
+   `git update-ref -d "refs/heads/$B" "$H"` (squash merges make `git branch -d`
    reject it). If the remote branch still exists, delete it only with the
    verified lease:
-   `git push --force-with-lease=refs/heads/$B:$H origin :refs/heads/$B`.
+   `git push --force-with-lease="refs/heads/$B:$H" origin ":refs/heads/$B"`.
    Finish with `git worktree prune` and `git fetch --prune`. Any name/OID
    mismatch or lease rejection means stop and investigate; another commit may
    need preserving. Never run `git submodule deinit` during cleanup: submodule
