@@ -1,8 +1,8 @@
 # Releasing ZUULI
 
 ZUULI ships from one reviewed commit under one immutable identity. The current
-identity is `0.1.0+4`: marketing version `0.1.0`, Apple build `4`, Android
-`versionCode` `4`, and package/bundle identifier `cash.free2z.zuuli`.
+identity is `0.1.0+5`: marketing version `0.1.0`, Apple build `5`, Android
+`versionCode` `5`, and package/bundle identifier `cash.free2z.zuuli`.
 
 `release.json` is the source of truth. `npm run release:verify` fails if the npm,
 Cargo, Tauri, generated Xcode, or generated Gradle representation disagrees.
@@ -198,7 +198,7 @@ must both be confirmed:
 
 ```bash
 export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
-export ZUULI_CONFIRM_UPLOAD=0.1.0+4
+export ZUULI_CONFIRM_UPLOAD=0.1.0+5
 scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
@@ -265,9 +265,11 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    Build `0.1.0+1` established the first Play internal release, and `0.1.0+2`
    confirmed repeatable Play delivery. Build `0.1.0+3` also reached Play
    internal, while its iOS job stopped before upload in Tauri's PKCS#12 import
-   path. Build `0.1.0+4` is the first automatic mobile store run with the
-   verified signing keychain reuse workaround, fail-closed IPA verification,
-   and corrected shared Rust caches.
+   path. Build `0.1.0+4` proved the verified signing-keychain workaround by
+   signing and exporting the iOS IPA, and it reached Play internal. Its iOS job
+   stopped before verification/upload on a generated-plist ordering diff.
+   Build `0.1.0+5` is the canonical-plist retry; it retains fail-closed IPA
+   verification and the corrected shared Rust caches.
 4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and

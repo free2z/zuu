@@ -230,6 +230,14 @@ jobs:
         # A device archive has the same Rust target as TestFlight. It remains
         # unsigned and this job receives no Apple credentials.
         run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64 -- --locked
+      - name: Verify post-build iOS project reproducibility
+        run: |
+          node scripts/normalize-generated-ios-project.mjs
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git status --short
+            git diff
+            exit 1
+          fi
       - name: Collect unsigned package
         run: |
           mkdir release-artifacts
