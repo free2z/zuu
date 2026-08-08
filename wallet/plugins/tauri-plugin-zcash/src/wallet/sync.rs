@@ -123,6 +123,11 @@ pub async fn start_sync<R: Runtime>(
     app: AppHandle<R>,
     state: &WalletState,
 ) -> Result<()> {
+    if state.shutting_down.load(Ordering::Acquire) {
+        return Err(Error::Other(
+            "application is shutting down; refusing to start wallet sync".into(),
+        ));
+    }
     if !state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
     }

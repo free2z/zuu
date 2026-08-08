@@ -12,7 +12,7 @@ pub mod sync;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use secrecy::SecretVec;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
 use zeroize::Zeroizing;
@@ -48,6 +48,10 @@ pub struct WalletState {
     pub lightwalletd_url: RwLock<String>,
     pub sync_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub syncing: Arc<RwLock<bool>>,
+    /// Set synchronously when Tauri begins application shutdown. Transition
+    /// recovery must never launch a replacement background task after this
+    /// boundary.
+    pub shutting_down: Arc<AtomicBool>,
     pub last_known_chain_tip: Arc<AtomicU64>,
     /// Most recent sync error, shared between the background sync task (writer)
     /// and the `get_sync_status` command (reader). `None` once a pass succeeds.
@@ -164,6 +168,7 @@ impl WalletState {
             ),
             sync_handle: Mutex::new(None),
             syncing: Arc::new(RwLock::new(false)),
+            shutting_down: Arc::new(AtomicBool::new(false)),
             last_known_chain_tip: Arc::new(AtomicU64::new(0)),
             last_sync_error: Arc::new(RwLock::new(None)),
             wallet_transition: Arc::new(Mutex::new(())),

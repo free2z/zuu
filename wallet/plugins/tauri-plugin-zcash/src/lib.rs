@@ -2,6 +2,7 @@ use tauri::{
     plugin::{Builder, TauriPlugin},
     Manager, Runtime,
 };
+use std::sync::atomic::Ordering;
 
 pub use models::*;
 
@@ -94,6 +95,15 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             Ok(())
         })
         .on_event(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                app.zcash()
+                    .state
+                    .shutting_down
+                    .store(true, Ordering::Release);
+            }
             let must_lock = matches!(
                 event,
                 tauri::RunEvent::Exit
