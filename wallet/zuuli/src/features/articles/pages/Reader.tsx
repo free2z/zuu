@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUp, Clock, Newspaper } from "lucide-react";
-import { toast } from "sonner";
+import { ArrowLeft, Clock, Newspaper } from "lucide-react";
 import {
   Avatar,
   AvatarFallback,
@@ -17,6 +16,7 @@ import { initials } from "@/lib/format";
 import type { Article } from "@/lib/api/types";
 import { TipDialog } from "../components/TipDialog";
 import { CommentsSection } from "../components/Comments";
+import { ArticleScore } from "../components/ArticleScore";
 import { coverGradient, formatPublished } from "../lib";
 
 type Status = "loading" | "ready" | "missing";
@@ -25,10 +25,6 @@ export function Reader() {
   const { slug } = useParams<{ slug: string }>();
   const [article, setArticle] = useState<Article | null>(null);
   const [status, setStatus] = useState<Status>("loading");
-
-  // Local, optimistic upvote state (no vote endpoint in the contract).
-  const [votes, setVotes] = useState(0);
-  const [voted, setVoted] = useState(false);
 
   useEffect(() => {
     if (!slug) {
@@ -42,8 +38,6 @@ export function Reader() {
       .then((a) => {
         if (!alive) return;
         setArticle(a);
-        setVotes(a.votes ?? 0);
-        setVoted(false);
         setStatus("ready");
       })
       .catch(() => {
@@ -53,15 +47,6 @@ export function Reader() {
       alive = false;
     };
   }, [slug]);
-
-  function toggleUpvote() {
-    setVoted((prev) => {
-      const next = !prev;
-      setVotes((v) => v + (next ? 1 : -1));
-      if (next) toast.success("Thanks for the upvote");
-      return next;
-    });
-  }
 
   if (status === "loading") {
     return <ReaderSkeleton />;
@@ -173,15 +158,7 @@ export function Reader() {
       {/* Sticky action bar */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
-          <Button
-            variant={voted ? "default" : "outline"}
-            onClick={toggleUpvote}
-            aria-pressed={voted}
-            aria-label={voted ? "Remove upvote" : "Upvote this article"}
-          >
-            <ArrowUp className="h-4 w-4" aria-hidden />
-            <span className="tabular-nums">{votes}</span>
-          </Button>
+          <ArticleScore score={article.votes ?? 0} />
           <TipDialog author={author} />
         </div>
       </div>
