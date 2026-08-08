@@ -75,6 +75,19 @@ function App() {
       {showNav && <SyncBar syncStatus={syncStatus} />}
 
       <main id="main-content" className={`flex-1 overflow-y-auto ${showNav ? "pb-16 md:pb-0" : ""}`}>
+        {walletStatus?.legacyAppData?.state === "importPending" && (
+          <div
+            role="status"
+            aria-label="Preserved legacy wallet"
+            className="bg-amber-900/25 border-b border-amber-700/40 px-4 py-3"
+          >
+            <p className="text-amber-300 text-sm font-medium">Earlier wallet preserved</p>
+            <p className="text-amber-200/70 text-xs mt-1">
+              {walletStatus.legacyAppData.diagnostic ??
+                "An earlier ZUULI wallet remains safely preserved. This app opened only the current wallet; explicit import is pending."}
+            </p>
+          </div>
+        )}
         {walletStatus?.cleanup &&
           (walletStatus.cleanup.pendingOperations > 0 ||
             walletStatus.cleanup.blockedOperations > 0 ||

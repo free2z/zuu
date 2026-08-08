@@ -58,12 +58,14 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
     Ok(Zcash {
         _app: app.clone(),
         state,
+        legacy_app_data: migration.into(),
     })
 }
 
 pub struct Zcash<R: Runtime> {
     pub _app: AppHandle<R>,
     pub state: WalletState,
+    pub legacy_app_data: crate::models::LegacyAppDataStatus,
 }
 
 struct MobileSecretStore<R: Runtime>(PluginHandle<R>);

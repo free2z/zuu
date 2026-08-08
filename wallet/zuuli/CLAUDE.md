@@ -59,9 +59,11 @@ packaging canary deliberately skips Rust caches to retain clean-build evidence.
 
 `cash.free2z.zuuli` replaces the unreleased `com.2zinc.zuuli` identifier.
 The Zcash plugin migrates reachable legacy application data before wallet state
-initialization. It fails closed on two wallet identities while quarantining a
-canonical tree that contains only state from the pre-migration build. Preserve
-the atomic cutover and mobile sandbox constraints documented in
+initialization. It removes only a proven-empty canonical directory. When both
+trees contain data it opens canonical state, preserves legacy state byte-for-byte,
+and surfaces an explicit import-pending diagnostic; it never implicitly merges,
+deletes, or quarantines either populated identity. Preserve the atomic cutover
+and mobile sandbox constraints documented in
 [`docs/app-data-identifier-migration.md`](docs/app-data-identifier-migration.md);
 never merge two identity directories or add an insecure mobile import path.
 

@@ -26,6 +26,7 @@ const LEGACY_IDENTIFIER: &str = "com.2zinc.zuuli";
 const CANONICAL_IDENTIFIER: &str = "cash.free2z.zuuli";
 const JOURNAL_FILENAME: &str = ".zuuli-migration-com.2zinc.zuuli-to-cash.free2z.zuuli.json";
 const JOURNAL_TEMP_PREFIX: &str = ".zuuli-migration-prepared-";
+#[cfg(test)]
 const DISPLACED_CANONICAL_FILENAME: &str = ".cash.free2z.zuuli-before-legacy-migration";
 const PROTOCOL_VERSION: u8 = 1;
 
@@ -38,6 +39,10 @@ pub(crate) enum MigrationOutcome {
     AlreadyCanonical,
     Migrated,
     Recovered,
+    /// Both identifier directories contain state. The canonical tree is safe
+    /// to open, while the legacy tree remains byte-for-byte untouched until a
+    /// separate, explicit import flow is available.
+    LegacyImportPending,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -47,11 +52,6 @@ pub(crate) enum MigrationError {
 
     #[error("legacy app-data migration state is invalid: {0}")]
     InvalidState(String),
-
-    #[error(
-        "legacy and canonical ZUULI app-data directories both exist; refusing to overwrite or mix wallet identities"
-    )]
-    Conflict,
 }
 
 pub(crate) fn is_zuuli_identifier(application_identifier: &str) -> bool {
@@ -139,50 +139,64 @@ where
     let mut source_exists = path_exists_no_follow(source)?;
     let mut destination_exists = path_exists_no_follow(destination)?;
 
-    // A canonical-ID build existed briefly before this migration shipped. It
-    // may have created only an empty directory or WebView/session state while
-    // the real wallet remained under the legacy ID. Preserve that non-wallet
-    // tree under a fixed quarantine name, then atomically give the canonical
-    // path to the legacy wallet. A destination containing any wallet identity
-    // marker is a real conflict and is never displaced.
+    // A canonical-ID build may have created the destination before this
+    // migration shipped. Only an actually empty canonical directory may be
+    // removed. Any content means the canonical identity is authoritative for
+    // startup: preserve both trees and surface an explicit import-pending
+    // diagnostic instead of aborting plugin initialization or guessing which
+    // wallet the user intended.
     if source_exists && destination_exists {
+        validate_tree(destination)?;
+        let Some(destination_identity) = empty_directory_identity(destination)? else {
+            if had_journal {
+                // With both named trees still present and no displaced tree,
+                // no directory transition occurred. Retire a prepared journal
+                // before opening canonical state so future launches do not
+                // misclassify this deliberate preserved conflict as recovery.
+                finish_journal(&journal_path, parent)?;
+            }
+            return Ok(MigrationOutcome::LegacyImportPending);
+        };
+        // Validate the legacy payload before making the only destructive
+        // change allowed by this protocol: removing the empty canonical shell.
+        // A quarantine artifact from the superseded migration protocol is
+        // deliberately irrelevant here: this protocol never writes that path,
+        // and preserving it in place lets an interrupted old migration resume.
         validate_tree(source)?;
-        validate_root(destination)?;
-        if contains_wallet_identity(destination)? {
-            return Err(MigrationError::Conflict);
-        }
-        let displaced = parent.join(DISPLACED_CANONICAL_FILENAME);
-        if path_exists_no_follow(&displaced)? {
-            return Err(MigrationError::InvalidState(
-                "pre-migration canonical-data quarantine already exists".to_owned(),
-            ));
-        }
         if !had_journal {
             install_journal(parent, &journal_path)?;
             had_journal = true;
             hook(MigrationStep::JournalPrepared)?;
         }
-        if let Err(error) = rename_no_replace(destination, &displaced) {
-            let destination_remains = path_exists_no_follow(destination)?;
-            let displaced_exists = path_exists_no_follow(&displaced)?;
-            if destination_remains && !displaced_exists {
+
+        match remove_empty_directory_unchanged(destination, destination_identity) {
+            Ok(()) => {}
+            Err(RemoveEmptyDirectoryError::NotEmpty) => {
+                // A file appeared after preflight. Nothing was removed; retire
+                // the journal and launch canonical state with an import notice.
+                validate_tree(destination)?;
                 finish_journal(&journal_path, parent)?;
-                return Err(error.into());
+                return Ok(MigrationOutcome::LegacyImportPending);
             }
-            if destination_remains || !displaced_exists {
-                return Err(MigrationError::InvalidState(
-                    "canonical-data quarantine rename ended ambiguously".to_owned(),
-                ));
+            Err(RemoveEmptyDirectoryError::InvalidState(reason)) => {
+                return Err(MigrationError::InvalidState(reason));
             }
+            Err(RemoveEmptyDirectoryError::Io(error)) => return Err(error.into()),
         }
         sync_directory(parent)?;
-        hook(MigrationStep::CanonicalDisplaced)?;
+        hook(MigrationStep::CanonicalRemoved)?;
         source_exists = path_exists_no_follow(source)?;
         destination_exists = path_exists_no_follow(destination)?;
     }
 
     match (source_exists, destination_exists) {
-        (true, true) => return Err(MigrationError::Conflict),
+        // A peer may have populated the destination after our empty-directory
+        // removal. The later no-replace rename also protects this boundary,
+        // but reaching it here is already enough to preserve both identities.
+        (true, true) => {
+            validate_tree(destination)?;
+            return Ok(MigrationOutcome::LegacyImportPending);
+        }
         (false, false) if had_journal => {
             return Err(MigrationError::InvalidState(
                 "prepared migration lost both source and destination".to_owned(),
@@ -222,7 +236,9 @@ where
             let source_remains = path_exists_no_follow(source)?;
             let destination_now_exists = path_exists_no_follow(destination)?;
             if source_remains && destination_now_exists {
-                return Err(MigrationError::Conflict);
+                validate_tree(destination)?;
+                finish_journal(&journal_path, parent)?;
+                return Ok(MigrationOutcome::LegacyImportPending);
             }
             if source_remains || !destination_now_exists {
                 return Err(error.into());
@@ -251,7 +267,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MigrationStep {
     JournalPrepared,
-    CanonicalDisplaced,
+    CanonicalRemoved,
     DirectoryRenamed,
     JournalRemoved,
 }
@@ -275,24 +291,228 @@ fn path_exists_no_follow(path: &Path) -> Result<bool, MigrationError> {
     }
 }
 
-fn contains_wallet_identity(root: &Path) -> Result<bool, MigrationError> {
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if name == "wallets.json"
-            || name == ".seeds"
-            || name == "wallet.sqlite"
-            || name == "wallet.sqlite-wal"
-            || name == "wallet.sqlite-shm"
-            || (name.starts_with("wallet_") && name.contains(".sqlite"))
-        {
-            return Ok(true);
-        }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DirectoryIdentity {
+    first: u64,
+    second: u64,
+}
+
+fn empty_directory_identity(root: &Path) -> Result<Option<DirectoryIdentity>, MigrationError> {
+    let metadata = validate_root(root)?;
+    if fs::read_dir(root)?.next().transpose()?.is_some() {
+        return Ok(None);
     }
-    Ok(false)
+    Ok(Some(directory_identity(root, &metadata)?))
+}
+
+#[cfg(unix)]
+fn directory_identity(
+    _path: &Path,
+    metadata: &fs::Metadata,
+) -> Result<DirectoryIdentity, MigrationError> {
+    use std::os::unix::fs::MetadataExt;
+
+    Ok(DirectoryIdentity {
+        first: metadata.dev(),
+        second: metadata.ino(),
+    })
+}
+
+#[cfg(windows)]
+fn directory_identity(
+    path: &Path,
+    _metadata: &fs::Metadata,
+) -> Result<DirectoryIdentity, MigrationError> {
+    let information = windows_file_information(path, 0, true)?;
+    Ok(windows_information_identity(&information))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn directory_identity(
+    _path: &Path,
+    _metadata: &fs::Metadata,
+) -> Result<DirectoryIdentity, MigrationError> {
+    Err(MigrationError::InvalidState(
+        "empty-directory migration is unsupported on this platform".to_owned(),
+    ))
+}
+
+#[derive(Debug)]
+enum RemoveEmptyDirectoryError {
+    NotEmpty,
+    InvalidState(String),
+    Io(std::io::Error),
+}
+
+#[cfg(unix)]
+fn remove_empty_directory_unchanged(
+    destination: &Path,
+    expected: DirectoryIdentity,
+) -> Result<(), RemoveEmptyDirectoryError> {
+    use std::ffi::CString;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    let parent = destination.parent().ok_or_else(|| {
+        RemoveEmptyDirectoryError::InvalidState(
+            "canonical app-data directory has no parent directory".to_owned(),
+        )
+    })?;
+    let name = destination.file_name().ok_or_else(|| {
+        RemoveEmptyDirectoryError::InvalidState(
+            "canonical app-data directory has no file name".to_owned(),
+        )
+    })?;
+    let name = CString::new(name.as_bytes()).map_err(|_| {
+        RemoveEmptyDirectoryError::InvalidState(
+            "canonical app-data directory name contains NUL".to_owned(),
+        )
+    })?;
+    let parent = File::open(parent).map_err(RemoveEmptyDirectoryError::Io)?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `parent` remains open, `name` is NUL-terminated, and `stat`
+    // points to writable storage. AT_SYMLINK_NOFOLLOW anchors validation on
+    // the named entry instead of following a racing link.
+    let stat_result = unsafe {
+        libc::fstatat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if stat_result != 0 {
+        return Err(RemoveEmptyDirectoryError::Io(
+            std::io::Error::last_os_error(),
+        ));
+    }
+    // SAFETY: fstatat succeeded and initialized the struct.
+    let stat = unsafe { stat.assume_init() };
+    if stat.st_mode & libc::S_IFMT != libc::S_IFDIR {
+        return Err(RemoveEmptyDirectoryError::InvalidState(
+            "canonical app-data directory changed filesystem type during migration".to_owned(),
+        ));
+    }
+    let actual = DirectoryIdentity {
+        first: stat.st_dev as u64,
+        second: stat.st_ino as u64,
+    };
+    if actual != expected {
+        return Err(RemoveEmptyDirectoryError::InvalidState(
+            "canonical app-data directory identity changed during migration".to_owned(),
+        ));
+    }
+
+    // SAFETY: the parent fd and C string remain valid for the syscall.
+    // AT_REMOVEDIR gives the kernel the final, atomic emptiness check. It can
+    // never recursively delete content and cannot follow a symlink.
+    let result = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if matches!(
+        error.raw_os_error(),
+        Some(libc::ENOTEMPTY) | Some(libc::EEXIST)
+    ) {
+        Err(RemoveEmptyDirectoryError::NotEmpty)
+    } else {
+        Err(RemoveEmptyDirectoryError::Io(error))
+    }
+}
+
+#[cfg(windows)]
+fn remove_empty_directory_unchanged(
+    destination: &Path,
+    expected: DirectoryIdentity,
+) -> Result<(), RemoveEmptyDirectoryError> {
+    use std::mem::size_of;
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_DIR_NOT_EMPTY, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, DELETE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FileDispositionInfo,
+        OPEN_EXISTING, SetFileInformationByHandle,
+    };
+
+    let wide = windows_wide_path(destination);
+    // Omitting FILE_SHARE_DELETE pins the named directory against rename or
+    // replacement while its exact handle is validated and marked for deletion.
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            DELETE | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(RemoveEmptyDirectoryError::Io(
+            std::io::Error::last_os_error(),
+        ));
+    }
+
+    let result = (|| {
+        let information =
+            windows_information_for_handle(handle).map_err(RemoveEmptyDirectoryError::Io)?;
+        if information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
+        {
+            return Err(RemoveEmptyDirectoryError::InvalidState(
+                "canonical app-data directory changed filesystem type during migration".to_owned(),
+            ));
+        }
+        if windows_information_identity(&information) != expected {
+            return Err(RemoveEmptyDirectoryError::InvalidState(
+                "canonical app-data directory identity changed during migration".to_owned(),
+            ));
+        }
+
+        let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+        // SAFETY: the handle is valid and the disposition buffer has the size
+        // and layout required by FileDispositionInfo. The exact open handle is
+        // marked, so a path replacement cannot redirect deletion.
+        let deleted = unsafe {
+            SetFileInformationByHandle(
+                handle,
+                FileDispositionInfo,
+                (&disposition as *const FILE_DISPOSITION_INFO).cast(),
+                size_of::<FILE_DISPOSITION_INFO>() as u32,
+            )
+        };
+        if deleted == 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_DIR_NOT_EMPTY as i32) {
+                Err(RemoveEmptyDirectoryError::NotEmpty)
+            } else {
+                Err(RemoveEmptyDirectoryError::Io(error))
+            }
+        } else {
+            Ok(())
+        }
+    })();
+
+    // SAFETY: CreateFileW returned this handle and it is closed exactly once.
+    let close_result = unsafe { CloseHandle(handle) };
+    if close_result == 0 && result.is_ok() {
+        return Err(RemoveEmptyDirectoryError::Io(
+            std::io::Error::last_os_error(),
+        ));
+    }
+    result
+}
+
+#[cfg(not(any(unix, windows)))]
+fn remove_empty_directory_unchanged(
+    _destination: &Path,
+    _expected: DirectoryIdentity,
+) -> Result<(), RemoveEmptyDirectoryError> {
+    Err(RemoveEmptyDirectoryError::InvalidState(
+        "empty-directory migration is unsupported on this platform".to_owned(),
+    ))
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -545,27 +765,48 @@ fn reject_hard_linked_file(path: &Path, _metadata: &fs::Metadata) -> Result<(), 
 
 #[cfg(windows)]
 fn windows_link_count(path: &Path) -> std::io::Result<u32> {
-    use std::mem::MaybeUninit;
+    Ok(windows_file_information(path, 0, false)?.nNumberOfLinks)
+}
+
+#[cfg(windows)]
+fn windows_wide_path(path: &Path) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle, OPEN_EXISTING,
-    };
 
     let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
     wide.push(0);
+    wide
+}
+
+#[cfg(windows)]
+fn windows_file_information(
+    path: &Path,
+    desired_access: u32,
+    directory: bool,
+) -> std::io::Result<windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+
+    let wide = windows_wide_path(path);
+    let flags = FILE_FLAG_OPEN_REPARSE_POINT
+        | if directory {
+            FILE_FLAG_BACKUP_SEMANTICS
+        } else {
+            0
+        };
     // SAFETY: `wide` is NUL-terminated and valid for this call. Zero desired
     // access is sufficient for metadata queries, and OPEN_REPARSE_POINT keeps
     // the validation anchored on the named object rather than following it.
     let handle = unsafe {
         CreateFileW(
             wide.as_ptr(),
-            0,
+            desired_access,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
-            FILE_FLAG_OPEN_REPARSE_POINT,
+            flags,
             std::ptr::null_mut(),
         )
     };
@@ -573,24 +814,44 @@ fn windows_link_count(path: &Path) -> std::io::Result<u32> {
         return Err(std::io::Error::last_os_error());
     }
 
-    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-    // SAFETY: `handle` is valid and `information` points to writable storage.
-    let result = unsafe { GetFileInformationByHandle(handle, information.as_mut_ptr()) };
-    let query_error = if result == 0 {
-        Some(std::io::Error::last_os_error())
-    } else {
-        None
-    };
+    let information = windows_information_for_handle(handle);
     // SAFETY: The handle was returned by CreateFileW and is closed exactly once.
     let close_result = unsafe { CloseHandle(handle) };
-    if let Some(error) = query_error {
-        return Err(error);
-    }
+    let information = information?;
     if close_result == 0 {
         return Err(std::io::Error::last_os_error());
     }
-    // SAFETY: GetFileInformationByHandle succeeded and initialized the struct.
-    Ok(unsafe { information.assume_init() }.nNumberOfLinks)
+    Ok(information)
+}
+
+#[cfg(windows)]
+fn windows_information_for_handle(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+) -> std::io::Result<windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION> {
+    use std::mem::MaybeUninit;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+
+    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    // SAFETY: `handle` is valid and `information` points to writable storage.
+    let result = unsafe { GetFileInformationByHandle(handle, information.as_mut_ptr()) };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        // SAFETY: GetFileInformationByHandle succeeded and initialized it.
+        Ok(unsafe { information.assume_init() })
+    }
+}
+
+#[cfg(windows)]
+fn windows_information_identity(
+    information: &windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
+) -> DirectoryIdentity {
+    DirectoryIdentity {
+        first: information.dwVolumeSerialNumber as u64,
+        second: ((information.nFileIndexHigh as u64) << 32) | information.nFileIndexLow as u64,
+    }
 }
 
 #[cfg(unix)]
@@ -684,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn populated_destination_conflict_preserves_both_identities_byte_for_byte() {
+    fn populated_destination_launches_canonical_and_preserves_both_identities_byte_for_byte() {
         let fixture = Fixture::new("conflict");
         fixture.write_wallet_payload();
         fs::create_dir(&fixture.destination).expect("create destination");
@@ -694,11 +955,10 @@ mod tests {
         )
         .expect("write canonical manifest");
 
-        let error = fixture
-            .migrate(&mut |_| Ok(()))
-            .expect_err("reject conflict");
-
-        assert!(matches!(error, MigrationError::Conflict));
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("preserve conflict"),
+            MigrationOutcome::LegacyImportPending
+        );
         assert_eq!(
             fs::read(fixture.source.join("wallets.json")).expect("read source"),
             b"manifest"
@@ -710,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_pre_migration_destination_is_preserved_then_legacy_wallet_takes_canonical_path() {
+    fn empty_pre_migration_destination_is_removed_then_legacy_wallet_takes_canonical_path() {
         let fixture = Fixture::new("empty-conflict");
         fixture.write_wallet_payload();
         fs::create_dir(&fixture.destination).expect("create empty destination");
@@ -724,16 +984,11 @@ mod tests {
             fs::read(fixture.destination.join("wallets.json")).expect("read migrated wallet"),
             b"manifest"
         );
-        assert_eq!(
-            fs::read_dir(fixture.root.join(DISPLACED_CANONICAL_FILENAME))
-                .expect("read preserved empty canonical directory")
-                .count(),
-            0
-        );
+        assert!(!fixture.root.join(DISPLACED_CANONICAL_FILENAME).exists());
     }
 
     #[test]
-    fn non_wallet_canonical_state_is_quarantined_without_mixing() {
+    fn any_nonempty_canonical_state_is_preserved_without_mixing() {
         let fixture = Fixture::new("canonical-session");
         fixture.write_wallet_payload();
         fs::create_dir_all(fixture.destination.join("WebView/Local Storage"))
@@ -745,35 +1000,96 @@ mod tests {
         .expect("write canonical session");
 
         assert_eq!(
-            fixture.migrate(&mut |_| Ok(())).expect("migrate wallet"),
-            MigrationOutcome::Migrated
+            fixture.migrate(&mut |_| Ok(())).expect("preserve conflict"),
+            MigrationOutcome::LegacyImportPending
         );
 
         assert_eq!(
-            fs::read(fixture.destination.join("wallets.json")).expect("read migrated wallet"),
+            fs::read(fixture.source.join("wallets.json")).expect("read legacy wallet"),
+            b"manifest",
+        );
+        assert_eq!(
+            fs::read(fixture.destination.join("WebView/Local Storage/token"))
+                .expect("read canonical session"),
+            b"new-id session"
+        );
+        assert!(!fixture.root.join(DISPLACED_CANONICAL_FILENAME).exists());
+    }
+
+    #[test]
+    fn old_quarantine_artifact_cannot_block_populated_canonical_startup() {
+        let fixture = Fixture::new("populated-with-old-quarantine");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create canonical state");
+        fs::write(
+            fixture.destination.join("wallets.json"),
+            b"canonical manifest",
+        )
+        .expect("write canonical manifest");
+        let displaced = fixture.root.join(DISPLACED_CANONICAL_FILENAME);
+        fs::create_dir(&displaced).expect("create old quarantine");
+        fs::write(
+            displaced.join("preserved-session"),
+            b"older canonical state",
+        )
+        .expect("write old quarantine state");
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("open canonical"),
+            MigrationOutcome::LegacyImportPending
+        );
+        assert_eq!(
+            fs::read(fixture.source.join("wallets.json")).expect("read legacy manifest"),
             b"manifest"
         );
         assert_eq!(
-            fs::read(
-                fixture
-                    .root
-                    .join(DISPLACED_CANONICAL_FILENAME)
-                    .join("WebView/Local Storage/token")
-            )
-            .expect("read quarantined session"),
-            b"new-id session"
+            fs::read(fixture.destination.join("wallets.json")).expect("read canonical manifest"),
+            b"canonical manifest"
+        );
+        assert_eq!(
+            fs::read(displaced.join("preserved-session")).expect("read old quarantine"),
+            b"older canonical state"
         );
     }
 
     #[test]
-    fn interruption_after_canonical_quarantine_resumes_without_mixing() {
-        let fixture = Fixture::new("quarantine-interruption");
+    fn interrupted_old_quarantine_migration_resumes_with_empty_canonical_shell() {
+        let fixture = Fixture::new("old-quarantine-empty-canonical");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create empty canonical shell");
+        let displaced = fixture.root.join(DISPLACED_CANONICAL_FILENAME);
+        fs::create_dir(&displaced).expect("create old quarantine");
+        fs::write(
+            displaced.join("preserved-session"),
+            b"older canonical state",
+        )
+        .expect("write old quarantine state");
+        let journal = fixture.root.join(JOURNAL_FILENAME);
+        install_journal(&fixture.root, &journal).expect("install old migration journal");
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("resume migration"),
+            MigrationOutcome::Recovered
+        );
+        assert!(!fixture.source.exists());
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read migrated manifest"),
+            b"manifest"
+        );
+        assert_eq!(
+            fs::read(displaced.join("preserved-session")).expect("read old quarantine"),
+            b"older canonical state"
+        );
+        assert!(!journal.exists());
+    }
+
+    #[test]
+    fn interruption_after_empty_canonical_removal_resumes_without_mixing() {
+        let fixture = Fixture::new("empty-removal-interruption");
         fixture.write_wallet_payload();
         fs::create_dir(&fixture.destination).expect("create canonical state");
-        fs::write(fixture.destination.join("session"), b"canonical session")
-            .expect("write canonical session");
         let mut fail_once = |step| {
-            if step == MigrationStep::CanonicalDisplaced {
+            if step == MigrationStep::CanonicalRemoved {
                 Err(MigrationError::InvalidState("injected stop".to_owned()))
             } else {
                 Ok(())
@@ -783,16 +1099,7 @@ mod tests {
         assert!(fixture.migrate(&mut fail_once).is_err());
         assert!(fixture.source.exists());
         assert!(!fixture.destination.exists());
-        assert_eq!(
-            fs::read(
-                fixture
-                    .root
-                    .join(DISPLACED_CANONICAL_FILENAME)
-                    .join("session")
-            )
-            .expect("read quarantined session"),
-            b"canonical session"
-        );
+        assert!(fixture.root.join(JOURNAL_FILENAME).is_file());
 
         assert_eq!(
             fixture.migrate(&mut |_| Ok(())).expect("resume migration"),
@@ -802,42 +1109,62 @@ mod tests {
             fs::read(fixture.destination.join("wallets.json")).expect("read migrated wallet"),
             b"manifest"
         );
+        assert!(!fixture.root.join(JOURNAL_FILENAME).exists());
     }
 
     #[test]
-    fn interruption_before_canonical_quarantine_resumes_without_mixing() {
-        let fixture = Fixture::new("pre-quarantine-interruption");
+    fn content_added_after_empty_preflight_is_preserved_as_import_pending() {
+        let fixture = Fixture::new("content-race");
         fixture.write_wallet_payload();
         fs::create_dir(&fixture.destination).expect("create canonical state");
-        fs::write(fixture.destination.join("session"), b"canonical session")
-            .expect("write canonical session");
+        let destination = fixture.destination.clone();
         let mut fail_once = |step| {
             if step == MigrationStep::JournalPrepared {
-                Err(MigrationError::InvalidState("injected stop".to_owned()))
-            } else {
-                Ok(())
+                fs::write(destination.join("arrived-during-migration"), b"canonical")?;
             }
+            Ok(())
         };
 
-        assert!(fixture.migrate(&mut fail_once).is_err());
+        assert_eq!(
+            fixture
+                .migrate(&mut fail_once)
+                .expect("preserve racing state"),
+            MigrationOutcome::LegacyImportPending
+        );
         assert!(fixture.source.exists());
         assert!(fixture.destination.exists());
-        assert!(fixture.root.join(JOURNAL_FILENAME).exists());
+        assert_eq!(
+            fs::read(fixture.destination.join("arrived-during-migration"))
+                .expect("read racing state"),
+            b"canonical"
+        );
+        assert!(!fixture.root.join(JOURNAL_FILENAME).exists());
+    }
 
-        assert_eq!(
-            fixture.migrate(&mut |_| Ok(())).expect("resume migration"),
-            MigrationOutcome::Recovered
-        );
-        assert_eq!(
-            fs::read(
-                fixture
-                    .root
-                    .join(DISPLACED_CANONICAL_FILENAME)
-                    .join("session")
-            )
-            .expect("read quarantined session"),
-            b"canonical session"
-        );
+    #[test]
+    fn empty_destination_identity_replacement_fails_closed() {
+        let fixture = Fixture::new("identity-race");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create canonical state");
+        let destination = fixture.destination.clone();
+        let replacement = fixture.root.join("replacement-canonical");
+        fs::create_dir(&replacement).expect("create replacement ahead of race");
+        let mut replace_destination = |step| {
+            if step == MigrationStep::JournalPrepared {
+                fs::remove_dir(&destination).expect("remove preflight destination");
+                fs::rename(&replacement, &destination).expect("install replacement destination");
+            }
+            Ok(())
+        };
+
+        let error = fixture
+            .migrate(&mut replace_destination)
+            .expect_err("reject identity replacement");
+
+        assert!(matches!(error, MigrationError::InvalidState(_)));
+        assert!(fixture.source.exists());
+        assert!(fixture.destination.is_dir());
+        assert!(fixture.root.join(JOURNAL_FILENAME).is_file());
     }
 
     #[test]
@@ -852,11 +1179,12 @@ mod tests {
             Ok(())
         };
 
-        let error = fixture
-            .migrate(&mut create_racing_destination)
-            .expect_err("reject racing destination");
-
-        assert!(matches!(error, MigrationError::Conflict));
+        assert_eq!(
+            fixture
+                .migrate(&mut create_racing_destination)
+                .expect("preserve racing destination"),
+            MigrationOutcome::LegacyImportPending
+        );
         assert_eq!(
             fs::read(fixture.source.join("wallets.json")).expect("read legacy source"),
             b"manifest"
@@ -867,18 +1195,18 @@ mod tests {
                 .count(),
             0
         );
-        assert!(fixture.root.join(JOURNAL_FILENAME).exists());
+        assert!(!fixture.root.join(JOURNAL_FILENAME).exists());
 
         assert_eq!(
             fixture.migrate(&mut |_| Ok(())).expect("resume race"),
-            MigrationOutcome::Recovered
+            MigrationOutcome::Migrated
         );
         assert!(!fixture.source.exists());
         assert_eq!(
             fs::read(fixture.destination.join("wallets.json")).expect("read migrated source"),
             b"manifest"
         );
-        assert!(fixture.root.join(DISPLACED_CANONICAL_FILENAME).is_dir());
+        assert!(!fixture.root.join(DISPLACED_CANONICAL_FILENAME).exists());
     }
 
     #[test]
