@@ -39,7 +39,42 @@ that only ever moves forward, and every change carries a reviewable PR trail.
 4. **CI is the merge gate.** `.github/workflows/zuuli.yml` (and any other required checks) must be green. Never merge red.
 5. **Rebase onto `origin/main` frequently.** Resolve conflicts in the worktree — never on `main`.
 6. **Partition file surfaces** across concurrent tasks so parallel PRs don't collide. Sequence dependent work; land shared/foundational changes first.
-7. **Clean up on merge.** Delete the branch and worktree after merge. Prune stale local branches routinely (`git fetch --prune`, then delete branches whose upstream is `gone`).
+7. **Clean up immediately after merge.** Before removal, verify all of these:
+
+   - GitHub reports the PR merged and local `HEAD` equals that PR's
+     `headRefOid`. A clean worktree alone does not detect unpushed or post-PR
+     commits, and squash-merging breaks normal ancestry checks.
+   - `git status --short --untracked-files=all --ignore-submodules=none` is
+     empty, then inspect the same command with `--ignored=matching`. These
+     explicit options prevent user configuration from hiding files without
+     expanding every file under large ignored build directories. Delete known
+     reproducible output, but preserve local-only data such as `private/`,
+     `.env.local`, and `release-artifacts/` when present.
+   - Within every initialized submodule, recursively run the same tracked,
+     untracked, and ignored-file checks. Verify that its checked-out gitlink
+     commit is fetchable from the configured remote; inspect `git stash list`
+     and local refs, and push every commit worth keeping. Relocate any
+     local-only data before removal: superproject status does not list ignored
+     files or per-worktree Git metadata inside submodules.
+
+   Then remove the worktree, use `git branch -D` to delete its local branch
+   (squash merges make `-d` reject it), and run `git worktree prune` plus
+   `git fetch --prune`. Delete the exact remote worker branch explicitly, then
+   fetch with pruning again. `-D` and remote deletion are allowed only after
+   the `headRefOid` equality check above. Never run `git submodule deinit`
+   during cleanup: submodule
+   registrations live in shared repository configuration, so it can disrupt
+   other active worktrees. Never leave merged Rust/Tauri worktrees retaining
+   `target/`, `node_modules/`, or other reproducible build output. Never use
+   force removal to override a dirty or unmerged worktree. Git may require
+   `git worktree remove --force` solely because a verified-clean worktree
+   contains initialized submodules; use it only after every safety check above
+   passes.
+
+   If any check fails, keep the worktree and inspect its diffs, files, commits,
+   submodules, and PR state. Commit and push useful work, or get the owner's
+   direction before discarding anything. `git worktree prune` removes stale
+   metadata; it does not make a worktree safe to delete.
 
 ## Branch & PR conventions
 - Prefixes: `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `deps/`.

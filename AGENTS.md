@@ -34,6 +34,13 @@ exact cycle:
 5. Local `main` is updated **only** by `git pull --ff-only origin main` in the
    primary working tree. It must ALWAYS equal `origin/main` and must NEVER be
    ahead of the remote.
+6. After the merge is confirmed, promptly remove the worker worktree and local
+   branch, then prune stale worktree and remote-tracking metadata. First verify
+   that local `HEAD` equals the merged PR's head commit and inspect tracked,
+   untracked, and ignored files in both the worktree and every initialized
+   submodule. Preserve anything needed; never use force removal to override
+   dirty or unmerged work. Build-heavy merged worktrees (`target/`,
+   `node_modules/`, etc.) must not be left behind.
 
 **Why this is absolute:** an un-pushed commit on local `main` is not saved —
 `git reset --hard origin/main` or a fresh re-clone silently destroys it, and
