@@ -19,12 +19,14 @@ are commit-SHA pinned. Upgrade these together in a reviewed dependency PR.
 Packaging and protected release share target-specific Rust dependency caches so
 reruns do not rebuild the entire Zcash graph. Cache identity includes the host,
 Rust environment, Cargo manifests/lockfiles, and an explicit Xcode or Android
-NDK/ABI discriminator. Cargo still recompiles changed path dependencies and the
-cache action removes workspace crates and incremental output before saving. The
-current ZUULI crates and final package are therefore rebuilt, while reviewed
-dependency artifacts produced by a credential-free `main` build are reused and
-linked into them. Caches are an optimization, not release evidence or a trust
-substitute; the cache-free canary proves the complete graph from source.
+NDK/ABI discriminator in the action's effective `shared-key`. Cargo validates
+its fingerprints when restored artifacts are used. The action prunes crates in
+the configured `wallet/zuuli/src-tauri` workspace root before saving; path
+dependencies outside that root, including the shared Zcash plugin and vendored
+Zcash crates, may be restored when their fingerprints still match. Every final
+package is freshly produced. Caches are an optimization, not release evidence
+or a trust substitute; the cache-free canary proves the complete graph from
+source.
 
 Only credential-free `ZUULI / packaging smoke` pushes on `main` may save these
 caches. Pull requests and manual runs restore only, preventing large native PR
@@ -41,12 +43,9 @@ the same proof with `cold_rust_cache=true`. Pull-request cache entries are scope
 by GitHub to that PR merge ref; the cache cleanup workflow runs from trusted base
 code when the PR closes and deletes only entries returned for that exact ref. A
 daily recovery sweep handles missed close events and older npm/Gradle entries,
-but deletes
-an entry only after its ref matches `refs/pull/<number>/merge` and GitHub's pull
-request API confirms that exact PR is closed. Where configurable for the
-repository, keep at least 30 GiB of cache capacity while all four release target
-families are active; otherwise eviction only makes a release build cold and must
-never affect correctness.
+but deletes an entry only after its ref matches `refs/pull/<number>/merge` and GitHub's pull
+request API confirms that exact PR is closed. Repository cache eviction may make
+a release build cold, but must never affect correctness.
 
 ## One-time owner bootstrap
 

@@ -10,6 +10,7 @@ on:
       - .gitmodules
       - .github/workflows/zuuli-packaging.yml
       - .github/workflows/zuuli-release.yml
+      - .github/workflows/cache-cleanup.yml
       - .github/actions/zuuli-rust-cache/**
   push:
     branches: [main]
@@ -21,6 +22,7 @@ on:
       - .gitmodules
       - .github/workflows/zuuli-packaging.yml
       - .github/workflows/zuuli-release.yml
+      - .github/workflows/cache-cleanup.yml
       - .github/actions/zuuli-rust-cache/**
   schedule:
     # A weekly cache-free native build proves that warm dependency artifacts
@@ -139,8 +141,7 @@ jobs:
         if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
         uses: ./.github/actions/zuuli-rust-cache
         with:
-          shared-key: zuuli-release-android-universal-v1
-          target-key: rust-${{ env.ZUULI_RUST_VERSION }}-ndk-${{ env.ZUULI_ANDROID_NDK_VERSION }}-api29-aarch64-armv7-i686-x86_64
+          shared-key: zuuli-release-android-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ndk-${{ env.ZUULI_ANDROID_NDK_VERSION }}-api29-aarch64-armv7-i686-x86_64
           save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run release:verify
@@ -211,8 +212,7 @@ jobs:
         if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
         uses: ./.github/actions/zuuli-rust-cache
         with:
-          shared-key: zuuli-release-ios-device-v1
-          target-key: rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device
+          shared-key: zuuli-release-ios-device-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device
           save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run release:verify
@@ -303,12 +303,17 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           xcodebuild -version | grep -Fx 'Xcode 26.6'
-      - name: Restore credential-free desktop Rust dependencies
-        if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
+      - name: Restore credential-free Linux Rust dependencies
+        if: runner.os == 'Linux' && github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
         uses: ./.github/actions/zuuli-rust-cache
         with:
-          shared-key: ${{ runner.os == 'macOS' && 'zuuli-release-macos-universal-v1' || 'zuuli-release-linux-v1' }}
-          target-key: ${{ runner.os == 'macOS' && format('rust-{0}-xcode-{1}-macos-arm64-x86_64', env.ZUULI_RUST_VERSION, env.ZUULI_XCODE_VERSION) || format('rust-{0}-ubuntu-24.04-gtk-webkit-4.1', env.ZUULI_RUST_VERSION) }}
+          shared-key: zuuli-release-linux-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ubuntu-24.04-gtk-webkit-4.1
+          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Restore credential-free macOS Rust dependencies
+        if: runner.os == 'macOS' && github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64
           save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run release:verify

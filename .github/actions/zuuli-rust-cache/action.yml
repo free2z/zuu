@@ -3,10 +3,7 @@ description: Restore or save credential-free Cargo dependency artifacts for one 
 
 inputs:
   shared-key:
-    description: Stable cache family shared by packaging and the matching release job.
-    required: true
-  target-key:
-    description: Explicit native toolchain and target discriminator.
+    description: Full cache family including the explicit native toolchain and target discriminator.
     required: true
   save:
     description: Whether this credential-free job may publish a cache entry.
@@ -23,8 +20,6 @@ runs:
       with:
         workspaces: wallet/zuuli/src-tauri -> target
         shared-key: ${{ inputs.shared-key }}
-        key: ${{ inputs.target-key }}
-        add-job-id-key: "false"
         cache-bin: "false"
         cache-targets: "true"
         cache-workspace-crates: "false"

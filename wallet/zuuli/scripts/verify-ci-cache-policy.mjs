@@ -32,7 +32,14 @@ const action = readRepo(".github/actions/zuuli-rust-cache/action.yml");
 const packaging = readRepo(".github/workflows/zuuli-packaging.yml");
 const release = readRepo(".github/workflows/zuuli-release.yml");
 const cleanup = readRepo(".github/workflows/cache-cleanup.yml");
+const requiredGate = readRepo(".github/workflows/zuuli.yml");
 const localAction = "uses: ./.github/actions/zuuli-rust-cache";
+const cacheFamilies = [
+  "zuuli-release-android-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ndk-${{ env.ZUULI_ANDROID_NDK_VERSION }}-api29-aarch64-armv7-i686-x86_64",
+  "zuuli-release-ios-device-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device",
+  "zuuli-release-linux-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ubuntu-24.04-gtk-webkit-4.1",
+  "zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64",
+];
 
 function job(contents, name, nextName) {
   const startMarker = `\n  ${name}:\n`;
@@ -40,7 +47,7 @@ function job(contents, name, nextName) {
   const start = contents.indexOf(startMarker);
   const end = contents.indexOf(endMarker, start + startMarker.length);
   if (start < 0 || end < 0) {
-    failures.push(`protected release workflow: cannot isolate ${name} job`);
+    failures.push(`workflow: cannot isolate ${name} job`);
     return "";
   }
   return contents.slice(start, end);
@@ -61,20 +68,22 @@ requireText("cache action", action, 'cache-bin: "false"');
 requireText("cache action", action, 'cache-workspace-crates: "false"');
 requireText("cache action", action, 'cache-on-failure: "false"');
 requireText("cache action", action, "shared-key: ${{ inputs.shared-key }}");
-requireText("cache action", action, "key: ${{ inputs.target-key }}");
 requireText("cache action", action, "save-if: ${{ inputs.save }}");
+rejectText("cache action", action, "target-key:");
+rejectText("cache action", action, "key: ${{ inputs.target-key }}");
+rejectText("cache action", action, "add-job-id-key:");
 rejectText("cache action", action, "release-artifacts");
 rejectText("cache action", action, "gen/apple/build");
 rejectText("cache action", action, "gen/android");
 rejectText("cache action", action, "node_modules");
 rejectText("cache action", action, "RUNNER_TEMP");
 
-requireCount("packaging cache callers", packaging, localAction, 3);
+requireCount("packaging cache callers", packaging, localAction, 4);
 requireCount(
   "packaging main-only cache writers",
   packaging,
   "save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
-  3,
+  4,
 );
 rejectText("packaging cache callers", packaging, 'save: "true"');
 for (const writer of [
@@ -90,12 +99,36 @@ requireCount(
   "packaging cold-cache guards",
   packaging,
   "github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'",
-  3,
+  4,
 );
+requireCount(
+  "packaging cleanup policy trigger",
+  packaging,
+  ".github/workflows/cache-cleanup.yml",
+  2,
+);
+
+for (const family of cacheFamilies) {
+  requireCount("packaging effective cache family", packaging, `shared-key: ${family}`, 1);
+  requireCount("protected release effective cache family", release, `shared-key: ${family}`, 1);
+}
 
 requireCount("protected release cache callers", release, localAction, 4);
 requireCount("protected release restore-only callers", release, 'save: "false"', 4);
 rejectText("protected release", release, 'save: "true"');
+for (const writer of [
+  "Swatinem/rust-cache@",
+  "actions/cache@",
+  "actions/cache/save@",
+  "cache: gradle",
+  "bundler-cache: true",
+  "gh cache",
+]) {
+  rejectText("protected release direct cache writer", release, writer);
+}
+requireCount("protected release npm auto-cache", release, "cache: npm", 1);
+const prepareJob = job(release, "prepare", "android");
+requireCount("credential-free prepare npm auto-cache", prepareJob, "cache: npm", 1);
 for (const [name, nextName] of [
   ["android", "ios"],
   ["ios", "linux"],
@@ -140,6 +173,19 @@ requireText(
 );
 rejectText("cache cleanup", cleanup, "actions/checkout");
 rejectText("cache cleanup", cleanup, "gh cache delete --all");
+
+requireText(
+  "required gate cache policy trigger",
+  requiredGate,
+  ".github/workflows/cache-cleanup.yml",
+);
+const frontendGate = job(requiredGate, "frontend", "rust_plugin");
+requireCount(
+  "required gate cache policy verification",
+  frontendGate,
+  "node scripts/verify-ci-cache-policy.mjs",
+  1,
+);
 
 if (failures.length > 0) {
   console.error("ZUULI CI cache policy verification failed:");

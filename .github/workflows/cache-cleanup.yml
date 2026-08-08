@@ -18,7 +18,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-closed-pr-cache-cleanup
+  group: ci-closed-pr-cache-cleanup-${{ github.event.pull_request.number || 'sweep' }}
   cancel-in-progress: false
 
 jobs:
@@ -82,8 +82,8 @@ jobs:
               exit 1
             }
             if [[ ! "$cache_ref" =~ ^refs/pull/([1-9][0-9]*)/merge$ ]]; then
-              echo "refusing unexpected pull-request cache ref: $cache_ref" >&2
-              exit 1
+              echo "Skipping unexpected pull-request cache ref: $cache_ref" >&2
+              continue
             fi
             pr_number=${BASH_REMATCH[1]}
             if ! state=$(gh api "repos/$GH_REPO/pulls/$pr_number" --jq .state); then
