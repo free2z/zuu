@@ -35,6 +35,12 @@ import {
 } from "@/lib/format";
 import { BUY_PACKS, MAX_TUZIS, parseTuzis } from "./lib";
 import type { PricingQuote } from "@/lib/api/types";
+import { isTauri, useMock } from "@/lib/platform";
+import {
+  canRunZecTopUpDemo,
+  settleZecTopUpDemo,
+  type ZecTopUpDemoRuntime,
+} from "./zec-top-up-demo";
 
 /** Open an external URL, falling back to a browser tab outside Tauri. */
 async function open(url: string) {
@@ -54,6 +60,14 @@ type QuoteState =
 export function BuyTab() {
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const spendable = useWallet((s) => s.balance?.spendable ?? 0);
+  const zecDemoRuntime: ZecTopUpDemoRuntime = {
+    explicitMock: useMock(),
+    development: Boolean(
+      (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
+    ),
+    tauri: isTauri(),
+  };
+  const zecDemoEnabled = canRunZecTopUpDemo(zecDemoRuntime);
 
   const [selected, setSelected] = useState<number>(BUY_PACKS[1]);
   const [custom, setCustom] = useState("");
@@ -75,7 +89,7 @@ export function BuyTab() {
   // `zec_amount`. A cancel flag keeps only the latest request's result, and a
   // 503 / fetch error surfaces as an "unavailable" state (no fabricated number).
   useEffect(() => {
-    if (!valid) {
+    if (!zecDemoEnabled || !valid) {
       setQuoteState({ status: "idle" });
       return;
     }
@@ -97,7 +111,7 @@ export function BuyTab() {
       ctrl.abort();
       clearTimeout(t);
     };
-  }, [amount, valid]);
+  }, [amount, valid, zecDemoEnabled]);
 
   const quote = quoteState.status === "ready" ? quoteState.quote : null;
   const zatoshisNeeded = quote
@@ -125,15 +139,12 @@ export function BuyTab() {
   }
 
   async function payWithZec() {
-    if (!valid || !quote || !enoughZec) return;
+    if (!zecDemoEnabled || !valid || !quote || !enoughZec) return;
     setZecLoading(true);
     try {
-      // Mock settlement — in production this proposes + broadcasts a shielded
-      // spend, then the backend credits the 2Zs on confirmation.
-      await new Promise((r) => setTimeout(r, 650));
-      adjustTuzis(amount);
-      toast.success(`Bought ${formatTuzis(amount)} with ZEC`, {
-        description: `${quote.zec_amount} ZEC debited from your wallet.`,
+      await settleZecTopUpDemo(zecDemoRuntime, amount, adjustTuzis);
+      toast.success(`Demo: added ${formatTuzis(amount)}`, {
+        description: "Local mock balance only. No ZEC was sent.",
       });
       setZecConfirm(false);
     } finally {
@@ -260,63 +271,79 @@ export function BuyTab() {
             size="lg"
             variant="zec"
             className="w-full"
-            disabled={!valid || !quote || !enoughZec || quoteLoading}
+            disabled={
+              !zecDemoEnabled ||
+              !valid ||
+              !quote ||
+              !enoughZec ||
+              quoteLoading
+            }
             onClick={() => setZecConfirm(true)}
           >
             <Wallet className="h-4 w-4" />
-            Pay with ZEC
+            {zecDemoEnabled ? "Demo: Pay with ZEC" : "Pay with ZEC unavailable"}
           </Button>
-          <div className="space-y-1 text-xs">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="flex items-center gap-1">
-                {isEstimate ? "Est. cost" : "Cost"}
-                {isEstimate && (
-                  <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
-                    estimated
-                  </Badge>
+          {zecDemoEnabled ? (
+            <>
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    {isEstimate ? "Est. demo cost" : "Demo cost"}
+                    <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
+                      demo only
+                    </Badge>
+                  </span>
+                  <span className="tabular-nums text-zec">
+                    {!valid
+                      ? "—"
+                      : quoteLoading
+                        ? "…"
+                        : quote
+                          ? `${quote.zec_amount} ZEC`
+                          : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Mock wallet spendable</span>
+                  <span className="tabular-nums">
+                    {formatZecTrim(spendable)} ZEC
+                  </span>
+                </div>
+                {valid && quoteUnavailable && (
+                  <p className="pt-1 text-destructive">
+                    Demo pricing unavailable — try again.
+                  </p>
                 )}
-              </span>
-              <span className="tabular-nums text-zec">
-                {!valid
-                  ? "—"
-                  : quoteLoading
-                    ? "…"
-                    : quote
-                      ? `${quote.zec_amount} ZEC`
-                      : "—"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Wallet spendable</span>
-              <span className="tabular-nums">
-                {formatZecTrim(spendable)} ZEC
-              </span>
-            </div>
-            {valid && quoteUnavailable && (
-              <p className="pt-1 text-destructive">
-                Live pricing unavailable — try again.
+                {valid && quote && !enoughZec && (
+                  <p className="pt-1 text-destructive">
+                    Not enough mock ZEC for this demo.
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Demo only: this changes a local mock 2Z balance. It does not send
+                ZEC or create a real purchase.
               </p>
-            )}
-            {valid && quote && !enoughZec && (
-              <p className="pt-1 text-destructive">
-                Not enough ZEC — top up your wallet or pay with card.
-              </p>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            No exchange, no leaving the app. Your wallet is right here — fund 2Zs
-            straight from your shielded balance.
-          </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              ZEC top-ups are not available yet. No ZEC will be sent and no 2Z
+              balance will change. Pay with card for now.
+            </p>
+          )}
         </CardContent>
       </Card>
 
       {/* ZEC confirm */}
-      <Dialog open={zecConfirm} onOpenChange={(o) => !zecLoading && setZecConfirm(o)}>
+      <Dialog
+        open={zecDemoEnabled && zecConfirm}
+        onOpenChange={(o) => !zecLoading && setZecConfirm(o)}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Confirm ZEC payment</DialogTitle>
+            <DialogTitle>Confirm demo ZEC payment</DialogTitle>
             <DialogDescription>
-              Fund your 2Z balance directly from your shielded wallet.
+              Simulate funding a local mock 2Z balance. No ZEC will be sent.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded-lg border border-border bg-secondary/40 p-4 text-sm">
@@ -339,8 +366,7 @@ export function BuyTab() {
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            The final ZEC amount is locked from a live quote at signing. This
-            demo settles instantly.
+            Demo only: no transaction is proposed, signed, broadcast, or settled.
           </p>
           <DialogFooter>
             <Button
@@ -352,7 +378,7 @@ export function BuyTab() {
             </Button>
             <Button variant="zec" onClick={payWithZec} disabled={zecLoading}>
               {zecLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm &amp; pay
+              Run demo purchase
             </Button>
           </DialogFooter>
         </DialogContent>
