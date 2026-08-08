@@ -587,6 +587,7 @@ pub(crate) async fn get_wallet_status<R: Runtime>(
         active_wallet_name,
         wallet_count,
         cleanup,
+        legacy_app_data: zcash.legacy_app_data.clone(),
     })
 }
 

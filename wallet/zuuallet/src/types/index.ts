@@ -12,6 +12,13 @@ export interface WalletStatus {
   activeWalletName: string | null;
   walletCount: number;
   cleanup: WalletCleanupStatus;
+  legacyAppData: LegacyAppDataStatus;
+}
+
+export interface LegacyAppDataStatus {
+  state: "none" | "importPending";
+  legacyIdentifier: string | null;
+  diagnostic: string | null;
 }
 
 export interface WalletCleanupStatus {

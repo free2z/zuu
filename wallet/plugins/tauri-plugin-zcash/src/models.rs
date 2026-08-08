@@ -21,6 +21,65 @@ pub struct WalletStatus {
     /// ignore it while operators still receive startup diagnostics.
     #[serde(default)]
     pub cleanup: WalletCleanupStatus,
+    /// Identifier-cutover state. A pending import is deliberately separate
+    /// from destructive cleanup: both wallet trees remain untouched until the
+    /// user invokes a future explicit importer.
+    #[serde(default)]
+    pub legacy_app_data: LegacyAppDataStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyAppDataStatus {
+    pub state: LegacyAppDataState,
+    pub legacy_identifier: Option<String>,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LegacyAppDataState {
+    #[default]
+    None,
+    ImportPending,
+}
+
+impl From<crate::app_data_migration::MigrationOutcome> for LegacyAppDataStatus {
+    fn from(outcome: crate::app_data_migration::MigrationOutcome) -> Self {
+        if outcome == crate::app_data_migration::MigrationOutcome::LegacyImportPending {
+            Self {
+                state: LegacyAppDataState::ImportPending,
+                legacy_identifier: Some("com.2zinc.zuuli".to_owned()),
+                diagnostic: Some(
+                    "An earlier ZUULI wallet is safely preserved. The current canonical wallet was opened; no wallet data or seed custody was merged, moved, or deleted. Explicit legacy-wallet import is pending."
+                        .to_owned(),
+                ),
+            }
+        } else {
+            Self::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod legacy_app_data_tests {
+    use super::*;
+
+    #[test]
+    fn preserved_conflict_serializes_as_structured_import_pending_status() {
+        let status = LegacyAppDataStatus::from(
+            crate::app_data_migration::MigrationOutcome::LegacyImportPending,
+        );
+        let value = serde_json::to_value(status).expect("serialize migration status");
+
+        assert_eq!(value["state"], "importPending");
+        assert_eq!(value["legacyIdentifier"], "com.2zinc.zuuli");
+        assert!(
+            value["diagnostic"]
+                .as_str()
+                .is_some_and(|message| message.contains("no wallet data or seed custody"))
+        );
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

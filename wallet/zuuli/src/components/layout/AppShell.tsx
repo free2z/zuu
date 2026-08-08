@@ -2,6 +2,32 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar, MobileTabBar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { TriangleAlert } from "lucide-react";
+import { useWallet } from "@/store/wallet";
+
+function LegacyWalletNotice() {
+  const legacy = useWallet((state) => state.status?.legacyAppData);
+  if (legacy?.state !== "importPending") return null;
+
+  return (
+    <section
+      role="status"
+      aria-label="Preserved legacy wallet"
+      className="border-b border-amber-500/35 bg-amber-500/10 px-4 py-3 md:px-8"
+    >
+      <div className="mx-auto flex w-full max-w-6xl items-start gap-3">
+        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden />
+        <div>
+          <p className="text-sm font-medium text-foreground">Earlier wallet preserved</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {legacy.diagnostic ??
+              "An earlier ZUULI wallet remains safely preserved. This app opened only the current wallet; explicit import is pending."}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function AppShell() {
   const location = useLocation();
@@ -18,6 +44,7 @@ export function AppShell() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
+        <LegacyWalletNotice />
         {isFullBleed ? (
           <main className="min-h-0 flex-1 overflow-hidden">
             <Outlet />

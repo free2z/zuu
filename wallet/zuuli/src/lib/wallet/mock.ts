@@ -82,6 +82,11 @@ export const mockWallet = {
         completedStages: 0,
         diagnostics: [],
       },
+      legacyAppData: {
+        state: "none",
+        legacyIdentifier: null,
+        diagnostic: null,
+      },
     };
   },
   retryWalletCleanup() {

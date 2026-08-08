@@ -49,16 +49,21 @@ successfully prepared wallet. Wallet recovery never depends on that session.
 4. Sync the parent directory (where the platform exposes directory `fsync`).
 5. Validate the resulting tree, remove the journal, and sync again.
 
-The rename is the only identity transition. If both directories exist and the
-canonical tree contains any wallet marker, startup fails instead of overwriting
-or mixing identities. A canonical tree created by the short-lived pre-migration
-build that contains only WebView/session state is atomically preserved as
-`.cash.free2z.zuuli-before-legacy-migration`; the complete legacy tree then
-takes the canonical path. On restart, a prepared journal plus only a source
-resumes the rename; a prepared journal plus only a destination completes
-cleanup. A corrupt journal, two wallet identities, neither directory after a
-prepared journal, a link, or a special file fails closed without deleting
-either identity.
+The rename is the only wallet-identity transition. If both directories exist,
+only a canonical directory proven empty, unchanged, and atomically removable
+may be removed before the legacy tree takes its path. The prepared journal is
+durable before removal, so a crash after removing that empty shell resumes the
+no-replace legacy rename on restart. Any entry at all, including WebView/session
+or hidden state, refuses automatic migration.
+
+When the canonical tree contains data and is itself safe to open, startup uses
+only that canonical state, preserves the complete legacy tree byte-for-byte,
+and reports a structured `importPending` diagnostic to both wallet frontends.
+It never deletes, quarantines, merges, or silently chooses data from the legacy
+tree. Explicit legacy-wallet import, including per-directory encrypted-seed
+salt and UFVK validation, is a separate user-confirmed recovery operation. A
+corrupt journal, a changed empty-directory identity, neither directory after a
+prepared journal, a link, reparse point, or special file still fails closed.
 
 Legacy `.seeds` files are moved byte-for-byte and remain read-only migration
 input for the native custody upgrade. This protocol never writes a new legacy
@@ -71,14 +76,15 @@ basename. It does not rename the database, so `wallet.sqlite`,
 present but invalid manifest or a failed manifest commit aborts startup without
 changing any of those files.
 
-The recursive tree scan runs on the migration/recovery path, not on every
-steady-state launch. It is an integrity check for app-private state and assumes an
-attacker cannot concurrently rewrite that directory between validation and the
-atomic rename; an attacker with that authority already has the wallet process's
-filesystem access. Windows junctions and other reparse points are rejected by
-attribute before traversal, and regular files with multiple hard links are
-rejected on every supported desktop platform. Unix trees that cross onto a
-different filesystem device are also rejected. A same-filesystem bind mount is
-not distinguishable from an ordinary directory through portable file metadata;
-creating one requires OS mount authority and is outside this app-private-state
-threat boundary.
+The recursive tree scan runs on migration/recovery and when deciding whether a
+populated canonical tree is safe to open. Windows junctions and other reparse
+points are rejected by attribute before traversal, and regular files with
+multiple hard links are rejected on every supported desktop platform. Unix
+empty-directory removal is parent-file-descriptor-relative, revalidates the
+device/inode and type, and uses the kernel's atomic `AT_REMOVEDIR` emptiness
+check. Windows pins the exact no-follow directory handle without delete sharing,
+revalidates its volume/file identity and attributes, and marks that handle for
+non-recursive deletion. Unix trees that cross onto a different filesystem
+device are also rejected. A same-filesystem bind mount is not distinguishable
+from an ordinary directory through portable file metadata; creating one
+requires OS mount authority and is outside this app-private-state boundary.
