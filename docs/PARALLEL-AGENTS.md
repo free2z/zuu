@@ -39,7 +39,78 @@ that only ever moves forward, and every change carries a reviewable PR trail.
 4. **CI is the merge gate.** `.github/workflows/zuuli.yml` (and any other required checks) must be green. Never merge red.
 5. **Rebase onto `origin/main` frequently.** Resolve conflicts in the worktree — never on `main`.
 6. **Partition file surfaces** across concurrent tasks so parallel PRs don't collide. Sequence dependent work; land shared/foundational changes first.
-7. **Clean up on merge.** Delete the branch and worktree after merge. Prune stale local branches routinely (`git fetch --prune`, then delete branches whose upstream is `gone`).
+7. **Clean up immediately after merge.** Before removal, verify all of these:
+
+   - Confirm the worker has exited and no build, watcher, editor, or other
+     process can still write into the worktree. Never clean up an active
+     worker; rerun every status check immediately before removal.
+   - Record the PR's `headRefName` as `B`, `headRefOid` as `H`, and merge-commit
+     OID as `M`. Require GitHub to report that the PR merged into `main` in the
+     repository configured as `origin`. Record `git remote get-url --all origin`
+     as `FETCH_URL` and `git remote get-url --push --all origin` as `PUSH_URL`;
+     require exactly one result from each command. After allowing only a
+     terminal `.git`, require both to equal the PR repository's credential-free
+     canonical `https://<host>/<owner>/<repository>` URL exactly—no userinfo,
+     token, port, query, or fragment. Independently run `gh repo view
+     "$FETCH_URL" --json nameWithOwner` and `gh repo view "$PUSH_URL" --json
+     nameWithOwner`; both identities must equal the owner/repository in the PR
+     URL. Multiple URLs, a noncanonical destination, or any mismatch means
+     stop. Fetch the validated `origin`, then require `M` to be an
+     ancestor of `origin/main`, `git branch --show-current` to equal `B`, and
+     both `git rev-parse HEAD` and `git rev-parse "refs/heads/$B"` to equal
+     `H`. A clean worktree alone does not detect the wrong PR or branch,
+     unpushed or post-PR commits, and squash-merging breaks normal ancestry
+     checks.
+   - Inspect both `git reflog show HEAD` and
+     `git reflog show "refs/heads/$B"`. Before removing either recovery log,
+     preserve every commit worth keeping on a ref pushed to a durable remote;
+     if any reflog entry's disposition is uncertain, stop and ask the owner.
+     Never rely on these reflogs remaining available after cleanup.
+   - `git status --short --untracked-files=all --ignore-submodules=none` is
+     empty, then inspect the same command with `--ignored=matching`. These
+     explicit options prevent user configuration from hiding files without
+     expanding every file under large ignored build directories. Delete known
+     reproducible output, but preserve local-only data such as `private/`,
+     `.env.local`, and `release-artifacts/` when present.
+   - Within every initialized submodule, recursively run the same tracked,
+     untracked, and ignored-file checks. Verify that its checked-out gitlink
+     commit is fetchable from the configured remote; inspect `git stash list`,
+     local refs, and `git reflog show --all`, and push every commit worth
+     keeping. Relocate any local-only data before removal: superproject status
+     does not list ignored files or per-worktree Git metadata inside
+     submodules, and forced removal deletes their recovery logs.
+
+   While still inside this verified worktree, immediately rerun the URL,
+   name/OID, and status checks. Inspect all scopes reported by `git config
+   --show-origin --get-regexp '^url\..*\.(insteadOf|pushInsteadOf)$'` and stop
+   if any rule's prefix can match `PUSH_URL`; unrelated rewrite rules do not
+   block cleanup. If the remote branch exists, delete it now with the verified
+   lease and literal URL—never the remote name, which may fan out to multiple
+   push URLs:
+   `git push --force-with-lease="refs/heads/$B:$H" "$PUSH_URL" ":refs/heads/$B"`.
+   Only after that succeeds (or the branch is confirmed absent), remove the
+   worktree and atomically delete its local branch with `git update-ref -d
+   "refs/heads/$B" "$H"` (squash merges make `git branch -d` reject it). Finish
+   with `git fetch --prune`. Do not run the global
+   `git worktree prune` as routine per-worktree cleanup: it can destroy recovery
+   metadata for an unrelated, temporarily unavailable worktree. For genuinely
+   stale registrations, first inspect `git worktree prune --dry-run --verbose`,
+   apply every safety check above to every candidate, and prune only when all
+   candidates are safe. Any name/OID mismatch or lease rejection means stop
+   and investigate; another commit may need preserving. Never run
+   `git submodule deinit` during cleanup: submodule
+   registrations live in shared repository configuration, so it can disrupt
+   other active worktrees. Never leave merged Rust/Tauri worktrees retaining
+   `target/`, `node_modules/`, or other reproducible build output. Never use
+   force removal to override a dirty or unmerged worktree. Git may require
+   `git worktree remove --force` solely because a verified-clean worktree
+   contains initialized submodules; use it only after every safety check above
+   passes.
+
+   If any check fails, keep the worktree and inspect its diffs, files, commits,
+   submodules, and PR state. Commit and push useful work, or get the owner's
+   direction before discarding anything. `git worktree prune` removes stale
+   metadata; it does not make a worktree safe to delete.
 
 ## Branch & PR conventions
 - Prefixes: `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `deps/`.
