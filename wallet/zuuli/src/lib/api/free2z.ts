@@ -83,6 +83,7 @@ import type {
   StreamKind,
   SubscribeResult,
   Subscription,
+  SubscriptionStatus,
   TuziTransaction,
 } from "./types";
 
@@ -142,6 +143,185 @@ function parsePrice(v: string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseDecimalString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) {
+    throw new Error(`Malformed membership response: ${field}.`);
+  }
+  return value;
+}
+
+function parseNullableString(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw new Error(`Malformed membership response: ${field}.`);
+  }
+  return value;
+}
+
+function parseSubscription(value: unknown): Subscription {
+  if (!isRecord(value) || !isRecord(value.fan) || !isRecord(value.star)) {
+    throw new Error("Malformed membership response: subscription.");
+  }
+  const fanUsername = value.fan.username;
+  const starUsername = value.star.username;
+  if (typeof fanUsername !== "string" || typeof starUsername !== "string") {
+    throw new Error("Malformed membership response: subscriber identity.");
+  }
+  const expires = value.expires;
+  const maxPrice = value.max_price;
+  if (expires !== undefined && typeof expires !== "string") {
+    throw new Error("Malformed membership response: expires.");
+  }
+  if (maxPrice !== undefined && typeof maxPrice !== "string") {
+    throw new Error("Malformed membership response: max_price.");
+  }
+  return {
+    fan: {
+      ...(value.fan as unknown as SimpleCreator),
+      username: fanUsername,
+      free2zaddr:
+        typeof value.fan.p2paddr === "string" && value.fan.p2paddr
+          ? value.fan.p2paddr
+          : fanUsername,
+    },
+    star: {
+      ...(value.star as unknown as SimpleCreator),
+      username: starUsername,
+      free2zaddr:
+        typeof value.star.p2paddr === "string" && value.star.p2paddr
+          ? value.star.p2paddr
+          : starUsername,
+    },
+    expires,
+    max_price: maxPrice,
+  };
+}
+
+/** Runtime validator used before trusting any paginated entitlement data. */
+export function parseSubscriptionPage(
+  value: unknown,
+): Paginated<Subscription> {
+  if (!isRecord(value) || !Array.isArray(value.results)) {
+    throw new Error("Malformed membership pagination response.");
+  }
+  if (!Number.isSafeInteger(value.count) || Number(value.count) < 0) {
+    throw new Error("Malformed membership pagination count.");
+  }
+  const next = value.next;
+  const previous = value.previous;
+  if (next !== null && typeof next !== "string") {
+    throw new Error("Malformed membership pagination next link.");
+  }
+  if (previous !== null && typeof previous !== "string") {
+    throw new Error("Malformed membership pagination previous link.");
+  }
+  return {
+    count: Number(value.count),
+    next,
+    previous,
+    results: value.results.map(parseSubscription),
+  };
+}
+
+/**
+ * Collect a validated management-list snapshot. Money decisions use the
+ * target-specific status endpoint instead, so offset pagination can never
+ * authorize a purchase.
+ */
+export async function collectSubscriptionPages(
+  loadPage: (page: number, pageSize: number) => Promise<unknown>,
+): Promise<Subscription[]> {
+  const endpoint = "/api/tuzis/my-subscriptions";
+  const pageSize = 48;
+  const subscriptions: Subscription[] = [];
+  const seenPages = new Set<number>();
+  const seenMemberships = new Set<string>();
+  let expectedCount: number | null = null;
+  let pageNumber = 1;
+
+  for (;;) {
+    if (seenPages.has(pageNumber)) {
+      throw new Error("Membership pagination repeated a page.");
+    }
+    seenPages.add(pageNumber);
+
+    const page = parseSubscriptionPage(await loadPage(pageNumber, pageSize));
+    if (pageNumber === 1) expectedCount = page.count;
+    if (page.count !== expectedCount) {
+      throw new Error("Membership pagination changed during the read.");
+    }
+    for (const subscription of page.results) {
+      const identity = subscription.star.username.toLowerCase();
+      if (seenMemberships.has(identity)) {
+        throw new Error("Membership pagination returned a duplicate row.");
+      }
+      seenMemberships.add(identity);
+      subscriptions.push(subscription);
+    }
+    if (!page.next) {
+      if (subscriptions.length !== expectedCount) {
+        throw new Error("Membership pagination returned an incomplete snapshot.");
+      }
+      return subscriptions;
+    }
+
+    const nextUrl = new URL(page.next, "http://localhost");
+    if (nextUrl.pathname !== endpoint) {
+      throw new Error("Membership pagination left its endpoint.");
+    }
+    const nextPage = Number(nextUrl.searchParams.get("page"));
+    if (!Number.isSafeInteger(nextPage) || nextPage <= pageNumber) {
+      throw new Error("Membership pagination returned an invalid next page.");
+    }
+    pageNumber = nextPage;
+  }
+}
+
+export function parseSubscriptionStatus(value: unknown): SubscriptionStatus {
+  if (
+    !isRecord(value) ||
+    typeof value.username !== "string" ||
+    typeof value.active !== "boolean"
+  ) {
+    throw new Error("Malformed membership status response.");
+  }
+  return {
+    username: value.username,
+    active: value.active,
+    expires: parseNullableString(value.expires, "expires"),
+    max_price:
+      value.max_price === null
+        ? null
+        : parseDecimalString(value.max_price, "max_price"),
+    current_price:
+      value.current_price === null
+        ? null
+        : parseDecimalString(value.current_price, "current_price"),
+  };
+}
+
+export function parseSubscribeResult(value: unknown): SubscribeResult {
+  if (
+    !isRecord(value) ||
+    typeof value.charged !== "boolean" ||
+    typeof value.replayed !== "boolean" ||
+    typeof value.expires !== "string"
+  ) {
+    throw new Error("Malformed confirmed membership response.");
+  }
+  return {
+    balance: parseDecimalString(value.balance, "balance"),
+    charged: value.charged,
+    replayed: value.replayed,
+    expires: value.expires,
+    subscription: parseSubscription(value.subscription),
+  };
 }
 
 function mapCreator(c: RawCreator): SimpleCreator {
@@ -1321,17 +1501,81 @@ export const tuzi = {
   async subscribe(
     username: string,
     idempotencyKey?: string,
-  ): Promise<SubscribeResult> {
+  ): Promise<void> {
     if (useMock()) {
       await delay(400);
-      return mockSubscribe(username, idempotencyKey);
+      const creator = mockCreators.find(
+        (candidate) =>
+          candidate.username.toLowerCase() === username.toLowerCase(),
+      );
+      mockSubscribe(
+        username,
+        idempotencyKey ?? crypto.randomUUID(),
+        creator?.member_price ?? 0,
+      );
+      return;
     }
-    return request<SubscribeResult>(`/api/tuzis/subscribe/${username}`, {
+    await request(`/api/tuzis/subscribe/${username}`, {
       method: "POST",
       headers: idempotencyKey
         ? { "Idempotency-Key": idempotencyKey }
         : undefined,
     });
+  },
+
+  async subscribeConfirmed(
+    username: string,
+    idempotencyKey: string,
+    expectedPrice: number,
+  ): Promise<SubscribeResult> {
+    if (useMock()) {
+      await delay(400);
+      return mockSubscribe(username, idempotencyKey, expectedPrice);
+    }
+    const response = await request<unknown>(
+      `/api/tuzis/subscribe-confirmed/${username}`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: { expected_price: expectedPrice },
+      },
+    );
+    return parseSubscribeResult(response);
+  },
+
+  /** Target-specific entitlement fact; safe for purchase decisions. */
+  async subscriptionStatus(username: string): Promise<SubscriptionStatus> {
+    if (useMock()) {
+      await delay(150);
+      const subscription = mockSubscriptions.find(
+        (candidate) =>
+          candidate.star.username.toLowerCase() === username.toLowerCase(),
+      );
+      const creator = mockCreators.find(
+        (candidate) =>
+          candidate.username.toLowerCase() === username.toLowerCase(),
+      );
+      const expires = subscription?.expires ?? null;
+      return {
+        username: creator?.username ?? username,
+        active: Boolean(expires && Date.parse(expires) > Date.now()),
+        expires,
+        max_price: subscription?.max_price ?? null,
+        current_price:
+          creator?.member_price === null || creator?.member_price === undefined
+            ? null
+            : String(creator.member_price),
+      };
+    }
+    const response = await request<unknown>(
+      `/api/tuzis/subscription-status/${username}`,
+      { cache: "no-store" },
+    );
+    const parsed = parseSubscriptionStatus(response);
+    if (parsed.username.toLowerCase() !== username.toLowerCase()) {
+      throw new Error("Membership status referred to a different creator.");
+    }
+    return parsed;
   },
 
   /**
@@ -1359,32 +1603,12 @@ export const tuzi = {
     // the money path extend them another month. Walk every page and fail the
     // whole read on malformed pagination; callers must not purchase from an
     // incomplete entitlement view.
-    const endpoint = "/api/tuzis/my-subscriptions";
-    const pageSize = 48;
-    const subscriptions: Subscription[] = [];
-    const seenPages = new Set<number>();
-    let pageNumber = 1;
-
-    for (;;) {
-      if (seenPages.has(pageNumber)) {
-        throw new Error("Membership pagination repeated a page.");
-      }
-      seenPages.add(pageNumber);
-
-      const page = await request<Paginated<Subscription>>(endpoint, {
-        query: { page: pageNumber, page_size: pageSize },
+    return collectSubscriptionPages((page, pageSize) =>
+      request<unknown>("/api/tuzis/my-subscriptions", {
+        query: { page, page_size: pageSize },
         cache: "no-store",
-      });
-      subscriptions.push(...(page.results ?? []));
-      if (!page.next) return subscriptions;
-
-      const nextUrl = new URL(page.next, "http://localhost");
-      const nextPage = Number(nextUrl.searchParams.get("page"));
-      if (!Number.isSafeInteger(nextPage) || nextPage < 1) {
-        throw new Error("Membership pagination returned an invalid next page.");
-      }
-      pageNumber = nextPage;
-    }
+      }),
+    );
   },
 
   /**

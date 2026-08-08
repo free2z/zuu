@@ -34,15 +34,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/common/EmptyState";
-import { auth, discover, live, tuzi } from "@/lib/api/free2z";
+import { auth, live, tuzi } from "@/lib/api/free2z";
+import { ApiError } from "@/lib/api/http";
 import { useAsync } from "@/hooks/useAsync";
 import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { KIND_META, gradientFor } from "./lib";
 import {
-  activeMembershipFor,
   enterSubscriberStream,
+  MembershipPriceChangedError,
   newMembershipIdempotencyKey,
   runSingleFlight,
 } from "./membership";
@@ -322,12 +323,15 @@ function JoinPanel({
   const sessionLoading = useSession((state) => state.loading);
   const setUser = useSession((state) => state.setUser);
   const {
-    data: subscriptions,
+    data: membershipStatus,
     loading: membershipLoading,
     error: membershipError,
     reload: reloadMemberships,
   } = useAsync(
-    () => (user ? tuzi.mySubscriptions() : Promise.resolve([])),
+    () =>
+      user
+        ? tuzi.subscriptionStatus(stream.username)
+        : Promise.resolve(null),
     [user?.username, stream.username],
   );
 
@@ -341,10 +345,7 @@ function JoinPanel({
     Number.isSafeInteger(membershipPrice) && (membershipPrice ?? 0) > 0;
   const membershipAffordable =
     hasMembershipPrice && tuzis >= (membershipPrice ?? 0);
-  const membership = activeMembershipFor(
-    subscriptions ?? [],
-    stream.username,
-  );
+  const membership = membershipStatus?.active ? membershipStatus : null;
 
   async function runExclusive<T>(operation: () => Promise<T>): Promise<T | null> {
     // React state updates are not synchronous. The ref closes the double-click
@@ -391,19 +392,21 @@ function JoinPanel({
   }
 
   async function confirmMembership() {
+    if (!user) return;
+    const alreadyActive = membership !== null;
     if (
-      !user ||
-      typeof membershipPrice !== "number" ||
-      !Number.isSafeInteger(membershipPrice) ||
-      membershipPrice <= 0
+      !alreadyActive &&
+      (typeof membershipPrice !== "number" ||
+        !Number.isSafeInteger(membershipPrice) ||
+        membershipPrice <= 0)
     ) {
       return;
     }
-    const confirmedPrice = membershipPrice;
+    const confirmedPrice = alreadyActive
+      ? Number(membership.current_price ?? 0)
+      : membershipPrice!;
     setMembershipConfirmOpen(false);
-    membershipAttemptKey.current ??= newMembershipIdempotencyKey(
-      stream.username,
-    );
+    membershipAttemptKey.current ??= newMembershipIdempotencyKey();
 
     try {
       const result = await runExclusive(() =>
@@ -411,19 +414,9 @@ function JoinPanel({
           username: stream.username,
           idempotencyKey: membershipAttemptKey.current!,
           confirmedPrice,
-          loadMemberships: () => tuzi.mySubscriptions(),
-          loadCurrentPrice: async () => {
-            const creator = await discover.creator(stream.username);
-            const currentPrice =
-              Number.isSafeInteger(creator.member_price) &&
-              (creator.member_price ?? 0) > 0
-                ? creator.member_price!
-                : null;
-            setMembershipPriceOverride({ price: currentPrice });
-            return currentPrice;
-          },
-          subscribe: (username, idempotencyKey) =>
-            tuzi.subscribe(username, idempotencyKey),
+          loadMembership: () => tuzi.subscriptionStatus(stream.username),
+          subscribe: (username, idempotencyKey, expectedPrice) =>
+            tuzi.subscribeConfirmed(username, idempotencyKey, expectedPrice),
           reconcileBalance: async () => {
             const authoritative = await auth.me();
             // Preserve session-only identity observations that GET /auth/user
@@ -450,9 +443,32 @@ function JoinPanel({
       // The key intentionally survives: if the POST committed but its response
       // was lost, retrying reconciles/replays instead of charging again.
       reloadMemberships();
+      let displayError = error;
+      if (
+        error instanceof ApiError &&
+        error.body &&
+        typeof error.body === "object"
+      ) {
+        const body = error.body as Record<string, unknown>;
+        if (body.code === "price_changed") {
+          const rawPrice = body.current_price;
+          const currentPrice =
+            typeof rawPrice === "string" &&
+            Number.isSafeInteger(Number(rawPrice))
+              ? Number(rawPrice)
+              : null;
+          setMembershipPriceOverride({ price: currentPrice });
+          displayError = new MembershipPriceChangedError(
+            confirmedPrice,
+            currentPrice,
+          );
+        }
+      }
       toast.error("Could not confirm membership", {
         description:
-          error instanceof Error ? error.message : "Please try again.",
+          displayError instanceof Error
+            ? displayError.message
+            : "Please try again.",
       });
     }
   }
@@ -557,15 +573,15 @@ function JoinPanel({
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
                   {Number(membership.max_price ?? 0) > 0
-                    ? `Membership active${formatMembershipExpiry(membership.expires)} and set to renew.`
-                    : `Membership active${formatMembershipExpiry(membership.expires)}. Auto-renew is off.`}
+                    ? `Membership active${formatMembershipExpiry(membership.expires ?? undefined)} and set to renew.`
+                    : `Membership active${formatMembershipExpiry(membership.expires ?? undefined)}. Auto-renew is off.`}
                 </p>
                 <Button
                   className="w-full gap-2"
                   size="lg"
                   variant="secondary"
                   disabled={busy}
-                  onClick={() => doJoin()}
+                  onClick={confirmMembership}
                 >
                   {busy ? (
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

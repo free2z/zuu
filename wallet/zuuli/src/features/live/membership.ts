@@ -2,6 +2,7 @@ import type {
   DyteJoinTicket,
   SubscribeResult,
   Subscription,
+  SubscriptionStatus,
 } from "@/lib/api/types";
 
 /**
@@ -49,11 +50,11 @@ export interface EnterSubscriberStreamDeps {
   username: string;
   idempotencyKey: string;
   confirmedPrice: number;
-  loadMemberships: () => Promise<Subscription[]>;
-  loadCurrentPrice: () => Promise<number | null>;
+  loadMembership: () => Promise<SubscriptionStatus>;
   subscribe: (
     username: string,
     idempotencyKey: string,
+    expectedPrice: number,
   ) => Promise<SubscribeResult>;
   reconcileBalance: () => Promise<void>;
   join: () => Promise<DyteJoinTicket>;
@@ -61,7 +62,7 @@ export interface EnterSubscriberStreamDeps {
 
 export interface SubscriberEntryResult {
   ticket: DyteJoinTicket;
-  membership: Subscription;
+  membership: SubscriptionStatus;
   /** Null when the viewer was already entitled and no purchase was attempted. */
   purchase: SubscribeResult | null;
   /** True when a failed/ambiguous POST was proven successful by the read-back. */
@@ -85,7 +86,7 @@ export async function runSingleFlight<T>(
 /**
  * Cross the subscriber-room money boundary safely.
  *
- * Every attempt first checks the authoritative active-membership endpoint, so
+ * Every attempt first checks the target-specific membership endpoint, so
  * an existing member (including one with auto-renew disabled) is never POSTed
  * merely for entering a room. A new purchase is joined only after BOTH the
  * membership and account balance have been read back from the backend.
@@ -97,30 +98,35 @@ export async function runSingleFlight<T>(
 export async function enterSubscriberStream(
   deps: EnterSubscriberStreamDeps,
 ): Promise<SubscriberEntryResult> {
-  const before = await deps.loadMemberships();
-  const existing = activeMembershipFor(before, deps.username);
-  if (existing) {
+  const before = await deps.loadMembership();
+  if (before.active) {
+    try {
+      // This is deliberately required even for an already-active membership.
+      // A prior POST may have committed while its response/reconciliation was
+      // lost; joining directly here would leave the displayed balance stale.
+      await deps.reconcileBalance();
+    } catch (error) {
+      throw new MembershipReconciliationError(
+        "Your account balance could not be reconciled. The stream was not joined.",
+        error,
+      );
+    }
     return {
       ticket: await deps.join(),
-      membership: existing,
+      membership: before,
       purchase: null,
       recoveredAmbiguousPurchase: false,
     };
   }
 
-  // The public live listing may be a few seconds old. Re-read the creator
-  // immediately before the money POST and force a new confirmation if the
-  // displayed terms changed. (The backend endpoint does not yet accept a
-  // client price cap, so this is the strongest available client boundary.)
-  const currentPrice = await deps.loadCurrentPrice();
-  if (currentPrice !== deps.confirmedPrice) {
-    throw new MembershipPriceChangedError(deps.confirmedPrice, currentPrice);
-  }
-
   let purchase: SubscribeResult | null = null;
   let purchaseError: unknown = null;
   try {
-    purchase = await deps.subscribe(deps.username, deps.idempotencyKey);
+    purchase = await deps.subscribe(
+      deps.username,
+      deps.idempotencyKey,
+      deps.confirmedPrice,
+    );
   } catch (error) {
     // A transport failure is ambiguous: the backend may have committed before
     // the response disappeared. Read back both facts before deciding whether
@@ -128,10 +134,10 @@ export async function enterSubscriberStream(
     purchaseError = error;
   }
 
-  let after: Subscription[];
+  let after: SubscriptionStatus;
   try {
     [after] = await Promise.all([
-      deps.loadMemberships(),
+      deps.loadMembership(),
       deps.reconcileBalance(),
     ]);
   } catch (error) {
@@ -141,8 +147,7 @@ export async function enterSubscriberStream(
     );
   }
 
-  const membership = activeMembershipFor(after, deps.username);
-  if (!membership) {
+  if (!after.active) {
     if (purchaseError instanceof Error) throw purchaseError;
     throw new MembershipReconciliationError(
       "The backend did not confirm an active membership. The stream was not joined.",
@@ -151,16 +156,27 @@ export async function enterSubscriberStream(
 
   return {
     ticket: await deps.join(),
-    membership,
+    membership: after,
     purchase,
     recoveredAmbiguousPurchase: purchaseError !== null,
   };
 }
 
 /** A cryptographically random, per-confirmation retry key for the money POST. */
-export function newMembershipIdempotencyKey(username: string): string {
+export function newMembershipIdempotencyKey(): string {
   const random = crypto.getRandomValues(new Uint8Array(16));
-  const nonce = Array.from(random, (byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `zuuli-live:${username.toLowerCase()}:${nonce}`;
+  // RFC 4122 UUIDv4 bits; the username belongs in the backend request
+  // fingerprint, not in this opaque retry key.
+  random[6] = (random[6]! & 0x0f) | 0x40;
+  random[8] = (random[8]! & 0x3f) | 0x80;
+  const hex = Array.from(random, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
 }

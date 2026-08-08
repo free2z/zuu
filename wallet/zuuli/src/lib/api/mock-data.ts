@@ -673,18 +673,25 @@ export const mockSubscriptions: Subscription[] = [
  * get-or-create a `Subscription` for (star, fan) and extend it 30 days from
  * now, at the creator's current `member_price`.
  */
-const mockSubscriptionAttempts = new Map<string, SubscribeResult>();
+const mockSubscriptionAttempts = new Map<
+  string,
+  { username: string; expectedPrice: number; result: SubscribeResult }
+>();
 
 export function mockSubscribe(
   username: string,
-  idempotencyKey?: string,
+  idempotencyKey: string,
+  expectedPrice: number,
 ): SubscribeResult {
-  const attemptKey = idempotencyKey
-    ? `${username.toLowerCase()}:${idempotencyKey}`
-    : null;
-  if (attemptKey) {
-    const replay = mockSubscriptionAttempts.get(attemptKey);
-    if (replay) return replay;
+  const replay = mockSubscriptionAttempts.get(idempotencyKey);
+  if (replay) {
+    if (
+      replay.username !== username.toLowerCase() ||
+      replay.expectedPrice !== expectedPrice
+    ) {
+      throw new Error("This idempotency key was used for different terms.");
+    }
+    return { ...replay.result, replayed: true };
   }
 
   const star: SimpleCreator =
@@ -692,6 +699,7 @@ export function mockSubscribe(
     { username, free2zaddr: username, display_name: username };
   const price = star.member_price ?? 0;
   if (price <= 0) throw new Error("Creator did not set member price");
+  if (price !== expectedPrice) throw new Error("Membership price changed");
   if (mockUser.tuzis < price) throw new Error("Insufficient funds");
 
   const now = Date.now();
@@ -718,9 +726,25 @@ export function mockSubscribe(
     const sub: Subscription = { fan: mockFan(), star, expires, max_price: maxPrice };
     mockSubscriptions.push(sub);
   }
+  const subscription =
+    existing ??
+    mockSubscriptions.find(
+      (candidate) =>
+        candidate.star.username.toLowerCase() === username.toLowerCase(),
+    )!;
   mockUser.tuzis -= price;
-  const result = { charged: true, expires };
-  if (attemptKey) mockSubscriptionAttempts.set(attemptKey, result);
+  const result: SubscribeResult = {
+    balance: String(mockUser.tuzis),
+    charged: true,
+    replayed: false,
+    expires,
+    subscription,
+  };
+  mockSubscriptionAttempts.set(idempotencyKey, {
+    username: username.toLowerCase(),
+    expectedPrice,
+    result,
+  });
   return result;
 }
 
