@@ -50,6 +50,12 @@ export interface EnterSubscriberStreamDeps {
   username: string;
   idempotencyKey: string;
   confirmedPrice: number;
+  /**
+   * The exact money authority granted by the UI that launched this attempt.
+   * A join-only click must never be promoted into a purchase when entitlement
+   * expires between render and the authoritative preflight.
+   */
+  authorization: "join-only" | "purchase-approved";
   loadMembership: () => Promise<SubscriptionStatus>;
   subscribe: (
     username: string,
@@ -117,6 +123,12 @@ export async function enterSubscriberStream(
       purchase: null,
       recoveredAmbiguousPurchase: false,
     };
+  }
+
+  if (deps.authorization === "join-only") {
+    throw new MembershipReconciliationError(
+      "Your membership expired before entry. Review the current membership price before purchasing.",
+    );
   }
 
   let purchase: SubscribeResult | null = null;

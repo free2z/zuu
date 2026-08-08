@@ -414,6 +414,7 @@ function JoinPanel({
           username: stream.username,
           idempotencyKey: membershipAttemptKey.current!,
           confirmedPrice,
+          authorization: alreadyActive ? "join-only" : "purchase-approved",
           loadMembership: () => tuzi.subscriptionStatus(stream.username),
           subscribe: (username, idempotencyKey, expectedPrice) =>
             tuzi.subscribeConfirmed(username, idempotencyKey, expectedPrice),

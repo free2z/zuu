@@ -60,6 +60,7 @@ describe("enterSubscriberStream", () => {
       username: "creator",
       idempotencyKey: "stable-attempt-key",
       confirmedPrice: 500,
+      authorization: "purchase-approved" as "join-only" | "purchase-approved",
       loadMembership,
       subscribe: vi.fn().mockResolvedValue({
         balance: "500.000",
@@ -75,6 +76,7 @@ describe("enterSubscriberStream", () => {
 
   it("joins an active member without purchasing, after reconciling balance", async () => {
     const runtime = deps(vi.fn().mockResolvedValue(status(true, "0")));
+    runtime.authorization = "join-only";
 
     const result = await enterSubscriberStream(runtime);
 
@@ -82,6 +84,19 @@ describe("enterSubscriberStream", () => {
     expect(runtime.subscribe).not.toHaveBeenCalled();
     expect(runtime.reconcileBalance).toHaveBeenCalledOnce();
     expect(runtime.join).toHaveBeenCalledOnce();
+  });
+
+  it("never promotes a stale active-member join click into a purchase", async () => {
+    const runtime = deps(vi.fn().mockResolvedValue(status(false)));
+    runtime.authorization = "join-only";
+
+    await expect(enterSubscriberStream(runtime)).rejects.toThrow(
+      "Review the current membership price before purchasing",
+    );
+
+    expect(runtime.subscribe).not.toHaveBeenCalled();
+    expect(runtime.reconcileBalance).not.toHaveBeenCalled();
+    expect(runtime.join).not.toHaveBeenCalled();
   });
 
   it("purchases after an expired membership drops from the active endpoint and joins only after reconciliation", async () => {
