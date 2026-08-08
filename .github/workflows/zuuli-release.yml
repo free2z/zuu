@@ -238,6 +238,12 @@ jobs:
             CXX_i686_linux_android CXX_x86_64_linux_android; do
             echo "$name=${!name}" >> "$GITHUB_ENV"
           done
+      - name: Restore reviewed Android Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-android-universal-v1
+          target-key: rust-1.88.0-ndk-27.0.12077973-api29-aarch64-armv7-i686-x86_64
+          save: "false"
       - run: npm ci
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
@@ -360,6 +366,12 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: aarch64-apple-ios
+      - name: Restore reviewed iOS Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-ios-device-v1
+          target-key: rust-1.88.0-xcode-26.6-ios18-aarch64-device
+          save: "false"
       - run: npm ci
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
@@ -577,6 +589,12 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev libdbus-1-dev \
             libssl-dev build-essential file pkg-config rpm
+      - name: Restore reviewed Linux Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-linux-v1
+          target-key: rust-1.88.0-ubuntu-24.04-gtk-webkit-4.1
+          save: "false"
       - run: npm ci
       - name: Reverify exact release source
         env:
@@ -669,6 +687,12 @@ jobs:
             toolchain: 1.88.0,
             targets: "aarch64-apple-darwin,x86_64-apple-darwin",
           }
+      - name: Restore reviewed macOS Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-macos-universal-v1
+          target-key: rust-1.88.0-xcode-26.6-macos-arm64-x86_64
+          save: "false"
       - run: npm ci
       - name: Reverify exact release source
         run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main

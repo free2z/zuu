@@ -14,6 +14,32 @@ Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
 checksum-bearing Bundler `4.0.3` lockfile, and Syft `1.50.0`. Action dependencies
 are commit-SHA pinned. Upgrade these together in a reviewed dependency PR.
 
+## Build cache trust boundary
+
+Packaging and protected release share target-specific Rust dependency caches so
+reruns do not rebuild the entire Zcash graph. Cache identity includes the host,
+Rust environment, Cargo manifests/lockfiles, and an explicit Xcode or Android
+NDK/ABI discriminator. Cargo still recompiles changed path dependencies and the
+cache action removes workspace crates and incremental output before saving, so
+the current ZUULI source and final package are always rebuilt.
+
+Only credential-free `ZUULI / packaging smoke` jobs may save these caches.
+Protected release jobs explicitly restore without saving because their runners
+later materialize signing and store credentials. Never cache `node_modules`,
+frontend output, Gradle/Xcode native build trees, packages, `release-artifacts`,
+provisioning profiles, Keychains, keystores, API keys, or runner-temporary
+directories. `node scripts/verify-ci-cache-policy.mjs` enforces this topology.
+
+The scheduled packaging run skips all Rust caches and rebuilds the Android,
+iOS-device, Linux, and macOS release targets cold. Manual operators can dispatch
+the same proof with `cold_rust_cache=true`. Pull-request cache entries are scoped
+by GitHub to that PR merge ref; the cache cleanup workflow runs from trusted base
+code when the PR closes and deletes only entries returned for that exact ref. A
+daily recovery sweep handles missed close events and older entries, but deletes
+an entry only after its ref matches `refs/pull/<number>/merge` and GitHub's pull
+request API confirms that exact PR is closed. Keep at least 30 GiB of repository
+cache capacity while all four release target families are active.
+
 ## One-time owner bootstrap
 
 The owner has created both store records and the dedicated automation

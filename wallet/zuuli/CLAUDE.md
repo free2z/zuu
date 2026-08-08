@@ -28,6 +28,7 @@ npm run tauri -- ios build # unsigned/signing-configured iOS archive as applicab
 npm run tauri -- android dev
 npm run tauri -- android build # Android APK/AAB
 npm run release:verify         # cross-platform version/build/identity contract
+node scripts/verify-ci-cache-policy.mjs # release-cache trust boundaries
 ```
 
 The web dev server runs on **1423** so it never collides with zuuallet (1421).
@@ -46,6 +47,14 @@ Signed releases follow [`docs/releasing.md`](docs/releasing.md). PR packaging
 never receives store credentials; upload jobs use the protected
 `zuuli-app-stores` environment and require an immutable release tag and source
 SHA.
+
+Credential-free packaging may save the shared Rust dependency caches. Protected
+release jobs are restore-only: never let a job that has materialized a signing
+key, certificate, profile, or service-account document save a cache. Cached
+paths are limited to Cargo dependency state under `src-tauri/target` and
+`~/.cargo`; never add generated native build trees, packages, frontend output,
+`node_modules`, release artifacts, or runner-temporary paths. The scheduled
+packaging canary deliberately skips Rust caches to retain clean-build evidence.
 
 `cash.free2z.zuuli` replaces the unreleased `com.2zinc.zuuli` identifier.
 The Zcash plugin migrates reachable legacy application data before wallet state

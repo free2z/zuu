@@ -10,6 +10,7 @@ on:
       - .gitmodules
       - .github/workflows/zuuli-packaging.yml
       - .github/workflows/zuuli-release.yml
+      - .github/actions/zuuli-rust-cache/**
   push:
     branches: [main]
     paths:
@@ -20,7 +21,18 @@ on:
       - .gitmodules
       - .github/workflows/zuuli-packaging.yml
       - .github/workflows/zuuli-release.yml
+      - .github/actions/zuuli-rust-cache/**
+  schedule:
+    # A weekly cache-free native build proves that warm dependency artifacts
+    # never become the only evidence for a release target.
+    - cron: "23 7 * * 1"
   workflow_dispatch:
+    inputs:
+      cold_rust_cache:
+        description: Skip Rust dependency caches and rebuild every native target cold
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -61,6 +73,8 @@ jobs:
         run: node scripts/normalize-generated-ios-project.mjs --self-test
       - name: Exercise iOS IPA fail-closed verification
         run: bash scripts/verify-ios-ipa.sh --self-test
+      - name: Verify release cache security policy
+        run: node scripts/verify-ci-cache-policy.mjs
       - name: Exercise immutable manifest generation
         run: |
           mkdir release-artifacts
@@ -97,7 +111,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
         with:
           toolchain: 1.88.0
-          targets: aarch64-linux-android
+          targets: ${{ github.event_name == 'pull_request' && 'aarch64-linux-android' || 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' }}
       - name: Install exact Android SDK components
         run: |
           java -version 2>&1 | grep -F '21.0.12'
@@ -121,12 +135,26 @@ jobs:
             CXX_i686_linux_android CXX_x86_64_linux_android; do
             echo "$name=${!name}" >> "$GITHUB_ENV"
           done
+      - name: Restore credential-free Android Rust dependencies
+        if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-android-universal-v1
+          target-key: rust-1.88.0-ndk-27.0.12077973-api29-aarch64-armv7-i686-x86_64
+          save: "true"
       - run: npm ci
       - run: npm run release:verify
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
-      - name: Build unsigned arm64 release bundle
-        run: ./node_modules/.bin/tauri android build --ci --aab --target aarch64 -- --locked
+      - name: Build unsigned release bundle
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            ./node_modules/.bin/tauri android build --ci --aab --target aarch64 -- --locked
+          else
+            # Main and manual/scheduled canaries compile every ABI shipped to
+            # Play so the protected release can restore a complete cache.
+            ./node_modules/.bin/tauri android build --ci --aab -- --locked
+          fi
       - name: Collect package
         run: |
           mkdir release-artifacts
@@ -153,7 +181,7 @@ jobs:
           retention-days: 14
 
   ios:
-    name: iOS / unsigned simulator app
+    name: iOS / unsigned target app
     runs-on: macos-26
     timeout-minutes: 90
     defaults:
@@ -178,7 +206,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
         with:
           toolchain: 1.88.0
-          targets: aarch64-apple-ios-sim
+          targets: aarch64-apple-ios
+      - name: Restore credential-free iOS Rust dependencies
+        if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-ios-device-v1
+          target-key: rust-1.88.0-xcode-26.6-ios18-aarch64-device
+          save: "true"
       - run: npm ci
       - run: npm run release:verify
       - name: Exercise Darwin signing-tool contracts
@@ -192,13 +227,15 @@ jobs:
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
       - name: Build without signing
-        run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64-sim -- --locked
-      - name: Collect simulator package
+        # A device archive has the same Rust target as TestFlight. It remains
+        # unsigned and this job receives no Apple credentials.
+        run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64 -- --locked
+      - name: Collect unsigned package
         run: |
           mkdir release-artifacts
           app=$(find src-tauri/gen/apple/build -type d -name '*.app' -print -quit)
           test -n "$app"
-          ditto -c -k --keepParent "$app" release-artifacts/ZUULI-ios-simulator-unsigned.zip
+          ditto -c -k --keepParent "$app" release-artifacts/ZUULI-ios-unsigned.zip
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
@@ -213,7 +250,7 @@ jobs:
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: zuuli-ios-simulator-unsigned-${{ github.sha }}
+          name: zuuli-ios-unsigned-${{ github.sha }}
           path: wallet/zuuli/release-artifacts
           if-no-files-found: error
           retention-days: 14
@@ -266,6 +303,13 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           xcodebuild -version | grep -Fx 'Xcode 26.6'
+      - name: Restore credential-free desktop Rust dependencies
+        if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: ${{ runner.os == 'macOS' && 'zuuli-release-macos-universal-v1' || 'zuuli-release-linux-v1' }}
+          target-key: ${{ runner.os == 'macOS' && 'rust-1.88.0-xcode-26.6-macos-arm64-x86_64' || 'rust-1.88.0-ubuntu-24.04-gtk-webkit-4.1' }}
+          save: "true"
       - run: npm ci
       - run: npm run release:verify
       - name: Verify Rust compiler

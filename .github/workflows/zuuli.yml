@@ -63,7 +63,7 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml)
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/actions/zuuli-rust-cache/*)
                 zuuli=true
                 ;;
             esac

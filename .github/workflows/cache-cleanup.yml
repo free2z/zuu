@@ -1,0 +1,83 @@
+name: CI / closed PR cache cleanup
+
+on:
+  pull_request_target:
+    types: [closed]
+  schedule:
+    # Reclaim entries left by PRs closed before this workflow existed or by a
+    # transient failure of the close event.
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+
+# This workflow never checks out or executes PR code. Its only authority is to
+# delete cache entries under the exact closed PR merge ref.
+permissions:
+  actions: write
+  contents: none
+  pull-requests: read
+
+jobs:
+  closed-pr:
+    name: Delete closed PR caches
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Delete only this PR merge-ref caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+            echo "invalid PR number" >&2
+            exit 1
+          }
+          pr_ref="refs/pull/$PR_NUMBER/merge"
+          mapfile -t cache_ids < <(
+            gh cache list --ref "$pr_ref" --limit 10000 --json id --jq '.[].id'
+          )
+          echo "Found ${#cache_ids[@]} cache entries scoped to $pr_ref."
+          for cache_id in "${cache_ids[@]}"; do
+            [[ "$cache_id" =~ ^[1-9][0-9]*$ ]] || {
+              echo "invalid cache ID returned by GitHub" >&2
+              exit 1
+            }
+            gh cache delete "$cache_id"
+          done
+
+  sweep:
+    name: Delete caches for verified-closed PRs
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Delete only caches whose PR is closed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r cache_id cache_ref; do
+            [[ "$cache_id" =~ ^[1-9][0-9]*$ ]] || {
+              echo "invalid cache ID returned by GitHub" >&2
+              exit 1
+            }
+            if [[ ! "$cache_ref" =~ ^refs/pull/([1-9][0-9]*)/merge$ ]]; then
+              echo "refusing unexpected pull-request cache ref: $cache_ref" >&2
+              exit 1
+            fi
+            pr_number=${BASH_REMATCH[1]}
+            state=$(gh api "repos/$GH_REPO/pulls/$pr_number" --jq .state)
+            if [[ "$state" == closed ]]; then
+              echo "Deleting cache $cache_id for verified-closed PR #$pr_number."
+              gh cache delete "$cache_id"
+            elif [[ "$state" != open ]]; then
+              echo "refusing unknown PR state for #$pr_number: $state" >&2
+              exit 1
+            fi
+          done < <(
+            gh cache list --limit 10000 --json id,ref --jq \
+              '.[] | select(.ref | startswith("refs/pull/")) | [.id, .ref] | @tsv'
+          )

@@ -1,0 +1,33 @@
+name: ZUULI Rust dependency cache
+description: Restore or save credential-free Cargo dependency artifacts for one exact release target surface.
+
+inputs:
+  shared-key:
+    description: Stable cache family shared by packaging and the matching release job.
+    required: true
+  target-key:
+    description: Explicit native toolchain and target discriminator.
+    required: true
+  save:
+    description: Whether this credential-free job may publish a cache entry.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Security default: callers only restore unless they explicitly opt into
+    # saving. Protected release jobs therefore cannot publish target contents
+    # after signing credentials have existed on their runner.
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: wallet/zuuli/src-tauri -> target
+        shared-key: ${{ inputs.shared-key }}
+        key: ${{ inputs.target-key }}
+        add-job-id-key: "false"
+        cache-bin: "false"
+        cache-targets: "true"
+        cache-workspace-crates: "false"
+        cache-all-crates: "false"
+        cache-on-failure: "false"
+        save-if: ${{ inputs.save }}
