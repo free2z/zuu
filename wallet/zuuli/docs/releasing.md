@@ -1,8 +1,8 @@
 # Releasing ZUULI
 
 ZUULI ships from one reviewed commit under one immutable identity. The current
-identity is `0.1.0+5`: marketing version `0.1.0`, Apple build `5`, Android
-`versionCode` `5`, and package/bundle identifier `cash.free2z.zuuli`.
+identity is `0.1.0+6`: marketing version `0.1.0`, Apple build `6`, Android
+`versionCode` `6`, and package/bundle identifier `cash.free2z.zuuli`.
 
 `release.json` is the source of truth. `npm run release:verify` fails if the npm,
 Cargo, Tauri, generated Xcode, or generated Gradle representation disagrees.
@@ -198,7 +198,7 @@ must both be confirmed:
 
 ```bash
 export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
-export ZUULI_CONFIRM_UPLOAD=0.1.0+5
+export ZUULI_CONFIRM_UPLOAD=0.1.0+6
 scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
@@ -268,8 +268,12 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    path. Build `0.1.0+4` proved the verified signing-keychain workaround by
    signing and exporting the iOS IPA, and it reached Play internal. Its iOS job
    stopped before verification/upload on a generated-plist ordering diff.
-   Build `0.1.0+5` is the canonical-plist retry; it retains fail-closed IPA
-   verification and the corrected shared Rust caches.
+   Build `0.1.0+5` reached Play internal. Its iOS IPA signed, exported, and
+   passed the local profile/signature verification, but Apple validation
+   rejected the standalone `ZUULI.app/libapp.a` with error 90171 before upload.
+   Build `0.1.0+6` keeps the Rust archive as a link-only input, removes it from
+   Copy Bundle Resources, and makes both the generated-project contract and IPA
+   verifier reject a future static-archive regression before Apple validation.
 4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and
