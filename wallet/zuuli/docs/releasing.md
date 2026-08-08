@@ -80,18 +80,32 @@ APPLE_TEAM_ID
 ASC_KEY_ID
 ASC_ISSUER_ID
 ASC_KEY_PATH                 path to the .p8 file
-IOS_CERTIFICATE              base64-encoded Apple Distribution .p12
-IOS_CERTIFICATE_PASSWORD     password for IOS_CERTIFICATE
+ZUULI_PREFLIGHT_KEYCHAIN     path to an unlocked, ephemeral signing keychain
 IOS_MOBILE_PROVISION         base64-encoded ZUULI App Store CI profile
 ```
 
 The protected release validates that the certificate, profile, team, and App ID
-are linked before Tauri receives the three manual-signing variables. The
-release script first prepares every signing key that Tauri 2.11.4 updates in a
-validated generated-project shape, then restores the committed Automatic-debug
-project byte-for-byte after the build. The resulting IPA is unpacked and its
-exact embedded profile, distribution signature, certificate linkage, and signed
-entitlements are verified before Apple validation or upload.
+are linked, removes the decoded PKCS#12 file, and keeps the unlocked ephemeral
+keychain in the user search list through Tauri and Xcode export. The import ACL
+trusts only `codesign` and `xcodebuild`. Tauri receives only the provisioning
+profile—not the distribution P12 and not the ASC API credentials—so Xcode signs
+the archive directly and neither Tauri 2.11.4 PKCS#12-import path can run. This
+avoids the path that could not read this dedicated P12 on macOS 26. The release
+script rejects certificate variables and Tauri-facing `APPLE_API_*` variables,
+proves the dedicated identity is still present and discoverable, prepares every
+signing key that Tauri updates in a validated generated-project shape, then
+restores the
+committed Automatic-debug project byte-for-byte after the build. The resulting
+IPA is unpacked and its exact embedded profile, distribution signature,
+certificate linkage, and signed entitlements are verified before Apple
+validation or upload. The workflow then restores the original keychain search
+list and fails if the keychain, installed profile, or credential directory
+survives cleanup.
+
+The implicit-format import regression is reported upstream as
+[`tauri-apps/tauri#15843`](https://github.com/tauri-apps/tauri/issues/15843).
+Remove this workaround only after the fixed Tauri release is upgraded here and
+the protected path has proved the replacement import and cleanup behavior.
 
 Android variables:
 

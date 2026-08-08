@@ -380,23 +380,49 @@ jobs:
           : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
           files=$(mktemp -d "$RUNNER_TEMP/zuuli-apple.XXXXXX")
           chmod 700 "$files"
+          files=$(CDPATH= cd -P -- "$files" && pwd)
+          echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
           printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$files/distribution.p12"
           printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$files/AuthKey.p8"
           printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$files/zuuli.mobileprovision"
           test -s "$files/distribution.p12"
           test -s "$files/AuthKey.p8"
           test -s "$files/zuuli.mobileprovision"
+          original_keychains="$files/original-user-keychains.txt"
+          security list-keychains -d user |
+            sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' > "$original_keychains"
+          [[ -s "$original_keychains" ]] || {
+            echo "user keychain search list is unexpectedly empty" >&2
+            exit 1
+          }
           keychain="$files/release.keychain-db"
           keychain_password=$(openssl rand -hex 24)
-          security create-keychain -p "$keychain_password" "$keychain"
           echo "ZUULI_PREFLIGHT_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "ZUULI_ORIGINAL_KEYCHAIN_LIST=$original_keychains" >> "$GITHUB_ENV"
+          security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD" \
+            -t cert -f pkcs12 \
+            -T /usr/bin/codesign -T /usr/bin/xcodebuild \
+            -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
-          identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -c 'Apple Distribution: Corpora Inc' || true)
+          keychains=("$keychain")
+          while IFS= read -r existing_keychain; do
+            [[ -z "$existing_keychain" ]] || keychains+=("$existing_keychain")
+          done < "$original_keychains"
+          security list-keychains -d user -s "${keychains[@]}"
+          identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -Fc 'Apple Distribution: Corpora Inc (F9AV5HKF6N)' || true)
           [[ "$identity_count" -eq 1 ]] || {
             echo "expected exactly one dedicated Corpora Apple Distribution identity" >&2
+            exit 1
+          }
+          searchable_distribution_count=$(security find-identity -v -p codesigning |
+            grep -Fc 'Apple Distribution:' || true)
+          searchable_identity_count=$(security find-identity -v -p codesigning |
+            grep -Fc 'Apple Distribution: Corpora Inc (F9AV5HKF6N)' || true)
+          [[ "$searchable_distribution_count" -eq 1 && "$searchable_identity_count" -eq 1 ]] || {
+            echo "user keychain search list does not resolve the unique Corpora distribution identity" >&2
             exit 1
           }
           identity_sha=$(security find-identity -v -p codesigning "$keychain" | awk '/Apple Distribution: Corpora Inc/ {print $2; exit}')
@@ -429,18 +455,15 @@ jobs:
             echo "provisioning profile is not linked to the imported distribution certificate" >&2
             exit 1
           }
+          rm -f -- "$files/distribution.p12" "$files/profile-certificate.der"
           profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$profile_dir"
           cp "$files/zuuli.mobileprovision" "$profile_dir/$profile_uuid.mobileprovision"
           echo "ASC_KEY_PATH=$files/AuthKey.p8" >> "$GITHUB_ENV"
-          echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
           echo "ZUULI_PROFILE_PATH=$profile_dir/$profile_uuid.mobileprovision" >> "$GITHUB_ENV"
-          security delete-keychain "$keychain"
       - name: Build, validate, and optionally upload
         env:
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
-          IOS_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
           IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
@@ -452,12 +475,42 @@ jobs:
       - name: Destroy ephemeral Apple credentials
         if: always()
         run: |
-          security delete-keychain "${ZUULI_PREFLIGHT_KEYCHAIN:-}" 2>/dev/null || true
-          rm -f -- "${ZUULI_PROFILE_PATH:-}"
-          if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
-            find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} +
-            rmdir "$ZUULI_SECRET_DIR"
+          set -u
+          cleanup_failed=0
+          if [[ -n "${ZUULI_ORIGINAL_KEYCHAIN_LIST:-}" && -s "$ZUULI_ORIGINAL_KEYCHAIN_LIST" ]]; then
+            original_keychains=()
+            while IFS= read -r existing_keychain; do
+              [[ -z "$existing_keychain" ]] || original_keychains+=("$existing_keychain")
+            done < "$ZUULI_ORIGINAL_KEYCHAIN_LIST"
+            if [[ ${#original_keychains[@]} -gt 0 ]]; then
+              security list-keychains -d user -s "${original_keychains[@]}" || cleanup_failed=1
+            else
+              echo "recorded user keychain search list is empty" >&2
+              cleanup_failed=1
+            fi
+          elif [[ -n "${ZUULI_PREFLIGHT_KEYCHAIN:-}" ]]; then
+            echo "cannot restore the original user keychain search list" >&2
+            cleanup_failed=1
           fi
+          if [[ -n "${ZUULI_PREFLIGHT_KEYCHAIN:-}" && -e "$ZUULI_PREFLIGHT_KEYCHAIN" ]]; then
+            security delete-keychain "$ZUULI_PREFLIGHT_KEYCHAIN" || cleanup_failed=1
+          fi
+          if [[ -n "${ZUULI_PROFILE_PATH:-}" ]]; then
+            rm -f -- "$ZUULI_PROFILE_PATH" || cleanup_failed=1
+          fi
+          if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
+            find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} + || cleanup_failed=1
+            rmdir "$ZUULI_SECRET_DIR" || cleanup_failed=1
+          fi
+          [[ -z "${ZUULI_PREFLIGHT_KEYCHAIN:-}" || ! -e "$ZUULI_PREFLIGHT_KEYCHAIN" ]] || cleanup_failed=1
+          [[ -z "${ZUULI_PROFILE_PATH:-}" || ! -e "$ZUULI_PROFILE_PATH" ]] || cleanup_failed=1
+          [[ -z "${ZUULI_SECRET_DIR:-}" || ! -e "$ZUULI_SECRET_DIR" ]] || cleanup_failed=1
+          if [[ -n "${ZUULI_PREFLIGHT_KEYCHAIN:-}" ]] &&
+            security list-keychains -d user | grep -Fq "$ZUULI_PREFLIGHT_KEYCHAIN"; then
+            echo "ephemeral release keychain remains in the user search list" >&2
+            cleanup_failed=1
+          fi
+          exit "$cleanup_failed"
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0

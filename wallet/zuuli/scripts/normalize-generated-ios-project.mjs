@@ -103,12 +103,21 @@ function normalizeAppSigning(body, configuration) {
     replaceSetting(
       lines,
       "CODE_SIGN_IDENTITY",
-      `"${distributionIdentity}"`,
+      configuration === "debug"
+        ? '"Apple Development"'
+        : `"${distributionIdentity}"`,
       configuration === "debug"
         ? '"Apple Development"'
         : '"Apple Distribution"',
     );
-    replaceSetting(lines, sdkIdentity, `"${distributionIdentity}"`, null);
+    replaceSetting(
+      lines,
+      sdkIdentity,
+      configuration === "debug"
+        ? '"Apple Development"'
+        : `"${distributionIdentity}"`,
+      null,
+    );
     replaceSetting(
       lines,
       "CODE_SIGN_STYLE",
@@ -116,7 +125,7 @@ function normalizeAppSigning(body, configuration) {
       configuration === "debug" ? "Automatic" : "Manual",
     );
     replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, teamId);
-    replaceSetting(lines, sdkTeam, `"${teamId}"`, null);
+    replaceSetting(lines, sdkTeam, teamId, null);
     replaceSetting(
       lines,
       "PROVISIONING_PROFILE_SPECIFIER",
@@ -131,10 +140,14 @@ function normalizeAppSigning(body, configuration) {
 
 function prepareAppSigning(body, configuration) {
   const lines = body.split("\n");
-  const identity =
+  const canonicalIdentity =
     configuration === "debug" ? '"Apple Development"' : '"Apple Distribution"';
+  const identity =
+    configuration === "debug"
+      ? '"Apple Development"'
+      : `"${distributionIdentity}"`;
   const profile = configuration === "debug" ? '""' : `"${profileName}"`;
-  replaceSetting(lines, "CODE_SIGN_IDENTITY", identity, identity);
+  replaceSetting(lines, "CODE_SIGN_IDENTITY", canonicalIdentity, identity);
   replaceSetting(
     lines,
     "CODE_SIGN_STYLE",
@@ -268,24 +281,8 @@ function selfTest() {
     tauriGenerated,
     (body, configuration) => {
       const lines = body.split("\n");
-      const canonicalIdentity =
-        configuration === "debug"
-          ? '"Apple Development"'
-          : '"Apple Distribution"';
       const canonicalProfile =
         configuration === "debug" ? '""' : `"${profileName}"`;
-      replaceSetting(
-        lines,
-        "CODE_SIGN_IDENTITY",
-        canonicalIdentity,
-        `"${distributionIdentity}"`,
-      );
-      replaceSetting(
-        lines,
-        '"CODE_SIGN_IDENTITY[sdk=iphoneos*]"',
-        canonicalIdentity,
-        `"${distributionIdentity}"`,
-      );
       replaceSetting(
         lines,
         "CODE_SIGN_STYLE",
@@ -293,12 +290,6 @@ function selfTest() {
         "Manual",
       );
       replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, `"${teamId}"`);
-      replaceSetting(
-        lines,
-        '"DEVELOPMENT_TEAM[sdk=iphoneos*]"',
-        teamId,
-        `"${teamId}"`,
-      );
       replaceSetting(
         lines,
         "PROVISIONING_PROFILE_SPECIFIER",
