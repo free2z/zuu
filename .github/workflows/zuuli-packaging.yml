@@ -57,6 +57,8 @@ jobs:
       - run: npm ci
       - name: Verify one release identity
         run: npm run release:verify
+      - name: Exercise generated iOS normalization
+        run: node scripts/normalize-generated-ios-project.mjs --self-test
       - name: Exercise immutable manifest generation
         run: |
           mkdir release-artifacts
@@ -177,6 +179,12 @@ jobs:
           targets: aarch64-apple-ios-sim
       - run: npm ci
       - run: npm run release:verify
+      - name: Exercise Xcode release formatting normalization
+        run: |
+          build=$(jq -r .build release.json)
+          (cd src-tauri/gen/apple && xcrun agvtool new-version -all "$build")
+          node scripts/normalize-generated-ios-project.mjs
+          git diff --exit-code
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
       - name: Build without signing

@@ -109,6 +109,7 @@ if [[ "$platform" == ios ]]; then
       --export-method app-store-connect \
       -- \
       --locked
+  node scripts/normalize-generated-ios-project.mjs
   git diff --exit-code
 
   ipa=$(find_one './src-tauri/gen/apple/build/arm64/*.ipa')

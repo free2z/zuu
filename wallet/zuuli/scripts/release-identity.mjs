@@ -28,6 +28,10 @@ function capture(pattern, text, label) {
   return match[1];
 }
 
+function occurrenceCount(contents, value) {
+  return contents.split(value).length - 1;
+}
+
 expect("release schema version", release.schemaVersion, 1);
 expect("release application ID", release.applicationId, "cash.free2z.zuuli");
 expect("release minimum iOS", release.minimums?.ios, "18.0");
@@ -57,6 +61,9 @@ const project = read("src-tauri/gen/apple/project.yml");
 const plist = read("src-tauri/gen/apple/zuuli_iOS/Info.plist");
 const plistSource = read("src-tauri/Info.ios.plist");
 const pbxproj = read("src-tauri/gen/apple/zuuli.xcodeproj/project.pbxproj");
+const entitlements = read(
+  "src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements",
+);
 const rustToolchain = read("../rust-toolchain.toml");
 const gradle = read("src-tauri/gen/android/app/build.gradle.kts");
 const gradleWrapper = read(
@@ -179,6 +186,34 @@ if (!pbxproj.includes('CODE_SIGN_IDENTITY = "Apple Distribution";'))
   );
 if (!pbxproj.includes('PROVISIONING_PROFILE_SPECIFIER = "ZUULI App Store CI";'))
   failures.push("generated Xcode release provisioning profile is not pinned");
+for (const [label, contents] of [
+  ["generated Xcode project", pbxproj],
+  ["generated iOS plist", plist],
+  ["generated iOS entitlements", entitlements],
+]) {
+  if (!contents.endsWith("\n"))
+    failures.push(`${label} has no terminal newline`);
+}
+expect(
+  "generated Xcode canonical team setting count",
+  occurrenceCount(pbxproj, "DEVELOPMENT_TEAM = F9AV5HKF6N;"),
+  2,
+);
+expect(
+  "generated Xcode quoted team setting count",
+  occurrenceCount(pbxproj, 'DEVELOPMENT_TEAM = "F9AV5HKF6N";'),
+  0,
+);
+expect(
+  "generated Xcode canonical product name count",
+  occurrenceCount(pbxproj, "PRODUCT_NAME = ZUULI;"),
+  2,
+);
+expect(
+  "generated Xcode quoted product name count",
+  occurrenceCount(pbxproj, 'PRODUCT_NAME = "ZUULI";'),
+  0,
+);
 for (const privacyKey of [
   "NSCameraUsageDescription",
   "NSFaceIDUsageDescription",
