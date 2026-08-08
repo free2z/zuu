@@ -89,9 +89,43 @@ if [[ "$platform" == ios ]]; then
   fi
   require_value ASC_KEY_ID
   require_value ASC_ISSUER_ID
-  require_value IOS_CERTIFICATE
-  require_value IOS_CERTIFICATE_PASSWORD
   require_value IOS_MOBILE_PROVISION
+  signing_keychain=$(canonical_secret_file ZUULI_PREFLIGHT_KEYCHAIN)
+  if [[ -n "${IOS_CERTIFICATE+x}" || -n "${IOS_CERTIFICATE_PASSWORD+x}" ]]; then
+    echo "refusing duplicate iOS certificate import: use the verified ephemeral keychain" >&2
+    exit 66
+  fi
+  if [[ -n "${APPLE_API_KEY+x}" || -n "${APPLE_API_ISSUER+x}" || -n "${APPLE_API_KEY_PATH+x}" ]]; then
+    echo "refusing Tauri skip-signing path: App Store credentials are reserved for altool" >&2
+    exit 66
+  fi
+  if [[ $(security find-identity -v -p codesigning "$signing_keychain" |
+    grep -Fc 'Apple Distribution: Corpora Inc (F9AV5HKF6N)' || true) -ne 1 ]]; then
+    echo "verified ephemeral keychain does not contain exactly one Corpora distribution identity" >&2
+    exit 66
+  fi
+  searchable_distribution_count=$(security find-identity -v -p codesigning |
+    grep -Fc 'Apple Distribution:' || true)
+  searchable_identity_count=$(security find-identity -v -p codesigning |
+    grep -Fc 'Apple Distribution: Corpora Inc (F9AV5HKF6N)' || true)
+  if [[ "$searchable_distribution_count" -ne 1 || "$searchable_identity_count" -ne 1 ]]; then
+    echo "user keychain search list does not resolve the unique Corpora distribution identity" >&2
+    exit 66
+  fi
+  keychain_is_searchable=false
+  while IFS= read -r listed_keychain; do
+    [[ -f "$listed_keychain" && ! -L "$listed_keychain" ]] || continue
+    listed_parent=$(CDPATH= cd -P -- "$(dirname -- "$listed_keychain")" && pwd)
+    if [[ "$listed_parent/$(basename -- "$listed_keychain")" == "$signing_keychain" ]]; then
+      keychain_is_searchable=true
+      break
+    fi
+  done < <(security list-keychains -d user |
+    sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//')
+  if [[ "$keychain_is_searchable" != true ]]; then
+    echo "verified ephemeral keychain is missing from the user search list" >&2
+    exit 66
+  fi
   ASC_KEY_PATH=$(canonical_secret_file ASC_KEY_PATH)
 
   key_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-asc.XXXXXX")
@@ -104,13 +138,8 @@ if [[ "$platform" == ios ]]; then
   cp "$ASC_KEY_PATH" "$key_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
   node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing
-  IOS_CERTIFICATE="$IOS_CERTIFICATE" \
-    IOS_CERTIFICATE_PASSWORD="$IOS_CERTIFICATE_PASSWORD" \
-    IOS_MOBILE_PROVISION="$IOS_MOBILE_PROVISION" \
+  IOS_MOBILE_PROVISION="$IOS_MOBILE_PROVISION" \
     APPLE_TEAM_ID="$APPLE_TEAM_ID" \
-    APPLE_API_ISSUER="$ASC_ISSUER_ID" \
-    APPLE_API_KEY="$ASC_KEY_ID" \
-    APPLE_API_KEY_PATH="$key_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
     ./node_modules/.bin/tauri ios build \
       --ci \
       --export-method app-store-connect \

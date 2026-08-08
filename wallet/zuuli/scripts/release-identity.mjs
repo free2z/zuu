@@ -360,12 +360,99 @@ expect(
   "1.88.0",
 );
 for (const wiring of [
-  "IOS_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}",
-  "IOS_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}",
   "IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}",
+  "ZUULI_PREFLIGHT_KEYCHAIN=$keychain",
+  'security list-keychains -d user -s "${keychains[@]}"',
+  'security delete-keychain "$ZUULI_PREFLIGHT_KEYCHAIN"',
+  "-t cert -f pkcs12",
+  "-T /usr/bin/codesign -T /usr/bin/xcodebuild",
 ]) {
   if (!releaseWorkflow.includes(wiring))
-    failures.push(`protected iOS manual-signing wiring is missing: ${wiring}`);
+    failures.push(`protected iOS signing-keychain wiring is missing: ${wiring}`);
+}
+expect(
+  "protected build certificate secret exposure count",
+  occurrenceCount(
+    releaseWorkflow,
+    "IOS_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}",
+  ),
+  0,
+);
+expect(
+  "protected build certificate password secret exposure count",
+  occurrenceCount(
+    releaseWorkflow,
+    "IOS_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}",
+  ),
+  0,
+);
+expect(
+  "protected certificate materialization count",
+  occurrenceCount(
+    releaseWorkflow,
+    "CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}",
+  ),
+  1,
+);
+expect(
+  "protected certificate password materialization count",
+  occurrenceCount(
+    releaseWorkflow,
+    "CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}",
+  ),
+  1,
+);
+expect(
+  "protected provisioning-profile build exposure count",
+  occurrenceCount(
+    releaseWorkflow,
+    "IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}",
+  ),
+  1,
+);
+const explicitCertificateImport = releaseWorkflow.indexOf(
+  'security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD"',
+);
+const decodedCertificateRemoval = releaseWorkflow.indexOf(
+  'rm -f -- "$files/distribution.p12" "$files/profile-certificate.der"',
+);
+const protectedIosBuild = releaseWorkflow.indexOf(
+  "      - name: Build, validate, and optionally upload",
+);
+const protectedIosCleanup = releaseWorkflow.indexOf(
+  "      - name: Destroy ephemeral Apple credentials",
+);
+if (
+  explicitCertificateImport === -1 ||
+  decodedCertificateRemoval === -1 ||
+  protectedIosBuild === -1 ||
+  protectedIosCleanup === -1 ||
+  explicitCertificateImport > decodedCertificateRemoval ||
+  decodedCertificateRemoval > protectedIosBuild ||
+  protectedIosBuild > protectedIosCleanup
+) {
+  failures.push(
+    "protected iOS release must explicitly import, remove the decoded P12, build from the keychain, then clean up",
+  );
+}
+for (const guard of [
+  "refusing duplicate iOS certificate import",
+  "refusing Tauri skip-signing path",
+  "verified ephemeral keychain is missing from the user search list",
+  "user keychain search list does not resolve the unique Corpora distribution identity",
+]) {
+  if (!mobileRelease.includes(guard))
+    failures.push(`iOS release keychain guard is missing: ${guard}`);
+}
+for (const forbiddenTauriCredential of [
+  'APPLE_API_ISSUER="$ASC_ISSUER_ID"',
+  'APPLE_API_KEY="$ASC_KEY_ID"',
+  'APPLE_API_KEY_PATH="$key_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"',
+]) {
+  if (mobileRelease.includes(forbiddenTauriCredential))
+    failures.push(
+      `Tauri must not receive App Store credentials that enable its skip-signing path: ${forbiddenTauriCredential}`,
+    );
 }
 const ipaVerification = mobileRelease.indexOf(
   "\n  scripts/verify-ios-ipa.sh \\\n",
