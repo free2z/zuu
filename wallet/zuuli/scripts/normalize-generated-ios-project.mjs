@@ -5,6 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const teamId = "F9AV5HKF6N";
+const profileUuid = "e5ead62c-83ec-4e54-abb6-4770833b5e0d";
+const profileName = "ZUULI App Store CI";
+const distributionIdentity = `Apple Distribution: Corpora Inc (${teamId})`;
+const appBundleSetting = "PRODUCT_BUNDLE_IDENTIFIER = cash.free2z.zuuli;";
 
 function occurrenceCount(contents, value) {
   return contents.split(value).length - 1;
@@ -23,6 +28,151 @@ function normalizeBuildSetting(contents, name, value, expectedCount) {
   return contents.replaceAll(generated, canonical);
 }
 
+function settingLine(key, value) {
+  return `\t\t\t\t${key} = ${value};`;
+}
+
+function settingIndex(lines, key) {
+  const prefix = `${key} = `;
+  const matches = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].trimStart().startsWith(prefix)) matches.push(index);
+  }
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected exactly one ${key} setting, found ${matches.length}`,
+    );
+  }
+  return matches[0];
+}
+
+function replaceSetting(lines, key, expectedValue, replacementValue) {
+  const index = settingIndex(lines, key);
+  const expected = settingLine(key, expectedValue);
+  if (lines[index] !== expected) {
+    throw new Error(
+      `refusing to normalize ${key}: expected ${JSON.stringify(expected)}, found ${JSON.stringify(lines[index])}`,
+    );
+  }
+  if (replacementValue === null) lines.splice(index, 1);
+  else lines[index] = settingLine(key, replacementValue);
+}
+
+function insertSettingAfter(lines, afterKey, key, value) {
+  if (lines.some((line) => line.trimStart().startsWith(`${key} = `))) {
+    throw new Error(`refusing to prepare duplicate ${key} setting`);
+  }
+  lines.splice(settingIndex(lines, afterKey) + 1, 0, settingLine(key, value));
+}
+
+function transformAppConfigurations(contents, transform) {
+  const configurationPattern =
+    /(\t\t[0-9A-F]+ \/\* (debug|release) \*\/ = \{\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = \{\n)([\s\S]*?)(\n\t\t\t\};\n\t\t\tname = (debug|release);\n\t\t\};)/g;
+  let appConfigurationCount = 0;
+  const transformed = contents.replace(
+    configurationPattern,
+    (block, prefix, headerName, body, suffix, footerName) => {
+      if (headerName !== footerName) {
+        throw new Error(
+          `Xcode configuration name mismatch: ${headerName} != ${footerName}`,
+        );
+      }
+      if (!body.includes(appBundleSetting)) return block;
+      appConfigurationCount += 1;
+      return `${prefix}${transform(body, headerName)}${suffix}`;
+    },
+  );
+  if (appConfigurationCount !== 2) {
+    throw new Error(
+      `expected two ZUULI app build configurations, found ${appConfigurationCount}`,
+    );
+  }
+  return transformed;
+}
+
+function normalizeAppSigning(body, configuration) {
+  const lines = body.split("\n");
+  const sdkIdentity = '"CODE_SIGN_IDENTITY[sdk=iphoneos*]"';
+  const sdkTeam = '"DEVELOPMENT_TEAM[sdk=iphoneos*]"';
+  const sdkProfile = '"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]"';
+  const hasPreparedSigning = lines.some((line) =>
+    line.trimStart().startsWith(`${sdkIdentity} = `),
+  );
+
+  if (hasPreparedSigning) {
+    replaceSetting(
+      lines,
+      "CODE_SIGN_IDENTITY",
+      `"${distributionIdentity}"`,
+      configuration === "debug"
+        ? '"Apple Development"'
+        : '"Apple Distribution"',
+    );
+    replaceSetting(lines, sdkIdentity, `"${distributionIdentity}"`, null);
+    replaceSetting(
+      lines,
+      "CODE_SIGN_STYLE",
+      "Manual",
+      configuration === "debug" ? "Automatic" : "Manual",
+    );
+    replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, teamId);
+    replaceSetting(lines, sdkTeam, `"${teamId}"`, null);
+    replaceSetting(
+      lines,
+      "PROVISIONING_PROFILE_SPECIFIER",
+      `"${profileUuid}"`,
+      configuration === "debug" ? null : `"${profileName}"`,
+    );
+    replaceSetting(lines, sdkProfile, `"${profileUuid}"`, null);
+  }
+
+  return lines.join("\n");
+}
+
+function prepareAppSigning(body, configuration) {
+  const lines = body.split("\n");
+  const identity =
+    configuration === "debug" ? '"Apple Development"' : '"Apple Distribution"';
+  const profile = configuration === "debug" ? '""' : `"${profileName}"`;
+  replaceSetting(lines, "CODE_SIGN_IDENTITY", identity, identity);
+  replaceSetting(
+    lines,
+    "CODE_SIGN_STYLE",
+    configuration === "debug" ? "Automatic" : "Manual",
+    configuration === "debug" ? "Automatic" : "Manual",
+  );
+  replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, teamId);
+  insertSettingAfter(
+    lines,
+    "CODE_SIGN_IDENTITY",
+    '"CODE_SIGN_IDENTITY[sdk=iphoneos*]"',
+    identity,
+  );
+  insertSettingAfter(
+    lines,
+    "DEVELOPMENT_TEAM",
+    '"DEVELOPMENT_TEAM[sdk=iphoneos*]"',
+    teamId,
+  );
+  if (configuration === "debug") {
+    insertSettingAfter(
+      lines,
+      "PRODUCT_NAME",
+      "PROVISIONING_PROFILE_SPECIFIER",
+      profile,
+    );
+  } else {
+    replaceSetting(lines, "PROVISIONING_PROFILE_SPECIFIER", profile, profile);
+  }
+  insertSettingAfter(
+    lines,
+    "PROVISIONING_PROFILE_SPECIFIER",
+    '"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]"',
+    profile,
+  );
+  return lines.join("\n");
+}
+
 function normalizeProject(contents) {
   let normalized = normalizeBuildSetting(
     contents,
@@ -31,7 +181,14 @@ function normalizeProject(contents) {
     2,
   );
   normalized = normalizeBuildSetting(normalized, "PRODUCT_NAME", "ZUULI", 2);
-  return normalized;
+  return transformAppConfigurations(normalized, normalizeAppSigning);
+}
+
+function prepareManualSigningProject(contents) {
+  return transformAppConfigurations(
+    normalizeProject(contents),
+    prepareAppSigning,
+  );
 }
 
 function normalizePlist(contents, label) {
@@ -53,8 +210,20 @@ function selfTest() {
   const expectedProject = generatedProject
     .replaceAll(' = "', " = ")
     .replaceAll('";', ";");
-  if (normalizeProject(generatedProject) !== expectedProject) {
-    throw new Error("iOS project normalization self-test failed");
+  let normalizedFixture = normalizeBuildSetting(
+    generatedProject,
+    "DEVELOPMENT_TEAM",
+    teamId,
+    2,
+  );
+  normalizedFixture = normalizeBuildSetting(
+    normalizedFixture,
+    "PRODUCT_NAME",
+    "ZUULI",
+    2,
+  );
+  if (normalizedFixture !== expectedProject) {
+    throw new Error("iOS basic project normalization self-test failed");
   }
   if (
     normalizePlist("<plist><dict/></plist>", "fixture") !==
@@ -62,12 +231,100 @@ function selfTest() {
   ) {
     throw new Error("iOS plist normalization self-test failed");
   }
+  let rejectedUnexpectedShape = false;
   try {
     normalizeProject('DEVELOPMENT_TEAM = "F9AV5HKF6N";');
   } catch {
-    return;
+    rejectedUnexpectedShape = true;
   }
-  throw new Error("iOS project normalization accepted an unexpected shape");
+  if (!rejectedUnexpectedShape) {
+    throw new Error("iOS project normalization accepted an unexpected shape");
+  }
+  const projectPath = resolve(
+    appDir,
+    "src-tauri/gen/apple/zuuli.xcodeproj/project.pbxproj",
+  );
+  const canonical = readFileSync(projectPath, "utf8");
+  if (normalizeProject(canonical) !== canonical) {
+    throw new Error("committed iOS project is not canonical");
+  }
+  const prepared = prepareManualSigningProject(canonical);
+  if (prepared === canonical) {
+    throw new Error("manual-signing preparation did not add guarded settings");
+  }
+  let tauriGenerated = normalizeBuildSetting(
+    prepared,
+    "DEVELOPMENT_TEAM",
+    teamId,
+    2,
+  );
+  tauriGenerated = normalizeBuildSetting(
+    tauriGenerated,
+    "PRODUCT_NAME",
+    "ZUULI",
+    2,
+  );
+  tauriGenerated = transformAppConfigurations(
+    tauriGenerated,
+    (body, configuration) => {
+      const lines = body.split("\n");
+      const canonicalIdentity =
+        configuration === "debug"
+          ? '"Apple Development"'
+          : '"Apple Distribution"';
+      const canonicalProfile =
+        configuration === "debug" ? '""' : `"${profileName}"`;
+      replaceSetting(
+        lines,
+        "CODE_SIGN_IDENTITY",
+        canonicalIdentity,
+        `"${distributionIdentity}"`,
+      );
+      replaceSetting(
+        lines,
+        '"CODE_SIGN_IDENTITY[sdk=iphoneos*]"',
+        canonicalIdentity,
+        `"${distributionIdentity}"`,
+      );
+      replaceSetting(
+        lines,
+        "CODE_SIGN_STYLE",
+        configuration === "debug" ? "Automatic" : "Manual",
+        "Manual",
+      );
+      replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, `"${teamId}"`);
+      replaceSetting(
+        lines,
+        '"DEVELOPMENT_TEAM[sdk=iphoneos*]"',
+        teamId,
+        `"${teamId}"`,
+      );
+      replaceSetting(
+        lines,
+        "PROVISIONING_PROFILE_SPECIFIER",
+        canonicalProfile,
+        `"${profileUuid}"`,
+      );
+      replaceSetting(
+        lines,
+        '"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]"',
+        canonicalProfile,
+        `"${profileUuid}"`,
+      );
+      return lines.join("\n");
+    },
+  );
+  tauriGenerated = tauriGenerated
+    .replaceAll(
+      `DEVELOPMENT_TEAM = ${teamId};`,
+      `DEVELOPMENT_TEAM = "${teamId}";`,
+    )
+    .replaceAll("PRODUCT_NAME = ZUULI;", 'PRODUCT_NAME = "ZUULI";');
+  if (normalizeProject(tauriGenerated) !== canonical) {
+    throw new Error(
+      "manual-signing project did not normalize to canonical bytes",
+    );
+  }
 }
 
 if (process.argv.includes("--self-test")) {
@@ -85,7 +342,9 @@ const plistPaths = [
 ].map((path) => resolve(appDir, path));
 
 const project = readFileSync(projectPath, "utf8");
-const normalizedProject = normalizeProject(project);
+const normalizedProject = process.argv.includes("--prepare-manual-signing")
+  ? prepareManualSigningProject(project)
+  : normalizeProject(project);
 if (normalizedProject !== project) {
   writeFileSync(projectPath, normalizedProject);
 }

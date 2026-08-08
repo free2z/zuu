@@ -89,18 +89,25 @@ if [[ "$platform" == ios ]]; then
   fi
   require_value ASC_KEY_ID
   require_value ASC_ISSUER_ID
+  require_value IOS_CERTIFICATE
+  require_value IOS_CERTIFICATE_PASSWORD
+  require_value IOS_MOBILE_PROVISION
   ASC_KEY_PATH=$(canonical_secret_file ASC_KEY_PATH)
 
   key_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-asc.XXXXXX")
   cleanup_apple_key() {
-    rm -f "$key_dir"/private_keys/AuthKey_*.p8
+    find "$key_dir" -type f -exec rm -f -- {} + 2>/dev/null || true
     rmdir "$key_dir/private_keys" "$key_dir" 2>/dev/null || true
   }
   trap cleanup_apple_key EXIT
   mkdir "$key_dir/private_keys"
   cp "$ASC_KEY_PATH" "$key_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
-  APPLE_TEAM_ID="$APPLE_TEAM_ID" \
+  node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing
+  IOS_CERTIFICATE="$IOS_CERTIFICATE" \
+    IOS_CERTIFICATE_PASSWORD="$IOS_CERTIFICATE_PASSWORD" \
+    IOS_MOBILE_PROVISION="$IOS_MOBILE_PROVISION" \
+    APPLE_TEAM_ID="$APPLE_TEAM_ID" \
     APPLE_API_ISSUER="$ASC_ISSUER_ID" \
     APPLE_API_KEY="$ASC_KEY_ID" \
     APPLE_API_KEY_PATH="$key_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
@@ -114,6 +121,12 @@ if [[ "$platform" == ios ]]; then
 
   ipa=$(find_one './src-tauri/gen/apple/build/arm64/*.ipa')
   ipa_abs="$app_dir/${ipa#./}"
+  printf '%s' "$IOS_MOBILE_PROVISION" | base64 --decode > "$key_dir/expected.mobileprovision"
+  scripts/verify-ios-ipa.sh \
+    "$ipa_abs" \
+    "$key_dir/expected.mobileprovision" \
+    "$APPLE_TEAM_ID" \
+    "$application_id"
   (
     cd "$key_dir"
     xcrun altool --validate-app --type ios --file "$ipa_abs" \

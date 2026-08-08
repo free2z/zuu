@@ -59,6 +59,8 @@ jobs:
         run: npm run release:verify
       - name: Exercise generated iOS normalization
         run: node scripts/normalize-generated-ios-project.mjs --self-test
+      - name: Exercise iOS IPA fail-closed verification
+        run: bash scripts/verify-ios-ipa.sh --self-test
       - name: Exercise immutable manifest generation
         run: |
           mkdir release-artifacts
@@ -179,6 +181,8 @@ jobs:
           targets: aarch64-apple-ios-sim
       - run: npm ci
       - run: npm run release:verify
+      - name: Exercise Darwin signing-tool contracts
+        run: bash scripts/verify-ios-ipa.sh --self-test-darwin
       - name: Exercise Xcode release formatting normalization
         run: |
           build=$(jq -r .build release.json)
