@@ -56,6 +56,8 @@ The committed native projects live under `src-tauri/gen/apple` and
 `cash.free2z.zuuli`, targets iOS 18+, and supports Android API 29+ while
 compiling against API 36. Mobile builds require the corresponding Xcode or
 Android SDK/NDK toolchain; signing credentials stay outside the repository.
+The immutable package train, protected store upload, credential contract, and
+physical-device checklist live in [the release runbook](docs/releasing.md).
 This identifier replaces the unreleased development identifier
 `com.2zinc.zuuli`. Existing development data is handled by the fail-closed
 [identifier migration](docs/app-data-identifier-migration.md); never treat an

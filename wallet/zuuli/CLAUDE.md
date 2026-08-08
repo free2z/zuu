@@ -27,6 +27,7 @@ npm run tauri -- ios dev   # iOS simulator/device through Xcode
 npm run tauri -- ios build # unsigned/signing-configured iOS archive as applicable
 npm run tauri -- android dev
 npm run tauri -- android build # Android APK/AAB
+npm run release:verify         # cross-platform version/build/identity contract
 ```
 
 The web dev server runs on **1423** so it never collides with zuuallet (1421).
@@ -40,6 +41,11 @@ target is 18.0; Android uses min API 29 and target/compile API 36. Keep
 versions aligned. Keep iOS privacy strings in `src-tauri/Info.ios.plist` as the
 regeneration source of truth. Never commit signing certificates, provisioning
 profiles, API keys, keystores, or local SDK paths.
+
+Signed releases follow [`docs/releasing.md`](docs/releasing.md). PR packaging
+never receives store credentials; upload jobs use the protected
+`zuuli-app-stores` environment and require an immutable release tag and source
+SHA.
 
 `cash.free2z.zuuli` replaces the unreleased `com.2zinc.zuuli` identifier.
 The Zcash plugin migrates reachable legacy application data before wallet state

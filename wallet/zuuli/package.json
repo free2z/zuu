@@ -10,6 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "release:verify": "node scripts/release-identity.mjs",
+    "release:bump": "node scripts/release-bump.mjs",
+    "release:manifest": "node scripts/release-manifest.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

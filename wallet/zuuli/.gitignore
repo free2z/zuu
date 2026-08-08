@@ -2,6 +2,9 @@ node_modules
 dist
 dist-ssr
 .vite
+release-artifacts
+vendor/
+.bundle/
 *.local
 .DS_Store
 

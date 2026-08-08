@@ -1,0 +1,748 @@
+name: ZUULI / protected release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - wallet/zuuli/release.json
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character commit SHA to release
+        required: true
+        type: string
+      identity:
+        description: Confirm version+build from release.json (for example 0.1.0+1)
+        required: true
+        type: string
+      target:
+        description: Artifact set to build
+        required: true
+        default: mobile
+        type: choice
+        options: [mobile, ios, android, desktop, all]
+      dry_run:
+        description: Build, sign, and validate without uploading to either store
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # All protected store transactions share one lane, including different build
+  # identities. GitHub reruns failed jobs without replaying successful jobs.
+  group: zuuli-mobile-store
+  cancel-in-progress: false
+
+env:
+  CI: true
+  ZUULI_NODE_VERSION: "24.18.0"
+  ZUULI_RUST_VERSION: "1.88.0"
+  ZUULI_JAVA_VERSION: "21.0.12"
+  ZUULI_XCODE_VERSION: "26.6"
+  ZUULI_ANDROID_NDK_VERSION: "27.0.12077973"
+
+jobs:
+  prepare:
+    name: Pin immutable source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      identity: ${{ steps.identity.outputs.identity }}
+      tag: ${{ steps.identity.outputs.tag }}
+      tag_exists: ${{ steps.identity.outputs.tag_exists }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      target: ${{ steps.identity.outputs.target }}
+      dry_run: ${{ steps.identity.outputs.dry_run }}
+      should_release: ${{ steps.identity.outputs.should_release }}
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - run: npm ci
+      - name: Verify exact source and release identity
+        id: identity
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          CONFIRMED_IDENTITY: ${{ inputs.identity }}
+          INPUT_TARGET: ${{ inputs.target }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/tags/*:refs/tags/*'
+
+          if [[ "$EVENT_NAME" == push ]]; then
+            [[ "$EVENT_REF" == refs/heads/main ]] || {
+              echo "automatic store releases only accept main pushes" >&2
+              exit 1
+            }
+            source_sha=$EVENT_SHA
+            target=mobile
+            dry_run=false
+          else
+            source_sha=$INPUT_SOURCE_SHA
+            target=$INPUT_TARGET
+            dry_run=$INPUT_DRY_RUN
+          fi
+
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source SHA must be a full lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          args=("--source-sha=$source_sha" --require-main)
+          metadata=$(node scripts/release-identity.mjs "${args[@]}")
+          actual=$(jq -r .identity <<<"$metadata")
+
+          should_release=true
+          if [[ "$EVENT_NAME" == push ]]; then
+            if git cat-file -e "$BEFORE_SHA:wallet/zuuli/release.json" 2>/dev/null; then
+              node scripts/release-identity.mjs \
+                "--source-sha=$source_sha" \
+                "--require-newer-than=$BEFORE_SHA" \
+                --require-main >/dev/null
+            else
+              # Adding release.json establishes the baseline but must not turn
+              # an infrastructure merge into an unreviewed first store upload.
+              should_release=false
+            fi
+          else
+            [[ "$actual" == "$CONFIRMED_IDENTITY" ]] || {
+              echo "confirmed identity $CONFIRMED_IDENTITY does not match source identity $actual" >&2
+              exit 1
+            }
+            identity_sha=$(git log -1 --format=%H "$source_sha" -- ':(top)wallet/zuuli/release.json')
+            [[ "$identity_sha" == "$source_sha" ]] || {
+              echo "manual release source must be the exact commit that established this identity ($identity_sha)" >&2
+              exit 1
+            }
+            parent_sha=$(git rev-parse "$source_sha^1")
+            if git cat-file -e "$parent_sha:wallet/zuuli/release.json" 2>/dev/null; then
+              node scripts/release-identity.mjs \
+                "--source-sha=$source_sha" \
+                "--require-newer-than=$parent_sha" \
+                --require-main >/dev/null
+            fi
+            tip_identity=$(git show refs/remotes/origin/main:wallet/zuuli/release.json |
+              jq -r '.version + "+" + (.build | tostring)')
+            [[ "$actual" == "$tip_identity" ]] || {
+              echo "manual recovery identity $actual is stale; current main identity is $tip_identity" >&2
+              exit 1
+            }
+          fi
+
+          tag=$(jq -r .tag <<<"$metadata")
+          tag_exists=false
+          if [[ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" == tag ]]; then
+            tagged=$(git rev-list -n 1 "refs/tags/$tag")
+            remote_tagged=$(git ls-remote --tags origin "refs/tags/$tag^{}" | awk '{print $1}')
+            if [[ "$tagged" == "$source_sha" && "$remote_tagged" == "$source_sha" ]]; then
+              tag_exists=true
+            fi
+          fi
+
+          echo "identity=$actual" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
+
+  android:
+    name: Android / Play internal
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'android' ||
+      needs.prepare.outputs.target == 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    env:
+      ZUULI_CONFIRM_UPLOAD: ${{ needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.identity || '' }}
+      ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+      BUNDLE_FROZEN: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch origin/main for ancestry check
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+        working-directory: .
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21.0.12"
+          cache: gradle
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with:
+          toolchain: 1.88.0
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - name: Install exact Android SDK components
+        run: |
+          java -version 2>&1 | grep -F '21.0.12'
+          set +e
+          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.0.12077973' >/dev/null
+          sdk_status=${PIPESTATUS[1]}
+          set -e
+          [[ "$sdk_status" -eq 0 ]] || { echo "sdkmanager failed ($sdk_status)" >&2; exit 1; }
+          source scripts/android-toolchain-env.sh
+          for name in NDK_HOME ANDROID_NDK_HOME \
+            CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER \
+            CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER \
+            CARGO_TARGET_I686_LINUX_ANDROID_LINKER \
+            CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER \
+            CC_aarch64_linux_android CC_armv7_linux_androideabi \
+            CC_i686_linux_android CC_x86_64_linux_android \
+            CXX_aarch64_linux_android CXX_armv7_linux_androideabi \
+            CXX_i686_linux_android CXX_x86_64_linux_android; do
+            echo "$name=${!name}" >> "$GITHUB_ENV"
+          done
+      - run: npm ci
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
+        with:
+          ruby-version: "3.4.10"
+          bundler-cache: true
+          working-directory: wallet/zuuli
+      - name: Materialize ephemeral signing files
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SERVICE_ACCOUNT_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_BASE64:?ANDROID_KEYSTORE_BASE64 is not configured}"
+          if [[ "$DRY_RUN" == false ]]; then
+            : "${SERVICE_ACCOUNT_BASE64:?PLAY_SERVICE_ACCOUNT_JSON_BASE64 is not configured}"
+          fi
+          files=$(mktemp -d "$RUNNER_TEMP/zuuli-android.XXXXXX")
+          chmod 700 "$files"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$files/upload.jks"
+          test -s "$files/upload.jks"
+          echo "ANDROID_KEYSTORE_PATH=$files/upload.jks" >> "$GITHUB_ENV"
+          if [[ "$DRY_RUN" == false ]]; then
+            printf '%s' "$SERVICE_ACCOUNT_BASE64" | base64 --decode > "$files/play-service-account.json"
+            test -s "$files/play-service-account.json"
+            echo "PLAY_SERVICE_ACCOUNT_JSON=$files/play-service-account.json" >> "$GITHUB_ENV"
+          fi
+          echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
+      - name: Build, verify, and optionally upload
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "$DRY_RUN" == false ]]; then
+            scripts/mobile-release.sh android --upload
+          else
+            scripts/mobile-release.sh android
+          fi
+      - name: Destroy ephemeral signing files
+        if: always()
+        run: |
+          if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
+            find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} +
+            rmdir "$ZUULI_SECRET_DIR"
+          fi
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli
+          config: wallet/zuuli/syft.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/release-artifacts/ZUULI-android.sbom.cdx.json
+          upload-artifact: false
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-android.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/zuuli/release-artifacts/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/release-artifacts
+          if-no-files-found: error
+          retention-days: 90
+
+  ios:
+    name: iOS / TestFlight
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'ios' ||
+      needs.prepare.outputs.target == 'all')
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+      ZUULI_CONFIRM_UPLOAD: ${{ needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.identity || '' }}
+      ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch origin/main for ancestry check
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+        working-directory: .
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - name: Select and verify Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: wallet/zuuli/package-lock.json
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with:
+          toolchain: 1.88.0
+          targets: aarch64-apple-ios
+      - run: npm ci
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - name: Materialize ephemeral Apple credentials
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${CERTIFICATE_BASE64:?APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is not configured}"
+          : "${CERTIFICATE_PASSWORD:?APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD is not configured}"
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${PROVISIONING_PROFILE_BASE64:?APPLE_PROVISIONING_PROFILE_BASE64 is not configured}"
+          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          files=$(mktemp -d "$RUNNER_TEMP/zuuli-apple.XXXXXX")
+          chmod 700 "$files"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$files/distribution.p12"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$files/AuthKey.p8"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$files/zuuli.mobileprovision"
+          test -s "$files/distribution.p12"
+          test -s "$files/AuthKey.p8"
+          test -s "$files/zuuli.mobileprovision"
+          keychain="$files/release.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -c 'Apple Distribution: Corpora Inc' || true)
+          [[ "$identity_count" -eq 1 ]] || {
+            echo "expected exactly one dedicated Corpora Apple Distribution identity" >&2
+            exit 1
+          }
+          identity_sha=$(security find-identity -v -p codesigning "$keychain" | awk '/Apple Distribution: Corpora Inc/ {print $2; exit}')
+          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]] || {
+            echo "dedicated Corpora Apple Distribution identity was not imported" >&2
+            exit 1
+          }
+
+          security cms -D -i "$files/zuuli.mobileprovision" > "$files/profile.plist"
+          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$files/profile.plist")
+          profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$files/profile.plist")
+          profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$files/profile.plist")
+          profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$files/profile.plist")
+          [[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]]
+          [[ "$profile_name" == 'ZUULI App Store CI' ]]
+          [[ "$profile_team" == F9AV5HKF6N ]]
+          [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]]
+          plutil -extract DeveloperCertificates.0 raw -o - "$files/profile.plist" |
+            base64 --decode > "$files/profile-certificate.der"
+          profile_sha=$(openssl x509 -inform DER -in "$files/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+          [[ "$profile_sha" == "$identity_sha" ]] || {
+            echo "provisioning profile is not linked to the imported distribution certificate" >&2
+            exit 1
+          }
+          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profile_dir"
+          cp "$files/zuuli.mobileprovision" "$profile_dir/$profile_uuid.mobileprovision"
+          echo "ASC_KEY_PATH=$files/AuthKey.p8" >> "$GITHUB_ENV"
+          echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
+          echo "ZUULI_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "ZUULI_PROFILE_PATH=$profile_dir/$profile_uuid.mobileprovision" >> "$GITHUB_ENV"
+      - name: Build, validate, and optionally upload
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "$DRY_RUN" == false ]]; then
+            scripts/mobile-release.sh ios --upload
+          else
+            scripts/mobile-release.sh ios
+          fi
+      - name: Destroy ephemeral Apple credentials
+        if: always()
+        run: |
+          security delete-keychain "$ZUULI_KEYCHAIN" 2>/dev/null || true
+          rm -f -- "${ZUULI_PROFILE_PATH:-}"
+          if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
+            find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} +
+            rmdir "$ZUULI_SECRET_DIR"
+          fi
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli
+          config: wallet/zuuli/syft.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/release-artifacts/ZUULI-ios.sbom.cdx.json
+          upload-artifact: false
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-ios.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/zuuli/release-artifacts/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-ios-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/release-artifacts
+          if-no-files-found: error
+          retention-days: 90
+
+  linux:
+    name: Linux release packages
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.target == 'desktop' ||
+      needs.prepare.outputs.target == 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch origin/main for release verification
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+        working-directory: .
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          {
+            node-version: "24.18.0",
+            cache: npm,
+            cache-dependency-path: wallet/zuuli/package-lock.json,
+          }
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with: { toolchain: 1.88.0 }
+      - name: Install package dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev libdbus-1-dev \
+            libssl-dev build-essential file pkg-config rpm
+      - run: npm ci
+      - name: Reverify exact release source
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: node scripts/release-identity.mjs "--source-sha=$SOURCE_SHA" --require-main
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - run: ./node_modules/.bin/tauri build --bundles appimage,deb,rpm -- --locked
+      - run: git diff --exit-code
+      - name: Collect packages
+        run: |
+          mkdir release-artifacts
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} release-artifacts/ \;
+          test -n "$(find release-artifacts -type f -print -quit)"
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          {
+            syft-version: v1.50.0,
+            path: wallet/zuuli,
+            config: wallet/zuuli/syft.yaml,
+            format: cyclonedx-json,
+            output-file: wallet/zuuli/release-artifacts/ZUULI-linux.sbom.cdx.json,
+            upload-artifact: false,
+          }
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-linux.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with: { subject-path: "wallet/zuuli/release-artifacts/*" }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          {
+            name: "zuuli-linux-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}",
+            path: wallet/zuuli/release-artifacts,
+            if-no-files-found: error,
+            retention-days: 90,
+          }
+
+  macos:
+    name: macOS universal signed and notarized
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.target == 'desktop' ||
+      needs.prepare.outputs.target == 'all')
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_DEVELOPER_ID_IDENTITY }}
+      APPLE_API_ISSUER: ${{ vars.ASC_ISSUER_ID }}
+      APPLE_API_KEY: ${{ vars.ASC_KEY_ID }}
+      ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Fetch origin/main for release verification
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+        working-directory: .
+      - name: Fetch librustzcash
+        run: git submodule update --init z/zcash/librustzcash
+        working-directory: .
+      - name: Select and verify Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          {
+            node-version: "24.18.0",
+            cache: npm,
+            cache-dependency-path: wallet/zuuli/package-lock.json,
+          }
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+        with:
+          {
+            toolchain: 1.88.0,
+            targets: "aarch64-apple-darwin,x86_64-apple-darwin",
+          }
+      - run: npm ci
+      - name: Reverify exact release source
+        run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main
+      - name: Verify Rust compiler
+        run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - name: Build unsigned universal packages without Apple credentials
+        if: needs.prepare.outputs.dry_run == 'true'
+        run: |
+          set -euo pipefail
+          unset APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH
+          ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles app,dmg -- --locked
+          git diff --exit-code
+      - name: Build signed and notarized universal packages
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${APPLE_SIGNING_IDENTITY:?APPLE_DEVELOPER_ID_IDENTITY is not configured}"
+          : "${CERTIFICATE_BASE64:?APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 is not configured}"
+          : "${CERTIFICATE_PASSWORD:?APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD is not configured}"
+          : "${APPLE_API_ISSUER:?ASC_ISSUER_ID is not configured}"
+          : "${APPLE_API_KEY:?ASC_KEY_ID is not configured}"
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          files=$(mktemp -d "$RUNNER_TEMP/zuuli-notary.XXXXXX")
+          chmod 700 "$files"
+          keychain="$files/notary.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          cleanup() {
+            security delete-keychain "$keychain" 2>/dev/null || true
+            find "$files" -type f -exec rm -f -- {} +
+            rmdir "$files"
+          }
+          trap cleanup EXIT
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$files/developer-id.p12"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$files/AuthKey.p8"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$files/developer-id.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true)
+          [[ "$identity_count" -eq 1 ]] || {
+            echo "expected exactly one configured Developer ID identity" >&2
+            exit 1
+          }
+          export APPLE_API_KEY_PATH="$files/AuthKey.p8"
+          ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles app,dmg -- --locked
+          git diff --exit-code
+      - name: Collect packages
+        run: |
+          mkdir release-artifacts
+          find src-tauri/target -path '*/release/bundle/*' -type f -name '*.dmg' -exec cp {} release-artifacts/ \;
+          app=$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print -quit)
+          test -n "$app"
+          ditto -c -k --keepParent "$app" release-artifacts/ZUULI-macos-universal.zip
+      - name: Verify Developer ID signature and notarization
+        if: needs.prepare.outputs.dry_run == 'false'
+        run: |
+          set -euo pipefail
+          apps=()
+          while IFS= read -r -d '' path; do apps+=("$path"); done < <(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print0)
+          [[ "${#apps[@]}" -eq 1 ]] || { echo "expected one macOS app, found ${#apps[@]}" >&2; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "${apps[0]}"
+          signature=$(codesign -dvv "${apps[0]}" 2>&1)
+          grep -F 'Authority=Developer ID Application: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
+          grep -F 'TeamIdentifier=F9AV5HKF6N' <<<"$signature"
+          unset signature
+          xcrun stapler validate "${apps[0]}"
+          spctl -a -vvv -t exec "${apps[0]}"
+          dmgs=()
+          while IFS= read -r -d '' path; do dmgs+=("$path"); done < <(find release-artifacts -type f -name '*.dmg' -print0)
+          [[ "${#dmgs[@]}" -eq 1 ]] || { echo "expected one DMG, found ${#dmgs[@]}" >&2; exit 1; }
+          codesign --verify --verbose=2 "${dmgs[0]}"
+      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          {
+            syft-version: v1.50.0,
+            path: wallet/zuuli,
+            config: wallet/zuuli/syft.yaml,
+            format: cyclonedx-json,
+            output-file: wallet/zuuli/release-artifacts/ZUULI-macos.sbom.cdx.json,
+            upload-artifact: false,
+          }
+      - name: Record checksums and provenance
+        run: |
+          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-macos.sbom.cdx.json
+          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with: { subject-path: "wallet/zuuli/release-artifacts/*" }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          {
+            name: "zuuli-macos-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}",
+            path: wallet/zuuli/release-artifacts,
+            if-no-files-found: error,
+            retention-days: 90,
+          }
+
+  release-index:
+    name: Immutable GitHub release index
+    needs: [prepare, android, ios, linux, macos]
+    if: >-
+      always() && !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.android.result == 'success' || needs.android.result == 'skipped') &&
+      (needs.ios.result == 'success' || needs.ios.result == 'skipped') &&
+      (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
+      (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: zuuli-*-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: release-downloads
+      - name: Publish idempotent draft release
+        if: needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.tag_exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: wallet/zuuli/scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" release-downloads
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-release-index-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: release-downloads
+          if-no-files-found: error
+          retention-days: 90

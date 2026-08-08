@@ -12,6 +12,15 @@ settingGroups:
     base:
       PRODUCT_NAME: ZUULI
       PRODUCT_BUNDLE_IDENTIFIER: cash.free2z.zuuli
+      DEVELOPMENT_TEAM: F9AV5HKF6N
+      CODE_SIGN_STYLE: Automatic
+    configs:
+      debug:
+        CODE_SIGN_IDENTITY: Apple Development
+      release:
+        CODE_SIGN_IDENTITY: Apple Distribution
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: ZUULI App Store CI
 targetTemplates:
   app:
     type: application
@@ -40,9 +49,14 @@ targets:
       path: zuuli_iOS/Info.plist
       properties:
         CFBundleDisplayName: ZUULI
+        CFBundleURLTypes:
+          - CFBundleURLName: cash.free2z.zuuli
+            CFBundleURLSchemes:
+              - cash.free2z.zuuli
         LSRequiresIPhoneOS: true
         NSCameraUsageDescription: ZUULI uses the camera when you broadcast or join a live video stream.
         NSMicrophoneUsageDescription: ZUULI uses the microphone when you broadcast or join a live stream.
+        NSFaceIDUsageDescription: ZUULI uses Face ID to unlock your wallet seed for recovery and spending.
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -55,7 +69,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleVersion: "1"
     entitlements:
       path: zuuli_iOS/zuuli_iOS.entitlements
     scheme:
