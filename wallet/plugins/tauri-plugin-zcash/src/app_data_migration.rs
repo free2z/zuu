@@ -26,6 +26,7 @@ const LEGACY_IDENTIFIER: &str = "com.2zinc.zuuli";
 const CANONICAL_IDENTIFIER: &str = "cash.free2z.zuuli";
 const JOURNAL_FILENAME: &str = ".zuuli-migration-com.2zinc.zuuli-to-cash.free2z.zuuli.json";
 const JOURNAL_TEMP_PREFIX: &str = ".zuuli-migration-prepared-";
+#[cfg(test)]
 const DISPLACED_CANONICAL_FILENAME: &str = ".cash.free2z.zuuli-before-legacy-migration";
 const PROTOCOL_VERSION: u8 = 1;
 
@@ -156,15 +157,11 @@ where
             }
             return Ok(MigrationOutcome::LegacyImportPending);
         };
-        let displaced = parent.join(DISPLACED_CANONICAL_FILENAME);
-        if path_exists_no_follow(&displaced)? {
-            return Err(MigrationError::InvalidState(
-                "pre-migration canonical-data quarantine already exists".to_owned(),
-            ));
-        }
-
         // Validate the legacy payload before making the only destructive
         // change allowed by this protocol: removing the empty canonical shell.
+        // A quarantine artifact from the superseded migration protocol is
+        // deliberately irrelevant here: this protocol never writes that path,
+        // and preserving it in place lets an interrupted old migration resume.
         validate_tree(source)?;
         if !had_journal {
             install_journal(parent, &journal_path)?;
@@ -1053,6 +1050,37 @@ mod tests {
             fs::read(displaced.join("preserved-session")).expect("read old quarantine"),
             b"older canonical state"
         );
+    }
+
+    #[test]
+    fn interrupted_old_quarantine_migration_resumes_with_empty_canonical_shell() {
+        let fixture = Fixture::new("old-quarantine-empty-canonical");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create empty canonical shell");
+        let displaced = fixture.root.join(DISPLACED_CANONICAL_FILENAME);
+        fs::create_dir(&displaced).expect("create old quarantine");
+        fs::write(
+            displaced.join("preserved-session"),
+            b"older canonical state",
+        )
+        .expect("write old quarantine state");
+        let journal = fixture.root.join(JOURNAL_FILENAME);
+        install_journal(&fixture.root, &journal).expect("install old migration journal");
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("resume migration"),
+            MigrationOutcome::Recovered
+        );
+        assert!(!fixture.source.exists());
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read migrated manifest"),
+            b"manifest"
+        );
+        assert_eq!(
+            fs::read(displaced.join("preserved-session")).expect("read old quarantine"),
+            b"older canonical state"
+        );
+        assert!(!journal.exists());
     }
 
     #[test]
