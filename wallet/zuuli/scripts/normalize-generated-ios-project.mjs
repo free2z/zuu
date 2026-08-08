@@ -10,6 +10,32 @@ const profileUuid = "e5ead62c-83ec-4e54-abb6-4770833b5e0d";
 const profileName = "ZUULI App Store CI";
 const distributionIdentity = `Apple Distribution: Corpora Inc (${teamId})`;
 const appBundleSetting = "PRODUCT_BUNDLE_IDENTIFIER = cash.free2z.zuuli;";
+const canonicalUrlType = [
+  "\t<key>CFBundleURLTypes</key>",
+  "\t<array>",
+  "\t\t<dict>",
+  "\t\t\t<key>CFBundleURLName</key>",
+  "\t\t\t<string>cash.free2z.zuuli</string>",
+  "\t\t\t<key>CFBundleURLSchemes</key>",
+  "\t\t\t<array>",
+  "\t\t\t\t<string>cash.free2z.zuuli</string>",
+  "\t\t\t</array>",
+  "\t\t</dict>",
+  "\t</array>",
+].join("\n");
+const reversedUrlType = [
+  "\t<key>CFBundleURLTypes</key>",
+  "\t<array>",
+  "\t\t<dict>",
+  "\t\t\t<key>CFBundleURLSchemes</key>",
+  "\t\t\t<array>",
+  "\t\t\t\t<string>cash.free2z.zuuli</string>",
+  "\t\t\t</array>",
+  "\t\t\t<key>CFBundleURLName</key>",
+  "\t\t\t<string>cash.free2z.zuuli</string>",
+  "\t\t</dict>",
+  "\t</array>",
+].join("\n");
 
 function occurrenceCount(contents, value) {
   return contents.split(value).length - 1;
@@ -213,6 +239,18 @@ function normalizePlist(contents, label) {
   return contents.endsWith("\n") ? contents : `${contents}\n`;
 }
 
+function normalizeInfoPlist(contents, label) {
+  const normalized = normalizePlist(contents, label);
+  const canonicalCount = occurrenceCount(normalized, canonicalUrlType);
+  const reversedCount = occurrenceCount(normalized, reversedUrlType);
+  if (canonicalCount + reversedCount !== 1) {
+    throw new Error(
+      `refusing to normalize ${label}: expected exactly one known ZUULI URL type, found ${canonicalCount + reversedCount}`,
+    );
+  }
+  return normalized.replace(reversedUrlType, canonicalUrlType);
+}
+
 function selfTest() {
   const generatedProject = [
     'DEVELOPMENT_TEAM = "F9AV5HKF6N";',
@@ -243,6 +281,35 @@ function selfTest() {
     "<plist><dict/></plist>\n"
   ) {
     throw new Error("iOS plist normalization self-test failed");
+  }
+  const canonicalFixture = `<plist><dict>\n${canonicalUrlType}\n</dict></plist>`;
+  const reversedFixture = `<plist><dict>\n${reversedUrlType}\n</dict></plist>`;
+  if (
+    normalizeInfoPlist(canonicalFixture, "canonical fixture") !==
+      `${canonicalFixture}\n` ||
+    normalizeInfoPlist(reversedFixture, "reversed fixture") !==
+      `${canonicalFixture}\n`
+  ) {
+    throw new Error("iOS URL type ordering self-test failed");
+  }
+  let rejectedUnknownUrlShape = false;
+  try {
+    normalizeInfoPlist("<plist><dict/></plist>", "unknown fixture");
+  } catch {
+    rejectedUnknownUrlShape = true;
+  }
+  if (!rejectedUnknownUrlShape) {
+    throw new Error("iOS URL type normalization accepted an unknown shape");
+  }
+  const infoPlistPath = resolve(
+    appDir,
+    "src-tauri/gen/apple/zuuli_iOS/Info.plist",
+  );
+  const committedInfoPlist = readFileSync(infoPlistPath, "utf8");
+  if (
+    normalizeInfoPlist(committedInfoPlist, infoPlistPath) !== committedInfoPlist
+  ) {
+    throw new Error("committed iOS Info.plist is not canonical");
   }
   let rejectedUnexpectedShape = false;
   try {
@@ -327,10 +394,14 @@ const projectPath = resolve(
   appDir,
   "src-tauri/gen/apple/zuuli.xcodeproj/project.pbxproj",
 );
-const plistPaths = [
+const infoPlistPath = resolve(
+  appDir,
   "src-tauri/gen/apple/zuuli_iOS/Info.plist",
+);
+const entitlementsPath = resolve(
+  appDir,
   "src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements",
-].map((path) => resolve(appDir, path));
+);
 
 const project = readFileSync(projectPath, "utf8");
 const normalizedProject = process.argv.includes("--prepare-manual-signing")
@@ -340,10 +411,14 @@ if (normalizedProject !== project) {
   writeFileSync(projectPath, normalizedProject);
 }
 
-for (const plistPath of plistPaths) {
-  const plist = readFileSync(plistPath, "utf8");
-  const normalizedPlist = normalizePlist(plist, plistPath);
-  if (normalizedPlist !== plist) {
-    writeFileSync(plistPath, normalizedPlist);
-  }
+const infoPlist = readFileSync(infoPlistPath, "utf8");
+const normalizedInfoPlist = normalizeInfoPlist(infoPlist, infoPlistPath);
+if (normalizedInfoPlist !== infoPlist) {
+  writeFileSync(infoPlistPath, normalizedInfoPlist);
+}
+
+const entitlements = readFileSync(entitlementsPath, "utf8");
+const normalizedEntitlements = normalizePlist(entitlements, entitlementsPath);
+if (normalizedEntitlements !== entitlements) {
+  writeFileSync(entitlementsPath, normalizedEntitlements);
 }

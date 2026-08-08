@@ -22,7 +22,7 @@ android {
         applicationId = "cash.free2z.zuuli"
         minSdk = 29
         targetSdk = 36
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "4").toInt()
+        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "5").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "0.1.0")
     }
     val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
