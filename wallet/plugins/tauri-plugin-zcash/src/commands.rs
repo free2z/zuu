@@ -1,5 +1,5 @@
+use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use tauri::{command, AppHandle, Runtime};
 
@@ -110,29 +110,29 @@ impl<R: Runtime> StoppedSyncRecovery<R> {
 
 impl<R: Runtime> Drop for StoppedSyncRecovery<R> {
     fn drop(&mut self) {
-        if !self.obligation.armed
-            || self
-                .app
-                .zcash()
-                .state
-                .shutting_down
-                .load(Ordering::Acquire)
-        {
+        if !self.obligation.armed || self.app.zcash().state.sync_supervisor.is_shutting_down() {
             return;
         }
         let app = self.app.clone();
         let obligation = self.obligation.clone();
+        let transition = Arc::clone(&app.zcash().state.wallet_transition);
         // The command's owned transition guard is declared before this recovery
         // guard, so it drops immediately after us. Reacquiring it here makes the
         // cancelled transition and its recovery one serialized identity unit.
-        tauri::async_runtime::spawn(async move {
-            let transition = Arc::clone(&app.zcash().state.wallet_transition)
-                .lock_owned()
-                .await;
+        spawn_recovery_after_transition(transition, async move {
             restart_previous_sync(&app, &obligation).await;
-            drop(transition);
         });
     }
+}
+
+fn spawn_recovery_after_transition<F>(transition: Arc<tokio::sync::Mutex<()>>, recovery: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    tauri::async_runtime::spawn(async move {
+        let _transition = transition.lock_owned().await;
+        recovery.await;
+    });
 }
 
 async fn restart_previous_sync<R: Runtime>(
@@ -140,7 +140,7 @@ async fn restart_previous_sync<R: Runtime>(
     obligation: &SyncRecoveryObligation,
 ) {
     let state = &app.zcash().state;
-    let shutting_down = state.shutting_down.load(Ordering::Acquire);
+    let shutting_down = state.sync_supervisor.is_shutting_down();
     let active_wallet_id = state.active_wallet_id().await;
     if !obligation.should_restart(active_wallet_id.as_deref(), shutting_down) {
         if obligation.previous.was_syncing && !shutting_down {
@@ -496,9 +496,11 @@ pub(crate) async fn create_wallet<R: Runtime>(
     match result {
         Ok(created) => {
             sync_recovery.commit();
-            drop(transition_guard);
-            // Auto-start sync only after the new context is fully installed.
+            // Keep the transition lock through task registration so another
+            // switch/delete cannot replace the just-installed context between
+            // publication and its automatic sync start.
             let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
+            drop(transition_guard);
             Ok(created)
         }
         Err(error) => {
@@ -728,8 +730,11 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     match result {
         Ok(value) => {
             sync_recovery.commit();
-            drop(transition_guard);
+            // Keep the transition lock through task registration so another
+            // switch/delete cannot replace the just-installed context between
+            // publication and its automatic sync start.
             let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
+            drop(transition_guard);
             Ok(value)
         }
         Err(error) => {
@@ -1279,75 +1284,11 @@ pub(crate) async fn delete_wallet<R: Runtime>(
 mod sync_recovery_tests {
     use super::*;
 
-    const PRECOMMIT_FAILURE_STAGES: &[&str] = &[
-        "create/mnemonic-generation",
-        "create/network-connect",
-        "create/latest-block",
-        "create/tree-state",
-        "create/birthday-decode",
-        "create/rollback-schedule",
-        "create/database-init",
-        "create/account-create",
-        "create/read-database-open",
-        "create/custody-store",
-        "create/custody-protect",
-        "create/live-context-lock-cancellation",
-        "create/manifest-persist",
-        "restore/network-connect",
-        "restore/latest-block",
-        "restore/tree-state",
-        "restore/birthday-decode",
-        "restore/rollback-schedule",
-        "restore/database-init",
-        "restore/account-create",
-        "restore/read-database-open",
-        "restore/custody-store",
-        "restore/custody-protect",
-        "restore/live-context-lock-cancellation",
-        "restore/manifest-persist",
-        "switch/context-lock-cancellation",
-        "switch/manifest-persist",
-        "switch/target-disappeared",
-        "delete/last-wallet-validation",
-        "delete/replacement-database-open",
-        "delete/replacement-read-database-open",
-        "delete/live-context-lock-cancellation",
-        "delete/manifest-persist",
-    ];
-
-    const ABORT_BOUNDARIES: &[&str] = &["error", "cancellation", "timeout", "panic-unwind", "drop"];
-
     fn active_obligation() -> SyncRecoveryObligation {
         SyncRecoveryObligation::new(PreviousSyncContext {
             wallet_id: Some("wallet-before-transition".into()),
             was_syncing: true,
         })
-    }
-
-    #[test]
-    fn every_precommit_failure_restores_the_exact_previous_wallet() {
-        for stage in PRECOMMIT_FAILURE_STAGES {
-            let recovery = active_obligation();
-            assert!(
-                recovery.should_restart(Some("wallet-before-transition"), false),
-                "pre-commit failure at {stage} must restore the prior sync"
-            );
-            assert!(
-                !recovery.should_restart(Some("different-wallet"), false),
-                "pre-commit failure at {stage} must not target another wallet"
-            );
-        }
-    }
-
-    #[test]
-    fn every_abort_boundary_retains_the_same_recovery_obligation() {
-        for boundary in ABORT_BOUNDARIES {
-            let recovery = active_obligation();
-            assert!(
-                recovery.should_restart(Some("wallet-before-transition"), false),
-                "{boundary} must retain recovery until commit"
-            );
-        }
     }
 
     #[test]
@@ -1373,6 +1314,47 @@ mod sync_recovery_tests {
 
         let shutting_down = active_obligation();
         assert!(!shutting_down.should_restart(Some("wallet-before-transition"), true));
+    }
+
+    struct RecoveryOnDrop {
+        transition: Arc<tokio::sync::Mutex<()>>,
+        completed: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+
+    impl Drop for RecoveryOnDrop {
+        fn drop(&mut self) {
+            let transition = Arc::clone(&self.transition);
+            let completed = self.completed.take().expect("drop runs once");
+            spawn_recovery_after_transition(transition, async move {
+                let _ = completed.send(());
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn drop_recovery_waits_for_the_transition_lock() {
+        let transition = Arc::new(tokio::sync::Mutex::new(()));
+        let transition_guard = Arc::clone(&transition).lock_owned().await;
+        let (completed_tx, mut completed_rx) = tokio::sync::oneshot::channel();
+        drop(RecoveryOnDrop {
+            transition,
+            completed: Some(completed_tx),
+        });
+
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(25),
+                &mut completed_rx,
+            )
+            .await
+            .is_err(),
+            "drop recovery must not pass the live transition"
+        );
+        drop(transition_guard);
+        tokio::time::timeout(std::time::Duration::from_secs(1), completed_rx)
+            .await
+            .expect("recovery runs after transition release")
+            .expect("recovery completion sender remains live");
     }
 }
 
