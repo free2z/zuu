@@ -206,13 +206,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.18.0"
-          cache: npm
-          cache-dependency-path: wallet/zuuli/package-lock.json
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: "21.0.12"
-          cache: gradle
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
         with:
           toolchain: 1.88.0
@@ -238,14 +235,20 @@ jobs:
             CXX_i686_linux_android CXX_x86_64_linux_android; do
             echo "$name=${!name}" >> "$GITHUB_ENV"
           done
+      - name: Restore reviewed Android Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-android-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ndk-${{ env.ZUULI_ANDROID_NDK_VERSION }}-api29-aarch64-armv7-i686-x86_64
+          save: "false"
       - run: npm ci
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
         with:
           ruby-version: "3.4.10"
-          bundler-cache: true
           working-directory: wallet/zuuli
+      - name: Install locked Android upload tooling
+        run: bundle install --jobs 4 --retry 3
       - name: Materialize ephemeral signing files
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -354,12 +357,15 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.18.0"
-          cache: npm
-          cache-dependency-path: wallet/zuuli/package-lock.json
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
         with:
           toolchain: 1.88.0
           targets: aarch64-apple-ios
+      - name: Restore reviewed iOS Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-ios-device-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device
+          save: "false"
       - run: npm ci
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
@@ -566,8 +572,6 @@ jobs:
         with:
           {
             node-version: "24.18.0",
-            cache: npm,
-            cache-dependency-path: wallet/zuuli/package-lock.json,
           }
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
         with: { toolchain: 1.88.0 }
@@ -577,6 +581,11 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev libdbus-1-dev \
             libssl-dev build-essential file pkg-config rpm
+      - name: Restore reviewed Linux Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-linux-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ubuntu-24.04-gtk-webkit-4.1
+          save: "false"
       - run: npm ci
       - name: Reverify exact release source
         env:
@@ -660,8 +669,6 @@ jobs:
         with:
           {
             node-version: "24.18.0",
-            cache: npm,
-            cache-dependency-path: wallet/zuuli/package-lock.json,
           }
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
         with:
@@ -669,6 +676,11 @@ jobs:
             toolchain: 1.88.0,
             targets: "aarch64-apple-darwin,x86_64-apple-darwin",
           }
+      - name: Restore reviewed macOS Rust dependencies
+        uses: ./.github/actions/zuuli-rust-cache
+        with:
+          shared-key: zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64
+          save: "false"
       - run: npm ci
       - name: Reverify exact release source
         run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main

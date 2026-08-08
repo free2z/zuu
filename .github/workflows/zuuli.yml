@@ -63,7 +63,7 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml)
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*)
                 zuuli=true
                 ;;
             esac
@@ -90,6 +90,9 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci
+
+      - name: Verify release cache security policy
+        run: node scripts/verify-ci-cache-policy.mjs
 
       # The current lockfile has moderate advisories but no high/critical ones.
       # Dependency upgrades belong in focused PRs; this gate prevents severity

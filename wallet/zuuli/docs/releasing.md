@@ -14,6 +14,39 @@ Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
 checksum-bearing Bundler `4.0.3` lockfile, and Syft `1.50.0`. Action dependencies
 are commit-SHA pinned. Upgrade these together in a reviewed dependency PR.
 
+## Build cache trust boundary
+
+Packaging and protected release share target-specific Rust dependency caches so
+reruns do not rebuild the entire Zcash graph. Cache identity includes the host,
+Rust environment, Cargo manifests/lockfiles, and an explicit Xcode or Android
+NDK/ABI discriminator in the action's effective `shared-key`. Cargo validates
+its fingerprints when restored artifacts are used. The action prunes crates in
+the configured `wallet/zuuli/src-tauri` workspace root before saving; path
+dependencies outside that root, including the shared Zcash plugin and vendored
+Zcash crates, may be restored when their fingerprints still match. Every final
+package is freshly produced. Caches are an optimization, not release evidence
+or a trust substitute; the cache-free canary proves the complete graph from
+source.
+
+Only credential-free `ZUULI / packaging smoke` pushes on `main` may save these
+caches. Pull requests and manual runs restore only, preventing large native PR
+entries from evicting the release families.
+Protected release jobs explicitly restore without saving because their runners
+later materialize signing and store credentials. Never cache `node_modules`,
+frontend output, Gradle/Xcode native build trees, packages, `release-artifacts`,
+provisioning profiles, Keychains, keystores, API keys, or runner-temporary
+directories. `node scripts/verify-ci-cache-policy.mjs` enforces this topology.
+
+The scheduled packaging run skips all Rust caches and rebuilds the Android,
+iOS-device, Linux, and macOS release targets cold. Manual operators can dispatch
+the same proof with `cold_rust_cache=true`. Pull-request cache entries are scoped
+by GitHub to that PR merge ref; the cache cleanup workflow runs from trusted base
+code when the PR closes and deletes only entries returned for that exact ref. A
+daily recovery sweep handles missed close events and older npm/Gradle entries,
+but deletes an entry only after its ref matches `refs/pull/<number>/merge` and GitHub's pull
+request API confirms that exact PR is closed. Repository cache eviction may make
+a release build cold, but must never affect correctness.
+
 ## One-time owner bootstrap
 
 The owner has created both store records and the dedicated automation
