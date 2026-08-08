@@ -364,6 +364,14 @@ export interface Subscription {
   max_price?: string;
 }
 
+/** POST /api/tuzis/subscribe/{username} authoritative money result. */
+export interface SubscribeResult {
+  /** False when the backend safely swallowed an idempotent/debounced retry. */
+  charged: boolean;
+  /** Authoritative membership expiry after the request. */
+  expires: string;
+}
+
 export interface TuziTransaction {
   id: number;
   amount: number; // cents paid

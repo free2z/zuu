@@ -81,6 +81,7 @@ import type {
   SocialProvider,
   SocialProvidersStatus,
   StreamKind,
+  SubscribeResult,
   Subscription,
   TuziTransaction,
 } from "./types";
@@ -362,7 +363,7 @@ export const auth = {
       tuzis?: string;
       avatar_image?: RawImage | null;
       banner_image?: RawImage | null;
-    }>("/api/auth/user/");
+    }>("/api/auth/user/", { cache: "no-store" });
     return {
       username: u.username,
       email: u.email,
@@ -1317,13 +1318,20 @@ export const tuzi = {
     });
   },
 
-  async subscribe(username: string): Promise<void> {
+  async subscribe(
+    username: string,
+    idempotencyKey?: string,
+  ): Promise<SubscribeResult> {
     if (useMock()) {
       await delay(400);
-      mockSubscribe(username);
-      return;
+      return mockSubscribe(username, idempotencyKey);
     }
-    await request(`/api/tuzis/subscribe/${username}`, { method: "POST" });
+    return request<SubscribeResult>(`/api/tuzis/subscribe/${username}`, {
+      method: "POST",
+      headers: idempotencyKey
+        ? { "Idempotency-Key": idempotencyKey }
+        : undefined,
+    });
   },
 
   /**
@@ -1341,12 +1349,42 @@ export const tuzi = {
   async mySubscriptions(): Promise<Subscription[]> {
     if (useMock()) {
       await delay(150);
-      return [...mockSubscriptions];
+      return mockSubscriptions.filter(
+        (subscription) =>
+          !subscription.expires || Date.parse(subscription.expires) > Date.now(),
+      );
     }
-    const page = await request<Paginated<Subscription>>(
-      "/api/tuzis/my-subscriptions",
-    );
-    return page.results ?? [];
+    // This endpoint is paginated (12 rows by default). Looking at only the
+    // first page can misclassify a real active member as a nonmember and make
+    // the money path extend them another month. Walk every page and fail the
+    // whole read on malformed pagination; callers must not purchase from an
+    // incomplete entitlement view.
+    const endpoint = "/api/tuzis/my-subscriptions";
+    const pageSize = 48;
+    const subscriptions: Subscription[] = [];
+    const seenPages = new Set<number>();
+    let pageNumber = 1;
+
+    for (;;) {
+      if (seenPages.has(pageNumber)) {
+        throw new Error("Membership pagination repeated a page.");
+      }
+      seenPages.add(pageNumber);
+
+      const page = await request<Paginated<Subscription>>(endpoint, {
+        query: { page: pageNumber, page_size: pageSize },
+        cache: "no-store",
+      });
+      subscriptions.push(...(page.results ?? []));
+      if (!page.next) return subscriptions;
+
+      const nextUrl = new URL(page.next, "http://localhost");
+      const nextPage = Number(nextUrl.searchParams.get("page"));
+      if (!Number.isSafeInteger(nextPage) || nextPage < 1) {
+        throw new Error("Membership pagination returned an invalid next page.");
+      }
+      pageNumber = nextPage;
+    }
   },
 
   /**
@@ -1407,7 +1445,7 @@ export const discover = {
     }
     const c = await request<RawCreator>(
       `/api/creator/${encodeURIComponent(username)}/`,
-      { anonymous: true },
+      { anonymous: true, cache: "no-store" },
     );
     return mapCreatorDetail(c);
   },

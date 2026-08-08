@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Link,
   useLocation,
@@ -34,12 +34,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/common/EmptyState";
-import { live, tuzi } from "@/lib/api/free2z";
+import { auth, discover, live, tuzi } from "@/lib/api/free2z";
 import { useAsync } from "@/hooks/useAsync";
 import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { KIND_META, gradientFor } from "./lib";
+import {
+  activeMembershipFor,
+  enterSubscriberStream,
+  newMembershipIdempotencyKey,
+  runSingleFlight,
+} from "./membership";
 import { Stage } from "./Stage";
 
 interface JustStarted {
@@ -280,6 +286,16 @@ function BackLink() {
   );
 }
 
+function formatMembershipExpiry(expires?: string): string {
+  if (!expires) return "";
+  const date = new Date(expires);
+  if (Number.isNaN(date.getTime())) return "";
+  return ` until ${date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })}`;
+}
+
 function JoinPanel({
   stream,
   tuzis,
@@ -292,19 +308,67 @@ function JoinPanel({
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [membershipConfirmOpen, setMembershipConfirmOpen] = useState(false);
+  const [membershipPriceOverride, setMembershipPriceOverride] = useState<{
+    price: number | null;
+  } | null>(null);
   const [secret, setSecret] = useState("");
+  const operationInFlight = useRef(false);
+  // Keep this key through any ambiguous failure. A retry then asks the backend
+  // to replay the same purchase instead of buying another month.
+  const membershipAttemptKey = useRef<string | null>(null);
+
+  const user = useSession((state) => state.user);
+  const sessionLoading = useSession((state) => state.loading);
+  const setUser = useSession((state) => state.setUser);
+  const {
+    data: subscriptions,
+    loading: membershipLoading,
+    error: membershipError,
+    reload: reloadMemberships,
+  } = useAsync(
+    () => (user ? tuzi.mySubscriptions() : Promise.resolve([])),
+    [user?.username, stream.username],
+  );
 
   const price = stream.price_tuzis;
   const affordable = tuzis >= price;
+  const membershipPrice =
+    membershipPriceOverride !== null
+      ? membershipPriceOverride.price
+      : stream.creator.member_price;
+  const hasMembershipPrice =
+    Number.isSafeInteger(membershipPrice) && (membershipPrice ?? 0) > 0;
+  const membershipAffordable =
+    hasMembershipPrice && tuzis >= (membershipPrice ?? 0);
+  const membership = activeMembershipFor(
+    subscriptions ?? [],
+    stream.username,
+  );
+
+  async function runExclusive<T>(operation: () => Promise<T>): Promise<T | null> {
+    // React state updates are not synchronous. The ref closes the double-click
+    // window before the disabled button can render.
+    return runSingleFlight(operationInFlight, async () => {
+      setBusy(true);
+      try {
+        return await operation();
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
 
   async function doJoin(
     action?: () => Promise<void>,
     joinSecret?: string,
   ): Promise<boolean> {
-    setBusy(true);
     try {
-      if (action) await action();
-      const ticket = await live.join(stream.username, stream.kind, joinSecret);
+      const ticket = await runExclusive(async () => {
+        if (action) await action();
+        return live.join(stream.username, stream.kind, joinSecret);
+      });
+      if (!ticket) return false;
       onJoined(ticket);
       return true;
     } catch (e) {
@@ -312,8 +376,6 @@ function JoinPanel({
         description: e instanceof Error ? e.message : "Please try again.",
       });
       return false;
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -324,6 +386,73 @@ function JoinPanel({
       // onJoined has already debited the balance; celebrate the entry.
       toast.success("You're in", {
         description: `Enjoy the stream — ${formatTuzis(price)} spent.`,
+      });
+    }
+  }
+
+  async function confirmMembership() {
+    if (
+      !user ||
+      typeof membershipPrice !== "number" ||
+      !Number.isSafeInteger(membershipPrice) ||
+      membershipPrice <= 0
+    ) {
+      return;
+    }
+    const confirmedPrice = membershipPrice;
+    setMembershipConfirmOpen(false);
+    membershipAttemptKey.current ??= newMembershipIdempotencyKey(
+      stream.username,
+    );
+
+    try {
+      const result = await runExclusive(() =>
+        enterSubscriberStream({
+          username: stream.username,
+          idempotencyKey: membershipAttemptKey.current!,
+          confirmedPrice,
+          loadMemberships: () => tuzi.mySubscriptions(),
+          loadCurrentPrice: async () => {
+            const creator = await discover.creator(stream.username);
+            const currentPrice =
+              Number.isSafeInteger(creator.member_price) &&
+              (creator.member_price ?? 0) > 0
+                ? creator.member_price!
+                : null;
+            setMembershipPriceOverride({ price: currentPrice });
+            return currentPrice;
+          },
+          subscribe: (username, idempotencyKey) =>
+            tuzi.subscribe(username, idempotencyKey),
+          reconcileBalance: async () => {
+            const authoritative = await auth.me();
+            // Preserve session-only identity observations that GET /auth/user
+            // does not expose while replacing all authoritative account data.
+            setUser({ ...useSession.getState().user, ...authoritative });
+          },
+          join: () => live.join(stream.username, stream.kind),
+        }),
+      );
+      if (!result) return;
+
+      membershipAttemptKey.current = null;
+      onJoined(result.ticket);
+      const renews = Number(result.membership.max_price ?? 0) > 0;
+      toast.success("You're in", {
+        description:
+          result.purchase?.charged === true
+            ? `${formatTuzis(confirmedPrice)} paid. Auto-renew is ${renews ? "on" : "off"}.`
+            : result.purchase !== null || result.recoveredAmbiguousPurchase
+              ? "Your membership and balance were verified before joining."
+              : "Your active membership was verified. No membership purchase was made.",
+      });
+    } catch (error) {
+      // The key intentionally survives: if the POST committed but its response
+      // was lost, retrying reconciles/replays instead of charging again.
+      reloadMemberships();
+      toast.error("Could not confirm membership", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
       });
     }
   }
@@ -365,30 +494,192 @@ function JoinPanel({
         {stream.kind === "subscriber" ? (
           <>
             <p className="text-xs text-muted-foreground">
-              This stream is for subscribers. Subscribe to{" "}
+              This stream is for members of{" "}
               <span className="font-medium text-foreground">
                 @{stream.username}
-              </span>{" "}
-              to watch.
+              </span>
+              . Active members join without another purchase.
             </p>
-            <Button
-              className="w-full gap-2"
-              size="lg"
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                doJoin(async () => {
-                  await tuzi.subscribe(stream.username);
-                })
-              }
-            >
-              {busy ? (
+
+            <div className="space-y-2 rounded-lg border border-border bg-background/50 px-3 py-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Creator</span>
+                <span className="font-medium">
+                  {stream.creator.display_name ?? `@${stream.username}`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Membership</span>
+                <span className="font-semibold tabular-nums">
+                  {hasMembershipPrice
+                    ? `${formatTuzis(membershipPrice!)}/30 days`
+                    : "Unavailable"}
+                </span>
+              </div>
+              {user ? (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Current balance</span>
+                  <span className="font-medium tabular-nums">
+                    {formatTuzis(tuzis)}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {sessionLoading || (user && membershipLoading) ? (
+              <Button className="w-full gap-2" size="lg" disabled>
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
+                Checking membership
+              </Button>
+            ) : !user ? (
+              <Button asChild className="w-full gap-2" size="lg">
+                <Link to="/login">
+                  <KeyRound className="h-4 w-4" aria-hidden />
+                  Sign in to subscribe
+                </Link>
+              </Button>
+            ) : membershipError ? (
+              <div className="space-y-2">
+                <p className="text-center text-xs text-destructive">
+                  We couldn't safely verify your current membership.
+                </p>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={reloadMemberships}
+                >
+                  Retry membership check
+                </Button>
+              </div>
+            ) : membership ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {Number(membership.max_price ?? 0) > 0
+                    ? `Membership active${formatMembershipExpiry(membership.expires)} and set to renew.`
+                    : `Membership active${formatMembershipExpiry(membership.expires)}. Auto-renew is off.`}
+                </p>
+                <Button
+                  className="w-full gap-2"
+                  size="lg"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => doJoin()}
+                >
+                  {busy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" aria-hidden />
+                  )}
+                  Join as a member
+                </Button>
+              </div>
+            ) : !hasMembershipPrice ? (
+              <div className="space-y-2">
+                <Button className="w-full" size="lg" disabled>
+                  Membership unavailable
+                </Button>
+                <Button asChild variant="outline" className="w-full">
+                  <Link to={`/creator/${stream.username}`}>
+                    View creator profile
+                  </Link>
+                </Button>
+              </div>
+            ) : !membershipAffordable ? (
+              <div className="space-y-2">
+                <Button className="w-full" size="lg" disabled>
+                  Not enough 2Zs
+                </Button>
+                <Button asChild variant="outline" className="w-full gap-2">
+                  <Link to="/buy">
+                    <Coins className="h-4 w-4" aria-hidden />
+                    Buy more 2Zs
+                  </Link>
+                </Button>
+                <p className="text-center text-xs text-muted-foreground tabular-nums">
+                  You have {formatTuzis(tuzis)} · need{" "}
+                  {formatTuzis(membershipPrice!)}
+                </p>
+              </div>
+            ) : (
+              <Button
+                className="w-full gap-2"
+                size="lg"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setMembershipConfirmOpen(true)}
+              >
                 <Sparkles className="h-4 w-4" aria-hidden />
-              )}
-              Subscribe to watch
-            </Button>
+                Review membership
+              </Button>
+            )}
+
+            <Dialog
+              open={membershipConfirmOpen}
+              onOpenChange={(open) => {
+                if (!busy) setMembershipConfirmOpen(open);
+              }}
+            >
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>
+                    Join {stream.creator.display_name ?? `@${stream.username}`}
+                  </DialogTitle>
+                  <DialogDescription>
+                    This purchase unlocks subscriber posts and livestreams for
+                    30 days. New memberships renew automatically, capped at the
+                    membership price below; if you previously turned renewal
+                    off, this purchase leaves it off. You can manage renewal
+                    without losing time already purchased.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 rounded-lg border border-border bg-background/50 px-4 py-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Monthly price</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatTuzis(membershipPrice ?? 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Current balance</span>
+                    <span className="font-medium tabular-nums">
+                      {formatTuzis(tuzis)}
+                    </span>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Balance after</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatTuzis(
+                        Math.max(0, tuzis - (membershipPrice ?? 0)),
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setMembershipConfirmOpen(false)}
+                    disabled={busy}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="gap-2"
+                    onClick={confirmMembership}
+                    disabled={busy || !membershipAffordable}
+                  >
+                    {busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <ShieldCheck className="h-4 w-4" aria-hidden />
+                    )}
+                    Confirm · {formatTuzis(membershipPrice ?? 0)}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </>
         ) : null}
 

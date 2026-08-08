@@ -19,6 +19,7 @@ import type {
   PersonalityInput,
   PromptResponse,
   SimpleCreator,
+  SubscribeResult,
   Subscription,
   TuziTransaction,
 } from "./types";
@@ -672,24 +673,55 @@ export const mockSubscriptions: Subscription[] = [
  * get-or-create a `Subscription` for (star, fan) and extend it 30 days from
  * now, at the creator's current `member_price`.
  */
-export function mockSubscribe(username: string): Subscription {
+const mockSubscriptionAttempts = new Map<string, SubscribeResult>();
+
+export function mockSubscribe(
+  username: string,
+  idempotencyKey?: string,
+): SubscribeResult {
+  const attemptKey = idempotencyKey
+    ? `${username.toLowerCase()}:${idempotencyKey}`
+    : null;
+  if (attemptKey) {
+    const replay = mockSubscriptionAttempts.get(attemptKey);
+    if (replay) return replay;
+  }
+
   const star: SimpleCreator =
     mockCreators.find((c) => c.username.toLowerCase() === username.toLowerCase()) ??
     { username, free2zaddr: username, display_name: username };
-  const expires = new Date(Date.now() + 30 * 86400000).toISOString();
-  const maxPrice = String(star.member_price ?? 0);
+  const price = star.member_price ?? 0;
+  if (price <= 0) throw new Error("Creator did not set member price");
+  if (mockUser.tuzis < price) throw new Error("Insufficient funds");
+
+  const now = Date.now();
+  const thirtyDays = 30 * 86400000;
+  const maxPrice = String(price);
 
   const existing = mockSubscriptions.find(
     (s) => s.star.username.toLowerCase() === username.toLowerCase(),
   );
+  let expires: string;
   if (existing) {
+    const previousExpiry = Date.parse(existing.expires ?? "");
+    expires = new Date(
+      Math.max(
+        Number.isFinite(previousExpiry) ? previousExpiry + thirtyDays : 0,
+        now + thirtyDays,
+      ),
+    ).toISOString();
     existing.expires = expires;
-    existing.max_price = maxPrice;
-    return existing;
+    // Backend POST extends an existing row but does not silently re-enable a
+    // max_price that the fan previously set to zero.
+  } else {
+    expires = new Date(now + thirtyDays).toISOString();
+    const sub: Subscription = { fan: mockFan(), star, expires, max_price: maxPrice };
+    mockSubscriptions.push(sub);
   }
-  const sub: Subscription = { fan: mockFan(), star, expires, max_price: maxPrice };
-  mockSubscriptions.push(sub);
-  return sub;
+  mockUser.tuzis -= price;
+  const result = { charged: true, expires };
+  if (attemptKey) mockSubscriptionAttempts.set(attemptKey, result);
+  return result;
 }
 
 /**
