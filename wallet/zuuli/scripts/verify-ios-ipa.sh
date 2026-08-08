@@ -28,13 +28,19 @@ is_allowed_bundle_binary() {
 }
 
 verify_app_structure() {
-  local app=$1 bundle_file relative file_kind main_kind
+  local app=$1 bundle_entry bundle_file relative file_kind main_kind
   [[ -d "$app" && ! -L "$app" ]] || fail "app bundle is not a regular directory"
   [[ -f "$app/ZUULI" && ! -L "$app/ZUULI" ]] ||
     fail "app bundle main executable is not a regular file"
   main_kind=$(/usr/bin/file -b "$app/ZUULI") ||
     fail "unable to inspect app bundle main executable"
   [[ "$main_kind" == *Mach-O* ]] || fail "app bundle main executable is not Mach-O"
+  while IFS= read -r -d '' bundle_entry; do
+    relative=${bundle_entry#"$app/"}
+    if [[ -L "$bundle_entry" || (! -d "$bundle_entry" && ! -f "$bundle_entry") ]]; then
+      fail "app bundle contains a non-regular entry: $relative"
+    fi
+  done < <(find "$app" -mindepth 1 -print0)
   while IFS= read -r -d '' bundle_file; do
     relative=${bundle_file#"$app/"}
     if [[ "$relative" == *.a ]]; then
@@ -110,6 +116,13 @@ self_test() (
   rm "$fixture_app/assets/archive-data"
   "$script_path" --verify-app-structure "$fixture_app" ||
     fail "clean app-structure self-test unexpectedly failed"
+
+  ln -s ZUULI "$fixture_app/linked-binary"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "symlink self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle contains a non-regular entry: linked-binary' <<<"$output" ||
+    fail "symlink self-test failed for the wrong reason: $output"
 )
 
 darwin_self_test() (
