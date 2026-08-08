@@ -44,6 +44,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::create_wallet,
             commands::restore_wallet,
             commands::get_wallet_status,
+            commands::retry_wallet_cleanup,
             commands::get_seed_phrase,
             commands::get_viewing_key,
             commands::get_spending_key,
@@ -84,6 +85,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                 let zcash = desktop::init(app, api)?;
                 app.manage(zcash);
             }
+
+            let cleanup_app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                commands::resume_wallet_cleanup_after_setup(cleanup_app).await;
+            });
 
             Ok(())
         })

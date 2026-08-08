@@ -7,6 +7,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-create-wallet`
 - `allow-restore-wallet`
 - `allow-get-wallet-status`
+- `allow-retry-wallet-cleanup`
 - `allow-get-seed-phrase`
 - `allow-get-viewing-key`
 - `allow-get-spending-key`
@@ -638,6 +639,32 @@ Enables the retry_pending_send command without any pre-configured scope.
 <td>
 
 Denies the retry_pending_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-retry-wallet-cleanup`
+
+</td>
+<td>
+
+Enables the retry_wallet_cleanup command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-retry-wallet-cleanup`
+
+</td>
+<td>
+
+Denies the retry_wallet_cleanup command without any pre-configured scope.
 
 </td>
 </tr>

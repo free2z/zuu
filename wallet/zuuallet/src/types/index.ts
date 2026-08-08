@@ -11,6 +11,15 @@ export interface WalletStatus {
   activeWalletId: string | null;
   activeWalletName: string | null;
   walletCount: number;
+  cleanup: WalletCleanupStatus;
+}
+
+export interface WalletCleanupStatus {
+  pendingOperations: number;
+  blockedOperations: number;
+  pendingStages: number;
+  completedStages: number;
+  diagnostics: string[];
 }
 
 export interface WalletInfo {

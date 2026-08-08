@@ -224,15 +224,32 @@ impl SeedStore {
     /// Delete native and legacy records. Not-found is idempotent; every other
     /// backend or filesystem error is surfaced to the wallet transition.
     pub fn delete_seed_phrase(&self, wallet_id: &str) -> Result<()> {
+        self.delete_native_record(wallet_id)?;
+        self.delete_legacy_file_record(wallet_id)?;
+        self.delete_legacy_keyring_record(wallet_id)
+    }
+
+    /// Delete only the platform-native custody record. Cleanup journal stages
+    /// call these components separately so each successful boundary is durable
+    /// and independently retryable.
+    pub(crate) fn delete_native_record(&self, wallet_id: &str) -> Result<()> {
         validate_wallet_id(wallet_id)?;
         match self.backend.delete(wallet_id) {
-            Ok(()) | Err(SecureStoreError::NotFound) => {}
-            Err(error) => return Err(error.into()),
+            Ok(()) | Err(SecureStoreError::NotFound) => Ok(()),
+            Err(error) => Err(error.into()),
         }
+    }
+
+    pub(crate) fn delete_legacy_file_record(&self, wallet_id: &str) -> Result<()> {
+        validate_wallet_id(wallet_id)?;
         match legacy_file::delete(&self.data_dir, wallet_id) {
-            Ok(()) | Err(SecureStoreError::NotFound) => {}
-            Err(error) => return Err(error.into()),
+            Ok(()) | Err(SecureStoreError::NotFound) => Ok(()),
+            Err(error) => Err(error.into()),
         }
+    }
+
+    pub(crate) fn delete_legacy_keyring_record(&self, wallet_id: &str) -> Result<()> {
+        validate_wallet_id(wallet_id)?;
         match legacy_keyring::delete(wallet_id) {
             Ok(()) | Err(SecureStoreError::NotFound) => Ok(()),
             Err(error) => Err(error.into()),

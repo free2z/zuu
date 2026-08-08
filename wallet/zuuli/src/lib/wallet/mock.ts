@@ -75,6 +75,22 @@ export const mockWallet = {
       activeWalletId: "mock-wallet-0",
       activeWalletName: "Main",
       walletCount: 1,
+      cleanup: {
+        pendingOperations: 0,
+        blockedOperations: 0,
+        pendingStages: 0,
+        completedStages: 0,
+        diagnostics: [],
+      },
+    };
+  },
+  retryWalletCleanup() {
+    return {
+      pendingOperations: 0,
+      blockedOperations: 0,
+      pendingStages: 0,
+      completedStages: 0,
+      diagnostics: [],
     };
   },
   createWallet(): WalletCreated {

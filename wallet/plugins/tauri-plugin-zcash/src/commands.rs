@@ -24,12 +24,6 @@ fn format_birthday_error(e: BirthdayError) -> String {
 
 struct CommittedWalletDeletion {
     was_active: bool,
-    cleanup: Option<AuthorizedWalletCleanup>,
-}
-
-struct AuthorizedWalletCleanup {
-    wallet_id: String,
-    db_filename: String,
 }
 
 /// Validate and remove a wallet from the manifest/DB deletion path.
@@ -43,7 +37,7 @@ fn commit_wallet_deletion(
     wallet_id: &str,
 ) -> Result<CommittedWalletDeletion> {
     let was_active = manifest.active_wallet_id.as_deref() == Some(wallet_id);
-    let durable = manifest
+    manifest
         .delete_wallet_durable(data_dir, wallet_id)
         .map_err(|e| match e {
             crate::wallet::manifest::DeleteWalletError::LastWallet => {
@@ -59,54 +53,69 @@ fn commit_wallet_deletion(
 
     Ok(CommittedWalletDeletion {
         was_active,
-        cleanup: durable.cleanup_authorized.then_some(AuthorizedWalletCleanup {
-            wallet_id: durable.entry.id,
-            db_filename: durable.entry.db_filename,
-        }),
     })
 }
 
-fn cleanup_committed_wallet_blocking<F>(
-    data_dir: &std::path::Path,
-    cleanup: AuthorizedWalletCleanup,
-    delete_seed: F,
-) -> Result<()>
-where
-    F: FnOnce(&str) -> Result<()>,
-{
-    // The manifest deletion is already committed. Cleanup steps are therefore
-    // independent and best-effort: an unsafe/corrupt journal must not prevent
-    // deletion of the wallet DB or leave its native seed behind.
-    let journal_result = send::clear_pending_broadcast(data_dir, &cleanup.wallet_id);
-    crate::wallet::manifest::cleanup_wallet_database_files(data_dir, &cleanup.db_filename);
-    let seed_result = delete_seed(&cleanup.wallet_id);
-    match (journal_result, seed_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(journal), Ok(())) => Err(Error::Other(format!(
-            "wallet data was deleted but pending-send cleanup failed: {journal}"
-        ))),
-        (Ok(()), Err(seed)) => Err(seed),
-        (Err(journal), Err(seed)) => Err(Error::Other(format!(
-            "pending-send cleanup failed ({journal}); native seed cleanup also failed ({seed})"
-        ))),
-    }
-}
-
-async fn cleanup_committed_wallet(
-    data_dir: std::path::PathBuf,
-    cleanup: AuthorizedWalletCleanup,
-    seed_store: crate::wallet::keychain::SeedStore,
-) {
-    match tokio::task::spawn_blocking(move || {
-        cleanup_committed_wallet_blocking(&data_dir, cleanup, |wallet_id| {
-            seed_store.delete_seed_phrase(wallet_id)
-        })
+pub(crate) async fn run_wallet_cleanup_retry(
+    state: &crate::wallet::WalletState,
+    mode: crate::wallet::cleanup::RetryMode,
+) -> WalletCleanupStatus {
+    let manifest = state.manifest.lock().await.clone();
+    let data_dir = state.data_dir.clone();
+    let seed_store = state.seed_store.clone();
+    let status = match tokio::task::spawn_blocking(move || {
+        crate::wallet::cleanup::retry_pending(&data_dir, &manifest, &seed_store, mode)
     })
     .await
     {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => tracing::warn!("wallet deleted but post-commit cleanup was incomplete: {e}"),
-        Err(e) => tracing::warn!("wallet deleted but cleanup task failed: {e}"),
+        Ok(Ok(report)) => WalletCleanupStatus::from(report),
+        Ok(Err(error)) => {
+            tracing::error!("wallet cleanup retry could not update its journal: {error}");
+            WalletCleanupStatus::from(crate::wallet::cleanup::CleanupReport::journal_error(
+                error,
+            ))
+        }
+        Err(error) => {
+            tracing::error!("wallet cleanup retry task failed: {error}");
+            WalletCleanupStatus::from(crate::wallet::cleanup::CleanupReport::journal_error(
+                format!("cleanup task failed: {error}"),
+            ))
+        }
+    };
+    *state.cleanup_status.lock().await = status.clone();
+    status
+}
+
+/// Finish startup custody cleanup after plugin setup has returned, keeping
+/// synchronous/potentially prompting native APIs off the application init
+/// thread. The startup filesystem pass already resolved manifest uncertainty,
+/// so runtime mode is sufficient and cannot reinterpret an in-memory manifest.
+pub(crate) async fn resume_wallet_cleanup_after_setup<R: Runtime>(app: AppHandle<R>) {
+    let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let status = run_wallet_cleanup_retry(
+        &zcash.state,
+        crate::wallet::cleanup::RetryMode::Runtime,
+    )
+    .await;
+    if status.pending_operations > 0 || status.blocked_operations > 0 {
+        tracing::warn!(
+            pending = status.pending_operations,
+            blocked = status.blocked_operations,
+            diagnostics = ?status.diagnostics,
+            "post-setup wallet cleanup remains pending"
+        );
+    }
+}
+
+async fn retry_staged_wallet_cleanup(state: &crate::wallet::WalletState, context: &str) {
+    let status = run_wallet_cleanup_retry(state, crate::wallet::cleanup::RetryMode::Runtime).await;
+    if status.pending_operations > 0 {
+        tracing::warn!(
+            pending = status.pending_operations,
+            diagnostics = ?status.diagnostics,
+            "{context}; orphan cleanup remains durably scheduled"
+        );
     }
 }
 
@@ -195,16 +204,27 @@ pub(crate) async fn create_wallet<R: Runtime>(
         wallet_name,
         Some(tip_height),
     );
+    let cleanup_authorization =
+        crate::wallet::cleanup::schedule_staged_wallet_rollback(
+            &zcash.state.data_dir,
+            &wallet_entry,
+        )
+        .map_err(|error| {
+            Error::DatabaseError(format!(
+                "failed to schedule rollback before wallet creation: {error}"
+            ))
+        })?;
 
     // Initialize database at new path — local variable, no mutex needed yet
     let db_path = zcash.state.data_dir.join(&wallet_entry.db_filename);
     let mut db = match storage::init_wallet_db(&db_path, zcash.state.network) {
         Ok(db) => db,
         Err(error) => {
-            crate::wallet::manifest::cleanup_wallet_database_files(
-                &zcash.state.data_dir,
-                &wallet_entry.db_filename,
-            );
+            retry_staged_wallet_cleanup(
+                &zcash.state,
+                "wallet database initialization failed",
+            )
+            .await;
             return Err(error);
         }
     };
@@ -212,10 +232,7 @@ pub(crate) async fn create_wallet<R: Runtime>(
     // Create account on the local db (no mutex contention)
     if let Err(error) = db.create_account(&wallet_entry.name, &seed, &birthday, None) {
         drop(db);
-        crate::wallet::manifest::cleanup_wallet_database_files(
-            &zcash.state.data_dir,
-            &wallet_entry.db_filename,
-        );
+        retry_staged_wallet_cleanup(&zcash.state, "wallet account creation failed").await;
         return Err(Error::DatabaseError(format!(
             "failed to create account: {error}"
         )));
@@ -225,10 +242,7 @@ pub(crate) async fn create_wallet<R: Runtime>(
         Ok(db) => db,
         Err(error) => {
             drop(db);
-            crate::wallet::manifest::cleanup_wallet_database_files(
-                &zcash.state.data_dir,
-                &wallet_entry.db_filename,
-            );
+            retry_staged_wallet_cleanup(&zcash.state, "wallet read database open failed").await;
             return Err(error);
         }
     };
@@ -240,53 +254,79 @@ pub(crate) async fn create_wallet<R: Runtime>(
         .store_seed_phrase(&wallet_entry.id, phrase.as_str())
         .await
     {
-        if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
-            tracing::warn!(
-                wallet_id = wallet_entry.id,
-                "native seed commit failed and rollback also failed: {cleanup_error}"
-            );
-        }
         drop(read_db);
         drop(db);
-        crate::wallet::manifest::cleanup_wallet_database_files(
-            &zcash.state.data_dir,
-            &wallet_entry.db_filename,
-        );
+        retry_staged_wallet_cleanup(&zcash.state, "native seed commit failed").await;
         return Err(error);
+    }
+
+    // Narrow destructive authority before publication. If manifest directory
+    // durability is later inconclusive, the wallet can be exposed without any
+    // crash path retaining authority to destroy its recovery custody.
+    if let Err(error) = crate::wallet::cleanup::protect_staged_wallet_custody(
+        &zcash.state.data_dir,
+        &cleanup_authorization,
+    ) {
+        drop(read_db);
+        drop(db);
+        retry_staged_wallet_cleanup(&zcash.state, "recovery custody protection failed").await;
+        return Err(Error::DatabaseError(format!(
+            "failed to protect recovery custody before wallet publication: {error}"
+        )));
     }
 
     let manifest_commit = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
     };
-    match manifest_commit {
-        Ok(true) => {}
-        Ok(false) => tracing::warn!(
-            wallet_id = wallet_entry.id,
-            "new wallet manifest is visible but directory durability was not confirmed"
-        ),
+    let manifest_commit_durable = match manifest_commit {
+        Ok(true) => true,
+        Ok(false) => {
+            tracing::warn!(
+                wallet_id = wallet_entry.id,
+                "new wallet manifest is visible but directory durability was not confirmed"
+            );
+            false
+        }
         Err(error) => {
-            if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
-                tracing::warn!(
-                    wallet_id = wallet_entry.id,
-                    "manifest commit failed and orphan native seed cleanup also failed: {cleanup_error}"
-                );
-            }
             drop(read_db);
             drop(db);
-            crate::wallet::manifest::cleanup_wallet_database_files(
-                &zcash.state.data_dir,
-                &wallet_entry.db_filename,
-            );
+            if let Err(cleanup_error) =
+                crate::wallet::cleanup::rearm_staged_wallet_custody_cleanup(
+                    &zcash.state.data_dir,
+                    &cleanup_authorization,
+                )
+            {
+                tracing::warn!(
+                    wallet_id = wallet_entry.id,
+                    "wallet publication failed and custody cleanup could not be re-armed; recovery material is intentionally preserved: {cleanup_error}"
+                );
+            }
+            retry_staged_wallet_cleanup(&zcash.state, "wallet manifest commit failed").await;
             return Err(Error::DatabaseError(format!(
                 "failed to commit wallet manifest: {error}"
             )));
+        }
+    };
+    if manifest_commit_durable {
+        if let Err(error) = crate::wallet::cleanup::confirm_staged_wallet_commit(
+            &zcash.state.data_dir,
+            &cleanup_authorization,
+        ) {
+            tracing::warn!(
+                wallet_id = wallet_entry.id,
+                "wallet committed but rollback tombstone finalization failed; startup will resolve it: {error}"
+            );
         }
     }
 
     *zcash.state.pending_proposal.lock().await = None;
     *zcash.state.pending_broadcast.lock().await =
         send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
+    // The exact generation is now active. Cancel its rollback tombstone before
+    // installing the live context; a cancellation failure is safe because
+    // every future retry recognizes and preserves this manifest generation.
+    retry_staged_wallet_cleanup(&zcash.state, "wallet rollback cancellation deferred").await;
 
     // Complete the entire context swap before releasing the transition lock or
     // returning. A caller must never observe the new manifest/read DB/seed while
@@ -365,16 +405,27 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         wallet_name,
         Some(birthday_height),
     );
+    let cleanup_authorization =
+        crate::wallet::cleanup::schedule_staged_wallet_rollback(
+            &zcash.state.data_dir,
+            &wallet_entry,
+        )
+        .map_err(|error| {
+            Error::DatabaseError(format!(
+                "failed to schedule rollback before wallet restoration: {error}"
+            ))
+        })?;
 
     // Initialize database — local variable, no mutex needed yet
     let db_path = zcash.state.data_dir.join(&wallet_entry.db_filename);
     let mut db = match storage::init_wallet_db(&db_path, zcash.state.network) {
         Ok(db) => db,
         Err(error) => {
-            crate::wallet::manifest::cleanup_wallet_database_files(
-                &zcash.state.data_dir,
-                &wallet_entry.db_filename,
-            );
+            retry_staged_wallet_cleanup(
+                &zcash.state,
+                "restored database initialization failed",
+            )
+            .await;
             return Err(error);
         }
     };
@@ -382,10 +433,7 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     // Create account on the local db (no mutex contention)
     if let Err(error) = db.create_account(&wallet_entry.name, &seed, &birthday, None) {
         drop(db);
-        crate::wallet::manifest::cleanup_wallet_database_files(
-            &zcash.state.data_dir,
-            &wallet_entry.db_filename,
-        );
+        retry_staged_wallet_cleanup(&zcash.state, "restored account creation failed").await;
         return Err(Error::DatabaseError(format!(
             "failed to create account: {error}"
         )));
@@ -395,10 +443,11 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         Ok(db) => db,
         Err(error) => {
             drop(db);
-            crate::wallet::manifest::cleanup_wallet_database_files(
-                &zcash.state.data_dir,
-                &wallet_entry.db_filename,
-            );
+            retry_staged_wallet_cleanup(
+                &zcash.state,
+                "restored wallet read database open failed",
+            )
+            .await;
             return Err(error);
         }
     };
@@ -410,53 +459,85 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         .store_seed_phrase(&wallet_entry.id, phrase_str.as_str())
         .await
     {
-        if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
-            tracing::warn!(
-                wallet_id = wallet_entry.id,
-                "native seed commit failed and rollback also failed: {cleanup_error}"
-            );
-        }
         drop(read_db);
         drop(db);
-        crate::wallet::manifest::cleanup_wallet_database_files(
-            &zcash.state.data_dir,
-            &wallet_entry.db_filename,
-        );
+        retry_staged_wallet_cleanup(&zcash.state, "restored native seed commit failed").await;
         return Err(error);
+    }
+
+    if let Err(error) = crate::wallet::cleanup::protect_staged_wallet_custody(
+        &zcash.state.data_dir,
+        &cleanup_authorization,
+    ) {
+        drop(read_db);
+        drop(db);
+        retry_staged_wallet_cleanup(
+            &zcash.state,
+            "restored recovery custody protection failed",
+        )
+        .await;
+        return Err(Error::DatabaseError(format!(
+            "failed to protect restored recovery custody before wallet publication: {error}"
+        )));
     }
 
     let manifest_commit = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
     };
-    match manifest_commit {
-        Ok(true) => {}
-        Ok(false) => tracing::warn!(
-            wallet_id = wallet_entry.id,
-            "restored wallet manifest is visible but directory durability was not confirmed"
-        ),
+    let manifest_commit_durable = match manifest_commit {
+        Ok(true) => true,
+        Ok(false) => {
+            tracing::warn!(
+                wallet_id = wallet_entry.id,
+                "restored wallet manifest is visible but directory durability was not confirmed"
+            );
+            false
+        }
         Err(error) => {
-            if let Err(cleanup_error) = zcash.state.delete_seed_phrase(&wallet_entry.id).await {
-                tracing::warn!(
-                    wallet_id = wallet_entry.id,
-                    "manifest commit failed and orphan native seed cleanup also failed: {cleanup_error}"
-                );
-            }
             drop(read_db);
             drop(db);
-            crate::wallet::manifest::cleanup_wallet_database_files(
-                &zcash.state.data_dir,
-                &wallet_entry.db_filename,
-            );
+            if let Err(cleanup_error) =
+                crate::wallet::cleanup::rearm_staged_wallet_custody_cleanup(
+                    &zcash.state.data_dir,
+                    &cleanup_authorization,
+                )
+            {
+                tracing::warn!(
+                    wallet_id = wallet_entry.id,
+                    "restored wallet publication failed and custody cleanup could not be re-armed; recovery material is intentionally preserved: {cleanup_error}"
+                );
+            }
+            retry_staged_wallet_cleanup(
+                &zcash.state,
+                "restored wallet manifest commit failed",
+            )
+            .await;
             return Err(Error::DatabaseError(format!(
                 "failed to commit wallet manifest: {error}"
             )));
+        }
+    };
+    if manifest_commit_durable {
+        if let Err(error) = crate::wallet::cleanup::confirm_staged_wallet_commit(
+            &zcash.state.data_dir,
+            &cleanup_authorization,
+        ) {
+            tracing::warn!(
+                wallet_id = wallet_entry.id,
+                "restored wallet committed but rollback tombstone finalization failed; startup will resolve it: {error}"
+            );
         }
     }
 
     *zcash.state.pending_proposal.lock().await = None;
     *zcash.state.pending_broadcast.lock().await =
         send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
+    retry_staged_wallet_cleanup(
+        &zcash.state,
+        "restored wallet rollback cancellation deferred",
+    )
+    .await;
 
     // Complete the write/read/seed swap before returning; see create_wallet.
     *zcash.state.db.lock().await = Some(db);
@@ -483,6 +564,7 @@ pub(crate) async fn get_wallet_status<R: Runtime>(
     let active_wallet_name = manifest.get_active().map(|w| w.name.clone());
     let wallet_count = manifest.wallets.len() as u32;
     drop(manifest);
+    let cleanup = zcash.state.cleanup_status.lock().await.clone();
 
     let (synced_height, chain_tip) = if initialized {
         let db_guard = zcash.state.read_db.lock().await;
@@ -504,7 +586,26 @@ pub(crate) async fn get_wallet_status<R: Runtime>(
         active_wallet_id,
         active_wallet_name,
         wallet_count,
+        cleanup,
     })
+}
+
+/// Explicitly retry every authorized orphan cleanup operation. Stage failures
+/// are returned as diagnostics rather than command errors so callers never
+/// confuse a cleanup backend failure with an ambiguous wallet transition.
+#[command]
+pub(crate) async fn retry_wallet_cleanup<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<WalletCleanupStatus> {
+    let zcash = app.zcash();
+    let _transition_guard = Arc::clone(&zcash.state.wallet_transition)
+        .lock_owned()
+        .await;
+    Ok(run_wallet_cleanup_retry(
+        &zcash.state,
+        crate::wallet::cleanup::RetryMode::Runtime,
+    )
+    .await)
 }
 
 #[command]
@@ -862,13 +963,17 @@ pub(crate) async fn delete_wallet<R: Runtime>(
                 .last_known_chain_tip
                 .store(0, std::sync::atomic::Ordering::Relaxed);
 
-            if let Some(cleanup) = deletion.cleanup {
-                cleanup_committed_wallet(
-                    zcash.state.data_dir.clone(),
-                    cleanup,
-                    zcash.state.seed_store.clone(),
-                )
-                .await;
+            let status = run_wallet_cleanup_retry(
+                &zcash.state,
+                crate::wallet::cleanup::RetryMode::Runtime,
+            )
+            .await;
+            if status.pending_operations > 0 {
+                tracing::warn!(
+                    pending = status.pending_operations,
+                    diagnostics = ?status.diagnostics,
+                    "wallet deletion committed; cleanup remains durably scheduled"
+                );
             }
             return Ok(());
         }
@@ -879,13 +984,17 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     // requires a confirmed-durable manifest replacement and happens only after
     // active DB handles have been swapped. It is best-effort because returning
     // an error after commit would invite an ambiguous destructive retry.
-    if let Some(cleanup) = deletion.cleanup {
-        cleanup_committed_wallet(
-            zcash.state.data_dir.clone(),
-            cleanup,
-            zcash.state.seed_store.clone(),
-        )
-        .await;
+    let status = run_wallet_cleanup_retry(
+        &zcash.state,
+        crate::wallet::cleanup::RetryMode::Runtime,
+    )
+    .await;
+    if status.pending_operations > 0 {
+        tracing::warn!(
+            pending = status.pending_operations,
+            diagnostics = ?status.diagnostics,
+            "wallet deletion committed; cleanup remains durably scheduled"
+        );
     }
 
     Ok(())
@@ -923,7 +1032,7 @@ mod deletion_tests {
             std::env::temp_dir().join(format!("zuuli-delete-command-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&data_dir).expect("create test data dir");
 
-        let wallet = wallet(&format!("only-{}", uuid::Uuid::new_v4()));
+        let wallet = wallet(&uuid::Uuid::new_v4().to_string());
         let db_path = data_dir.join(&wallet.db_filename);
         std::fs::write(&db_path, b"wallet database").expect("write test database");
         store_seed_sentinel(&data_dir, &wallet.id);
@@ -960,8 +1069,8 @@ mod deletion_tests {
             std::env::temp_dir().join(format!("zuuli-delete-persistence-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&data_dir).expect("create test data dir");
 
-        let first = wallet(&format!("first-{}", uuid::Uuid::new_v4()));
-        let second = wallet(&format!("second-{}", uuid::Uuid::new_v4()));
+        let first = wallet(&uuid::Uuid::new_v4().to_string());
+        let second = wallet(&uuid::Uuid::new_v4().to_string());
         let first_db = data_dir.join(&first.db_filename);
         std::fs::write(&first_db, b"wallet database").expect("write test database");
         store_seed_sentinel(&data_dir, &first.id);
@@ -991,13 +1100,13 @@ mod deletion_tests {
     }
 
     #[test]
-    fn successful_commit_is_durable_before_seed_cleanup_is_authorized() {
+    fn successful_commit_is_durable_before_journal_cleanup_is_authorized() {
         let data_dir =
             std::env::temp_dir().join(format!("zuuli-delete-success-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&data_dir).expect("create test data dir");
 
-        let first = wallet(&format!("first-{}", uuid::Uuid::new_v4()));
-        let second = wallet(&format!("second-{}", uuid::Uuid::new_v4()));
+        let first = wallet(&uuid::Uuid::new_v4().to_string());
+        let second = wallet(&uuid::Uuid::new_v4().to_string());
         let first_db = data_dir.join(&first.db_filename);
         let first_wal = data_dir.join(format!("{}-wal", first.db_filename));
         let first_shm = data_dir.join(format!("{}-shm", first.db_filename));
@@ -1015,7 +1124,6 @@ mod deletion_tests {
         let deletion = commit_wallet_deletion(&mut manifest, &data_dir, &first.id)
             .expect("deletion should commit");
         assert!(deletion.was_active);
-        assert!(deletion.cleanup.is_some());
         assert_eq!(manifest.active_wallet_id, Some(second.id.clone()));
         assert!(first_db.exists(), "commit must not consume database cleanup");
         assert!(first_wal.exists(), "commit must not consume WAL cleanup");
@@ -1025,66 +1133,11 @@ mod deletion_tests {
         let persisted = WalletManifest::load(&data_dir).expect("load committed manifest");
         assert_eq!(persisted.wallets.len(), 1);
         assert_eq!(persisted.active_wallet_id, Some(second.id));
-
-        let cleanup = deletion.cleanup.expect("cleanup token");
-        let deleted_wallet_id = cleanup.wallet_id.clone();
-        cleanup_committed_wallet_blocking(&data_dir, cleanup, |wallet_id| {
-            std::fs::remove_file(seed_sentinel(&data_dir, wallet_id)).map_err(Error::from)
-        })
-            .expect("consume cleanup authorization");
-        assert!(!first_db.exists(), "token consumption removes database");
-        assert!(!first_wal.exists(), "token consumption removes WAL");
-        assert!(!first_shm.exists(), "token consumption removes SHM");
-        assert!(
-            !seed_sentinel(&data_dir, &deleted_wallet_id).exists(),
-            "authorized cleanup removes the seed sentinel"
-        );
+        let cleanup_journal = std::fs::read_to_string(data_dir.join("wallet-cleanup.json"))
+            .expect("read cleanup journal");
+        assert!(cleanup_journal.contains(&first.id));
+        assert!(cleanup_journal.contains("\"transition_confirmed\": true"));
         std::fs::remove_dir_all(data_dir).expect("remove test data dir");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unsafe_journal_never_prevents_committed_db_and_seed_cleanup() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
-
-        let data_dir = std::env::temp_dir().join(format!(
-            "zuuli-delete-unsafe-journal-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&data_dir).expect("create test data dir");
-        let deleted = wallet(&uuid::Uuid::new_v4().to_string());
-        let db_path = data_dir.join(&deleted.db_filename);
-        std::fs::write(&db_path, b"wallet database").expect("write test database");
-        store_seed_sentinel(&data_dir, &deleted.id);
-
-        let victim = data_dir.join("journal-victim");
-        std::fs::write(&victim, b"must not change").expect("write victim");
-        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600))
-            .expect("secure victim permissions");
-        let journal = data_dir.join(format!("pending-send-{}.json", deleted.id));
-        symlink(&victim, &journal).expect("create unsafe journal symlink");
-
-        let result = cleanup_committed_wallet_blocking(
-            &data_dir,
-            AuthorizedWalletCleanup {
-                wallet_id: deleted.id.clone(),
-                db_filename: deleted.db_filename.clone(),
-            },
-            |wallet_id| {
-                std::fs::remove_file(seed_sentinel(&data_dir, wallet_id)).map_err(Error::from)
-            },
-        );
-        assert!(result.is_err(), "unsafe journal remains reportable");
-        assert!(!db_path.exists(), "committed DB cleanup must still run");
-        assert!(
-            !seed_sentinel(&data_dir, &deleted.id).exists(),
-            "committed native seed cleanup must still run"
-        );
-        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
-
-        std::fs::remove_file(journal).expect("remove journal symlink");
-        std::fs::remove_file(victim).expect("remove victim");
-        std::fs::remove_dir(data_dir).expect("remove test data dir");
     }
 
     #[test]

@@ -17,6 +17,32 @@ pub struct WalletStatus {
     pub active_wallet_id: Option<String>,
     pub active_wallet_name: Option<String>,
     pub wallet_count: u32,
+    /// Durable orphan cleanup state. This is additive so older frontends can
+    /// ignore it while operators still receive startup diagnostics.
+    #[serde(default)]
+    pub cleanup: WalletCleanupStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletCleanupStatus {
+    pub pending_operations: u32,
+    pub blocked_operations: u32,
+    pub pending_stages: u32,
+    pub completed_stages: u32,
+    pub diagnostics: Vec<String>,
+}
+
+impl From<crate::wallet::cleanup::CleanupReport> for WalletCleanupStatus {
+    fn from(report: crate::wallet::cleanup::CleanupReport) -> Self {
+        Self {
+            pending_operations: report.pending_operations,
+            blocked_operations: report.blocked_operations,
+            pending_stages: report.pending_stages,
+            completed_stages: report.completed_stages,
+            diagnostics: report.diagnostics,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

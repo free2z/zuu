@@ -24,11 +24,6 @@ pub(crate) enum DeleteWalletError {
     Persistence(String),
 }
 
-pub(crate) struct DurableDeletion {
-    pub(crate) entry: WalletEntry,
-    pub(crate) cleanup_authorized: bool,
-}
-
 impl WalletManifest {
     fn manifest_path(data_dir: &Path) -> PathBuf {
         data_dir.join("wallets.json")
@@ -267,9 +262,11 @@ impl WalletManifest {
         &mut self,
         data_dir: &Path,
         wallet_id: &str,
-    ) -> Result<DurableDeletion, DeleteWalletError> {
+    ) -> Result<(), DeleteWalletError> {
         let pos = self.validate_wallet_deletion(wallet_id)?;
         let previous_active = self.active_wallet_id.clone();
+        let cleanup = super::cleanup::schedule_wallet_deletion(data_dir, &self.wallets[pos])
+            .map_err(|error| DeleteWalletError::Persistence(error.to_string()))?;
         let entry = self.wallets.remove(pos);
 
         // If we deleted the active wallet, switch to the first remaining
@@ -282,20 +279,28 @@ impl WalletManifest {
             Err(e) => {
                 self.wallets.insert(pos, entry);
                 self.active_wallet_id = previous_active;
+                if let Err(cleanup_error) = super::cleanup::cancel(data_dir, &cleanup) {
+                    tracing::warn!(
+                        "manifest deletion rolled back but cleanup tombstone cancellation failed: {cleanup_error}"
+                    );
+                }
                 return Err(DeleteWalletError::Persistence(e.to_string()));
             }
         };
 
-        if !cleanup_authorized {
+        if cleanup_authorized {
+            if let Err(error) = super::cleanup::authorize_wallet_deletion(data_dir, &cleanup) {
+                tracing::warn!(
+                    "wallet deletion committed but cleanup authorization finalization failed; startup will retry: {error}"
+                );
+            }
+        } else {
             tracing::warn!(
-                "wallet manifest replacement was visible but not confirmed durable; preserving database and seed"
+                "wallet manifest replacement was visible but not confirmed durable; cleanup awaits restart resolution"
             );
         }
 
-        Ok(DurableDeletion {
-            entry,
-            cleanup_authorized,
-        })
+        Ok(())
     }
 
     /// Validate deletion without changing the manifest or filesystem.
@@ -422,20 +427,6 @@ fn replace_manifest_with_backup(temp: &Path, path: &Path, backup: &Path) -> std:
         }
     }
     Ok(())
-}
-
-pub(crate) fn cleanup_wallet_database_files(data_dir: &Path, filename: &str) {
-    for db_path in [
-        data_dir.join(filename),
-        data_dir.join(format!("{filename}-wal")),
-        data_dir.join(format!("{filename}-shm")),
-    ] {
-        if db_path.exists() {
-            if let Err(e) = std::fs::remove_file(&db_path) {
-                tracing::warn!("wallet removed but database cleanup failed: {e}");
-            }
-        }
-    }
 }
 
 #[cfg(test)]

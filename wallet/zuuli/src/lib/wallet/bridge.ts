@@ -20,6 +20,7 @@ import type {
   SyncStatus,
   TransactionEntry,
   WalletCreated,
+  WalletCleanupStatus,
   WalletStatus,
 } from "./types";
 
@@ -48,6 +49,11 @@ export const wallet = {
   async getWalletStatus(): Promise<WalletStatus> {
     if (useMock()) return mockWallet.getWalletStatus();
     return invoke("get_wallet_status");
+  },
+
+  async retryWalletCleanup(): Promise<WalletCleanupStatus> {
+    if (useMock()) return mockWallet.retryWalletCleanup();
+    return invoke("retry_wallet_cleanup");
   },
 
   async getSeedPhrase(): Promise<string> {
