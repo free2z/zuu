@@ -2,7 +2,9 @@
 set -euo pipefail
 umask 077
 
-script_path=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
+script_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+script_path="$script_directory/$(basename -- "$0")"
+plist_verifier="$script_directory/verify-ios-info-plist.py"
 
 fail() {
   echo "iOS IPA verification failed: $*" >&2
@@ -27,6 +29,16 @@ is_allowed_bundle_binary() {
   return 1
 }
 
+verify_export_compliance() {
+  local app=$1 info_plist output
+  info_plist="$app/Info.plist"
+  [[ -f "$info_plist" && ! -L "$info_plist" ]] ||
+    fail "app bundle Info.plist is not a regular file"
+  command -v python3 >/dev/null 2>&1 ||
+    fail "python3 is required for duplicate-safe app bundle plist verification"
+  output=$(python3 "$plist_verifier" "$info_plist" 2>&1) || fail "$output"
+}
+
 verify_app_structure() {
   local app=$1 bundle_entry bundle_file relative file_kind main_kind
   [[ -d "$app" && ! -L "$app" ]] || fail "app bundle is not a regular directory"
@@ -35,6 +47,7 @@ verify_app_structure() {
   main_kind=$(/usr/bin/file -b "$app/ZUULI") ||
     fail "unable to inspect app bundle main executable"
   [[ "$main_kind" == *Mach-O* ]] || fail "app bundle main executable is not Mach-O"
+  verify_export_compliance "$app"
   while IFS= read -r -d '' bundle_entry; do
     relative=${bundle_entry#"$app/"}
     if [[ -L "$bundle_entry" || (! -d "$bundle_entry" && ! -f "$bundle_entry") ]]; then
@@ -59,11 +72,14 @@ verify_app_structure() {
 
 self_test() (
   local fixture_app fixture_dir fixture_ipa output
+  python3 "$plist_verifier" --self-test ||
+    fail "Info.plist duplicate-policy self-test failed"
   fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-ipa-self-test.XXXXXX")
   trap 'cleanup_directory "$fixture_dir"' EXIT
   fixture_app="$fixture_dir/root/Payload/ZUULI.app"
   mkdir -p "$fixture_app"
   printf '\317\372\355\376\014\000\000\001' > "$fixture_app/ZUULI"
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>ITSAppUsesNonExemptEncryption</key><false/></dict></plist>' > "$fixture_app/Info.plist"
   printf 'fixture\n' > "$fixture_dir/expected.mobileprovision"
   fixture_ipa="$fixture_dir/missing-profile.ipa"
   (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
@@ -123,10 +139,52 @@ self_test() (
   fi
   grep -Fq 'app bundle contains a non-regular entry: linked-binary' <<<"$output" ||
     fail "symlink self-test failed for the wrong reason: $output"
+
+  rm "$fixture_app/linked-binary" "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "missing export-compliance declaration self-test unexpectedly passed"
+  fi
+  grep -Fq 'app bundle Info.plist is not a regular file' <<<"$output" ||
+    fail "missing export-compliance declaration self-test failed for the wrong reason: $output"
+
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict/></plist>' > "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "missing export-compliance key self-test unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist must contain exactly one raw ITSAppUsesNonExemptEncryption key, found 0' <<<"$output" ||
+    fail "missing export-compliance key self-test failed for the wrong reason: $output"
+
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>ITSAppUsesNonExemptEncryption</key><string>false</string></dict></plist>' > "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "string export-compliance declaration self-test unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist ITSAppUsesNonExemptEncryption must be a Boolean' <<<"$output" ||
+    fail "string export-compliance declaration self-test failed for the wrong reason: $output"
+
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>ITSAppUsesNonExemptEncryption</key><true/></dict></plist>' > "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "non-exempt encryption declaration self-test unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist must declare ITSAppUsesNonExemptEncryption=false' <<<"$output" ||
+    fail "non-exempt encryption declaration self-test failed for the wrong reason: $output"
+
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>ITSAppUsesNonExemptEncryption</key><false/><key>ITSAppUsesNonExemptEncryption</key><false/></dict></plist>' > "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "same-value duplicate export-compliance declaration unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist root dictionary contains duplicate keys: ITSAppUsesNonExemptEncryption' <<<"$output" ||
+    fail "same-value duplicate export-compliance declaration failed for the wrong reason: $output"
+
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>ITSAppUsesNonExemptEncryption</key><true/><key>ITSAppUsesNonExemptEncryption</key><false/></dict></plist>' > "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "conflicting duplicate export-compliance declaration unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist root dictionary contains duplicate keys: ITSAppUsesNonExemptEncryption' <<<"$output" ||
+    fail "conflicting duplicate export-compliance declaration failed for the wrong reason: $output"
 )
 
 darwin_self_test() (
-  local fixture_dir certificate_prefix entitlements extracted_team
+  local fixture_dir fixture_app certificate_prefix entitlements extracted_team output
   [[ "$(uname -s)" == Darwin ]] || fail "--self-test-darwin requires macOS"
   fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-ipa-darwin-self-test.XXXXXX")
   trap 'cleanup_directory "$fixture_dir"' EXIT
@@ -143,6 +201,35 @@ darwin_self_test() (
   extracted_team=$(plutil -extract 'com\.apple\.developer\.team-identifier' raw -o - "$entitlements")
   [[ "$extracted_team" == F9AV5HKF6N ]] ||
     fail "Darwin self-test could not extract the dotted entitlement key"
+
+  fixture_app="$fixture_dir/ZUULI.app"
+  mkdir "$fixture_app"
+  printf '\317\372\355\376\014\000\000\001' > "$fixture_app/ZUULI"
+  plutil -create xml1 "$fixture_app/Info.plist"
+  plutil -insert ITSAppUsesNonExemptEncryption -bool NO "$fixture_app/Info.plist"
+  "$script_path" --verify-app-structure "$fixture_app" ||
+    fail "Darwin Boolean export-compliance fixture unexpectedly failed"
+  plutil -convert binary1 "$fixture_app/Info.plist"
+  "$script_path" --verify-app-structure "$fixture_app" ||
+    fail "Darwin binary-plist export-compliance fixture unexpectedly failed"
+  plutil -replace ITSAppUsesNonExemptEncryption -string false "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "Darwin string export-compliance fixture unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist ITSAppUsesNonExemptEncryption must be a Boolean' <<<"$output" ||
+    fail "Darwin string export-compliance fixture failed for the wrong reason: $output"
+  plutil -replace ITSAppUsesNonExemptEncryption -bool YES "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "Darwin non-exempt encryption fixture unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist must declare ITSAppUsesNonExemptEncryption=false' <<<"$output" ||
+    fail "Darwin non-exempt encryption fixture failed for the wrong reason: $output"
+  plutil -remove ITSAppUsesNonExemptEncryption "$fixture_app/Info.plist"
+  if output=$("$script_path" --verify-app-structure "$fixture_app" 2>&1); then
+    fail "Darwin missing export-compliance key fixture unexpectedly passed"
+  fi
+  grep -Fq 'Info.plist must contain exactly one raw ITSAppUsesNonExemptEncryption key, found 0' <<<"$output" ||
+    fail "Darwin missing export-compliance key fixture failed for the wrong reason: $output"
 )
 
 if [[ "${1:-}" == --self-test ]]; then

@@ -1,9 +1,10 @@
 {
   "$schema": "./release.schema.json",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "applicationId": "cash.free2z.zuuli",
+  "iosUsesNonExemptEncryption": false,
   "version": "0.1.0",
-  "build": 6,
+  "build": 7,
   "minimums": {
     "ios": "18.0",
     "android": 29

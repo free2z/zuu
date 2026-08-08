@@ -1,12 +1,19 @@
 # Releasing ZUULI
 
 ZUULI ships from one reviewed commit under one immutable identity. The current
-identity is `0.1.0+6`: marketing version `0.1.0`, Apple build `6`, Android
-`versionCode` `6`, and package/bundle identifier `cash.free2z.zuuli`.
+identity is `0.1.0+7`: marketing version `0.1.0`, Apple build `7`, Android
+`versionCode` `7`, and package/bundle identifier `cash.free2z.zuuli`.
 
-`release.json` is the source of truth. `npm run release:verify` fails if the npm,
-Cargo, Tauri, generated Xcode, or generated Gradle representation disagrees.
-Never fix a release mismatch with Tauri's `--ignore-version-mismatches` switch.
+`release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
+byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
+compares the original bytes with the canonical serialization, rejecting invalid
+bytes plus duplicate or escaped property names before their last-value-wins
+semantics can hide ambiguity. `npm run
+release:verify` fails if the npm, Cargo, Tauri, generated Xcode, or generated
+Gradle representation disagrees. Never fix a release mismatch with Tauri's
+`--ignore-version-mismatches` switch. The same contract pins
+`iosUsesNonExemptEncryption` to `false`; verification requires both the source
+and generated iOS plists to carry the matching Boolean.
 
 The train pins Node `24.18.0`, Rust `1.88.0`, Java `21.0.12`, Xcode `26.6`,
 Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
@@ -62,8 +69,10 @@ repeat bootstrap work or substitute unrelated credentials.
    Distribution certificate, and profile `ZUULI App Store CI`. CI verifies the
    profile's team, application identifier, UUID, and certificate linkage before
    it signs.
-4. Add internal TestFlight testers and complete the export-compliance/beta
-   metadata prompts after Apple processes the first upload.
+4. Add internal TestFlight testers and complete the beta metadata after Apple
+   processes the first upload. The exempt-encryption declaration described below
+   is embedded in each package; do not answer the same question differently in
+   App Store Connect.
 
 ### Google Play (Corpora)
 
@@ -117,7 +126,9 @@ Primary references:
 Credentials are paths or environment values; never paste a private key, service
 account document, seed phrase, or password into a command line. Disable shell
 tracing (`set +x`) before loading them. The scripts reject symlink credential
-paths, a partial Android signing setup, and dirty source trees.
+paths, a partial Android signing setup, and dirty source trees. Python 3 is a
+release prerequisite: the standard-library plist verifier preserves duplicate
+evidence that Apple's semantic plist tools discard.
 
 Apple variables:
 
@@ -143,10 +154,15 @@ signing key that Tauri updates in a validated generated-project shape, then
 restores the
 committed Automatic-debug project byte-for-byte after the build. The resulting
 IPA is unpacked and its exact embedded profile, distribution signature,
-certificate linkage, and signed entitlements are verified before Apple
-validation or upload. The workflow then restores the original keychain search
-list and fails if the keychain, installed profile, or credential directory
-survives cleanup.
+certificate linkage, signed entitlements, and packaged encryption declaration
+are verified before Apple validation or upload. The plist verifier rejects
+duplicate root keys before semantic decoding: it walks XML dictionary entries
+directly and, for binary plists, inspects the raw object table and dictionary key
+references. This matters because `plutil` and ordinary plist decoders collapse
+duplicate keys and can disagree about which value wins. Both same-value and
+conflicting duplicates are invalid; no binary duplicate ambiguity is accepted.
+The workflow then restores the original keychain search list and fails if the
+keychain, installed profile, or credential directory survives cleanup.
 
 The implicit-format import regression is reported upstream as
 [`tauri-apps/tauri#15843`](https://github.com/tauri-apps/tauri/issues/15843).
@@ -211,7 +227,7 @@ must both be confirmed:
 
 ```bash
 export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
-export ZUULI_CONFIRM_UPLOAD=0.1.0+6
+export ZUULI_CONFIRM_UPLOAD=0.1.0+7
 scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
@@ -287,6 +303,11 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    Build `0.1.0+6` keeps the Rust archive as a link-only input, removes it from
    Copy Bundle Resources, and makes both the generated-project contract and IPA
    verifier reject a future static-archive regression before Apple validation.
+   It uploaded and processed successfully; App Store Connect initially marked it
+   `MISSING_EXPORT_COMPLIANCE`, then moved it to `IN_BETA_TESTING` after the
+   build-specific `usesNonExemptEncryption=false` answer. Build `0.1.0+7`
+   persists that answer in the canonical and packaged iOS plists and makes the
+   release contract, normalizer, and IPA inspection fail closed on drift.
 4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and
@@ -341,9 +362,25 @@ fix.
 
 ## Release records for cryptography
 
-ZUULI contains cryptography. Store export-compliance checkboxes are declarations,
-not an export classification. This does not block internal TestFlight or Play
-testing. Before public production distribution, Corpora should retain a concise
+ZUULI contains cryptography; `ITSAppUsesNonExemptEncryption=false` means the app
+uses only encryption exempt from Apple's documentation requirement, not that the
+app uses no cryptography. The recorded basis for the current App Store answer is
+that ZUULI's non-OS cryptography uses published, non-proprietary algorithms and
+is limited to its Zcash wallet and financial-transaction functionality. Build 6
+proved this answer through App Store Connect, and Build 7 makes it package data.
+
+Apple directs apps that use no encryption *or only exempt encryption* to set the
+Boolean to `NO`; omitting the key causes the export-compliance questions to recur
+for each upload. Apple also says the developer remains responsible for the
+classification and may have separate reporting obligations. See Apple's
+[`ITSAppUsesNonExemptEncryption` property-list reference](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption),
+[`Overview of export compliance`](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance),
+and [`Complying with Encryption Export Regulations`](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations).
+
+Re-evaluate this declaration before shipping any proprietary or non-standard
+cryptography, or any material change to how encryption is used. Store
+export-compliance checkboxes are declarations, not an export classification.
+Before public production distribution, Corpora should retain a concise
 export-classification memo covering the applicable EAR, encryption, and
 mass-market analysis. Record the conclusion and supporting facts without
 asserting a specific ECCN in this runbook.
