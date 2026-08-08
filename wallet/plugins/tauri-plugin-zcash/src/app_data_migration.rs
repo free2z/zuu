@@ -146,12 +146,6 @@ where
     // wallet the user intended.
     if source_exists && destination_exists {
         validate_tree(destination)?;
-        let displaced = parent.join(DISPLACED_CANONICAL_FILENAME);
-        if path_exists_no_follow(&displaced)? {
-            return Err(MigrationError::InvalidState(
-                "pre-migration canonical-data quarantine already exists".to_owned(),
-            ));
-        }
         let Some(destination_identity) = empty_directory_identity(destination)? else {
             if had_journal {
                 // With both named trees still present and no displaced tree,
@@ -162,6 +156,12 @@ where
             }
             return Ok(MigrationOutcome::LegacyImportPending);
         };
+        let displaced = parent.join(DISPLACED_CANONICAL_FILENAME);
+        if path_exists_no_follow(&displaced)? {
+            return Err(MigrationError::InvalidState(
+                "pre-migration canonical-data quarantine already exists".to_owned(),
+            ));
+        }
 
         // Validate the legacy payload before making the only destructive
         // change allowed by this protocol: removing the empty canonical shell.
@@ -1017,6 +1017,42 @@ mod tests {
             b"new-id session"
         );
         assert!(!fixture.root.join(DISPLACED_CANONICAL_FILENAME).exists());
+    }
+
+    #[test]
+    fn old_quarantine_artifact_cannot_block_populated_canonical_startup() {
+        let fixture = Fixture::new("populated-with-old-quarantine");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create canonical state");
+        fs::write(
+            fixture.destination.join("wallets.json"),
+            b"canonical manifest",
+        )
+        .expect("write canonical manifest");
+        let displaced = fixture.root.join(DISPLACED_CANONICAL_FILENAME);
+        fs::create_dir(&displaced).expect("create old quarantine");
+        fs::write(
+            displaced.join("preserved-session"),
+            b"older canonical state",
+        )
+        .expect("write old quarantine state");
+
+        assert_eq!(
+            fixture.migrate(&mut |_| Ok(())).expect("open canonical"),
+            MigrationOutcome::LegacyImportPending
+        );
+        assert_eq!(
+            fs::read(fixture.source.join("wallets.json")).expect("read legacy manifest"),
+            b"manifest"
+        );
+        assert_eq!(
+            fs::read(fixture.destination.join("wallets.json")).expect("read canonical manifest"),
+            b"canonical manifest"
+        );
+        assert_eq!(
+            fs::read(displaced.join("preserved-session")).expect("read old quarantine"),
+            b"older canonical state"
+        );
     }
 
     #[test]
