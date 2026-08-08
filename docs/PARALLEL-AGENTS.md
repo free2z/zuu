@@ -76,9 +76,14 @@ that only ever moves forward, and every change carries a reviewable PR trail.
    reject it). If the remote branch still exists, delete it only with the
    verified lease:
    `git push --force-with-lease="refs/heads/$B:$H" origin ":refs/heads/$B"`.
-   Finish with `git worktree prune` and `git fetch --prune`. Any name/OID
-   mismatch or lease rejection means stop and investigate; another commit may
-   need preserving. Never run `git submodule deinit` during cleanup: submodule
+   Finish with `git fetch --prune`. Do not run the global
+   `git worktree prune` as routine per-worktree cleanup: it can destroy recovery
+   metadata for an unrelated, temporarily unavailable worktree. For genuinely
+   stale registrations, first inspect `git worktree prune --dry-run --verbose`,
+   apply every safety check above to every candidate, and prune only when all
+   candidates are safe. Any name/OID mismatch or lease rejection means stop
+   and investigate; another commit may need preserving. Never run
+   `git submodule deinit` during cleanup: submodule
    registrations live in shared repository configuration, so it can disrupt
    other active worktrees. Never leave merged Rust/Tauri worktrees retaining
    `target/`, `node_modules/`, or other reproducible build output. Never use

@@ -35,7 +35,7 @@ exact cycle:
    primary working tree. It must ALWAYS equal `origin/main` and must NEVER be
    ahead of the remote.
 6. After the merge is confirmed, promptly remove the worker worktree and local
-   branch, then prune stale worktree and remote-tracking metadata. First verify
+   branch, then prune its remote-tracking metadata. First verify
    that the PR merged into this repository's `main`, that its merge commit is
    on `origin/main`, and that the checked-out and local branch match the PR's
    head name and commit. Confirm the worker and its background processes have
@@ -44,8 +44,9 @@ exact cycle:
    anything needed before deleting its last ref or reflog. Never use force
    removal to override dirty or unmerged work.
    Delete the remote branch only with a lease bound to the verified head
-   commit. Build-heavy merged worktrees (`target/`, `node_modules/`, etc.) must
-   not be left behind.
+   commit. Treat global worktree pruning as a separate audited operation; never
+   let it remove metadata for an unavailable worktree. Build-heavy merged
+   worktrees (`target/`, `node_modules/`, etc.) must not be left behind.
 
 **Why this is absolute:** an un-pushed commit on local `main` is not saved —
 `git reset --hard origin/main` or a fresh re-clone silently destroys it, and
