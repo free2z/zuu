@@ -3,7 +3,7 @@
   "schemaVersion": 1,
   "applicationId": "cash.free2z.zuuli",
   "version": "0.1.0",
-  "build": 3,
+  "build": 4,
   "minimums": {
     "ios": "18.0",
     "android": 29
