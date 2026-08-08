@@ -128,6 +128,21 @@ else
   require_value ANDROID_KEY_ALIAS
   require_value ANDROID_KEY_PASSWORD
 
+  if [[ "$mode" == --upload ]]; then
+    PLAY_SERVICE_ACCOUNT_JSON=$(canonical_secret_file PLAY_SERVICE_ACCOUNT_JSON)
+    export PLAY_SERVICE_ACCOUNT_JSON
+    if ! jq -e '
+      .type == "service_account" and
+      .project_id == "corpora1" and
+      .client_email == "corpan-play-verifier@corpora1.iam.gserviceaccount.com" and
+      (.private_key_id | type == "string" and length > 0) and
+      (.private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----"))
+    ' "$PLAY_SERVICE_ACCOUNT_JSON" >/dev/null; then
+      echo "PLAY_SERVICE_ACCOUNT_JSON is not the dedicated Corpora ZUULI release account" >&2
+      exit 66
+    fi
+  fi
+
   ./node_modules/.bin/tauri android build --ci --aab -- --locked
   aab=$(find_one './src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab')
   # Android upload-key certificates are intentionally self-signed, which makes
@@ -142,7 +157,6 @@ else
   cp "$aab" "release-artifacts/ZUULI-${identity}-android.aab"
 
   if [[ "$mode" == --upload ]]; then
-    PLAY_SERVICE_ACCOUNT_JSON=$(canonical_secret_file PLAY_SERVICE_ACCOUNT_JSON)
     FASTLANE_SKIP_UPDATE_CHECK=1 bundle exec fastlane supply \
       --package_name "$application_id" \
       --aab "$aab" \

@@ -44,10 +44,19 @@ consoles. This is intentionally outside CI.
    for future updates. Play App Signing protects the app-signing key; CI holds
    only the replaceable upload key.
 3. Create a dedicated Google Cloud service account, enable the Android Publisher
-   API, and grant that principal release permission to ZUULI only.
+   API, and grant that principal release permission to ZUULI only. The dedicated
+   principal is
+   `corpan-play-verifier@corpora1.iam.gserviceaccount.com`; the release script
+   rejects a different service-account document.
 4. Google requires the first signed AAB to establish the package/signature in
    Play Console. Upload the locally produced AAB to the internal-testing release
    once; after that, the protected workflow performs uploads through the API.
+
+The Play app record already exists for `cash.free2z.zuuli`, and the dedicated
+principal has been granted ZUULI admin access. Fastlane's Play JSON-key
+validation succeeds for this account. The first AAB is still a separate manual
+package/signature bootstrap; do not weaken the account check or upload a debug
+key.
 
 Primary references:
 
@@ -87,7 +96,18 @@ ANDROID_KEY_PASSWORD
 PLAY_SERVICE_ACCOUNT_JSON   path to the JSON file; upload only
 ```
 
-From a clean, tagged worktree with locked dependencies installed:
+Keep both credential files outside the repository with owner-only permissions.
+After installing the locked bundle below, verify the Play hook through its path;
+the command does not print or copy the document:
+
+```bash
+chmod 600 "$PLAY_SERVICE_ACCOUNT_JSON"
+FASTLANE_SKIP_UPDATE_CHECK=1 bundle exec fastlane run \
+  validate_play_store_json_key json_key:"$PLAY_SERVICE_ACCOUNT_JSON"
+```
+
+From a clean worktree at a commit on `origin/main`, with locked dependencies
+installed:
 
 ```bash
 npm ci
@@ -95,6 +115,24 @@ npm ci
 npm run release:verify
 scripts/mobile-release.sh ios
 scripts/mobile-release.sh android
+```
+
+The first Android bootstrap is intentionally two steps. Produce the signed AAB
+without granting the local process upload authority:
+
+```bash
+scripts/mobile-release.sh android
+```
+
+Then, as the founder, upload
+`release-artifacts/ZUULI-<VERSION>+<BUILD>-android.aab` once through Play Console
+to the internal track. Do not use the `z/hhanh00/zwallet/docker/*.jks` samples:
+ZUULI needs its own backed-up upload key. After Google accepts that first
+AAB, tagged releases use the exact audited command:
+
+```bash
+export ZUULI_CONFIRM_UPLOAD="$(jq -r '.version + "+" + (.build | tostring)' release.json)"
+scripts/mobile-release.sh android --upload
 ```
 
 These commands sign and validate without uploading. To make the irreversible
@@ -137,6 +175,18 @@ ANDROID_KEY_PASSWORD
 PLAY_SERVICE_ACCOUNT_JSON_BASE64
 APPLE_DEVELOPER_ID_CERTIFICATE_BASE64
 APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD
+```
+
+Create the protected environment before installing credentials. Feed the Play
+JSON through standard input so neither the JSON nor its base64 encoding appears
+in shell history or process arguments:
+
+```bash
+gh api --method PUT repos/free2z/zuu/environments/zuuli-app-stores \
+  --input - <<<'{"wait_timer":0,"prevent_self_review":false}' >/dev/null
+base64 < "$PLAY_SERVICE_ACCOUNT_JSON" | tr -d '\n' | \
+  gh secret set PLAY_SERVICE_ACCOUNT_JSON_BASE64 \
+    --repo free2z/zuu --env zuuli-app-stores
 ```
 
 The final two are needed only for direct-download macOS signing/notarization.
@@ -190,3 +240,12 @@ Any seed-recovery, signing, wallet-consistency, store-validation, or ambiguous
 broadcast failure stops promotion. Disable the workflow environment or remove
 tester availability while investigating; never reuse that build identity for a
 fix.
+
+## Release records for cryptography
+
+ZUULI contains cryptography. Store export-compliance checkboxes are declarations,
+not an export classification. This does not block internal TestFlight or Play
+testing. Before public production distribution, Corpora should retain a concise
+export-classification memo covering the applicable EAR, encryption, and
+mass-market analysis. Record the conclusion and supporting facts without
+asserting a specific ECCN in this runbook.
