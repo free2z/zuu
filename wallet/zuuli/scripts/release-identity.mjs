@@ -192,6 +192,24 @@ for (const privacyKey of [
   if (sourceValue !== undefined && generatedValue !== undefined)
     expect(`generated iOS ${privacyKey}`, generatedValue, sourceValue);
 }
+const callbackScheme = "cash.free2z.zuuli";
+if (
+  !new RegExp(
+    `CFBundleURLSchemes:\\s*\\n\\s*-\\s*${callbackScheme.replaceAll(".", "\\.")}`,
+  ).test(project)
+)
+  failures.push("XcodeGen OAuth callback URL scheme is missing");
+for (const [label, contents] of [
+  ["iOS source", plistSource],
+  ["generated iOS", plist],
+]) {
+  if (
+    !new RegExp(
+      `<key>CFBundleURLSchemes<\\/key>\\s*<array>\\s*<string>${callbackScheme.replaceAll(".", "\\.")}<\\/string>`,
+    ).test(contents)
+  )
+    failures.push(`${label} OAuth callback URL scheme is missing`);
+}
 
 expect(
   "Android namespace",

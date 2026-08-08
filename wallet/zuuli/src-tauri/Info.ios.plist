@@ -8,5 +8,16 @@
   <string>ZUULI uses Face ID to unlock your wallet seed for recovery and spending.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>ZUULI uses the microphone when you broadcast or join a live stream.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>cash.free2z.zuuli</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>cash.free2z.zuuli</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>

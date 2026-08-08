@@ -47,6 +47,10 @@ targets:
       path: zuuli_iOS/Info.plist
       properties:
         CFBundleDisplayName: ZUULI
+        CFBundleURLTypes:
+          - CFBundleURLName: cash.free2z.zuuli
+            CFBundleURLSchemes:
+              - cash.free2z.zuuli
         LSRequiresIPhoneOS: true
         NSCameraUsageDescription: ZUULI uses the camera when you broadcast or join a live video stream.
         NSMicrophoneUsageDescription: ZUULI uses the microphone when you broadcast or join a live stream.
