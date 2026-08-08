@@ -43,10 +43,15 @@ exact cycle:
    and ignored files and reflogs in every initialized submodule; preserve
    anything needed before deleting its last ref or reflog. Never use force
    removal to override dirty or unmerged work.
-   Delete the remote branch only with a lease bound to the verified head
-   commit. Treat global worktree pruning as a separate audited operation; never
-   let it remove metadata for an unavailable worktree. Build-heavy merged
-   worktrees (`target/`, `node_modules/`, etc.) must not be left behind.
+   Require exactly one credential-free canonical HTTPS fetch URL and push URL
+   for `origin`, both targeting the PR's base host and repository. From the
+   still-present verified worktree, reject any Git URL-rewrite rule that can
+   match the push URL, then delete the remote branch through that literal URL
+   with a lease bound to the verified head commit. Treat global worktree
+   pruning as a separate audited operation; never let it remove metadata for an
+   unavailable worktree.
+   Build-heavy merged worktrees (`target/`, `node_modules/`, etc.) must not be
+   left behind.
 
 **Why this is absolute:** an un-pushed commit on local `main` is not saved —
 `git reset --hard origin/main` or a fresh re-clone silently destroys it, and

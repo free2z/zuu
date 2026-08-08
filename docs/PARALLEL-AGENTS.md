@@ -46,8 +46,17 @@ that only ever moves forward, and every change carries a reviewable PR trail.
      worker; rerun every status check immediately before removal.
    - Record the PR's `headRefName` as `B`, `headRefOid` as `H`, and merge-commit
      OID as `M`. Require GitHub to report that the PR merged into `main` in the
-     repository configured as `origin`. Fetch `origin`, then require `M` to be
-     an ancestor of `origin/main`, `git branch --show-current` to equal `B`, and
+     repository configured as `origin`. Record `git remote get-url --all origin`
+     as `FETCH_URL` and `git remote get-url --push --all origin` as `PUSH_URL`;
+     require exactly one result from each command. After allowing only a
+     terminal `.git`, require both to equal the PR repository's credential-free
+     canonical `https://<host>/<owner>/<repository>` URL exactly—no userinfo,
+     token, port, query, or fragment. Independently run `gh repo view
+     "$FETCH_URL" --json nameWithOwner` and `gh repo view "$PUSH_URL" --json
+     nameWithOwner`; both identities must equal the owner/repository in the PR
+     URL. Multiple URLs, a noncanonical destination, or any mismatch means
+     stop. Fetch the validated `origin`, then require `M` to be an
+     ancestor of `origin/main`, `git branch --show-current` to equal `B`, and
      both `git rev-parse HEAD` and `git rev-parse "refs/heads/$B"` to equal
      `H`. A clean worktree alone does not detect the wrong PR or branch,
      unpushed or post-PR commits, and squash-merging breaks normal ancestry
@@ -71,12 +80,18 @@ that only ever moves forward, and every change carries a reviewable PR trail.
      does not list ignored files or per-worktree Git metadata inside
      submodules, and forced removal deletes their recovery logs.
 
-   Then remove the worktree and atomically delete its local branch with
-   `git update-ref -d "refs/heads/$B" "$H"` (squash merges make `git branch -d`
-   reject it). If the remote branch still exists, delete it only with the
-   verified lease:
-   `git push --force-with-lease="refs/heads/$B:$H" origin ":refs/heads/$B"`.
-   Finish with `git fetch --prune`. Do not run the global
+   While still inside this verified worktree, immediately rerun the URL,
+   name/OID, and status checks. Inspect all scopes reported by `git config
+   --show-origin --get-regexp '^url\..*\.(insteadOf|pushInsteadOf)$'` and stop
+   if any rule's prefix can match `PUSH_URL`; unrelated rewrite rules do not
+   block cleanup. If the remote branch exists, delete it now with the verified
+   lease and literal URL—never the remote name, which may fan out to multiple
+   push URLs:
+   `git push --force-with-lease="refs/heads/$B:$H" "$PUSH_URL" ":refs/heads/$B"`.
+   Only after that succeeds (or the branch is confirmed absent), remove the
+   worktree and atomically delete its local branch with `git update-ref -d
+   "refs/heads/$B" "$H"` (squash merges make `git branch -d` reject it). Finish
+   with `git fetch --prune`. Do not run the global
    `git worktree prune` as routine per-worktree cleanup: it can destroy recovery
    metadata for an unrelated, temporarily unavailable worktree. For genuinely
    stale registrations, first inspect `git worktree prune --dry-run --verbose`,
