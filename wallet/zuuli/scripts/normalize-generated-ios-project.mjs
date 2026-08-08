@@ -10,6 +10,10 @@ const profileUuid = "e5ead62c-83ec-4e54-abb6-4770833b5e0d";
 const profileName = "ZUULI App Store CI";
 const distributionIdentity = `Apple Distribution: Corpora Inc (${teamId})`;
 const appBundleSetting = "PRODUCT_BUNDLE_IDENTIFIER = cash.free2z.zuuli;";
+const exemptEncryptionDeclaration = [
+  "\t<key>ITSAppUsesNonExemptEncryption</key>",
+  "\t<false/>",
+].join("\n");
 const canonicalUrlType = [
   "\t<key>CFBundleURLTypes</key>",
   "\t<array>",
@@ -241,6 +245,19 @@ function normalizePlist(contents, label) {
 
 function normalizeInfoPlist(contents, label) {
   const normalized = normalizePlist(contents, label);
+  const encryptionKeyCount = occurrenceCount(
+    normalized,
+    "<key>ITSAppUsesNonExemptEncryption</key>",
+  );
+  const exemptDeclarationCount = occurrenceCount(
+    normalized,
+    exemptEncryptionDeclaration,
+  );
+  if (encryptionKeyCount !== 1 || exemptDeclarationCount !== 1) {
+    throw new Error(
+      `refusing to normalize ${label}: expected exactly one canonical exempt-encryption declaration, found ${encryptionKeyCount} keys and ${exemptDeclarationCount} false declarations`,
+    );
+  }
   const canonicalCount = occurrenceCount(normalized, canonicalUrlType);
   const reversedCount = occurrenceCount(normalized, reversedUrlType);
   if (canonicalCount + reversedCount !== 1) {
@@ -282,8 +299,8 @@ function selfTest() {
   ) {
     throw new Error("iOS plist normalization self-test failed");
   }
-  const canonicalFixture = `<plist><dict>\n${canonicalUrlType}\n</dict></plist>`;
-  const reversedFixture = `<plist><dict>\n${reversedUrlType}\n</dict></plist>`;
+  const canonicalFixture = `<plist><dict>\n${canonicalUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
+  const reversedFixture = `<plist><dict>\n${reversedUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
   if (
     normalizeInfoPlist(canonicalFixture, "canonical fixture") !==
       `${canonicalFixture}\n` ||
@@ -294,12 +311,33 @@ function selfTest() {
   }
   let rejectedUnknownUrlShape = false;
   try {
-    normalizeInfoPlist("<plist><dict/></plist>", "unknown fixture");
-  } catch {
-    rejectedUnknownUrlShape = true;
+    normalizeInfoPlist(
+      `<plist><dict>\n${exemptEncryptionDeclaration}\n</dict></plist>`,
+      "unknown fixture",
+    );
+  } catch (error) {
+    rejectedUnknownUrlShape =
+      error instanceof Error &&
+      error.message.includes("expected exactly one known ZUULI URL type");
   }
   if (!rejectedUnknownUrlShape) {
     throw new Error("iOS URL type normalization accepted an unknown shape");
+  }
+  let rejectedNonExemptEncryption = false;
+  try {
+    normalizeInfoPlist(
+      canonicalFixture.replace("\t<false/>", "\t<true/>"),
+      "non-exempt encryption fixture",
+    );
+  } catch (error) {
+    rejectedNonExemptEncryption =
+      error instanceof Error &&
+      error.message.includes(
+        "expected exactly one canonical exempt-encryption declaration",
+      );
+  }
+  if (!rejectedNonExemptEncryption) {
+    throw new Error("iOS plist normalization accepted non-exempt encryption");
   }
   const infoPlistPath = resolve(
     appDir,

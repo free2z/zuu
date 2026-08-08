@@ -3,13 +3,129 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { TextDecoder } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 const json = (path) => JSON.parse(read(path));
-const release = json("release.json");
 const failures = [];
+const releaseBytes = readFileSync(resolve(root, "release.json"));
+
+function releaseEncryptionKeyCount(contents) {
+  return (
+    contents.match(/"iosUsesNonExemptEncryption"\s*:/g) ?? []
+  ).length;
+}
+
+function validateReleaseEncryptionKeyCount(contents, label, target) {
+  const count = releaseEncryptionKeyCount(contents);
+  if (count !== 1)
+    target.push(
+      `${label} must contain exactly one raw iosUsesNonExemptEncryption key, found ${count}`,
+    );
+}
+
+function parseCanonicalRelease(bytes, label, target) {
+  let contents;
+  try {
+    contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    target.push(`${label} must contain valid UTF-8`);
+    return undefined;
+  }
+  validateReleaseEncryptionKeyCount(contents, label, target);
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    target.push(`${label} must contain valid JSON`);
+    return undefined;
+  }
+  if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+    target.push(`${label} root must be a JSON object`);
+    return undefined;
+  }
+  const canonicalBytes = Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  if (!bytes.equals(canonicalBytes))
+    target.push(
+      `${label} bytes must be canonical UTF-8 JSON without duplicate or escaped property names`,
+    );
+  return parsed;
+}
+
+for (const [label, fixture, expectedRawFailures] of [
+  [
+    "same-value literal duplicate",
+    '{\n  "iosUsesNonExemptEncryption": false,\n  "iosUsesNonExemptEncryption": false\n}\n',
+    1,
+  ],
+  [
+    "conflicting literal duplicate",
+    '{\n  "iosUsesNonExemptEncryption": true,\n  "iosUsesNonExemptEncryption": false\n}\n',
+    1,
+  ],
+  [
+    "same-value escaped duplicate",
+    `${String.raw`{
+  "iosUsesNonExemptEncryption": false,
+  "iosUsesNonExemptEncrypt\u0069on": false
+}`}\n`,
+    0,
+  ],
+  [
+    "conflicting escaped duplicate",
+    `${String.raw`{
+  "iosUsesNonExemptEncryption": true,
+  "iosUsesNonExemptEncrypt\u0069on": false
+}`}\n`,
+    0,
+  ],
+]) {
+  const fixtureFailures = [];
+  const parsedFixture = parseCanonicalRelease(
+    Buffer.from(fixture, "utf8"),
+    label,
+    fixtureFailures,
+  );
+  const canonicalFailures = fixtureFailures.filter((failure) =>
+    failure.includes("bytes must be canonical UTF-8 JSON"),
+  );
+  const rawFailures = fixtureFailures.filter((failure) =>
+    failure.includes("must contain exactly one raw"),
+  );
+  if (
+    canonicalFailures.length !== 1 ||
+    rawFailures.length !== expectedRawFailures ||
+    parsedFixture.iosUsesNonExemptEncryption !== false
+  )
+    throw new Error(`release duplicate-key detector self-test failed: ${label}`);
+}
+
+const invalidUtf8Fixture = Buffer.concat([
+  Buffer.from('{\n  "iosUsesNonExemptEncryption": false,\n  "$schema": "', "utf8"),
+  Buffer.from([0xff]),
+  Buffer.from('"\n}\n', "utf8"),
+]);
+const invalidUtf8Failures = [];
+if (
+  parseCanonicalRelease(
+    invalidUtf8Fixture,
+    "invalid UTF-8 fixture",
+    invalidUtf8Failures,
+  ) !== undefined ||
+  invalidUtf8Failures.length !== 1 ||
+  invalidUtf8Failures[0] !== "invalid UTF-8 fixture must contain valid UTF-8"
+)
+  throw new Error("release invalid-UTF-8 detector self-test failed");
+
+const release = parseCanonicalRelease(releaseBytes, "release.json", failures);
+if (release === undefined) {
+  console.error(
+    "ZUULI release identity is inconsistent:\n- " + failures.join("\n- "),
+  );
+  process.exit(1);
+}
 
 function expect(label, actual, expected) {
   if (`${actual}` !== `${expected}`) {
@@ -32,8 +148,12 @@ function occurrenceCount(contents, value) {
   return contents.split(value).length - 1;
 }
 
-expect("release schema version", release.schemaVersion, 1);
+expect("release schema version", release.schemaVersion, 2);
 expect("release application ID", release.applicationId, "cash.free2z.zuuli");
+if (release.iosUsesNonExemptEncryption !== false)
+  failures.push(
+    "release iOS non-exempt encryption declaration must be Boolean false",
+  );
 expect("release minimum iOS", release.minimums?.ios, "18.0");
 expect("release minimum Android", release.minimums?.android, 29);
 
@@ -146,6 +266,17 @@ expect(
   "XcodeGen build",
   capture(/CFBundleVersion:\s*"?([^"\s]+)"?/, project, "XcodeGen build"),
   release.build,
+);
+expect(
+  "XcodeGen iOS non-exempt encryption key count",
+  (project.match(/^\s*ITSAppUsesNonExemptEncryption:/gm) ?? []).length,
+  1,
+);
+expect(
+  "XcodeGen iOS non-exempt encryption declaration count",
+  (project.match(/^\s*ITSAppUsesNonExemptEncryption:\s*false\s*$/gm) ?? [])
+    .length,
+  1,
 );
 expect(
   "XcodeGen Apple team",
@@ -269,6 +400,25 @@ for (const privacyKey of [
   );
   if (sourceValue !== undefined && generatedValue !== undefined)
     expect(`generated iOS ${privacyKey}`, generatedValue, sourceValue);
+}
+for (const [label, contents] of [
+  ["iOS source", plistSource],
+  ["generated iOS", plist],
+]) {
+  expect(
+    `${label} ITSAppUsesNonExemptEncryption key count`,
+    occurrenceCount(contents, "<key>ITSAppUsesNonExemptEncryption</key>"),
+    1,
+  );
+  expect(
+    `${label} ITSAppUsesNonExemptEncryption`,
+    capture(
+      /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<(true|false)\s*\/>/,
+      contents,
+      `${label} ITSAppUsesNonExemptEncryption`,
+    ),
+    release.iosUsesNonExemptEncryption,
+  );
 }
 const callbackScheme = "cash.free2z.zuuli";
 if (
@@ -661,7 +811,7 @@ if (newerArg) {
         ),
       );
       if (
-        previous.schemaVersion !== 1 ||
+        ![1, 2].includes(previous.schemaVersion) ||
         previous.applicationId !== release.applicationId
       ) {
         failures.push(

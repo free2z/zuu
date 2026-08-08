@@ -52,6 +52,7 @@ targets:
           - CFBundleURLName: cash.free2z.zuuli
             CFBundleURLSchemes:
               - cash.free2z.zuuli
+        ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         NSCameraUsageDescription: ZUULI uses the camera when you broadcast or join a live video stream.
         NSMicrophoneUsageDescription: ZUULI uses the microphone when you broadcast or join a live stream.
@@ -68,7 +69,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "6"
+        CFBundleVersion: "7"
     entitlements:
       path: zuuli_iOS/zuuli_iOS.entitlements
     scheme:
