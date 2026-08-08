@@ -77,6 +77,14 @@ requireCount(
   3,
 );
 rejectText("packaging cache callers", packaging, 'save: "true"');
+for (const writer of [
+  "Swatinem/rust-cache@",
+  "actions/cache@",
+  "actions/cache/save@",
+  "gh cache",
+]) {
+  rejectText("packaging direct cache writer", packaging, writer);
+}
 requireText("packaging cold canary", packaging, "schedule:");
 requireCount(
   "packaging cold-cache guards",
@@ -91,6 +99,7 @@ rejectText("protected release", release, 'save: "true"');
 for (const [name, nextName] of [
   ["android", "ios"],
   ["ios", "linux"],
+  ["linux", "macos"],
   ["macos", "release-index"],
 ]) {
   const protectedJob = job(release, name, nextName);
