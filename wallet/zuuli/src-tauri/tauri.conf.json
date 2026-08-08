@@ -28,14 +28,14 @@
     "targets": "all",
     "icon": ["icons/icon.png"],
     "iOS": {
-      "bundleVersion": "2",
+      "bundleVersion": "3",
       "developmentTeam": "F9AV5HKF6N",
       "minimumSystemVersion": "18.0",
       "infoPlist": "Info.ios.plist"
     },
     "android": {
       "minSdkVersion": 29,
-      "versionCode": 2
+      "versionCode": 3
     }
   },
   "plugins": {
