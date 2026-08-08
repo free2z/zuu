@@ -34,6 +34,18 @@ const release = readRepo(".github/workflows/zuuli-release.yml");
 const cleanup = readRepo(".github/workflows/cache-cleanup.yml");
 const localAction = "uses: ./.github/actions/zuuli-rust-cache";
 
+function job(contents, name, nextName) {
+  const startMarker = `\n  ${name}:\n`;
+  const endMarker = `\n  ${nextName}:\n`;
+  const start = contents.indexOf(startMarker);
+  const end = contents.indexOf(endMarker, start + startMarker.length);
+  if (start < 0 || end < 0) {
+    failures.push(`protected release workflow: cannot isolate ${name} job`);
+    return "";
+  }
+  return contents.slice(start, end);
+}
+
 requireText(
   "cache action",
   action,
@@ -48,6 +60,9 @@ requireText("cache action", action, 'default: "false"');
 requireText("cache action", action, 'cache-bin: "false"');
 requireText("cache action", action, 'cache-workspace-crates: "false"');
 requireText("cache action", action, 'cache-on-failure: "false"');
+requireText("cache action", action, "shared-key: ${{ inputs.shared-key }}");
+requireText("cache action", action, "key: ${{ inputs.target-key }}");
+requireText("cache action", action, "save-if: ${{ inputs.save }}");
 rejectText("cache action", action, "release-artifacts");
 rejectText("cache action", action, "gen/apple/build");
 rejectText("cache action", action, "gen/android");
@@ -55,7 +70,13 @@ rejectText("cache action", action, "node_modules");
 rejectText("cache action", action, "RUNNER_TEMP");
 
 requireCount("packaging cache callers", packaging, localAction, 3);
-requireCount("packaging cache writers", packaging, 'save: "true"', 3);
+requireCount(
+  "packaging main-only cache writers",
+  packaging,
+  "save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}",
+  3,
+);
+rejectText("packaging cache callers", packaging, 'save: "true"');
 requireText("packaging cold canary", packaging, "schedule:");
 requireCount(
   "packaging cold-cache guards",
@@ -67,6 +88,26 @@ requireCount(
 requireCount("protected release cache callers", release, localAction, 4);
 requireCount("protected release restore-only callers", release, 'save: "false"', 4);
 rejectText("protected release", release, 'save: "true"');
+for (const [name, nextName] of [
+  ["android", "ios"],
+  ["ios", "linux"],
+  ["macos", "release-index"],
+]) {
+  const protectedJob = job(release, name, nextName);
+  requireCount(`${name} cache caller`, protectedJob, localAction, 1);
+  requireCount(`${name} restore-only cache caller`, protectedJob, 'save: "false"', 1);
+  for (const writer of [
+    "Swatinem/rust-cache@",
+    "actions/cache@",
+    "actions/cache/save@",
+    "cache: npm",
+    "cache: gradle",
+    "bundler-cache: true",
+    "gh cache",
+  ]) {
+    rejectText(`${name} protected job`, protectedJob, writer);
+  }
+}
 
 requireText("cache cleanup trigger", cleanup, "pull_request_target:");
 requireText("cache cleanup trigger", cleanup, "types: [closed]");

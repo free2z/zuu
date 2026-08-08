@@ -20,10 +20,15 @@ Packaging and protected release share target-specific Rust dependency caches so
 reruns do not rebuild the entire Zcash graph. Cache identity includes the host,
 Rust environment, Cargo manifests/lockfiles, and an explicit Xcode or Android
 NDK/ABI discriminator. Cargo still recompiles changed path dependencies and the
-cache action removes workspace crates and incremental output before saving, so
-the current ZUULI source and final package are always rebuilt.
+cache action removes workspace crates and incremental output before saving. The
+current ZUULI crates and final package are therefore rebuilt, while reviewed
+dependency artifacts produced by a credential-free `main` build are reused and
+linked into them. Caches are an optimization, not release evidence or a trust
+substitute; the cache-free canary proves the complete graph from source.
 
-Only credential-free `ZUULI / packaging smoke` jobs may save these caches.
+Only credential-free `ZUULI / packaging smoke` pushes on `main` may save these
+caches. Pull requests and manual runs restore only, preventing large native PR
+entries from evicting the release families.
 Protected release jobs explicitly restore without saving because their runners
 later materialize signing and store credentials. Never cache `node_modules`,
 frontend output, Gradle/Xcode native build trees, packages, `release-artifacts`,
@@ -35,10 +40,13 @@ iOS-device, Linux, and macOS release targets cold. Manual operators can dispatch
 the same proof with `cold_rust_cache=true`. Pull-request cache entries are scoped
 by GitHub to that PR merge ref; the cache cleanup workflow runs from trusted base
 code when the PR closes and deletes only entries returned for that exact ref. A
-daily recovery sweep handles missed close events and older entries, but deletes
+daily recovery sweep handles missed close events and older npm/Gradle entries,
+but deletes
 an entry only after its ref matches `refs/pull/<number>/merge` and GitHub's pull
-request API confirms that exact PR is closed. Keep at least 30 GiB of repository
-cache capacity while all four release target families are active.
+request API confirms that exact PR is closed. Where configurable for the
+repository, keep at least 30 GiB of cache capacity while all four release target
+families are active; otherwise eviction only makes a release build cold and must
+never affect correctness.
 
 ## One-time owner bootstrap
 

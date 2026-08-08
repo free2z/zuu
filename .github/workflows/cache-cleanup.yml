@@ -9,12 +9,17 @@ on:
     - cron: "41 8 * * *"
   workflow_dispatch:
 
-# This workflow never checks out or executes PR code. Its only authority is to
-# delete cache entries under the exact closed PR merge ref.
+# This workflow never checks out or executes PR code. `actions: write` is the
+# minimum GitHub permission that can delete caches; the implementation narrows
+# its use to entries under API-verified closed PR merge refs.
 permissions:
   actions: write
   contents: none
   pull-requests: read
+
+concurrency:
+  group: ci-closed-pr-cache-cleanup
+  cancel-in-progress: false
 
 jobs:
   closed-pr:
@@ -35,9 +40,13 @@ jobs:
             exit 1
           }
           pr_ref="refs/pull/$PR_NUMBER/merge"
-          mapfile -t cache_ids < <(
+          cache_output=$(
             gh cache list --ref "$pr_ref" --limit 10000 --json id --jq '.[].id'
           )
+          cache_ids=()
+          if [[ -n "$cache_output" ]]; then
+            mapfile -t cache_ids <<< "$cache_output"
+          fi
           echo "Found ${#cache_ids[@]} cache entries scoped to $pr_ref."
           for cache_id in "${cache_ids[@]}"; do
             [[ "$cache_id" =~ ^[1-9][0-9]*$ ]] || {
@@ -59,6 +68,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          cache_rows=$(
+            gh cache list --limit 10000 --json id,ref --jq \
+              '.[] | select(.ref | startswith("refs/pull/")) | [.id, .ref] | @tsv'
+          )
+          if [[ -z "$cache_rows" ]]; then
+            echo "No pull-request caches found."
+            exit 0
+          fi
           while IFS=$'\t' read -r cache_id cache_ref; do
             [[ "$cache_id" =~ ^[1-9][0-9]*$ ]] || {
               echo "invalid cache ID returned by GitHub" >&2
@@ -69,7 +86,10 @@ jobs:
               exit 1
             fi
             pr_number=${BASH_REMATCH[1]}
-            state=$(gh api "repos/$GH_REPO/pulls/$pr_number" --jq .state)
+            if ! state=$(gh api "repos/$GH_REPO/pulls/$pr_number" --jq .state); then
+              echo "Could not verify PR #$pr_number; retaining its cache." >&2
+              continue
+            fi
             if [[ "$state" == closed ]]; then
               echo "Deleting cache $cache_id for verified-closed PR #$pr_number."
               gh cache delete "$cache_id"
@@ -77,7 +97,4 @@ jobs:
               echo "refusing unknown PR state for #$pr_number: $state" >&2
               exit 1
             fi
-          done < <(
-            gh cache list --limit 10000 --json id,ref --jq \
-              '.[] | select(.ref | startswith("refs/pull/")) | [.id, .ref] | @tsv'
-          )
+          done <<< "$cache_rows"

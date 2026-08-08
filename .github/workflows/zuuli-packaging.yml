@@ -140,8 +140,8 @@ jobs:
         uses: ./.github/actions/zuuli-rust-cache
         with:
           shared-key: zuuli-release-android-universal-v1
-          target-key: rust-1.88.0-ndk-27.0.12077973-api29-aarch64-armv7-i686-x86_64
-          save: "true"
+          target-key: rust-${{ env.ZUULI_RUST_VERSION }}-ndk-${{ env.ZUULI_ANDROID_NDK_VERSION }}-api29-aarch64-armv7-i686-x86_64
+          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run release:verify
       - name: Verify Rust compiler
@@ -212,8 +212,8 @@ jobs:
         uses: ./.github/actions/zuuli-rust-cache
         with:
           shared-key: zuuli-release-ios-device-v1
-          target-key: rust-1.88.0-xcode-26.6-ios18-aarch64-device
-          save: "true"
+          target-key: rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device
+          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run release:verify
       - name: Exercise Darwin signing-tool contracts
@@ -308,8 +308,8 @@ jobs:
         uses: ./.github/actions/zuuli-rust-cache
         with:
           shared-key: ${{ runner.os == 'macOS' && 'zuuli-release-macos-universal-v1' || 'zuuli-release-linux-v1' }}
-          target-key: ${{ runner.os == 'macOS' && 'rust-1.88.0-xcode-26.6-macos-arm64-x86_64' || 'rust-1.88.0-ubuntu-24.04-gtk-webkit-4.1' }}
-          save: "true"
+          target-key: ${{ runner.os == 'macOS' && format('rust-{0}-xcode-{1}-macos-arm64-x86_64', env.ZUULI_RUST_VERSION, env.ZUULI_XCODE_VERSION) || format('rust-{0}-ubuntu-24.04-gtk-webkit-4.1', env.ZUULI_RUST_VERSION) }}
+          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
       - run: npm run release:verify
       - name: Verify Rust compiler
