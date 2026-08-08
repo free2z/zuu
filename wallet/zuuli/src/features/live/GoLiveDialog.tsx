@@ -17,7 +17,12 @@ import { Label } from "@/components/ui/label";
 import { live } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
 import { useSession } from "@/store/session";
-import { formatTuzis } from "@/lib/format";
+import {
+  formatTuzis,
+  MAX_PPV_PRICE_TUZIS,
+  tuziInputMaxLength,
+  validateTuzis,
+} from "@/lib/format";
 import type { StreamKind } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { KIND_META, KIND_ORDER } from "./lib";
@@ -31,14 +36,19 @@ export function GoLiveDialog() {
   const [price, setPrice] = useState("100");
   const [starting, setStarting] = useState(false);
 
-  const priceNum = Math.max(0, Math.round(Number(price) || 0));
+  const priceResult = validateTuzis(price, {
+    minimum: 1,
+    maximum: MAX_PPV_PRICE_TUZIS,
+  });
+  const priceNum = priceResult.value;
+  const validPrice = priceResult.error === null;
   const canStart =
     title.trim().length > 0 &&
     !starting &&
-    (kind !== "ppv" || priceNum > 0);
+    (kind !== "ppv" || validPrice);
 
   async function handleStart() {
-    if (!canStart) return;
+    if (!canStart || (kind === "ppv" && priceNum === null)) return;
     setStarting(true);
     try {
       const ticket = await live.start(kind);
@@ -55,7 +65,7 @@ export function GoLiveDialog() {
             ticket,
             kind,
             title: title.trim(),
-            price_tuzis: priceNum,
+            price_tuzis: kind === "ppv" ? priceNum : 0,
           },
         },
       });
@@ -164,19 +174,28 @@ export function GoLiveDialog() {
               <Label htmlFor="go-live-price">Join price (2Z)</Label>
               <Input
                 id="go-live-price"
-                type="number"
+                type="text"
                 inputMode="numeric"
-                min={1}
+                maxLength={tuziInputMaxLength(MAX_PPV_PRICE_TUZIS)}
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 className="tabular-nums"
+                aria-describedby="go-live-price-error go-live-price-summary"
+                aria-invalid={!validPrice}
               />
-              <p className="text-xs text-muted-foreground">
+              <p id="go-live-price-summary" className="text-xs text-muted-foreground">
                 Viewers spend{" "}
                 <span className="font-medium text-amber-400 tabular-nums">
-                  {formatTuzis(priceNum)}
+                  {priceNum !== null && priceNum > 0 ? formatTuzis(priceNum) : "—"}
                 </span>{" "}
                 to join.
+              </p>
+              <p id="go-live-price-error" className="min-h-[1rem] text-xs text-destructive">
+                {priceResult.error === "tooLarge"
+                  ? `Max ${MAX_PPV_PRICE_TUZIS.toLocaleString()} 2Z for PPV.`
+                  : !validPrice
+                    ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                    : null}
               </p>
             </div>
           ) : null}

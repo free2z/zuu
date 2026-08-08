@@ -17,8 +17,14 @@ import { discover, tuzi } from "@/lib/api/free2z";
 import type { SimpleCreator } from "@/lib/api/types";
 import { useSession } from "@/store/session";
 import { cn } from "@/lib/utils";
-import { formatTuzis, initials } from "@/lib/format";
-import { MAX_TUZIS, TIP_PRESETS, parseTuzis } from "./lib";
+import {
+  formatTuzis,
+  initials,
+  MAX_TUZIS,
+  tuziInputMaxLength,
+  validateTuzis,
+} from "@/lib/format";
+import { TIP_PRESETS } from "./lib";
 
 export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
   const tuzis = useSession((s) => s.tuzis);
@@ -41,14 +47,16 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     };
   }, []);
 
-  const amount = custom.trim() ? parseTuzis(custom) : selected;
+  const hasCustomAmount = custom.length > 0;
+  const customAmount = validateTuzis(custom, { minimum: 1, maximum: MAX_TUZIS });
+  const amount = hasCustomAmount ? customAmount.value : selected;
   const recipient = username.trim();
-  const validAmount = amount > 0 && amount <= MAX_TUZIS;
-  const enough = amount <= tuzis;
+  const validAmount = !hasCustomAmount || customAmount.error === null;
+  const enough = amount !== null && amount <= tuzis;
   const canSend = validAmount && recipient.length > 0 && enough && !sending;
 
   async function send() {
-    if (!canSend) return;
+    if (!canSend || amount === null) return;
     setSending(true);
     try {
       await tuzi.donate(recipient, amount);
@@ -127,7 +135,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           <Label>Amount</Label>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {TIP_PRESETS.map((preset) => {
-              const active = !custom.trim() && selected === preset;
+              const active = !hasCustomAmount && selected === preset;
               return (
                 <button
                   key={preset}
@@ -156,14 +164,24 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             <Input
               inputMode="numeric"
               placeholder="Custom amount"
+              maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
               className="pr-24 tabular-nums"
               aria-label="Custom tip amount in 2Z"
+              aria-describedby="custom-tip-error"
+              aria-invalid={hasCustomAmount && !validAmount}
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium tabular-nums text-muted-foreground">
               2Z
             </span>
+          </div>
+          <div id="custom-tip-error" className="min-h-[1rem] text-xs text-destructive">
+            {hasCustomAmount && customAmount.error === "tooLarge"
+                ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
+                : hasCustomAmount && customAmount.error !== null
+                  ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                  : null}
           </div>
         </div>
       </div>
@@ -185,7 +203,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             <span className="text-sm text-muted-foreground">Amount</span>
             <div className="text-right">
               <div className="text-xl font-bold tabular-nums">
-                {validAmount ? formatTuzis(amount) : "—"}
+                {validAmount && amount !== null ? formatTuzis(amount) : "—"}
               </div>
             </div>
           </div>
@@ -197,7 +215,9 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                 validAmount && !enough && "text-destructive",
               )}
             >
-              {formatTuzis(Math.max(0, tuzis - (validAmount ? amount : 0)))}
+              {formatTuzis(
+                Math.max(0, tuzis - (validAmount && amount !== null ? amount : 0)),
+              )}
             </span>
           </div>
 

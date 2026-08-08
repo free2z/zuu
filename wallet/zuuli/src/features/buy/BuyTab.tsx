@@ -27,13 +27,15 @@ import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
 import {
-  ZATOSHIS_PER_ZEC,
   formatTuzis,
   formatUsd,
   formatZecTrim,
+  MAX_TUZIS,
+  tuziInputMaxLength,
   tuzisToUsd,
+  validateTuzis,
 } from "@/lib/format";
-import { BUY_PACKS, MAX_TUZIS, parseTuzis } from "./lib";
+import { BUY_PACKS, zatoshisFromQuote } from "./lib";
 import type { PricingQuote } from "@/lib/api/types";
 import { isTauri, useMock } from "@/lib/platform";
 import {
@@ -76,20 +78,22 @@ export function BuyTab() {
   const [zecLoading, setZecLoading] = useState(false);
   const [quoteState, setQuoteState] = useState<QuoteState>({ status: "idle" });
 
-  // The custom field wins when it holds a valid amount, keeping one source of
+  // The custom field wins whenever it has input, keeping one source of
   // truth for "amount". Everything downstream reads `amount`.
-  const customTuzis = parseTuzis(custom);
-  const amount = custom.trim() ? customTuzis : selected;
-  const valid = amount > 0 && amount <= MAX_TUZIS;
+  const hasCustomAmount = custom.length > 0;
+  const customAmount = validateTuzis(custom, { minimum: 1, maximum: MAX_TUZIS });
+  const customTuzis = customAmount.value;
+  const amount = hasCustomAmount ? customTuzis : selected;
+  const valid = !hasCustomAmount || customAmount.error === null;
 
-  const usd = tuzisToUsd(amount);
+  const usd = tuzisToUsd(amount ?? 0);
 
   // Live ZEC cost from the backend pricing service, debounced on the amount.
   // We NEVER recompute ZEC on the client — the backend returns the exact
   // `zec_amount`. A cancel flag keeps only the latest request's result, and a
   // 503 / fetch error surfaces as an "unavailable" state (no fabricated number).
   useEffect(() => {
-    if (!zecDemoEnabled || !valid) {
+    if (!zecDemoEnabled || !valid || amount === null) {
       setQuoteState({ status: "idle" });
       return;
     }
@@ -114,16 +118,17 @@ export function BuyTab() {
   }, [amount, valid, zecDemoEnabled]);
 
   const quote = quoteState.status === "ready" ? quoteState.quote : null;
-  const zatoshisNeeded = quote
-    ? Math.round(Number(quote.zec_amount) * ZATOSHIS_PER_ZEC)
-    : 0;
-  const enoughZec = !!quote && spendable >= zatoshisNeeded;
+  const zatoshisNeeded = quote ? zatoshisFromQuote(quote) : null;
+  const validQuote = quote !== null && zatoshisNeeded !== null;
+  const enoughZec = validQuote && spendable >= zatoshisNeeded;
   const isEstimate = !!quote && (quote.stale || quote.bootstrap);
   const quoteLoading = quoteState.status === "loading";
-  const quoteUnavailable = quoteState.status === "error";
+  const quoteUnavailable =
+    quoteState.status === "error" ||
+    (quoteState.status === "ready" && zatoshisNeeded === null);
 
   async function payWithCard() {
-    if (!valid) return;
+    if (!valid || amount === null) return;
     setCardLoading(true);
     try {
       const { url } = await tuzi.buyCheckout(amount);
@@ -139,7 +144,16 @@ export function BuyTab() {
   }
 
   async function payWithZec() {
-    if (!zecDemoEnabled || !valid || !quote || !enoughZec) return;
+    if (
+      !zecDemoEnabled ||
+      !valid ||
+      amount === null ||
+      !quote ||
+      !validQuote ||
+      !enoughZec
+    ) {
+      return;
+    }
     setZecLoading(true);
     try {
       await settleZecTopUpDemo(zecDemoRuntime, amount, adjustTuzis);
@@ -165,7 +179,7 @@ export function BuyTab() {
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {BUY_PACKS.map((pack) => {
-            const active = !custom.trim() && selected === pack;
+            const active = !hasCustomAmount && selected === pack;
             return (
               <button
                 key={pack}
@@ -207,25 +221,32 @@ export function BuyTab() {
               id="custom-tuzis"
               inputMode="numeric"
               placeholder="e.g. 3,000"
+              maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
               className="pr-24 tabular-nums"
-              aria-describedby="custom-tuzis-usd"
+              aria-describedby="custom-tuzis-usd custom-tuzis-error"
+              aria-invalid={hasCustomAmount && !valid}
             />
             <span
               id="custom-tuzis-usd"
               className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium tabular-nums text-muted-foreground"
             >
-              {custom.trim() && customTuzis > 0
+              {hasCustomAmount && customTuzis !== null && customTuzis > 0
                 ? formatUsd(tuzisToUsd(customTuzis))
                 : "2Z"}
             </span>
           </div>
-          {custom.trim() && customTuzis > MAX_TUZIS && (
-            <p className="text-xs text-destructive">
-              Max {MAX_TUZIS.toLocaleString()} 2Z per purchase.
-            </p>
-          )}
+          <div
+            id="custom-tuzis-error"
+            className="min-h-[1rem] text-xs text-destructive"
+          >
+            {hasCustomAmount && customAmount.error === "tooLarge"
+              ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per purchase.`
+              : hasCustomAmount && customAmount.error !== null
+                ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                : null}
+          </div>
         </div>
       </div>
 
@@ -239,7 +260,7 @@ export function BuyTab() {
             </span>
           </CardTitle>
           <CardDescription className="tabular-nums">
-            for {valid ? formatTuzis(amount) : "—"}
+            for {valid && amount !== null ? formatTuzis(amount) : "—"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -274,7 +295,7 @@ export function BuyTab() {
             disabled={
               !zecDemoEnabled ||
               !valid ||
-              !quote ||
+              !validQuote ||
               !enoughZec ||
               quoteLoading
             }
@@ -298,7 +319,7 @@ export function BuyTab() {
                       ? "—"
                       : quoteLoading
                         ? "…"
-                        : quote
+                        : validQuote && quote
                           ? `${quote.zec_amount} ZEC`
                           : "—"}
                   </span>
@@ -314,7 +335,7 @@ export function BuyTab() {
                     Demo pricing unavailable — try again.
                   </p>
                 )}
-                {valid && quote && !enoughZec && (
+                {valid && validQuote && !enoughZec && (
                   <p className="pt-1 text-destructive">
                     Not enough mock ZEC for this demo.
                   </p>
@@ -347,7 +368,11 @@ export function BuyTab() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded-lg border border-border bg-secondary/40 p-4 text-sm">
-            <Row label="You receive" value={formatTuzis(amount)} strong />
+            <Row
+              label="You receive"
+              value={amount !== null ? formatTuzis(amount) : "—"}
+              strong
+            />
             <Row label="Price" value={formatUsd(usd)} />
             <Separator />
             <Row

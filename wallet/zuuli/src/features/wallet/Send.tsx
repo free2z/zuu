@@ -23,11 +23,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
-  ZATOSHIS_PER_ZEC,
+  formatZec,
   formatZecDisplay,
+  MAX_ZEC_INPUT_LENGTH,
+  parseZecToZatoshis,
   truncateAddress,
 } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
+import { assertExactSendProposal } from "@/lib/wallet/amounts";
 import type {
   AddressValidation,
   ExecuteSendResult,
@@ -66,12 +69,6 @@ function clampToBytes(value: string, maxBytes: number): string {
   return out;
 }
 
-function toZatoshis(zec: string): number | null {
-  const n = Number(zec);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n * ZATOSHIS_PER_ZEC);
-}
-
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string" && error.trim()) return error;
@@ -101,7 +98,8 @@ export function Send() {
   const debounceRef = useRef<number | null>(null);
 
   const canReceiveMemo = validation?.valid ? validation.canReceiveMemo : true;
-  const zatoshis = toZatoshis(amount);
+  const zatoshis = parseZecToZatoshis(amount);
+  const invalidAmount = amount.length > 0 && zatoshis === null;
   const spendable = balance?.spendable ?? 0;
   // Largest amount that still leaves room for the network fee.
   const maxSpendable = Math.max(0, spendable - FEE_RESERVE);
@@ -131,8 +129,7 @@ export function Send() {
     try {
       const req = await wallet.parsePaymentUri(uri);
       setTo(req.address);
-      if (req.amount !== null)
-        setAmount((req.amount / ZATOSHIS_PER_ZEC).toString());
+      if (req.amount !== null) setAmount(formatZec(req.amount));
       if (req.memo !== null) setMemo(clampToBytes(req.memo, MEMO_MAX_BYTES));
       toast.success("Payment request loaded");
     } catch {
@@ -204,6 +201,7 @@ export function Send() {
         zatoshis,
         canReceiveMemo && memo ? memo : undefined,
       );
+      assertExactSendProposal(zatoshis, p);
       setProposal(p);
       setDialogOpen(true);
     } catch (e) {
@@ -378,9 +376,7 @@ export function Send() {
                   type="button"
                   disabled={hasUnknownBroadcast}
                   className="text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() =>
-                    setAmount((maxSpendable / ZATOSHIS_PER_ZEC).toString())
-                  }
+                  onClick={() => setAmount(formatZec(maxSpendable))}
                 >
                   Max: {formatZecDisplay(maxSpendable)}
                 </button>
@@ -393,22 +389,27 @@ export function Send() {
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
                 inputMode="decimal"
-                type="number"
+                maxLength={MAX_ZEC_INPUT_LENGTH}
+                type="text"
                 disabled={hasUnknownBroadcast}
-                min="0"
-                step="0.00000001"
                 className={cn(
                   "pr-14 tabular-nums",
-                  overBalance && "border-destructive",
+                  (invalidAmount || overBalance) && "border-destructive",
                 )}
-                aria-invalid={overBalance || undefined}
+                aria-describedby="amount-error"
+                aria-invalid={invalidAmount || overBalance || undefined}
               />
               <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
                 <ZecTag className="text-xs" />
               </div>
             </div>
-            <div className="min-h-[1.25rem] text-xs">
-              {overBalance ? (
+            <div id="amount-error" className="min-h-[1.25rem] text-xs">
+              {invalidAmount ? (
+                <span className="flex items-center gap-1.5 text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  Enter a positive ZEC amount with no more than 8 decimal places
+                </span>
+              ) : overBalance ? (
                 <span className="flex items-center gap-1.5 text-destructive">
                   <AlertCircle className="h-3.5 w-3.5" />
                   Amount plus network fee exceeds spendable balance

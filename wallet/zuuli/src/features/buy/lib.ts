@@ -6,8 +6,8 @@
 // cost is fetched live from the backend pricing service (pricing.quote) —
 // there is no client-side rate.
 
-import { TUZIS_PER_USD } from "@/lib/format";
-import type { TuziTransaction } from "@/lib/api/types";
+import { parseZecToZatoshis, TUZIS_PER_USD } from "@/lib/format";
+import type { PricingQuote, TuziTransaction } from "@/lib/api/types";
 import {
   CreditCard,
   Gift,
@@ -25,13 +25,10 @@ export const BUY_PACKS = [500, 2_000, 5_000, 10_000] as const;
 /** Preset tip amounts, in 2Z. */
 export const TIP_PRESETS = [100, 500, 1_000, 2_500] as const;
 
-/** Parse a possibly-messy numeric string into a non-negative whole 2Z amount. */
-export function parseTuzis(raw: string): number {
-  const n = Math.floor(Number(raw.replace(/[^0-9.]/g, "")));
-  return Number.isFinite(n) && n > 0 ? n : 0;
+/** Validate the backend's exact ZEC quote before balance checks or confirmation. */
+export function zatoshisFromQuote(quote: Pick<PricingQuote, "zec_amount">): number | null {
+  return parseZecToZatoshis(quote.zec_amount);
 }
-
-export const MAX_TUZIS = 1_000_000; // sane cap for a single purchase / tip
 
 // ── Transaction presentation ────────────────────────────────────────────────
 
