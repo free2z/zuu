@@ -474,7 +474,7 @@ fn remove_empty_directory_unchanged(
             ));
         }
 
-        let disposition = FILE_DISPOSITION_INFO { DeleteFile: 1 };
+        let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
         // SAFETY: the handle is valid and the disposition buffer has the size
         // and layout required by FileDispositionInfo. The exact open handle is
         // marked, so a path replacement cannot redirect deletion.
