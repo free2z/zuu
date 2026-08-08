@@ -389,11 +389,11 @@ jobs:
           keychain="$files/release.keychain-db"
           keychain_password=$(openssl rand -hex 24)
           security create-keychain -p "$keychain_password" "$keychain"
+          echo "ZUULI_PREFLIGHT_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
           security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
-          security list-keychains -d user -s "$keychain"
           identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -c 'Apple Distribution: Corpora Inc' || true)
           [[ "$identity_count" -eq 1 ]] || {
             echo "expected exactly one dedicated Corpora Apple Distribution identity" >&2
@@ -414,10 +414,18 @@ jobs:
           [[ "$profile_name" == 'ZUULI App Store CI' ]]
           [[ "$profile_team" == F9AV5HKF6N ]]
           [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]]
-          plutil -extract DeveloperCertificates.0 raw -o - "$files/profile.plist" |
-            base64 --decode > "$files/profile-certificate.der"
-          profile_sha=$(openssl x509 -inform DER -in "$files/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
-          [[ "$profile_sha" == "$identity_sha" ]] || {
+          profile_authorizes_identity=false
+          certificate_index=0
+          while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$files/profile.plist" 2>/dev/null); do
+            printf '%s' "$certificate_base64" | base64 --decode > "$files/profile-certificate.der"
+            profile_sha=$(openssl x509 -inform DER -in "$files/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+            if [[ "$profile_sha" == "$identity_sha" ]]; then
+              profile_authorizes_identity=true
+              break
+            fi
+            certificate_index=$((certificate_index + 1))
+          done
+          [[ "$profile_authorizes_identity" == true ]] || {
             echo "provisioning profile is not linked to the imported distribution certificate" >&2
             exit 1
           }
@@ -426,11 +434,14 @@ jobs:
           cp "$files/zuuli.mobileprovision" "$profile_dir/$profile_uuid.mobileprovision"
           echo "ASC_KEY_PATH=$files/AuthKey.p8" >> "$GITHUB_ENV"
           echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
-          echo "ZUULI_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           echo "ZUULI_PROFILE_PATH=$profile_dir/$profile_uuid.mobileprovision" >> "$GITHUB_ENV"
+          security delete-keychain "$keychain"
       - name: Build, validate, and optionally upload
         env:
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          IOS_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
           if [[ "$DRY_RUN" == false ]]; then
@@ -441,7 +452,7 @@ jobs:
       - name: Destroy ephemeral Apple credentials
         if: always()
         run: |
-          security delete-keychain "$ZUULI_KEYCHAIN" 2>/dev/null || true
+          security delete-keychain "${ZUULI_PREFLIGHT_KEYCHAIN:-}" 2>/dev/null || true
           rm -f -- "${ZUULI_PROFILE_PATH:-}"
           if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
             find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} +

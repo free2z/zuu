@@ -75,6 +75,8 @@ const androidManifest = read(
 );
 const androidToolchain = read("scripts/android-toolchain-env.sh");
 const gemLock = read("Gemfile.lock");
+const mobileRelease = read("scripts/mobile-release.sh");
+const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
 
 expect("package.json version", packageJson.version, release.version);
 expect("package-lock.json version", packageLock.version, release.version);
@@ -357,6 +359,48 @@ expect(
   capture(/channel\s*=\s*"([^"]+)"/, rustToolchain, "Rust toolchain"),
   "1.88.0",
 );
+for (const wiring of [
+  "IOS_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}",
+  "IOS_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}",
+  "IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}",
+]) {
+  if (!releaseWorkflow.includes(wiring))
+    failures.push(`protected iOS manual-signing wiring is missing: ${wiring}`);
+}
+const ipaVerification = mobileRelease.indexOf(
+  "\n  scripts/verify-ios-ipa.sh \\\n",
+);
+const appleValidation = mobileRelease.indexOf(
+  "\n    xcrun altool --validate-app",
+);
+const appleUpload = mobileRelease.indexOf("\n      xcrun altool --upload-app");
+const signingPreparation = mobileRelease.indexOf(
+  "node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing",
+);
+const tauriIosBuild = mobileRelease.indexOf(
+  "./node_modules/.bin/tauri ios build",
+);
+const signingNormalization = mobileRelease.indexOf(
+  "\n  node scripts/normalize-generated-ios-project.mjs\n",
+  tauriIosBuild,
+);
+if (
+  signingPreparation === -1 ||
+  tauriIosBuild === -1 ||
+  signingNormalization === -1 ||
+  ipaVerification === -1 ||
+  appleValidation === -1 ||
+  appleUpload === -1 ||
+  signingPreparation > tauriIosBuild ||
+  tauriIosBuild > signingNormalization ||
+  signingNormalization > ipaVerification ||
+  ipaVerification > appleValidation ||
+  ipaVerification > appleUpload
+) {
+  failures.push(
+    "iOS release must prepare signing keys, build, normalize, inspect the IPA, then validate and upload with Apple",
+  );
+}
 for (const target of [
   "aarch64-linux-android",
   "armv7a-linux-androideabi",

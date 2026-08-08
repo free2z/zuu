@@ -80,10 +80,18 @@ APPLE_TEAM_ID
 ASC_KEY_ID
 ASC_ISSUER_ID
 ASC_KEY_PATH                 path to the .p8 file
+IOS_CERTIFICATE              base64-encoded Apple Distribution .p12
+IOS_CERTIFICATE_PASSWORD     password for IOS_CERTIFICATE
+IOS_MOBILE_PROVISION         base64-encoded ZUULI App Store CI profile
 ```
 
-The Apple Distribution identity must already be present in the login Keychain.
-Xcode may obtain the matching provisioning profile with the API key.
+The protected release validates that the certificate, profile, team, and App ID
+are linked before Tauri receives the three manual-signing variables. The
+release script first prepares every signing key that Tauri 2.11.4 updates in a
+validated generated-project shape, then restores the committed Automatic-debug
+project byte-for-byte after the build. The resulting IPA is unpacked and its
+exact embedded profile, distribution signature, certificate linkage, and signed
+entitlements are verified before Apple validation or upload.
 
 Android variables:
 
