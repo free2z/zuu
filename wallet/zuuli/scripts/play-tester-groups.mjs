@@ -257,13 +257,22 @@ export async function configurePlayTesterGroup({
   }
 }
 
+export function summarizeConfigurationResult(result, requestedGoogleGroup) {
+  return {
+    packageName: result.packageName,
+    track: result.track,
+    requestedGoogleGroup,
+    googleGroupCount: result.googleGroups.length,
+  };
+}
+
 export async function main(env = process.env) {
   const keyPath = env.PLAY_SERVICE_ACCOUNT_JSON;
   if (!keyPath) throw new Error("PLAY_SERVICE_ACCOUNT_JSON is required");
   const googleGroup = validateGoogleGroup(env.ZUULI_PLAY_TESTER_GROUP);
   const credentials = parseServiceAccountDocument(await readFile(keyPath, "utf8"));
   const result = await configurePlayTesterGroup({ credentials, googleGroup });
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  process.stdout.write(`${JSON.stringify(summarizeConfigurationResult(result, googleGroup))}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

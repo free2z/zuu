@@ -13,6 +13,7 @@ import {
   editUrl,
   mergeGoogleGroups,
   parseServiceAccountDocument,
+  summarizeConfigurationResult,
   validateGoogleGroup,
 } from "./play-tester-groups.mjs";
 
@@ -126,6 +127,24 @@ test("constructs fixed package, edit, tester, and commit URLs", () => {
     `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE_NAME}/edits/edit%201/testers/internal`,
   );
   assert.equal(editUrl("edit-1", ":commit").endsWith("/edits/edit-1:commit"), true);
+});
+
+test("summarizes success without disclosing other tester groups", () => {
+  const summary = summarizeConfigurationResult(
+    {
+      packageName: PACKAGE_NAME,
+      track: TRACK,
+      googleGroups: ["private-existing@corpora.example", GROUP],
+    },
+    GROUP,
+  );
+  assert.deepEqual(summary, {
+    packageName: PACKAGE_NAME,
+    track: TRACK,
+    requestedGoogleGroup: GROUP,
+    googleGroupCount: 2,
+  });
+  assert.equal(JSON.stringify(summary).includes("private-existing"), false);
 });
 
 test("preserves existing groups, commits, verifies through a fresh edit, and cleans up", async () => {
