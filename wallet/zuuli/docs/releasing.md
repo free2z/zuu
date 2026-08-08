@@ -1,8 +1,8 @@
 # Releasing ZUULI
 
 ZUULI ships from one reviewed commit under one immutable identity. The current
-identity is `0.1.0+1`: marketing version `0.1.0`, Apple build `1`, Android
-`versionCode` `1`, and package/bundle identifier `cash.free2z.zuuli`.
+identity is `0.1.0+2`: marketing version `0.1.0`, Apple build `2`, Android
+`versionCode` `2`, and package/bundle identifier `cash.free2z.zuuli`.
 
 `release.json` is the source of truth. `npm run release:verify` fails if the npm,
 Cargo, Tauri, generated Xcode, or generated Gradle representation disagrees.
@@ -52,9 +52,10 @@ repeat bootstrap work or substitute unrelated credentials.
 
 The Play app record already exists for `cash.free2z.zuuli`, and the dedicated
 principal has been granted ZUULI admin access. Fastlane's Play JSON-key
-validation succeeds for this account. The first API upload has not run yet.
-Attempt it automatically before falling back to the console bootstrap; do not
-weaken the account check or upload a debug key.
+validation succeeds for this account. Build `0.1.0+1` completed the first API
+upload to the internal track; subsequent protected releases use the same
+dedicated principal and upload key. Do not weaken the account check or upload a
+debug key.
 
 Primary references:
 
@@ -142,7 +143,7 @@ must both be confirmed:
 
 ```bash
 export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
-export ZUULI_CONFIRM_UPLOAD=0.1.0+1
+export ZUULI_CONFIRM_UPLOAD=0.1.0+2
 scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
@@ -206,9 +207,9 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    did not decrease, builds/signs both mobile artifacts, and uploads them to
    TestFlight and Play internal. Adding `release.json` for the first time is a
    no-upload baseline, so merging the release infrastructure itself is safe.
-   After that baseline and the wallet-conflict fix are on `main`, make a
-   dedicated `0.1.0+2` bump PR; merging that PR is the first automatic mobile
-   store run.
+   Build `0.1.0+1` established the first Play internal release. Its iOS build
+   stopped before Apple validation or upload, so `0.1.0+2` is the first
+   automatic mobile store run with the corrected iOS release path.
 4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and
