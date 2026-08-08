@@ -90,6 +90,19 @@ upload to the internal track, and `0.1.0+2` confirmed the repeatable protected
 path. Subsequent protected releases use the same dedicated principal and upload
 key. Do not weaken the account check or upload a debug key.
 
+Internal tester eligibility is managed additively with the protected
+`ZUULI / Play tester groups` workflow. Its default private group is
+`zuuli-internal-testers-free2z@googlegroups.com`. The workflow shares the
+mobile-store concurrency lane, preserves every existing Google Group, commits
+the requested group through the Android Publisher API, and verifies the result
+through a fresh edit. It accepts only lowercase `@googlegroups.com` addresses;
+Play's API does not support Console email lists. Run the offline transaction
+tests before changing this path:
+
+```bash
+npm run test:play-testers
+```
+
 Primary references:
 
 - Apple: https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/
