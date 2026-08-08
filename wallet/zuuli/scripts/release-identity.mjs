@@ -63,6 +63,9 @@ const gradleWrapper = read(
   "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties",
 );
 const gradleProperties = read("src-tauri/gen/android/gradle.properties");
+const androidManifest = read(
+  "src-tauri/gen/android/app/src/main/AndroidManifest.xml",
+);
 const androidToolchain = read("scripts/android-toolchain-env.sh");
 const gemLock = read("Gemfile.lock");
 
@@ -174,6 +177,8 @@ if (!pbxproj.includes('CODE_SIGN_IDENTITY = "Apple Distribution";'))
   failures.push(
     "generated Xcode release signing identity is not Apple Distribution",
   );
+if (!pbxproj.includes('PROVISIONING_PROFILE_SPECIFIER = "ZUULI App Store CI";'))
+  failures.push("generated Xcode release provisioning profile is not pinned");
 for (const privacyKey of [
   "NSCameraUsageDescription",
   "NSFaceIDUsageDescription",
@@ -221,6 +226,18 @@ expect(
   capture(/applicationId\s*=\s*"([^"]+)"/, gradle, "Android applicationId"),
   release.applicationId,
 );
+if (/^[\t ]+$/m.test(androidManifest))
+  failures.push("generated Android manifest contains whitespace-only lines");
+for (const callbackElement of [
+  `<data android:scheme="${callbackScheme}" />`,
+  '<data android:host="oauth" />',
+  '<data android:path="/callback" />',
+]) {
+  if (!androidManifest.includes(callbackElement))
+    failures.push(
+      `generated Android OAuth callback is missing ${callbackElement}`,
+    );
+}
 expect(
   "Android fallback version name",
   capture(
@@ -382,15 +399,86 @@ if (process.argv.includes("--require-tag")) {
 const sourceArg = process.argv.find((arg) => arg.startsWith("--source-sha="));
 if (sourceArg) {
   const required = sourceArg.slice("--source-sha=".length);
-  const head = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim();
   if (!/^[0-9a-f]{40}$/.test(required))
     failures.push(
       "--source-sha must be a full lowercase 40-character commit SHA",
     );
-  expect("checked-out source SHA", head, required);
+  else {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    expect("checked-out source SHA", head, required);
+  }
+}
+
+const newerArg = process.argv.find((arg) =>
+  arg.startsWith("--require-newer-than="),
+);
+if (newerArg) {
+  const previousSha = newerArg.slice("--require-newer-than=".length);
+  if (!/^[0-9a-f]{40}$/.test(previousSha)) {
+    failures.push(
+      "--require-newer-than must be a full lowercase 40-character commit SHA",
+    );
+  } else {
+    try {
+      const head = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: root,
+        encoding: "utf8",
+      }).trim();
+      execFileSync("git", ["merge-base", "--is-ancestor", previousSha, head], {
+        cwd: root,
+        stdio: "ignore",
+      });
+      const previous = JSON.parse(
+        execFileSync(
+          "git",
+          ["show", `${previousSha}:wallet/zuuli/release.json`],
+          { cwd: root, encoding: "utf8" },
+        ),
+      );
+      if (
+        previous.schemaVersion !== 1 ||
+        previous.applicationId !== release.applicationId
+      ) {
+        failures.push(
+          "previous release identity has an incompatible schema or application ID",
+        );
+      }
+      if (!Number.isSafeInteger(previous.build) || previous.build < 1) {
+        failures.push("previous release build is not a positive safe integer");
+      } else if (release.build <= previous.build) {
+        failures.push(
+          `release build must increase: ${release.build} is not greater than ${previous.build}`,
+        );
+      }
+      const semverCore = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+      const previousVersion = semverCore.exec(previous.version ?? "");
+      const currentVersion = semverCore.exec(release.version ?? "");
+      if (!previousVersion) {
+        failures.push("previous release version is not strict SemVer core");
+      } else if (currentVersion) {
+        const previousParts = previousVersion.slice(1).map(Number);
+        const currentParts = currentVersion.slice(1).map(Number);
+        const versionOrder = currentParts.findIndex(
+          (part, index) => part !== previousParts[index],
+        );
+        if (
+          versionOrder !== -1 &&
+          currentParts[versionOrder] < previousParts[versionOrder]
+        ) {
+          failures.push(
+            `release version must not decrease: ${release.version} is older than ${previous.version}`,
+          );
+        }
+      }
+    } catch {
+      failures.push(
+        "previous release source is missing, malformed, or not an ancestor of HEAD",
+      );
+    }
+  }
 }
 
 if (failures.length) {

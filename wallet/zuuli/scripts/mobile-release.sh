@@ -17,13 +17,20 @@ mode=${2:-}
 [[ "$platform" == ios || "$platform" == android ]] || usage
 [[ -z "$mode" || "$mode" == --upload ]] || usage
 
-identity_json=$(node scripts/release-identity.mjs --require-main)
+identity_args=(--require-main)
+if [[ -n "${ZUULI_RELEASE_SOURCE_SHA:-}" ]]; then
+  identity_args+=("--source-sha=$ZUULI_RELEASE_SOURCE_SHA")
+fi
+identity_json=$(node scripts/release-identity.mjs "${identity_args[@]}")
 identity=$(jq -r .identity <<<"$identity_json")
 build=$(jq -r .build <<<"$identity_json")
 application_id=$(jq -r .applicationId <<<"$identity_json")
 
 if [[ "$mode" == --upload ]]; then
-  node scripts/release-identity.mjs --require-tag >/dev/null
+  if [[ ! "${ZUULI_RELEASE_SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "refusing store upload: ZUULI_RELEASE_SOURCE_SHA must be the exact full source SHA" >&2
+    exit 65
+  fi
   if [[ "${ZUULI_CONFIRM_UPLOAD:-}" != "$identity" ]]; then
     echo "refusing store upload: set ZUULI_CONFIRM_UPLOAD=$identity" >&2
     exit 65
@@ -102,6 +109,7 @@ if [[ "$platform" == ios ]]; then
       --export-method app-store-connect \
       -- \
       --locked
+  git diff --exit-code
 
   ipa=$(find_one './src-tauri/gen/apple/build/arm64/*.ipa')
   ipa_abs="$app_dir/${ipa#./}"
@@ -127,6 +135,20 @@ else
   require_value ANDROID_KEYSTORE_PASSWORD
   require_value ANDROID_KEY_ALIAS
   require_value ANDROID_KEY_PASSWORD
+  require_value ANDROID_UPLOAD_CERT_SHA256
+  if [[ ! "$ANDROID_UPLOAD_CERT_SHA256" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ ]]; then
+    echo "ANDROID_UPLOAD_CERT_SHA256 must be an uppercase colon-delimited SHA-256 fingerprint" >&2
+    exit 66
+  fi
+  actual_upload_fingerprint=$(keytool -list -v \
+    -keystore "$ANDROID_KEYSTORE_PATH" \
+    -storepass:env ANDROID_KEYSTORE_PASSWORD \
+    -alias "$ANDROID_KEY_ALIAS" | awk -F'SHA256: ' '/SHA256: / {print $2; exit}')
+  if [[ "$actual_upload_fingerprint" != "$ANDROID_UPLOAD_CERT_SHA256" ]]; then
+    echo "Android upload certificate fingerprint does not match the protected release identity" >&2
+    exit 66
+  fi
+  unset actual_upload_fingerprint
 
   if [[ "$mode" == --upload ]]; then
     PLAY_SERVICE_ACCOUNT_JSON=$(canonical_secret_file PLAY_SERVICE_ACCOUNT_JSON)
@@ -144,6 +166,8 @@ else
   fi
 
   ./node_modules/.bin/tauri android build --ci --aab -- --locked
+  node scripts/normalize-generated-android-manifest.mjs
+  git diff --exit-code
   aab=$(find_one './src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab')
   # Android upload-key certificates are intentionally self-signed, which makes
   # jarsigner --strict return 4 even when the archive signature is valid.

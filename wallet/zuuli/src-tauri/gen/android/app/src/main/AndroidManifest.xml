@@ -38,6 +38,9 @@
                 <data android:scheme="cash.free2z.zuuli" />
                 <data android:host="oauth" />
                 <data android:path="/callback" />
+
+
+
             </intent-filter>
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>

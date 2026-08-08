@@ -16,23 +16,20 @@ are commit-SHA pinned. Upgrade these together in a reviewed dependency PR.
 
 ## One-time owner bootstrap
 
-Apple and Google require the owner to create a new app record in their web
-consoles. This is intentionally outside CI.
+The owner has created both store records and the dedicated automation
+principals. Their current state is recorded here so a fresh operator does not
+repeat bootstrap work or substitute unrelated credentials.
 
 ### App Store Connect (Corpora Inc)
 
-1. In Certificates, Identifiers & Profiles, register the explicit App ID
-   `cash.free2z.zuuli` under team `F9AV5HKF6N` and enable only the capabilities
-   present in the committed entitlements.
-2. In App Store Connect **Apps**, create `ZUULI` with that bundle ID. Record the
-   SKU privately. App Store Connect API keys cannot create app records.
-3. Create an App Store Connect API key with the Admin role so Xcode automatic
-   provisioning can manage certificates and profiles. Save the `.p8`
-   exactly once and record its key ID and issuer ID.
-4. Create/download an App Store Connect distribution profile if automatic
-   provisioning is not used. The protected CI lane uses Xcode automatic
-   provisioning authenticated by the API key.
-5. Add internal TestFlight testers and complete the export-compliance/beta
+1. The explicit App ID `cash.free2z.zuuli` exists under team `F9AV5HKF6N`.
+2. App Store Connect app `6799322201` is `ZUULI`, bundle
+   `cash.free2z.zuuli`, SKU `zuuli-ios`, with `en-US` localization.
+3. The protected environment contains the Admin ASC key, dedicated ZUULI Apple
+   Distribution certificate, and profile `ZUULI App Store CI`. CI verifies the
+   profile's team, application identifier, UUID, and certificate linkage before
+   it signs.
+4. Add internal TestFlight testers and complete the export-compliance/beta
    metadata prompts after Apple processes the first upload.
 
 ### Google Play (Corpora)
@@ -48,15 +45,16 @@ consoles. This is intentionally outside CI.
    principal is
    `corpan-play-verifier@corpora1.iam.gserviceaccount.com`; the release script
    rejects a different service-account document.
-4. Google requires the first signed AAB to establish the package/signature in
-   Play Console. Upload the locally produced AAB to the internal-testing release
-   once; after that, the protected workflow performs uploads through the API.
+4. Let the protected workflow attempt the first signed AAB through the Publisher
+   API. If Google returns its package-initialization blocker, upload that exact
+   signed AAB to the internal-testing release once in Play Console; subsequent
+   protected uploads use the API.
 
 The Play app record already exists for `cash.free2z.zuuli`, and the dedicated
 principal has been granted ZUULI admin access. Fastlane's Play JSON-key
-validation succeeds for this account. The first AAB is still a separate manual
-package/signature bootstrap; do not weaken the account check or upload a debug
-key.
+validation succeeds for this account. The first API upload has not run yet.
+Attempt it automatically before falling back to the console bootstrap; do not
+weaken the account check or upload a debug key.
 
 Primary references:
 
@@ -93,6 +91,7 @@ ANDROID_KEYSTORE_PATH        path to the upload-key JKS
 ANDROID_KEYSTORE_PASSWORD
 ANDROID_KEY_ALIAS
 ANDROID_KEY_PASSWORD
+ANDROID_UPLOAD_CERT_SHA256   uppercase colon-delimited SHA-256 certificate fingerprint
 PLAY_SERVICE_ACCOUNT_JSON   path to the JSON file; upload only
 ```
 
@@ -117,29 +116,32 @@ scripts/mobile-release.sh ios
 scripts/mobile-release.sh android
 ```
 
-The first Android bootstrap is intentionally two steps. Produce the signed AAB
-without granting the local process upload authority:
+If and only if the Publisher API returns its first-package initialization
+blocker, produce the signed AAB locally without granting that process upload
+authority:
 
 ```bash
 scripts/mobile-release.sh android
 ```
 
-Then, as the founder, upload
+Then upload
 `release-artifacts/ZUULI-<VERSION>+<BUILD>-android.aab` once through Play Console
 to the internal track. Do not use the `z/hhanh00/zwallet/docker/*.jks` samples:
 ZUULI needs its own backed-up upload key. After Google accepts that first
-AAB, tagged releases use the exact audited command:
+AAB, releases use the exact audited command:
 
 ```bash
+export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
 export ZUULI_CONFIRM_UPLOAD="$(jq -r '.version + "+" + (.build | tostring)' release.json)"
 scripts/mobile-release.sh android --upload
 ```
 
 These commands sign and validate without uploading. To make the irreversible
-store call, the release tag must point at `HEAD` and the exact identity must be
-confirmed:
+store call locally, the exact full `origin/main` source SHA and release identity
+must both be confirmed:
 
 ```bash
+export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
 export ZUULI_CONFIRM_UPLOAD=0.1.0+1
 scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
@@ -147,11 +149,11 @@ scripts/mobile-release.sh android --upload
 
 ## Protected GitHub release
 
-Create a GitHub environment named `zuuli-app-stores` and restrict deployments to
-protected release tags. In founder mode the owner can dispatch it directly and
-can admin-merge after every automated gate is green; add a required environment
-approver when another operator is consistently available. Ordinary PR workflows
-have read-only permissions and never reference this environment or its secrets.
+The GitHub environment `zuuli-app-stores` holds the dedicated mobile signing and
+store credentials. In founder mode it has no required reviewer or wait timer;
+add a required environment approver when another operator is consistently
+available. Ordinary PR workflows have read-only permissions and never reference
+this environment or its secrets.
 
 Environment variables:
 
@@ -159,6 +161,7 @@ Environment variables:
 APPLE_TEAM_ID
 ASC_KEY_ID
 ASC_ISSUER_ID
+ANDROID_UPLOAD_CERT_SHA256
 APPLE_DEVELOPER_ID_IDENTITY
 ```
 
@@ -168,6 +171,7 @@ Environment secrets:
 ASC_KEY_BASE64
 APPLE_DISTRIBUTION_CERTIFICATE_BASE64
 APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD
+APPLE_PROVISIONING_PROFILE_BASE64
 ANDROID_KEYSTORE_BASE64
 ANDROID_KEYSTORE_PASSWORD
 ANDROID_KEY_ALIAS
@@ -197,27 +201,43 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
 2. From a clean version worktree run
    `npm run release:bump -- --version=<VERSION> --build=<BUILD>`, review every
    generated change, run `npm run release:verify`, and merge the version PR.
-3. Create an annotated (preferably signed) tag on that exact remote commit as
-   `git tag -s zuuli-v<VERSION>+<BUILD> <SHA>` and push it. Signed uploads refuse
-   a lightweight, missing, mismatched, or non-`origin/main` tag.
-4. Dispatch **ZUULI / protected release** with the full 40-character commit SHA,
-   exact identity, desired target, and `dry_run=true`.
-5. Inspect the signed package, SBOM, checksum manifest, GitHub attestation, and
-   App Store validation. Then select the release tag in the workflow's **Use
-   workflow from** control and dispatch the same SHA/identity with
-   `dry_run=false`. The tag selection is mandatory and lets environment branch
-   policy protect the credential-bearing run.
+3. A push to `main` that changes an existing `release.json` automatically pins
+   the exact pushed SHA, proves that `build` strictly increased and `version`
+   did not decrease, builds/signs both mobile artifacts, and uploads them to
+   TestFlight and Play internal. Adding `release.json` for the first time is a
+   no-upload baseline, so merging the release infrastructure itself is safe.
+   After that baseline and the wallet-conflict fix are on `main`, make a
+   dedicated `0.1.0+2` bump PR; merging that PR is the first automatic mobile
+   store run.
+4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
+   attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
+   protected release** with the exact full SHA, identity, missing target, and
+   the appropriate `dry_run` value. A real manual recovery requires the same
+   exact-SHA and identity confirmations as automatic release: the SHA must be
+   the commit that introduced that identity, and it must be monotonic relative
+   to its first parent. It must also match the current `origin/main` release
+   identity, so a superseded build cannot be recovered after a newer release.
+   The initial `release.json` baseline is the only no-previous-identity
+   exception. Desktop `dry_run=true` packaging does not load signing credentials
+   or contact Apple's notarization service.
+5. Optionally create an annotated (preferably signed) tag on that exact remote
+   commit as `zuuli-v<VERSION>+<BUILD>`. If the matching tag exists before a
+   manual recovery run, the workflow also maintains an idempotent draft GitHub
+   release. Store upload authority does not depend on a tag.
 6. Wait for App Store processing; assign the build to internal TestFlight.
    Confirm the Play internal release is available to the tester list.
 
 Store build numbers are append-only. Signed packages are not bit-reproducible:
 timestamps and signatures can change on a rebuild, while neither store permits a
 different package to replace an uploaded version/build. Never change source under
-an existing identity. After a partial failure, inspect both stores and the draft
-GitHub release, then rerun only the missing target; an existing release asset is
-accepted only when its checksum matches and is never overwritten. If an upload is
-ambiguous or a different artifact is required, increment `build`, merge, tag, and
-dispatch again.
+an existing identity. Every protected store transaction shares one concurrency
+lane across all identities, and GitHub's **rerun failed jobs** preserves
+already-successful platform jobs. After a partial failure, inspect both stores
+and the draft GitHub release, then
+rerun only the missing target; an existing release asset is accepted only when
+its checksum matches and is never overwritten. If an upload is ambiguous or a
+different artifact is required, increment `build`, merge, and let the exact new
+source run automatically.
 
 ## Kick-the-tires gate
 

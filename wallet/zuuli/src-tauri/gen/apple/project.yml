@@ -19,6 +19,8 @@ settingGroups:
         CODE_SIGN_IDENTITY: Apple Development
       release:
         CODE_SIGN_IDENTITY: Apple Distribution
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: ZUULI App Store CI
 targetTemplates:
   app:
     type: application
