@@ -46,5 +46,18 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>ZUULI uses Face ID to unlock your wallet seed for recovery and spending.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>cash.free2z.zuuli</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>cash.free2z.zuuli</string>
+		</dict>
+	</array>
 </dict>
 </plist>

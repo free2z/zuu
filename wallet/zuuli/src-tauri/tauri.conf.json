@@ -34,5 +34,17 @@
     "android": {
       "minSdkVersion": 29
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["cash.free2z.zuuli"],
+          "host": "oauth",
+          "path": ["/callback"],
+          "appLink": false
+        }
+      ]
+    }
   }
 }

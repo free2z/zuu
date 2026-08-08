@@ -107,3 +107,17 @@ This is why `npm run dev` in a browser shows a fully working app.
 - Real endpoints for Zcash login (`/api/auth/zcash/login/`) and pay-with-ZEC
   top-ups live in the free2z backend (`tuzi/py`). The client contract already
   targets them; mock mode stands in until they ship.
+
+## Social OAuth callbacks
+
+- Desktop uses an ephemeral RFC 8252 `http://127.0.0.1` listener with a random
+  path nonce. iOS/Android use exactly
+  `cash.free2z.zuuli://oauth/callback` through `tauri-plugin-deep-link`.
+- Never widen the mobile scheme/host/path, accept a callback without matching
+  local + backend state, or weaken PKCE S256 for a mobile provider. GitHub is
+  intentionally desktop/web-only until its provider path is PKCE-capable.
+- Pending mobile state is crash-safe and bound to login-vs-associate plus the
+  initiating Knox session digest. Every native claim/resume/cancel operation is
+  also scoped to its random completion state; never reintroduce an unscoped
+  cleanup that can delete a newer flow. See `docs/release/ZUULI-MOBILE-OAUTH.md`
+  for signed-device verification and the claimed-HTTPS upgrade gate.

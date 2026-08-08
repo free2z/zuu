@@ -105,6 +105,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Test frontend contracts
+        run: npm run test
+
       - name: Build production frontend
         run: npm run build
 

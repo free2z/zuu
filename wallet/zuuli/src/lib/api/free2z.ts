@@ -8,7 +8,14 @@
 import { useMock } from "../platform";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
-import { captureOAuthCode } from "../oauth/transport";
+import {
+  assertMobileOAuthSession,
+  cancelMobileOAuth,
+  captureOAuthCode,
+  finishMobileOAuth,
+  type OAuthCapture,
+} from "../oauth/transport";
+import type { OAuthStartResponse } from "../oauth/protocol";
 import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
   mockAiReply,
@@ -491,10 +498,10 @@ export const auth = {
   },
 
   /**
-   * Ask the backend to build the provider's `authorize_url` (it constructs
-   * the PKCE challenge and validates `redirectUri` against its allowlist,
-   * which includes `http://127.0.0.1:*` / `http://localhost:*` for the
-   * desktop loopback transport) — GET /api/auth/social/{provider}/start.
+   * Ask the backend to build the provider's `authorize_url`. Desktop uses its
+   * backend-generated PKCE pair and exact `127.0.0.1:<ephemeral>/<nonce>`
+   * callback. Mobile sends only its app-generated S256 challenge; providers
+   * return to free2z's fixed HTTPS relay before the exact private app URI.
    * 503s if the provider isn't configured; callers should already have
    * gated the entry point on `socialProviders()`, so that should only ever
    * fire on a race with the backend config changing mid-session.
@@ -502,18 +509,22 @@ export const auth = {
   async socialStart(
     provider: SocialProvider,
     redirectUri: string,
-  ): Promise<{ authorize_url: string; state: string }> {
-    return request<{ authorize_url: string; state: string }>(
+    codeChallenge?: string,
+  ): Promise<OAuthStartResponse> {
+    return request<OAuthStartResponse>(
       `/api/auth/social/${provider}/start`,
-      { query: { redirect_uri: redirectUri }, anonymous: true },
+      {
+        query: { redirect_uri: redirectUri, code_challenge: codeChallenge },
+        anonymous: true,
+      },
     );
   },
 
   /**
    * Social login / link with a provider (X / Google / GitHub). Runs the
-   * OAuth authorization-code round trip over the desktop loopback transport
-   * (Tauri) or a web popup fallback (`../oauth/transport.ts`) — the caller
-   * never sees which transport ran, only the resolved `AuthUser`.
+   * OAuth authorization-code round trip over the desktop loopback transport,
+   * the mobile free2z-HTTPS-to-app relay, or a web popup fallback
+   * (`../oauth/transport.ts`) — callers see only the resolved `AuthUser`.
    *
    * Dual-mode, mirroring `zcashLogin`/`zcashAssociate`:
    *   - `associate: false` (default) — POSTs anonymously; the backend logs
@@ -537,12 +548,29 @@ export const auth = {
         "Social login isn't available in mock mode — no provider is configured yet.",
       );
     }
-    const { code, state, redirectUri } = await captureOAuthCode((redirect) =>
-      auth.socialStart(provider, redirect).then((r) => r.authorize_url),
+    const associate = opts.associate === true;
+    const capture = await captureOAuthCode(provider, associate, (redirect, challenge) =>
+      auth.socialStart(provider, redirect, challenge),
     );
-    const body = { code, state, redirect_uri: redirectUri };
+    return auth.completeSocialOAuth(capture);
+  },
 
-    if (opts.associate) {
+  /**
+   * Exchange a callback already validated and one-shot claimed by the native
+   * transport. Public so App startup can finish a crash-recovered cold-start
+   * callback through exactly the same backend path as the live button flow.
+   */
+  async completeSocialOAuth(capture: OAuthCapture): Promise<AuthUser> {
+    const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
+    await assertMobileOAuthSession(capture);
+    const body = {
+      code,
+      state,
+      redirect_uri: redirectUri,
+      ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
+    };
+
+    if (associate) {
       try {
         // Deliberately NOT `anonymous: true` — the point is that the request
         // carries `Authorization: Token <knox token>`.
@@ -550,7 +578,13 @@ export const auth = {
           method: "POST",
           body,
         });
+        // The backend mutation already succeeded. Local scratch-file cleanup
+        // must not turn a completed link into a user-visible auth failure.
+        await finishMobileOAuth(state).catch(() => undefined);
       } catch (e) {
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+          await cancelMobileOAuth(state).catch(() => undefined);
+        }
         if (e instanceof ApiError && e.status === 409) {
           throw new Error(
             "That account is already linked — either to a different free2z account, or this account already has a linked identity for this provider. Unlink it there first, or use a different account.",
@@ -568,8 +602,14 @@ export const auth = {
     const tok = await request<{ token: string }>(
       `/api/auth/social/${provider}/`,
       { method: "POST", body, anonymous: true },
-    );
+    ).catch(async (error) => {
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        await cancelMobileOAuth(state).catch(() => undefined);
+      }
+      throw error;
+    });
     setToken(tok.token);
+    await finishMobileOAuth(state).catch(() => undefined);
     const me = await auth.me();
     return {
       ...me,
