@@ -38,10 +38,11 @@ exact cycle:
    branch, then prune stale worktree and remote-tracking metadata. First verify
    that the PR merged into this repository's `main`, that its merge commit is
    on `origin/main`, and that the checked-out and local branch match the PR's
-   head name and commit. Audit branch and worktree reflogs, then inspect
-   tracked, untracked, and ignored files in both the worktree and every
-   initialized submodule; preserve anything needed before deleting its last
-   ref or reflog. Never use force removal to override dirty or unmerged work.
+   head name and commit. Confirm the worker and its background processes have
+   stopped. Audit branch and worktree reflogs, then inspect tracked, untracked,
+   and ignored files and reflogs in every initialized submodule; preserve
+   anything needed before deleting its last ref or reflog. Never use force
+   removal to override dirty or unmerged work.
    Delete the remote branch only with a lease bound to the verified head
    commit. Build-heavy merged worktrees (`target/`, `node_modules/`, etc.) must
    not be left behind.

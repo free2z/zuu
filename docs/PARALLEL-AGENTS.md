@@ -41,6 +41,9 @@ that only ever moves forward, and every change carries a reviewable PR trail.
 6. **Partition file surfaces** across concurrent tasks so parallel PRs don't collide. Sequence dependent work; land shared/foundational changes first.
 7. **Clean up immediately after merge.** Before removal, verify all of these:
 
+   - Confirm the worker has exited and no build, watcher, editor, or other
+     process can still write into the worktree. Never clean up an active
+     worker; rerun every status check immediately before removal.
    - Record the PR's `headRefName` as `B`, `headRefOid` as `H`, and merge-commit
      OID as `M`. Require GitHub to report that the PR merged into `main` in the
      repository configured as `origin`. Fetch `origin`, then require `M` to be
@@ -62,10 +65,11 @@ that only ever moves forward, and every change carries a reviewable PR trail.
      `.env.local`, and `release-artifacts/` when present.
    - Within every initialized submodule, recursively run the same tracked,
      untracked, and ignored-file checks. Verify that its checked-out gitlink
-     commit is fetchable from the configured remote; inspect `git stash list`
-     and local refs, and push every commit worth keeping. Relocate any
-     local-only data before removal: superproject status does not list ignored
-     files or per-worktree Git metadata inside submodules.
+     commit is fetchable from the configured remote; inspect `git stash list`,
+     local refs, and `git reflog show --all`, and push every commit worth
+     keeping. Relocate any local-only data before removal: superproject status
+     does not list ignored files or per-worktree Git metadata inside
+     submodules, and forced removal deletes their recovery logs.
 
    Then remove the worktree and atomically delete its local branch with
    `git update-ref -d "refs/heads/$B" "$H"` (squash merges make `git branch -d`
