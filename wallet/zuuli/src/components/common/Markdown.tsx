@@ -307,6 +307,24 @@ function SafeEmbed({ url, variant }: { url: string; variant: MarkdownVariant }) 
   return <MarkdownLink href={url}>{url}</MarkdownLink>;
 }
 
+/**
+ * `img` renderer for the UNTRUSTED "comment" variant: a remote image is
+ * degraded to a plain external link so it never auto-loads and beacons the
+ * reader's IP to an attacker-chosen host on render. Deliberate privacy
+ * behavior — see `MarkdownVariant`; do not "fix" it into a real <img>.
+ *
+ * Hoisted to module scope (like `MarkdownLink` / `CodeBlock`) so it is a stable
+ * component identity instead of a fresh function on every render.
+ */
+function CommentImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
+  const href = typeof src === "string" ? src : "#";
+  return (
+    <MarkdownLink href={href}>
+      {alt || (typeof src === "string" ? src : "image")}
+    </MarkdownLink>
+  );
+}
+
 // ── Math DoS guard (defense-in-depth) ───────────────────────────────────────
 // A comment body of `$$` + `{`×400 + … + `}`×400 + `$$` makes rehype-mathjax
 // recurse until it throws `RangeError: Maximum call stack size exceeded`
@@ -417,13 +435,21 @@ export function Markdown({
           pre: CodeBlock,
           // Untrusted comments: remote images become plain external links so
           // they never auto-load and beacon the reader's IP to an attacker.
-          img: isComment
-            ? ({ src, alt }) => (
-                <MarkdownLink href={typeof src === "string" ? src : "#"}>
-                  {alt || (typeof src === "string" ? src : "image")}
-                </MarkdownLink>
-              )
-            : undefined,
+          //
+          // SPREAD the key in — NEVER write `img: isComment ? X : undefined`.
+          // react-markdown@9 resolves overrides through
+          // hast-util-to-jsx-runtime, which tests for KEY PRESENCE, not value:
+          //
+          //   return own.call(state.components, name)
+          //     ? state.components[name] : name
+          //
+          // So a present-but-`undefined` `img` key makes the element type
+          // literally `undefined` instead of falling back to the intrinsic
+          // `<img>` tag; React throws "Element type is invalid", the
+          // ErrorBoundary below catches it, and EVERY article containing an
+          // image renders as raw markdown source (issue #319). The same
+          // footgun applies to any future conditional entry in this map.
+          ...(isComment ? { img: CommentImageLink } : {}),
           table: ({ node, ...props }) => (
             <div className="overflow-x-auto">
               <table {...props} />
