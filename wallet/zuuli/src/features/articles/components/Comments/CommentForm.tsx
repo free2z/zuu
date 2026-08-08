@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Eye, EyeOff, Loader2, LogIn, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -7,10 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/common/Markdown";
-import { formatTuzis } from "@/lib/format";
+import {
+  formatTuzis,
+  MAX_COMMENT_TUZIS,
+  tuziInputMaxLength,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/store/session";
 import type { Comment, CommentInput } from "@/lib/api/types";
+import { commentWeightState } from "./comment-weight";
 
 const HEADLINE_MAX = 100;
 const CONTENT_MAX = 1000;
@@ -40,9 +45,11 @@ export function CommentForm({
 
   const [headline, setHeadline] = useState("");
   const [content, setContent] = useState("");
-  const [tuzis, setTuzis] = useState(1);
+  const [tuziInput, setTuziInput] = useState("1");
   const [preview, setPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const weightInputId = useId();
+  const weightErrorId = `${weightInputId}-error`;
 
   // Login gate — comments cost 2Zs, which requires an account.
   if (!user) {
@@ -65,12 +72,14 @@ export function CommentForm({
 
   const headlineOk = headline.trim().length > 0 && headline.length <= HEADLINE_MAX;
   const contentOk = content.trim().length > 0 && content.length <= CONTENT_MAX;
-  const weightOk = tuzis >= 1;
-  const enough = tuzis <= balance;
+  const weight = commentWeightState(tuziInput, balance);
+  const tuzis = weight.value;
+  const weightOk = weight.error === null;
+  const enough = weightOk && !weight.needsTopUp;
   const canPost = headlineOk && contentOk && weightOk && enough && !submitting;
 
   async function post() {
-    if (!canPost) return;
+    if (!canPost || tuzis === null) return;
     setSubmitting(true);
     try {
       const created = await submit({
@@ -83,7 +92,7 @@ export function CommentForm({
       toast.success(`Posted — ${formatTuzis(tuzis)} weight`);
       setHeadline("");
       setContent("");
-      setTuzis(1);
+      setTuziInput("1");
       setPreview(false);
       onPosted(created);
     } catch {
@@ -147,20 +156,29 @@ export function CommentForm({
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5">
-          <Label htmlFor="comment-weight" className="text-xs text-muted-foreground">
+          <Label htmlFor={weightInputId} className="text-xs text-muted-foreground">
             Weight
           </Label>
           <Input
-            id="comment-weight"
-            type="number"
-            min={1}
+            id={weightInputId}
+            type="text"
             inputMode="numeric"
-            value={tuzis}
-            onChange={(e) => setTuzis(Math.max(1, Number(e.target.value) || 1))}
+            maxLength={tuziInputMaxLength(MAX_COMMENT_TUZIS)}
+            value={tuziInput}
+            onChange={(e) => setTuziInput(e.target.value)}
             className="h-9 w-20 tabular-nums"
             aria-label="2Z weight to spend on this comment"
+            aria-describedby={weightErrorId}
+            aria-invalid={!weightOk}
           />
           <span className="text-xs text-muted-foreground">2Z</span>
+          <span id={weightErrorId} className="text-xs text-destructive">
+            {weight.error === "tooLarge"
+              ? `Max ${MAX_COMMENT_TUZIS.toLocaleString()} 2Z`
+              : !weightOk
+                ? "Positive whole 2Z only"
+                : null}
+          </span>
         </div>
 
         <Button
@@ -189,7 +207,7 @@ export function CommentForm({
               Cancel
             </Button>
           ) : null}
-          {!enough ? (
+          {weight.needsTopUp ? (
             <Button
               type="button"
               variant="outline"

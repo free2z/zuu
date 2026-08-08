@@ -20,15 +20,103 @@
 export const ZATOSHIS_PER_ZEC = 100_000_000;
 export const TUZIS_PER_USD = 100; // internal cost-plus accounting constant, not a displayed exchange rate
 
+/** Product/API bounds for user-entered whole-2Z amounts. */
+export const MAX_TUZIS = 1_000_000;
+export const MAX_MEMBER_PRICE_TUZIS = 999_999;
+export const MAX_COMMENT_TUZIS = 2_147_483_647;
+// free2z CreatorMeeting.price_per_minute is Decimal(6, 2), capped at 9999.99.
+// ZUULI's PPV input is whole 2Z, so 9,999 is the largest representable value.
+export const MAX_PPV_PRICE_TUZIS = 9_999;
+
+export const MAX_ZEC_INPUT_LENGTH = "90071992.54740991".length;
+
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_SAFE_INTEGER_DIGITS = String(Number.MAX_SAFE_INTEGER).length;
+
+export type TuziInputError = "invalid" | "tooSmall" | "tooLarge";
+
+export interface TuziInputResult {
+  value: number | null;
+  error: TuziInputError | null;
+}
+
+/** Maximum raw length for an integer that may contain canonical ASCII commas. */
+export function tuziInputMaxLength(maximum: number): number {
+  const digits = String(maximum).length;
+  return digits + Math.floor((digits - 1) / 3);
+}
+
+/**
+ * Parse an exact, non-negative whole-2Z amount.
+ *
+ * ASCII commas are the only supported grouping separator, and when present
+ * they must delimit groups of three digits. Returning `null` (instead of a
+ * fallback number) keeps malformed input from being silently changed before
+ * it is displayed or submitted.
+ */
+export function parseTuzis(raw: string): number | null {
+  if (!/^(?:0|[1-9]\d*|[1-9]\d{0,2}(?:,\d{3})+)$/.test(raw)) return null;
+
+  const normalized = raw.replace(/,/g, "");
+  // Bound work before BigInt construction, even when called outside an input
+  // with maxLength (for example, from pasted/programmatic values).
+  if (normalized.length > MAX_SAFE_INTEGER_DIGITS) return null;
+
+  const value = BigInt(normalized);
+  if (value > MAX_SAFE_INTEGER_BIGINT) return null;
+  return Number(value);
+}
+
+/** Parse a whole-2Z input and retain why a syntactically valid value failed. */
+export function validateTuzis(
+  raw: string,
+  { minimum, maximum }: { minimum: number; maximum: number },
+): TuziInputResult {
+  const value = parseTuzis(raw);
+  if (value === null) return { value: null, error: "invalid" };
+  if (value < minimum) return { value, error: "tooSmall" };
+  if (value > maximum) return { value, error: "tooLarge" };
+  return { value, error: null };
+}
+
+/**
+ * Parse a positive ZEC amount to an exact integer number of zatoshis.
+ *
+ * ZEC input deliberately supports no grouping separators and at most eight
+ * decimal places. Integer arithmetic avoids the rounding that comes from
+ * multiplying a JavaScript floating-point value by 1e8.
+ */
+export function parseZecToZatoshis(raw: string): number | null {
+  const match = /^(\d+)(?:\.(\d{1,8}))?$/.exec(raw);
+  if (!match) return null;
+
+  const fraction = (match[2] ?? "").padEnd(8, "0");
+  const normalized = `${match[1]}${fraction}`.replace(/^0+/, "") || "0";
+  // Number.MAX_SAFE_INTEGER is 16 digits; reject longer zatoshi values before
+  // asking BigInt to allocate for an untrusted string.
+  if (normalized.length > MAX_SAFE_INTEGER_DIGITS) return null;
+
+  const value = BigInt(normalized);
+  if (value <= 0n || value > MAX_SAFE_INTEGER_BIGINT) return null;
+  return Number(value);
+}
+
 /** Format zatoshis as a plain ZEC string (8dp). */
 export function formatZec(zatoshis: number): string {
-  return (zatoshis / ZATOSHIS_PER_ZEC).toFixed(8);
+  if (!Number.isSafeInteger(zatoshis)) {
+    throw new RangeError("Zatoshi amount must be a safe integer");
+  }
+
+  const sign = zatoshis < 0 ? "-" : "";
+  const absolute = BigInt(Math.abs(zatoshis));
+  const whole = absolute / BigInt(ZATOSHIS_PER_ZEC);
+  const fraction = absolute % BigInt(ZATOSHIS_PER_ZEC);
+  return `${sign}${whole}.${fraction.toString().padStart(8, "0")}`;
 }
 
 /** Format zatoshis as ZEC, trimming trailing zeros but keeping >= 2 dp. */
 export function formatZecTrim(zatoshis: number): string {
-  const zec = zatoshis / ZATOSHIS_PER_ZEC;
-  const s = zec.toFixed(8).replace(/0+$/, "").replace(/\.$/, ".0");
+  const s = formatZec(zatoshis).replace(/0+$/, "").replace(/\.$/, ".0");
   const [w, d = ""] = s.split(".");
   return `${w}.${d.padEnd(2, "0")}`;
 }

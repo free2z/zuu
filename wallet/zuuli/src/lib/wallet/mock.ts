@@ -14,6 +14,7 @@ import type {
   WalletCreated,
   WalletStatus,
 } from "./types";
+import { parseZecToZatoshis } from "../format";
 
 const MOCK_UA =
   "u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexz";
@@ -163,11 +164,14 @@ export const mockWallet = {
   parsePaymentUri(uri: string): PaymentRequest {
     const [addr, qs = ""] = uri.replace(/^zcash:/, "").split("?");
     const params = new URLSearchParams(qs);
+    const rawAmount = params.get("amount");
+    const amount = rawAmount === null ? null : parseZecToZatoshis(rawAmount);
+    if (rawAmount !== null && amount === null) {
+      throw new Error("Invalid ZEC amount in payment URI");
+    }
     return {
       address: addr,
-      amount: params.get("amount")
-        ? Math.round(Number(params.get("amount")) * 1e8)
-        : null,
+      amount,
       memo: params.get("memo"),
       label: params.get("label"),
     };

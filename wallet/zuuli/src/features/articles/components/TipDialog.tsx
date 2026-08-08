@@ -15,7 +15,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { tuzi } from "@/lib/api/free2z";
-import { formatTuzis } from "@/lib/format";
+import {
+  formatTuzis,
+  MAX_TUZIS,
+  tuziInputMaxLength,
+  validateTuzis,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/store/session";
 import type { SimpleCreator } from "@/lib/api/types";
@@ -28,19 +33,22 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
   const tuzis = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(100);
+  const [amount, setAmount] = useState("100");
   const [sending, setSending] = useState(false);
 
-  const enough = amount <= tuzis;
-  const canSend = amount > 0 && enough && !sending;
+  const amountResult = validateTuzis(amount, { minimum: 1, maximum: MAX_TUZIS });
+  const parsedAmount = amountResult.value;
+  const validAmount = amountResult.error === null;
+  const enough = parsedAmount !== null && parsedAmount <= tuzis;
+  const canSend = validAmount && enough && !sending;
 
   async function send() {
-    if (!canSend) return;
+    if (!canSend || parsedAmount === null) return;
     setSending(true);
     try {
-      await tuzi.donate(author.username, amount);
-      adjustTuzis(-amount);
-      toast.success(`Sent ${formatTuzis(amount)} to ${name}`);
+      await tuzi.donate(author.username, parsedAmount);
+      adjustTuzis(-parsedAmount);
+      toast.success(`Sent ${formatTuzis(parsedAmount)} to ${name}`);
       setOpen(false);
     } catch {
       toast.error("Could not send your tip. Please try again.");
@@ -71,11 +79,11 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
               <button
                 key={preset}
                 type="button"
-                onClick={() => setAmount(preset)}
-                aria-pressed={amount === preset}
+                onClick={() => setAmount(String(preset))}
+                aria-pressed={parsedAmount === preset}
                 className={cn(
                   "rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors",
-                  amount === preset
+                  parsedAmount === preset
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
                 )}
@@ -89,15 +97,24 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
             <Label htmlFor="tip-amount">Amount (2Z)</Label>
             <Input
               id="tip-amount"
-              type="number"
-              min={1}
+              type="text"
               inputMode="numeric"
+              maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={amount}
-              onChange={(e) => setAmount(Math.max(0, Number(e.target.value)))}
+              onChange={(e) => setAmount(e.target.value)}
               className="tabular-nums"
+              aria-describedby="tip-amount-error tip-balance"
+              aria-invalid={amount.length > 0 && !validAmount}
             />
-            <p className="text-xs text-muted-foreground tabular-nums">
+            <p id="tip-balance" className="text-xs text-muted-foreground tabular-nums">
               Balance: {formatTuzis(tuzis)}
+            </p>
+            <p id="tip-amount-error" className="min-h-[1rem] text-xs text-destructive">
+              {amountResult.error === "tooLarge"
+                ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
+                : amount.length > 0 && amountResult.error !== null
+                  ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                  : null}
             </p>
           </div>
         </div>
@@ -110,7 +127,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
           >
             Cancel
           </Button>
-          {amount > 0 && !enough ? (
+          {validAmount && !enough ? (
             <Button
               variant="outline"
               onClick={() => {
@@ -129,7 +146,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
                   Sending
                 </>
               ) : (
-                <>Send {formatTuzis(amount)}</>
+                <>Send {parsedAmount !== null ? formatTuzis(parsedAmount) : "2Zs"}</>
               )}
             </Button>
           )}

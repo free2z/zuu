@@ -15,7 +15,12 @@ import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Textarea } from "@/components/ui/textarea";
 import { profile } from "@/lib/api/free2z";
-import { initials } from "@/lib/format";
+import {
+  initials,
+  MAX_MEMBER_PRICE_TUZIS,
+  tuziInputMaxLength,
+  validateTuzis,
+} from "@/lib/format";
 import { useSession } from "@/store/session";
 import type { AuthUser } from "@/lib/api/types";
 import { LinkedAccounts } from "./LinkedAccounts";
@@ -61,18 +66,23 @@ function ProfileForm({ user }: { user: AuthUser }) {
   const [saving, setSaving] = useState(false);
 
   const trimmedName = displayName.trim();
-  const canSave = trimmedName.length > 0 && !saving;
+  const memberPriceResult = validateTuzis(memberPrice, {
+    minimum: 0,
+    maximum: MAX_MEMBER_PRICE_TUZIS,
+  });
+  const parsedMemberPrice = memberPriceResult.value;
+  const memberPriceValid = memberPrice === "" || memberPriceResult.error === null;
+  const canSave = trimmedName.length > 0 && memberPriceValid && !saving;
 
   async function save() {
-    if (!canSave) return;
+    if (!canSave || (memberPrice !== "" && parsedMemberPrice === null)) return;
     setSaving(true);
     try {
-      const price = memberPrice.trim();
       const updated = await profile.update({
         display_name: trimmedName,
         bio: bio.trim(),
         p2paddr: p2paddr.trim(),
-        member_price: price === "" ? null : Math.max(0, Math.round(Number(price))),
+        member_price: memberPrice === "" ? null : parsedMemberPrice,
       });
       setUser(updated);
       toast.success("Profile updated");
@@ -169,14 +179,26 @@ function ProfileForm({ user }: { user: AuthUser }) {
             </Label>
             <Input
               id="profile-member-price"
-              type="number"
-              min={0}
+              type="text"
               inputMode="numeric"
+              maxLength={tuziInputMaxLength(MAX_MEMBER_PRICE_TUZIS)}
               value={memberPrice}
               onChange={(e) => setMemberPrice(e.target.value)}
               placeholder="Leave blank for no paid membership tier"
               className="tabular-nums"
+              aria-describedby="profile-member-price-error"
+              aria-invalid={!memberPriceValid}
             />
+            <p
+              id="profile-member-price-error"
+              className="min-h-[1rem] text-xs text-destructive"
+            >
+              {memberPriceResult.error === "tooLarge"
+                ? `Max ${MAX_MEMBER_PRICE_TUZIS.toLocaleString()} 2Z per membership.`
+                : !memberPriceValid
+                  ? "Enter a non-negative whole 2Z amount; commas may separate thousands."
+                  : null}
+            </p>
           </div>
 
           <div className="space-y-2">
