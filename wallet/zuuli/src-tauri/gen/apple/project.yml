@@ -69,7 +69,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "9"
+        CFBundleVersion: "10"
     entitlements:
       path: zuuli_iOS/zuuli_iOS.entitlements
     scheme:

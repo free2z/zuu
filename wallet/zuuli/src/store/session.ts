@@ -25,6 +25,8 @@ interface SessionState {
   logout: () => Promise<void>;
   /** Optimistically adjust the local 2Z balance (e.g. after an AI charge). */
   adjustTuzis: (delta: number) => void;
+  /** Replace local money state with a validated authoritative API balance. */
+  setTuzis: (balance: number) => void;
 }
 
 export const useSession = create<SessionState>((set, get) => ({
@@ -75,5 +77,12 @@ export const useSession = create<SessionState>((set, get) => ({
 
   adjustTuzis(delta) {
     set({ tuzis: Math.max(0, get().tuzis + delta) });
+  },
+
+  setTuzis(balance) {
+    set((state) => ({
+      tuzis: balance,
+      user: state.user ? { ...state.user, tuzis: balance } : null,
+    }));
   },
 }));
