@@ -64,8 +64,9 @@ preserve, so we are architecturally unconstrained.
    ([#132](https://github.com/free2z/zuu/issues/132),
    [#134](https://github.com/free2z/zuu/issues/134)) as the first one.
 8. **Hybrid post-quantum confidentiality from day one**, not retrofitted.
-9. **Federated by construction** — anyone can run a relay, and clients treat
-   relays as untrusted, replaceable infrastructure.
+9. **Federated by construction** — anyone can run a relay, and separately anyone
+   can run a witness (§9.3); clients treat both as untrusted, replaceable
+   infrastructure.
 
 ### 2.2 Non-goals
 
@@ -89,7 +90,7 @@ preserve, so we are architecturally unconstrained.
 | Layer | Choice | Standard |
 |---|---|---|
 | 0. Client integrity | ZUULI native (strong) / web WASM (stated-weaker) | [ADR 0001](./decisions/0001-platform-priority.md) |
-| 1. Identity + directory | Seed-derived identity; key-transparency log with cross-relay witness cosigning | CONIKS / SEEMless / Parakeet lineage |
+| 1. Identity + directory | Seed-derived identity; key-transparency log with independent witness cosigning (§9.3) | CONIKS / SEEMless / Parakeet lineage |
 | 2. Session crypto | **MLS**, hybrid PQ (X-Wing) from day one | [RFC 9420](https://datatracker.ietf.org/doc/html/rfc9420), [RFC 9750](https://datatracker.ietf.org/doc/rfc9750/), [draft-ietf-mls-extensions](https://www.ietf.org/archive/id/draft-ietf-mls-extensions-04.html) |
 | 3. Delivery | SMP-style opaque pairwise unidirectional queues, delete-on-ack, federated | [SimpleX SMP](https://simplex.chat/docs/simplex.html) design, clean-room implementation |
 | 3b. Fallback delivery | Nostr relays, optional, retention consciously accepted | [NIP-40](https://github.com/nostr-protocol/nips/blob/master/40.md) is advisory only |
@@ -134,8 +135,24 @@ tightly coupled to Nostr transport, which conflicts with delete-on-ack (§6.7).
 We should study MDK closely and reuse its lessons without adopting its transport
 coupling.
 
-> **Open question (§13-A):** OpenMLS's third-party audit status must be
-> established in writing before release. Do not treat "widely used" as audited.
+**Audit status — established, and it is why the version floor exists.** OpenMLS
+received an independent security assessment by SRLabs, sponsored by the Sovereign
+Tech Agency, published
+[2026-05-27](https://blog.openmls.tech/posts/2026-05-27-independent-audit/).
+Eight findings, one of them **High severity — "improper authentication of
+MACs."** The High finding and all but one of the rest are fixed in **0.8.1** (and
+0.7.3 on the previous line).
+
+**Floor: `openmls >= 0.8.1`.** Any earlier version contains a High-severity
+authentication defect and MUST NOT be shipped. One Low-severity finding was still
+open at publication; **review its status before release** rather than assuming the
+audit closed everything. Note also that the version floor interacts with the
+crypto provider: `openmls_rust_crypto` does not implement X-Wing, so the PQ
+ciphersuite (§5.2) requires the libcrux provider.
+
+This closes §13-A. It does not remove the case for our own review — an audit of
+the library is not an audit of how we use it — but it does mean "widely used" has
+been replaced by a published assessment with a named auditor and a fixed version.
 
 ## 4. Identity and the key hierarchy
 
@@ -394,10 +411,31 @@ creation. Every relay command is signed with the relevant queue key. The relay
 verifies the signature against the key registered for that address and learns
 nothing else — no account, no handle, no identity key.
 
-The two addresses are unlinkable to each other at the relay, so a relay
-observing traffic on a send address cannot trivially identify the corresponding
-receive address, and therefore cannot trivially pair correspondents. It can
-still attempt timing correlation; see [`THREAT-MODEL.md`](./THREAT-MODEL.md).
+**The two addresses are not unlinkable at the relay, and we do not claim they
+are.** An APPEND to `QueueSendAddr` has to be delivered into the message list
+read from `QueueRecvAddr`, so the relay necessarily holds that mapping — it is
+what makes delivery work. An operator who dumps the queue table pairs the two
+ends of every queue it hosts, directly and without any traffic analysis.
+SimpleX's SMP does not achieve this property either.
+
+What the split does buy is real, and it is capability separation rather than
+unlinkability:
+
+- **A sender cannot read, ACK or delete.** The append capability is strictly
+  weaker than the read capability and there is no way to escalate one into the
+  other. A sender learns nothing about what is queued or whether it was taken.
+- **A compromised sender-side key cannot drain the queue.** Whoever holds a
+  `QueueSendAddr` and its key — including someone who seizes the sending device
+  — can write, but cannot recover a single undelivered message.
+- **An observer of the relay's front door cannot pair addresses from traffic
+  alone.** The two addresses are unrelated on the wire, so an attacker who sees
+  connections and commands but not the relay's internal state is reduced to
+  timing correlation.
+
+Only the third of these survives against a relay operator with database access,
+and against that adversary it fails completely. See
+[`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)
+and [§4.9](./THREAT-MODEL.md#49-the-relay-knows-which-queue-addresses-are-paired).
 
 Queue addresses are established **inside** the MLS group — a member advertises
 its `QueueSendAddr` set to peers in an authenticated application message, never
@@ -543,89 +581,120 @@ deliberate belt-and-braces, not redundancy.
 
 ## 8. Retention (D3)
 
-[ADR 0003](./decisions/0003-history-retention.md). This governs **client-side**
-retention only. In every mode, the server holds nothing after acknowledged
-delivery — that is goal 2 and it is not adjustable per conversation.
+[ADR 0007](./decisions/0007-retention-per-user.md), which supersedes
+[ADR 0003](./decisions/0003-history-retention.md). This section governs
+**client-side** retention only.
 
-### 8.1 Retention is group state, not a preference
+**The one retention property that is a security claim** is the server-side one,
+and it is unchanged: in every mode, the relay holds nothing after acknowledged
+delivery. That is goal 2, it is not adjustable per conversation, and it is
+remotely auditable rather than verifiable
+([`THREAT-MODEL.md` §4.5](./THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable)).
+Everything else in §8 is local policy and courtesy signalling, and is labeled as
+such.
 
-Retention is carried as a `GroupContext` extension (RFC 9420 §12.4), so it is
-part of the authenticated group state that every member validates on every
-Commit. **The server cannot tamper with it, cannot observe it, and cannot
-suppress a change to it undetectably.**
+### 8.1 Retention is a per-user local choice
+
+**Each user decides how long their own device keeps its own copy.** One
+participant keeps five minutes; another keeps forever. Both are legitimate, and
+neither constrains the other. There is no shared retention state, no group-wide
+setting, and nothing in the protocol that makes one member's preference bind
+another member's disk.
+
+An earlier revision of this document specified the opposite: retention as a
+`GroupContext` retention extension (RFC 9420 §12.4), listed in
+`required_capabilities`, changed by a two-phase `RetentionChangeProposal` /
+`RetentionChangeAck` unanimity negotiation. **That design was withdrawn because
+it does not deliver the property it appears to deliver.** Once a recipient
+legitimately holds plaintext, nothing in the protocol constrains what their
+device does with it — a modified client advertises whatever capabilities it
+likes, joins the group, honors nothing, and retains everything. The machinery
+bought group-state complexity and a join-time exclusion rule in exchange for a
+guarantee that a recompiled binary defeats. It is client-trust theater and it is
+gone.
+
+### 8.2 The ephemeral hint is a courtesy signal, not a control
+
+A conversation may carry an **ephemeral hint**: a requested mode and TTL, sent as
+an MLS application message.
 
 ```
-retention_policy_extension = {
-  mode:        EPHEMERAL | RETAINED,
-  ttl_seconds: uint32,      // EPHEMERAL only; time-to-live after local receipt
-  set_in_epoch: uint64,
+ephemeral_hint = {
+  mode:        EPHEMERAL | RETAINED,   // requested, not imposed
+  ttl_seconds: uint32,                 // EPHEMERAL only; from local receipt
+  sent_in_epoch: uint64,
 }
 ```
 
-The extension is listed in `required_capabilities`, so a client that does not
-understand it cannot join the group at all. That is the correct failure mode: a
-client that would silently ignore an ephemeral setting must be excluded rather
-than tolerated.
+Because it travels inside MLS it is confidential, **authenticated and
+attributable**: nobody can forge "Azhr asked for this to be ephemeral," and every
+member sees who asked and in which epoch. That much is real cryptography.
 
-### 8.2 Changing it — negotiated, and what "agreed" actually means
+What it is not is enforcement. Conforming clients honor a hint by default and
+expire local plaintext at the requested TTL. **A non-conforming client simply
+ignores it, and no mechanism exists — or can exist — to detect that.** The hint
+is a courtesy feature in exactly the class of Signal's and WhatsApp's
+disappearing messages: it defends against casual persistence, against a message
+lingering on a screen, and against device seizure after the TTL, on devices whose
+owners are not adversaries. Those are worth having, and none of them is a defense
+against the counterparty.
 
-Changing retention is a two-phase application-layer negotiation followed by an
-MLS Commit:
+**Therefore the hint MUST NOT appear in any security claims table** — not here,
+and not in
+[`THREAT-MODEL.md` §5](./THREAT-MODEL.md#5-summary-what-we-claim-precisely).
+UI copy that implies a hint is enforced against a determined counterparty is a
+defect.
 
-1. A member sends `RetentionChangeProposal{new_policy}` as an application
-   message.
-2. Every other member's client responds `RetentionChangeAck{accept | reject}`.
-3. Only on unanimous accept does the proposer issue a Commit carrying a
-   `GroupContextExtensions` proposal with the new policy.
+**The knock-on, stated plainly.** Dropping the retention extension also drops
+`required_capabilities`, and with it the only join-time mechanism that excluded a
+client which would silently ignore an ephemeral setting. **Nothing replaces it.**
+Any client that speaks MLS and our application framing can join a conversation,
+and whether it honors hints is unobservable from outside. We accept this because
+the exclusion never worked — a client that lies about its capabilities passed the
+check anyway — but the change is a real reduction in what the group can assert
+about who is in it, and it should be read as one.
 
-**Honest limit.** MLS cannot *enforce* unanimity — any member may commit a
-`GroupContextExtensions` proposal unilaterally, and MLS will accept it. What the
-protocol guarantees is that such a change is **authenticated, attributable and
-visible**: every member sees exactly who changed the policy and in which epoch,
-and can leave. So the property we deliver is **"no silent change,"** not "no
-unilateral change." The UI must present an out-of-band policy change as a
-prominent, attributed security event, not a toast.
+### 8.3 Purge requests, and why nothing here is retroactive
 
-### 8.3 Mid-conversation changes apply forward only
+Clearly labeled a **request, not a guarantee**, a member may send
+`PurgeRequest{before_epoch}`. Conforming clients delete local history before that
+epoch and reply `PurgeAck`. The UI must say "asked N participants to delete; M
+confirmed," never "deleted."
 
-**A retention change takes effect from the epoch in which its Commit lands, and
-applies only to messages received in that epoch or later.** Messages already
-stored are governed by the policy that was in force when they were received.
+`PurgeRequest` survives the change to §8.1 **unchanged**, because it was always
+correctly labeled: it never claimed to compel anyone, so nothing about it was
+theater.
 
-Rationale, both directions:
+A purge is a request precisely because deletion cannot reach backwards, and the
+same asymmetry governs everything else in this section. A user changing their own
+local setting, and a hint arriving mid-conversation, both apply **forward only**:
 
-- **RETAINED → EPHEMERAL cannot be retroactive**, because retroactive deletion
-  is unenforceable. A member may have been offline, may have exported, may have
-  screenshotted. Claiming retroactive deletion would be claiming a property we
-  cannot deliver.
-- **EPHEMERAL → RETAINED cannot be retroactive**, because the data is already
+- **Retaining → ephemeral cannot be retroactive**, because retroactive deletion
+  is unenforceable across other people's devices. A member may have been offline,
+  may have exported, may have screenshotted.
+- **Ephemeral → retaining cannot be retroactive**, because the data is already
   gone. There is nothing to retain.
 
-Separately, and clearly labeled as a **request, not a guarantee**, a member may
-send `PurgeRequest{before_epoch}`. Conforming clients delete local history
-before that epoch and reply `PurgeAck`. The UI must say "asked N participants to
-delete; M confirmed," never "deleted."
+### 8.4 Short local retention and gap repair
 
-### 8.4 Ephemeral mode is best-effort, and the UI must say so
-
-A recipient can always screenshot, photograph the screen, or run a modified
-client. Ephemeral mode defends against *casual* persistence and device seizure
-after the TTL. It does not defend against a determined counterparty, and any UI
-copy implying otherwise is a defect.
-
-Ephemeral mode also shortens the plaintext outbox window used for gap repair
-(§7), which means some gaps become unrecoverable. That is surfaced to the user
+A short local TTL shortens the plaintext outbox window used for gap repair (§7),
+which means some detected gaps become unrecoverable. That is surfaced to the user
 as an explicit "this message could not be recovered" marker rather than a silent
-hole.
+hole. Because retention is now per user, this trade-off is made by the person who
+chose the short TTL and lands on their own conversation view.
 
-### 8.5 Ceremony transcripts are exempt
+### 8.5 Ceremony transcripts are retained by default
 
-Messages with `retention_class = CEREMONY` are **always retained**, regardless of
-the conversation's retention policy. A DKG transcript is evidence: it is what
-lets a participant later prove the ceremony ran correctly and who said what.
-Clients MUST NOT delete them under any retention setting, and the UI MUST state
-this before the ceremony begins, so consent is informed. Transcripts are stored
-under the `free2z/history/v1` local wrap key like everything else.
+Messages with `retention_class = CEREMONY` are **retained by default**, and the
+reason is not protocol compulsion — it is that the participant wants the
+evidence. A DKG transcript is what lets them later prove the ceremony ran
+correctly and who said what. Discarding it is discarding your own proof.
+
+Under the per-user model this needs no exemption machinery: a default plus a
+clear explanation before the ceremony begins, so consent is informed. A
+participant who deletes their own transcript anyway has only reduced what they
+themselves can later demonstrate. Transcripts are stored under the
+`free2z/history/v1` local wrap key like everything else.
 
 ## 9. Identity directory, key transparency, and federation
 
@@ -663,18 +732,43 @@ The residual attack on any KT log is **equivocation**: showing different
 directories to different users. The fix is Certificate Transparency's, not a
 chain's:
 
-- **Cross-relay witness cosigning.** Each relay in the federation observes and
-  signs the KT log root for each epoch. A client accepts a root only if it
-  carries at least *t* cosignatures from its own configured witness set. Two
-  conflicting signed roots for the same epoch are **non-repudiable
-  cryptographic evidence of misbehavior**, publishable by anyone.
+- **Witness cosigning.** A witness observes the KT log root for each epoch and
+  signs what it saw. A client accepts a root only if it carries at least *t*
+  cosignatures from its own configured witness set. Two conflicting signed roots
+  for the same epoch are **non-repudiable cryptographic evidence of
+  misbehavior**, publishable by anyone.
 - **Client gossip.** Clients cross-check roots with each other over the
   messaging channel itself — CONIKS's original design, and free because we
   already have an authenticated channel.
 
-The property strengthens as the federation grows, so the multi-relay design we
-want for censorship resistance ([ADR 0005](./decisions/0005-federation.md))
-delivers anti-equivocation as a side effect.
+**Witness and relay are separate roles.** An operator MAY run both, and we
+expect some will, but the protocol does not couple them and neither should the
+volunteer ask. A witness:
+
+- needs **no inbound port** — it polls the log over outbound HTTPS,
+- needs **no TLS certificate, no domain and no public IP**, for the same reason,
+- needs **no database** — its entire state is the last root it signed, a few
+  hundred bytes in a file,
+- needs no ciphertext, no queue storage, no uptime commitment beyond "checks in
+  often enough," and holds nothing whose loss or seizure harms a user.
+
+A relay, by contrast, is a public network service with storage, an inbound
+listener, TLS termination and a durability obligation. Requiring a witness to
+also be a relay would multiply the cost, the operational risk and the legal
+exposure of volunteering, for no gain in the property being bought — and the
+number of independent witnesses is precisely what makes that property real.
+
+The property strengthens as the *witness set* grows, independently of the number
+of relays, which is why recruiting witnesses is a cheaper path to
+anti-equivocation than recruiting relay operators. The multi-relay design we
+want for censorship resistance ([ADR 0005](./decisions/0005-federation.md)) is
+complementary: both become genuinely meaningful at the same moment, when the
+operators are independent of us.
+
+> **Stated plainly:** witnesses we operate are not independent witnesses. Until
+> there are at least two run by parties outside free2z, *t* is effectively 0 and
+> client gossip is the only anti-equivocation that exists. The UI must say so
+> rather than display a reassuring witness count.
 
 **No blockchain in the critical path** ([ADR 0006](./decisions/0006-zcash-coupling.md)).
 On-chain checkpointing buys nothing that witness cosigning does not, and costs a
@@ -865,8 +959,8 @@ view. Liveness is not guaranteed against an adversarial relay; **safety is.**
 
 ### 11.5 Transcript retention
 
-Every ceremony message carries `retention_class = CEREMONY` and is retained
-regardless of the conversation's retention policy (§8.5).
+Every ceremony message carries `retention_class = CEREMONY` and is retained by
+default, because the participant wants the evidence (§8.5).
 
 ## 12. Disposition of prior review feedback
 
@@ -889,19 +983,21 @@ regardless of the conversation's retention policy (§8.5).
 
 Genuinely undecided. Listed rather than invented.
 
-- **A. OpenMLS audit status.** Must be established in writing before release.
-  "Widely used" is not "audited." If no adequate audit exists, budget one; per
-  #305's economics, audit dominates the cost of this system and infrastructure
-  is a rounding error.
+**Letters are stable identifiers.** A question that gets answered is moved to
+§13.1 and its letter is retired rather than reused, so a citation to "§13-F"
+means the same thing a year from now. The gaps in the list below are therefore
+deliberate.
+
 - **B. PQ ciphersuite codepoint.** The MLS PQ ciphersuite registration is in
   flight. Pin an exact identifier and a migration path before Phase 2.
 - **C. Post-quantum signatures.** X-Wing covers the KEM only. Migrating identity,
   device, ceremony and KT-log signatures (e.g. to ML-DSA) is unscheduled. What
   is the trigger condition?
 - **D. History transfer to a new device.** MLS forward secrecy means a newly
-  added device cannot decrypt past epochs. Under `RETAINED`, do we transfer
-  local history device-to-device (requiring a secure pairing channel), and what
-  does that do to the forward-secrecy claim? Unresolved.
+  added device cannot decrypt past epochs. Where the user has chosen to retain
+  local history (§8.1), do we transfer it device-to-device (requiring a secure
+  pairing channel), and what does that do to the forward-secrecy claim?
+  Unresolved.
 - **E. SimpleX licensing.** Verify the server licence **before** anyone reads
   their source; adopt the SMP protocol design with a clean-room implementation.
 - **F. Padding bucket sizes.** Need a traffic study; current values are
@@ -916,9 +1012,6 @@ Genuinely undecided. Listed rather than invented.
 - **I. Anonymous credentials for quota.** The zkgroup/KVAC-style design for
   "prove you paid for capacity without revealing who you are"
   ([ADR 0006](./decisions/0006-zcash-coupling.md), optional tier) is unspecified.
-- **J. Retention unanimity.** §8.2 delivers "no silent change," not "no
-  unilateral change." Is that acceptable, or do we want an application-layer
-  policy that treats a non-unanimous change as grounds for automatic exit?
 - **K. Handle rename and transfer.** How the KT log represents a handle changing
   owner without creating a MITM window.
 - **L. Encrypted media attachments.** Out of scope for the first release, but the
@@ -926,6 +1019,26 @@ Genuinely undecided. Listed rather than invented.
   not after — retrofitting off S3-style egress pricing is painful.
 - **M. Group scale limits.** MLS is O(log N) for rekey but the delivery fan-out
   is O(members × devices). At what size do we need a different fan-out strategy?
+
+### 13.1 Closed
+
+Kept here rather than deleted, so that a reader who arrives via an old citation
+finds the answer instead of a hole.
+
+- **A. OpenMLS audit status — closed 2026-08-08.** An independent assessment by
+  SRLabs, sponsored by the Sovereign Tech Agency, was published
+  [2026-05-27](https://blog.openmls.tech/posts/2026-05-27-independent-audit/):
+  eight findings, one High ("improper authentication of MACs"), fixed in 0.8.1
+  and 0.7.3. **We adopt the floor `openmls >= 0.8.1`.** One Low-severity finding
+  was still open at publication and must be re-checked before release. See §3.1.
+  This closes the question of whether the library has been audited; it does not
+  close the question of auditing *our* use of it, which per #305's economics
+  remains the dominant cost of the system.
+- **J. Retention unanimity — closed 2026-08-08, by removing the premise.** The
+  negotiated-unanimity retention model was withdrawn (§8.1). With retention a
+  per-user local choice there is no group policy to change unanimously or
+  otherwise, so the question of what to do about a non-unanimous change no longer
+  has a subject. See [ADR 0007](./decisions/0007-retention-per-user.md).
 
 ## 14. References
 
