@@ -669,14 +669,14 @@ fn clean_corrupt_sapling_params() {
         (zcash_proofs::SAPLING_OUTPUT_NAME, EXPECTED_OUTPUT_BYTES),
     ] {
         let path = params_dir.join(name);
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() != expected {
-                tracing::warn!(
-                    "removing corrupt {name} ({} bytes, expected {expected})",
-                    meta.len()
-                );
-                let _ = std::fs::remove_file(&path);
-            }
+        if let Ok(meta) = std::fs::metadata(&path)
+            && meta.len() != expected
+        {
+            tracing::warn!(
+                "removing corrupt {name} ({} bytes, expected {expected})",
+                meta.len()
+            );
+            let _ = std::fs::remove_file(&path);
         }
     }
 }
@@ -819,11 +819,11 @@ pub async fn propose_send(
     let result = install_accepted_proposal(&mut *proposal_guard, candidate);
     match result {
         Ok(output) => {
-            if let Some(record) = pending_broadcast.as_ref() {
-                if let Err(error) = clear_pending_broadcast(&state.data_dir, &record.wallet_id) {
-                    *proposal_guard = None;
-                    return Err(error);
-                }
+            if let Some(record) = pending_broadcast.as_ref()
+                && let Err(error) = clear_pending_broadcast(&state.data_dir, &record.wallet_id)
+            {
+                *proposal_guard = None;
+                return Err(error);
             }
             *pending_broadcast = None;
             Ok(output)

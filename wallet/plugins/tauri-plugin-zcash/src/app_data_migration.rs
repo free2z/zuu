@@ -405,6 +405,18 @@ fn remove_empty_directory_unchanged(
             "canonical app-data directory changed filesystem type during migration".to_owned(),
         ));
     }
+    // Platform width skew again — same reason as the `st_mode` note above, so
+    // do NOT let `clippy::unnecessary_cast` talk you into deleting either cast.
+    // `dev_t` and `ino_t` are not one type across the targets this `cfg(unix)`
+    // function compiles for: on Apple `st_dev` is `i32` and `st_ino` is `u64`,
+    // on Linux/Android both are `u64`, and other unices narrow them further.
+    // Whichever host clippy runs on, exactly one of these two casts looks
+    // redundant *there* and is load-bearing somewhere else — removing it turns
+    // a portable widening into a compile error on the other target. `as u64` is
+    // safe here for the same reason the comparison is meaningful: both fields
+    // are non-negative kernel identifiers, so widening preserves the value and
+    // the identity test keeps its exact meaning on every target.
+    #[allow(clippy::unnecessary_cast)]
     let actual = DirectoryIdentity {
         first: stat.st_dev as u64,
         second: stat.st_ino as u64,

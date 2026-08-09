@@ -23,6 +23,7 @@ on:
       - '.gitmodules'
       - 'scripts/check-rust-fmt.sh'
       - 'scripts/check-rust-deny.sh'
+      - 'scripts/check-rust-clippy.sh'
       - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   push:
@@ -34,6 +35,7 @@ on:
       - '.gitmodules'
       - 'scripts/check-rust-fmt.sh'
       - 'scripts/check-rust-deny.sh'
+      - 'scripts/check-rust-clippy.sh'
       - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   workflow_dispatch:
@@ -109,6 +111,69 @@ jobs:
 
       - name: Check advisories, licences and sources
         run: scripts/check-rust-deny.sh
+
+  # ---------------------------------------------------------------------------
+  # Lints, for the same reason as `fmt` and `deny`: the required `gate` in
+  # zuuli.yml does not select wallet/zuuallet/**, so without this a
+  # Zuuallet-only pull request could land code that fails `clippy -D warnings`
+  # — and then fail the next unrelated ZUULI pull request on files it never
+  # touched. Same script, so the two workflows cannot disagree about what
+  # "lint-clean" means.
+  #
+  # This one compiles (clippy is a rustc driver), so unlike `fmt` it needs the
+  # submodule, the Tauri system libraries and a cache.
+  # ---------------------------------------------------------------------------
+  clippy:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libxdo-dev \
+            libdbus-1-dev \
+            libssl-dev \
+            build-essential curl wget file pkg-config
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # clippy is absent from the minimal profile this action installs.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: clippy
+
+      # Separate key from the `rust` job: clippy writes different artifacts into
+      # the same target directory names, so a shared cache would have the two
+      # jobs evicting each other's work on every run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            wallet/plugins/tauri-plugin-zcash
+            wallet/zuuli/src-tauri
+            wallet/zuuallet/src-tauri
+          key: zuuallet-clippy
+
+      - name: Lint every Rust crate under wallet/ at -D warnings
+        run: scripts/check-rust-clippy.sh
 
   # ---------------------------------------------------------------------------
   # Frontend: TypeScript typecheck + production bundle.
