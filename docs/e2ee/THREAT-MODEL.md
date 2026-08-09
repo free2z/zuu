@@ -72,12 +72,18 @@ data it stores or relays.
   append-only log with inclusion and consistency proofs; every client self-audits
   its own handle every epoch and alarms on any key change it did not initiate.
   An attempted substitution is visible **to the victim**.
-- **Cannot equivocate on the directory without leaving evidence.** Cross-relay
-  witness cosigning plus client gossip means two conflicting signed roots for one
-  epoch are non-repudiable, publishable proof of misbehavior
+- **Cannot equivocate on the directory without leaving evidence**, once an
+  independent witness set exists. Witness cosigning plus client gossip means two
+  conflicting signed roots for one epoch are non-repudiable, publishable proof of
+  misbehavior. Witnesses free2z operates provide none of this, so until outside
+  operators exist, client gossip is the whole of the defense
   ([`ARCHITECTURE.md` §9.3](./ARCHITECTURE.md#93-anti-equivocation-without-a-blockchain)).
-- **Cannot tamper with the retention policy.** It is a `GroupContext` extension,
-  authenticated inside MLS.
+- **Cannot forge or alter an ephemeral hint.** Hints are MLS application
+  messages, so the server can neither invent one nor change its TTL nor misattribute
+  it. Note carefully what this is *not*: honoring a hint is a client courtesy, not
+  something any party can enforce
+  ([`ARCHITECTURE.md` §8.2](./ARCHITECTURE.md#82-the-ephemeral-hint-is-a-courtesy-signal-not-a-control)),
+  and retention itself is a per-user local choice the server never sees.
 - **Cannot silently drop a message in the middle of a conversation.** Hash-linked
   parents produce a detectable gap.
 - **Cannot retain ciphertext it has deleted.** For its *own* relay we control the
@@ -148,9 +154,14 @@ user chose, or ours.
 - Cannot forge messages (MLS authentication) or modify them undetectably.
 - Cannot enumerate group membership by asking itself, because it has no notion of
   a group — only independent unidirectional queues.
-- Cannot link a queue to a person: queue addresses are established inside the MLS
-  group, never through the server, and send/receive addresses for the same queue
-  are distinct and unlinkable at the relay.
+- Cannot map a queue address to a person from its own records: addresses are
+  established inside the MLS group, never through the server, and carry no
+  handle, account or identity key. The relay learns that address *X* feeds
+  address *Y*; it does not learn who they are.
+- Cannot read, ACK or delete using a send-side credential. `QueueSendAddr`
+  authorizes APPEND only, so a compromised sender-side key — or a seized sending
+  device — cannot drain a single undelivered message out of the queue
+  ([`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues)).
 - Replay is rejected: MLS generation counters and the message DAG make a replayed
   ciphertext a duplicate `msg_id` at worst.
 - Cannot single-handedly equivocate on the KT log — a client requires *t*
@@ -158,11 +169,20 @@ user chose, or ours.
 
 **Not defended.**
 
-- **Traffic correlation between queues it hosts.** A relay that hosts both ends of
-  a conversation sees an append on one queue closely followed by a fetch on
-  another and can guess they are paired. Padding and jitter raise the cost; they
-  do not eliminate it. Using different relays for send and receive directions
-  helps and is supported, but is a user choice we cannot enforce.
+- **The send/receive address pair, for every queue it hosts.** Delivery requires
+  it: an APPEND to `QueueSendAddr` must land in the list read from
+  `QueueRecvAddr`, so the mapping is in the relay's database by construction. An
+  operator who dumps that table pairs the two ends of every queue it hosts
+  **directly**, with no traffic analysis at all. The two-address split buys
+  capability separation and resistance to a *front-door* observer; it does not
+  buy unlinkability against the operator, and this document does not claim it
+  does. See §4.9 and
+  [`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues).
+- **Traffic correlation across queues.** Even where a relay hosts only one
+  direction, an append on one queue closely followed by a fetch on another is a
+  usable signal. Padding and jitter raise the cost; they do not eliminate it.
+  Using different relays for send and receive directions helps against the
+  point above and is supported, but is a user choice we cannot enforce.
 - **Delivery-receipt timing.** See §4.2 — this is the strongest practical attack
   available to a relay operator.
 - **Denial of service and censorship.** Same as §3.1. Federation is the answer:
@@ -193,24 +213,30 @@ addressed to the group by construction.
 - **Cannot deny having sent a ceremony message.** Ceremony payloads are signed
   with `CeremonySigningKey` and bound to `session_hash`. Non-repudiation is the
   intended property here.
-- **Cannot change retention silently.** A policy change is authenticated and
-  attributable inside MLS.
+- **Cannot forge an ephemeral hint in someone else's name.** Hints are
+  authenticated and attributable inside MLS, so "Azhr asked for this to be
+  ephemeral" cannot be fabricated by another member.
 
 **Not defended.**
 
 - **Leaking plaintext they legitimately received.** Screenshots, copy-paste,
-  forwarding, a modified client that ignores the TTL. No E2EE system defends
-  against an authorized reader; ephemeral mode is explicitly best-effort
-  ([`ARCHITECTURE.md` §8.4](./ARCHITECTURE.md#84-ephemeral-mode-is-best-effort-and-the-ui-must-say-so)),
-  and the UI must not imply otherwise.
+  forwarding, a modified client that ignores an ephemeral hint. No E2EE system
+  defends against an authorized reader, and this is the reason retention is a
+  per-user local choice rather than a negotiated group property
+  ([`ARCHITECTURE.md` §8.1](./ARCHITECTURE.md#81-retention-is-a-per-user-local-choice)):
+  a rule that only conforming clients follow is not a defense against a member
+  who has already decided not to conform.
+- **Keeping their own copy forever.** Every participant chooses their own local
+  retention. A counterparty retaining everything is not a protocol violation and
+  is not detectable; it is the expected case for anyone who wants it.
 - **Refusing to participate.** A ceremony participant can stall a DKG
   indefinitely. Availability is not a property we provide against a member who
   will not play; the failure is safe (no key is output) rather than silent.
-- **Adding their own device to their own account** and thereby retaining a copy
-  outside the conversation's retention policy.
-- **A member unilaterally committing a retention change.** MLS permits it; we
-  make it visible and attributable, not impossible
-  ([`ARCHITECTURE.md` §8.2](./ARCHITECTURE.md#82-changing-it--negotiated-and-what-agreed-actually-means)).
+- **Ignoring an ephemeral hint.** The hint is a courtesy signal
+  ([`ARCHITECTURE.md` §8.2](./ARCHITECTURE.md#82-the-ephemeral-hint-is-a-courtesy-signal-not-a-control));
+  a client that disregards it is indistinguishable from one that honors it, and
+  no join-time capability check excludes it — see the knock-on recorded in that
+  section.
 
 ### 3.5 Compromised device
 
@@ -220,8 +246,8 @@ user's machine, or physical access to an unlocked device.
 **Defended.**
 
 - **Past traffic is partially protected.** MLS forward secrecy means epoch
-  secrets already deleted cannot be recovered — subject to the retention setting,
-  since retained local plaintext is right there on disk.
+  secrets already deleted cannot be recovered — subject to this user's own local
+  retention setting, since retained local plaintext is right there on disk.
 - **Future traffic heals, eventually.** Post-compromise security: once the
   compromised member issues an Update and the adversary is passive thereafter, the
   group's secrets recover.
@@ -244,7 +270,7 @@ user's machine, or physical access to an unlocked device.
   `ISK`, `CSK` and the ability to enroll new devices — i.e. a permanent wiretap
   that survives revocation of the compromised device, until the user rotates
   identity. Identity rotation is a KT event and is loud, but the window is real.
-- **Retained history**, in `RETAINED` mode, in full.
+- **Retained history**, in full, for whatever this user chose to keep.
 - **Zeroization in the browser.** In WASM we cannot guarantee that key material
   is erased from memory: the JS engine's GC may have copied the buffer and we do
   not control the heap. This is one reason ceremonies are ZUULI-first.
@@ -325,9 +351,12 @@ possesses one at the time of attack.
 
 ### 3.9 Malicious directory witness
 
-**Capability.** Operates one of the relays whose cosignature clients rely on for
-KT anti-equivocation; may refuse to sign, sign a false root, or collude with the
-directory operator.
+**Capability.** Operates one of the witnesses whose cosignature clients rely on
+for KT anti-equivocation; may refuse to sign, sign a false root, or collude with
+the directory operator. A witness is a distinct role from a relay
+([`ARCHITECTURE.md` §9.3](./ARCHITECTURE.md#93-anti-equivocation-without-a-blockchain))
+— one operator may run both, but a witness holds no ciphertext and compromising
+one yields no message data.
 
 **Defended.** A client requires *t* cosignatures from **its own configured**
 witness set, so a single malicious witness cannot validate a forged root. A
@@ -342,12 +371,13 @@ free2z-operated, and the UI should make the configured set inspectable.
 
 ### 3.10 Lost or stolen device (no active malware)
 
-**Defended.** Local storage is encrypted at rest; ephemeral conversations have
-already discarded plaintext past their TTL; the device can be revoked via the KT
-log and Removed from every group, after which it decrypts nothing new.
+**Defended.** Local storage is encrypted at rest; conversations this user set to
+expire have already discarded plaintext past their TTL; the device can be revoked
+via the KT log and Removed from every group, after which it decrypts nothing new.
 
-**Not defended.** Anything the device holds at seizure time in `RETAINED` mode,
-if the attacker also has the unlock credential. Revocation is not retroactive.
+**Not defended.** Anything the device still holds at seizure time under this
+user's own retention setting, if the attacker also has the unlock credential.
+Revocation is not retroactive.
 
 ## 4. Known limits, stated up front
 
@@ -384,12 +414,25 @@ with a strong anonymity requirement should disable delivery receipts and accept
 the resulting loss of certainty about delivery — which, under delete-on-ack,
 costs more than it would in a retaining messenger.
 
-### 4.3 Ephemeral mode is best-effort
+### 4.3 Ephemeral hints are a courtesy signal, not a control
 
-A recipient can screenshot, photograph the screen, or run a modified client that
-ignores the TTL. Ephemeral mode defends against casual persistence and against
-device seizure after the TTL has elapsed. It does not defend against a determined
-counterparty, and **any UI copy implying that it does is a defect.**
+Retention is a **per-user local choice**: each participant decides what their own
+device keeps, and nothing in the protocol lets one participant's preference bind
+another's disk
+([`ARCHITECTURE.md` §8.1](./ARCHITECTURE.md#81-retention-is-a-per-user-local-choice)).
+
+A conversation may carry an ephemeral **hint** — authenticated and attributable
+inside MLS, so it cannot be forged or misattributed. Conforming clients honor it.
+A recipient can screenshot, photograph the screen, or run a client that ignores
+the hint entirely, and **that is undetectable.** An earlier revision of these
+documents specified a negotiated group retention policy with a
+`required_capabilities` join check; it was withdrawn, because a modified client
+lies about its capabilities and the check bought nothing.
+
+The hint defends against casual persistence and against device seizure after the
+TTL. It does not defend against a determined counterparty, **it is not a security
+property, and it is deliberately absent from the claims table in §5.** Any UI copy
+implying enforcement is a defect.
 
 ### 4.4 Tail truncation is not detectable by hash links
 
@@ -428,6 +471,29 @@ Nostr fallback transport trades the delete-on-ack property for reach and
 censorship resistance. It is per conversation, opt-in, and the UI must state that
 ciphertext may be retained indefinitely by third parties.
 
+### 4.9 The relay knows which queue addresses are paired
+
+A queue's send address and its receive address are **linked in the relay's own
+database**, because that link is how a message gets from one to the other. A
+relay operator therefore holds a pairing table for every queue it hosts, and can
+read the pseudonymous communication graph over queue addresses off disk without
+any timing analysis.
+
+What limits the damage is what the addresses are *not*: they are opaque, they
+carry no handle or identity key, they are per device pair and per direction, and
+they rotate on the `free2z/queue/v1` exporter schedule, so the graph is over
+short-lived pseudonyms rather than over people. Deanonymizing it requires
+attaching a queue address to a person by some other means — source IP, timing
+against a known event, or correlation with the platform's own logs when free2z
+runs both. Publishing queue addresses on *k* relays, and using different relays
+for the two directions, splits the table so no single operator holds all of it.
+
+The two-address split is still worth having, for the reasons in
+[`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues) — a sender that cannot
+read, ACK or delete, and a sender-side key that cannot drain the queue. It is
+simply not unlinkability, and the earlier text in this document that said
+otherwise was wrong.
+
 ## 5. Summary: what we claim, precisely
 
 | Property | ZUULI (native) | Web (WASM) |
@@ -440,12 +506,19 @@ ciphertext may be retained indefinitely by third parties.
 | Post-compromise security | **Yes** — MLS Updates | Yes, same caveat |
 | PQ confidentiality (harvest-now) | **Yes** — X-Wing hybrid | Yes, same caveat |
 | PQ authentication | **No** (§3.8) | No |
-| Relay learns no social graph | **Yes**, modulo timing (§3.3, §4.2) | Same |
+| Relay learns no handles or identity keys | **Yes** (§3.3) | Same |
+| Relay learns no social graph | **No** — it holds the pairing table for its own queues, over opaque rotating addresses (§3.3, §4.9), and receipt timing adds to it (§4.2) | Same |
 | Server retains nothing after ack | **Auditable, not verifiable** (§4.5) | Same |
-| Ephemeral messages truly disappear | **No** — best-effort (§4.3) | No |
 | Deniability | **No** (§4.6) | No |
 | Anonymity vs. global passive adversary | **No** (§3.7) | No |
 | Defense against endpoint compromise | **No** (§3.5) | No |
 | Defense against targeted malicious code delivery | **Yes** — signed binary, verifiable out of band | **No** (§3.6) |
 
 The last row is the whole reason ZUULI is the trust anchor.
+
+**Deliberately absent from this table: ephemeral hints.** A hint is a courtesy
+signal that conforming clients honor and any other client ignores
+([`ARCHITECTURE.md` §8.2](./ARCHITECTURE.md#82-the-ephemeral-hint-is-a-courtesy-signal-not-a-control),
+§4.3). It is not a security property, so it is not listed as one — not even as a
+"No" row, because a reader scanning this table for what the system does should
+not encounter it here at all.
