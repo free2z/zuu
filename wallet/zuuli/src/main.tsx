@@ -15,10 +15,10 @@ import "./index.css";
 function RootFallback() {
   return (
     <div
+      className="app-crash-frame"
       role="alert"
       style={{
         boxSizing: "border-box",
-        height: "100dvh",
         minHeight: 0,
         display: "flex",
         flexDirection: "column",

@@ -14,7 +14,12 @@ const topBar = source("../src/components/layout/TopBar.tsx");
 const sidebar = source("../src/components/layout/Sidebar.tsx");
 const auth = source("../src/features/auth/index.tsx");
 const ai = source("../src/features/ai/index.tsx");
+const reader = source("../src/features/articles/pages/Reader.tsx");
 const root = source("../src/main.tsx");
+const androidManifest = source(
+  "../src-tauri/gen/android/app/src/main/AndroidManifest.xml",
+);
+const androidGradle = source("../src-tauri/gen/android/app/build.gradle.kts");
 const androidActivity = source(
   "../src-tauri/gen/android/app/src/main/java/cash/free2z/zuuli/MainActivity.kt",
 );
@@ -50,14 +55,23 @@ test("cover is enabled only together with four authoritative inset fallbacks", (
 
 test("the document and app are bounded to one dynamic viewport frame", () => {
   assert.match(css, /html,\s*body,\s*#root\s*\{[^}]*overflow: hidden;/s);
-  assert.match(cssRule("app-viewport"), /height: 100dvh;/);
+  for (const className of ["app-viewport", "app-crash-frame"]) {
+    const rule = cssRule(className);
+    const legacyHeight = rule.indexOf("height: 100vh;");
+    const dynamicHeight = rule.indexOf("height: 100dvh;");
+    assert.ok(legacyHeight >= 0, `${className} lacks the legacy fallback`);
+    assert.ok(
+      dynamicHeight > legacyHeight,
+      `${className} must override 100vh with 100dvh in declaration order`,
+    );
+  }
   assert.match(cssRule("app-viewport"), /overflow: hidden;/);
   assert.match(shell, /className="app-viewport flex bg-background"/);
   assert.match(shell, /data-app-frame/);
-  assert.match(root, /height: "100dvh"/);
+  assert.match(root, /className="app-crash-frame"/);
 
   for (const framingSource of [shell, auth, root]) {
-    assert.doesNotMatch(framingSource, /(?:min-h-screen|\bh-screen\b|100vh)/);
+    assert.doesNotMatch(framingSource, /(?:min-h-screen|\bh-screen\b)/);
   }
 });
 
@@ -84,16 +98,28 @@ test("chrome and full-bleed clearance use centralized variables", () => {
   assert.match(ai, /app-full-bleed-inset/);
   assert.match(shell, /app-scroll-content/);
   assert.match(auth, /app-auth-content/);
+  assert.match(reader, /app-reader-content/);
+  assert.match(reader, /app-reader-actions/);
+  assert.doesNotMatch(reader, /fixed[^"\n]*\bbottom-0\b/);
 
-  for (const component of [shell, topBar, sidebar, auth, ai]) {
+  for (const component of [shell, topBar, sidebar, auth, ai, reader]) {
     assert.doesNotMatch(component, /env\(safe-area-inset-/);
   }
 });
 
-test("native edge-to-edge setup precedes WebView creation", () => {
-  const enable = androidActivity.indexOf("enableEdgeToEdge()");
+test("native edge-to-edge, IME resize, and dark-chrome contrast are explicit", () => {
+  const enable = androidActivity.indexOf("enableEdgeToEdge(");
   const create = androidActivity.indexOf("super.onCreate(savedInstanceState)");
+  const controller = androidActivity.indexOf("WindowCompat.getInsetsController");
 
   assert.ok(enable >= 0);
   assert.ok(create > enable);
+  assert.ok(controller > create);
+  assert.match(androidActivity, /statusBarStyle = SystemBarStyle\.dark/);
+  assert.match(androidActivity, /navigationBarStyle = SystemBarStyle\.dark/);
+  assert.match(androidActivity, /Color\.argb\(0x80, 0x0A, 0x0A, 0x0F\)/);
+  assert.match(androidActivity, /isAppearanceLightStatusBars = false/);
+  assert.match(androidActivity, /isAppearanceLightNavigationBars = false/);
+  assert.match(androidManifest, /android:windowSoftInputMode="adjustResize"/);
+  assert.match(androidGradle, /androidx\.core:core-ktx:1\.15\.0/);
 });
