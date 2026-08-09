@@ -24,9 +24,7 @@ try {
 }
 
 function releaseEncryptionKeyCount(contents) {
-  return (
-    contents.match(/"iosUsesNonExemptEncryption"\s*:/g) ?? []
-  ).length;
+  return (contents.match(/"iosUsesNonExemptEncryption"\s*:/g) ?? []).length;
 }
 
 function validateReleaseEncryptionKeyCount(contents, label, target) {
@@ -57,7 +55,10 @@ function parseCanonicalRelease(bytes, label, target) {
     target.push(`${label} root must be a JSON object`);
     return undefined;
   }
-  const canonicalBytes = Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  const canonicalBytes = Buffer.from(
+    `${JSON.stringify(parsed, null, 2)}\n`,
+    "utf8",
+  );
   if (!bytes.equals(canonicalBytes))
     target.push(
       `${label} bytes must be canonical UTF-8 JSON without duplicate or escaped property names`,
@@ -110,11 +111,16 @@ for (const [label, fixture, expectedRawFailures] of [
     rawFailures.length !== expectedRawFailures ||
     parsedFixture.iosUsesNonExemptEncryption !== false
   )
-    throw new Error(`release duplicate-key detector self-test failed: ${label}`);
+    throw new Error(
+      `release duplicate-key detector self-test failed: ${label}`,
+    );
 }
 
 const invalidUtf8Fixture = Buffer.concat([
-  Buffer.from('{\n  "iosUsesNonExemptEncryption": false,\n  "$schema": "', "utf8"),
+  Buffer.from(
+    '{\n  "iosUsesNonExemptEncryption": false,\n  "$schema": "',
+    "utf8",
+  ),
   Buffer.from([0xff]),
   Buffer.from('"\n}\n', "utf8"),
 ]);
@@ -344,8 +350,7 @@ expect(
 );
 expect(
   "XcodeGen Rust archive source-tree count",
-  (project.match(/^[ \t]*-[ \t]+path:[ \t]+Externals[ \t]*$/gm) ?? [])
-    .length,
+  (project.match(/^[ \t]*-[ \t]+path:[ \t]+Externals[ \t]*$/gm) ?? []).length,
   0,
 );
 expect(
@@ -568,14 +573,34 @@ for (const wiring of [
   "-t cert -f pkcs12",
   "-T /usr/bin/codesign -T /usr/bin/xcodebuild",
   "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
-  "npm run oauth-links:verify-public -- --source-sha=\"$source_sha\"",
+  'npm run oauth-links:verify-public -- --source-sha="$source_sha"',
   "options: [mobile, ios, android, desktop, all, public-gate]",
   'if [[ "$target" == public-gate ]]; then',
   "needs.prepare.outputs.public_gate == 'true'",
   "needs.prepare.outputs.public_gate != 'true'",
 ]) {
   if (!releaseWorkflow.includes(wiring))
-    failures.push(`protected iOS signing-keychain wiring is missing: ${wiring}`);
+    failures.push(
+      `protected iOS signing-keychain wiring is missing: ${wiring}`,
+    );
+}
+const trustedSourceCheck = releaseWorkflow.indexOf(
+  "Validate source provenance before loading protected inputs",
+);
+const dependencyInstall = releaseWorkflow.indexOf("      - run: npm ci");
+const protectedEvidenceExposure = releaseWorkflow.indexOf(
+  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
+);
+if (
+  trustedSourceCheck === -1 ||
+  dependencyInstall === -1 ||
+  protectedEvidenceExposure === -1 ||
+  trustedSourceCheck > dependencyInstall ||
+  trustedSourceCheck > protectedEvidenceExposure
+) {
+  failures.push(
+    "protected evidence and checked-out dependency code must follow the workflow-owned source provenance check",
+  );
 }
 if (!packagingWorkflow.includes("run: npm run test:oauth-links")) {
   failures.push("packaging CI does not exercise the claimed-link release gate");
@@ -600,11 +625,7 @@ for (const [label, text, expression, expectedCount] of [
     1,
   ],
 ]) {
-  expect(
-    label,
-    occurrenceCount(text, expression),
-    expectedCount,
-  );
+  expect(label, occurrenceCount(text, expression), expectedCount);
 }
 expect(
   "historical profile UUID release pin count",

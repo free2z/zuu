@@ -394,10 +394,11 @@ asserting a specific ECCN in this runbook.
 
 Public production distribution also requires the claimed mobile OAuth release
 gate documented in [`../../../docs/release/ZUULI-MOBILE-OAUTH.md`](../../../docs/release/ZUULI-MOBILE-OAUTH.md).
-Run it against the exact immutable source commit being promoted; internal Play
-and TestFlight candidates remain on the private transition until that gate and
-the signed physical-device matrix pass. Claimed protected releases enforce the
-gate automatically from the environment-protected
-`ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64` secret; the pinned Ed25519 device-lab key,
-raw capture digests, live backend build header, and isolated `mobile-start`
-contract must all match.
+Run it against the exact immutable source commit being promoted. Internal Play
+and TestFlight candidates are never public authorization, even after rollout is
+set to `claimed`. Test those exact signed artifacts, then dispatch target
+`public-gate` with `dry_run=true` for the same source and identity before any
+store-side public promotion. That protected lane consumes
+`ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64`; the pinned Ed25519 device-lab key, raw
+capture digests, live backend build header, Apple CDN association, inert browser
+fallback, and isolated `mobile-start` contract must all match.

@@ -74,6 +74,36 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      # This step is workflow-owned shell, not code from the requested
+      # checkout. Prove provenance before npm lifecycle hooks or any checked-out
+      # verifier can run, and before the later step receives protected evidence.
+      - name: Validate source provenance before loading protected inputs
+        working-directory: .
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == push ]]; then
+            source_sha=$EVENT_SHA
+          else
+            source_sha=$INPUT_SOURCE_SHA
+          fi
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source SHA must be a full lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$source_sha" ]] || {
+            echo "checkout does not match the requested source SHA" >&2
+            exit 1
+          }
+          git fetch --no-tags origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          git merge-base --is-ancestor "$source_sha" refs/remotes/origin/main || {
+            echo "requested source is not a commit on origin/main" >&2
+            exit 1
+          }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.18.0"
