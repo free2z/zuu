@@ -22,6 +22,8 @@ on:
       - 'z/zcash/librustzcash'
       - '.gitmodules'
       - 'scripts/check-rust-fmt.sh'
+      - 'scripts/check-rust-deny.sh'
+      - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   push:
     branches: [main]
@@ -31,6 +33,8 @@ on:
       - 'z/zcash/librustzcash'
       - '.gitmodules'
       - 'scripts/check-rust-fmt.sh'
+      - 'scripts/check-rust-deny.sh'
+      - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   workflow_dispatch:
   schedule:
@@ -75,6 +79,36 @@ jobs:
 
       - name: Check formatting of every Rust crate under wallet/
         run: scripts/check-rust-fmt.sh
+
+  # ---------------------------------------------------------------------------
+  # Supply chain, for the same reason as `fmt`: the required `gate` in zuuli.yml
+  # does not select wallet/zuuallet/**, so without this a Zuuallet-only change
+  # to Cargo.toml or Cargo.lock could pull in an advisory or an incompatible
+  # licence that nothing checks.
+  # ---------------------------------------------------------------------------
+  deny:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      - name: Check advisories, licences and sources
+        run: scripts/check-rust-deny.sh
 
   # ---------------------------------------------------------------------------
   # Frontend: TypeScript typecheck + production bundle.

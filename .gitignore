@@ -5,6 +5,8 @@ private/
 .vscode/
 *.log
 target/
+# Checksum-verified cargo-deny binary fetched by scripts/check-rust-deny.sh.
+.cargo-deny/
 *.pyc
 __pycache__
 wallet/zuuli/dist/
