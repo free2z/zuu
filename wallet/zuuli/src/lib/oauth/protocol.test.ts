@@ -5,6 +5,7 @@ import {
   buildSessionBinding,
   canResumeMobileOAuth,
   generatePkcePair,
+  socialStartPath,
   validateAuthorizationStart,
 } from "./protocol";
 
@@ -12,6 +13,15 @@ const STATE = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 const AUTHORIZATION_STATE = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvut";
 const CHALLENGE = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 const PROVIDER_REDIRECT_URI = "https://free2z.cash/api/auth/social/mobile/callback";
+
+describe("socialStartPath", () => {
+  it("isolates mobile PKCE starts while preserving desktop starts", () => {
+    expect(socialStartPath("google", CHALLENGE)).toBe(
+      "/api/auth/social/google/mobile-start",
+    );
+    expect(socialStartPath("google")).toBe("/api/auth/social/google/start");
+  });
+});
 
 function start(
   provider: SocialProvider = "google",

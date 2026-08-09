@@ -15,7 +15,7 @@ import {
   finishMobileOAuth,
   type OAuthCapture,
 } from "../oauth/transport";
-import type { OAuthStartResponse } from "../oauth/protocol";
+import { socialStartPath, type OAuthStartResponse } from "../oauth/protocol";
 import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
   mockAiReply,
@@ -511,8 +511,11 @@ export const auth = {
     redirectUri: string,
     codeChallenge?: string,
   ): Promise<OAuthStartResponse> {
+    // Mobile starts use the callback tier's explicit route so the
+    // start/state/relay contract has one rollout boundary. Desktop and web
+    // starts remain on the normal API tier.
     return request<OAuthStartResponse>(
-      `/api/auth/social/${provider}/start`,
+      socialStartPath(provider, codeChallenge),
       {
         query: { redirect_uri: redirectUri, code_challenge: codeChallenge },
         anonymous: true,

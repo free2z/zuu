@@ -22,6 +22,14 @@ export interface PkcePair {
   challenge: string;
 }
 
+export function socialStartPath(
+  provider: SocialProvider,
+  codeChallenge?: string,
+): string {
+  const route = codeChallenge ? "mobile-start" : "start";
+  return `/api/auth/social/${provider}/${route}`;
+}
+
 const PROVIDER_AUTHORIZATION_ENDPOINT: Record<
   SocialProvider,
   { host: string; path: string }
