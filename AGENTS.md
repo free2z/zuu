@@ -188,16 +188,20 @@ A bump that touches the source of truth and nothing else **cannot merge** — th
 gate fails. That is the point: the version is one edit plus a mechanical
 follow-through, not an eleven-place archaeology exercise.
 
-### Cadence — proposed, not yet adopted
+### Cadence
 
-The pin is currently `1.88.0`, released June 2025 and roughly fourteen months
-old at the time of writing. Nothing here changes it; the bump is a separate,
-owner-gated decision because it moves every mobile and desktop release target at
-once. **Proposal for the owner to accept or reject:** track **stable minus one
-or two releases**, reviewed **quarterly**, with a named owner, so the pin is
-current enough for modern crates' MSRVs without chasing stable into surprises.
-Recorded here so the next person inherits a decision to make rather than a
-literal to be afraid of.
+The pin is currently `1.97.1`, the current stable at the time of writing. It
+moved here from `1.88.0` — a nine-version, fourteen-month jump — because the
+owner wants the release trains building on a modern compiler and the mechanical
+follow-through is now one script instead of an archaeology exercise.
+
+A bump moves every mobile and desktop release target at once, so it stays an
+**owner-gated decision**, reviewed **quarterly**, targeting **stable or stable
+minus one**. The MSRV consequence is deliberate: the three `rust-version` fields
+are defined as the two-component form of the channel, so bumping the channel
+raises them too. None of these crates is published to crates.io, so the MSRV is
+a statement of what we build with, not a compatibility promise to downstream
+consumers.
 
 ## Verifying before you push
 

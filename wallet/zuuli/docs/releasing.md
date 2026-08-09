@@ -15,7 +15,7 @@ Gradle representation disagrees. Never fix a release mismatch with Tauri's
 `iosUsesNonExemptEncryption` to `false`; verification requires both the source
 and generated iOS plists to carry the matching Boolean.
 
-The train pins Node `24.18.0`, Rust `1.88.0`, Java `21.0.12`, Xcode `26.6`,
+The train pins Node `24.18.0`, Rust `1.97.1`, Java `21.0.12`, Xcode `26.6`,
 Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
 `8.14.3` with its distribution checksum, Fastlane `2.237.0` through a
 checksum-bearing Bundler `4.0.3` lockfile, and Syft `1.50.0`. Action dependencies
