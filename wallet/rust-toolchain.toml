@@ -8,6 +8,6 @@
 # Bumping: change `channel` here, then run `scripts/check-rust-toolchain.sh` and
 # fix everything it names. See "The Rust toolchain pin" in the root AGENTS.md.
 [toolchain]
-channel = "1.88.0"
+channel = "1.97.1"
 profile = "minimal"
 components = ["clippy", "rustfmt"]

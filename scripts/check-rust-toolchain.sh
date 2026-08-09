@@ -51,6 +51,11 @@ DOC_PINS=(
   $'wallet/plugins/tauri-plugin-zcash/CLAUDE.md\tRust edition 2024, MSRV %MSRV%.'
   $'wallet/zuuli/docs/releasing.md\tRust `%CHANNEL%`'
   $'AGENTS.md\tThe pin is currently `%CHANNEL%`'
+  # Not prose: release-identity.mjs reads rust-toolchain.toml and asserts the
+  # channel equals this literal, so the release train fails closed on a silent
+  # edit to the source of truth. Checked here so a *deliberate* bump does not
+  # have to discover it 18 seconds into the packaging matrix.
+  $'wallet/zuuli/scripts/release-identity.mjs\t  "%CHANNEL%",'
 )
 
 # `toolchain:` may be an expression instead of a literal, but only one that

@@ -2,7 +2,7 @@
 name = "tauri-plugin-zcash"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.97"
 # Never goes to a registry: the wallet crates are consumed by path only. This is
 # also what lets wallet/deny.toml skip them under `licenses.private.ignore`.
 publish = false
