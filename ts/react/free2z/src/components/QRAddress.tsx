@@ -10,6 +10,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import HelpIcon from "@mui/icons-material/Help";
 import QRCode from "react-qr-code";
 import CopyToClipboard from "./CopyToClipboard";
+import { formatZcashAddressForDisplay } from "../utils/zcashAddress";
 
 export interface QRAddressProps {
     addr: string;
@@ -75,8 +76,18 @@ function QRAddress(props: QRAddressProps) {
                 <CopyToClipboard>
                     {({ copy }) => (
                         addr.startsWith("zcash:") ? (
-                            <Link href={addr} onClick={() => handleCopy(copy)}>
-                                {`${addr.slice(0, 15)}...`}
+                            // Showing a tail makes this string longer than the
+                            // head-only version it replaces (measured: 128px ->
+                            // 276px at 16px), which is wider than the ~240px a
+                            // 320px phone leaves inside this dialog. It wraps
+                            // rather than overflowing.
+                            <Link
+                                href={addr}
+                                onClick={() => handleCopy(copy)}
+                                title={addr}
+                                sx={{ overflowWrap: "anywhere", wordBreak: "break-all" }}
+                            >
+                                {formatZcashAddressForDisplay(addr)}
                                 <Button
                                     size="small"
                                     variant="text"
@@ -93,8 +104,9 @@ function QRAddress(props: QRAddressProps) {
                                 color="secondary"
                                 aria-label="copy donation address"
                                 onClick={() => handleCopy(copy)}
+                                title={addr}
                             >
-                                {`${addr.slice(0, 5)}...${addr.slice(-5)}`}
+                                {formatZcashAddressForDisplay(addr, { head: 6, tail: 8 })}
                                 <ContentCopyIcon sx={{ ml: 1 }} />
                             </Button>
                         )

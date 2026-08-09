@@ -4,6 +4,7 @@ import SimpleZcashAddress from "./SimpleZcashAddress";
 import { SimpleCreator } from "./MySubscribers";
 import { useState } from "react";
 import { TabPanel } from "./TabPanel";
+import { truncateZcashAddress } from "../utils/zcashAddress";
 
 
 type DonateZcashPanelProps = {
@@ -29,8 +30,12 @@ export default function DonateZcashPanel(props: DonateZcashPanelProps) {
                 direction="column" spacing={1}
                 alignItems="center"
             >
-                <Typography variant="caption">
-                    {`${creator.p2paddr.slice(0, 10)}...${creator.p2paddr.slice(-10)}`}
+                <Typography
+                    variant="caption"
+                    title={creator.p2paddr}
+                    sx={{ overflowWrap: "anywhere", wordBreak: "break-all" }}
+                >
+                    {truncateZcashAddress(creator.p2paddr)}
                 </Typography>
                 {!!(addr || creator.p2paddr) &&
                     <SimpleZcashAddress
