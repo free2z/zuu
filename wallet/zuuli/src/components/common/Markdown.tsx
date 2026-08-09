@@ -3,6 +3,7 @@ import {
   useState,
   isValidElement,
   type AnchorHTMLAttributes,
+  type ImgHTMLAttributes,
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
@@ -19,6 +20,7 @@ import rehypePrism from "rehype-prism-plus";
 import rehypeSlug from "rehype-slug";
 
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { mediaUrl } from "@/lib/api/http";
 import { isTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
@@ -325,6 +327,33 @@ function CommentImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
   );
 }
 
+/**
+ * `img` renderer for the trusted "article" variant: a real, auto-loading
+ * `<img>` whose `src` is resolved against the media host.
+ *
+ * free2z authors embed uploads as ORIGIN-RELATIVE paths — a real body reads
+ * `![](/uploadz/public/palmar/elg03269-1.webp)`. That only resolves by accident
+ * in `npm run dev` / `tauri dev`, where the Vite proxy forwards `/uploadz` to
+ * the backend from the same origin. A production `tauri build` has no proxy and
+ * the webview origin is `tauri://localhost`, so the same path resolves against
+ * the app's own bundled `dist/` (which contains only `index.html` + `assets/`)
+ * and 404s — every in-body image is broken. `mediaUrl()` absolutizes it against
+ * `MEDIA_BASE`, and leaves already-absolute `https:` / `data:` /
+ * protocol-relative sources untouched.
+ *
+ * `node` is destructured out because react-markdown passes the hast node to
+ * every override and it must not reach the DOM element.
+ */
+function ArticleImage({
+  node: _node,
+  src,
+  alt,
+  ...rest
+}: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
+  const resolved = typeof src === "string" ? mediaUrl(src) : undefined;
+  return <img {...rest} src={resolved} alt={alt ?? ""} />;
+}
+
 // ── Math DoS guard (defense-in-depth) ───────────────────────────────────────
 // A comment body of `$$` + `{`×400 + … + `}`×400 + `$$` makes rehype-mathjax
 // recurse until it throws `RangeError: Maximum call stack size exceeded`
@@ -433,12 +462,18 @@ export function Markdown({
         components={{
           a: MarkdownLink,
           pre: CodeBlock,
-          // Untrusted comments: remote images become plain external links so
-          // they never auto-load and beacon the reader's IP to an attacker.
+          // Images. BOTH variants must map to a REAL component:
+          //   • article — <ArticleImage>: a real <img>, src absolutized against
+          //     the media host so origin-relative `/uploadz/…` bodies load in a
+          //     production build (where there is no Vite proxy).
+          //   • comment — <CommentImageLink>: degrades to a plain external link
+          //     so untrusted images never auto-load and beacon the reader's IP
+          //     to an attacker-chosen host.
           //
-          // SPREAD the key in — NEVER write `img: isComment ? X : undefined`.
-          // react-markdown@9 resolves overrides through
-          // hast-util-to-jsx-runtime, which tests for KEY PRESENCE, not value:
+          // NEVER write `img: cond ? X : undefined` (nor any other
+          // conditionally-`undefined` entry in this map). react-markdown@9
+          // resolves overrides through hast-util-to-jsx-runtime, which tests
+          // for KEY PRESENCE, not value:
           //
           //   return own.call(state.components, name)
           //     ? state.components[name] : name
@@ -447,9 +482,10 @@ export function Markdown({
           // literally `undefined` instead of falling back to the intrinsic
           // `<img>` tag; React throws "Element type is invalid", the
           // ErrorBoundary below catches it, and EVERY article containing an
-          // image renders as raw markdown source (issue #319). The same
-          // footgun applies to any future conditional entry in this map.
-          ...(isComment ? { img: CommentImageLink } : {}),
+          // image renders as raw markdown source (issue #319). If a variant
+          // ever needs the plain intrinsic tag, omit the key entirely via a
+          // spread — do not set it to `undefined`.
+          img: isComment ? CommentImageLink : ArticleImage,
           table: ({ node, ...props }) => (
             <div className="overflow-x-auto">
               <table {...props} />
