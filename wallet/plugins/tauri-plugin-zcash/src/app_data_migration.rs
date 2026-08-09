@@ -388,7 +388,19 @@ fn remove_empty_directory_unchanged(
     }
     // SAFETY: fstatat succeeded and initialized the struct.
     let stat = unsafe { stat.assume_init() };
-    if stat.st_mode & libc::S_IFMT != libc::S_IFDIR {
+    // Platform width skew — do NOT "simplify" this back to a bare
+    // `stat.st_mode & libc::S_IFMT != libc::S_IFDIR`. `st_mode` is `c_uint`
+    // (u32) on every Android ABI, but `mode_t` — the type of `S_IFMT`/`S_IFDIR`
+    // — is `u16` on the 32-bit Android ABIs (armv7/x86) and `u32` on 64-bit
+    // Android and Linux. Apple is self-consistent at u16. Mixing the two
+    // directly therefore fails to compile for armv7-linux-androideabi and
+    // i686-linux-android, and only for those targets. `u32::from` is the
+    // portable bridge: it widens u16 losslessly and is the identity conversion
+    // where the operand is already u32 (via core's reflexive
+    // `impl<T> From<T> for T`), so it can neither truncate nor sign-extend and
+    // the file-type test keeps its exact meaning on every target.
+    let file_type = u32::from(stat.st_mode) & u32::from(libc::S_IFMT);
+    if file_type != u32::from(libc::S_IFDIR) {
         return Err(RemoveEmptyDirectoryError::InvalidState(
             "canonical app-data directory changed filesystem type during migration".to_owned(),
         ));
@@ -1165,6 +1177,47 @@ mod tests {
         assert!(fixture.source.exists());
         assert!(fixture.destination.is_dir());
         assert!(fixture.root.join(JOURNAL_FILENAME).is_file());
+    }
+
+    // Pins the `S_IFDIR` file-type guard in `remove_empty_directory_unchanged`.
+    // The empty canonical shell validated during preflight is swapped for a
+    // symlink to a real directory before the removal; `fstatat` is anchored with
+    // AT_SYMLINK_NOFOLLOW, so the mode must read as `S_IFLNK` and fail closed.
+    // A truncating or sign-extending fix to the `st_mode`/`mode_t` width skew
+    // would misclassify this as a directory and unlink the attacker's link.
+    #[cfg(unix)]
+    #[test]
+    fn empty_destination_replaced_by_symlink_fails_closed_on_file_type() {
+        let fixture = Fixture::new("filetype-race");
+        fixture.write_wallet_payload();
+        fs::create_dir(&fixture.destination).expect("create canonical state");
+        let destination = fixture.destination.clone();
+        let decoy = fixture.root.join("decoy-canonical");
+        fs::create_dir(&decoy).expect("create decoy directory");
+        let mut swap_destination_for_symlink = move |step| {
+            if step == MigrationStep::JournalPrepared {
+                fs::remove_dir(&destination).expect("remove preflight destination");
+                std::os::unix::fs::symlink(&decoy, &destination).expect("install symlink");
+            }
+            Ok(())
+        };
+
+        let error = fixture
+            .migrate(&mut swap_destination_for_symlink)
+            .expect_err("reject file-type replacement");
+
+        let MigrationError::InvalidState(reason) = error else {
+            panic!("expected InvalidState, got {error:?}");
+        };
+        assert!(
+            reason.contains("changed filesystem type"),
+            "expected the file-type guard to fire, got {reason}"
+        );
+        assert_eq!(
+            fs::read(fixture.source.join("wallets.json")).expect("read legacy source"),
+            b"manifest"
+        );
+        assert!(fixture.root.join("decoy-canonical").is_dir());
     }
 
     #[test]
