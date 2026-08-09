@@ -18,6 +18,13 @@ import {
 import type { OAuthStartResponse } from "../oauth/protocol";
 import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
 import {
+  DonationContractError,
+  IDEMPOTENT_DONATION_ROUTE,
+  isDonationIdempotencyKey,
+  normalizeDonationResult,
+  type DonationResult,
+} from "./donation";
+import {
   mockAiReply,
   mockArticleFeed,
   mockArticles,
@@ -88,6 +95,11 @@ import type {
 } from "./types";
 
 const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms));
+
+const mockDonationResults = new Map<
+  string,
+  { username: string; amount: number; result: DonationResult }
+>();
 
 // ─── Raw production shapes (only the fields we read) ────────────────────────
 interface RawImage {
@@ -1492,10 +1504,51 @@ export const tuzi = {
       await delay(400);
       return;
     }
-    await request(`/api/tuzis/donate/${username}`, {
+    await request(`/api/tuzis/donate/${encodeURIComponent(username)}`, {
       method: "POST",
       body: { amount: tuzis },
     });
+  },
+
+  async donateIdempotent(
+    username: string,
+    tuzis: number,
+    idempotencyKey: string,
+  ): Promise<DonationResult> {
+    if (!isDonationIdempotencyKey(idempotencyKey)) {
+      throw new DonationContractError("Donation idempotency key is invalid");
+    }
+    if (useMock()) {
+      await delay(400);
+      const prior = mockDonationResults.get(idempotencyKey);
+      if (prior) {
+        if (prior.username !== username || prior.amount !== tuzis) {
+          throw new ApiError(409, "Idempotency key request mismatch", {
+            code: "idempotency_mismatch",
+          });
+        }
+        return { ...prior.result, replayed: true };
+      }
+      if (tuzis > mockUser.tuzis) {
+        throw new ApiError(400, "Insufficient funds", {
+          code: "insufficient_funds",
+          balance: String(mockUser.tuzis),
+        });
+      }
+      mockUser.tuzis -= tuzis;
+      const result = { balance: mockUser.tuzis, charged: tuzis, replayed: false };
+      mockDonationResults.set(idempotencyKey, { username, amount: tuzis, result });
+      return result;
+    }
+    const response = await request(
+      `${IDEMPOTENT_DONATION_ROUTE}/${encodeURIComponent(username)}`,
+      {
+        method: "POST",
+        body: { amount: tuzis },
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    );
+    return normalizeDonationResult(response, tuzis);
   },
 
   async subscribe(
