@@ -365,7 +365,10 @@ pub(crate) fn recover_published_wallets(
         .filter(|operation| {
             operation.reason == CleanupReason::StagedWalletRollback
                 && operation.preserve_custody_if_manifest_missing
-                && matches!(manifest_binding(manifest, operation), ManifestBinding::Absent)
+                && matches!(
+                    manifest_binding(manifest, operation),
+                    ManifestBinding::Absent
+                )
         })
         .cloned()
         .collect();
@@ -704,11 +707,10 @@ fn execute_stage(
             remove_regular_file(&data_dir.join(format!("{}-journal", operation.db_filename)))
                 .map_err(|e| e.to_string())
         }
-        CleanupStage::PendingSendJournal => super::send::clear_pending_broadcast(
-            data_dir,
-            &operation.wallet_id,
-        )
-        .map_err(|e| e.to_string()),
+        CleanupStage::PendingSendJournal => {
+            super::send::clear_pending_broadcast(data_dir, &operation.wallet_id)
+                .map_err(|e| e.to_string())
+        }
         CleanupStage::LegacyFileCustody => seed_store
             .delete_legacy_file_record(&operation.wallet_id)
             .map_err(|e| e.to_string()),
@@ -1124,16 +1126,12 @@ mod tests {
         assert_eq!(report.pending_stages, 3);
 
         let mut deferred = Vec::new();
-        let report = retry_pending_with(
-            &dir.0,
-            &empty_manifest(),
-            RetryMode::Runtime,
-            |_, stage| {
+        let report =
+            retry_pending_with(&dir.0, &empty_manifest(), RetryMode::Runtime, |_, stage| {
                 deferred.push(stage);
                 Ok(())
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(
             deferred,
             vec![
@@ -1193,16 +1191,12 @@ mod tests {
         protect_staged_wallet_custody(&dir.0, &authorization).unwrap();
 
         let mut executed = Vec::new();
-        let report = retry_pending_with(
-            &dir.0,
-            &empty_manifest(),
-            RetryMode::Startup,
-            |_, stage| {
+        let report =
+            retry_pending_with(&dir.0, &empty_manifest(), RetryMode::Startup, |_, stage| {
                 executed.push(stage);
                 Ok(())
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert!(executed.is_empty());
         assert_eq!(report.pending_operations, 1);
         assert_eq!(report.blocked_operations, 1);
@@ -1248,16 +1242,12 @@ mod tests {
         rearm_staged_wallet_custody_cleanup(&dir.0, &authorization).unwrap();
 
         let mut executed = Vec::new();
-        let report = retry_pending_with(
-            &dir.0,
-            &empty_manifest(),
-            RetryMode::Runtime,
-            |_, stage| {
+        let report =
+            retry_pending_with(&dir.0, &empty_manifest(), RetryMode::Runtime, |_, stage| {
                 executed.push(stage);
                 Ok(())
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(executed, ALL_STAGES);
         assert_eq!(report.pending_operations, 0);
     }
