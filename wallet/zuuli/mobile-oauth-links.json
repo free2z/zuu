@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "rollout": "private-transition",
+  "activeRedirectUri": "cash.free2z.zuuli://oauth/callback",
+  "privateRedirectUri": "cash.free2z.zuuli://oauth/callback",
+  "claimedRedirectUri": "https://free2z.com/oauth/callback",
+  "apple": {
+    "applicationId": "F9AV5HKF6N.cash.free2z.zuuli",
+    "associatedDomain": "applinks:free2z.com"
+  },
+  "android": {
+    "packageName": "cash.free2z.zuuli",
+    "playAppSigningSha256CertFingerprints": []
+  }
+}

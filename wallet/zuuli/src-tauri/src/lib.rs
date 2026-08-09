@@ -4,9 +4,9 @@ mod oauth;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        // RFC 8252 private-use redirect for iOS/Android social OAuth. The
-        // plugin registers only cash.free2z.zuuli://oauth/callback; oauth.rs
-        // independently validates the full URL, state and calling session.
+        // Transition private URI plus the exact claimed HTTPS app link.
+        // oauth.rs independently binds the full callback target, state and
+        // calling session to the pending authorization attempt.
         .plugin(tauri_plugin_deep_link::init())
         // Native HTTP client the frontend uses (@tauri-apps/plugin-http) to call
         // the free2z API without browser CORS — required for Login with Zcash.

@@ -67,8 +67,10 @@ repeat bootstrap work or substitute unrelated credentials.
    `cash.free2z.zuuli`, SKU `zuuli-ios`, with `en-US` localization.
 3. The protected environment contains the Admin ASC key, dedicated ZUULI Apple
    Distribution certificate, and profile `ZUULI App Store CI`. CI verifies the
-   profile's team, application identifier, UUID, and certificate linkage before
-   it signs.
+   profile's team, application identifier, well-formed UUID, exact associated
+   domain entitlement, and certificate linkage before it signs. Regenerating
+   that named profile changes its UUID; the protected profile bytes and these
+   identities, rather than one historical UUID, are the release boundary.
 4. Add internal TestFlight testers and complete the beta metadata after Apple
    processes the first upload. The exempt-encryption declaration described below
    is embedded in each package; do not answer the same question differently in
@@ -384,3 +386,9 @@ Before public production distribution, Corpora should retain a concise
 export-classification memo covering the applicable EAR, encryption, and
 mass-market analysis. Record the conclusion and supporting facts without
 asserting a specific ECCN in this runbook.
+
+Public production distribution also requires the claimed mobile OAuth release
+gate documented in [`../../../docs/release/ZUULI-MOBILE-OAUTH.md`](../../../docs/release/ZUULI-MOBILE-OAUTH.md).
+Run it against the exact immutable source commit being promoted; internal Play
+and TestFlight candidates remain on the private transition until that gate and
+the signed physical-device matrix pass.

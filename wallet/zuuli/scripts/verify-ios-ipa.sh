@@ -305,13 +305,19 @@ profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")
 profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")
 profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")
 profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")
-[[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]] ||
-  fail "embedded profile UUID is not the protected ZUULI profile"
+profile_json=$(plutil -convert json -o - "$profile_plist") ||
+  fail "embedded provisioning profile is not a readable plist"
+[[ "$profile_uuid" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]] ||
+  fail "embedded profile UUID is malformed"
 [[ "$profile_name" == 'ZUULI App Store CI' ]] ||
   fail "embedded profile name is not ZUULI App Store CI"
 [[ "$profile_team" == "$team_id" ]] || fail "embedded profile team mismatch"
 [[ "$profile_app" == "$team_id.$application_id" ]] ||
   fail "embedded profile application identifier mismatch"
+jq -e '
+  .Entitlements["com.apple.developer.associated-domains"] == ["applinks:free2z.com"]
+' <<<"$profile_json" >/dev/null ||
+  fail "embedded profile does not authorize the exact ZUULI associated domain"
 
 codesign --verify --deep --strict --verbose=2 "$app" ||
   fail "app bundle signature is invalid"
@@ -356,8 +362,9 @@ signed_entitlements_json=$(plutil -convert json -o - "$signed_entitlements") ||
 [[ "$signed_team" == "$team_id" ]] || fail "signed team entitlement mismatch"
 jq -e '
   type == "object" and
-  ((has("get-task-allow") | not) or .["get-task-allow"] == false)
+  ((has("get-task-allow") | not) or .["get-task-allow"] == false) and
+  .["com.apple.developer.associated-domains"] == ["applinks:free2z.com"]
 ' <<<"$signed_entitlements_json" >/dev/null ||
-  fail "distribution app enables or has an invalid get-task-allow entitlement"
+  fail "distribution app has invalid release or associated-domain entitlements"
 
 echo "verified exact embedded profile and Corpora distribution signature in $(basename -- "$ipa")"

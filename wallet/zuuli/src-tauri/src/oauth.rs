@@ -1,9 +1,10 @@
 //! OAuth callback transports for ZUULI social login.
 //!
 //! Desktop uses RFC 8252 loopback on an ephemeral `127.0.0.1` port. iOS and
-//! Android use the reverse-domain private-use redirect
-//! `cash.free2z.zuuli://oauth/callback`. The mobile redirect is deliberately
-//! exact: the OS registration, the Tauri deep-link configuration, this Rust
+//! Android currently request the reverse-domain private-use redirect
+//! `cash.free2z.zuuli://oauth/callback` while the claimed HTTPS callback is
+//! deployed and verified. Both registrations are exact, and each pending flow
+//! is bound to the URI it requested: the OS registration, Tauri configuration, this Rust
 //! parser, the TypeScript authorization response validator, and free2z's
 //! server-side allowlist all name the same scheme, host and path.
 //!
@@ -26,10 +27,15 @@ use tauri::{AppHandle, Manager, Runtime, State};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 use url::Url;
 
-pub const MOBILE_REDIRECT_URI: &str = "cash.free2z.zuuli://oauth/callback";
+pub const PRIVATE_MOBILE_REDIRECT_URI: &str = "cash.free2z.zuuli://oauth/callback";
+pub const CLAIMED_MOBILE_REDIRECT_URI: &str = "https://free2z.com/oauth/callback";
+pub const MOBILE_REDIRECT_URI: &str = PRIVATE_MOBILE_REDIRECT_URI;
 const MOBILE_SCHEME: &str = "cash.free2z.zuuli";
 const MOBILE_HOST: &str = "oauth";
 const MOBILE_PATH: &str = "/callback";
+const CLAIMED_MOBILE_SCHEME: &str = "https";
+const CLAIMED_MOBILE_HOST: &str = "free2z.com";
+const CLAIMED_MOBILE_PATH: &str = "/oauth/callback";
 const OAUTH_TTL: Duration = Duration::from_secs(10 * 60);
 const LOOPBACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_CALLBACK_URL_BYTES: usize = 8 * 1024;
@@ -243,6 +249,13 @@ fn valid_pkce_verifier(verifier: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+fn valid_mobile_redirect_uri(uri: &str) -> bool {
+    matches!(
+        uri,
+        PRIVATE_MOBILE_REDIRECT_URI | CLAIMED_MOBILE_REDIRECT_URI
+    )
+}
+
 fn now_unix_ms() -> Result<u64, String> {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -282,7 +295,7 @@ fn load_pending(path: &Path) -> Result<Option<PendingMobileOauth>, String> {
     if pending.version != PENDING_VERSION
         || !valid_mobile_provider(&pending.provider)
         || !valid_state(&pending.state)
-        || pending.redirect_uri != MOBILE_REDIRECT_URI
+        || !valid_mobile_redirect_uri(&pending.redirect_uri)
         || !valid_session_binding(&pending.session_binding, pending.associate)
         || !valid_pkce_verifier(&pending.code_verifier)
     {
@@ -381,9 +394,13 @@ fn capture_from_pending(pending: &PendingMobileOauth, code: String) -> MobileCap
 }
 
 fn validate_mobile_target(url: &Url) -> bool {
-    url.scheme() == MOBILE_SCHEME
+    let exact_target = (url.scheme() == MOBILE_SCHEME
         && url.host_str() == Some(MOBILE_HOST)
-        && url.path() == MOBILE_PATH
+        && url.path() == MOBILE_PATH)
+        || (url.scheme() == CLAIMED_MOBILE_SCHEME
+            && url.host_str() == Some(CLAIMED_MOBILE_HOST)
+            && url.path() == CLAIMED_MOBILE_PATH);
+    exact_target
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none()
@@ -409,6 +426,11 @@ fn evaluate_mobile_claim(
         Ok(url) if validate_mobile_target(&url) => url,
         _ => return PendingAction::Keep(MobileClaimResult::Ignored),
     };
+    let mut callback_target = url.clone();
+    callback_target.set_query(None);
+    if callback_target.as_str() != pending.redirect_uri {
+        return PendingAction::Keep(MobileClaimResult::Ignored);
+    }
     let parsed = match parse_callback(&url) {
         Ok(parsed) => parsed,
         Err(message) => {
@@ -775,12 +797,19 @@ mod tests {
         assert!(validate_mobile_target(
             &Url::parse(MOBILE_REDIRECT_URI).unwrap()
         ));
+        assert!(validate_mobile_target(
+            &Url::parse(CLAIMED_MOBILE_REDIRECT_URI).unwrap()
+        ));
         for bad in [
             "cash.free2z.zuuli://evil/callback",
             "cash.free2z.zuuli://oauth/callback/extra",
             "cash.free2z.zuuli://oauth:99/callback",
             "cash.free2z.zuuli://oauth/callback#code=x",
             "other://oauth/callback",
+            "http://free2z.com/oauth/callback",
+            "https://free2z.com/oauth/callback/",
+            "https://free2z.com/oauth/callback/extra",
+            "https://www.free2z.com/oauth/callback",
         ] {
             assert!(!validate_mobile_target(&Url::parse(bad).unwrap()), "{bad}");
         }
@@ -887,6 +916,26 @@ mod tests {
     }
 
     #[test]
+    fn callback_target_must_match_the_uri_bound_to_pending_state() {
+        let mut value = pending();
+        let claimed = format!(
+            "{CLAIMED_MOBILE_REDIRECT_URI}?code=wrong-channel&state={}",
+            value.state,
+        );
+        assert!(matches!(
+            evaluate_mobile_claim(&mut value, &claimed, "login:none"),
+            PendingAction::Keep(MobileClaimResult::Ignored)
+        ));
+        assert!(matches!(value.phase, PendingPhase::Armed));
+
+        value.redirect_uri = CLAIMED_MOBILE_REDIRECT_URI.to_string();
+        assert!(matches!(
+            evaluate_mobile_claim(&mut value, &claimed, "login:none"),
+            PendingAction::Save(MobileClaimResult::Captured { .. })
+        ));
+    }
+
+    #[test]
     fn spoofed_state_is_ignored_but_matching_malformed_callback_fails_closed() {
         let mut value = pending();
         let spoof = format!("{MOBILE_REDIRECT_URI}?code=evil&state={}x", value.state);
@@ -915,15 +964,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_config_names_only_canonical_mobile_redirect() {
+    fn generated_config_names_only_the_transition_and_claimed_redirects() {
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let mobile = &config["plugins"]["deep-link"]["mobile"];
-        assert_eq!(mobile.as_array().unwrap().len(), 1);
+        assert_eq!(mobile.as_array().unwrap().len(), 2);
         assert_eq!(mobile[0]["scheme"][0], MOBILE_SCHEME);
         assert_eq!(mobile[0]["host"], MOBILE_HOST);
         assert_eq!(mobile[0]["path"][0], MOBILE_PATH);
         assert_eq!(mobile[0]["appLink"], false);
+        assert_eq!(mobile[1]["scheme"][0], CLAIMED_MOBILE_SCHEME);
+        assert_eq!(mobile[1]["host"], CLAIMED_MOBILE_HOST);
+        assert_eq!(mobile[1]["path"][0], CLAIMED_MOBILE_PATH);
+        assert_eq!(mobile[1]["appLink"], true);
     }
 
     #[test]
@@ -937,11 +990,18 @@ mod tests {
         );
         assert_eq!(manifest.matches("android:host=\"oauth\"").count(), 1);
         assert_eq!(manifest.matches("android:path=\"/callback\"").count(), 1);
+        assert_eq!(manifest.matches("android:scheme=\"https\"").count(), 1);
+        assert_eq!(manifest.matches("android:host=\"free2z.com\"").count(), 1);
+        assert_eq!(
+            manifest.matches("android:path=\"/oauth/callback\"").count(),
+            1
+        );
+        assert_eq!(manifest.matches("android:autoVerify=\"true\"").count(), 1);
         assert_eq!(
             manifest
                 .matches("android.intent.category.BROWSABLE")
                 .count(),
-            1
+            2
         );
     }
 
@@ -952,6 +1012,23 @@ mod tests {
         assert_eq!(
             plist.matches("<string>cash.free2z.zuuli</string>").count(),
             2
+        );
+    }
+
+    #[test]
+    fn generated_ios_entitlements_claim_only_the_free2z_host() {
+        let entitlements = include_str!("../gen/apple/zuuli_iOS/zuuli_iOS.entitlements");
+        assert_eq!(
+            entitlements
+                .matches("<key>com.apple.developer.associated-domains</key>")
+                .count(),
+            1,
+        );
+        assert_eq!(
+            entitlements
+                .matches("<string>applinks:free2z.com</string>")
+                .count(),
+            1
         );
     }
 }
