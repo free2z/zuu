@@ -7,14 +7,14 @@ The provider callback and app callback are intentionally different endpoints.
 
 The reviewed app-link contract is:
 
-| Contract | Exact value |
-| --- | --- |
-| Bundle/package ID | `cash.free2z.zuuli` |
-| Transition callback | `cash.free2z.zuuli://oauth/callback` |
-| Claimed callback | `https://free2z.com/oauth/callback` |
-| Apple application ID | `F9AV5HKF6N.cash.free2z.zuuli` |
-| Apple associated domain | `applinks:free2z.com` |
-| Android host/path | `free2z.com` + `/oauth/callback` |
+| Contract                | Exact value                          |
+| ----------------------- | ------------------------------------ |
+| Bundle/package ID       | `cash.free2z.zuuli`                  |
+| Transition callback     | `cash.free2z.zuuli://oauth/callback` |
+| Claimed callback        | `https://free2z.com/oauth/callback`  |
+| Apple application ID    | `F9AV5HKF6N.cash.free2z.zuuli`       |
+| Apple associated domain | `applinks:free2z.com`                |
+| Android host/path       | `free2z.com` + `/oauth/callback`     |
 
 `wallet/zuuli/mobile-oauth-links.json` is the canonical rollout record. During
 `private-transition`, native projects register both exact targets but new OAuth
@@ -75,7 +75,12 @@ npm run test:oauth-links
 
 The normal release verifier runs the repository consistency check. It permits
 `private-transition`, keeping internal Play/TestFlight work unblocked while
-the external association is deployed.
+the external association is deployed. Packaging CI always runs the adversarial
+claimed-gate fixtures. When rollout becomes `claimed`, the protected release
+workflow additionally decodes the environment-protected
+`ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64` secret and runs the public verifier before
+building or uploading either platform; the gate is no longer an operator-only
+command.
 
 A public-store release must instead run:
 
@@ -89,17 +94,34 @@ That command fails closed unless rollout is `claimed`, device evidence names the
 exact `--source-sha` being promoted, at least one strict Play
 App Signing fingerprint is committed, both live association documents match
 the exact reviewed unambiguous JSON without redirects or duplicate keys, and
-the evidence JSON records:
+the isolated live `mobile-start` route plus capability response are served by
+the exact backend commit named in the evidence. The response header
+`X-Zuuli-OAuth-Build-Sha` is the deployment binding; a merely well-formed or
+reachable Git commit is insufficient.
 
-- exact 40-character ZUU and tuzi commits;
+The device-lab custodian must generate an Ed25519 key outside the repository,
+commit only its SPKI public key as `deviceEvidenceEd25519PublicKeyPem`, and
+retain the private key in the protected device-lab/release environment. The
+evidence JSON is an envelope containing an exact statement and its detached
+Ed25519 signature. The signed statement binds:
+
+- exact 40-character ZUU and live tuzi deployment commits;
 - claimed URI and Apple application ID;
 - Android distributed signing fingerprint;
-- `userInitiatedHandoff: true` after exercising the reviewed confirmation tap;
-- `cold: true` and `warm: true` for signed physical iOS and Android tests.
+- SHA-256 and base64 content for five raw, redacted capture artifacts:
+  `ios-cold`, `ios-warm`, `android-cold`, `android-warm`, and `handoff`.
 
-Evidence metadata belongs in the release-candidate record, not source control
-when it contains device/operator details. Never record codes, states, tokens,
-provider secrets, or session material.
+Each capture must contain its scenario name plus the exact app commit, backend
+commit, and claimed URI. The verifier rejects unsigned edits, changed digests,
+missing scenarios, ambiguous JSON, a backend SHA not currently served by the
+callback tier, and an absent/unready `mobile-start` contract. Self-authored
+`cold: true`/`warm: true` booleans are not accepted as proof.
+
+The signed evidence envelope belongs in the protected release environment, not
+source control. Store its base64 encoding as
+`ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64`. Capture only redacted tool output; never
+record codes, states, tokens, provider secrets, session material, device serials,
+or operator identity.
 
 ## Signed-device proof matrix
 

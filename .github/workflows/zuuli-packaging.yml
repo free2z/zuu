@@ -74,6 +74,8 @@ jobs:
       - run: npm ci
       - name: Verify one release identity
         run: npm run release:verify
+      - name: Exercise claimed-link release gate
+        run: npm run test:oauth-links
       - name: Exercise generated iOS normalization
         run: node scripts/normalize-generated-ios-project.mjs --self-test
       - name: Exercise iOS IPA fail-closed verification

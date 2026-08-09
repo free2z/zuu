@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -11,18 +12,26 @@ const read = (path) => readFileSync(resolve(root, path), "utf8");
 const config = JSON.parse(read("mobile-oauth-links.json"));
 const tauri = JSON.parse(read("src-tauri/tauri.conf.json"));
 const manifest = read("src-tauri/gen/android/app/src/main/AndroidManifest.xml");
-const entitlements = read("src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements");
+const entitlements = read(
+  "src-tauri/gen/apple/zuuli_iOS/zuuli_iOS.entitlements",
+);
 const rust = read("src-tauri/src/oauth.rs");
 const protocol = read("src/lib/oauth/protocol.ts");
 const failures = [];
 const publicRelease = process.argv.includes("--public-release");
-const sourceShaArgument = process.argv.find((value) => value.startsWith("--source-sha="));
+const sourceShaArgument = process.argv.find((value) =>
+  value.startsWith("--source-sha="),
+);
 const sourceSha = sourceShaArgument?.slice("--source-sha=".length);
-const androidGeneratedMarker = "<!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->";
+const androidGeneratedMarker =
+  "<!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->";
 const androidGeneratedParts = manifest.split(androidGeneratedMarker);
-const androidGenerated = androidGeneratedParts.length === 3 ? androidGeneratedParts[1] : "";
+const androidGenerated =
+  androidGeneratedParts.length === 3 ? androidGeneratedParts[1] : "";
 if (androidGeneratedParts.length !== 3) {
-  failures.push("Android deep-link generated block must have exactly two boundary markers");
+  failures.push(
+    "Android deep-link generated block must have exactly two boundary markers",
+  );
 }
 
 const exact = {
@@ -33,26 +42,51 @@ const exact = {
   associatedDomain: "applinks:free2z.com",
   packageName: "cash.free2z.zuuli",
 };
+const evidenceScenarios = [
+  "ios-cold",
+  "ios-warm",
+  "android-cold",
+  "android-warm",
+  "handoff",
+];
 function expect(label, actual, expected) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    failures.push(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    failures.push(
+      `${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 function count(text, needle) {
   return text.split(needle).length - 1;
 }
+function exactKeys(label, value, keys) {
+  if (
+    value === null ||
+    Array.isArray(value) ||
+    typeof value !== "object" ||
+    JSON.stringify(Object.keys(value).sort()) !==
+      JSON.stringify([...keys].sort())
+  ) {
+    failures.push(`${label} must contain exactly: ${keys.join(", ")}`);
+    return false;
+  }
+  return true;
+}
 function canonicalJson(value) {
   if (Array.isArray(value)) return value.map(canonicalJson);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]),
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])]),
     );
   }
   return value;
 }
 
 function parseUnambiguousJson(bytes, label) {
-  if (bytes.byteLength > 65_536) throw new Error(`${label} JSON is unexpectedly large`);
+  if (bytes.byteLength > 65_536)
+    throw new Error(`${label} JSON is unexpectedly large`);
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   let offset = 0;
   const whitespace = () => {
@@ -123,7 +157,8 @@ function parseUnambiguousJson(bytes, label) {
     }
     while (true) {
       const key = string();
-      if (keys.has(key)) throw new Error(`${label} repeats JSON key ${JSON.stringify(key)}`);
+      if (keys.has(key))
+        throw new Error(`${label} repeats JSON key ${JSON.stringify(key)}`);
       keys.add(key);
       consume(":");
       result[key] = value();
@@ -144,26 +179,45 @@ function parseUnambiguousJson(bytes, label) {
 expect("schema version", config.schemaVersion, exact.schemaVersion);
 expect("private redirect", config.privateRedirectUri, exact.privateRedirectUri);
 expect("claimed redirect", config.claimedRedirectUri, exact.claimedRedirectUri);
-expect("Apple application ID", config.apple?.applicationId, exact.applicationId);
-expect("Apple associated domain", config.apple?.associatedDomain, exact.associatedDomain);
+expect(
+  "Apple application ID",
+  config.apple?.applicationId,
+  exact.applicationId,
+);
+expect(
+  "Apple associated domain",
+  config.apple?.associatedDomain,
+  exact.associatedDomain,
+);
 expect("Android package", config.android?.packageName, exact.packageName);
-if (!["private-transition", "claimed"].includes(config.rollout)) {
-  failures.push(`rollout must be private-transition or claimed, got ${JSON.stringify(config.rollout)}`);
+if (typeof config.deviceEvidenceEd25519PublicKeyPem !== "string") {
+  failures.push("deviceEvidenceEd25519PublicKeyPem must be a string");
 }
-const expectedActiveRedirect = config.rollout === "claimed"
-  ? exact.claimedRedirectUri
-  : exact.privateRedirectUri;
-const expectedActiveConstant = config.rollout === "claimed"
-  ? "CLAIMED_MOBILE_REDIRECT_URI"
-  : "PRIVATE_MOBILE_REDIRECT_URI";
+if (!["private-transition", "claimed"].includes(config.rollout)) {
+  failures.push(
+    `rollout must be private-transition or claimed, got ${JSON.stringify(config.rollout)}`,
+  );
+}
+const expectedActiveRedirect =
+  config.rollout === "claimed"
+    ? exact.claimedRedirectUri
+    : exact.privateRedirectUri;
+const expectedActiveConstant =
+  config.rollout === "claimed"
+    ? "CLAIMED_MOBILE_REDIRECT_URI"
+    : "PRIVATE_MOBILE_REDIRECT_URI";
 expect("active redirect", config.activeRedirectUri, expectedActiveRedirect);
 const fingerprints = config.android?.playAppSigningSha256CertFingerprints;
-if (!Array.isArray(fingerprints)) failures.push("Android fingerprints must be an array");
+if (!Array.isArray(fingerprints))
+  failures.push("Android fingerprints must be an array");
 else {
-  if (new Set(fingerprints).size !== fingerprints.length) failures.push("Android fingerprints repeat");
+  if (new Set(fingerprints).size !== fingerprints.length)
+    failures.push("Android fingerprints repeat");
   for (const fingerprint of fingerprints) {
     if (!/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(fingerprint)) {
-      failures.push(`invalid Play App Signing SHA-256 fingerprint: ${JSON.stringify(fingerprint)}`);
+      failures.push(
+        `invalid Play App Signing SHA-256 fingerprint: ${JSON.stringify(fingerprint)}`,
+      );
     }
   }
 }
@@ -171,100 +225,302 @@ else {
 const mobile = tauri.plugins?.["deep-link"]?.mobile;
 expect("Tauri mobile deep-link count", mobile?.length, 2);
 expect("Tauri private deep link", mobile?.[0], {
-  scheme: ["cash.free2z.zuuli"], host: "oauth", path: ["/callback"], appLink: false,
+  scheme: ["cash.free2z.zuuli"],
+  host: "oauth",
+  path: ["/callback"],
+  appLink: false,
 });
 expect("Tauri claimed deep link", mobile?.[1], {
-  scheme: ["https"], host: "free2z.com", path: ["/oauth/callback"], appLink: true,
+  scheme: ["https"],
+  host: "free2z.com",
+  path: ["/oauth/callback"],
+  appLink: true,
 });
 for (const [label, needle, expectedCount] of [
   ["Android autoVerify", 'android:autoVerify="true"', 1],
   ["Android claimed scheme", 'android:scheme="https"', 1],
   ["Android claimed host", 'android:host="free2z.com"', 1],
   ["Android claimed path", 'android:path="/oauth/callback"', 1],
-  ["iOS associated-domain entitlement", "<key>com.apple.developer.associated-domains</key>", 1],
+  [
+    "iOS associated-domain entitlement",
+    "<key>com.apple.developer.associated-domains</key>",
+    1,
+  ],
   ["iOS associated domain", "<string>applinks:free2z.com</string>", 1],
-  ["Rust private callback", `pub const PRIVATE_MOBILE_REDIRECT_URI: &str = "${exact.privateRedirectUri}";`, 1],
-  ["Rust claimed callback", `pub const CLAIMED_MOBILE_REDIRECT_URI: &str = "${exact.claimedRedirectUri}";`, 1],
-  ["Rust active callback", `pub const MOBILE_REDIRECT_URI: &str = ${expectedActiveConstant};`, 1],
-  ["TypeScript private callback", `export const PRIVATE_MOBILE_REDIRECT_URI = "${exact.privateRedirectUri}";`, 1],
-  ["TypeScript claimed callback", `export const CLAIMED_MOBILE_REDIRECT_URI = "${exact.claimedRedirectUri}";`, 1],
-  ["TypeScript active callback", `export const MOBILE_REDIRECT_URI = ${expectedActiveConstant};`, 1],
+  [
+    "Rust private callback",
+    `pub const PRIVATE_MOBILE_REDIRECT_URI: &str = "${exact.privateRedirectUri}";`,
+    1,
+  ],
+  [
+    "Rust claimed callback",
+    `pub const CLAIMED_MOBILE_REDIRECT_URI: &str = "${exact.claimedRedirectUri}";`,
+    1,
+  ],
+  [
+    "Rust active callback",
+    `pub const MOBILE_REDIRECT_URI: &str = ${expectedActiveConstant};`,
+    1,
+  ],
+  [
+    "TypeScript private callback",
+    `export const PRIVATE_MOBILE_REDIRECT_URI = "${exact.privateRedirectUri}";`,
+    1,
+  ],
+  [
+    "TypeScript claimed callback",
+    `export const CLAIMED_MOBILE_REDIRECT_URI = "${exact.claimedRedirectUri}";`,
+    1,
+  ],
+  [
+    "TypeScript active callback",
+    `export const MOBILE_REDIRECT_URI = ${expectedActiveConstant};`,
+    1,
+  ],
 ]) {
-  expect(label, count(label.startsWith("Android") ? androidGenerated : label.startsWith("iOS") ? entitlements : label.startsWith("Rust") ? rust : protocol, needle), expectedCount);
+  expect(
+    label,
+    count(
+      label.startsWith("Android")
+        ? androidGenerated
+        : label.startsWith("iOS")
+          ? entitlements
+          : label.startsWith("Rust")
+            ? rust
+            : protocol,
+      needle,
+    ),
+    expectedCount,
+  );
 }
 
 if (publicRelease) {
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
-    failures.push("public release requires --source-sha=<exact 40-character lowercase app commit>");
+    failures.push(
+      "public release requires --source-sha=<exact 40-character lowercase app commit>",
+    );
   }
   try {
     const checkoutSha = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     if (sourceSha !== checkoutSha) {
       failures.push("--source-sha does not match the checked-out app commit");
     }
     try {
       execFileSync("git", ["diff", "--quiet", "HEAD", "--"], {
-        cwd: root, stdio: "ignore",
+        cwd: root,
+        stdio: "ignore",
       });
       execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--"], {
-        cwd: root, stdio: "ignore",
+        cwd: root,
+        stdio: "ignore",
       });
     } catch {
-      failures.push("public release requires a clean tracked source tree and index");
+      failures.push(
+        "public release requires a clean tracked source tree and index",
+      );
     }
   } catch {
     failures.push("public release requires a readable Git source checkout");
   }
-  if (config.rollout !== "claimed") failures.push("public release requires rollout=claimed");
+  if (config.rollout !== "claimed")
+    failures.push("public release requires rollout=claimed");
   if (!Array.isArray(fingerprints) || fingerprints.length === 0) {
-    failures.push("public release requires at least one Google Play App Signing SHA-256 fingerprint");
+    failures.push(
+      "public release requires at least one Google Play App Signing SHA-256 fingerprint",
+    );
+  }
+  let evidencePublicKey;
+  try {
+    evidencePublicKey = createPublicKey(
+      config.deviceEvidenceEd25519PublicKeyPem ?? "",
+    );
+    if (evidencePublicKey.asymmetricKeyType !== "ed25519")
+      throw new Error("wrong key type");
+  } catch {
+    failures.push(
+      "public release requires the reviewed Ed25519 device-evidence public key",
+    );
   }
   const evidencePath = process.env.ZUULI_OAUTH_DEVICE_EVIDENCE;
+  let evidenceEnvelope;
   let evidence;
   if (!evidencePath) {
-    failures.push("public release requires ZUULI_OAUTH_DEVICE_EVIDENCE with signed iOS/Android cold+warm proof metadata");
+    failures.push(
+      "public release requires ZUULI_OAUTH_DEVICE_EVIDENCE with a signed physical-device evidence bundle",
+    );
   } else {
     try {
-      evidence = JSON.parse(readFileSync(resolve(evidencePath), "utf8"));
+      evidenceEnvelope = parseUnambiguousJson(
+        new Uint8Array(readFileSync(resolve(evidencePath))),
+        "device evidence",
+      );
     } catch {
-      failures.push("ZUULI_OAUTH_DEVICE_EVIDENCE must name readable JSON");
+      failures.push(
+        "ZUULI_OAUTH_DEVICE_EVIDENCE must name readable, unambiguous JSON",
+      );
     }
   }
-  if (evidence) {
-    if (evidence.claimedRedirectUri !== exact.claimedRedirectUri) failures.push("device evidence claimed URI mismatch");
-    if (evidence.apple?.applicationId !== exact.applicationId) failures.push("device evidence Apple identity mismatch");
-    if (evidence.apple?.cold !== true || evidence.apple?.warm !== true) failures.push("device evidence must prove iOS cold and warm links");
-    if (!fingerprints.includes(evidence.android?.signingCertSha256)) failures.push("device evidence Android certificate is not configured");
-    if (evidence.android?.cold !== true || evidence.android?.warm !== true) failures.push("device evidence must prove Android cold and warm links");
-    if (evidence.userInitiatedHandoff !== true) failures.push("device evidence must prove the reviewed user-initiated claimed-link handoff");
+  if (
+    evidenceEnvelope &&
+    exactKeys("device evidence envelope", evidenceEnvelope, [
+      "statement",
+      "signature",
+    ])
+  ) {
+    evidence = evidenceEnvelope.statement;
+    const signature = evidenceEnvelope.signature;
+    let signatureBytes;
+    if (
+      typeof signature === "string" &&
+      /^[A-Za-z0-9+/]+={0,2}$/.test(signature)
+    ) {
+      signatureBytes = Buffer.from(signature, "base64");
+      if (signatureBytes.toString("base64") !== signature)
+        signatureBytes = undefined;
+    }
+    if (
+      !signatureBytes ||
+      !evidencePublicKey ||
+      !verify(
+        null,
+        Buffer.from(JSON.stringify(canonicalJson(evidence)), "utf8"),
+        evidencePublicKey,
+        signatureBytes,
+      )
+    ) {
+      failures.push("device evidence signature is absent or invalid");
+    }
+  }
+  if (
+    evidence &&
+    exactKeys("device evidence statement", evidence, [
+      "schemaVersion",
+      "appCommit",
+      "backendCommit",
+      "claimedRedirectUri",
+      "apple",
+      "android",
+      "artifacts",
+    ])
+  ) {
+    if (evidence.schemaVersion !== 1)
+      failures.push("device evidence schema version mismatch");
+    if (evidence.claimedRedirectUri !== exact.claimedRedirectUri)
+      failures.push("device evidence claimed URI mismatch");
+    if (
+      !exactKeys("device evidence Apple identity", evidence.apple, [
+        "applicationId",
+      ]) ||
+      evidence.apple?.applicationId !== exact.applicationId
+    )
+      failures.push("device evidence Apple identity mismatch");
+    if (
+      !exactKeys("device evidence Android identity", evidence.android, [
+        "packageName",
+        "signingCertSha256",
+      ]) ||
+      evidence.android?.packageName !== exact.packageName ||
+      !fingerprints.includes(evidence.android?.signingCertSha256)
+    )
+      failures.push("device evidence Android identity is not configured");
     for (const value of [evidence.appCommit, evidence.backendCommit]) {
-      if (!/^[0-9a-f]{40}$/.test(value ?? "")) failures.push("device evidence requires exact app and backend commit SHAs");
+      if (!/^[0-9a-f]{40}$/.test(value ?? ""))
+        failures.push(
+          "device evidence requires exact app and backend commit SHAs",
+        );
     }
     if (sourceSha && evidence.appCommit !== sourceSha) {
       failures.push("device evidence app commit does not match --source-sha");
     }
+    if (
+      exactKeys(
+        "device evidence artifacts",
+        evidence.artifacts,
+        evidenceScenarios,
+      )
+    ) {
+      for (const scenario of evidenceScenarios) {
+        const descriptor = evidence.artifacts[scenario];
+        if (
+          !exactKeys(`${scenario} evidence descriptor`, descriptor, [
+            "contentBase64",
+            "sha256",
+          ])
+        )
+          continue;
+        if (
+          typeof descriptor.contentBase64 !== "string" ||
+          !/^[A-Za-z0-9+/]+={0,2}$/.test(descriptor.contentBase64) ||
+          typeof descriptor.sha256 !== "string" ||
+          !/^[0-9a-f]{64}$/.test(descriptor.sha256)
+        ) {
+          failures.push(`${scenario} evidence descriptor is malformed`);
+          continue;
+        }
+        try {
+          const artifact = Buffer.from(descriptor.contentBase64, "base64");
+          if (artifact.toString("base64") !== descriptor.contentBase64) {
+            throw new Error("encoding");
+          }
+          if (artifact.byteLength === 0 || artifact.byteLength > 10_000_000) {
+            throw new Error("size");
+          }
+          const digest = createHash("sha256").update(artifact).digest("hex");
+          if (digest !== descriptor.sha256) throw new Error("digest");
+          const text = new TextDecoder("utf-8", { fatal: true }).decode(
+            artifact,
+          );
+          for (const token of [
+            scenario,
+            evidence.appCommit,
+            evidence.backendCommit,
+            exact.claimedRedirectUri,
+          ]) {
+            if (!text.includes(token)) throw new Error("binding");
+          }
+        } catch {
+          failures.push(
+            `${scenario} evidence artifact is invalid, changed, oversized, or not bound to this release`,
+          );
+        }
+      }
+    }
   }
   if (failures.length === 0) {
-    const expectedAasa = { applinks: { details: [{
-      appIDs: [exact.applicationId], components: [{ "/": "/oauth/callback" }],
-    }] } };
-    const expectedAssetlinks = [{
-      relation: ["delegate_permission/common.handle_all_urls"],
-      target: {
-        namespace: "android_app",
-        package_name: exact.packageName,
-        sha256_cert_fingerprints: fingerprints,
+    const expectedAasa = {
+      applinks: {
+        details: [
+          {
+            appIDs: [exact.applicationId],
+            components: [{ "/": "/oauth/callback" }],
+          },
+        ],
       },
-      relation_extensions: {
-        "delegate_permission/common.handle_all_urls": {
-          dynamic_app_link_components: [{ "/": "/oauth/callback" }],
+    };
+    const expectedAssetlinks = [
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: {
+          namespace: "android_app",
+          package_name: exact.packageName,
+          sha256_cert_fingerprints: fingerprints,
+        },
+        relation_extensions: {
+          "delegate_permission/common.handle_all_urls": {
+            dynamic_app_link_components: [{ "/": "/oauth/callback" }],
+          },
         },
       },
-    }];
+    ];
     for (const [url, expected] of [
-      ["https://free2z.com/.well-known/apple-app-site-association", expectedAasa],
+      [
+        "https://free2z.com/.well-known/apple-app-site-association",
+        expectedAasa,
+      ],
       ["https://free2z.com/.well-known/assetlinks.json", expectedAssetlinks],
     ]) {
       try {
@@ -273,24 +529,127 @@ if (publicRelease) {
           cache: "no-store",
           signal: AbortSignal.timeout(10_000),
         });
-        if (response.status !== 200 || response.url !== url) failures.push(`${url} must return direct HTTP 200`);
+        if (response.status !== 200 || response.url !== url)
+          failures.push(`${url} must return direct HTTP 200`);
         const mediaType = (response.headers.get("content-type") ?? "")
-          .split(";", 1)[0].trim().toLowerCase();
-        if (mediaType !== "application/json") failures.push(`${url} must use application/json`);
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase();
+        if (mediaType !== "application/json")
+          failures.push(`${url} must use application/json`);
         const body = parseUnambiguousJson(
           new Uint8Array(await response.arrayBuffer()),
           url,
         );
-        if (JSON.stringify(canonicalJson(body)) !== JSON.stringify(canonicalJson(expected))) failures.push(`${url} is broader than the reviewed exact association`);
+        if (
+          JSON.stringify(canonicalJson(body)) !==
+          JSON.stringify(canonicalJson(expected))
+        )
+          failures.push(
+            `${url} is broader than the reviewed exact association`,
+          );
       } catch {
-        failures.push(`${url} could not be fetched without redirects or contained invalid or ambiguous JSON`);
+        failures.push(
+          `${url} could not be fetched without redirects or contained invalid or ambiguous JSON`,
+        );
       }
+    }
+    const capabilitiesUrl = "https://free2z.cash/api/zuuli/capabilities/";
+    try {
+      const response = await fetch(capabilitiesUrl, {
+        redirect: "error",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (response.status !== 200 || response.url !== capabilitiesUrl) {
+        failures.push(`${capabilitiesUrl} must return direct HTTP 200`);
+      }
+      if (
+        (response.headers.get("content-type") ?? "")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase() !== "application/json"
+      )
+        failures.push(
+          "live callback-tier capabilities must use application/json",
+        );
+      const body = parseUnambiguousJson(
+        new Uint8Array(await response.arrayBuffer()),
+        capabilitiesUrl,
+      );
+      if (body?.capabilities?.auth?.social !== true) {
+        failures.push(
+          "the live callback tier does not advertise social OAuth ready",
+        );
+      }
+      if (
+        response.headers.get("x-zuuli-oauth-build-sha") !==
+        evidence.backendCommit
+      ) {
+        failures.push(
+          "device evidence backend commit is not the live callback-tier build",
+        );
+      }
+      if (
+        (response.headers.get("cache-control") ?? "").toLowerCase() !==
+        "no-store"
+      ) {
+        failures.push("live callback-tier capabilities must be no-store");
+      }
+    } catch {
+      failures.push("live callback-tier capabilities could not be verified");
+    }
+    const startUrl = new URL(
+      "https://free2z.cash/api/auth/social/google/mobile-start",
+    );
+    startUrl.searchParams.set("redirect_uri", exact.claimedRedirectUri);
+    startUrl.searchParams.set("code_challenge", "invalid");
+    try {
+      const response = await fetch(startUrl, {
+        redirect: "error",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = parseUnambiguousJson(
+        new Uint8Array(await response.arrayBuffer()),
+        startUrl.toString(),
+      );
+      if (
+        response.status !== 400 ||
+        response.url !== startUrl.toString() ||
+        body?.detail !== "mobile OAuth requires a valid PKCE S256 challenge."
+      ) {
+        failures.push("the live isolated mobile-start contract is not ready");
+      }
+      if (
+        (response.headers.get("content-type") ?? "")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase() !== "application/json"
+      )
+        failures.push("live mobile-start must use application/json");
+      if (
+        response.headers.get("x-zuuli-oauth-build-sha") !==
+        evidence.backendCommit
+      ) {
+        failures.push(
+          "mobile-start is not served by the attested callback-tier build",
+        );
+      }
+    } catch {
+      failures.push(
+        "the live isolated mobile-start contract could not be verified",
+      );
     }
   }
 }
 
 if (failures.length) {
-  console.error(`ZUULI mobile OAuth link verification failed:\n- ${failures.join("\n- ")}`);
+  console.error(
+    `ZUULI mobile OAuth link verification failed:\n- ${failures.join("\n- ")}`,
+  );
   process.exit(1);
 }
-console.log(`ZUULI mobile OAuth links are repo-consistent (${config.rollout}).`);
+console.log(
+  `ZUULI mobile OAuth links are repo-consistent (${config.rollout}).`,
+);

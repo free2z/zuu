@@ -52,6 +52,7 @@ jobs:
     name: Pin immutable source
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    environment: zuuli-app-stores
     outputs:
       identity: ${{ steps.identity.outputs.identity }}
       tag: ${{ steps.identity.outputs.tag }}
@@ -87,6 +88,7 @@ jobs:
           CONFIRMED_IDENTITY: ${{ inputs.identity }}
           INPUT_TARGET: ${{ inputs.target }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}
         run: |
           set -euo pipefail
           git fetch origin \
@@ -111,6 +113,18 @@ jobs:
             echo "source SHA must be a full lowercase 40-character commit SHA" >&2
             exit 1
           }
+          if [[ "$(jq -r .rollout mobile-oauth-links.json)" == claimed ]]; then
+            : "${OAUTH_DEVICE_EVIDENCE_BASE64:?ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 is required for a claimed-link release}"
+            evidence_file="$RUNNER_TEMP/zuuli-oauth-device-evidence.json"
+            cleanup_evidence() { rm -f -- "$evidence_file"; }
+            trap cleanup_evidence EXIT
+            printf '%s' "$OAUTH_DEVICE_EVIDENCE_BASE64" | base64 --decode > "$evidence_file"
+            test -s "$evidence_file"
+            ZUULI_OAUTH_DEVICE_EVIDENCE="$evidence_file" \
+              npm run oauth-links:verify-public -- --source-sha="$source_sha"
+            rm -f -- "$evidence_file"
+            trap - EXIT
+          fi
           args=("--source-sha=$source_sha" --require-main)
           metadata=$(node scripts/release-identity.mjs "${args[@]}")
           actual=$(jq -r .identity <<<"$metadata")
@@ -584,10 +598,7 @@ jobs:
         run: git submodule update --init z/zcash/librustzcash
         working-directory: .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          {
-            node-version: "24.18.0",
-          }
+        with: { node-version: "24.18.0" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with: { toolchain: "${{ env.ZUULI_RUST_VERSION }}" }
       - name: Install package dependencies
@@ -681,10 +692,7 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           xcodebuild -version | grep -Fx 'Xcode 26.6'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          {
-            node-version: "24.18.0",
-          }
+        with: { node-version: "24.18.0" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
           {

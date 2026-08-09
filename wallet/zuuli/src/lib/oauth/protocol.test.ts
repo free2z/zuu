@@ -12,14 +12,20 @@ import {
 const STATE = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 const AUTHORIZATION_STATE = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvut";
 const CHALLENGE = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
-const PROVIDER_REDIRECT_URI = "https://free2z.cash/api/auth/social/mobile/callback";
+const PROVIDER_REDIRECT_URI =
+  "https://free2z.cash/api/auth/social/mobile/callback";
 
 describe("socialStartPath", () => {
-  it("isolates mobile PKCE starts while preserving desktop starts", () => {
-    expect(socialStartPath("google", CHALLENGE)).toBe(
+  it("isolates claimed starts while preserving private-transition and desktop starts", () => {
+    expect(socialStartPath("google", "https://free2z.com/oauth/callback")).toBe(
       "/api/auth/social/google/mobile-start",
     );
-    expect(socialStartPath("google")).toBe("/api/auth/social/google/start");
+    expect(socialStartPath("google", MOBILE_REDIRECT_URI)).toBe(
+      "/api/auth/social/google/start",
+    );
+    expect(
+      socialStartPath("google", "http://127.0.0.1:43123/oauth/callback"),
+    ).toBe("/api/auth/social/google/start");
   });
 });
 
@@ -36,7 +42,10 @@ function start(
   url.searchParams.set("response_type", "code");
   const mobile = redirectUri === MOBILE_REDIRECT_URI;
   url.searchParams.set("state", mobile ? AUTHORIZATION_STATE : STATE);
-  url.searchParams.set("redirect_uri", mobile ? PROVIDER_REDIRECT_URI : redirectUri);
+  url.searchParams.set(
+    "redirect_uri",
+    mobile ? PROVIDER_REDIRECT_URI : redirectUri,
+  );
   if (provider !== "github") {
     url.searchParams.set("code_challenge", CHALLENGE);
     url.searchParams.set("code_challenge_method", "S256");
@@ -63,10 +72,19 @@ describe("validateAuthorizationStart", () => {
   it.each([
     ["wrong host", (url: URL) => (url.hostname = "evil.example")],
     ["wrong path", (url: URL) => (url.pathname = "/not-oauth")],
-    ["wrong callback", (url: URL) => url.searchParams.set("redirect_uri", "evil://callback")],
-    ["wrong state", (url: URL) => url.searchParams.set("state", `${AUTHORIZATION_STATE}x`)],
+    [
+      "wrong callback",
+      (url: URL) => url.searchParams.set("redirect_uri", "evil://callback"),
+    ],
+    [
+      "wrong state",
+      (url: URL) => url.searchParams.set("state", `${AUTHORIZATION_STATE}x`),
+    ],
     ["missing PKCE", (url: URL) => url.searchParams.delete("code_challenge")],
-    ["downgraded PKCE", (url: URL) => url.searchParams.set("code_challenge_method", "plain")],
+    [
+      "downgraded PKCE",
+      (url: URL) => url.searchParams.set("code_challenge_method", "plain"),
+    ],
   ])("rejects %s", (_name, mutate) => {
     const value = start();
     const url = new URL(value.authorize_url);
@@ -87,11 +105,22 @@ describe("validateAuthorizationStart", () => {
 
   it("keeps non-PKCE GitHub off mobile while preserving desktop", () => {
     expect(() =>
-      validateAuthorizationStart("github", start("github"), MOBILE_REDIRECT_URI, true),
+      validateAuthorizationStart(
+        "github",
+        start("github"),
+        MOBILE_REDIRECT_URI,
+        true,
+      ),
     ).toThrow(/PKCE-capable/);
     const desktop = "http://127.0.0.1:49152/0123456789abcdef0123456789abcdef";
-    expect(() => validateAuthorizationStart("github", start("github", desktop), desktop, false))
-      .not.toThrow();
+    expect(() =>
+      validateAuthorizationStart(
+        "github",
+        start("github", desktop),
+        desktop,
+        false,
+      ),
+    ).not.toThrow();
   });
 
   it.each([
@@ -112,7 +141,9 @@ describe("validateAuthorizationStart", () => {
 describe("buildSessionBinding", () => {
   it("binds anonymous login to an empty session", async () => {
     await expect(buildSessionBinding(false, null)).resolves.toBe("login:none");
-    await expect(buildSessionBinding(false, "existing-token")).rejects.toThrow(/Sign out/);
+    await expect(buildSessionBinding(false, "existing-token")).rejects.toThrow(
+      /Sign out/,
+    );
   });
 
   it("binds association to a one-way digest of the current token", async () => {

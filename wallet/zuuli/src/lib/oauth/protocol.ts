@@ -24,9 +24,13 @@ export interface PkcePair {
 
 export function socialStartPath(
   provider: SocialProvider,
-  codeChallenge?: string,
+  redirectUri: string,
 ): string {
-  const route = codeChallenge ? "mobile-start" : "start";
+  // Already-distributed private-link clients use the legacy /start contract.
+  // Move to the isolated route only with the claimed callback; its protected
+  // release gate proves that exact backend route live before rollout flips.
+  const route =
+    redirectUri === CLAIMED_MOBILE_REDIRECT_URI ? "mobile-start" : "start";
   return `/api/auth/social/${provider}/${route}`;
 }
 
@@ -59,7 +63,8 @@ function validState(state: string): boolean {
 }
 
 function validateMobileProviderRedirect(value: string | undefined): string {
-  if (!value) throw new Error("free2z did not return its mobile OAuth relay URI.");
+  if (!value)
+    throw new Error("free2z did not return its mobile OAuth relay URI.");
   let url: URL;
   try {
     url = new URL(value);
@@ -76,7 +81,9 @@ function validateMobileProviderRedirect(value: string | undefined): string {
     url.search ||
     url.hash
   ) {
-    throw new Error("free2z returned a mobile OAuth relay outside its allowlist.");
+    throw new Error(
+      "free2z returned a mobile OAuth relay outside its allowlist.",
+    );
   }
   return url.toString();
 }
@@ -120,13 +127,19 @@ export function validateAuthorizationStart(
     url.port ||
     url.hash
   ) {
-    throw new Error("free2z returned an authorization URL outside the provider allowlist.");
+    throw new Error(
+      "free2z returned an authorization URL outside the provider allowlist.",
+    );
   }
   if (oneQuery(url, "response_type") !== "code") {
-    throw new Error("The provider authorization response type is not \`code\`.");
+    throw new Error(
+      "The provider authorization response type is not \`code\`.",
+    );
   }
   if (oneQuery(url, "state") !== authorizationState) {
-    throw new Error("The provider authorization URL does not match its OAuth state.");
+    throw new Error(
+      "The provider authorization URL does not match its OAuth state.",
+    );
   }
   const providerRedirect = mobile
     ? validateMobileProviderRedirect(start.provider_redirect_uri)
@@ -139,7 +152,9 @@ export function validateAuthorizationStart(
   // GitHub OAuth Apps currently do not, so GitHub stays desktop/web-only rather
   // than shipping a weaker mobile exception.
   if (mobile && provider === "github") {
-    throw new Error("GitHub sign-in on mobile is waiting for a PKCE-capable provider configuration.");
+    throw new Error(
+      "GitHub sign-in on mobile is waiting for a PKCE-capable provider configuration.",
+    );
   }
   if (provider !== "github") {
     const challenge = oneQuery(url, "code_challenge");
@@ -151,7 +166,9 @@ export function validateAuthorizationStart(
       throw new Error("The provider authorization URL is missing PKCE S256.");
     }
     if (expectedCodeChallenge && challenge !== expectedCodeChallenge) {
-      throw new Error("The provider authorization URL changed the app's PKCE challenge.");
+      throw new Error(
+        "The provider authorization URL changed the app's PKCE challenge.",
+      );
     }
   }
   return url.toString();
@@ -160,14 +177,20 @@ export function validateAuthorizationStart(
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 /** Generate the verifier inside the app; only its S256 challenge leaves it. */
 export async function generatePkcePair(): Promise<PkcePair> {
   const random = crypto.getRandomValues(new Uint8Array(32));
   const verifier = base64Url(random);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(verifier),
+  );
   return { verifier, challenge: base64Url(new Uint8Array(digest)) };
 }
 
@@ -184,7 +207,10 @@ export async function buildSessionBinding(
   if (!token) {
     throw new Error("Your session expired before account linking started.");
   }
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token),
+  );
   const hex = [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

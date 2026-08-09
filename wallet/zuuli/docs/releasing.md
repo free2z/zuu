@@ -376,7 +376,7 @@ that ZUULI's non-OS cryptography uses published, non-proprietary algorithms and
 is limited to its Zcash wallet and financial-transaction functionality. Build 6
 proved this answer through App Store Connect, and Build 7 makes it package data.
 
-Apple directs apps that use no encryption *or only exempt encryption* to set the
+Apple directs apps that use no encryption _or only exempt encryption_ to set the
 Boolean to `NO`; omitting the key causes the export-compliance questions to recur
 for each upload. Apple also says the developer remains responsible for the
 classification and may have separate reporting obligations. See Apple's
@@ -396,4 +396,8 @@ Public production distribution also requires the claimed mobile OAuth release
 gate documented in [`../../../docs/release/ZUULI-MOBILE-OAUTH.md`](../../../docs/release/ZUULI-MOBILE-OAUTH.md).
 Run it against the exact immutable source commit being promoted; internal Play
 and TestFlight candidates remain on the private transition until that gate and
-the signed physical-device matrix pass.
+the signed physical-device matrix pass. Claimed protected releases enforce the
+gate automatically from the environment-protected
+`ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64` secret; the pinned Ed25519 device-lab key,
+raw capture digests, live backend build header, and isolated `mobile-start`
+contract must all match.

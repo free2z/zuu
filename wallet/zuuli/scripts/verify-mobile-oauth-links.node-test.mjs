@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { test } from "node:test";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -30,11 +37,16 @@ function copyFixture() {
 
 function claimedFixture(values = {}) {
   const fixture = copyFixture();
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const contractPath = resolve(fixture, "mobile-oauth-links.json");
   const contract = JSON.parse(readFileSync(contractPath, "utf8"));
   contract.rollout = "claimed";
   contract.activeRedirectUri = contract.claimedRedirectUri;
   contract.android.playAppSigningSha256CertFingerprints = [fingerprint];
+  contract.deviceEvidenceEd25519PublicKeyPem = publicKey.export({
+    type: "spki",
+    format: "pem",
+  });
   writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
   for (const path of ["src-tauri/src/oauth.rs", "src/lib/oauth/protocol.ts"]) {
     const sourcePath = resolve(fixture, path);
@@ -45,45 +57,118 @@ function claimedFixture(values = {}) {
     writeFileSync(sourcePath, source);
   }
   const preloadPath = resolve(fixture, "mock-fetch.mjs");
-  writeFileSync(preloadPath, `
+  writeFileSync(
+    preloadPath,
+    `
+const backendCommit = process.env.MOCK_BACKEND_COMMIT || "${"b".repeat(40)}";
 const documents = (url) => url.includes("apple-app-site-association")
   ? { applinks: { details: [{ components: [{ "/": "/oauth/callback" }], appIDs: ["F9AV5HKF6N.cash.free2z.zuuli"] }] } }
   : [{ target: { sha256_cert_fingerprints: [${JSON.stringify(fingerprint)}], package_name: "cash.free2z.zuuli", namespace: "android_app" }, relation: ["delegate_permission/common.handle_all_urls"], relation_extensions: { "delegate_permission/common.handle_all_urls": { dynamic_app_link_components: [{ "/": "/oauth/callback" }] } } }];
-globalThis.fetch = async (url) => ({
-  status: Number(process.env.MOCK_STATUS),
-  url,
-  headers: { get: () => process.env.MOCK_CONTENT_TYPE },
-  arrayBuffer: async () => new TextEncoder().encode(
+globalThis.fetch = async (input) => {
+  const url = input.toString();
+  let status = Number(process.env.MOCK_STATUS);
+  let body = documents(url);
+  const headers = new Map([["content-type", process.env.MOCK_CONTENT_TYPE]]);
+  if (url.includes("/api/zuuli/capabilities/")) {
+    body = { capabilities: { auth: { social: true } } };
+    headers.set("cache-control", "no-store");
+    headers.set("x-zuuli-oauth-build-sha", backendCommit);
+  } else if (url.includes("/api/auth/social/google/mobile-start")) {
+    status = process.env.MOCK_START_STATUS ? Number(process.env.MOCK_START_STATUS) : 400;
+    body = { detail: "mobile OAuth requires a valid PKCE S256 challenge." };
+    headers.set("x-zuuli-oauth-build-sha", backendCommit);
+  }
+  const encoded = new TextEncoder().encode(
     process.env.MOCK_DUPLICATE === "true" && url.includes("apple-app-site-association")
       ? '{"applinks":{"details":[],"details":[{"components":[{"/":"/oauth/callback"}],"appIDs":["F9AV5HKF6N.cash.free2z.zuuli"]}]}}'
-      : JSON.stringify(documents(url)),
-  ).buffer,
-});
-`);
+      : JSON.stringify(body),
+  );
+  return {
+    status, url,
+    headers: { get: (name) => headers.get(name.toLowerCase()) ?? null },
+    arrayBuffer: async () => encoded.buffer,
+  };
+};
+`,
+  );
   execFileSync("git", ["init", "-q"], { cwd: fixture });
   execFileSync("git", ["add", "."], { cwd: fixture });
   execFileSync(
     "git",
-    ["-c", "user.name=ZUULI Test", "-c", "user.email=zuuli-test@example.invalid", "commit", "-qm", "fixture"],
+    [
+      "-c",
+      "user.name=ZUULI Test",
+      "-c",
+      "user.email=zuuli-test@example.invalid",
+      "commit",
+      "-qm",
+      "fixture",
+    ],
     { cwd: fixture },
   );
   const appCommit = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: fixture, encoding: "utf8",
+    cwd: fixture,
+    encoding: "utf8",
   }).trim();
-  const evidencePath = resolve(fixture, "device-evidence.json");
-  writeFileSync(evidencePath, JSON.stringify({
+  const backendCommit = "b".repeat(40);
+  const artifacts = {};
+  for (const scenario of [
+    "ios-cold",
+    "ios-warm",
+    "android-cold",
+    "android-warm",
+    "handoff",
+  ]) {
+    const artifact = `${scenario}\n${appCommit}\n${backendCommit}\n${contract.claimedRedirectUri}\n`;
+    artifacts[scenario] = {
+      contentBase64: Buffer.from(artifact, "utf8").toString("base64"),
+      sha256: createHash("sha256").update(artifact).digest("hex"),
+    };
+  }
+  const statement = {
+    schemaVersion: 1,
     appCommit,
-    backendCommit: "b".repeat(40),
+    backendCommit,
     claimedRedirectUri: contract.claimedRedirectUri,
-    userInitiatedHandoff: values.USER_INITIATED_HANDOFF !== "false",
-    apple: { applicationId: contract.apple.applicationId, cold: true, warm: true },
-    android: { signingCertSha256: fingerprint, cold: true, warm: true },
-  }));
+    apple: { applicationId: contract.apple.applicationId },
+    android: {
+      packageName: contract.android.packageName,
+      signingCertSha256: fingerprint,
+    },
+    artifacts,
+  };
+  const canonical = (value) =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value !== null && typeof value === "object"
+        ? Object.fromEntries(
+            Object.keys(value)
+              .sort()
+              .map((key) => [key, canonical(value[key])]),
+          )
+        : value;
+  let signature = sign(
+    null,
+    Buffer.from(JSON.stringify(canonical(statement)), "utf8"),
+    privateKey,
+  ).toString("base64");
+  if (values.TAMPER_SIGNATURE === "true")
+    signature = `${signature.slice(0, -4)}AAAA`;
+  const evidencePath = resolve(fixture, "device-evidence.json");
+  writeFileSync(evidencePath, JSON.stringify({ statement, signature }));
+  if (values.TAMPER_ARTIFACT === "true") {
+    statement.artifacts["ios-cold"].contentBase64 = Buffer.from(
+      "changed after signing\n",
+      "utf8",
+    ).toString("base64");
+    writeFileSync(evidencePath, JSON.stringify({ statement, signature }));
+  }
   return { fixture, evidencePath, preloadPath, appCommit };
 }
 
 function runClaimedFixture(values = {}) {
-  const { fixture, evidencePath, preloadPath, appCommit } = claimedFixture(values);
+  const { fixture, evidencePath, preloadPath, appCommit } =
+    claimedFixture(values);
   if (values.DIRTY_TRACKED === "true") {
     const contractPath = resolve(fixture, "mobile-oauth-links.json");
     writeFileSync(contractPath, `${readFileSync(contractPath, "utf8")}\n`);
@@ -91,7 +176,8 @@ function runClaimedFixture(values = {}) {
   return spawnSync(
     process.execPath,
     [
-      "--import", preloadPath,
+      "--import",
+      preloadPath,
       "scripts/verify-mobile-oauth-links.mjs",
       "--public-release",
       `--source-sha=${values.SOURCE_SHA ?? appCommit}`,
@@ -104,18 +190,31 @@ function runClaimedFixture(values = {}) {
         ZUULI_OAUTH_DEVICE_EVIDENCE: evidencePath,
         MOCK_STATUS: "200",
         MOCK_CONTENT_TYPE: "application/json; charset=utf-8",
-        ...Object.fromEntries(Object.entries(values).filter(
-          ([key]) => !["SOURCE_SHA", "USER_INITIATED_HANDOFF", "DIRTY_TRACKED"].includes(key),
-        )),
+        ...Object.fromEntries(
+          Object.entries(values).filter(
+            ([key]) =>
+              ![
+                "SOURCE_SHA",
+                "DIRTY_TRACKED",
+                "TAMPER_SIGNATURE",
+                "TAMPER_ARTIFACT",
+              ].includes(key),
+          ),
+        ),
       },
     },
   );
 }
 
 test("repository link contract is internally consistent", () => {
-  const result = spawnSync(process.execPath, ["scripts/verify-mobile-oauth-links.mjs"], {
-    cwd: root, encoding: "utf8",
-  });
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/verify-mobile-oauth-links.mjs"],
+    {
+      cwd: root,
+      encoding: "utf8",
+    },
+  );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /private-transition/);
 });
@@ -169,10 +268,29 @@ test("public gate rejects tracked edits not present in the claimed source commit
   assert.match(result.stderr, /clean tracked source tree and index/);
 });
 
-test("public gate requires proof of the user-initiated claimed-link handoff", () => {
-  const result = runClaimedFixture({ USER_INITIATED_HANDOFF: "false" });
+test("public gate rejects editable unsigned device evidence", () => {
+  const result = runClaimedFixture({ TAMPER_SIGNATURE: "true" });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /user-initiated claimed-link handoff/);
+  assert.match(result.stderr, /signature is absent or invalid/);
+});
+
+test("public gate rejects changed raw device evidence", () => {
+  const result = runClaimedFixture({ TAMPER_ARTIFACT: "true" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /artifact is invalid, changed, oversized/);
+});
+
+test("public gate binds evidence to the exact live callback build", () => {
+  const result = runClaimedFixture({ MOCK_BACKEND_COMMIT: "c".repeat(40) });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not the live callback-tier build/);
+  assert.match(result.stderr, /not served by the attested callback-tier build/);
+});
+
+test("public gate requires the isolated mobile-start route", () => {
+  const result = runClaimedFixture({ MOCK_START_STATUS: "404" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /isolated mobile-start contract is not ready/);
 });
 
 test("public gate requires exact HTTP 200 and JSON media type", () => {

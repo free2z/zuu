@@ -567,9 +567,14 @@ for (const wiring of [
   'security delete-keychain "$ZUULI_PREFLIGHT_KEYCHAIN"',
   "-t cert -f pkcs12",
   "-T /usr/bin/codesign -T /usr/bin/xcodebuild",
+  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
+  "npm run oauth-links:verify-public -- --source-sha=\"$source_sha\"",
 ]) {
   if (!releaseWorkflow.includes(wiring))
     failures.push(`protected iOS signing-keychain wiring is missing: ${wiring}`);
+}
+if (!packagingWorkflow.includes("run: npm run test:oauth-links")) {
+  failures.push("packaging CI does not exercise the claimed-link release gate");
 }
 for (const [label, text, expression, expectedCount] of [
   [

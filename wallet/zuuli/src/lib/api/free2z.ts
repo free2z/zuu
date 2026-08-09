@@ -216,9 +216,7 @@ function parseSubscription(value: unknown): Subscription {
 }
 
 /** Runtime validator used before trusting any paginated entitlement data. */
-export function parseSubscriptionPage(
-  value: unknown,
-): Paginated<Subscription> {
+export function parseSubscriptionPage(value: unknown): Paginated<Subscription> {
   if (!isRecord(value) || !Array.isArray(value.results)) {
     throw new Error("Malformed membership pagination response.");
   }
@@ -278,7 +276,9 @@ export async function collectSubscriptionPages(
     }
     if (!page.next) {
       if (subscriptions.length !== expectedCount) {
-        throw new Error("Membership pagination returned an incomplete snapshot.");
+        throw new Error(
+          "Membership pagination returned an incomplete snapshot.",
+        );
       }
       return subscriptions;
     }
@@ -442,12 +442,14 @@ function mapLivestream(m: RawDyteMeeting): Livestream {
 
 function inferProvider(model: string): AIModel["provider"] {
   const m = model.toLowerCase();
-  if (m.includes("gpt") || m.startsWith("o1") || m.startsWith("o3")) return "openai";
+  if (m.includes("gpt") || m.startsWith("o1") || m.startsWith("o3"))
+    return "openai";
   if (m.includes("claude")) return "anthropic";
   if (m.includes("grok")) return "xai";
   if (m.includes("kimi")) return "kimi";
   if (m.includes("gemini")) return "google";
-  if (m.includes("llama") || m.includes("mistral") || m.includes("qwen")) return "local";
+  if (m.includes("llama") || m.includes("mistral") || m.includes("qwen"))
+    return "local";
   return "other";
 }
 
@@ -616,7 +618,9 @@ export const auth = {
   async zcashChallenge(address: string): Promise<{ challenge: string }> {
     if (useMock()) {
       await delay(150);
-      return { challenge: `zuuli-login:${address}:${Math.random().toString(36).slice(2)}` };
+      return {
+        challenge: `zuuli-login:${address}:${Math.random().toString(36).slice(2)}`,
+      };
     }
     return request<{ challenge: string }>("/api/auth/zcash/challenge/", {
       method: "POST",
@@ -707,13 +711,10 @@ export const auth = {
     // Mobile starts use the callback tier's explicit route so the
     // start/state/relay contract has one rollout boundary. Desktop and web
     // starts remain on the normal API tier.
-    return request<OAuthStartResponse>(
-      socialStartPath(provider, codeChallenge),
-      {
-        query: { redirect_uri: redirectUri, code_challenge: codeChallenge },
-        anonymous: true,
-      },
-    );
+    return request<OAuthStartResponse>(socialStartPath(provider, redirectUri), {
+      query: { redirect_uri: redirectUri, code_challenge: codeChallenge },
+      anonymous: true,
+    });
   },
 
   /**
@@ -745,8 +746,10 @@ export const auth = {
       );
     }
     const associate = opts.associate === true;
-    const capture = await captureOAuthCode(provider, associate, (redirect, challenge) =>
-      auth.socialStart(provider, redirect, challenge),
+    const capture = await captureOAuthCode(
+      provider,
+      associate,
+      (redirect, challenge) => auth.socialStart(provider, redirect, challenge),
     );
     return auth.completeSocialOAuth(capture);
   },
@@ -757,7 +760,8 @@ export const auth = {
    * callback through exactly the same backend path as the live button flow.
    */
   async completeSocialOAuth(capture: OAuthCapture): Promise<AuthUser> {
-    const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
+    const { provider, associate, code, state, redirectUri, codeVerifier } =
+      capture;
     await assertMobileOAuthSession(capture);
     const body = {
       code,
@@ -799,7 +803,11 @@ export const auth = {
       `/api/auth/social/${provider}/`,
       { method: "POST", body, anonymous: true },
     ).catch(async (error) => {
-      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+      if (
+        error instanceof ApiError &&
+        error.status >= 400 &&
+        error.status < 500
+      ) {
         await cancelMobileOAuth(state).catch(() => undefined);
       }
       throw error;
@@ -1147,7 +1155,12 @@ export const articles = {
   }): Promise<Article> {
     if (useMock()) {
       await delay(500);
-      return { ...mockArticles[0], ...input, id: `${Date.now()}`, slug: undefined };
+      return {
+        ...mockArticles[0],
+        ...input,
+        id: `${Date.now()}`,
+        slug: undefined,
+      };
     }
     const z = await request<RawZPage>("/api/zpage/", {
       method: "POST",
@@ -1382,10 +1395,10 @@ export const live = {
     try {
       const s = await request<
         Record<string, { meeting_type?: string; participants?: number }>
-      >(
-        `/api/dyte/${username}/live-status`,
-        { anonymous: true, cache: "no-store" },
-      );
+      >(`/api/dyte/${username}/live-status`, {
+        anonymous: true,
+        cache: "no-store",
+      });
       const expectedType = kind ? TYPE_FROM_KIND[kind] : undefined;
       const entries = Object.entries(s || {})
         .filter(
@@ -1395,7 +1408,10 @@ export const live = {
             entry.meeting_type === expectedType,
         )
         .map(([, entry]) => entry);
-      const participants = entries.reduce((n, e) => n + (e.participants ?? 0), 0);
+      const participants = entries.reduce(
+        (n, e) => n + (e.participants ?? 0),
+        0,
+      );
       return { live: entries.length > 0, participants };
     } catch {
       return { live: false, participants: 0 };
@@ -1406,7 +1422,12 @@ export const live = {
   async start(kind: StreamKind): Promise<DyteJoinTicket> {
     if (useMock()) {
       await delay(500);
-      return { authToken: "mock-host", meetingId: "mock", roomName: "zuuli-live", as: "host" };
+      return {
+        authToken: "mock-host",
+        meetingId: "mock",
+        roomName: "zuuli-live",
+        as: "host",
+      };
     }
     const me = await auth.me();
     const r = await request<{ meeting_id: string; auth_token: string }>(
@@ -1441,7 +1462,12 @@ export const live = {
           `That secret didn't unlock the room. (Mock mode expects "${MOCK_ROOM_SECRET}".)`,
         );
       }
-      return { authToken: "mock-part", meetingId: "mock", roomName: "zuuli-live", as: "participant" };
+      return {
+        authToken: "mock-part",
+        meetingId: "mock",
+        roomName: "zuuli-live",
+        as: "participant",
+      };
     }
     const path =
       kind === "private"
@@ -1451,7 +1477,11 @@ export const live = {
     const r = await request<{ meeting_id?: string; auth_token: string }>(path, {
       method: "POST",
     });
-    return { authToken: r.auth_token, meetingId: r.meeting_id ?? "", as: "participant" };
+    return {
+      authToken: r.auth_token,
+      meetingId: r.meeting_id ?? "",
+      as: "participant",
+    };
   },
 };
 
@@ -1539,8 +1569,16 @@ export const tuzi = {
         });
       }
       mockUser.tuzis -= tuzis;
-      const result = { balance: mockUser.tuzis, charged: tuzis, replayed: false };
-      mockDonationResults.set(idempotencyKey, { username, amount: tuzis, result });
+      const result = {
+        balance: mockUser.tuzis,
+        charged: tuzis,
+        replayed: false,
+      };
+      mockDonationResults.set(idempotencyKey, {
+        username,
+        amount: tuzis,
+        result,
+      });
       return result;
     }
     const response = await request(
@@ -1554,10 +1592,7 @@ export const tuzi = {
     return normalizeDonationResult(response, tuzis);
   },
 
-  async subscribe(
-    username: string,
-    idempotencyKey?: string,
-  ): Promise<void> {
+  async subscribe(username: string, idempotencyKey?: string): Promise<void> {
     if (useMock()) {
       await delay(400);
       const creator = mockCreators.find(
@@ -1651,7 +1686,8 @@ export const tuzi = {
       await delay(150);
       return mockSubscriptions.filter(
         (subscription) =>
-          !subscription.expires || Date.parse(subscription.expires) > Date.now(),
+          !subscription.expires ||
+          Date.parse(subscription.expires) > Date.now(),
       );
     }
     // This endpoint is paginated (12 rows by default). Looking at only the
@@ -1765,7 +1801,6 @@ export const discover = {
     return (page.results ?? []).map(mapArticle);
   },
 };
-
 
 // ─── Pricing (live 2Z ↔ ZEC) ──────────────────────────────────────
 // Live price discovery for the "pay with ZEC" buy path. The backend aggregates
