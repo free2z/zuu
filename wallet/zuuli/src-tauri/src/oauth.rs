@@ -783,7 +783,7 @@ mod tests {
             version: PENDING_VERSION,
             provider: "google".to_string(),
             state: "abcdefghijklmnopqrstuvwxyz012345".to_string(),
-            redirect_uri: MOBILE_REDIRECT_URI.to_string(),
+            redirect_uri: PRIVATE_MOBILE_REDIRECT_URI.to_string(),
             associate: false,
             session_binding: "login:none".to_string(),
             code_verifier: "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG".to_string(),
@@ -795,7 +795,7 @@ mod tests {
     #[test]
     fn mobile_target_is_exact() {
         assert!(validate_mobile_target(
-            &Url::parse(MOBILE_REDIRECT_URI).unwrap()
+            &Url::parse(PRIVATE_MOBILE_REDIRECT_URI).unwrap()
         ));
         assert!(validate_mobile_target(
             &Url::parse(CLAIMED_MOBILE_REDIRECT_URI).unwrap()
@@ -818,16 +818,19 @@ mod tests {
     #[test]
     fn callback_requires_single_code_or_error_and_single_state() {
         let state = &pending().state;
-        let good = Url::parse(&format!("{MOBILE_REDIRECT_URI}?code=abc&state={state}")).unwrap();
+        let good = Url::parse(&format!(
+            "{PRIVATE_MOBILE_REDIRECT_URI}?code=abc&state={state}"
+        ))
+        .unwrap();
         assert!(matches!(
             parse_callback(&good),
             Ok(ParsedCallback::Code { .. })
         ));
         for bad in [
-            format!("{MOBILE_REDIRECT_URI}?code=a&code=b&state={state}"),
-            format!("{MOBILE_REDIRECT_URI}?code=a&state={state}&state={state}"),
-            format!("{MOBILE_REDIRECT_URI}?code=a&error=denied&state={state}"),
-            format!("{MOBILE_REDIRECT_URI}?state={state}"),
+            format!("{PRIVATE_MOBILE_REDIRECT_URI}?code=a&code=b&state={state}"),
+            format!("{PRIVATE_MOBILE_REDIRECT_URI}?code=a&state={state}&state={state}"),
+            format!("{PRIVATE_MOBILE_REDIRECT_URI}?code=a&error=denied&state={state}"),
+            format!("{PRIVATE_MOBILE_REDIRECT_URI}?state={state}"),
         ] {
             assert!(parse_callback(&Url::parse(&bad).unwrap()).is_err(), "{bad}");
         }
@@ -893,7 +896,10 @@ mod tests {
     #[test]
     fn mobile_claim_is_one_shot_and_session_bound() {
         let mut value = pending();
-        let callback = format!("{MOBILE_REDIRECT_URI}?code=one-shot&state={}", value.state);
+        let callback = format!(
+            "{PRIVATE_MOBILE_REDIRECT_URI}?code=one-shot&state={}",
+            value.state
+        );
         assert!(matches!(
             evaluate_mobile_claim(&mut value, &callback, "login:none"),
             PendingAction::Save(MobileClaimResult::Captured { .. })
@@ -938,12 +944,18 @@ mod tests {
     #[test]
     fn spoofed_state_is_ignored_but_matching_malformed_callback_fails_closed() {
         let mut value = pending();
-        let spoof = format!("{MOBILE_REDIRECT_URI}?code=evil&state={}x", value.state);
+        let spoof = format!(
+            "{PRIVATE_MOBILE_REDIRECT_URI}?code=evil&state={}x",
+            value.state
+        );
         assert!(matches!(
             evaluate_mobile_claim(&mut value, &spoof, "login:none"),
             PendingAction::Keep(MobileClaimResult::Ignored)
         ));
-        let malformed = format!("{MOBILE_REDIRECT_URI}?code=a&code=b&state={}", value.state);
+        let malformed = format!(
+            "{PRIVATE_MOBILE_REDIRECT_URI}?code=a&code=b&state={}",
+            value.state
+        );
         assert!(matches!(
             evaluate_mobile_claim(&mut value, &malformed, "login:none"),
             PendingAction::Remove(MobileClaimResult::Rejected { .. })
@@ -954,7 +966,7 @@ mod tests {
     fn matching_provider_error_cancels_and_consumes() {
         let mut value = pending();
         let callback = format!(
-            "{MOBILE_REDIRECT_URI}?error=access_denied&state={}",
+            "{PRIVATE_MOBILE_REDIRECT_URI}?error=access_denied&state={}",
             value.state
         );
         assert!(matches!(

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SocialProvider } from "../api/types";
 import {
   MOBILE_REDIRECT_URI,
+  PRIVATE_MOBILE_REDIRECT_URI,
   buildSessionBinding,
   canResumeMobileOAuth,
   generatePkcePair,
@@ -20,7 +21,7 @@ describe("socialStartPath", () => {
     expect(socialStartPath("google", "https://free2z.com/oauth/callback")).toBe(
       "/api/auth/social/google/mobile-start",
     );
-    expect(socialStartPath("google", MOBILE_REDIRECT_URI)).toBe(
+    expect(socialStartPath("google", PRIVATE_MOBILE_REDIRECT_URI)).toBe(
       "/api/auth/social/google/start",
     );
     expect(
