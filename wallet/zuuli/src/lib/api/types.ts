@@ -364,6 +364,28 @@ export interface Subscription {
   max_price?: string;
 }
 
+/** GET /api/tuzis/subscription-status/{username} entitlement fact. */
+export interface SubscriptionStatus {
+  username: string;
+  active: boolean;
+  expires: string | null;
+  max_price: string | null;
+  current_price: string | null;
+}
+
+/** POST /api/tuzis/subscribe-confirmed/{username} authoritative result. */
+export interface SubscribeResult {
+  /** False when the backend safely swallowed an idempotent/debounced retry. */
+  charged: boolean;
+  /** True when the backend replayed the response for this exact retry key. */
+  replayed: boolean;
+  /** Authoritative post-operation account balance. */
+  balance: string;
+  /** Authoritative membership expiry after the request. */
+  expires: string;
+  subscription: Subscription;
+}
+
 export interface TuziTransaction {
   id: number;
   amount: number; // cents paid
