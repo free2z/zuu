@@ -4,6 +4,20 @@
 
 @layer base {
   :root {
+    /* Native mobile shells render edge-to-edge. Keep every inset derived from
+       the WebView's authoritative safe-area environment instead of device
+       guesses, with zero fallbacks for desktop browsers. */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --top-bar-content-height: 3.5rem;
+    --mobile-tab-content-height: 3.5rem;
+    --reader-action-content-height: 4rem;
+    --mobile-tab-bar-height: calc(
+      var(--mobile-tab-content-height) + var(--safe-area-bottom)
+    );
+
     /* ZUULI runs dark-first. Light tokens exist for completeness. */
     --background: 240 6% 10%;
     --foreground: 0 0% 98%;
@@ -59,7 +73,17 @@
     border-color: hsl(var(--border));
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
   body {
+    margin: 0;
+    overscroll-behavior: none;
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
     font-feature-settings: "rlig" 1, "calt" 1;
@@ -84,6 +108,80 @@
 }
 
 @layer utilities {
+  /* One viewport-bound app frame; individual routes opt into exactly one
+     bounded content scroller below the persistent chrome. */
+  .app-viewport {
+    box-sizing: border-box;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    padding-left: var(--safe-area-left);
+    padding-right: var(--safe-area-right);
+  }
+
+  .app-crash-frame {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .app-top-bar {
+    box-sizing: border-box;
+    height: calc(var(--top-bar-content-height) + var(--safe-area-top));
+    min-height: calc(var(--top-bar-content-height) + var(--safe-area-top));
+    padding-top: var(--safe-area-top);
+  }
+
+  .app-sidebar {
+    padding-top: var(--safe-area-top);
+    padding-bottom: var(--safe-area-bottom);
+  }
+
+  .app-bottom-nav {
+    box-sizing: border-box;
+    height: var(--mobile-tab-bar-height);
+    padding-right: var(--safe-area-right);
+    padding-bottom: var(--safe-area-bottom);
+    padding-left: var(--safe-area-left);
+  }
+
+  .app-scroll-content {
+    padding-bottom: calc(var(--mobile-tab-bar-height) + 1.5rem);
+  }
+
+  .app-full-bleed-inset {
+    padding-bottom: var(--mobile-tab-bar-height);
+  }
+
+  .app-auth-content {
+    padding-bottom: calc(var(--mobile-tab-bar-height) + 1.5rem);
+  }
+
+  .app-reader-content {
+    padding-bottom: calc(var(--reader-action-content-height) + 1.5rem);
+  }
+
+  .app-reader-actions {
+    bottom: var(--mobile-tab-bar-height);
+    padding-right: var(--safe-area-right);
+    padding-left: var(--safe-area-left);
+  }
+
+  @media (min-width: 768px) {
+    .app-scroll-content,
+    .app-auth-content {
+      padding-bottom: max(2.5rem, var(--safe-area-bottom));
+    }
+
+    .app-full-bleed-inset {
+      padding-bottom: var(--safe-area-bottom);
+    }
+
+    .app-reader-actions {
+      bottom: var(--safe-area-bottom);
+    }
+  }
+
   .zuuli-gradient-text {
     background-image: linear-gradient(
       100deg,

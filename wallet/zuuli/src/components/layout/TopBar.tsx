@@ -49,7 +49,10 @@ export function TopBar() {
   const canGoBack = historyIdx > 0 && location.pathname !== "/";
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur">
+    <header
+      className="app-top-bar sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur"
+      data-app-top-bar
+    >
       {/* Global back — available on every screen inside the shell */}
       {canGoBack ? (
         <Button

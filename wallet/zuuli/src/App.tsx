@@ -16,7 +16,8 @@ import AuthFeature from "@/features/auth";
 // Feature routes are code-split so the heavy markdown/math/prism graph they
 // transitively pull in (rehype-mathjax, rehype-prism-plus) never lands in the
 // login/critical-path entry chunk. The login screen (AuthFeature), the AppShell
-// layout, and the router stay eager so /login renders instantly.
+// layout, and the router stay eager so /login renders instantly inside the
+// same viewport-bound chrome as every other route.
 const HomeFeature = lazy(() => import("@/features/home"));
 const WalletFeature = lazy(() => import("@/features/wallet"));
 const AiFeature = lazy(() => import("@/features/ai"));
@@ -89,12 +90,10 @@ export default function App() {
       <BrowserRouter>
         <MobileOAuthRecovery />
         <Routes>
-          {/* Full-screen auth, outside the app shell — kept eager so /login is instant */}
-          <Route path="/login" element={<AuthFeature />} />
-
-          {/* Everything else lives inside the shell. A single Suspense boundary
+          {/* Every route lives inside the viewport-bound shell. A single Suspense boundary
               per route keeps the AppShell mounted while the lazy chunk loads. */}
           <Route element={<AppShell />}>
+            <Route path="/login" element={<AuthFeature />} />
             <Route
               index
               element={
