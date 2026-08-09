@@ -91,6 +91,21 @@ test("login stays inside pinned chrome with one bounded scroll owner", () => {
   assert.equal(shell.match(/data-route-scroll/g)?.length, 1);
   assert.match(auth, /h-full min-h-0/);
   assert.match(shell, /className="min-h-0 flex-1 overflow-hidden"/);
+
+  const authMain = auth.match(
+    /<main className="([^"]*app-auth-content[^"]*)"/,
+  );
+  assert.ok(authMain, "login must keep the centralized auth inset container");
+  assert.match(authMain[1], /\bjustify-start\b/);
+  assert.doesNotMatch(
+    authMain[1],
+    /\bjustify-center\b/,
+    "centering an overflowing auth column creates unreachable negative overflow",
+  );
+  assert.match(
+    auth,
+    /className="app-auth-stack my-auto flex w-full max-w-md flex-col"/,
+  );
 });
 
 test("chrome and full-bleed clearance use centralized variables", () => {
