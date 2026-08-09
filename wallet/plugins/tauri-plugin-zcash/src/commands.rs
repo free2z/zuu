@@ -451,16 +451,16 @@ pub(crate) async fn create_wallet<R: Runtime>(
             )));
         }
     };
-    if manifest_commit_durable {
-        if let Err(error) = crate::wallet::cleanup::confirm_staged_wallet_commit(
+    if manifest_commit_durable
+        && let Err(error) = crate::wallet::cleanup::confirm_staged_wallet_commit(
             &zcash.state.data_dir,
             &cleanup_authorization,
-        ) {
-            tracing::warn!(
-                wallet_id = wallet_entry.id,
-                "wallet committed but rollback tombstone finalization failed; startup will resolve it: {error}"
-            );
-        }
+        )
+    {
+        tracing::warn!(
+            wallet_id = wallet_entry.id,
+            "wallet committed but rollback tombstone finalization failed; startup will resolve it: {error}"
+        );
     }
 
     *pending_proposal_guard = None;
@@ -687,16 +687,16 @@ pub(crate) async fn restore_wallet<R: Runtime>(
             )));
         }
     };
-    if manifest_commit_durable {
-        if let Err(error) = crate::wallet::cleanup::confirm_staged_wallet_commit(
+    if manifest_commit_durable
+        && let Err(error) = crate::wallet::cleanup::confirm_staged_wallet_commit(
             &zcash.state.data_dir,
             &cleanup_authorization,
-        ) {
-            tracing::warn!(
-                wallet_id = wallet_entry.id,
-                "restored wallet committed but rollback tombstone finalization failed; startup will resolve it: {error}"
-            );
-        }
+        )
+    {
+        tracing::warn!(
+            wallet_id = wallet_entry.id,
+            "restored wallet committed but rollback tombstone finalization failed; startup will resolve it: {error}"
+        );
     }
 
     *pending_proposal_guard = None;
@@ -1212,53 +1212,51 @@ pub(crate) async fn delete_wallet<R: Runtime>(
         };
 
         // If we deleted the active wallet, switch to the new active
-        if deletion.was_active {
-            if let Some((entry, db, read_db)) = prepared_active {
-                **db_guard
-                    .as_mut()
-                    .expect("active deletion holds the write context") = Some(db);
-                **read_db_guard
-                    .as_mut()
-                    .expect("active deletion holds the read context") = Some(read_db);
-                // Do not prompt while finalizing a destructive transition. The next
-                // explicit spend/reveal action authenticates against native custody.
-                **seed_guard
-                    .as_mut()
-                    .expect("active deletion holds the seed context") = None;
-                **pending_proposal_guard
-                    .as_mut()
-                    .expect("active deletion holds the proposal context") = None;
-                **pending_broadcast_guard
-                    .as_mut()
-                    .expect("active deletion holds the broadcast context") =
-                    send::load_pending_broadcast(&zcash.state.data_dir, &entry.id);
-                zcash
-                    .state
-                    .last_known_chain_tip
-                    .store(0, std::sync::atomic::Ordering::Relaxed);
-                if let Some(recovery) = sync_recovery.as_mut() {
-                    recovery.commit();
-                }
-                drop(pending_broadcast_guard.take());
-                drop(pending_proposal_guard.take());
-                drop(seed_guard.take());
-                drop(read_db_guard.take());
-                drop(db_guard.take());
-
-                let status = run_wallet_cleanup_retry(
-                    &zcash.state,
-                    crate::wallet::cleanup::RetryMode::Runtime,
-                )
-                .await;
-                if status.pending_operations > 0 {
-                    tracing::warn!(
-                        pending = status.pending_operations,
-                        diagnostics = ?status.diagnostics,
-                        "wallet deletion committed; cleanup remains durably scheduled"
-                    );
-                }
-                return Ok(());
+        if deletion.was_active
+            && let Some((entry, db, read_db)) = prepared_active
+        {
+            **db_guard
+                .as_mut()
+                .expect("active deletion holds the write context") = Some(db);
+            **read_db_guard
+                .as_mut()
+                .expect("active deletion holds the read context") = Some(read_db);
+            // Do not prompt while finalizing a destructive transition. The next
+            // explicit spend/reveal action authenticates against native custody.
+            **seed_guard
+                .as_mut()
+                .expect("active deletion holds the seed context") = None;
+            **pending_proposal_guard
+                .as_mut()
+                .expect("active deletion holds the proposal context") = None;
+            **pending_broadcast_guard
+                .as_mut()
+                .expect("active deletion holds the broadcast context") =
+                send::load_pending_broadcast(&zcash.state.data_dir, &entry.id);
+            zcash
+                .state
+                .last_known_chain_tip
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            if let Some(recovery) = sync_recovery.as_mut() {
+                recovery.commit();
             }
+            drop(pending_broadcast_guard.take());
+            drop(pending_proposal_guard.take());
+            drop(seed_guard.take());
+            drop(read_db_guard.take());
+            drop(db_guard.take());
+
+            let status =
+                run_wallet_cleanup_retry(&zcash.state, crate::wallet::cleanup::RetryMode::Runtime)
+                    .await;
+            if status.pending_operations > 0 {
+                tracing::warn!(
+                    pending = status.pending_operations,
+                    diagnostics = ?status.diagnostics,
+                    "wallet deletion committed; cleanup remains durably scheduled"
+                );
+            }
+            return Ok(());
         }
 
         // Previously the seed was deleted before the manifest check, so rejecting
@@ -1281,10 +1279,10 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     }
     .await;
 
-    if result.is_err() {
-        if let Some(recovery) = sync_recovery.as_mut() {
-            recovery.restore_now().await;
-        }
+    if result.is_err()
+        && let Some(recovery) = sync_recovery.as_mut()
+    {
+        recovery.restore_now().await;
     }
     result
 }
@@ -1628,36 +1626,36 @@ pub(crate) async fn get_account_balance<R: Runtime>(
             .get_account_ids()
             .map_err(|e| Error::DatabaseError(format!("failed to get account ids: {e}")))?;
 
-        if let Some(account_id) = account_ids.get(args.account_index as usize) {
-            if let Some(balance) = summary.account_balances().get(account_id) {
-                let sapling = balance.sapling_balance();
-                let orchard = balance.orchard_balance();
-                // Ironwood is the third shielded pool introduced by NU6.3; after
-                // activation Orchard is spend-only and new shielded value accrues
-                // to Ironwood, so it must be included in every shielded total.
-                let ironwood = balance.ironwood_balance();
+        if let Some(account_id) = account_ids.get(args.account_index as usize)
+            && let Some(balance) = summary.account_balances().get(account_id)
+        {
+            let sapling = balance.sapling_balance();
+            let orchard = balance.orchard_balance();
+            // Ironwood is the third shielded pool introduced by NU6.3; after
+            // activation Orchard is spend-only and new shielded value accrues
+            // to Ironwood, so it must be included in every shielded total.
+            let ironwood = balance.ironwood_balance();
 
-                let total = u64::from(sapling.total())
-                    + u64::from(orchard.total())
-                    + u64::from(ironwood.total());
-                let spendable = u64::from(sapling.spendable_value())
-                    + u64::from(orchard.spendable_value())
-                    + u64::from(ironwood.spendable_value());
-                let change_pending = u64::from(sapling.change_pending_confirmation())
-                    + u64::from(orchard.change_pending_confirmation())
-                    + u64::from(ironwood.change_pending_confirmation());
-                let value_pending = u64::from(sapling.value_pending_spendability())
-                    + u64::from(orchard.value_pending_spendability())
-                    + u64::from(ironwood.value_pending_spendability());
+            let total = u64::from(sapling.total())
+                + u64::from(orchard.total())
+                + u64::from(ironwood.total());
+            let spendable = u64::from(sapling.spendable_value())
+                + u64::from(orchard.spendable_value())
+                + u64::from(ironwood.spendable_value());
+            let change_pending = u64::from(sapling.change_pending_confirmation())
+                + u64::from(orchard.change_pending_confirmation())
+                + u64::from(ironwood.change_pending_confirmation());
+            let value_pending = u64::from(sapling.value_pending_spendability())
+                + u64::from(orchard.value_pending_spendability())
+                + u64::from(ironwood.value_pending_spendability());
 
-                return Ok(AccountBalance {
-                    account_index: args.account_index,
-                    total_shielded: total,
-                    spendable,
-                    change_pending,
-                    value_pending,
-                });
-            }
+            return Ok(AccountBalance {
+                account_index: args.account_index,
+                total_shielded: total,
+                spendable,
+                change_pending,
+                value_pending,
+            });
         }
     }
 
@@ -1848,7 +1846,7 @@ pub(crate) async fn parse_payment_uri<R: Runtime>(
 
     let (_, payment) = payments.iter().next().unwrap();
     let address = payment.recipient_address().encode();
-    let amount = payment.amount().map(|a| u64::from(a));
+    let amount = payment.amount().map(u64::from);
     let memo = payment.memo().map(|m| format!("{:?}", m));
     let label = payment.label().map(|s| s.to_string());
 

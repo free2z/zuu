@@ -150,6 +150,17 @@ integrate, and move it forward alongside everything else.
   agrees with `wallet/rust-toolchain.toml`. The `wallet/zuuli` gate runs it on
   every pull request, so a half-finished bump fails in review instead of in a
   protected store release. See below.
+- **`scripts/check-rust-fmt.sh`**, **`scripts/check-rust-clippy.sh`** and
+  **`scripts/check-rust-deny.sh`** hold every Rust crate under `wallet/` to
+  rustfmt, `clippy -D warnings`, and the `wallet/deny.toml` supply-chain policy.
+  All three **discover** crates by finding `Cargo.toml` under `wallet/` rather
+  than listing them, so a new crate is gated from its first commit. All three
+  run on the pinned toolchain and refuse to render a verdict on any other —
+  rustfmt's output and clippy's lint set both move between compiler versions,
+  and a check that ran on whatever was installed would report version skew as a
+  code defect. Each has a mirrored job in `zuuallet.yml`, because the required
+  `gate` lives in `zuuli.yml` and its change detector does not select
+  `wallet/zuuallet/**`.
 
 ## The Rust toolchain pin
 
@@ -187,6 +198,11 @@ all**. Every remaining restatement is verified against the file by
 A bump that touches the source of truth and nothing else **cannot merge** — the
 gate fails. That is the point: the version is one edit plus a mechanical
 follow-through, not an eleven-place archaeology exercise.
+
+A bump is also the one moment new clippy lints can appear, since
+`scripts/check-rust-clippy.sh` judges only on the pinned compiler. Expect the
+bump's own pull request to carry the fixes for whatever the new lint set found —
+that is where they belong, not leaking into the next unrelated change.
 
 ### Cadence
 

@@ -647,18 +647,17 @@ async fn refresh_subtree_roots(
 
     // If we handed the backend Ironwood roots and it did not advance its
     // "next Ironwood index", it is using the no-op default impl. Stop fetching.
-    if ironwood_offered {
-        if let Some((_, _, after)) = next_subtree_indices(read_db).await {
-            if after == next_ironwood {
-                tracing::warn!(
-                    "wallet backend accepted {} Ironwood subtree roots without advancing its next \
-                     Ironwood index ({next_ironwood}); it is using the no-op default \
-                     `put_ironwood_subtree_roots`. Disabling Ironwood root fetches for this session.",
-                    ironwood_roots.len(),
-                );
-                state.ironwood_backend_tracks = false;
-            }
-        }
+    if ironwood_offered
+        && let Some((_, _, after)) = next_subtree_indices(read_db).await
+        && after == next_ironwood
+    {
+        tracing::warn!(
+            "wallet backend accepted {} Ironwood subtree roots without advancing its next \
+             Ironwood index ({next_ironwood}); it is using the no-op default \
+             `put_ironwood_subtree_roots`. Disabling Ironwood root fetches for this session.",
+            ironwood_roots.len(),
+        );
+        state.ironwood_backend_tracks = false;
     }
 
     state.last_refresh = Some(Instant::now());
@@ -1562,18 +1561,16 @@ mod supervisor_tests {
         }
     }
 
-    fn counted_task(
+    async fn counted_task(
         starts: Arc<AtomicUsize>,
         live: Arc<AtomicUsize>,
         started: tokio::sync::oneshot::Sender<()>,
         dropped: tokio::sync::oneshot::Sender<()>,
-    ) -> impl Future<Output = ()> + Send + 'static {
-        async move {
-            starts.fetch_add(1, AtomicOrdering::SeqCst);
-            let _live = LiveTask::new(live, dropped);
-            let _ = started.send(());
-            std::future::pending::<()>().await;
-        }
+    ) {
+        starts.fetch_add(1, AtomicOrdering::SeqCst);
+        let _live = LiveTask::new(live, dropped);
+        let _ = started.send(());
+        std::future::pending::<()>().await;
     }
 
     async fn assert_phase(supervisor: &SyncTaskSupervisor, expected: &str) {

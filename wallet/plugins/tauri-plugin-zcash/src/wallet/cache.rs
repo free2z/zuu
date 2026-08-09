@@ -52,10 +52,10 @@ impl BlockSource for MemBlockCache {
             None => inner.range(..),
         };
         for (i, (_, block)) in iter.enumerate() {
-            if let Some(limit) = limit {
-                if i >= limit {
-                    break;
-                }
+            if let Some(limit) = limit
+                && i >= limit
+            {
+                break;
             }
             with_block(block.clone())?;
         }

@@ -399,12 +399,32 @@ fn remove_empty_directory_unchanged(
     // where the operand is already u32 (via core's reflexive
     // `impl<T> From<T> for T`), so it can neither truncate nor sign-extend and
     // the file-type test keeps its exact meaning on every target.
-    let file_type = u32::from(stat.st_mode) & u32::from(libc::S_IFMT);
-    if file_type != u32::from(libc::S_IFDIR) {
+    //
+    // Which is exactly why `clippy::useless_conversion` has to be silenced
+    // here: clippy sees one target at a time, and on that target at least one
+    // of these three conversions *is* the reflexive identity and looks like
+    // dead weight. It is load-bearing on the targets clippy is not looking at.
+    // Scoped to this one statement, never crate-wide.
+    #[allow(clippy::useless_conversion)]
+    let is_directory =
+        (u32::from(stat.st_mode) & u32::from(libc::S_IFMT)) == u32::from(libc::S_IFDIR);
+    if !is_directory {
         return Err(RemoveEmptyDirectoryError::InvalidState(
             "canonical app-data directory changed filesystem type during migration".to_owned(),
         ));
     }
+    // Platform width skew again — same reason as the `st_mode` note above, so
+    // do NOT let `clippy::unnecessary_cast` talk you into deleting either cast.
+    // `dev_t` and `ino_t` are not one type across the targets this `cfg(unix)`
+    // function compiles for: on Apple `st_dev` is `i32` and `st_ino` is `u64`,
+    // on Linux/Android both are `u64`, and other unices narrow them further.
+    // Whichever host clippy runs on, exactly one of these two casts looks
+    // redundant *there* and is load-bearing somewhere else — removing it turns
+    // a portable widening into a compile error on the other target. `as u64` is
+    // safe here for the same reason the comparison is meaningful: both fields
+    // are non-negative kernel identifiers, so widening preserves the value and
+    // the identity test keeps its exact meaning on every target.
+    #[allow(clippy::unnecessary_cast)]
     let actual = DirectoryIdentity {
         first: stat.st_dev as u64,
         second: stat.st_ino as u64,
