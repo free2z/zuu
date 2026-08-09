@@ -1,0 +1,32 @@
+name: ts/svelte/free2z
+
+on:
+  pull_request:
+    paths:
+      - "ts/svelte/free2z/**"
+      - ".github/workflows/ts-svelte-free2z.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: ts/svelte/free2z
+        run: npm ci
+
+      - name: Type-check
+        working-directory: ts/svelte/free2z
+        run: npm run check
+
+      - name: Run tests
+        working-directory: ts/svelte/free2z
+        run: npm test
