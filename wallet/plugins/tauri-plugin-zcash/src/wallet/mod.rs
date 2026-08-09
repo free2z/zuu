@@ -1,7 +1,7 @@
 pub mod accounts;
 pub mod cache;
-pub mod client;
 pub mod cleanup;
+pub mod client;
 pub mod history;
 pub mod keychain;
 pub mod keys;
@@ -10,14 +10,14 @@ pub mod send;
 pub mod storage;
 pub mod sync;
 
+use secrecy::SecretVec;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64};
-use secrecy::SecretVec;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
-use zeroize::Zeroizing;
 use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_protocol::consensus::Network;
+use zeroize::Zeroizing;
 
 /// Type alias for a cached transaction proposal.
 pub type WalletProposal = zcash_client_backend::proposal::Proposal<
@@ -26,8 +26,12 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
 >;
 
 /// Type alias for our concrete WalletDb.
-pub type WalletDatabase =
-    zcash_client_sqlite::WalletDb<rusqlite::Connection, Network, zcash_client_sqlite::util::SystemClock, rand::rngs::OsRng>;
+pub type WalletDatabase = zcash_client_sqlite::WalletDb<
+    rusqlite::Connection,
+    Network,
+    zcash_client_sqlite::util::SystemClock,
+    rand::rngs::OsRng,
+>;
 
 /// Proof that an identity-sensitive operation owns the wallet transition.
 /// Custody retrieval requires this token so a future caller cannot accidentally
@@ -108,9 +112,9 @@ impl WalletState {
                 }
                 Err(error) => {
                     tracing::error!("wallet cleanup startup retry failed: {error}");
-                    crate::models::WalletCleanupStatus::from(
-                        cleanup::CleanupReport::journal_error(error),
-                    )
+                    crate::models::WalletCleanupStatus::from(cleanup::CleanupReport::journal_error(
+                        error,
+                    ))
                 }
             },
             Err(error) => {
@@ -162,9 +166,7 @@ impl WalletState {
             // restart; commands load it lazily after an explicit user action.
             seed: Arc::new(Mutex::new(None)),
             seed_store,
-            lightwalletd_url: RwLock::new(
-                "https://zec.rocks:443".to_string(),
-            ),
+            lightwalletd_url: RwLock::new("https://zec.rocks:443".to_string()),
             sync_supervisor: Arc::new(sync::SyncTaskSupervisor::default()),
             syncing: Arc::new(RwLock::new(false)),
             last_known_chain_tip: Arc::new(AtomicU64::new(0)),
@@ -212,7 +214,9 @@ impl WalletState {
         let phrase = Zeroizing::new(phrase.to_owned());
         tokio::task::spawn_blocking(move || store.store_seed_phrase(&wallet_id, phrase.as_str()))
             .await
-            .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
+            .map_err(|error| {
+                crate::error::Error::KeyError(format!("secure-storage task panicked: {error}"))
+            })?
     }
 
     /// Retrieve and, when necessary, migrate a seed only after proving that its
@@ -241,12 +245,20 @@ impl WalletState {
                         .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
                         .first()
                         .copied()
-                        .ok_or_else(|| crate::error::Error::KeyError("wallet has no account to validate seed migration".into()))?;
+                        .ok_or_else(|| {
+                            crate::error::Error::KeyError(
+                                "wallet has no account to validate seed migration".into(),
+                            )
+                        })?;
                     Some(
                         db.get_account(account_id)
                             .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
                             .and_then(|account| account.ufvk().cloned())
-                            .ok_or_else(|| crate::error::Error::KeyError("wallet has no viewing key to validate seed migration".into()))?
+                            .ok_or_else(|| {
+                                crate::error::Error::KeyError(
+                                    "wallet has no viewing key to validate seed migration".into(),
+                                )
+                            })?
                             .encode(&self.network),
                     )
                 }
@@ -262,13 +274,10 @@ impl WalletState {
                 store.get_seed_phrase_validated(&wallet_id, |phrase| {
                     let mnemonic = keys::parse_mnemonic(phrase)?;
                     let seed = keys::mnemonic_to_seed(&mnemonic);
-                    let derived = keys::derive_usk(
-                        secrecy::ExposeSecret::expose_secret(&seed),
-                        &network,
-                        0,
-                    )?
-                    .to_unified_full_viewing_key()
-                    .encode(&network);
+                    let derived =
+                        keys::derive_usk(secrecy::ExposeSecret::expose_secret(&seed), &network, 0)?
+                            .to_unified_full_viewing_key()
+                            .encode(&network);
                     if derived == expected_ufvk {
                         Ok(())
                     } else {
@@ -286,7 +295,9 @@ impl WalletState {
             }
         })
         .await
-        .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
+        .map_err(|error| {
+            crate::error::Error::KeyError(format!("secure-storage task panicked: {error}"))
+        })?
     }
 
     pub async fn delete_seed_phrase(&self, wallet_id: &str) -> crate::Result<()> {
@@ -294,6 +305,8 @@ impl WalletState {
         let wallet_id = wallet_id.to_owned();
         tokio::task::spawn_blocking(move || store.delete_seed_phrase(&wallet_id))
             .await
-            .map_err(|error| crate::error::Error::KeyError(format!("secure-storage task panicked: {error}")))?
+            .map_err(|error| {
+                crate::error::Error::KeyError(format!("secure-storage task panicked: {error}"))
+            })?
     }
 }

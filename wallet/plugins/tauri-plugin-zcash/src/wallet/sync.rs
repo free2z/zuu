@@ -352,10 +352,7 @@ pub async fn start_sync<R: Runtime>(app: AppHandle<R>, state: &WalletState) -> R
 /// scan the entire chain from Sapling, and the sync loop's `synced >= tip` check
 /// never fires so it spins forever (issue #180). Everything below the birthday is
 /// not the wallet's to scan, so we floor the scanned height at the birthday.
-async fn read_scanned_height(
-    read_db: &Mutex<Option<WalletDatabase>>,
-    birthday_height: u64,
-) -> u64 {
+async fn read_scanned_height(read_db: &Mutex<Option<WalletDatabase>>, birthday_height: u64) -> u64 {
     let db_guard = read_db.lock().await;
     let scanned = if let Some(db) = db_guard.as_ref() {
         db.block_max_scanned()
@@ -592,8 +589,10 @@ async fn refresh_subtree_roots(
     let (next_sapling, next_orchard, next_ironwood) =
         next_subtree_indices(read_db).await.unwrap_or((0, 0, 0));
 
-    let sapling_roots = fetch_subtree_roots(client, ShieldedProtocol::Sapling, next_sapling).await?;
-    let orchard_roots = fetch_subtree_roots(client, ShieldedProtocol::Orchard, next_orchard).await?;
+    let sapling_roots =
+        fetch_subtree_roots(client, ShieldedProtocol::Sapling, next_sapling).await?;
+    let orchard_roots =
+        fetch_subtree_roots(client, ShieldedProtocol::Orchard, next_orchard).await?;
     // Ironwood note commitments are Orchard-shaped, so the same hash type is
     // used. Servers predating Ironwood activation simply stream nothing; an
     // outright error means the server does not know the pool, which is not fatal.
@@ -985,13 +984,16 @@ async fn sync_task<R: Runtime>(
             // polled `get_sync_status` returns it, and emit for event listeners.
             *last_sync_error.write().await = Some(msg.clone());
             *syncing.write().await = false;
-            let _ = app.emit("zcash://sync-progress", &SyncStatus {
-                syncing: false,
-                synced_height: 0,
-                chain_tip: 0,
-                progress_percent: 0.0,
-                last_error: Some(msg),
-            });
+            let _ = app.emit(
+                "zcash://sync-progress",
+                &SyncStatus {
+                    syncing: false,
+                    synced_height: 0,
+                    chain_tip: 0,
+                    progress_percent: 0.0,
+                    last_error: Some(msg),
+                },
+            );
             return;
         }
     };
@@ -1035,13 +1037,16 @@ async fn sync_task<R: Runtime>(
                 let synced_height = read_scanned_height(&read_db, birthday_height).await;
                 let progress = calc_progress(synced_height, chain_tip, birthday_height);
                 *syncing.write().await = false;
-                let _ = app.emit("zcash://sync-progress", &SyncStatus {
-                    syncing: false,
-                    synced_height,
-                    chain_tip,
-                    progress_percent: progress,
-                    last_error: None,
-                });
+                let _ = app.emit(
+                    "zcash://sync-progress",
+                    &SyncStatus {
+                        syncing: false,
+                        synced_height,
+                        chain_tip,
+                        progress_percent: progress,
+                        last_error: None,
+                    },
+                );
                 return;
             }
             Ok(PassOutcome::Completed { scanned_blocks }) => {
@@ -1080,9 +1085,7 @@ async fn sync_task<R: Runtime>(
                             surfaced = format!("Sync trouble — retrying via {next}");
                         }
                         Err(ce) => {
-                            tracing::error!(
-                                "failed to connect to fallback endpoint {next}: {ce}"
-                            );
+                            tracing::error!("failed to connect to fallback endpoint {next}: {ce}");
                             surfaced =
                                 format!("Can't reach the Zcash network — retrying via {next}");
                         }
@@ -1100,13 +1103,16 @@ async fn sync_task<R: Runtime>(
                 let birthday_height = birthday_opt.unwrap_or(chain_tip);
                 let synced_height = read_scanned_height(&read_db, birthday_height).await;
                 let progress = calc_progress(synced_height, chain_tip, birthday_height);
-                let _ = app.emit("zcash://sync-progress", &SyncStatus {
-                    syncing: true,
-                    synced_height,
-                    chain_tip,
-                    progress_percent: progress,
-                    last_error: Some(surfaced),
-                });
+                let _ = app.emit(
+                    "zcash://sync-progress",
+                    &SyncStatus {
+                        syncing: true,
+                        synced_height,
+                        chain_tip,
+                        progress_percent: progress,
+                        last_error: Some(surfaced),
+                    },
+                );
 
                 0
             }
@@ -1123,13 +1129,16 @@ async fn sync_task<R: Runtime>(
         last_known_chain_tip.store(effective_tip, Ordering::Relaxed);
         let progress = calc_progress(synced_height, effective_tip, birthday_height);
         let last_error = last_sync_error.read().await.clone();
-        let _ = app.emit("zcash://sync-progress", &SyncStatus {
-            syncing: true,
-            synced_height,
-            chain_tip: effective_tip,
-            progress_percent: progress,
-            last_error,
-        });
+        let _ = app.emit(
+            "zcash://sync-progress",
+            &SyncStatus {
+                syncing: true,
+                synced_height,
+                chain_tip: effective_tip,
+                progress_percent: progress,
+                last_error,
+            },
+        );
 
         // Adaptive backoff: snap to the minimum while we still have work to do,
         // back off toward 30s once caught up.
@@ -1154,13 +1163,16 @@ async fn sync_task<R: Runtime>(
     *syncing.write().await = false;
 
     let last_error = last_sync_error.read().await.clone();
-    let _ = app.emit("zcash://sync-progress", &SyncStatus {
-        syncing: false,
-        synced_height,
-        chain_tip,
-        progress_percent: progress,
-        last_error,
-    });
+    let _ = app.emit(
+        "zcash://sync-progress",
+        &SyncStatus {
+            syncing: false,
+            synced_height,
+            chain_tip,
+            progress_percent: progress,
+            last_error,
+        },
+    );
 }
 
 /// Outcome of one full "catch up to the chain tip" pass.
@@ -1295,13 +1307,16 @@ async fn run_pass<R: Runtime>(
         let effective_tip = chain_tip_u64.max(synced_height);
         last_known_chain_tip.store(effective_tip, Ordering::Relaxed);
         let progress = calc_progress(synced_height, effective_tip, birthday_height);
-        let _ = app.emit("zcash://sync-progress", &SyncStatus {
-            syncing: true,
-            synced_height,
-            chain_tip: effective_tip,
-            progress_percent: progress,
-            last_error: None,
-        });
+        let _ = app.emit(
+            "zcash://sync-progress",
+            &SyncStatus {
+                syncing: true,
+                synced_height,
+                chain_tip: effective_tip,
+                progress_percent: progress,
+                last_error: None,
+            },
+        );
         tracing::info!("sync progress: {progress:.1}% ({synced_height}/{effective_tip})");
 
         // Retrieve memos for anything we just detected. This early-returns when
@@ -1531,10 +1546,7 @@ mod supervisor_tests {
     }
 
     impl LiveTask {
-        fn new(
-            live: Arc<AtomicUsize>,
-            dropped: tokio::sync::oneshot::Sender<()>,
-        ) -> Self {
+        fn new(live: Arc<AtomicUsize>, dropped: tokio::sync::oneshot::Sender<()>) -> Self {
             live.fetch_add(1, AtomicOrdering::SeqCst);
             Self {
                 live,
@@ -1612,7 +1624,10 @@ mod supervisor_tests {
         tokio::task::yield_now().await;
         stop.abort();
         assert!(stop.await.expect_err("stop is cancelled").is_cancelled());
-        assert!(matches!(lifecycle_guard.phase, SyncTaskPhase::Running { .. }));
+        assert!(matches!(
+            lifecycle_guard.phase,
+            SyncTaskPhase::Running { .. }
+        ));
         drop(lifecycle_guard);
 
         assert!(*syncing.read().await);
@@ -1678,12 +1693,14 @@ mod supervisor_tests {
         });
         first_dropped_rx.await.expect("old handle is aborted");
         stop.abort();
-        assert!(stop.await.expect_err("stop caller is cancelled").is_cancelled());
+        assert!(
+            stop.await
+                .expect_err("stop caller is cancelled")
+                .is_cancelled()
+        );
 
-        let (replacement_started_tx, mut replacement_started_rx) =
-            tokio::sync::oneshot::channel();
-        let (replacement_dropped_tx, replacement_dropped_rx) =
-            tokio::sync::oneshot::channel();
+        let (replacement_started_tx, mut replacement_started_rx) = tokio::sync::oneshot::channel();
+        let (replacement_dropped_tx, replacement_dropped_rx) = tokio::sync::oneshot::channel();
         let recovery_supervisor = Arc::clone(&supervisor);
         let recovery_flag = Arc::clone(&syncing);
         let recovery_starts = Arc::clone(&starts);
@@ -1712,13 +1729,19 @@ mod supervisor_tests {
             "replacement cannot start before the old handle finalizes"
         );
         assert_eq!(live.load(AtomicOrdering::SeqCst), 0);
-        assert!(*syncing_guard, "stale flag is still held at the test barrier");
+        assert!(
+            *syncing_guard,
+            "stale flag is still held at the test barrier"
+        );
         drop(syncing_guard);
 
         replacement_started_rx
             .await
             .expect("replacement starts after old handle joins");
-        assert_eq!(recovery.await.expect("recovery task joins"), SyncStart::Started);
+        assert_eq!(
+            recovery.await.expect("recovery task joins"),
+            SyncStart::Started
+        );
         assert_phase(&supervisor, "running").await;
         assert!(*syncing.read().await);
         assert_eq!(starts.load(AtomicOrdering::SeqCst), 2);

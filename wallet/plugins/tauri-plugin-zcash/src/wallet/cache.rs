@@ -79,7 +79,10 @@ impl BlockCache for MemBlockCache {
         })
     }
 
-    async fn read(&self, range: &ScanRange) -> Result<Vec<CompactBlock>, <Self as BlockSource>::Error> {
+    async fn read(
+        &self,
+        range: &ScanRange,
+    ) -> Result<Vec<CompactBlock>, <Self as BlockSource>::Error> {
         let inner = self.0.read().unwrap();
         Ok(inner
             .range(range.block_range().start..range.block_range().end)
@@ -87,7 +90,10 @@ impl BlockCache for MemBlockCache {
             .collect())
     }
 
-    async fn insert(&self, compact_blocks: Vec<CompactBlock>) -> Result<(), <Self as BlockSource>::Error> {
+    async fn insert(
+        &self,
+        compact_blocks: Vec<CompactBlock>,
+    ) -> Result<(), <Self as BlockSource>::Error> {
         let mut inner = self.0.write().unwrap();
         for block in compact_blocks {
             let height = block.height();
