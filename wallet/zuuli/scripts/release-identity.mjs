@@ -12,6 +12,17 @@ const json = (path) => JSON.parse(read(path));
 const failures = [];
 const releaseBytes = readFileSync(resolve(root, "release.json"));
 
+try {
+  execFileSync(process.execPath, ["scripts/verify-mobile-oauth-links.mjs"], {
+    cwd: root,
+    stdio: "pipe",
+  });
+} catch (error) {
+  failures.push(
+    `mobile OAuth link contract failed: ${error.stderr?.toString().trim() || error.message}`,
+  );
+}
+
 function releaseEncryptionKeyCount(contents) {
   return (
     contents.match(/"iosUsesNonExemptEncryption"\s*:/g) ?? []
@@ -196,6 +207,8 @@ const androidManifest = read(
 const androidToolchain = read("scripts/android-toolchain-env.sh");
 const gemLock = read("Gemfile.lock");
 const mobileRelease = read("scripts/mobile-release.sh");
+const normalizeIosProject = read("scripts/normalize-generated-ios-project.mjs");
+const verifyIosIpa = read("scripts/verify-ios-ipa.sh");
 const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
 
@@ -558,6 +571,40 @@ for (const wiring of [
   if (!releaseWorkflow.includes(wiring))
     failures.push(`protected iOS signing-keychain wiring is missing: ${wiring}`);
 }
+for (const [label, text, expression, expectedCount] of [
+  [
+    "protected profile associated-domain capability guard",
+    releaseWorkflow,
+    '["com.apple.developer.associated-domains"] == ["*"]',
+    1,
+  ],
+  [
+    "embedded profile associated-domain capability guard",
+    verifyIosIpa,
+    '["com.apple.developer.associated-domains"] == ["*"]',
+    1,
+  ],
+  [
+    "signed IPA exact associated-domain guard",
+    verifyIosIpa,
+    '["com.apple.developer.associated-domains"] == ["applinks:free2z.com"]',
+    1,
+  ],
+]) {
+  expect(
+    label,
+    occurrenceCount(text, expression),
+    expectedCount,
+  );
+}
+expect(
+  "historical profile UUID release pin count",
+  occurrenceCount(
+    `${releaseWorkflow}\n${normalizeIosProject}\n${verifyIosIpa}`,
+    "e5ead62c-83ec-4e54-abb6-4770833b5e0d",
+  ),
+  0,
+);
 expect(
   "protected build certificate secret exposure count",
   occurrenceCount(

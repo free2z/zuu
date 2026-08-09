@@ -450,10 +450,17 @@ jobs:
           profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$files/profile.plist")
           profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$files/profile.plist")
           profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$files/profile.plist")
-          [[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]]
+          profile_json=$(plutil -convert json -o - "$files/profile.plist")
+          [[ "$profile_uuid" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]
           [[ "$profile_name" == 'ZUULI App Store CI' ]]
           [[ "$profile_team" == F9AV5HKF6N ]]
           [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]]
+          jq -e '
+            .Entitlements["com.apple.developer.associated-domains"] == ["*"]
+          ' <<<"$profile_json" >/dev/null || {
+            echo "provisioning profile does not authorize the Associated Domains capability" >&2
+            exit 1
+          }
           profile_authorizes_identity=false
           certificate_index=0
           while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$files/profile.plist" 2>/dev/null); do

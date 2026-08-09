@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const teamId = "F9AV5HKF6N";
-const profileUuid = "e5ead62c-83ec-4e54-abb6-4770833b5e0d";
 const profileName = "ZUULI App Store CI";
+const quotedProfileUuidPattern =
+  /^"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"$/;
 const distributionIdentity = `Apple Distribution: Corpora Inc (${teamId})`;
 const appBundleSetting = "PRODUCT_BUNDLE_IDENTIFIER = cash.free2z.zuuli;";
 const exemptEncryptionDeclaration = [
@@ -88,6 +89,24 @@ function replaceSetting(lines, key, expectedValue, replacementValue) {
   else lines[index] = settingLine(key, replacementValue);
 }
 
+function normalizePreparedProfileSetting(lines, key, configuration, remove = false) {
+  const index = settingIndex(lines, key);
+  const prefix = settingLine(key, "").slice(0, -1);
+  const line = lines[index];
+  if (!line.startsWith(prefix) || !line.endsWith(";")) {
+    throw new Error(`refusing to normalize malformed ${key} setting`);
+  }
+  const value = line.slice(prefix.length, -1);
+  const canonical = configuration === "debug" ? '""' : `"${profileName}"`;
+  if (value !== canonical && !quotedProfileUuidPattern.test(value)) {
+    throw new Error(
+      `refusing to normalize ${key}: expected the protected profile name or a well-formed generated UUID, found ${JSON.stringify(value)}`,
+    );
+  }
+  if (remove || configuration === "debug") lines.splice(index, 1);
+  else lines[index] = settingLine(key, canonical);
+}
+
 function insertSettingAfter(lines, afterKey, key, value) {
   if (lines.some((line) => line.trimStart().startsWith(`${key} = `))) {
     throw new Error(`refusing to prepare duplicate ${key} setting`);
@@ -156,13 +175,12 @@ function normalizeAppSigning(body, configuration) {
     );
     replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, teamId);
     replaceSetting(lines, sdkTeam, teamId, null);
-    replaceSetting(
+    normalizePreparedProfileSetting(
       lines,
       "PROVISIONING_PROFILE_SPECIFIER",
-      `"${profileUuid}"`,
-      configuration === "debug" ? null : `"${profileName}"`,
+      configuration,
     );
-    replaceSetting(lines, sdkProfile, `"${profileUuid}"`, null);
+    normalizePreparedProfileSetting(lines, sdkProfile, configuration, true);
   }
 
   return lines.join("\n");
@@ -386,6 +404,7 @@ function selfTest() {
     tauriGenerated,
     (body, configuration) => {
       const lines = body.split("\n");
+      const fixtureProfileUuid = '"11111111-2222-3333-4444-555555555555"';
       const canonicalProfile =
         configuration === "debug" ? '""' : `"${profileName}"`;
       replaceSetting(
@@ -399,13 +418,13 @@ function selfTest() {
         lines,
         "PROVISIONING_PROFILE_SPECIFIER",
         canonicalProfile,
-        `"${profileUuid}"`,
+        fixtureProfileUuid,
       );
       replaceSetting(
         lines,
         '"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]"',
         canonicalProfile,
-        `"${profileUuid}"`,
+        fixtureProfileUuid,
       );
       return lines.join("\n");
     },
@@ -420,6 +439,17 @@ function selfTest() {
     throw new Error(
       "manual-signing project did not normalize to canonical bytes",
     );
+  }
+  let rejectedMalformedProfileUuid = false;
+  try {
+    normalizeProject(
+      prepared.replaceAll(`"${profileName}"`, '"not-a-profile-uuid"'),
+    );
+  } catch {
+    rejectedMalformedProfileUuid = true;
+  }
+  if (!rejectedMalformedProfileUuid) {
+    throw new Error("iOS project normalization accepted a malformed profile UUID");
   }
 }
 

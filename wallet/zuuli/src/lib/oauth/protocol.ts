@@ -1,6 +1,8 @@
 import type { SocialProvider } from "../api/types";
 
-export const MOBILE_REDIRECT_URI = "cash.free2z.zuuli://oauth/callback";
+export const PRIVATE_MOBILE_REDIRECT_URI = "cash.free2z.zuuli://oauth/callback";
+export const CLAIMED_MOBILE_REDIRECT_URI = "https://free2z.com/oauth/callback";
+export const MOBILE_REDIRECT_URI = PRIVATE_MOBILE_REDIRECT_URI;
 const MOBILE_RELAY_HOSTS = new Set([
   "free2z.cash",
   "new.free2z.cash",

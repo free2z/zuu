@@ -46,6 +46,12 @@
           "host": "oauth",
           "path": ["/callback"],
           "appLink": false
+        },
+        {
+          "scheme": ["https"],
+          "host": "free2z.com",
+          "path": ["/oauth/callback"],
+          "appLink": true
         }
       ]
     }
