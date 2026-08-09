@@ -46,13 +46,18 @@ function claimedFixture(values = {}) {
   }
   const preloadPath = resolve(fixture, "mock-fetch.mjs");
   writeFileSync(preloadPath, `
+const documents = (url) => url.includes("apple-app-site-association")
+  ? { applinks: { details: [{ components: [{ "/": "/oauth/callback" }], appIDs: ["F9AV5HKF6N.cash.free2z.zuuli"] }] } }
+  : [{ target: { sha256_cert_fingerprints: [${JSON.stringify(fingerprint)}], package_name: "cash.free2z.zuuli", namespace: "android_app" }, relation: ["delegate_permission/common.handle_all_urls"], relation_extensions: { "delegate_permission/common.handle_all_urls": { dynamic_app_link_components: [{ "/": "/oauth/callback" }] } } }];
 globalThis.fetch = async (url) => ({
   status: Number(process.env.MOCK_STATUS),
   url,
   headers: { get: () => process.env.MOCK_CONTENT_TYPE },
-  json: async () => url.includes("apple-app-site-association")
-    ? { applinks: { details: [{ components: [{ "/": "/oauth/callback" }], appIDs: ["F9AV5HKF6N.cash.free2z.zuuli"] }] } }
-    : [{ target: { sha256_cert_fingerprints: [${JSON.stringify(fingerprint)}], package_name: "cash.free2z.zuuli", namespace: "android_app" }, relation: ["delegate_permission/common.handle_all_urls"], relation_extensions: { "delegate_permission/common.handle_all_urls": { dynamic_app_link_components: [{ "/": "/oauth/callback" }] } } }],
+  arrayBuffer: async () => new TextEncoder().encode(
+    process.env.MOCK_DUPLICATE === "true" && url.includes("apple-app-site-association")
+      ? '{"applinks":{"details":[],"details":[{"components":[{"/":"/oauth/callback"}],"appIDs":["F9AV5HKF6N.cash.free2z.zuuli"]}]}}'
+      : JSON.stringify(documents(url)),
+  ).buffer,
 });
 `);
   execFileSync("git", ["init", "-q"], { cwd: fixture });
@@ -180,4 +185,10 @@ test("public gate requires exact HTTP 200 and JSON media type", () => {
   });
   assert.notEqual(wrongMediaType.status, 0);
   assert.match(wrongMediaType.stderr, /must use application\/json/);
+});
+
+test("public gate rejects duplicate association keys before JSON comparison", () => {
+  const result = runClaimedFixture({ MOCK_DUPLICATE: "true" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid or ambiguous JSON/);
 });

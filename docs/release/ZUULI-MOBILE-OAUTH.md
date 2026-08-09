@@ -88,7 +88,8 @@ ZUULI_OAUTH_DEVICE_EVIDENCE=/secure/path/device-evidence.json \
 That command fails closed unless rollout is `claimed`, device evidence names the
 exact `--source-sha` being promoted, at least one strict Play
 App Signing fingerprint is committed, both live association documents match
-the exact reviewed JSON without redirects, and the evidence JSON records:
+the exact reviewed unambiguous JSON without redirects or duplicate keys, and
+the evidence JSON records:
 
 - exact 40-character ZUU and tuzi commits;
 - claimed URI and Apple application ID;

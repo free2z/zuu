@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
+import { TextDecoder } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,6 +49,96 @@ function canonicalJson(value) {
     );
   }
   return value;
+}
+
+function parseUnambiguousJson(bytes, label) {
+  if (bytes.byteLength > 65_536) throw new Error(`${label} JSON is unexpectedly large`);
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  let offset = 0;
+  const whitespace = () => {
+    while (/[\t\n\r ]/.test(text[offset] ?? "")) offset += 1;
+  };
+  const consume = (expected) => {
+    whitespace();
+    if (text[offset] !== expected) throw new Error(`${label} is invalid JSON`);
+    offset += 1;
+  };
+  const string = () => {
+    whitespace();
+    if (text[offset] !== '"') throw new Error(`${label} is invalid JSON`);
+    const start = offset;
+    offset += 1;
+    while (offset < text.length) {
+      if (text[offset] === "\\") {
+        offset += 2;
+        continue;
+      }
+      if (text[offset] === '"') {
+        offset += 1;
+        return JSON.parse(text.slice(start, offset));
+      }
+      offset += 1;
+    }
+    throw new Error(`${label} is invalid JSON`);
+  };
+  const value = () => {
+    whitespace();
+    if (text[offset] === "{") return object();
+    if (text[offset] === "[") return array();
+    if (text[offset] === '"') return string();
+    const remainder = text.slice(offset);
+    const token = remainder.match(
+      /^(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/,
+    )?.[0];
+    if (!token) throw new Error(`${label} is invalid JSON`);
+    offset += token.length;
+    return JSON.parse(token);
+  };
+  const array = () => {
+    consume("[");
+    const result = [];
+    whitespace();
+    if (text[offset] === "]") {
+      offset += 1;
+      return result;
+    }
+    while (true) {
+      result.push(value());
+      whitespace();
+      if (text[offset] === "]") {
+        offset += 1;
+        return result;
+      }
+      consume(",");
+    }
+  };
+  const object = () => {
+    consume("{");
+    const result = Object.create(null);
+    const keys = new Set();
+    whitespace();
+    if (text[offset] === "}") {
+      offset += 1;
+      return result;
+    }
+    while (true) {
+      const key = string();
+      if (keys.has(key)) throw new Error(`${label} repeats JSON key ${JSON.stringify(key)}`);
+      keys.add(key);
+      consume(":");
+      result[key] = value();
+      whitespace();
+      if (text[offset] === "}") {
+        offset += 1;
+        return result;
+      }
+      consume(",");
+    }
+  };
+  const parsed = value();
+  whitespace();
+  if (offset !== text.length) throw new Error(`${label} is invalid JSON`);
+  return parsed;
 }
 
 expect("schema version", config.schemaVersion, exact.schemaVersion);
@@ -186,10 +277,13 @@ if (publicRelease) {
         const mediaType = (response.headers.get("content-type") ?? "")
           .split(";", 1)[0].trim().toLowerCase();
         if (mediaType !== "application/json") failures.push(`${url} must use application/json`);
-        const body = await response.json();
+        const body = parseUnambiguousJson(
+          new Uint8Array(await response.arrayBuffer()),
+          url,
+        );
         if (JSON.stringify(canonicalJson(body)) !== JSON.stringify(canonicalJson(expected))) failures.push(`${url} is broader than the reviewed exact association`);
       } catch {
-        failures.push(`${url} could not be fetched without redirects`);
+        failures.push(`${url} could not be fetched without redirects or contained invalid or ambiguous JSON`);
       }
     }
   }
