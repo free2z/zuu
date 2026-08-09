@@ -21,6 +21,7 @@ on:
       - 'wallet/plugins/tauri-plugin-zcash/**'
       - 'z/zcash/librustzcash'
       - '.gitmodules'
+      - 'scripts/check-rust-fmt.sh'
       - '.github/workflows/zuuallet.yml'
   push:
     branches: [main]
@@ -29,6 +30,7 @@ on:
       - 'wallet/plugins/tauri-plugin-zcash/**'
       - 'z/zcash/librustzcash'
       - '.gitmodules'
+      - 'scripts/check-rust-fmt.sh'
       - '.github/workflows/zuuallet.yml'
   workflow_dispatch:
   schedule:
@@ -44,6 +46,36 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Formatting. The required `gate` lives in zuuli.yml and its change detector
+  # does not select wallet/zuuallet/**, so a Zuuallet-only pull request would
+  # otherwise be able to land unformatted code — and then fail the next
+  # unrelated ZUULI pull request on files it never touched. Same script, so the
+  # two workflows cannot disagree about what "formatted" means.
+  # ---------------------------------------------------------------------------
+  fmt:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # rustfmt is absent from the minimal profile this action installs.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: rustfmt
+
+      - name: Check formatting of every Rust crate under wallet/
+        run: scripts/check-rust-fmt.sh
+
   # ---------------------------------------------------------------------------
   # Frontend: TypeScript typecheck + production bundle.
   # ---------------------------------------------------------------------------

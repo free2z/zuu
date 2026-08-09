@@ -71,7 +71,7 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-play-testers.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*)
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-fmt.sh|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-play-testers.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*)
                 zuuli=true
                 ;;
             esac
@@ -124,6 +124,43 @@ jobs:
 
       - name: Build production frontend
         run: npm run build
+
+  # Formatting is its own job rather than a step on rust_plugin/rust_app, which
+  # are 45-minute builds. `cargo fmt` reads manifests with
+  # `cargo metadata --no-deps`, so it resolves no dependency graph and compiles
+  # nothing: no submodule fetch, no Tauri system packages, no Cargo cache. The
+  # verdict lands in about a minute instead of behind a cold Zcash build, and a
+  # formatting failure no longer costs a full rebuild to re-check.
+  #
+  # It covers every crate under wallet/, including wallet/zuuallet/src-tauri,
+  # which this workflow's change filter does not select on its own; a
+  # Zuuallet-only pull request is covered by the matching job in zuuallet.yml.
+  rust_fmt:
+    name: Rust / formatting
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # rustfmt is not in the minimal profile this action installs, and its
+      # output differs between compiler versions — the pinned toolchain is what
+      # makes the verdict reproducible, so the check refuses to run on any other.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: rustfmt
+
+      - name: Check formatting of every Rust crate under wallet/
+        run: scripts/check-rust-fmt.sh
 
   rust_plugin:
     name: Rust / shared plugin
@@ -231,7 +268,7 @@ jobs:
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, frontend, rust_plugin, rust_app]
+    needs: [changes, frontend, rust_fmt, rust_plugin, rust_app]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -241,6 +278,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          RUST_FMT_RESULT: ${{ needs.rust_fmt.result }}
           RUST_PLUGIN_RESULT: ${{ needs.rust_plugin.result }}
           RUST_APP_RESULT: ${{ needs.rust_app.result }}
         run: |
@@ -249,7 +287,9 @@ jobs:
             echo "Change detection did not pass: $CHANGES_RESULT"; exit 1;
           }
 
-          results="$FRONTEND_RESULT $RUST_PLUGIN_RESULT $RUST_APP_RESULT"
+          # Every job in `needs:` above must appear here as well; a job that is
+          # awaited but not inspected makes the gate decorative for that job.
+          results="$FRONTEND_RESULT $RUST_FMT_RESULT $RUST_PLUGIN_RESULT $RUST_APP_RESULT"
           echo "ZUULI changed: $ZUULI_CHANGED; job results: $results"
           case "$ZUULI_CHANGED" in
             true) expected=success ;;
