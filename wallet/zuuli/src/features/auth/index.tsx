@@ -1,7 +1,7 @@
 // ZUULI — Login.
 //
-// A standalone, full-viewport auth page (mounted at /login, outside the app
-// shell). ZUULI is Zcash-native, so Login with Zcash leads as the default,
+// A viewport-bound auth page mounted inside the persistent app shell. ZUULI is
+// Zcash-native, so Login with Zcash leads as the default,
 // prominent choice — passwordless, no email, no KYC. Email/username + password
 // (with 2FA when enabled) and, soon, X / Google follow below as alternatives.
 
@@ -36,10 +36,13 @@ export default function AuthFeature() {
   }, [bootstrap]);
 
   return (
-    <div className="grid min-h-screen w-full grid-cols-1 bg-background lg:grid-cols-2">
+    <div
+      className="grid h-full min-h-0 w-full grid-cols-1 overflow-y-auto bg-background lg:grid-cols-2"
+      data-route-scroll
+    >
       <BrandPanel />
 
-      <main className="relative flex min-h-screen flex-col items-center justify-center overflow-y-auto p-6 sm:p-10">
+      <main className="app-auth-content relative flex min-h-full flex-col items-center justify-center p-6 sm:p-10">
         {/* Compact wordmark for small screens where the brand panel is hidden */}
         <div className="mb-8 lg:hidden">
           <Wordmark />

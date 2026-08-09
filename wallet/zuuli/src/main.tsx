@@ -17,13 +17,16 @@ function RootFallback() {
     <div
       role="alert"
       style={{
-        minHeight: "100vh",
+        boxSizing: "border-box",
+        height: "100dvh",
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         gap: "1rem",
-        padding: "2rem",
+        padding:
+          "calc(2rem + var(--safe-area-top)) calc(2rem + var(--safe-area-right)) calc(2rem + var(--safe-area-bottom)) calc(2rem + var(--safe-area-left))",
         background: "#0a0a0f",
         color: "#e5e5ea",
         fontFamily: "system-ui, sans-serif",
