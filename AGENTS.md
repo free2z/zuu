@@ -146,6 +146,58 @@ integrate, and move it forward alongside everything else.
 - The workflow's **weekly `upstream-canary`** job rebuilds against the *latest*
   librustzcash `main` + refreshed crates, so upstream drift surfaces as an early
   warning **before** we bump the submodule in a PR.
+- **`scripts/check-rust-toolchain.sh`** proves every Rust toolchain pin still
+  agrees with `wallet/rust-toolchain.toml`. The `wallet/zuuli` gate runs it on
+  every pull request, so a half-finished bump fails in review instead of in a
+  protected store release. See below.
+
+## The Rust toolchain pin
+
+### One source of truth
+
+**`wallet/rust-toolchain.toml` decides the version. Nothing else does.**
+
+Everything else in the repo restates it, because the surrounding tools cannot
+read a TOML file at the moment they need the value:
+
+| Restatement | Why it cannot just read the file |
+|---|---|
+| `rust-version` in the three `Cargo.toml` manifests | Cargo needs a literal, and it is the **two-component MSRV floor** (`X.Y`) of the three-component channel (`X.Y.Z`) — deliberately a different form, compared as such |
+| `ZUULI_RUST_VERSION` in `zuuli-packaging.yml` and `zuuli-release.yml` | A workflow-level `env:` cannot be computed from a file, and the release jobs verify the installed compiler with `rustc --version \| grep -F "rustc $ZUULI_RUST_VERSION "` |
+| `dtolnay/rust-toolchain@<sha> # <version>` in the packaging/release workflows | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
+| `dtolnay/rust-toolchain@<version>` in `zuuallet.yml` | `uses:` cannot contain an expression |
+| MSRV/`cargo +<version>` lines in the wallet READMEs, the plugin `CLAUDE.md`, and `wallet/zuuli/docs/releasing.md` | Prose |
+
+The `wallet/zuuli` gate reads the channel out of the file (`--print-channel`) and
+feeds it to the toolchain action, so the required CI jobs hold **no literal at
+all**. Every remaining restatement is verified against the file by
+`scripts/check-rust-toolchain.sh`.
+
+### How to bump
+
+1. Change `channel` in `wallet/rust-toolchain.toml`. **That is the only decision.**
+2. Run `scripts/check-rust-toolchain.sh`. It names every restatement that has
+   not followed, with file and line.
+3. Update exactly what it names — including moving each commit-pinned
+   `dtolnay/rust-toolchain` SHA to the new version branch **and** its `# <version>`
+   comment.
+4. Re-run until it passes. `scripts/check-rust-toolchain.sh --self-test` proves
+   the check can still fail; CI runs both.
+
+A bump that touches the source of truth and nothing else **cannot merge** — the
+gate fails. That is the point: the version is one edit plus a mechanical
+follow-through, not an eleven-place archaeology exercise.
+
+### Cadence — proposed, not yet adopted
+
+The pin is currently `1.88.0`, released June 2025 and roughly fourteen months
+old at the time of writing. Nothing here changes it; the bump is a separate,
+owner-gated decision because it moves every mobile and desktop release target at
+once. **Proposal for the owner to accept or reject:** track **stable minus one
+or two releases**, reviewed **quarterly**, with a named owner, so the pin is
+current enough for modern crates' MSRVs without chasing stable into surprises.
+Recorded here so the next person inherits a decision to make rather than a
+literal to be afraid of.
 
 ## Verifying before you push
 

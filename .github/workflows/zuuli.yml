@@ -37,6 +37,14 @@ jobs:
           # Diff locally instead of relying on the pull-request files API.
           fetch-depth: 0
 
+      # Runs on every event, including changes this job would otherwise skip,
+      # because a toolchain pin can drift from any workflow or manifest. The
+      # self-test proves the check can still fail before its verdict is trusted.
+      - name: Verify the Rust toolchain pin has not drifted
+        run: |
+          scripts/check-rust-toolchain.sh --self-test
+          scripts/check-rust-toolchain.sh
+
       - name: Detect release-impacting ZUULI changes
         id: filter
         shell: bash
@@ -146,10 +154,18 @@ jobs:
             build-essential curl wget file pkg-config
 
       # Keep CI explicit as well as repository-pinned so runner state cannot
-      # silently select a newer compiler.
+      # silently select a newer compiler. The version is read from
+      # wallet/rust-toolchain.toml rather than restated here.
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -189,9 +205,16 @@ jobs:
             libssl-dev \
             build-essential curl wget file pkg-config
 
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
 
       - uses: Swatinem/rust-cache@v2
         with:

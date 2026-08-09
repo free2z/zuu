@@ -39,6 +39,9 @@ concurrency:
 env:
   CI: true
   ZUULI_NODE_VERSION: "24.18.0"
+  # Restates wallet/rust-toolchain.toml because GitHub cannot compute a
+  # workflow-level `env:` from a file. scripts/check-rust-toolchain.sh fails
+  # the pull request if this ever stops matching the source of truth.
   ZUULI_RUST_VERSION: "1.88.0"
   ZUULI_JAVA_VERSION: "21.0.12"
   ZUULI_XCODE_VERSION: "26.6"
@@ -210,9 +213,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "21.0.12"
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+      # dtolnay/rust-toolchain's version branches hardcode the compiler in
+      # action.yml, so this commit is itself the version pin and the trailing
+      # comment is its only readable record. Bumping the toolchain means moving
+      # the SHA to the new version branch and updating the comment with it;
+      # scripts/check-rust-toolchain.sh fails the pull request otherwise.
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ env.ZUULI_RUST_VERSION }}
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - name: Install exact Android SDK components
         run: |
@@ -357,9 +365,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.18.0"
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ env.ZUULI_RUST_VERSION }}
           targets: aarch64-apple-ios
       - name: Restore reviewed iOS Rust dependencies
         uses: ./.github/actions/zuuli-rust-cache
@@ -573,8 +581,8 @@ jobs:
           {
             node-version: "24.18.0",
           }
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
-        with: { toolchain: 1.88.0 }
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
+        with: { toolchain: "${{ env.ZUULI_RUST_VERSION }}" }
       - name: Install package dependencies
         run: |
           sudo apt-get update
@@ -670,10 +678,10 @@ jobs:
           {
             node-version: "24.18.0",
           }
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
         with:
           {
-            toolchain: 1.88.0,
+            toolchain: "${{ env.ZUULI_RUST_VERSION }}",
             targets: "aarch64-apple-darwin,x86_64-apple-darwin",
           }
       - name: Restore reviewed macOS Rust dependencies

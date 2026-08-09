@@ -139,6 +139,9 @@ jobs:
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
 
+      # `uses:` cannot take an expression, so this version-branch ref restates
+      # wallet/rust-toolchain.toml; scripts/check-rust-toolchain.sh holds it to
+      # the source of truth.
       - uses: dtolnay/rust-toolchain@1.88.0
 
       - uses: Swatinem/rust-cache@v2
