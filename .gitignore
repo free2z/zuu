@@ -3,8 +3,14 @@ bazel-*
 node_modules
 private/
 .vscode/
+# Isolated agent worktrees created by the Claude Code harness (see AGENTS.md).
+# Only the worktrees dir is ignored: the rest of .claude/ (settings.json,
+# agents/, commands/) stays trackable.
+.claude/worktrees/
 *.log
 target/
+# Checksum-verified cargo-deny binary fetched by scripts/check-rust-deny.sh.
+.cargo-deny/
 *.pyc
 __pycache__
 wallet/zuuli/dist/

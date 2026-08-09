@@ -12,23 +12,25 @@ architecture is chosen deliberately and can be reviewed by a third party.
 |---|---|
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | The design. Layers, key hierarchy and derivation, delivery-service semantics, retention model, metadata model, federation and relay trust, FROST/DKG application design, open questions. |
 | [`THREAT-MODEL.md`](./THREAT-MODEL.md) | Adversaries, what each can do, and for each one the defense — or a plain statement that there is none. Includes the known, accepted limits. |
-| [`decisions/`](./decisions/) | One ADR per owner decision, `0001`–`0006`. |
+| [`decisions/`](./decisions/) | One ADR per owner decision, `0001`–`0007`. |
 
-## The six binding decisions
+## The binding decisions
 
 Recorded by the owner on 2026-08-08 in
 [#305](https://github.com/free2z/zuu/issues/305). They are inputs to this
 design, not conclusions of it. An implementation PR that contradicts one of
-these should be rejected, or should first change the decision on the record.
+these should be rejected, or should first change the decision on the record —
+which is what ADR 0007 does to ADR 0003.
 
 | ADR | Decision |
 |---|---|
 | [0001](./decisions/0001-platform-priority.md) | **Platform** — ZUULI-first; the web client speaks the same protocol via WASM with an explicitly weaker, UI-stated trust model. |
 | [0002](./decisions/0002-multi-device.md) | **Multi-device** — design the protocol, queues and key hierarchy for per-device fan-out from day one; ship single-device in the UI. |
-| [0003](./decisions/0003-history-retention.md) | **History** — per-conversation retention, negotiated and authenticated inside the MLS group. FROST transcripts exempt and always retained. |
+| ~~[0003](./decisions/0003-history-retention.md)~~ | **History** — per-conversation retention negotiated inside the MLS group. **Superseded by 0007**; do not implement. |
 | [0004](./decisions/0004-metadata-ambition.md) | **Metadata** — key-transparency directory for `@handle` discovery, then sealed sender over opaque pairwise unidirectional queues. |
 | [0005](./decisions/0005-federation.md) | **Federation** — full multi-relay. The relay is a separate small Rust service, open source and self-hostable from the first release. |
 | [0006](./decisions/0006-zcash-coupling.md) | **Zcash** — client-side cryptography only. Seed-derived messaging identity; no blockchain in the critical path. |
+| [0007](./decisions/0007-retention-per-user.md) | **History (supersedes 0003)** — retention is a per-user local choice, plus a non-binding, authenticated ephemeral hint that conforming clients honor. FROST transcripts retained by default because the participant wants the evidence. |
 
 ## Prior art in this repo
 

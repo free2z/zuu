@@ -24,9 +24,7 @@ pub async fn create_account(state: &WalletState) -> Result<AccountInfo> {
         .ok_or(Error::Other("seed not available in session".into()))?;
 
     let mut db_guard = state.db.lock().await;
-    let db = db_guard
-        .as_mut()
-        .ok_or(Error::WalletNotInitialized)?;
+    let db = db_guard.as_mut().ok_or(Error::WalletNotInitialized)?;
 
     // We need a birthday for the new account - use the existing wallet birthday
     let _birthday_height = db
@@ -63,8 +61,15 @@ pub async fn create_account(state: &WalletState) -> Result<AccountInfo> {
         .map_err(|e| Error::NetworkError(format!("failed to get tree state: {e}")))?
         .into_inner();
 
-    let birthday = zcash_client_backend::data_api::AccountBirthday::from_treestate(tree_state, None)
-        .map_err(|e| Error::DatabaseError(format!("failed to create birthday: {}", format_birthday_error(e))))?;
+    let birthday = zcash_client_backend::data_api::AccountBirthday::from_treestate(
+        tree_state, None,
+    )
+    .map_err(|e| {
+        Error::DatabaseError(format!(
+            "failed to create birthday: {}",
+            format_birthday_error(e)
+        ))
+    })?;
 
     let seed_guard = state.seed.lock().await;
     let seed = seed_guard
@@ -72,9 +77,7 @@ pub async fn create_account(state: &WalletState) -> Result<AccountInfo> {
         .ok_or(Error::Other("seed not available in session".into()))?;
 
     let mut db_guard = state.db.lock().await;
-    let db = db_guard
-        .as_mut()
-        .ok_or(Error::WalletNotInitialized)?;
+    let db = db_guard.as_mut().ok_or(Error::WalletNotInitialized)?;
 
     let account_count = db
         .get_account_ids()
@@ -107,9 +110,7 @@ pub async fn list_accounts(state: &WalletState) -> Result<Vec<AccountInfo>> {
     }
 
     let db_guard = state.read_db.lock().await;
-    let db = db_guard
-        .as_ref()
-        .ok_or(Error::WalletNotInitialized)?;
+    let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
 
     let account_ids = db
         .get_account_ids()
@@ -121,7 +122,9 @@ pub async fn list_accounts(state: &WalletState) -> Result<Vec<AccountInfo>> {
             .get_account(*account_id)
             .map_err(|e| Error::DatabaseError(format!("{e}")))?;
 
-        let name = account.as_ref().and_then(|a| a.name().map(|n| n.to_string()));
+        let name = account
+            .as_ref()
+            .and_then(|a| a.name().map(|n| n.to_string()));
 
         let ua_request = UnifiedAddressRequest::AllAvailableKeys;
         let addr = db

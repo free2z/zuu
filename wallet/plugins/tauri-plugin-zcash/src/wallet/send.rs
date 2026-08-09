@@ -8,15 +8,14 @@ use std::{
 };
 
 use secrecy::ExposeSecret;
+use zcash_client_backend::data_api::WalletRead;
 use zcash_client_backend::data_api::wallet::{
-    create_proposed_transactions,
+    ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
     input_selection::{GreedyInputSelector, SpendPolicy},
     propose_transfer,
-    ConfirmationsPolicy, SpendingKeys,
 };
-use zcash_client_backend::data_api::WalletRead;
-use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::fees::DustOutputPolicy;
+use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::proto::service::{RawTransaction, TxFilter};
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_keys::address::Address;
@@ -31,9 +30,9 @@ use crate::models::{
     AddressValidation, BroadcastStatus, ExecuteSendResult, PendingSendStatus, SaplingParamsStatus,
     SendProposal,
 };
+use crate::wallet::WalletState;
 use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::keys;
-use crate::wallet::WalletState;
 
 /// A transaction that has already been created in the wallet database.
 /// Retrying this record always rebroadcasts `raw_transaction`; it never signs
@@ -56,8 +55,7 @@ pub struct PendingBroadcast {
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
-const INTERRUPTED_CREATION_RECOVERY_ERROR: &str =
-    "Transaction creation was interrupted; automatic rebroadcast is unavailable. Inspect wallet history before creating another payment.";
+const INTERRUPTED_CREATION_RECOVERY_ERROR: &str = "Transaction creation was interrupted; automatic rebroadcast is unavailable. Inspect wallet history before creating another payment.";
 // A consensus-valid transaction is far smaller than this even after JSON's
 // integer-array expansion. Bound both allocation and streaming reads so a
 // local malformed journal cannot exhaust process memory during startup.
@@ -120,9 +118,8 @@ fn validate_windows_file_handle(file: &File, label: &str) -> Result<()> {
     let mut information = BY_HANDLE_FILE_INFORMATION::default();
     // SAFETY: the handle is owned by `file` for the duration of this call and
     // `information` points to a correctly-sized writable Win32 structure.
-    let succeeded = unsafe {
-        GetFileInformationByHandle(file.as_raw_handle().cast(), &mut information)
-    };
+    let succeeded =
+        unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), &mut information) };
     if succeeded == 0 {
         return Err(Error::DatabaseError(format!(
             "pending send {label} link metadata could not be read: {}",
@@ -210,9 +207,7 @@ fn read_recovery_file(path: &Path, label: &str) -> Result<Option<Vec<u8>>> {
     file.take(MAX_PENDING_JOURNAL_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| {
-            Error::DatabaseError(format!(
-                "pending send {label} could not be read: {error}"
-            ))
+            Error::DatabaseError(format!("pending send {label} could not be read: {error}"))
         })?;
     if bytes.len() as u64 > MAX_PENDING_JOURNAL_BYTES {
         return Err(Error::DatabaseError(format!(
@@ -231,9 +226,9 @@ impl Drop for TemporaryJournal {
         match std::fs::remove_file(&self.path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => tracing::warn!(
-                "failed to clean exact pending send temporary file: {error}"
-            ),
+            Err(error) => {
+                tracing::warn!("failed to clean exact pending send temporary file: {error}")
+            }
         }
     }
 }
@@ -279,10 +274,7 @@ fn sync_recovery_directory(data_dir: &Path) -> Result<()> {
         })
 }
 
-pub(crate) fn load_pending_broadcast(
-    data_dir: &Path,
-    wallet_id: &str,
-) -> Option<PendingBroadcast> {
+pub(crate) fn load_pending_broadcast(data_dir: &Path, wallet_id: &str) -> Option<PendingBroadcast> {
     let corrupt = |message: String| PendingBroadcast {
         wallet_id: wallet_id.to_string(),
         proposal_id: 0,
@@ -371,10 +363,14 @@ fn persist_pending_broadcast(data_dir: &Path, record: &PendingBroadcast) -> Resu
     }
     let (mut file, temporary) = create_unique_journal(data_dir, &record.wallet_id)?;
     file.write_all(&bytes).map_err(|error| {
-        Error::DatabaseError(format!("failed to write pending send recovery state: {error}"))
+        Error::DatabaseError(format!(
+            "failed to write pending send recovery state: {error}"
+        ))
     })?;
     file.sync_all().map_err(|error| {
-        Error::DatabaseError(format!("failed to sync pending send recovery state: {error}"))
+        Error::DatabaseError(format!(
+            "failed to sync pending send recovery state: {error}"
+        ))
     })?;
     drop(file);
     #[cfg(windows)]
@@ -414,7 +410,9 @@ fn persist_pending_broadcast(data_dir: &Path, record: &PendingBroadcast) -> Resu
     }
     #[cfg(not(windows))]
     std::fs::rename(&temporary.path, &path).map_err(|error| {
-        Error::DatabaseError(format!("failed to commit pending send recovery state: {error}"))
+        Error::DatabaseError(format!(
+            "failed to commit pending send recovery state: {error}"
+        ))
     })?;
     // On Unix, fsync the directory as well as the file. Without this, a crash
     // after lightwalletd accepts the transaction can lose the directory entry
@@ -671,14 +669,14 @@ fn clean_corrupt_sapling_params() {
         (zcash_proofs::SAPLING_OUTPUT_NAME, EXPECTED_OUTPUT_BYTES),
     ] {
         let path = params_dir.join(name);
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() != expected {
-                tracing::warn!(
-                    "removing corrupt {name} ({} bytes, expected {expected})",
-                    meta.len()
-                );
-                let _ = std::fs::remove_file(&path);
-            }
+        if let Ok(meta) = std::fs::metadata(&path)
+            && meta.len() != expected
+        {
+            tracing::warn!(
+                "removing corrupt {name} ({} bytes, expected {expected})",
+                meta.len()
+            );
+            let _ = std::fs::remove_file(&path);
         }
     }
 }
@@ -701,7 +699,9 @@ pub async fn ensure_sapling_params(state: &WalletState) -> Result<SaplingParamsS
             return Ok(prover);
         }
         zcash_proofs::download_sapling_parameters(Some(300)).map_err(|error| {
-            Error::SendError(format!("failed to download Sapling proving parameters: {error}"))
+            Error::SendError(format!(
+                "failed to download Sapling proving parameters: {error}"
+            ))
         })?;
         LocalTxProver::with_default_location().ok_or_else(|| {
             Error::SendError("Sapling proving parameters were not found after download".into())
@@ -735,26 +735,20 @@ pub async fn propose_send(
     let (recipient, _) = parse_recipient(&state.network, to)?;
 
     // Build the payment request
-    let zatoshis = Zatoshis::from_u64(amount)
-        .map_err(|_| Error::SendError("invalid amount".into()))?;
+    let zatoshis =
+        Zatoshis::from_u64(amount).map_err(|_| Error::SendError("invalid amount".into()))?;
 
     let memo_bytes = match memo {
-        Some(m) => Some(MemoBytes::from(
-            Memo::from_str(m)
-                .map_err(|e| Error::SendError(format!("invalid memo: {e}")))?
-        )),
+        Some(m) => {
+            Some(MemoBytes::from(Memo::from_str(m).map_err(|e| {
+                Error::SendError(format!("invalid memo: {e}"))
+            })?))
+        }
         None => None,
     };
 
-    let payment = zip321::Payment::new(
-        recipient,
-        Some(zatoshis),
-        memo_bytes,
-        None,
-        None,
-        vec![],
-    )
-    .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
+    let payment = zip321::Payment::new(recipient, Some(zatoshis), memo_bytes, None, None, vec![])
+        .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
 
     let request = zip321::TransactionRequest::new(vec![payment])
         .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
@@ -781,18 +775,19 @@ pub async fn propose_send(
 
     let policy = ConfirmationsPolicy::default();
 
-    let proposal = propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
-        db,
-        &state.network,
-        account_id,
-        &input_selector,
-        &change_strategy,
-        request,
-        policy,
-        &SpendPolicy::default(),
-        None,
-    )
-    .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")));
+    let proposal =
+        propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
+            db,
+            &state.network,
+            account_id,
+            &input_selector,
+            &change_strategy,
+            request,
+            policy,
+            &SpendPolicy::default(),
+            None,
+        )
+        .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")));
 
     drop(db_guard);
 
@@ -824,11 +819,11 @@ pub async fn propose_send(
     let result = install_accepted_proposal(&mut *proposal_guard, candidate);
     match result {
         Ok(output) => {
-            if let Some(record) = pending_broadcast.as_ref() {
-                if let Err(error) = clear_pending_broadcast(&state.data_dir, &record.wallet_id) {
-                    *proposal_guard = None;
-                    return Err(error);
-                }
+            if let Some(record) = pending_broadcast.as_ref()
+                && let Err(error) = clear_pending_broadcast(&state.data_dir, &record.wallet_id)
+            {
+                *proposal_guard = None;
+                return Err(error);
             }
             *pending_broadcast = None;
             Ok(output)
@@ -892,10 +887,11 @@ pub async fn propose_send_all(
     let (recipient, _) = parse_recipient(&state.network, to)?;
 
     let memo_bytes = match memo {
-        Some(m) => Some(MemoBytes::from(
-            Memo::from_str(m)
-                .map_err(|e| Error::SendError(format!("invalid memo: {e}")))?
-        )),
+        Some(m) => {
+            Some(MemoBytes::from(Memo::from_str(m).map_err(|e| {
+                Error::SendError(format!("invalid memo: {e}"))
+            })?))
+        }
         None => None,
     };
 
@@ -903,8 +899,8 @@ pub async fn propose_send_all(
     let mut amount = spendable - 10000;
 
     for _ in 0..3 {
-        let zatoshis = Zatoshis::from_u64(amount)
-            .map_err(|_| Error::SendError("invalid amount".into()))?;
+        let zatoshis =
+            Zatoshis::from_u64(amount).map_err(|_| Error::SendError("invalid amount".into()))?;
 
         let payment = zip321::Payment::new(
             recipient.clone(),
@@ -916,8 +912,9 @@ pub async fn propose_send_all(
         )
         .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
 
-        let request = zip321::TransactionRequest::new(vec![payment])
-            .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
+        let request = zip321::TransactionRequest::new(vec![payment]).map_err(|e| {
+            Error::SendError(format!("failed to create transaction request: {e:?}"))
+        })?;
 
         let mut db_guard = state.db.lock().await;
         let db = db_guard.as_mut().ok_or(Error::WalletNotInitialized)?;
@@ -940,17 +937,18 @@ pub async fn propose_send_all(
 
         let policy = ConfirmationsPolicy::default();
 
-        let result = propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
-            db,
-            &state.network,
-            account_id,
-            &input_selector,
-            &change_strategy,
-            request,
-            policy,
-            &SpendPolicy::default(),
-            None,
-        );
+        let result =
+            propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
+                db,
+                &state.network,
+                account_id,
+                &input_selector,
+                &change_strategy,
+                request,
+                policy,
+                &SpendPolicy::default(),
+                None,
+            );
 
         drop(db_guard);
 
@@ -989,7 +987,8 @@ pub async fn propose_send_all(
                 amount = spendable - actual_fee;
             }
             Err(zcash_client_backend::data_api::error::Error::InsufficientFunds {
-                required, ..
+                required,
+                ..
             }) => {
                 let required_u64 = u64::from(required);
                 let computed_fee = required_u64.saturating_sub(amount);
@@ -997,9 +996,7 @@ pub async fn propose_send_all(
                     amount = spendable - computed_fee;
                     continue;
                 }
-                return Err(Error::SendError(
-                    "insufficient funds to cover fee".into(),
-                ));
+                return Err(Error::SendError("insufficient funds to cover fee".into()));
             }
             Err(e) => {
                 return Err(Error::SendError(format!(
@@ -1009,14 +1006,13 @@ pub async fn propose_send_all(
         }
     }
 
-    Err(Error::SendError("could not converge on send-all amount after retries".into()))
+    Err(Error::SendError(
+        "could not converge on send-all amount after retries".into(),
+    ))
 }
 
 /// Execute a previously-proposed send transaction.
-pub async fn execute_send(
-    state: &WalletState,
-    proposal_id: u32,
-) -> Result<ExecuteSendResult> {
+pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<ExecuteSendResult> {
     let _send_operation = state.send_operation.lock().await;
     if !state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
@@ -1062,20 +1058,22 @@ pub async fn execute_send(
     // serialization succeed. A rejected creation can therefore be retried;
     // it never advances into the broadcast state.
     let mut prop_guard = state.pending_proposal.lock().await;
-    let (stored_id, proposal) = prop_guard
-        .as_ref()
-        .ok_or(Error::SendError("no pending proposal — call propose_send first".into()))?;
+    let (stored_id, proposal) = prop_guard.as_ref().ok_or(Error::SendError(
+        "no pending proposal — call propose_send first".into(),
+    ))?;
 
     if *stored_id != proposal_id {
-        return Err(Error::SendError("proposal_id mismatch — stale proposal".into()));
+        return Err(Error::SendError(
+            "proposal_id mismatch — stale proposal".into(),
+        ));
     }
 
     // Derive USK from seed
     let usk = {
         let seed_guard = state.seed.lock().await;
-        let seed = seed_guard
-            .as_ref()
-            .ok_or(Error::Other("seed not available - please restart the wallet".into()))?;
+        let seed = seed_guard.as_ref().ok_or(Error::Other(
+            "seed not available - please restart the wallet".into(),
+        ))?;
         keys::derive_usk(seed.expose_secret(), &state.network, 0)?
     };
 
@@ -1108,7 +1106,14 @@ pub async fn execute_send(
 
     let mut transaction_created = false;
     let created = (|| -> Result<PendingBroadcast> {
-        let txids = create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
+        let txids = create_proposed_transactions::<
+            _,
+            _,
+            std::convert::Infallible,
+            _,
+            std::convert::Infallible,
+            _,
+        >(
             db,
             &state.network,
             prover,
@@ -1207,9 +1212,9 @@ pub async fn retry_pending_send(state: &WalletState) -> Result<ExecuteSendResult
         .await
         .ok_or(Error::WalletNotInitialized)?;
     let mut pending = state.pending_broadcast.lock().await;
-    let record = pending.as_mut().ok_or_else(|| {
-        Error::SendError("there is no pending transaction to rebroadcast".into())
-    })?;
+    let record = pending
+        .as_mut()
+        .ok_or_else(|| Error::SendError("there is no pending transaction to rebroadcast".into()))?;
     if record.wallet_id != wallet_id {
         return Err(Error::SendError(
             "pending transaction belongs to a different wallet".into(),
@@ -1245,9 +1250,9 @@ pub async fn discard_unrecoverable_send(
         .await
         .ok_or(Error::WalletNotInitialized)?;
     let mut pending = state.pending_broadcast.lock().await;
-    let record = pending.as_ref().ok_or_else(|| {
-        Error::SendError("there is no unrecoverable pending transaction".into())
-    })?;
+    let record = pending
+        .as_ref()
+        .ok_or_else(|| Error::SendError("there is no unrecoverable pending transaction".into()))?;
     if record.wallet_id != wallet_id || record.proposal_id != proposal_id {
         return Err(Error::SendError(
             "pending transaction does not match the active wallet".into(),
@@ -1297,15 +1302,21 @@ async fn local_pending_state(
     let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
     if db
         .get_tx_height(txid)
-        .map_err(|error| Error::DatabaseError(format!("failed to read transaction height: {error}")))?
+        .map_err(|error| {
+            Error::DatabaseError(format!("failed to read transaction height: {error}"))
+        })?
         .is_some()
     {
         return Ok(LocalPendingState::Mined);
     }
     let transaction = db
         .get_transaction(txid)
-        .map_err(|error| Error::DatabaseError(format!("failed to read pending transaction: {error}")))?
-        .ok_or_else(|| Error::SendError("pending transaction is missing from the wallet database".into()));
+        .map_err(|error| {
+            Error::DatabaseError(format!("failed to read pending transaction: {error}"))
+        })?
+        .ok_or_else(|| {
+            Error::SendError("pending transaction is missing from the wallet database".into())
+        });
     let transaction = match transaction {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -1329,13 +1340,17 @@ async fn local_pending_state(
     }
     let fully_scanned = db
         .block_fully_scanned()
-        .map_err(|error| Error::DatabaseError(format!("failed to read wallet scan height: {error}")))?
+        .map_err(|error| {
+            Error::DatabaseError(format!("failed to read wallet scan height: {error}"))
+        })?
         .map(|metadata| metadata.block_height());
-    Ok(if fully_scanned.is_some_and(|height| height >= expiry_height) {
-        LocalPendingState::Expired
-    } else {
-        LocalPendingState::Pending
-    })
+    Ok(
+        if fully_scanned.is_some_and(|height| height >= expiry_height) {
+            LocalPendingState::Expired
+        } else {
+            LocalPendingState::Pending
+        },
+    )
 }
 
 fn apply_broadcast_result(
@@ -1409,33 +1424,34 @@ async fn broadcast_record(
     }
 
     let url = state.lightwalletd_url.read().await.clone();
-    let mut client = match tokio::time::timeout(CONNECT_TIMEOUT, connect_to_lightwalletd(&url)).await {
-        Ok(Ok(client)) => client,
-        Ok(Err(error)) => {
-            tracing::warn!("pending send could not connect to lightwalletd: {error}");
-            return Ok(apply_broadcast_result(
-                state,
-                record,
-                classify_broadcast_response(
-                    record.txid.clone(),
-                    record.had_ambiguous_attempt,
-                    None,
-                ),
-            ));
-        }
-        Err(_) => {
-            tracing::warn!("pending send lightwalletd connection timed out");
-            return Ok(apply_broadcast_result(
-                state,
-                record,
-                classify_broadcast_response(
-                    record.txid.clone(),
-                    record.had_ambiguous_attempt,
-                    None,
-                ),
-            ));
-        }
-    };
+    let mut client =
+        match tokio::time::timeout(CONNECT_TIMEOUT, connect_to_lightwalletd(&url)).await {
+            Ok(Ok(client)) => client,
+            Ok(Err(error)) => {
+                tracing::warn!("pending send could not connect to lightwalletd: {error}");
+                return Ok(apply_broadcast_result(
+                    state,
+                    record,
+                    classify_broadcast_response(
+                        record.txid.clone(),
+                        record.had_ambiguous_attempt,
+                        None,
+                    ),
+                ));
+            }
+            Err(_) => {
+                tracing::warn!("pending send lightwalletd connection timed out");
+                return Ok(apply_broadcast_result(
+                    state,
+                    record,
+                    classify_broadcast_response(
+                        record.txid.clone(),
+                        record.had_ambiguous_attempt,
+                        None,
+                    ),
+                ));
+            }
+        };
 
     if record.attempts > 0 {
         let lookup = tokio::time::timeout(
@@ -1475,9 +1491,9 @@ async fn broadcast_record(
                 code = ?status.code(),
                 "pending send txid lookup failed; rebroadcasting identical bytes"
             ),
-            Err(_) => tracing::warn!(
-                "pending send txid lookup timed out; rebroadcasting identical bytes"
-            ),
+            Err(_) => {
+                tracing::warn!("pending send txid lookup timed out; rebroadcasting identical bytes")
+            }
         }
     }
 
@@ -1494,11 +1510,7 @@ async fn broadcast_record(
         return Ok(apply_broadcast_result(
             state,
             record,
-            classify_broadcast_response(
-                record.txid.clone(),
-                record.had_ambiguous_attempt,
-                None,
-            ),
+            classify_broadcast_response(record.txid.clone(), record.had_ambiguous_attempt, None),
         ));
     }
 
@@ -1540,11 +1552,7 @@ async fn broadcast_record(
     Ok(apply_broadcast_result(
         state,
         record,
-        classify_broadcast_response(
-            record.txid.clone(),
-            record.had_ambiguous_attempt,
-            response,
-        ),
+        classify_broadcast_response(record.txid.clone(), record.had_ambiguous_attempt, response),
     ))
 }
 
@@ -1578,7 +1586,11 @@ mod tests {
             Ok(_) => panic!("missing prover must fail closed"),
             Err(error) => error,
         };
-        assert!(error.to_string().contains("proving parameters are not ready"));
+        assert!(
+            error
+                .to_string()
+                .contains("proving parameters are not ready")
+        );
     }
 
     #[test]
@@ -1599,9 +1611,12 @@ mod tests {
     fn tex_is_rejected_until_ordered_batch_recovery_exists() {
         let validation = validate_recipient_address(&Network::MainNetwork, MAINNET_TEX);
         assert!(!validation.valid);
-        assert!(validation.error.as_deref().is_some_and(|message| {
-            message.contains("ordered multi-transaction recovery")
-        }));
+        assert!(
+            validation
+                .error
+                .as_deref()
+                .is_some_and(|message| { message.contains("ordered multi-transaction recovery") })
+        );
     }
 
     #[test]
@@ -1617,8 +1632,7 @@ mod tests {
 
     #[test]
     fn broadcast_success_is_explicit() {
-        let result =
-            classify_broadcast_response("txid".into(), false, Some((0, String::new())));
+        let result = classify_broadcast_response("txid".into(), false, Some((0, String::new())));
         assert_eq!(result.status, BroadcastStatus::Accepted);
         assert_eq!(result.txid, "txid");
         assert_eq!(result.message, None);
@@ -1647,10 +1661,12 @@ mod tests {
         let result = classify_broadcast_response(record.txid.clone(), true, None);
         assert_eq!(result.status, BroadcastStatus::Unknown);
         assert_eq!(record.raw_transaction, original_bytes);
-        assert!(result
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("exact transaction")));
+        assert!(
+            result
+                .message
+                .as_deref()
+                .is_some_and(|message| message.contains("exact transaction"))
+        );
     }
 
     #[test]
@@ -1744,17 +1760,15 @@ mod tests {
 
     #[test]
     fn pending_broadcast_survives_state_reconstruction() {
-        let directory = std::env::temp_dir().join(format!(
-            "zuuli-pending-send-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let directory =
+            std::env::temp_dir().join(format!("zuuli-pending-send-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).expect("create test directory");
         let mut record = pending(BroadcastStatus::Unknown);
         record.attempts = 1;
         persist_pending_broadcast(&directory, &record).expect("persist recovery state");
 
-        let loaded = load_pending_broadcast(&directory, &record.wallet_id)
-            .expect("load recovery state");
+        let loaded =
+            load_pending_broadcast(&directory, &record.wallet_id).expect("load recovery state");
         assert_eq!(loaded.status, BroadcastStatus::Unknown);
         assert_eq!(loaded.attempts, 1);
         assert_eq!(loaded.raw_transaction, record.raw_transaction);
@@ -1806,7 +1820,10 @@ mod tests {
         let record = pending(BroadcastStatus::Unknown);
         persist_pending_broadcast(&directory, &record)
             .expect("unique create-new temporary must bypass stale name");
-        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        assert_eq!(
+            std::fs::read(&victim).expect("read victim"),
+            b"must not change"
+        );
         assert!(
             std::fs::symlink_metadata(&stale)
                 .expect("stale link remains untouched")
@@ -1829,7 +1846,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn linked_stable_and_backup_paths_fail_closed_without_touching_targets() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
 
         let directory = std::env::temp_dir().join(format!(
             "zuuli-pending-send-linked-path-test-{}",
@@ -1841,8 +1858,7 @@ mod tests {
         std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600))
             .expect("secure victim permissions");
         let record = pending(BroadcastStatus::Unknown);
-        let stable = pending_broadcast_path(&directory, &record.wallet_id)
-            .expect("journal path");
+        let stable = pending_broadcast_path(&directory, &record.wallet_id).expect("journal path");
         symlink(&victim, &stable).expect("create stable symlink");
 
         let loaded = load_pending_broadcast(&directory, &record.wallet_id)
@@ -1850,13 +1866,19 @@ mod tests {
         assert!(loaded.recovery_error.is_some());
         assert!(persist_pending_broadcast(&directory, &record).is_err());
         assert!(clear_pending_broadcast(&directory, &record.wallet_id).is_err());
-        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        assert_eq!(
+            std::fs::read(&victim).expect("read victim"),
+            b"must not change"
+        );
         std::fs::remove_file(&stable).expect("remove stable symlink");
 
         let backup = stable.with_extension("json.bak");
         symlink(&victim, &backup).expect("create backup symlink");
         assert!(persist_pending_broadcast(&directory, &record).is_err());
-        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        assert_eq!(
+            std::fs::read(&victim).expect("read victim"),
+            b"must not change"
+        );
         std::fs::remove_file(backup).expect("remove backup symlink");
         std::fs::remove_file(victim).expect("remove victim");
         std::fs::remove_dir(directory).expect("remove test directory");
@@ -1877,8 +1899,7 @@ mod tests {
         std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600))
             .expect("secure victim permissions");
         let record = pending(BroadcastStatus::Unknown);
-        let stable = pending_broadcast_path(&directory, &record.wallet_id)
-            .expect("journal path");
+        let stable = pending_broadcast_path(&directory, &record.wallet_id).expect("journal path");
         std::fs::hard_link(&victim, &stable).expect("create stable hardlink");
 
         let loaded = load_pending_broadcast(&directory, &record.wallet_id)
@@ -1886,7 +1907,10 @@ mod tests {
         assert!(loaded.recovery_error.is_some());
         assert!(persist_pending_broadcast(&directory, &record).is_err());
         assert!(clear_pending_broadcast(&directory, &record.wallet_id).is_err());
-        assert_eq!(std::fs::read(&victim).expect("read victim"), b"must not change");
+        assert_eq!(
+            std::fs::read(&victim).expect("read victim"),
+            b"must not change"
+        );
 
         std::fs::remove_file(stable).expect("remove hardlink");
         std::fs::remove_file(victim).expect("remove victim");
@@ -1901,8 +1925,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).expect("create test directory");
         let wallet_id = "wallet_test";
-        let stable = pending_broadcast_path(&directory, wallet_id)
-            .expect("journal path");
+        let stable = pending_broadcast_path(&directory, wallet_id).expect("journal path");
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)

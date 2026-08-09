@@ -41,10 +41,30 @@ export function isAuthed(): boolean {
   return !!getToken();
 }
 
-/** Prefix a relative `/uploadz/...` media path with the media host. */
+/**
+ * Prefix a relative `/uploadz/...` media path with the media host.
+ *
+ * free2z serves uploads as ORIGIN-RELATIVE paths (`/uploadz/public/…`), which
+ * only resolve correctly when the page itself is served from free2z. ZUULI's
+ * production webview origin is `tauri://localhost` (`http://tauri.localhost` on
+ * Windows/Android), where a relative path resolves against the app's own
+ * bundled assets and 404s — so every such path must be absolutized here.
+ * (In dev `MEDIA_BASE` is "" on purpose: the Vite proxy forwards `/uploadz`,
+ * so the path is already same-origin and is returned unchanged.)
+ *
+ * Anything that is ALREADY absolute is returned untouched — markdown bodies can
+ * legitimately contain `https://` hotlinks, `data:` URIs and protocol-relative
+ * `//host/x.png` sources, and blindly prefixing those would corrupt them into
+ * `https://free2z.cash/data:image/...`.
+ */
 export function mediaUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined;
-  if (/^https?:\/\//.test(path)) return path;
+  // Protocol-relative (`//host/x.png`) — already absolute w.r.t. the scheme.
+  if (path.startsWith("//")) return path;
+  // Any `scheme:` prefix (https:, data:, blob:, …). A relative path can never
+  // match: `/` is not in the scheme character class, so `uploadz/a:b.png` and
+  // `/uploadz/x.webp` both fall through to the prefixing branch below.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path;
   return `${MEDIA_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 

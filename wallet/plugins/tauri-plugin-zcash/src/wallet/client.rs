@@ -1,5 +1,5 @@
-use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 use tonic::transport::Channel;
+use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 
 use crate::error::{Error, Result};
 

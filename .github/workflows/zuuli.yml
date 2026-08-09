@@ -37,6 +37,14 @@ jobs:
           # Diff locally instead of relying on the pull-request files API.
           fetch-depth: 0
 
+      # Runs on every event, including changes this job would otherwise skip,
+      # because a toolchain pin can drift from any workflow or manifest. The
+      # self-test proves the check can still fail before its verdict is trusted.
+      - name: Verify the Rust toolchain pin has not drifted
+        run: |
+          scripts/check-rust-toolchain.sh --self-test
+          scripts/check-rust-toolchain.sh
+
       - name: Detect release-impacting ZUULI changes
         id: filter
         shell: bash
@@ -63,7 +71,7 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-play-testers.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*)
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-play-testers.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*)
                 zuuli=true
                 ;;
             esac
@@ -117,6 +125,148 @@ jobs:
       - name: Build production frontend
         run: npm run build
 
+  # Formatting is its own job rather than a step on rust_plugin/rust_app, which
+  # are 45-minute builds. `cargo fmt` reads manifests with
+  # `cargo metadata --no-deps`, so it resolves no dependency graph and compiles
+  # nothing: no submodule fetch, no Tauri system packages, no Cargo cache. The
+  # verdict lands in about a minute instead of behind a cold Zcash build, and a
+  # formatting failure no longer costs a full rebuild to re-check.
+  #
+  # It covers every crate under wallet/, including wallet/zuuallet/src-tauri,
+  # which this workflow's change filter does not select on its own; a
+  # Zuuallet-only pull request is covered by the matching job in zuuallet.yml.
+  rust_fmt:
+    name: Rust / formatting
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # rustfmt is not in the minimal profile this action installs, and its
+      # output differs between compiler versions — the pinned toolchain is what
+      # makes the verdict reproducible, so the check refuses to run on any other.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: rustfmt
+
+      - name: Check formatting of every Rust crate under wallet/
+        run: scripts/check-rust-fmt.sh
+
+  # Supply chain: RustSec advisories, licences, and crate sources for all three
+  # wallet lockfiles. Like rust_fmt this compiles nothing — cargo-deny works
+  # from `cargo metadata` and the lockfiles — but unlike rust_fmt it does need
+  # the dependency graph resolved, so the librustzcash submodule is fetched.
+  # Still a couple of minutes rather than 45.
+  rust_deny:
+    name: Rust / supply chain
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # cargo-deny resolves the whole graph, and the wallet crates reach the
+      # Zcash crates by path into this submodule.
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # cargo-deny shells out to `cargo metadata`, so a toolchain is required
+      # even though nothing is compiled.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      # The script fetches a checksum-verified cargo-deny release binary itself;
+      # the version and digests are pinned in the script. Deliberately not a
+      # third-party installer action — the tool that polices our supply chain
+      # should not arrive through an unpinned one.
+      - name: Check advisories, licences and sources
+        run: scripts/check-rust-deny.sh
+
+  # Lints, at `-D warnings`, for every crate under wallet/. Unlike rust_fmt and
+  # rust_deny this one genuinely compiles — clippy is a rustc driver and needs
+  # the whole dependency graph — so it carries the submodule, the Tauri system
+  # libraries and a cache of its own. It is still cheaper than rust_plugin and
+  # rust_app because it only checks: no codegen, no linking.
+  #
+  # Its cache is separate from theirs on purpose. Clippy writes different
+  # artifacts into the same target directory names, so sharing a key would make
+  # the two kinds of job evict each other's work on every run.
+  #
+  # Like rust_fmt it covers wallet/zuuallet/src-tauri, which this workflow's
+  # change filter does not select on its own; the matching job in zuuallet.yml
+  # covers a Zuuallet-only pull request.
+  rust_clippy:
+    name: Rust / lints
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libxdo-dev \
+            libdbus-1-dev \
+            libssl-dev \
+            build-essential curl wget file pkg-config
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # clippy is not in the minimal profile this action installs, and its lint
+      # set differs between compiler versions — the pinned toolchain is what
+      # makes the verdict reproducible, so the check refuses to run on any other.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            wallet/plugins/tauri-plugin-zcash
+            wallet/zuuli/src-tauri
+            wallet/zuuallet/src-tauri
+          key: zuuli-clippy
+
+      - name: Lint every Rust crate under wallet/ at -D warnings
+        run: scripts/check-rust-clippy.sh
+
   rust_plugin:
     name: Rust / shared plugin
     needs: changes
@@ -146,10 +296,18 @@ jobs:
             build-essential curl wget file pkg-config
 
       # Keep CI explicit as well as repository-pinned so runner state cannot
-      # silently select a newer compiler.
+      # silently select a newer compiler. The version is read from
+      # wallet/rust-toolchain.toml rather than restated here.
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -189,9 +347,16 @@ jobs:
             libssl-dev \
             build-essential curl wget file pkg-config
 
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -208,7 +373,7 @@ jobs:
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, frontend, rust_plugin, rust_app]
+    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_plugin, rust_app]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -218,6 +383,9 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          RUST_FMT_RESULT: ${{ needs.rust_fmt.result }}
+          RUST_DENY_RESULT: ${{ needs.rust_deny.result }}
+          RUST_CLIPPY_RESULT: ${{ needs.rust_clippy.result }}
           RUST_PLUGIN_RESULT: ${{ needs.rust_plugin.result }}
           RUST_APP_RESULT: ${{ needs.rust_app.result }}
         run: |
@@ -226,7 +394,9 @@ jobs:
             echo "Change detection did not pass: $CHANGES_RESULT"; exit 1;
           }
 
-          results="$FRONTEND_RESULT $RUST_PLUGIN_RESULT $RUST_APP_RESULT"
+          # Every job in `needs:` above must appear here as well; a job that is
+          # awaited but not inspected makes the gate decorative for that job.
+          results="$FRONTEND_RESULT $RUST_FMT_RESULT $RUST_DENY_RESULT $RUST_CLIPPY_RESULT $RUST_PLUGIN_RESULT $RUST_APP_RESULT"
           echo "ZUULI changed: $ZUULI_CHANGED; job results: $results"
           case "$ZUULI_CHANGED" in
             true) expected=success ;;

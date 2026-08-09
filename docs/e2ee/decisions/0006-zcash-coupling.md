@@ -41,7 +41,7 @@ from the master seed, then generate messaging keys from that.
   so the domain-separation table is part of the specification, not an
   implementation detail.
 - **No chain dependency means no availability coupling and no ZEC price exposure
-  in the messaging path.** Cross-relay witness cosigning
+  in the messaging path.** Witness cosigning
   ([ADR 0005](./0005-federation.md)) provides the same anti-equivocation property
   for free, and it is the Certificate Transparency model rather than a novel one.
   For the record: at [ZIP 317](https://zips.z.cash/zip-0317)'s 10,000-zatoshi

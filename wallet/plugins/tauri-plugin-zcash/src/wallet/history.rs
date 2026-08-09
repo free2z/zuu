@@ -84,74 +84,73 @@ pub async fn get_transaction_history(
         .map_err(|e| Error::DatabaseError(format!("failed to prepare history query: {e}")))?;
 
     let rows = stmt
-        .query_map(
-            rusqlite::params![account_uuid, limit, offset],
-            |row| {
-                let txid_blob: Vec<u8> = row.get(0)?;
-                let mined_height: Option<u64> = row.get(1)?;
-                let block_time: Option<i64> = row.get(2)?;
-                let balance_delta: Option<i64> = row.get(3)?;
-                let sent_note_count: i64 = row.get(4)?;
-                let _received_note_count: i64 = row.get(5)?;
-                let memo_blob: Option<Vec<u8>> = row.get(6)?;
+        .query_map(rusqlite::params![account_uuid, limit, offset], |row| {
+            let txid_blob: Vec<u8> = row.get(0)?;
+            let mined_height: Option<u64> = row.get(1)?;
+            let block_time: Option<i64> = row.get(2)?;
+            let balance_delta: Option<i64> = row.get(3)?;
+            let sent_note_count: i64 = row.get(4)?;
+            let _received_note_count: i64 = row.get(5)?;
+            let memo_blob: Option<Vec<u8>> = row.get(6)?;
 
-                // Reverse txid bytes for display (Zcash convention)
-                let mut txid_reversed = txid_blob;
-                txid_reversed.reverse();
-                let txid_hex = txid_reversed
+            // Reverse txid bytes for display (Zcash convention)
+            let mut txid_reversed = txid_blob;
+            txid_reversed.reverse();
+            let txid_hex = txid_reversed
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+
+            // Decode memo per ZIP 302:
+            // - First byte 0x00..0xF4: UTF-8 text (trailing nulls are padding)
+            // - First byte 0xF5: arbitrary binary (not displayable)
+            // - First byte 0xF6: empty memo (already filtered in SQL)
+            // - First byte 0xF7..0xFF: future/unknown format
+            // Embedded null bytes (used by some wallets as field separators)
+            // are replaced with newlines for display.
+            let memo = memo_blob.and_then(|bytes| {
+                if bytes.is_empty() {
+                    return None;
+                }
+                // ZIP 302: only first byte 0x00..0xF4 indicates a text memo
+                if bytes[0] > 0xF4 {
+                    return None;
+                }
+                // Strip trailing null padding
+                let end = bytes
                     .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect::<String>();
+                    .rposition(|&b| b != 0)
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                if end == 0 {
+                    return None;
+                }
+                // Decode as UTF-8, then replace embedded null bytes with newlines
+                // (some wallets like YWallet use \x00 as a field separator between
+                // the reply-to address and message text)
+                String::from_utf8(bytes[..end].to_vec())
+                    .ok()
+                    .map(|s| s.replace('\0', "\n"))
+                    .filter(|s| !s.is_empty())
+            });
 
-                // Decode memo per ZIP 302:
-                // - First byte 0x00..0xF4: UTF-8 text (trailing nulls are padding)
-                // - First byte 0xF5: arbitrary binary (not displayable)
-                // - First byte 0xF6: empty memo (already filtered in SQL)
-                // - First byte 0xF7..0xFF: future/unknown format
-                // Embedded null bytes (used by some wallets as field separators)
-                // are replaced with newlines for display.
-                let memo = memo_blob.and_then(|bytes| {
-                    if bytes.is_empty() {
-                        return None;
-                    }
-                    // ZIP 302: only first byte 0x00..0xF4 indicates a text memo
-                    if bytes[0] > 0xF4 {
-                        return None;
-                    }
-                    // Strip trailing null padding
-                    let end = bytes.iter().rposition(|&b| b != 0).map(|i| i + 1).unwrap_or(0);
-                    if end == 0 {
-                        return None;
-                    }
-                    // Decode as UTF-8, then replace embedded null bytes with newlines
-                    // (some wallets like YWallet use \x00 as a field separator between
-                    // the reply-to address and message text)
-                    String::from_utf8(bytes[..end].to_vec())
-                        .ok()
-                        .map(|s| s.replace('\0', "\n"))
-                        .filter(|s| !s.is_empty())
-                });
+            let delta = balance_delta.unwrap_or(0);
+            let incoming = sent_note_count == 0 && delta > 0;
 
-                let delta = balance_delta.unwrap_or(0);
-                let incoming = sent_note_count == 0 && delta > 0;
-
-                Ok(TransactionEntry {
-                    txid: txid_hex,
-                    block_height: mined_height,
-                    timestamp: block_time,
-                    value: delta,
-                    memo,
-                    incoming,
-                })
-            },
-        )
+            Ok(TransactionEntry {
+                txid: txid_hex,
+                block_height: mined_height,
+                timestamp: block_time,
+                value: delta,
+                memo,
+                incoming,
+            })
+        })
         .map_err(|e| Error::DatabaseError(format!("failed to query history: {e}")))?;
 
     let mut entries = Vec::new();
     for row in rows {
-        entries.push(
-            row.map_err(|e| Error::DatabaseError(format!("failed to read row: {e}")))?,
-        );
+        entries.push(row.map_err(|e| Error::DatabaseError(format!("failed to read row: {e}")))?);
     }
 
     Ok(entries)

@@ -25,8 +25,12 @@ ongoing communication does not expose the social graph.**
 - The relay has **no accounts, no handles, no identity keys, no contact lists and
   no group state.** It sees opaque queue addresses and opaque ciphertext. Each
   queue has **two distinct addresses** — one authorizing append, one authorizing
-  read/ack/delete — that are unlinkable at the relay, so it cannot trivially pair
-  correspondents.
+  read/ack/delete. That is **capability separation**: a sender can never read,
+  ACK or delete, and a compromised sender-side key cannot drain the queue. It is
+  **not** unlinkability against the relay operator — delivery requires the relay
+  to know which receive address a send address feeds, so the operator holds that
+  pairing table by construction
+  ([`../THREAT-MODEL.md` §4.9](../THREAT-MODEL.md#49-the-relay-knows-which-queue-addresses-are-paired)).
 - Queue addresses are established **inside the MLS group**, never via the server,
   and rotate on a schedule using an MLS exporter, so a long-lived relationship
   does not present a long-lived identifier.

@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs",
     "test:play-testers": "node --test scripts/play-tester-groups.node-test.mjs",
     "typecheck": "tsc --noEmit",
     "release:verify": "node scripts/release-identity.mjs",

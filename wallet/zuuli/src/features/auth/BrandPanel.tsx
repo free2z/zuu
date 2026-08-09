@@ -30,7 +30,7 @@ const VALUES = [
 
 export function BrandPanel() {
   return (
-    <aside className="zuuli-hero-glow relative hidden flex-col justify-between overflow-hidden border-r border-border bg-background p-10 lg:flex xl:p-14">
+    <aside className="zuuli-hero-glow relative hidden flex-col justify-between border-r border-border bg-background p-10 lg:flex xl:p-14">
       {/* Ambient glow accents */}
       <div
         className="pointer-events-none absolute -left-24 top-1/3 h-72 w-72 rounded-full bg-primary/20 blur-3xl"

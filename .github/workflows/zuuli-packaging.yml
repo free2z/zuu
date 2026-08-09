@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - wallet/zuuli/**
-      - wallet/plugins/**
+      - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
       - z/zcash/librustzcash
       - .gitmodules
@@ -16,7 +16,7 @@ on:
     branches: [main]
     paths:
       - wallet/zuuli/**
-      - wallet/plugins/**
+      - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
       - z/zcash/librustzcash
       - .gitmodules
@@ -46,7 +46,10 @@ concurrency:
 env:
   CI: true
   ZUULI_NODE_VERSION: "24.18.0"
-  ZUULI_RUST_VERSION: "1.88.0"
+  # Restates wallet/rust-toolchain.toml because GitHub cannot compute a
+  # workflow-level `env:` from a file. scripts/check-rust-toolchain.sh fails
+  # the pull request if this ever stops matching the source of truth.
+  ZUULI_RUST_VERSION: "1.97.1"
   ZUULI_JAVA_VERSION: "21.0.12"
   ZUULI_XCODE_VERSION: "26.6"
   ZUULI_ANDROID_NDK_VERSION: "27.0.12077973"
@@ -110,9 +113,14 @@ jobs:
           distribution: temurin
           java-version: "21.0.12"
           cache: gradle
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+      # dtolnay/rust-toolchain's version branches hardcode the compiler in
+      # action.yml, so this commit is itself the version pin and the trailing
+      # comment is its only readable record. Bumping the toolchain means moving
+      # the SHA to the new version branch and updating the comment with it;
+      # scripts/check-rust-toolchain.sh fails the pull request otherwise.
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ env.ZUULI_RUST_VERSION }}
           targets: ${{ github.event_name == 'pull_request' && 'aarch64-linux-android' || 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' }}
       - name: Install exact Android SDK components
         run: |
@@ -204,9 +212,9 @@ jobs:
           node-version: "24.18.0"
           cache: npm
           cache-dependency-path: wallet/zuuli/package-lock.json
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ env.ZUULI_RUST_VERSION }}
           targets: aarch64-apple-ios
       - name: Restore credential-free iOS Rust dependencies
         if: github.event_name != 'schedule' && github.event.inputs.cold_rust_cache != 'true'
@@ -303,9 +311,9 @@ jobs:
           node-version: "24.18.0"
           cache: npm
           cache-dependency-path: wallet/zuuli/package-lock.json
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b
+      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
-          toolchain: 1.88.0
+          toolchain: ${{ env.ZUULI_RUST_VERSION }}
       - name: Install macOS universal Rust targets
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin

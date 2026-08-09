@@ -1,6 +1,19 @@
 # ADR 0003 — History: per-conversation retention, negotiated inside the group
 
-**Status:** Accepted (owner, 2026-08-08) · **Refs:** [#305](https://github.com/free2z/zuu/issues/305) §7.3
+**Status:** **SUPERSEDED** by
+[ADR 0007 — per-user local retention, with a non-binding ephemeral hint](./0007-retention-per-user.md)
+(owner, 2026-08-08) · **Refs:** [#305](https://github.com/free2z/zuu/issues/305) §7.3,
+[#342](https://github.com/free2z/zuu/issues/342)
+
+> **Do not implement this ADR.** The negotiated model below — a `GroupContext`
+> retention extension listed in `required_capabilities`, changed by a two-phase
+> unanimity protocol — was withdrawn on owner review because it does not deliver
+> the property it appears to deliver: a modified client advertises whatever
+> capabilities it likes, joins, and retains everything. It is preserved as
+> written — save for one cross-reference repointed at the section that replaced
+> its target — as the record of a decision that was taken and then reversed.
+> **The current design is [ADR 0007](./0007-retention-per-user.md)** and
+> [`../ARCHITECTURE.md` §8](../ARCHITECTURE.md#8-retention-d3).
 
 ## Context
 
@@ -32,7 +45,7 @@ inside the MLS group, not a local preference.
   data is gone). A separate, explicitly labeled `PurgeRequest{before_epoch}` asks
   members to delete older history; the UI must say "asked N, M confirmed," never
   "deleted." See
-  [`../ARCHITECTURE.md` §8.3](../ARCHITECTURE.md#83-mid-conversation-changes-apply-forward-only).
+  [`../ARCHITECTURE.md` §8.3](../ARCHITECTURE.md#83-purge-requests-and-why-nothing-here-is-retroactive).
 - **"Agreed" means "no silent change," not "no unilateral change."** A two-phase
   propose/ack negotiation precedes the Commit, but MLS cannot *enforce* unanimity —
   any member may commit a `GroupContextExtensions` proposal. What the protocol

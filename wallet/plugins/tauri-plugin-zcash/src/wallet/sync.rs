@@ -1,9 +1,10 @@
+use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Runtime};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, watch};
 use tonic::transport::Channel;
 
 use zcash_client_backend::data_api::chain::{
@@ -118,21 +119,195 @@ const MAX_STALLED_BATCHES: u32 = 5;
 /// Shorthand for the shared write-side wallet database handle.
 type SharedDb = Arc<Mutex<Option<WalletDatabase>>>;
 
+enum SyncTaskPhase {
+    Idle,
+    Running {
+        generation: u64,
+        handle: tokio::task::JoinHandle<()>,
+    },
+    Stopping {
+        generation: u64,
+    },
+}
+
+struct SyncTaskState {
+    phase: SyncTaskPhase,
+    next_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SyncStart {
+    Started,
+    AlreadyRunning,
+    ShuttingDown,
+}
+
+/// Cancellation-safe owner of the background sync task.
+///
+/// `Running -> Stopping` takes and aborts the handle and launches an independent
+/// join-finalizer without awaiting. Callers may then be cancelled freely: the
+/// finalizer remains responsible for reaching `Idle`. Starts wait for `Idle`, so
+/// two generations can never overlap or overwrite one another's handles.
+pub struct SyncTaskSupervisor {
+    state: Mutex<SyncTaskState>,
+    changes: watch::Sender<u64>,
+    /// Synchronous linearization gate shared by task creation and the Tauri
+    /// shutdown event. No task can be spawned after `begin_shutdown` returns.
+    start_gate: std::sync::Mutex<()>,
+    shutting_down: AtomicBool,
+}
+
+impl Default for SyncTaskSupervisor {
+    fn default() -> Self {
+        let (changes, _) = watch::channel(0);
+        Self {
+            state: Mutex::new(SyncTaskState {
+                phase: SyncTaskPhase::Idle,
+                next_generation: 0,
+            }),
+            changes,
+            start_gate: std::sync::Mutex::new(()),
+            shutting_down: AtomicBool::new(false),
+        }
+    }
+}
+
+impl SyncTaskSupervisor {
+    pub fn begin_shutdown(&self) {
+        let _gate = self
+            .start_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.shutting_down.store(true, Ordering::Release);
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire)
+    }
+
+    async fn start<F>(self: &Arc<Self>, syncing: Arc<RwLock<bool>>, task: F) -> SyncStart
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let mut changes = self.changes.subscribe();
+        let mut task = Some(task);
+        loop {
+            let mut state = self.state.lock().await;
+            match state.phase {
+                SyncTaskPhase::Idle => {
+                    // Complete every async acquisition before taking the
+                    // synchronous shutdown gate. Holding the gate across an
+                    // await would make command futures non-Send.
+                    let mut syncing_guard = syncing.write().await;
+                    let gate = self
+                        .start_gate
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if self.is_shutting_down() {
+                        return SyncStart::ShuttingDown;
+                    }
+                    let generation = state.next_generation;
+                    state.next_generation = state.next_generation.wrapping_add(1);
+                    *syncing_guard = true;
+                    let supervisor = Arc::clone(self);
+                    let syncing_after_task = Arc::clone(&syncing);
+                    let handle = tokio::spawn(async move {
+                        task.take().expect("sync task starts once").await;
+                        supervisor
+                            .finish_running(generation, &syncing_after_task)
+                            .await;
+                    });
+                    state.phase = SyncTaskPhase::Running { generation, handle };
+                    drop(gate);
+                    return SyncStart::Started;
+                }
+                SyncTaskPhase::Running { .. } => return SyncStart::AlreadyRunning,
+                SyncTaskPhase::Stopping { .. } => {
+                    drop(state);
+                    let _ = changes.changed().await;
+                }
+            }
+        }
+    }
+
+    async fn stop(self: &Arc<Self>, syncing: Arc<RwLock<bool>>) {
+        let mut changes = self.changes.subscribe();
+        loop {
+            let mut state = self.state.lock().await;
+            match &state.phase {
+                SyncTaskPhase::Idle => {
+                    *syncing.write().await = false;
+                    return;
+                }
+                SyncTaskPhase::Stopping { .. } => {
+                    drop(state);
+                    let _ = changes.changed().await;
+                }
+                SyncTaskPhase::Running { .. } => {
+                    let SyncTaskPhase::Running { generation, handle } =
+                        std::mem::replace(&mut state.phase, SyncTaskPhase::Idle)
+                    else {
+                        unreachable!("phase was just matched as running");
+                    };
+                    state.phase = SyncTaskPhase::Stopping { generation };
+                    handle.abort();
+                    let supervisor = Arc::clone(self);
+                    let syncing_after_stop = Arc::clone(&syncing);
+                    tokio::spawn(async move {
+                        let _ = handle.await;
+                        supervisor
+                            .finish_stopping(generation, &syncing_after_stop)
+                            .await;
+                    });
+                    drop(state);
+                    let _ = changes.changed().await;
+                }
+            }
+        }
+    }
+
+    async fn finish_running(&self, generation: u64, syncing: &RwLock<bool>) {
+        let mut state = self.state.lock().await;
+        if matches!(
+            state.phase,
+            SyncTaskPhase::Running {
+                generation: current,
+                ..
+            } if current == generation
+        ) {
+            *syncing.write().await = false;
+            state.phase = SyncTaskPhase::Idle;
+            self.changes
+                .send_modify(|change| *change = change.wrapping_add(1));
+        }
+    }
+
+    async fn finish_stopping(&self, generation: u64, syncing: &RwLock<bool>) {
+        let mut state = self.state.lock().await;
+        if matches!(
+            state.phase,
+            SyncTaskPhase::Stopping {
+                generation: current
+            } if current == generation
+        ) {
+            *syncing.write().await = false;
+            state.phase = SyncTaskPhase::Idle;
+            self.changes
+                .send_modify(|change| *change = change.wrapping_add(1));
+        }
+    }
+}
+
 /// Start the background sync task.
-pub async fn start_sync<R: Runtime>(
-    app: AppHandle<R>,
-    state: &WalletState,
-) -> Result<()> {
+pub async fn start_sync<R: Runtime>(app: AppHandle<R>, state: &WalletState) -> Result<()> {
+    if state.sync_supervisor.is_shutting_down() {
+        return Err(Error::Other(
+            "application is shutting down; refusing to start wallet sync".into(),
+        ));
+    }
     if !state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
     }
-
-    let mut syncing = state.syncing.write().await;
-    if *syncing {
-        return Ok(()); // Already syncing
-    }
-    *syncing = true;
-    drop(syncing);
 
     let lightwalletd_url = state.lightwalletd_url.read().await.clone();
     let syncing_flag = Arc::clone(&state.syncing);
@@ -142,19 +317,28 @@ pub async fn start_sync<R: Runtime>(
     let last_known_chain_tip = Arc::clone(&state.last_known_chain_tip);
     let last_sync_error = Arc::clone(&state.last_sync_error);
 
-    let handle = tokio::spawn(sync_task(
-        app,
-        lightwalletd_url,
-        syncing_flag,
-        db,
-        read_db,
-        network,
-        last_known_chain_tip,
-        last_sync_error,
-    ));
-
-    *state.sync_handle.lock().await = Some(handle);
-    Ok(())
+    match state
+        .sync_supervisor
+        .start(
+            Arc::clone(&state.syncing),
+            sync_task(
+                app,
+                lightwalletd_url,
+                syncing_flag,
+                db,
+                read_db,
+                network,
+                last_known_chain_tip,
+                last_sync_error,
+            ),
+        )
+        .await
+    {
+        SyncStart::Started | SyncStart::AlreadyRunning => Ok(()),
+        SyncStart::ShuttingDown => Err(Error::Other(
+            "application is shutting down; refusing to start wallet sync".into(),
+        )),
+    }
 }
 
 /// Read the max scanned block height from the read-only DB, floored at the
@@ -168,10 +352,7 @@ pub async fn start_sync<R: Runtime>(
 /// scan the entire chain from Sapling, and the sync loop's `synced >= tip` check
 /// never fires so it spins forever (issue #180). Everything below the birthday is
 /// not the wallet's to scan, so we floor the scanned height at the birthday.
-async fn read_scanned_height(
-    read_db: &Mutex<Option<WalletDatabase>>,
-    birthday_height: u64,
-) -> u64 {
+async fn read_scanned_height(read_db: &Mutex<Option<WalletDatabase>>, birthday_height: u64) -> u64 {
     let db_guard = read_db.lock().await;
     let scanned = if let Some(db) = db_guard.as_ref() {
         db.block_max_scanned()
@@ -408,8 +589,10 @@ async fn refresh_subtree_roots(
     let (next_sapling, next_orchard, next_ironwood) =
         next_subtree_indices(read_db).await.unwrap_or((0, 0, 0));
 
-    let sapling_roots = fetch_subtree_roots(client, ShieldedProtocol::Sapling, next_sapling).await?;
-    let orchard_roots = fetch_subtree_roots(client, ShieldedProtocol::Orchard, next_orchard).await?;
+    let sapling_roots =
+        fetch_subtree_roots(client, ShieldedProtocol::Sapling, next_sapling).await?;
+    let orchard_roots =
+        fetch_subtree_roots(client, ShieldedProtocol::Orchard, next_orchard).await?;
     // Ironwood note commitments are Orchard-shaped, so the same hash type is
     // used. Servers predating Ironwood activation simply stream nothing; an
     // outright error means the server does not know the pool, which is not fatal.
@@ -464,18 +647,17 @@ async fn refresh_subtree_roots(
 
     // If we handed the backend Ironwood roots and it did not advance its
     // "next Ironwood index", it is using the no-op default impl. Stop fetching.
-    if ironwood_offered {
-        if let Some((_, _, after)) = next_subtree_indices(read_db).await {
-            if after == next_ironwood {
-                tracing::warn!(
-                    "wallet backend accepted {} Ironwood subtree roots without advancing its next \
-                     Ironwood index ({next_ironwood}); it is using the no-op default \
-                     `put_ironwood_subtree_roots`. Disabling Ironwood root fetches for this session.",
-                    ironwood_roots.len(),
-                );
-                state.ironwood_backend_tracks = false;
-            }
-        }
+    if ironwood_offered
+        && let Some((_, _, after)) = next_subtree_indices(read_db).await
+        && after == next_ironwood
+    {
+        tracing::warn!(
+            "wallet backend accepted {} Ironwood subtree roots without advancing its next \
+             Ironwood index ({next_ironwood}); it is using the no-op default \
+             `put_ironwood_subtree_roots`. Disabling Ironwood root fetches for this session.",
+            ironwood_roots.len(),
+        );
+        state.ironwood_backend_tracks = false;
     }
 
     state.last_refresh = Some(Instant::now());
@@ -801,13 +983,16 @@ async fn sync_task<R: Runtime>(
             // polled `get_sync_status` returns it, and emit for event listeners.
             *last_sync_error.write().await = Some(msg.clone());
             *syncing.write().await = false;
-            let _ = app.emit("zcash://sync-progress", &SyncStatus {
-                syncing: false,
-                synced_height: 0,
-                chain_tip: 0,
-                progress_percent: 0.0,
-                last_error: Some(msg),
-            });
+            let _ = app.emit(
+                "zcash://sync-progress",
+                &SyncStatus {
+                    syncing: false,
+                    synced_height: 0,
+                    chain_tip: 0,
+                    progress_percent: 0.0,
+                    last_error: Some(msg),
+                },
+            );
             return;
         }
     };
@@ -851,13 +1036,16 @@ async fn sync_task<R: Runtime>(
                 let synced_height = read_scanned_height(&read_db, birthday_height).await;
                 let progress = calc_progress(synced_height, chain_tip, birthday_height);
                 *syncing.write().await = false;
-                let _ = app.emit("zcash://sync-progress", &SyncStatus {
-                    syncing: false,
-                    synced_height,
-                    chain_tip,
-                    progress_percent: progress,
-                    last_error: None,
-                });
+                let _ = app.emit(
+                    "zcash://sync-progress",
+                    &SyncStatus {
+                        syncing: false,
+                        synced_height,
+                        chain_tip,
+                        progress_percent: progress,
+                        last_error: None,
+                    },
+                );
                 return;
             }
             Ok(PassOutcome::Completed { scanned_blocks }) => {
@@ -896,9 +1084,7 @@ async fn sync_task<R: Runtime>(
                             surfaced = format!("Sync trouble — retrying via {next}");
                         }
                         Err(ce) => {
-                            tracing::error!(
-                                "failed to connect to fallback endpoint {next}: {ce}"
-                            );
+                            tracing::error!("failed to connect to fallback endpoint {next}: {ce}");
                             surfaced =
                                 format!("Can't reach the Zcash network — retrying via {next}");
                         }
@@ -916,13 +1102,16 @@ async fn sync_task<R: Runtime>(
                 let birthday_height = birthday_opt.unwrap_or(chain_tip);
                 let synced_height = read_scanned_height(&read_db, birthday_height).await;
                 let progress = calc_progress(synced_height, chain_tip, birthday_height);
-                let _ = app.emit("zcash://sync-progress", &SyncStatus {
-                    syncing: true,
-                    synced_height,
-                    chain_tip,
-                    progress_percent: progress,
-                    last_error: Some(surfaced),
-                });
+                let _ = app.emit(
+                    "zcash://sync-progress",
+                    &SyncStatus {
+                        syncing: true,
+                        synced_height,
+                        chain_tip,
+                        progress_percent: progress,
+                        last_error: Some(surfaced),
+                    },
+                );
 
                 0
             }
@@ -939,13 +1128,16 @@ async fn sync_task<R: Runtime>(
         last_known_chain_tip.store(effective_tip, Ordering::Relaxed);
         let progress = calc_progress(synced_height, effective_tip, birthday_height);
         let last_error = last_sync_error.read().await.clone();
-        let _ = app.emit("zcash://sync-progress", &SyncStatus {
-            syncing: true,
-            synced_height,
-            chain_tip: effective_tip,
-            progress_percent: progress,
-            last_error,
-        });
+        let _ = app.emit(
+            "zcash://sync-progress",
+            &SyncStatus {
+                syncing: true,
+                synced_height,
+                chain_tip: effective_tip,
+                progress_percent: progress,
+                last_error,
+            },
+        );
 
         // Adaptive backoff: snap to the minimum while we still have work to do,
         // back off toward 30s once caught up.
@@ -970,13 +1162,16 @@ async fn sync_task<R: Runtime>(
     *syncing.write().await = false;
 
     let last_error = last_sync_error.read().await.clone();
-    let _ = app.emit("zcash://sync-progress", &SyncStatus {
-        syncing: false,
-        synced_height,
-        chain_tip,
-        progress_percent: progress,
-        last_error,
-    });
+    let _ = app.emit(
+        "zcash://sync-progress",
+        &SyncStatus {
+            syncing: false,
+            synced_height,
+            chain_tip,
+            progress_percent: progress,
+            last_error,
+        },
+    );
 }
 
 /// Outcome of one full "catch up to the chain tip" pass.
@@ -1111,13 +1306,16 @@ async fn run_pass<R: Runtime>(
         let effective_tip = chain_tip_u64.max(synced_height);
         last_known_chain_tip.store(effective_tip, Ordering::Relaxed);
         let progress = calc_progress(synced_height, effective_tip, birthday_height);
-        let _ = app.emit("zcash://sync-progress", &SyncStatus {
-            syncing: true,
-            synced_height,
-            chain_tip: effective_tip,
-            progress_percent: progress,
-            last_error: None,
-        });
+        let _ = app.emit(
+            "zcash://sync-progress",
+            &SyncStatus {
+                syncing: true,
+                synced_height,
+                chain_tip: effective_tip,
+                progress_percent: progress,
+                last_error: None,
+            },
+        );
         tracing::info!("sync progress: {progress:.1}% ({synced_height}/{effective_tip})");
 
         // Retrieve memos for anything we just detected. This early-returns when
@@ -1293,17 +1491,7 @@ async fn wait_for_cancel(syncing: &RwLock<bool>) {
 
 /// Stop the background sync task.
 pub async fn stop_sync(state: &WalletState) -> Result<()> {
-    // Signal sync to stop
-    *state.syncing.write().await = false;
-
-    // Abort and wait for the task to fully cancel (releases db mutex)
-    let handle = {
-        state.sync_handle.lock().await.take()
-    };
-    if let Some(h) = handle {
-        h.abort();
-        let _ = h.await; // wait for cancellation to complete
-    }
+    state.sync_supervisor.stop(Arc::clone(&state.syncing)).await;
     Ok(())
 }
 
@@ -1344,4 +1532,308 @@ pub async fn get_sync_status(state: &WalletState) -> Result<SyncStatus> {
         progress_percent: progress,
         last_error: state.last_sync_error.read().await.clone(),
     })
+}
+
+#[cfg(test)]
+mod supervisor_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    struct LiveTask {
+        live: Arc<AtomicUsize>,
+        dropped: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+
+    impl LiveTask {
+        fn new(live: Arc<AtomicUsize>, dropped: tokio::sync::oneshot::Sender<()>) -> Self {
+            live.fetch_add(1, AtomicOrdering::SeqCst);
+            Self {
+                live,
+                dropped: Some(dropped),
+            }
+        }
+    }
+
+    impl Drop for LiveTask {
+        fn drop(&mut self) {
+            self.live.fetch_sub(1, AtomicOrdering::SeqCst);
+            let _ = self.dropped.take().expect("task drops once").send(());
+        }
+    }
+
+    async fn counted_task(
+        starts: Arc<AtomicUsize>,
+        live: Arc<AtomicUsize>,
+        started: tokio::sync::oneshot::Sender<()>,
+        dropped: tokio::sync::oneshot::Sender<()>,
+    ) {
+        starts.fetch_add(1, AtomicOrdering::SeqCst);
+        let _live = LiveTask::new(live, dropped);
+        let _ = started.send(());
+        std::future::pending::<()>().await;
+    }
+
+    async fn assert_phase(supervisor: &SyncTaskSupervisor, expected: &str) {
+        let state = supervisor.state.lock().await;
+        let actual = match state.phase {
+            SyncTaskPhase::Idle => "idle",
+            SyncTaskPhase::Running { .. } => "running",
+            SyncTaskPhase::Stopping { .. } => "stopping",
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn cancelling_stop_before_handle_transfer_leaves_one_running_task() {
+        let supervisor = Arc::new(SyncTaskSupervisor::default());
+        let syncing = Arc::new(RwLock::new(false));
+        let starts = Arc::new(AtomicUsize::new(0));
+        let live = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert_eq!(
+            supervisor
+                .start(
+                    Arc::clone(&syncing),
+                    counted_task(
+                        Arc::clone(&starts),
+                        Arc::clone(&live),
+                        started_tx,
+                        dropped_tx,
+                    ),
+                )
+                .await,
+            SyncStart::Started
+        );
+        started_rx.await.expect("first task starts");
+
+        // Hold the single lifecycle lock so stop is cancelled at its first
+        // await, before it can change the flag or take the handle.
+        let lifecycle_guard = supervisor.state.lock().await;
+        let (attempted_tx, attempted_rx) = tokio::sync::oneshot::channel();
+        let stopping_supervisor = Arc::clone(&supervisor);
+        let stopping_flag = Arc::clone(&syncing);
+        let stop = tokio::spawn(async move {
+            let _ = attempted_tx.send(());
+            stopping_supervisor.stop(stopping_flag).await;
+        });
+        attempted_rx.await.expect("stop attempts lifecycle lock");
+        tokio::task::yield_now().await;
+        stop.abort();
+        assert!(stop.await.expect_err("stop is cancelled").is_cancelled());
+        assert!(matches!(
+            lifecycle_guard.phase,
+            SyncTaskPhase::Running { .. }
+        ));
+        drop(lifecycle_guard);
+
+        assert!(*syncing.read().await);
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(starts.load(AtomicOrdering::SeqCst), 1);
+
+        let (duplicate_started_tx, _duplicate_started_rx) = tokio::sync::oneshot::channel();
+        let (duplicate_dropped_tx, _duplicate_dropped_rx) = tokio::sync::oneshot::channel();
+        assert_eq!(
+            supervisor
+                .start(
+                    Arc::clone(&syncing),
+                    counted_task(
+                        Arc::clone(&starts),
+                        Arc::clone(&live),
+                        duplicate_started_tx,
+                        duplicate_dropped_tx,
+                    ),
+                )
+                .await,
+            SyncStart::AlreadyRunning
+        );
+        assert_eq!(starts.load(AtomicOrdering::SeqCst), 1);
+
+        supervisor.stop(Arc::clone(&syncing)).await;
+        dropped_rx.await.expect("first task is joined after abort");
+        assert_phase(&supervisor, "idle").await;
+        assert!(!*syncing.read().await);
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancelled_stop_finalizer_blocks_recovery_until_old_handle_is_joined() {
+        let supervisor = Arc::new(SyncTaskSupervisor::default());
+        let syncing = Arc::new(RwLock::new(false));
+        let starts = Arc::new(AtomicUsize::new(0));
+        let live = Arc::new(AtomicUsize::new(0));
+        let (first_started_tx, first_started_rx) = tokio::sync::oneshot::channel();
+        let (first_dropped_tx, first_dropped_rx) = tokio::sync::oneshot::channel();
+        assert_eq!(
+            supervisor
+                .start(
+                    Arc::clone(&syncing),
+                    counted_task(
+                        Arc::clone(&starts),
+                        Arc::clone(&live),
+                        first_started_tx,
+                        first_dropped_tx,
+                    ),
+                )
+                .await,
+            SyncStart::Started
+        );
+        first_started_rx.await.expect("first task starts");
+
+        // Stall only the stop finalizer. Stop has already transferred and
+        // aborted the handle when the task's Drop sentinel fires.
+        let syncing_guard = syncing.write().await;
+        let stopping_supervisor = Arc::clone(&supervisor);
+        let stopping_flag = Arc::clone(&syncing);
+        let stop = tokio::spawn(async move {
+            stopping_supervisor.stop(stopping_flag).await;
+        });
+        first_dropped_rx.await.expect("old handle is aborted");
+        stop.abort();
+        assert!(
+            stop.await
+                .expect_err("stop caller is cancelled")
+                .is_cancelled()
+        );
+
+        let (replacement_started_tx, mut replacement_started_rx) = tokio::sync::oneshot::channel();
+        let (replacement_dropped_tx, replacement_dropped_rx) = tokio::sync::oneshot::channel();
+        let recovery_supervisor = Arc::clone(&supervisor);
+        let recovery_flag = Arc::clone(&syncing);
+        let recovery_starts = Arc::clone(&starts);
+        let recovery_live = Arc::clone(&live);
+        let recovery = tokio::spawn(async move {
+            recovery_supervisor
+                .start(
+                    recovery_flag,
+                    counted_task(
+                        recovery_starts,
+                        recovery_live,
+                        replacement_started_tx,
+                        replacement_dropped_tx,
+                    ),
+                )
+                .await
+        });
+
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(25),
+                &mut replacement_started_rx,
+            )
+            .await
+            .is_err(),
+            "replacement cannot start before the old handle finalizes"
+        );
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 0);
+        assert!(
+            *syncing_guard,
+            "stale flag is still held at the test barrier"
+        );
+        drop(syncing_guard);
+
+        replacement_started_rx
+            .await
+            .expect("replacement starts after old handle joins");
+        assert_eq!(
+            recovery.await.expect("recovery task joins"),
+            SyncStart::Started
+        );
+        assert_phase(&supervisor, "running").await;
+        assert!(*syncing.read().await);
+        assert_eq!(starts.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 1);
+
+        let (duplicate_started_tx, _duplicate_started_rx) = tokio::sync::oneshot::channel();
+        let (duplicate_dropped_tx, _duplicate_dropped_rx) = tokio::sync::oneshot::channel();
+        assert_eq!(
+            supervisor
+                .start(
+                    Arc::clone(&syncing),
+                    counted_task(
+                        Arc::clone(&starts),
+                        Arc::clone(&live),
+                        duplicate_started_tx,
+                        duplicate_dropped_tx,
+                    ),
+                )
+                .await,
+            SyncStart::AlreadyRunning
+        );
+        assert_eq!(starts.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 1);
+
+        supervisor.stop(Arc::clone(&syncing)).await;
+        replacement_dropped_rx
+            .await
+            .expect("replacement is joined during cleanup");
+        assert_phase(&supervisor, "idle").await;
+        assert!(!*syncing.read().await);
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_while_stopping_prevents_recovery_start() {
+        let supervisor = Arc::new(SyncTaskSupervisor::default());
+        let syncing = Arc::new(RwLock::new(false));
+        let starts = Arc::new(AtomicUsize::new(0));
+        let live = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert_eq!(
+            supervisor
+                .start(
+                    Arc::clone(&syncing),
+                    counted_task(
+                        Arc::clone(&starts),
+                        Arc::clone(&live),
+                        started_tx,
+                        dropped_tx,
+                    ),
+                )
+                .await,
+            SyncStart::Started
+        );
+        started_rx.await.expect("task starts");
+
+        let syncing_guard = syncing.write().await;
+        let stopping_supervisor = Arc::clone(&supervisor);
+        let stopping_flag = Arc::clone(&syncing);
+        let stop = tokio::spawn(async move {
+            stopping_supervisor.stop(stopping_flag).await;
+        });
+        dropped_rx.await.expect("task aborts");
+        supervisor.begin_shutdown();
+
+        let (forbidden_started_tx, _forbidden_started_rx) = tokio::sync::oneshot::channel();
+        let (forbidden_dropped_tx, _forbidden_dropped_rx) = tokio::sync::oneshot::channel();
+        let recovery_supervisor = Arc::clone(&supervisor);
+        let recovery_flag = Arc::clone(&syncing);
+        let recovery_starts = Arc::clone(&starts);
+        let recovery_live = Arc::clone(&live);
+        let recovery = tokio::spawn(async move {
+            recovery_supervisor
+                .start(
+                    recovery_flag,
+                    counted_task(
+                        recovery_starts,
+                        recovery_live,
+                        forbidden_started_tx,
+                        forbidden_dropped_tx,
+                    ),
+                )
+                .await
+        });
+        drop(syncing_guard);
+
+        stop.await.expect("stop finalizer completes");
+        assert_eq!(
+            recovery.await.expect("recovery decision completes"),
+            SyncStart::ShuttingDown
+        );
+        assert_phase(&supervisor, "idle").await;
+        assert!(!*syncing.read().await);
+        assert_eq!(starts.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(live.load(AtomicOrdering::SeqCst), 0);
+    }
 }

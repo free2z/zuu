@@ -31,27 +31,28 @@ function LegacyWalletNotice() {
 
 export function AppShell() {
   const location = useLocation();
-  // The AI chat needs a bounded-height panel with its own internal scroll
-  // region (message list) and a footer pinned to the true bottom — Radix's
+  // AI and login each own a bounded internal scroll region while the header
+  // and mobile tabs stay pinned. Radix's
   // ScrollArea wraps children in a `display: table` div that sizes to
   // content, so a `h-full` flex column nested inside it can never resolve a
   // real height. Give that route a plain, height-bound `main` instead of the
   // page-scrolling ScrollArea every other route uses.
-  const isFullBleed = location.pathname.startsWith("/ai");
+  const isFullBleed =
+    location.pathname.startsWith("/ai") || location.pathname === "/login";
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="app-viewport flex bg-background" data-app-frame>
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <LegacyWalletNotice />
         {isFullBleed ? (
-          <main className="min-h-0 flex-1 overflow-hidden">
+          <main className="min-h-0 flex-1 overflow-hidden" data-route-frame>
             <Outlet />
           </main>
         ) : (
-          <ScrollArea className="flex-1">
-            <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 md:px-8 md:pb-10">
+          <ScrollArea className="min-h-0 flex-1" data-route-scroll>
+            <main className="app-scroll-content mx-auto w-full max-w-6xl px-4 pt-6 md:px-8">
               <Outlet />
             </main>
           </ScrollArea>
