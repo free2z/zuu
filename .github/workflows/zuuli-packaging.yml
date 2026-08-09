@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - wallet/zuuli/**
-      - wallet/plugins/**
+      - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
       - z/zcash/librustzcash
       - .gitmodules
@@ -16,7 +16,7 @@ on:
     branches: [main]
     paths:
       - wallet/zuuli/**
-      - wallet/plugins/**
+      - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
       - z/zcash/librustzcash
       - .gitmodules
