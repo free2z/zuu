@@ -58,6 +58,11 @@ protected release preflight and IPA verifier require that exact entitlement but
 accept the regenerated profile's new well-formed UUID; the profile name, Team
 ID, application ID, protected bytes, and authorized signer remain pinned. The
 repository's known Team ID is not a substitute for that portal operation.
+The public gate checks both the origin AASA and Apple's production association
+CDN at `https://app-site-association.cdn-apple.com/a/v1/free2z.com`. A correct
+origin is not sufficient while Apple's served copy is absent or stale. Device
+evidence must come from a cache-cold install after that CDN has converged; an
+already-associated warm install cannot prove what a new public install sees.
 
 The exact `/oauth/callback` browser fallback must be `no-store`, omit codes and
 states from its body, and use the protected no-access-log edge backend. A
@@ -74,13 +79,19 @@ npm run test:oauth-links
 ```
 
 The normal release verifier runs the repository consistency check. It permits
-`private-transition`, keeping internal Play/TestFlight work unblocked while
-the external association is deployed. Packaging CI always runs the adversarial
-claimed-gate fixtures. When rollout becomes `claimed`, the protected release
-workflow additionally decodes the environment-protected
-`ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64` secret and runs the public verifier before
-building or uploading either platform; the gate is no longer an operator-only
-command.
+`private-transition`, keeping internal Play/TestFlight candidate builds
+unblocked while the external association is deployed. Packaging CI always runs
+the adversarial claimed-gate fixtures. Internal candidate uploads are not
+public authorization: after testing the exact signed Play-internal/TestFlight
+artifacts, manually dispatch `ZUULI / protected release` at the same immutable
+source and identity with target `public-gate` and `dry_run=true`. That protected
+lane decodes `ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64`, checks the live origin, Apple
+CDN, inert callback fallback, isolated backend, and signed device evidence, then
+attests and uploads an immutable authorization record bound to the app SHA,
+backend SHA, and evidence digest. Do not promote either existing store artifact
+to public unless that exact public-gate run is green. A normal mobile build,
+including one with rollout `claimed`, deliberately cannot self-certify device
+evidence that can only be collected after its signed artifact exists.
 
 A public-store release must instead run:
 
@@ -112,7 +123,8 @@ Ed25519 signature. The signed statement binds:
   `ios-cold`, `ios-warm`, `android-cold`, `android-warm`, and `handoff`.
 
 Each capture must contain its scenario name plus the exact app commit, backend
-commit, and claimed URI. The verifier rejects unsigned edits, changed digests,
+commit, and claimed URI, and must be a redacted excerpt no larger than 4096
+bytes. The verifier rejects unsigned edits, changed digests,
 missing scenarios, ambiguous JSON, a backend SHA not currently served by the
 callback tier, and an absent/unready `mobile-start` contract. Self-authored
 `cold: true`/`warm: true` booleans are not accepted as proof.
@@ -122,6 +134,9 @@ source control. Store its base64 encoding as
 `ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64`. Capture only redacted tool output; never
 record codes, states, tokens, provider secrets, session material, device serials,
 or operator identity.
+The 4096-byte per-capture bound is mandatory because GitHub limits one secret
+to 48 KiB and the five artifacts are base64-encoded inside an envelope that is
+itself base64-encoded for the environment secret.
 
 ## Signed-device proof matrix
 

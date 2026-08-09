@@ -61,7 +61,7 @@ function claimedFixture(values = {}) {
     preloadPath,
     `
 const backendCommit = process.env.MOCK_BACKEND_COMMIT || "${"b".repeat(40)}";
-const documents = (url) => url.includes("apple-app-site-association")
+const documents = (url) => url.includes("apple-app-site-association") || url.includes("app-site-association.cdn-apple.com")
   ? { applinks: { details: [{ components: [{ "/": "/oauth/callback" }], appIDs: ["F9AV5HKF6N.cash.free2z.zuuli"] }] } }
   : [{ target: { sha256_cert_fingerprints: [${JSON.stringify(fingerprint)}], package_name: "cash.free2z.zuuli", namespace: "android_app" }, relation: ["delegate_permission/common.handle_all_urls"], relation_extensions: { "delegate_permission/common.handle_all_urls": { dynamic_app_link_components: [{ "/": "/oauth/callback" }] } } }];
 globalThis.fetch = async (input) => {
@@ -69,7 +69,19 @@ globalThis.fetch = async (input) => {
   let status = Number(process.env.MOCK_STATUS);
   let body = documents(url);
   const headers = new Map([["content-type", process.env.MOCK_CONTENT_TYPE]]);
-  if (url.includes("/api/zuuli/capabilities/")) {
+  if (url.includes("app-site-association.cdn-apple.com") && process.env.MOCK_STALE_APPLE_CDN === "true") {
+    body = { applinks: { details: [] } };
+  } else if (url.includes("free2z.com/oauth/callback")) {
+    headers.set("content-type", "text/plain; charset=utf-8");
+    headers.set("cache-control", "no-store");
+    headers.set("pragma", "no-cache");
+    headers.set("referrer-policy", "no-referrer");
+    headers.set("x-content-type-options", "nosniff");
+    headers.set("x-zuuli-oauth-build-sha", backendCommit);
+    body = process.env.MOCK_UNSAFE_FALLBACK === "true"
+      ? "zuuli-public-gate-code-must-not-appear"
+      : "Sign-in could not return to ZUULI. Reopen the app and try again.";
+  } else if (url.includes("/api/zuuli/capabilities/")) {
     body = { capabilities: { auth: { social: true } } };
     headers.set("cache-control", "no-store");
     headers.set("x-zuuli-oauth-build-sha", backendCommit);
@@ -79,7 +91,9 @@ globalThis.fetch = async (input) => {
     headers.set("x-zuuli-oauth-build-sha", backendCommit);
   }
   const encoded = new TextEncoder().encode(
-    process.env.MOCK_DUPLICATE === "true" && url.includes("apple-app-site-association")
+    url.includes("free2z.com/oauth/callback")
+      ? body
+      : process.env.MOCK_DUPLICATE === "true" && url.includes("apple-app-site-association")
       ? '{"applinks":{"details":[],"details":[{"components":[{"/":"/oauth/callback"}],"appIDs":["F9AV5HKF6N.cash.free2z.zuuli"]}]}}'
       : JSON.stringify(body),
   );
@@ -119,7 +133,10 @@ globalThis.fetch = async (input) => {
     "android-warm",
     "handoff",
   ]) {
-    const artifact = `${scenario}\n${appCommit}\n${backendCommit}\n${contract.claimedRedirectUri}\n`;
+    const artifact =
+      values.OVERSIZED_ARTIFACT === "true" && scenario === "ios-cold"
+        ? `${scenario}\n${appCommit}\n${backendCommit}\n${contract.claimedRedirectUri}\n${"x".repeat(4096)}`
+        : `${scenario}\n${appCommit}\n${backendCommit}\n${contract.claimedRedirectUri}\n`;
     artifacts[scenario] = {
       contentBase64: Buffer.from(artifact, "utf8").toString("base64"),
       sha256: createHash("sha256").update(artifact).digest("hex"),
@@ -198,6 +215,7 @@ function runClaimedFixture(values = {}) {
                 "DIRTY_TRACKED",
                 "TAMPER_SIGNATURE",
                 "TAMPER_ARTIFACT",
+                "OVERSIZED_ARTIFACT",
               ].includes(key),
           ),
         ),
@@ -278,6 +296,25 @@ test("public gate rejects changed raw device evidence", () => {
   const result = runClaimedFixture({ TAMPER_ARTIFACT: "true" });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /artifact is invalid, changed, oversized/);
+});
+
+test("public gate keeps the protected evidence envelope below the secret limit", () => {
+  const result = runClaimedFixture({ OVERSIZED_ARTIFACT: "true" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /artifact is invalid, changed, oversized/);
+});
+
+test("public gate requires Apple's served association and the inert browser fallback", () => {
+  const staleCdn = runClaimedFixture({ MOCK_STALE_APPLE_CDN: "true" });
+  assert.notEqual(staleCdn.status, 0);
+  assert.match(staleCdn.stderr, /broader than the reviewed exact association/);
+
+  const unsafeFallback = runClaimedFixture({ MOCK_UNSAFE_FALLBACK: "true" });
+  assert.notEqual(unsafeFallback.status, 0);
+  assert.match(
+    unsafeFallback.stderr,
+    /reflects OAuth material or is not inert/,
+  );
 });
 
 test("public gate binds evidence to the exact live callback build", () => {

@@ -569,6 +569,10 @@ for (const wiring of [
   "-T /usr/bin/codesign -T /usr/bin/xcodebuild",
   "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
   "npm run oauth-links:verify-public -- --source-sha=\"$source_sha\"",
+  "options: [mobile, ios, android, desktop, all, public-gate]",
+  'if [[ "$target" == public-gate ]]; then',
+  "needs.prepare.outputs.public_gate == 'true'",
+  "needs.prepare.outputs.public_gate != 'true'",
 ]) {
   if (!releaseWorkflow.includes(wiring))
     failures.push(`protected iOS signing-keychain wiring is missing: ${wiring}`);

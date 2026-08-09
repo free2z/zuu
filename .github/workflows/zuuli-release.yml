@@ -20,7 +20,7 @@ on:
         required: true
         default: mobile
         type: choice
-        options: [mobile, ios, android, desktop, all]
+        options: [mobile, ios, android, desktop, all, public-gate]
       dry_run:
         description: Build, sign, and validate without uploading to either store
         required: true
@@ -61,6 +61,9 @@ jobs:
       target: ${{ steps.identity.outputs.target }}
       dry_run: ${{ steps.identity.outputs.dry_run }}
       should_release: ${{ steps.identity.outputs.should_release }}
+      public_gate: ${{ steps.identity.outputs.public_gate }}
+      evidence_sha256: ${{ steps.identity.outputs.evidence_sha256 }}
+      evidence_backend_sha: ${{ steps.identity.outputs.evidence_backend_sha }}
     defaults:
       run:
         working-directory: wallet/zuuli
@@ -113,18 +116,6 @@ jobs:
             echo "source SHA must be a full lowercase 40-character commit SHA" >&2
             exit 1
           }
-          if [[ "$(jq -r .rollout mobile-oauth-links.json)" == claimed ]]; then
-            : "${OAUTH_DEVICE_EVIDENCE_BASE64:?ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 is required for a claimed-link release}"
-            evidence_file="$RUNNER_TEMP/zuuli-oauth-device-evidence.json"
-            cleanup_evidence() { rm -f -- "$evidence_file"; }
-            trap cleanup_evidence EXIT
-            printf '%s' "$OAUTH_DEVICE_EVIDENCE_BASE64" | base64 --decode > "$evidence_file"
-            test -s "$evidence_file"
-            ZUULI_OAUTH_DEVICE_EVIDENCE="$evidence_file" \
-              npm run oauth-links:verify-public -- --source-sha="$source_sha"
-            rm -f -- "$evidence_file"
-            trap - EXIT
-          fi
           args=("--source-sha=$source_sha" --require-main)
           metadata=$(node scripts/release-identity.mjs "${args[@]}")
           actual=$(jq -r .identity <<<"$metadata")
@@ -166,6 +157,29 @@ jobs:
             }
           fi
 
+          public_gate=false
+          evidence_sha256=none
+          evidence_backend_sha=none
+          if [[ "$target" == public-gate ]]; then
+            [[ "$EVENT_NAME" == workflow_dispatch && "$dry_run" == true ]] || {
+              echo "public-gate is a manual authorization check and requires dry_run=true" >&2
+              exit 1
+            }
+            : "${OAUTH_DEVICE_EVIDENCE_BASE64:?ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 is required for public authorization}"
+            evidence_file="$RUNNER_TEMP/zuuli-oauth-device-evidence.json"
+            cleanup_evidence() { rm -f -- "$evidence_file"; }
+            trap cleanup_evidence EXIT
+            printf '%s' "$OAUTH_DEVICE_EVIDENCE_BASE64" | base64 --decode > "$evidence_file"
+            test -s "$evidence_file"
+            ZUULI_OAUTH_DEVICE_EVIDENCE="$evidence_file" \
+              npm run oauth-links:verify-public -- --source-sha="$source_sha"
+            evidence_sha256=$(sha256sum "$evidence_file" | awk '{print $1}')
+            evidence_backend_sha=$(jq -er '.statement.backendCommit' "$evidence_file")
+            public_gate=true
+            rm -f -- "$evidence_file"
+            trap - EXIT
+          fi
+
           tag=$(jq -r .tag <<<"$metadata")
           tag_exists=false
           if [[ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" == tag ]]; then
@@ -183,6 +197,52 @@ jobs:
           echo "target=$target" >> "$GITHUB_OUTPUT"
           echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
           echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
+          echo "public_gate=$public_gate" >> "$GITHUB_OUTPUT"
+          echo "evidence_sha256=$evidence_sha256" >> "$GITHUB_OUTPUT"
+          echo "evidence_backend_sha=$evidence_backend_sha" >> "$GITHUB_OUTPUT"
+
+  public-authorization:
+    name: Public store authorization
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      needs.prepare.outputs.public_gate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Write immutable public-promotion authorization
+        env:
+          IDENTITY: ${{ needs.prepare.outputs.identity }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          BACKEND_SHA: ${{ needs.prepare.outputs.evidence_backend_sha }}
+          EVIDENCE_SHA256: ${{ needs.prepare.outputs.evidence_sha256 }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir public-authorization
+          jq -n \
+            --arg identity "$IDENTITY" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg backendSha "$BACKEND_SHA" \
+            --arg evidenceSha256 "$EVIDENCE_SHA256" \
+            --arg runId "$RUN_ID" \
+            --arg runAttempt "$RUN_ATTEMPT" \
+            '{schemaVersion: 1, identity: $identity, sourceSha: $sourceSha, backendSha: $backendSha, evidenceSha256: $evidenceSha256, workflowRun: ($runId + "/" + $runAttempt)}' \
+            > public-authorization/authorization.json
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: public-authorization/authorization.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-public-authorization-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: public-authorization/authorization.json
+          if-no-files-found: error
+          retention-days: 90
 
   android:
     name: Android / Play internal
@@ -813,6 +873,7 @@ jobs:
       always() && !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.should_release == 'true' &&
+      needs.prepare.outputs.public_gate != 'true' &&
       (needs.android.result == 'success' || needs.android.result == 'skipped') &&
       (needs.ios.result == 'success' || needs.ios.result == 'skipped') &&
       (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&

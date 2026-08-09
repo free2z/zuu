@@ -466,7 +466,11 @@ if (publicRelease) {
           if (artifact.toString("base64") !== descriptor.contentBase64) {
             throw new Error("encoding");
           }
-          if (artifact.byteLength === 0 || artifact.byteLength > 10_000_000) {
+          // The signed envelope is stored as one GitHub environment secret,
+          // whose encoded value is capped at 48 KiB. Five independently
+          // encoded captures must stay small enough for the outer envelope's
+          // second base64 layer and JSON/signature overhead.
+          if (artifact.byteLength === 0 || artifact.byteLength > 4_096) {
             throw new Error("size");
           }
           const digest = createHash("sha256").update(artifact).digest("hex");
@@ -521,6 +525,10 @@ if (publicRelease) {
         "https://free2z.com/.well-known/apple-app-site-association",
         expectedAasa,
       ],
+      [
+        "https://app-site-association.cdn-apple.com/a/v1/free2z.com",
+        expectedAasa,
+      ],
       ["https://free2z.com/.well-known/assetlinks.json", expectedAssetlinks],
     ]) {
       try {
@@ -553,6 +561,70 @@ if (publicRelease) {
           `${url} could not be fetched without redirects or contained invalid or ambiguous JSON`,
         );
       }
+    }
+    const callbackUrl = new URL(exact.claimedRedirectUri);
+    const callbackCode = "zuuli-public-gate-code-must-not-appear";
+    const callbackState = "zuuli-public-gate-state-must-not-appear";
+    callbackUrl.searchParams.set("code", callbackCode);
+    callbackUrl.searchParams.set("state", callbackState);
+    try {
+      const response = await fetch(callbackUrl, {
+        redirect: "error",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = new TextDecoder("utf-8", { fatal: true }).decode(
+        new Uint8Array(await response.arrayBuffer()),
+      );
+      if (response.status !== 200 || response.url !== callbackUrl.toString()) {
+        failures.push(
+          "the claimed callback browser fallback must return direct HTTP 200",
+        );
+      }
+      if (
+        (response.headers.get("content-type") ?? "")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase() !== "text/plain"
+      ) {
+        failures.push(
+          "the claimed callback browser fallback must use text/plain",
+        );
+      }
+      for (const [name, expected] of [
+        ["cache-control", "no-store"],
+        ["pragma", "no-cache"],
+        ["referrer-policy", "no-referrer"],
+        ["x-content-type-options", "nosniff"],
+      ]) {
+        if (response.headers.get(name) !== expected) {
+          failures.push(
+            `the claimed callback browser fallback must set ${name}: ${expected}`,
+          );
+        }
+      }
+      if (
+        response.headers.get("x-zuuli-oauth-build-sha") !==
+        evidence.backendCommit
+      ) {
+        failures.push(
+          "the claimed callback fallback is not the attested callback-tier build",
+        );
+      }
+      if (
+        body !==
+          "Sign-in could not return to ZUULI. Reopen the app and try again." ||
+        body.includes(callbackCode) ||
+        body.includes(callbackState)
+      ) {
+        failures.push(
+          "the claimed callback fallback reflects OAuth material or is not inert",
+        );
+      }
+    } catch {
+      failures.push(
+        "the claimed callback browser fallback could not be verified",
+      );
     }
     const capabilitiesUrl = "https://free2z.cash/api/zuuli/capabilities/";
     try {
