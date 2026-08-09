@@ -335,10 +335,16 @@ if (publicRelease) {
   }
   let evidencePublicKey;
   try {
-    evidencePublicKey = createPublicKey(
-      config.deviceEvidenceEd25519PublicKeyPem ?? "",
-    );
-    if (evidencePublicKey.asymmetricKeyType !== "ed25519")
+    const configuredPublicKey = config.deviceEvidenceEd25519PublicKeyPem ?? "";
+    evidencePublicKey = createPublicKey(configuredPublicKey);
+    const canonicalPublicKey = evidencePublicKey.export({
+      type: "spki",
+      format: "pem",
+    });
+    if (
+      evidencePublicKey.asymmetricKeyType !== "ed25519" ||
+      canonicalPublicKey !== configuredPublicKey
+    )
       throw new Error("wrong key type");
   } catch {
     failures.push(

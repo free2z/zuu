@@ -43,10 +43,16 @@ function claimedFixture(values = {}) {
   contract.rollout = "claimed";
   contract.activeRedirectUri = contract.claimedRedirectUri;
   contract.android.playAppSigningSha256CertFingerprints = [fingerprint];
-  contract.deviceEvidenceEd25519PublicKeyPem = publicKey.export({
+  const publicKeyPem = publicKey.export({
     type: "spki",
     format: "pem",
   });
+  contract.deviceEvidenceEd25519PublicKeyPem =
+    values.PRIVATE_KEY_AS_PUBLIC === "true"
+      ? privateKey.export({ type: "pkcs8", format: "pem" })
+      : values.TRAILING_PUBLIC_KEY === "true"
+        ? `${publicKeyPem}${publicKeyPem}`
+        : publicKeyPem;
   writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
   for (const path of ["src-tauri/src/oauth.rs", "src/lib/oauth/protocol.ts"]) {
     const sourcePath = resolve(fixture, path);
@@ -216,6 +222,8 @@ function runClaimedFixture(values = {}) {
                 "TAMPER_SIGNATURE",
                 "TAMPER_ARTIFACT",
                 "OVERSIZED_ARTIFACT",
+                "PRIVATE_KEY_AS_PUBLIC",
+                "TRAILING_PUBLIC_KEY",
               ].includes(key),
           ),
         ),
@@ -290,6 +298,22 @@ test("public gate rejects editable unsigned device evidence", () => {
   const result = runClaimedFixture({ TAMPER_SIGNATURE: "true" });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /signature is absent or invalid/);
+});
+
+test("public gate accepts only canonical SPKI public-key material", () => {
+  const privateKey = runClaimedFixture({ PRIVATE_KEY_AS_PUBLIC: "true" });
+  assert.notEqual(privateKey.status, 0);
+  assert.match(
+    privateKey.stderr,
+    /reviewed Ed25519 device-evidence public key/,
+  );
+
+  const trailingKey = runClaimedFixture({ TRAILING_PUBLIC_KEY: "true" });
+  assert.notEqual(trailingKey.status, 0);
+  assert.match(
+    trailingKey.stderr,
+    /reviewed Ed25519 device-evidence public key/,
+  );
 });
 
 test("public gate rejects changed raw device evidence", () => {
