@@ -46,7 +46,10 @@ pub struct WalletState {
     pub seed: Arc<Mutex<Option<SecretVec<u8>>>>,
     pub seed_store: keychain::SeedStore,
     pub lightwalletd_url: RwLock<String>,
-    pub sync_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Owns the background sync handle and serializes start/stop/finalization.
+    /// A stop transfers its handle into a detached join-finalizer before any
+    /// cancellable wait, so a recovery start can never overlap the predecessor.
+    pub sync_supervisor: Arc<sync::SyncTaskSupervisor>,
     pub syncing: Arc<RwLock<bool>>,
     pub last_known_chain_tip: Arc<AtomicU64>,
     /// Most recent sync error, shared between the background sync task (writer)
@@ -162,7 +165,7 @@ impl WalletState {
             lightwalletd_url: RwLock::new(
                 "https://zec.rocks:443".to_string(),
             ),
-            sync_handle: Mutex::new(None),
+            sync_supervisor: Arc::new(sync::SyncTaskSupervisor::default()),
             syncing: Arc::new(RwLock::new(false)),
             last_known_chain_tip: Arc::new(AtomicU64::new(0)),
             last_sync_error: Arc::new(RwLock::new(None)),

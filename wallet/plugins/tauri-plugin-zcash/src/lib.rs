@@ -94,6 +94,12 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             Ok(())
         })
         .on_event(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                app.zcash().state.sync_supervisor.begin_shutdown();
+            }
             let must_lock = matches!(
                 event,
                 tauri::RunEvent::Exit

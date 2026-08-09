@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use tauri::{command, AppHandle, Runtime};
@@ -19,6 +20,143 @@ fn format_birthday_error(e: BirthdayError) -> String {
     match e {
         BirthdayError::HeightInvalid(e) => format!("invalid height: {e}"),
         BirthdayError::Decode(e) => format!("decode error: {e}"),
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PreviousSyncContext {
+    wallet_id: Option<String>,
+    was_syncing: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SyncRecoveryObligation {
+    previous: PreviousSyncContext,
+    armed: bool,
+}
+
+impl SyncRecoveryObligation {
+    fn new(previous: PreviousSyncContext) -> Self {
+        Self {
+            armed: previous.was_syncing,
+            previous,
+        }
+    }
+
+    fn commit(&mut self) {
+        self.armed = false;
+    }
+
+    fn should_restart(&self, active_wallet_id: Option<&str>, shutting_down: bool) -> bool {
+        self.armed
+            && self
+                .previous
+                .should_restart(active_wallet_id, shutting_down)
+    }
+}
+
+impl PreviousSyncContext {
+    fn should_restart(&self, active_wallet_id: Option<&str>, shutting_down: bool) -> bool {
+        self.was_syncing
+            && !shutting_down
+            && self
+                .wallet_id
+                .as_deref()
+                .is_some_and(|wallet_id| Some(wallet_id) == active_wallet_id)
+    }
+}
+
+/// Owns the obligation to restore a sync task stopped for an uncommitted wallet
+/// transition. Normal errors restore synchronously through `restore_now`; Drop
+/// covers cancellation, timeout, and panic-unwind boundaries by scheduling the
+/// same identity-checked recovery after the transition lock is released.
+struct StoppedSyncRecovery<R: Runtime> {
+    app: AppHandle<R>,
+    obligation: SyncRecoveryObligation,
+}
+
+impl<R: Runtime> StoppedSyncRecovery<R> {
+    async fn stop(app: AppHandle<R>) -> Self {
+        let state = &app.zcash().state;
+        let previous = PreviousSyncContext {
+            wallet_id: state.active_wallet_id().await,
+            was_syncing: *state.syncing.read().await,
+        };
+        // Construct the guard before the first cancellation point involved in
+        // stopping the task. If this future is dropped while joining, Drop will
+        // still restore the exact context that was active at entry.
+        let recovery = Self {
+            app,
+            obligation: SyncRecoveryObligation::new(previous),
+        };
+        crate::wallet::sync::stop_sync(&recovery.app.zcash().state)
+            .await
+            .expect("stopping sync is infallible");
+        recovery
+    }
+
+    fn commit(&mut self) {
+        self.obligation.commit();
+    }
+
+    async fn restore_now(&mut self) {
+        if !self.obligation.armed {
+            return;
+        }
+        restart_previous_sync(&self.app, &self.obligation).await;
+        self.obligation.commit();
+    }
+}
+
+impl<R: Runtime> Drop for StoppedSyncRecovery<R> {
+    fn drop(&mut self) {
+        if !self.obligation.armed || self.app.zcash().state.sync_supervisor.is_shutting_down() {
+            return;
+        }
+        let app = self.app.clone();
+        let obligation = self.obligation.clone();
+        let transition = Arc::clone(&app.zcash().state.wallet_transition);
+        // The command's owned transition guard is declared before this recovery
+        // guard, so it drops immediately after us. Reacquiring it here makes the
+        // cancelled transition and its recovery one serialized identity unit.
+        spawn_recovery_after_transition(transition, async move {
+            restart_previous_sync(&app, &obligation).await;
+        });
+    }
+}
+
+fn spawn_recovery_after_transition<F>(transition: Arc<tokio::sync::Mutex<()>>, recovery: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    tauri::async_runtime::spawn(async move {
+        let _transition = transition.lock_owned().await;
+        recovery.await;
+    });
+}
+
+async fn restart_previous_sync<R: Runtime>(
+    app: &AppHandle<R>,
+    obligation: &SyncRecoveryObligation,
+) {
+    let state = &app.zcash().state;
+    let shutting_down = state.sync_supervisor.is_shutting_down();
+    let active_wallet_id = state.active_wallet_id().await;
+    if !obligation.should_restart(active_wallet_id.as_deref(), shutting_down) {
+        if obligation.previous.was_syncing && !shutting_down {
+            tracing::warn!(
+                expected_wallet_id = ?obligation.previous.wallet_id,
+                active_wallet_id = ?active_wallet_id,
+                "not restoring sync because the wallet context changed"
+            );
+        }
+        return;
+    }
+    if let Err(error) = crate::wallet::sync::start_sync(app.clone(), state).await {
+        tracing::error!(
+            wallet_id = ?obligation.previous.wallet_id,
+            "failed to restore sync after aborted wallet transition: {error}"
+        );
     }
 }
 
@@ -163,14 +301,11 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let word_count = args.mnemonic_word_count.unwrap_or(24);
     let wallet_name = args.name.unwrap_or_else(|| "Default".to_string());
 
-    // Stop any running sync and wait until it has released the old write DB.
-    // The transition lock prevents another wallet operation from interleaving.
-    *zcash.state.syncing.write().await = false;
-    if let Some(h) = zcash.state.sync_handle.lock().await.take() {
-        h.abort();
-        let _ = h.await;
-    }
+    // Stop any running sync and retain an identity-bound recovery obligation
+    // until the new wallet context has committed.
+    let mut sync_recovery = StoppedSyncRecovery::stop(app.clone()).await;
 
+    let result = async {
     let mnemonic = keys::generate_mnemonic(word_count)?;
     let seed = keys::mnemonic_to_seed(&mnemonic);
 
@@ -275,6 +410,14 @@ pub(crate) async fn create_wallet<R: Runtime>(
         )));
     }
 
+    // Acquire every live context slot before publication. Once the manifest
+    // commit returns successfully, installing the matching in-memory context
+    // contains no cancellation point.
+    let mut db_guard = zcash.state.db.lock().await;
+    let mut read_db_guard = zcash.state.read_db.lock().await;
+    let mut seed_guard = zcash.state.seed.lock().await;
+    let mut pending_proposal_guard = zcash.state.pending_proposal.lock().await;
+    let mut pending_broadcast_guard = zcash.state.pending_broadcast.lock().await;
     let manifest_commit = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
@@ -289,6 +432,11 @@ pub(crate) async fn create_wallet<R: Runtime>(
             false
         }
         Err(error) => {
+            drop(pending_broadcast_guard);
+            drop(pending_proposal_guard);
+            drop(seed_guard);
+            drop(read_db_guard);
+            drop(db_guard);
             drop(read_db);
             drop(db);
             if let Err(cleanup_error) =
@@ -320,29 +468,47 @@ pub(crate) async fn create_wallet<R: Runtime>(
         }
     }
 
-    *zcash.state.pending_proposal.lock().await = None;
-    *zcash.state.pending_broadcast.lock().await =
+    *pending_proposal_guard = None;
+    *pending_broadcast_guard =
         send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
-    // The exact generation is now active. Cancel its rollback tombstone before
-    // installing the live context; a cancellation failure is safe because
-    // every future retry recognizes and preserves this manifest generation.
+    *db_guard = Some(db);
+    *read_db_guard = Some(read_db);
+    *seed_guard = Some(seed);
+    sync_recovery.commit();
+    drop(pending_broadcast_guard);
+    drop(pending_proposal_guard);
+    drop(seed_guard);
+    drop(read_db_guard);
+    drop(db_guard);
+
+    // The exact generation is now active. A cancellation failure is safe
+    // because every future retry recognizes and preserves this manifest
+    // generation.
     retry_staged_wallet_cleanup(&zcash.state, "wallet rollback cancellation deferred").await;
-
-    // Complete the entire context swap before releasing the transition lock or
-    // returning. A caller must never observe the new manifest/read DB/seed while
-    // mutations still target the previous wallet's write DB.
-    *zcash.state.db.lock().await = Some(db);
-    *zcash.state.read_db.lock().await = Some(read_db);
-    *zcash.state.seed.lock().await = Some(seed);
-    drop(transition_guard);
-
-    // Auto-start sync only after the new context is fully installed.
-    let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
 
     Ok(WalletCreated {
         seed_phrase: mnemonic.phrase().to_string(),
         birthday_height: tip_height,
     })
+    }
+    .await;
+
+    match result {
+        Ok(created) => {
+            sync_recovery.commit();
+            // Keep the transition lock through task registration so another
+            // switch/delete cannot replace the just-installed context between
+            // publication and its automatic sync start.
+            let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
+            drop(transition_guard);
+            Ok(created)
+        }
+        Err(error) => {
+            sync_recovery.restore_now().await;
+            drop(transition_guard);
+            Err(error)
+        }
+    }
 }
 
 #[command]
@@ -360,13 +526,11 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     let birthday_height = args.birthday_height.unwrap_or(419200); // sapling activation
     let wallet_name = args.name.unwrap_or_else(|| "Restored".to_string());
 
-    // Stop any running sync and wait until it has released the old write DB.
-    *zcash.state.syncing.write().await = false;
-    if let Some(h) = zcash.state.sync_handle.lock().await.take() {
-        h.abort();
-        let _ = h.await;
-    }
+    // Stop any running sync and retain an identity-bound recovery obligation
+    // until the restored wallet context has committed.
+    let mut sync_recovery = StoppedSyncRecovery::stop(app.clone()).await;
 
+    let result = async {
     // Connect to lightwalletd
     let url = zcash.state.lightwalletd_url.read().await.clone();
     let mut client = connect_to_lightwalletd(&url).await?;
@@ -481,6 +645,11 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         )));
     }
 
+    let mut db_guard = zcash.state.db.lock().await;
+    let mut read_db_guard = zcash.state.read_db.lock().await;
+    let mut seed_guard = zcash.state.seed.lock().await;
+    let mut pending_proposal_guard = zcash.state.pending_proposal.lock().await;
+    let mut pending_broadcast_guard = zcash.state.pending_broadcast.lock().await;
     let manifest_commit = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.commit_wallet(&zcash.state.data_dir, wallet_entry.clone())
@@ -495,6 +664,11 @@ pub(crate) async fn restore_wallet<R: Runtime>(
             false
         }
         Err(error) => {
+            drop(pending_broadcast_guard);
+            drop(pending_proposal_guard);
+            drop(seed_guard);
+            drop(read_db_guard);
+            drop(db_guard);
             drop(read_db);
             drop(db);
             if let Err(cleanup_error) =
@@ -530,24 +704,45 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         }
     }
 
-    *zcash.state.pending_proposal.lock().await = None;
-    *zcash.state.pending_broadcast.lock().await =
+    *pending_proposal_guard = None;
+    *pending_broadcast_guard =
         send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
+    *db_guard = Some(db);
+    *read_db_guard = Some(read_db);
+    *seed_guard = Some(seed);
+    sync_recovery.commit();
+    drop(pending_broadcast_guard);
+    drop(pending_proposal_guard);
+    drop(seed_guard);
+    drop(read_db_guard);
+    drop(db_guard);
+
     retry_staged_wallet_cleanup(
         &zcash.state,
         "restored wallet rollback cancellation deferred",
     )
     .await;
 
-    // Complete the write/read/seed swap before returning; see create_wallet.
-    *zcash.state.db.lock().await = Some(db);
-    *zcash.state.read_db.lock().await = Some(read_db);
-    *zcash.state.seed.lock().await = Some(seed);
-    drop(transition_guard);
-
-    let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
-
     Ok(serde_json::json!({ "success": true }))
+    }
+    .await;
+
+    match result {
+        Ok(value) => {
+            sync_recovery.commit();
+            // Keep the transition lock through task registration so another
+            // switch/delete cannot replace the just-installed context between
+            // publication and its automatic sync start.
+            let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
+            drop(transition_guard);
+            Ok(value)
+        }
+        Err(error) => {
+            sync_recovery.restore_now().await;
+            drop(transition_guard);
+            Err(error)
+        }
+    }
 }
 
 #[command]
@@ -816,19 +1011,18 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     )?;
 
     // Stop and join sync so it cannot retain or mutate the previous write DB
-    // while the new context is installed.
-    *zcash.state.syncing.write().await = false;
-    let handle = zcash.state.sync_handle.lock().await.take();
-    if let Some(handle) = handle {
-        handle.abort();
-        let _ = handle.await;
-    }
+    // while the new context is installed. Until the manifest commits, every
+    // exit path retains an obligation to restore this exact wallet context.
+    let mut sync_recovery = StoppedSyncRecovery::stop(app.clone()).await;
 
+    let result = async {
     // Hold every context slot while committing the active selection. There is
     // no await between the durable manifest mutation and the in-memory swap.
     let mut db_guard = zcash.state.db.lock().await;
     let mut read_db_guard = zcash.state.read_db.lock().await;
     let mut seed_guard = zcash.state.seed.lock().await;
+    let mut pending_proposal_guard = zcash.state.pending_proposal.lock().await;
+    let mut pending_broadcast_guard = zcash.state.pending_broadcast.lock().await;
     let activation = {
         let mut manifest = zcash.state.manifest.lock().await;
         manifest.set_active(&zcash.state.data_dir, &args.wallet_id)
@@ -836,38 +1030,58 @@ pub(crate) async fn switch_wallet<R: Runtime>(
     let activated = match activation {
         Ok(activated) => activated,
         Err(error) => {
+            drop(pending_broadcast_guard);
+            drop(pending_proposal_guard);
             drop(seed_guard);
             drop(read_db_guard);
             drop(db_guard);
-            let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
             return Err(Error::DatabaseError(format!(
                 "failed to persist active wallet: {error}"
             )));
         }
     };
     if !activated {
+        drop(pending_broadcast_guard);
+        drop(pending_proposal_guard);
         drop(seed_guard);
         drop(read_db_guard);
         drop(db_guard);
-        let _ = crate::wallet::sync::start_sync(app.clone(), &zcash.state).await;
         return Err(Error::Other("wallet not found".into()));
     }
     *db_guard = Some(new_db);
-    *read_db_guard = Some(new_read_db);
-    *seed_guard = None;
-    drop(seed_guard);
+        *read_db_guard = Some(new_read_db);
+        *seed_guard = None;
+        // From here forward the manifest and all live context slots refer to
+        // the target. Cancellation must not restart the predecessor.
+        sync_recovery.commit();
+        drop(seed_guard);
     drop(read_db_guard);
     drop(db_guard);
 
     // Only committed transitions invalidate the previous wallet's proposal.
-    *zcash.state.pending_proposal.lock().await = None;
-    *zcash.state.pending_broadcast.lock().await =
+    *pending_proposal_guard = None;
+    *pending_broadcast_guard =
         send::load_pending_broadcast(&zcash.state.data_dir, &wallet_entry.id);
+    drop(pending_broadcast_guard);
+    drop(pending_proposal_guard);
 
     // Reset chain tip cache
     zcash.state.last_known_chain_tip.store(0, std::sync::atomic::Ordering::Relaxed);
 
     Ok(())
+    }
+    .await;
+
+    match result {
+        Ok(()) => {
+            sync_recovery.commit();
+            Ok(())
+        }
+        Err(error) => {
+            sync_recovery.restore_now().await;
+            Err(error)
+        }
+    }
 }
 
 #[command]
@@ -901,19 +1115,25 @@ pub(crate) async fn delete_wallet<R: Runtime>(
         let manifest = zcash.state.manifest.lock().await;
         manifest.active_wallet_id.as_deref() == Some(&args.wallet_id)
     };
-    if deleting_active {
-        *zcash.state.syncing.write().await = false;
-        if let Some(handle) = zcash.state.sync_handle.lock().await.take() {
-            handle.abort();
-            let _ = handle.await;
-        }
-        *zcash.state.pending_proposal.lock().await = None;
-    }
+    let mut sync_recovery = if deleting_active {
+        Some(StoppedSyncRecovery::stop(app.clone()).await)
+    } else {
+        None
+    };
 
+    let result = async {
     // Prepare the replacement wallet before committing an active-wallet
     // deletion. Once the deletion is durable, no later failure may turn the
     // command into an ambiguous error that invites a destructive retry.
-    let (deletion, prepared_active) = {
+    let (
+        deletion,
+        prepared_active,
+        mut db_guard,
+        mut read_db_guard,
+        mut seed_guard,
+        mut pending_proposal_guard,
+        mut pending_broadcast_guard,
+    ) = {
         let mut manifest = zcash.state.manifest.lock().await;
         let prepared = if manifest.active_wallet_id.as_deref() == Some(&args.wallet_id) {
             let deletion_pos = manifest
@@ -944,25 +1164,75 @@ pub(crate) async fn delete_wallet<R: Runtime>(
         } else {
             None
         };
+        let db_guard = if prepared.is_some() {
+            Some(zcash.state.db.lock().await)
+        } else {
+            None
+        };
+        let read_db_guard = if prepared.is_some() {
+            Some(zcash.state.read_db.lock().await)
+        } else {
+            None
+        };
+        let seed_guard = if prepared.is_some() {
+            Some(zcash.state.seed.lock().await)
+        } else {
+            None
+        };
+        let pending_proposal_guard = if prepared.is_some() {
+            Some(zcash.state.pending_proposal.lock().await)
+        } else {
+            None
+        };
+        let pending_broadcast_guard = if prepared.is_some() {
+            Some(zcash.state.pending_broadcast.lock().await)
+        } else {
+            None
+        };
         let deletion =
             commit_wallet_deletion(&mut manifest, &zcash.state.data_dir, &args.wallet_id)?;
-        (deletion, prepared)
+        (
+            deletion,
+            prepared,
+            db_guard,
+            read_db_guard,
+            seed_guard,
+            pending_proposal_guard,
+            pending_broadcast_guard,
+        )
     };
 
     // If we deleted the active wallet, switch to the new active
     if deletion.was_active {
         if let Some((entry, db, read_db)) = prepared_active {
-            *zcash.state.db.lock().await = Some(db);
-            *zcash.state.read_db.lock().await = Some(read_db);
+            **db_guard.as_mut().expect("active deletion holds the write context") = Some(db);
+            **read_db_guard
+                .as_mut()
+                .expect("active deletion holds the read context") = Some(read_db);
             // Do not prompt while finalizing a destructive transition. The next
             // explicit spend/reveal action authenticates against native custody.
-            *zcash.state.seed.lock().await = None;
-            *zcash.state.pending_broadcast.lock().await =
+            **seed_guard
+                .as_mut()
+                .expect("active deletion holds the seed context") = None;
+            **pending_proposal_guard
+                .as_mut()
+                .expect("active deletion holds the proposal context") = None;
+            **pending_broadcast_guard
+                .as_mut()
+                .expect("active deletion holds the broadcast context") =
                 send::load_pending_broadcast(&zcash.state.data_dir, &entry.id);
             zcash
                 .state
                 .last_known_chain_tip
                 .store(0, std::sync::atomic::Ordering::Relaxed);
+            if let Some(recovery) = sync_recovery.as_mut() {
+                recovery.commit();
+            }
+            drop(pending_broadcast_guard.take());
+            drop(pending_proposal_guard.take());
+            drop(seed_guard.take());
+            drop(read_db_guard.take());
+            drop(db_guard.take());
 
             let status = run_wallet_cleanup_retry(
                 &zcash.state,
@@ -999,6 +1269,93 @@ pub(crate) async fn delete_wallet<R: Runtime>(
     }
 
     Ok(())
+    }
+    .await;
+
+    if result.is_err() {
+        if let Some(recovery) = sync_recovery.as_mut() {
+            recovery.restore_now().await;
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod sync_recovery_tests {
+    use super::*;
+
+    fn active_obligation() -> SyncRecoveryObligation {
+        SyncRecoveryObligation::new(PreviousSyncContext {
+            wallet_id: Some("wallet-before-transition".into()),
+            was_syncing: true,
+        })
+    }
+
+    #[test]
+    fn stopped_or_identityless_context_never_starts_sync() {
+        let stopped = SyncRecoveryObligation::new(PreviousSyncContext {
+            wallet_id: Some("wallet-before-transition".into()),
+            was_syncing: false,
+        });
+        assert!(!stopped.should_restart(Some("wallet-before-transition"), false));
+
+        let identityless = SyncRecoveryObligation::new(PreviousSyncContext {
+            wallet_id: None,
+            was_syncing: true,
+        });
+        assert!(!identityless.should_restart(None, false));
+    }
+
+    #[test]
+    fn commit_and_shutdown_are_irreversible_no_restart_boundaries() {
+        let mut committed = active_obligation();
+        committed.commit();
+        assert!(!committed.should_restart(Some("wallet-before-transition"), false));
+
+        let shutting_down = active_obligation();
+        assert!(!shutting_down.should_restart(Some("wallet-before-transition"), true));
+    }
+
+    struct RecoveryOnDrop {
+        transition: Arc<tokio::sync::Mutex<()>>,
+        completed: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+
+    impl Drop for RecoveryOnDrop {
+        fn drop(&mut self) {
+            let transition = Arc::clone(&self.transition);
+            let completed = self.completed.take().expect("drop runs once");
+            spawn_recovery_after_transition(transition, async move {
+                let _ = completed.send(());
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn drop_recovery_waits_for_the_transition_lock() {
+        let transition = Arc::new(tokio::sync::Mutex::new(()));
+        let transition_guard = Arc::clone(&transition).lock_owned().await;
+        let (completed_tx, mut completed_rx) = tokio::sync::oneshot::channel();
+        drop(RecoveryOnDrop {
+            transition,
+            completed: Some(completed_tx),
+        });
+
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(25),
+                &mut completed_rx,
+            )
+            .await
+            .is_err(),
+            "drop recovery must not pass the live transition"
+        );
+        drop(transition_guard);
+        tokio::time::timeout(std::time::Duration::from_secs(1), completed_rx)
+            .await
+            .expect("recovery runs after transition release")
+            .expect("recovery completion sender remains live");
+    }
 }
 
 #[cfg(test)]
