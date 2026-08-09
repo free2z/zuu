@@ -92,8 +92,25 @@ globalThis.fetch = async (input) => {
     headers.set("cache-control", "no-store");
     headers.set("x-zuuli-oauth-build-sha", backendCommit);
   } else if (url.includes("/api/auth/social/google/mobile-start")) {
-    status = process.env.MOCK_START_STATUS ? Number(process.env.MOCK_START_STATUS) : 400;
-    body = { detail: "mobile OAuth requires a valid PKCE S256 challenge." };
+    status = process.env.MOCK_START_STATUS ? Number(process.env.MOCK_START_STATUS) : 200;
+    const start = new URL(url);
+    const challenge = start.searchParams.get("code_challenge");
+    const authorizationState = "a".repeat(32);
+    const completionState = "c".repeat(32);
+    const providerRedirectUri = "https://free2z.cash/api/auth/social/mobile/callback";
+    const authorizeUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("state", authorizationState);
+    authorizeUrl.searchParams.set("redirect_uri", providerRedirectUri);
+    authorizeUrl.searchParams.set("code_challenge", challenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+    body = {
+      authorize_url: authorizeUrl.toString(),
+      state: completionState,
+      authorization_state: authorizationState,
+      provider_redirect_uri: providerRedirectUri,
+    };
+    headers.set("cache-control", "no-store");
     headers.set("x-zuuli-oauth-build-sha", backendCommit);
   }
   const encoded = new TextEncoder().encode(
@@ -350,6 +367,12 @@ test("public gate binds evidence to the exact live callback build", () => {
 
 test("public gate requires the isolated mobile-start route", () => {
   const result = runClaimedFixture({ MOCK_START_STATUS: "404" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /isolated mobile-start contract is not ready/);
+});
+
+test("public gate rejects a pre-validation mobile-start error", () => {
+  const result = runClaimedFixture({ MOCK_START_STATUS: "400" });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /isolated mobile-start contract is not ready/);
 });

@@ -105,8 +105,9 @@ That command fails closed unless rollout is `claimed`, device evidence names the
 exact `--source-sha` being promoted, at least one strict Play
 App Signing fingerprint is committed, both live association documents match
 the exact reviewed unambiguous JSON without redirects or duplicate keys, and
-the isolated live `mobile-start` route plus capability response are served by
-the exact backend commit named in the evidence. The response header
+the isolated live `mobile-start` route accepts a valid S256 challenge and
+returns the exact claimed-link provider relay contract, and both it and the
+capability response are served by the exact backend commit named in the evidence. The response header
 `X-Zuuli-OAuth-Build-Sha` is the deployment binding; a merely well-formed or
 reachable Git commit is insufficient.
 

@@ -680,8 +680,9 @@ if (publicRelease) {
     const startUrl = new URL(
       "https://free2z.cash/api/auth/social/google/mobile-start",
     );
+    const probeChallenge = "A".repeat(43);
     startUrl.searchParams.set("redirect_uri", exact.claimedRedirectUri);
-    startUrl.searchParams.set("code_challenge", "invalid");
+    startUrl.searchParams.set("code_challenge", probeChallenge);
     try {
       const response = await fetch(startUrl, {
         redirect: "error",
@@ -692,10 +693,30 @@ if (publicRelease) {
         new Uint8Array(await response.arrayBuffer()),
         startUrl.toString(),
       );
+      let authorizeUrl;
+      try {
+        authorizeUrl = new URL(body?.authorize_url);
+      } catch {
+        authorizeUrl = null;
+      }
       if (
-        response.status !== 400 ||
+        response.status !== 200 ||
         response.url !== startUrl.toString() ||
-        body?.detail !== "mobile OAuth requires a valid PKCE S256 challenge."
+        typeof body?.state !== "string" ||
+        !/^[A-Za-z0-9_-]{32,128}$/.test(body.state) ||
+        typeof body?.authorization_state !== "string" ||
+        !/^[A-Za-z0-9_-]{32,128}$/.test(body.authorization_state) ||
+        body.authorization_state === body.state ||
+        body.provider_redirect_uri !==
+          "https://free2z.cash/api/auth/social/mobile/callback" ||
+        authorizeUrl?.origin !== "https://accounts.google.com" ||
+        authorizeUrl.pathname !== "/o/oauth2/v2/auth" ||
+        authorizeUrl.searchParams.get("response_type") !== "code" ||
+        authorizeUrl.searchParams.get("state") !== body.authorization_state ||
+        authorizeUrl.searchParams.get("redirect_uri") !==
+          body.provider_redirect_uri ||
+        authorizeUrl.searchParams.get("code_challenge") !== probeChallenge ||
+        authorizeUrl.searchParams.get("code_challenge_method") !== "S256"
       ) {
         failures.push("the live isolated mobile-start contract is not ready");
       }
@@ -713,6 +734,12 @@ if (publicRelease) {
         failures.push(
           "mobile-start is not served by the attested callback-tier build",
         );
+      }
+      if (
+        (response.headers.get("cache-control") ?? "").toLowerCase() !==
+        "no-store"
+      ) {
+        failures.push("live mobile-start must be no-store");
       }
     } catch {
       failures.push(

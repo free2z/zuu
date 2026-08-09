@@ -149,6 +149,26 @@ for (const writer of [
 requireCount("protected release npm auto-cache", release, "cache: npm", 1);
 const prepareJob = job(release, "prepare", "android");
 requireCount("credential-free prepare npm auto-cache", prepareJob, "cache: npm", 1);
+requireText(
+  "public authorization no-cache setup",
+  prepareJob,
+  "Set up Node without a cache for public authorization",
+);
+requireText(
+  "public authorization no-cache condition",
+  prepareJob,
+  "if: inputs.target == 'public-gate'",
+);
+requireText(
+  "credential-free cache condition",
+  prepareJob,
+  "if: inputs.target != 'public-gate'",
+);
+const publicSetup = prepareJob.slice(
+  prepareJob.indexOf("Set up Node without a cache for public authorization"),
+  prepareJob.indexOf("Set up Node with the credential-free release cache"),
+);
+rejectText("public authorization setup", publicSetup, "cache:");
 for (const [name, nextName] of [
   ["android", "ios"],
   ["ios", "linux"],
