@@ -315,7 +315,7 @@ export default function AiFeature() {
   const localModel = models.find((m) => m.provider === "local");
 
   return (
-    <div className="flex h-full min-h-0 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+    <div className="app-full-bleed-inset flex h-full min-h-0 flex-col">
       {/* ── Header rail ─────────────────────────────────────────────── */}
       <div className="shrink-0 border-b border-border/60 bg-background/85 px-4 py-2.5 backdrop-blur md:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

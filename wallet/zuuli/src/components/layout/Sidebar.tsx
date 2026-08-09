@@ -23,7 +23,7 @@ const NAV = [
 
 export function Sidebar() {
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card/40 md:flex">
+    <aside className="app-sidebar hidden w-60 shrink-0 flex-col border-r border-border bg-card/40 md:flex">
       <div className="px-5 py-5">
         <Wordmark />
       </div>
@@ -59,7 +59,10 @@ export function Sidebar() {
 /** Bottom tab bar for narrow / mobile widths. */
 export function MobileTabBar() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-bottom))] border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+    <nav
+      className="app-bottom-nav fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-card/95 backdrop-blur md:hidden"
+      data-app-bottom-nav
+    >
       {NAV.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}

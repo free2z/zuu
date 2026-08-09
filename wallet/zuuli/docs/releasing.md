@@ -1,8 +1,8 @@
 # Releasing ZUULI
 
 ZUULI ships from one reviewed commit under one immutable identity. The current
-identity is `0.1.0+7`: marketing version `0.1.0`, Apple build `7`, Android
-`versionCode` `7`, and package/bundle identifier `cash.free2z.zuuli`.
+identity is `0.1.0+8`: marketing version `0.1.0`, Apple build `8`, Android
+`versionCode` `8`, and package/bundle identifier `cash.free2z.zuuli`.
 
 `release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
 byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
@@ -15,7 +15,7 @@ Gradle representation disagrees. Never fix a release mismatch with Tauri's
 `iosUsesNonExemptEncryption` to `false`; verification requires both the source
 and generated iOS plists to carry the matching Boolean.
 
-The train pins Node `24.18.0`, Rust `1.88.0`, Java `21.0.12`, Xcode `26.6`,
+The train pins Node `24.18.0`, Rust `1.97.1`, Java `21.0.12`, Xcode `26.6`,
 Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
 `8.14.3` with its distribution checksum, Fastlane `2.237.0` through a
 checksum-bearing Bundler `4.0.3` lockfile, and Syft `1.50.0`. Action dependencies
@@ -227,7 +227,7 @@ must both be confirmed:
 
 ```bash
 export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
-export ZUULI_CONFIRM_UPLOAD=0.1.0+7
+export ZUULI_CONFIRM_UPLOAD=0.1.0+8
 scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
@@ -307,7 +307,12 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    `MISSING_EXPORT_COMPLIANCE`, then moved it to `IN_BETA_TESTING` after the
    build-specific `usesNonExemptEncryption=false` answer. Build `0.1.0+7`
    persists that answer in the canonical and packaged iOS plists and makes the
-   release contract, normalizer, and IPA inspection fail closed on drift.
+   release contract, normalizer, and IPA inspection fail closed on drift. Its
+   iOS upload succeeded, but its Android job failed before packaging an AAB
+   because the plugin's app-data migration did not compile for the 32-bit
+   armv7/i686 ABIs. Build `0.1.0+8` carries that Android compile fix along with
+   the article image-rendering and media-host URL corrections; post-merge
+   packaging on `main` is green for all four Android ABIs.
 4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and

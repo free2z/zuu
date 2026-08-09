@@ -75,7 +75,7 @@ export function Reader() {
   const name = author.display_name || author.username;
 
   return (
-    <article className="animate-slide-up w-full min-w-0 overflow-x-clip pb-28">
+    <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         <BackLink />
 
@@ -156,7 +156,7 @@ export function Reader() {
       </div>
 
       {/* Sticky action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/80 backdrop-blur-md">
+      <div className="app-reader-actions fixed inset-x-0 z-30 border-t border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <ArticleScore score={article.votes ?? 0} />
           <TipDialog author={author} />

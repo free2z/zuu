@@ -543,7 +543,9 @@ expect(
 expect(
   "Rust toolchain",
   capture(/channel\s*=\s*"([^"]+)"/, rustToolchain, "Rust toolchain"),
-  "1.88.0",
+  // rust-toolchain.toml channel, restated so a silent edit to the source of
+  // truth fails here too. scripts/check-rust-toolchain.sh holds it in step.
+  "1.97.1",
 );
 for (const wiring of [
   "IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}",

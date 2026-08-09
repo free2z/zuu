@@ -18,17 +18,18 @@ pub fn generate_mnemonic(word_count: u32) -> Result<Mnemonic> {
         18 => Count::Words18,
         21 => Count::Words21,
         24 => Count::Words24,
-        _ => return Err(Error::InvalidMnemonic(
-            format!("unsupported word count: {word_count}; use 12, 15, 18, 21, or 24"),
-        )),
+        _ => {
+            return Err(Error::InvalidMnemonic(format!(
+                "unsupported word count: {word_count}; use 12, 15, 18, 21, or 24"
+            )));
+        }
     };
     Ok(Mnemonic::generate(count))
 }
 
 /// Parse an existing mnemonic phrase.
 pub fn parse_mnemonic(phrase: &str) -> Result<Mnemonic> {
-    Mnemonic::from_phrase(phrase)
-        .map_err(|e| Error::InvalidMnemonic(e.to_string()))
+    Mnemonic::from_phrase(phrase).map_err(|e| Error::InvalidMnemonic(e.to_string()))
 }
 
 /// Derive a seed from a mnemonic.
@@ -332,8 +333,8 @@ mod tests {
             (31..=34).contains(&header),
             "header {header} out of compressed range 31..=34"
         );
-        let recovery_id = RecoveryId::from_i32(((header - 27) & 0x03) as i32)
-            .expect("valid recovery id");
+        let recovery_id =
+            RecoveryId::from_i32(((header - 27) & 0x03) as i32).expect("valid recovery id");
         let compressed_flag = (header - 27) & 0x04 != 0;
         assert!(compressed_flag, "header must mark a compressed pubkey");
 
@@ -370,7 +371,10 @@ mod tests {
 
         // Determinism: signing again yields the identical signature.
         let again = sign_challenge(&seed, 0, challenge).expect("signing must succeed");
-        assert_eq!(again.signature, signed.signature, "signing must be deterministic");
+        assert_eq!(
+            again.signature, signed.signature,
+            "signing must be deterministic"
+        );
         assert_eq!(again.address, signed.address);
         assert_eq!(again.pubkey, signed.pubkey);
     }

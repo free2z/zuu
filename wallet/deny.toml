@@ -1,0 +1,201 @@
+# Supply-chain policy for every Rust crate under wallet/.
+#
+# One config for all three crates (wallet/plugins/tauri-plugin-zcash,
+# wallet/zuuli/src-tauri, wallet/zuuallet/src-tauri) so they cannot drift into
+# disagreeing about what is acceptable. `scripts/check-rust-deny.sh` runs
+# cargo-deny against each lockfile with `--config wallet/deny.toml`.
+#
+# HOW TO READ THE `ignore` LIST BELOW
+#
+# This repository had no supply-chain check at all until #340, so the list is
+# the *measured* backlog on the day the gate landed — not a wish list and not a
+# way to make the build quiet. Every entry names a specific advisory, the
+# version that fixes it, and why we are not on that version yet. Nothing is
+# ignored by category, by severity, or by wildcard.
+#
+# The value is in what is NOT listed: any advisory that appears from here on
+# fails CI, because it will not be in this file. Deleting an entry is the
+# expected outcome of remediation, and the gate proves the deletion is real.
+#
+# Remediation is tracked in the follow-up issue linked from #340. Do not add an
+# entry here without a reason string that would satisfy someone auditing this
+# wallet.
+
+[graph]
+# Evaluate every target, not just the host. CI runs on Linux, releases build on
+# macOS, Windows and mobile, and the GTK and objc2 halves of the graph carry
+# different advisories — a host-only view would report a different verdict on
+# each runner.
+all-features = false
+
+# =============================================================================
+# Advisories — the security half of this gate.
+# =============================================================================
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Yanking is registry state, not repository state: a crate can be yanked
+# upstream between two runs of CI with no commit of ours in between, which would
+# turn an unrelated pull request red for reasons its author cannot act on. It is
+# reported on every run and triaged deliberately instead.
+# Currently reported: spin 0.9.8 (via flume -> zcash_client_backend, and via
+# lazy_static -> bellman/orchard/tao).
+yanked = "warn"
+
+ignore = [
+  # ---------------------------------------------------------------------------
+  # Vulnerabilities. Each of these is transitive; none is a crate we depend on
+  # directly. The advisories that a plain `cargo update` could reach — the
+  # rustls-webpki 0.103 line, time, crossbeam-epoch and rand 0.8 — were cleared
+  # by the tier-1 sweep in #351 and their entries are gone from this list. What
+  # remains needs an intermediate crate to move first, so `cargo update` cannot
+  # reach it from the committed lockfiles.
+  # ---------------------------------------------------------------------------
+
+  # aws-lc-sys 0.37.1; reached via rustls 0.23 -> aws-lc-rs -> aws-lc-sys, which
+  # tonic's TLS stack pulls in. Only the plugin and zuuallet lockfiles are
+  # affected: zuuli/src-tauri already resolves aws-lc-rs 1.17.3 -> aws-lc-sys
+  # 0.43.0 and reports none of these five.
+  #
+  # That is the useful signal here. aws-lc-sys 0.38/0.39 is a semver-major bump
+  # for a 0.x crate, so it can only arrive by way of aws-lc-rs — and aws-lc-rs
+  # has since shipped 1.17.x, which requires the fixed line. The blocker named
+  # when these entries were written (aws-lc-rs 1.15.4 pinning 0.37) is therefore
+  # gone; what is left is bumping aws-lc-rs in the two stale lockfiles, which
+  # moves the TLS stack the wallet uses to reach lightwalletd and so belongs in
+  # its own PR with its own build evidence rather than in the tier-1 sweep.
+  # Tracked as tier 2 of #351.
+  { id = "RUSTSEC-2026-0044", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: X.509 name-constraint bypass; needs >= 0.39.0, reachable only by bumping aws-lc-rs 1.15.4 -> 1.17.x. Already clear in zuuli" },
+  { id = "RUSTSEC-2026-0045", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: AES-CCM tag-verification timing side channel; needs >= 0.38.0, same aws-lc-rs bump. Already clear in zuuli" },
+  { id = "RUSTSEC-2026-0046", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: PKCS7_verify chain-validation bypass; needs >= 0.38.0, same aws-lc-rs bump. We do not call PKCS7_verify" },
+  { id = "RUSTSEC-2026-0047", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: PKCS7_verify signature-validation bypass; needs >= 0.38.0, same aws-lc-rs bump. We do not call PKCS7_verify" },
+  { id = "RUSTSEC-2026-0048", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: CRL distribution-point scope logic error; needs >= 0.39.0, same aws-lc-rs bump. We do not consume CRLs" },
+
+  # rustls-webpki 0.101.7, reached through rustls 0.21 — an old transitive TLS
+  # stack that is still in all three lockfiles alongside the current rustls 0.23.
+  # The 0.103 line was bumped to 0.103.13 in the tier-1 sweep, which cleared the
+  # 0.103 half of each of these (and RUSTSEC-2026-0049 outright). What is left is
+  # only the 0.101 copy, and the 0.101 line has no fixed release at all — the fix
+  # series starts at 0.103.12. Clearing these means getting the last consumer off
+  # rustls 0.21, not bumping a version: start with `cargo tree -i rustls@0.21`.
+  { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7: URI name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Requires moving the last rustls 0.21 consumer to 0.23" },
+  { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7: wildcard name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Requires moving the last rustls 0.21 consumer to 0.23" },
+  { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7: reachable panic parsing a CRL; fix series starts at 0.103.13, no fix exists on the 0.101 line. We do not parse CRLs" },
+
+  # quick-xml 0.38.4, via the Tauri bundler chain, in the plugin and zuuallet
+  # lockfiles only; zuuli/src-tauri is already on 0.41.0. Build-time XML only, so
+  # nothing here reaches a shipped binary.
+  { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4 in the plugin and zuuallet lockfiles: quadratic duplicate-attribute scan; fixed in 0.41.0, a semver-major bump owned by the Tauri bundler chain. Build-time XML only; already clear in zuuli" },
+  { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38.4 in the plugin and zuuallet lockfiles: unbounded namespace allocation; fixed in 0.41.0, same semver-major bump. Build-time XML only; already clear in zuuli" },
+
+  # ---------------------------------------------------------------------------
+  # Unmaintained. None of these has a fixed version to move to — the advisory is
+  # that the crate is no longer developed. Clearing them means the *dependent*
+  # migrates, which is upstream work in Tauri and in the proc-macro ecosystem.
+  # They are listed one by one anyway: `unmaintained = "warn"` would also hide
+  # the next unmaintained crate to appear, and that is the signal worth keeping.
+  # ---------------------------------------------------------------------------
+
+  # gtk-rs GTK3 bindings, all reached through tauri -> gtk 0.18. Tauri v2 still
+  # targets GTK3 on Linux; the migration is upstream's.
+  { id = "RUSTSEC-2024-0411", reason = "gdkwayland-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux, no successor to move to" },
+  { id = "RUSTSEC-2024-0412", reason = "gdk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0413", reason = "atk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0414", reason = "gdkx11-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0415", reason = "gtk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0416", reason = "atk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0417", reason = "gdkx11 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0418", reason = "gdk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0419", reason = "gtk3-macros 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+  { id = "RUSTSEC-2024-0420", reason = "gtk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
+
+  # Build-time only: proc macros and Unicode tables used by proc-macro crates.
+  # None of this ships in a release binary.
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4: unmaintained; build-time proc-macro dependency, no code in the shipped binary" },
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 2.0.1: unmaintained; build-time proc-macro dependency, no code in the shipped binary" },
+  { id = "RUSTSEC-2025-0057", reason = "fxhash 0.2.1: unmaintained; transitive through the Tauri/servo CSS stack" },
+  { id = "RUSTSEC-2025-0075", reason = "unic-char-range 0.9.0: unmaintained; build-time Unicode tables" },
+  { id = "RUSTSEC-2025-0080", reason = "unic-common 0.9.0: unmaintained; build-time Unicode tables" },
+  { id = "RUSTSEC-2025-0081", reason = "unic-char-property 0.9.0: unmaintained; build-time Unicode tables" },
+  { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version 0.9.0: unmaintained; build-time Unicode tables" },
+  { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident 0.9.0: unmaintained; build-time Unicode tables" },
+]
+
+# =============================================================================
+# Licences.
+#
+# This wallet is shipped as a binary, so a copyleft dependency is a licensing
+# decision about the whole product, not about one file. The allow list below is
+# permissive-only; every non-permissive licence in the graph is either an
+# explicitly reasoned entry or a per-crate exception, so adding a new copyleft
+# dependency fails CI rather than arriving silently.
+# =============================================================================
+[licenses]
+# The three wallet crates carry no `license` field because none of them is
+# published; they are marked `publish = false` and skipped here. Third-party
+# crates are never skipped by this setting.
+private = { ignore = true }
+
+allow = [
+  # The Rust ecosystem's default dual licence, and the overwhelming majority of
+  # this graph.
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception", # rustix, linux-raw-sys, wasi, wit-bindgen
+
+  # Permissive, no reciprocity, no advertising clause.
+  "0BSD",         # adler2
+  "MIT-0",        # constant_time_eq, dunce
+  "BSD-2-Clause", # arrayref, zerocopy
+  "BSD-3-Clause", # subtle, brotli, num_enum
+  "ISC",          # ring, rustls, untrusted, minreq
+  "Unlicense",    # memchr, aho-corasick, byteorder, walkdir
+  "Zlib",         # the objc2 family, bytemuck, miniz_oxide, tinyvec
+
+  # Public-domain dedications. No patent grant, which is why they are called out
+  # rather than lumped in above; accepted because the crates are small and
+  # widely used, including secp256k1 which we rely on for transparent-address
+  # key derivation.
+  "CC0-1.0",              # secp256k1, secp256k1-sys, constant_time_eq, dunce, bounded-vec
+  "Unicode-3.0",          # the ICU4X family and unicode-ident
+  "CDLA-Permissive-2.0",  # webpki-roots 1.x (the Mozilla CA bundle as data)
+
+  # Weak, file-scoped copyleft. Obligations attach to modified MPL files, not to
+  # the binary that links them; we vendor none of these and modify none of them.
+  # Reached through the Tauri/servo CSS stack (cssparser, cssparser-macros,
+  # dtoa-short, selectors) and through webpki-roots 0.25 and option-ext.
+  "MPL-2.0",
+]
+
+# Per-crate escapes, so an unusual licence is accepted for exactly the crate it
+# was reasoned about and for no other.
+exceptions = [
+  # aws-lc-sys is "ISC AND (Apache-2.0 OR ISC) AND OpenSSL": the OpenSSL term is
+  # conjunctive, so it cannot be satisfied any other way. The original OpenSSL
+  # licence is permissive but carries an advertising clause and is GPL-
+  # incompatible, so it is accepted here only for this crate rather than added
+  # to the allow list.
+  { name = "aws-lc-sys", allow = ["OpenSSL"] },
+]
+
+# =============================================================================
+# Bans. No crate is banned outright yet; this section exists to silence the
+# duplicate-version report, which is endemic to a graph this size (windows-sys
+# appears 5 times, getrandom 4, thiserror as both 1.x and 2.x) and is a
+# build-size concern rather than a supply-chain one. Left at "warn" it prints
+# roughly sixty warnings per crate and buries the advisory and licence output
+# this gate exists for.
+# =============================================================================
+[bans]
+multiple-versions = "allow"
+
+# =============================================================================
+# Sources. Every crate in all three lockfiles resolves to crates.io today; the
+# in-source Zcash dependencies are path dependencies into z/, not git ones. This
+# makes that a rule instead of a coincidence, so a `git = "..."` dependency on a
+# personal fork cannot be introduced without amending this file.
+# =============================================================================
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

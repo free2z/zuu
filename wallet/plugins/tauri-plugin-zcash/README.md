@@ -143,10 +143,10 @@ the manifest that actually survived, never by an unsafe same-process guess.
 
 ```bash
 # Check (fast, no linking)
-cargo +1.88.0 check --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+cargo +1.97.1 check --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
 # Run the plugin's wallet/send and lifecycle regression tests
-cargo +1.88.0 test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+cargo +1.97.1 test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
 # Build
 cargo build --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
@@ -156,7 +156,7 @@ cd wallet/zuuli && npm run tauri build
 ```
 
 - **Rust edition**: 2024
-- **MSRV**: 1.88
+- **MSRV**: 1.97
 - **librustzcash**: path deps at `z/zcash/librustzcash` (forked)
 
 ## Known gotchas

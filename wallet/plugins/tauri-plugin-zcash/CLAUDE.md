@@ -13,7 +13,7 @@ cargo build --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 cd wallet/zuuli && npm run tauri dev
 ```
 
-Rust edition 2024, MSRV 1.88. All librustzcash deps are path deps at `z/zcash/librustzcash`.
+Rust edition 2024, MSRV 1.97. All librustzcash deps are path deps at `z/zcash/librustzcash`.
 
 ## Type aliases
 

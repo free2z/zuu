@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Markdown, type MarkdownVariant } from "./Markdown";
 
 /**
@@ -53,5 +53,117 @@ describe("Markdown images", () => {
     expect(markup).toContain('rel="noopener noreferrer"');
     expect(markup).toContain("alt text");
     expectNoErrorFallback(markup);
+  });
+
+  it("leaves a relative src alone when the media base is same-origin (dev proxy)", () => {
+    // `MEDIA_BASE` is "" in dev / `tauri dev`, where the Vite proxy already
+    // forwards `/uploadz` from the app's own origin. Absolutizing must be a
+    // no-op there, not a mangled "undefined/uploadz/..." or a doubled slash.
+    const markup = render(
+      "![](/uploadz/public/palmar/elg03269-1.webp)",
+      "article",
+    );
+
+    expect(markup).toContain('src="/uploadz/public/palmar/elg03269-1.webp"');
+  });
+});
+
+/**
+ * free2z stores article bodies with ORIGIN-RELATIVE upload paths, e.g.
+ * `![](/uploadz/public/palmar/elg03269-1.webp)`. Those only resolve when the
+ * document itself is served from free2z. A production `tauri build` has no Vite
+ * proxy and runs on the `tauri://localhost` origin, so the path would resolve
+ * against the app's own bundled `dist/` and 404. The article `img` renderer
+ * absolutizes it via `mediaUrl()`.
+ *
+ * `MEDIA_BASE` is captured at module-eval time (and is "" under vitest, which
+ * runs with `import.meta.env.DEV`), so these cases need a re-imported module
+ * graph with `@/lib/env` mocked to a remote host. `vi.stubEnv` does NOT work
+ * here — it never reaches `import.meta.env` in this setup.
+ */
+describe("Markdown article images against a remote media host", () => {
+  const MEDIA = "https://media.example";
+  let renderArticle: (source: string) => string;
+
+  beforeAll(async () => {
+    vi.doMock("@/lib/env", async () => {
+      const actual = await vi.importActual<Record<string, unknown>>("@/lib/env");
+      return { ...actual, MEDIA_BASE: MEDIA };
+    });
+    vi.resetModules();
+    const mod = await import("./Markdown");
+    renderArticle = (source) =>
+      renderToStaticMarkup(
+        <MemoryRouter>
+          <mod.Markdown variant="article">{source}</mod.Markdown>
+        </MemoryRouter>,
+      );
+  });
+
+  afterAll(() => {
+    vi.doUnmock("@/lib/env");
+    vi.resetModules();
+  });
+
+  it("absolutizes a relative /uploadz src against the media host", () => {
+    const markup = renderArticle("![](/uploadz/public/palmar/elg03269-1.webp)");
+
+    expect(markup).toContain(
+      `src="${MEDIA}/uploadz/public/palmar/elg03269-1.webp"`,
+    );
+    // Exactly one slash between host and path — no `https://media.example//…`.
+    expect(markup).not.toContain(`${MEDIA}//uploadz`);
+  });
+
+  it("absolutizes a path with no leading slash", () => {
+    const markup = renderArticle("![](uploadz/public/x.webp)");
+
+    expect(markup).toContain(`src="${MEDIA}/uploadz/public/x.webp"`);
+  });
+
+  it("leaves an already-absolute https src untouched", () => {
+    const markup = renderArticle("![alt text](https://example.com/y.png)");
+
+    expect(markup).toContain('src="https://example.com/y.png"');
+    expect(markup).not.toContain(MEDIA);
+  });
+
+  it("leaves a protocol-relative src untouched", () => {
+    // `//cdn.example/z.png` is already absolute w.r.t. the scheme; prefixing it
+    // would produce `https://media.example//cdn.example/z.png`.
+    const markup = renderArticle("![](//cdn.example/z.png)");
+
+    expect(markup).toContain('src="//cdn.example/z.png"');
+    expect(markup).not.toContain(MEDIA);
+  });
+
+  it("does not corrupt a data: URI into a media-host path", () => {
+    // react-markdown's `defaultUrlTransform` blocks non-http(s) protocols, so a
+    // `data:` image arrives here already emptied. Whatever it becomes, it must
+    // never turn into `https://media.example/data:image/...` — and an empty
+    // `src=""` (which browsers resolve to the current document URL) must not
+    // survive either.
+    const markup = renderArticle("![dot](data:image/png;base64,iVBORw0KGgo=)");
+
+    expect(markup).toContain("<img");
+    expect(markup).not.toContain(`${MEDIA}/data:`);
+    expect(markup).not.toContain(`${MEDIA}/image/png`);
+    expect(markup).not.toContain('src=""');
+  });
+
+  it("still degrades a relative comment image to a plain link", () => {
+    // Privacy guard: absolutizing article images must NOT make untrusted
+    // comment images auto-load. A relative comment src stays a link.
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <Markdown variant="comment">
+          {"![shot](/uploadz/public/tracker.webp)"}
+        </Markdown>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('href="/uploadz/public/tracker.webp"');
+    expect(markup).toContain("shot");
   });
 });

@@ -37,12 +37,16 @@ software are built for anyone to run one, and clients treat relays as
   1,000 DAU. A community operator can sustainably run a relay on a ~$5/month VPS.
   **The delete-on-ack requirement is not only a privacy property — it is the
   economic precondition for the federation.**
-- **Cross-relay witness cosigning of key-transparency log roots provides
-  anti-equivocation**, which is why no blockchain is needed
-  ([ADR 0006](./0006-zcash-coupling.md)). The property strengthens as the
-  federation grows — but it is only as strong as the *independence* of the witness
-  set, which is a social fact we cannot verify cryptographically. Clients should
-  default to a witness set that is not all free2z-operated.
+- **Witness cosigning of key-transparency log roots provides anti-equivocation**,
+  which is why no blockchain is needed
+  ([ADR 0006](./0006-zcash-coupling.md)). **Witness is a separate role from
+  relay** — an operator may run both, but a witness needs no inbound port, no TLS,
+  no domain and no database, so the two asks are not the same size
+  ([`../ARCHITECTURE.md` §9.3](../ARCHITECTURE.md#93-anti-equivocation-without-a-blockchain)).
+  The property strengthens as the *witness set* grows, independently of the relay
+  count — and it is only as strong as the *independence* of that set, which is a
+  social fact we cannot verify cryptographically. Clients should default to a
+  witness set that is not all free2z-operated.
 - A device may publish queue addresses on *k* relays; senders send to all *k* and
   clients deduplicate by `msg_id`. Egress multiplies by *k*; at *k*=3 this is still
   trivially inside one commodity host's included bandwidth. The default *k* is an
