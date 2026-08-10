@@ -2,6 +2,7 @@ import { Stack, Paper, Button, Link, Typography } from "@mui/material"
 import ContentCopyIcon from "@mui/icons-material/ContentCopy"
 import QRCode from "react-qr-code"
 import CopyToClipboard from "./CopyToClipboard"
+import { formatZcashAddressForDisplay } from "../utils/zcashAddress"
 
 
 export type SimpleZcashAddressProps = {
@@ -35,6 +36,7 @@ export default function SimpleZcashAddress(props: SimpleZcashAddressProps) {
                     addr.startsWith("zcash:") ? (
                         <Link
                             href={addr}
+                            title={addr}
                             onClick={() => {
                                 copy(addr)
                                 // navigate(addr)
@@ -46,8 +48,13 @@ export default function SimpleZcashAddress(props: SimpleZcashAddressProps) {
                                 justifyContent="center"
                                 spacing={0}
                             >
-                                <Typography>
-                                    {addr.slice(0, 15)}...
+                                {/* Wraps rather than overflowing: showing a
+                                    tail makes this ~276px at 16px, wider than
+                                    the ~240px a 320px phone leaves here. */}
+                                <Typography
+                                    sx={{ overflowWrap: "anywhere", wordBreak: "break-all" }}
+                                >
+                                    {formatZcashAddressForDisplay(addr)}
                                 </Typography>
                                 <Button
                                     size="small"
@@ -69,12 +76,13 @@ export default function SimpleZcashAddress(props: SimpleZcashAddressProps) {
                             variant="text"
                             color="secondary"
                             aria-label="copy donation address"
+                            title={addr}
                             onClick={() => {
                                 copy(addr)
                                 // navigate(addr)
                             }}
                         >
-                            {addr.slice(0, 5)}...{addr.slice(addr.length - 5, addr.length)}
+                            {formatZcashAddressForDisplay(addr, { head: 6, tail: 8 })}
                             <ContentCopyIcon />
                         </Button>
                     )
