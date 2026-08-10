@@ -227,16 +227,18 @@ jobs:
             fi
           fi
 
-          echo "identity=$actual" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "target=$target" >> "$GITHUB_OUTPUT"
-          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
-          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
-          echo "public_gate=$public_gate" >> "$GITHUB_OUTPUT"
-          echo "evidence_sha256=$evidence_sha256" >> "$GITHUB_OUTPUT"
-          echo "evidence_backend_sha=$evidence_backend_sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "identity=$actual"
+            echo "tag=$tag"
+            echo "tag_exists=$tag_exists"
+            echo "source_sha=$source_sha"
+            echo "target=$target"
+            echo "dry_run=$dry_run"
+            echo "should_release=$should_release"
+            echo "public_gate=$public_gate"
+            echo "evidence_sha256=$evidence_sha256"
+            echo "evidence_backend_sha=$evidence_backend_sha"
+          } >> "$GITHUB_OUTPUT"
 
   public-authorization:
     name: Public store authorization
@@ -505,7 +507,7 @@ jobs:
           : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
           files=$(mktemp -d "$RUNNER_TEMP/zuuli-apple.XXXXXX")
           chmod 700 "$files"
-          files=$(CDPATH= cd -P -- "$files" && pwd)
+          files=$(CDPATH='' cd -P -- "$files" && pwd)
           echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
           printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$files/distribution.p12"
           printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$files/AuthKey.p8"
