@@ -119,6 +119,13 @@ globalThis.fetch = async (input) => {
         ? "https://twitter.com/i/oauth2/authorize"
         : "https://accounts.google.com/o/oauth2/v2/auth",
     );
+    if (process.env.MOCK_AUTH_USERINFO === "true") {
+      authorizeUrl.username = "attacker";
+      authorizeUrl.password = "secret";
+    }
+    if (process.env.MOCK_AUTH_FRAGMENT === "true") {
+      authorizeUrl.hash = "unexpected";
+    }
     authorizeUrl.searchParams.set("response_type", "code");
     authorizeUrl.searchParams.set("state", authorizationState);
     authorizeUrl.searchParams.set("redirect_uri", providerRedirectUri);
@@ -401,6 +408,17 @@ test("public gate probes every enabled PKCE-capable mobile provider", () => {
     MOCK_X_DISABLED: "true",
   });
   assert.equal(disabledX.status, 0, disabledX.stderr);
+});
+
+test("public gate mirrors the app's exact provider authorization allowlist", () => {
+  for (const environment of [
+    { MOCK_AUTH_USERINFO: "true" },
+    { MOCK_AUTH_FRAGMENT: "true" },
+  ]) {
+    const result = runClaimedFixture(environment);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /mobile-start contract is not ready/);
+  }
 });
 
 test("public gate rejects a pre-validation mobile-start error", () => {

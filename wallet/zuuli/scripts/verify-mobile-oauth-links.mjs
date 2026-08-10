@@ -811,6 +811,10 @@ if (publicRelease) {
             "https://free2z.cash/api/auth/social/mobile/callback" ||
           authorizeUrl?.origin !== endpoint.origin ||
           authorizeUrl.pathname !== endpoint.pathname ||
+          authorizeUrl.username ||
+          authorizeUrl.password ||
+          authorizeUrl.port ||
+          authorizeUrl.hash ||
           oneQuery("response_type") !== "code" ||
           oneQuery("state") !== body.authorization_state ||
           oneQuery("redirect_uri") !== body.provider_redirect_uri ||
