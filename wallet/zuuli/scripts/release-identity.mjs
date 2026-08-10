@@ -572,7 +572,7 @@ for (const wiring of [
   'security delete-keychain "$ZUULI_PREFLIGHT_KEYCHAIN"',
   "-t cert -f pkcs12",
   "-T /usr/bin/codesign -T /usr/bin/xcodebuild",
-  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
+  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ inputs.target == 'public-gate' && secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 || '' }}",
   'npm run oauth-links:verify-public -- --source-sha="$source_sha"',
   "options: [mobile, ios, android, desktop, all, public-gate]",
   'if [[ "$target" == public-gate ]]; then',
@@ -589,7 +589,7 @@ const trustedSourceCheck = releaseWorkflow.indexOf(
 );
 const dependencyInstall = releaseWorkflow.indexOf("      - run: npm ci");
 const protectedEvidenceExposure = releaseWorkflow.indexOf(
-  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
+  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ inputs.target == 'public-gate' && secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 || '' }}",
 );
 if (
   trustedSourceCheck === -1 ||
