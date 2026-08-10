@@ -128,7 +128,8 @@ jobs:
           CONFIRMED_IDENTITY: ${{ inputs.identity }}
           INPUT_TARGET: ${{ inputs.target }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
-          OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}
+          # Never expose the protected evidence to cache-enabled release runs.
+          OAUTH_DEVICE_EVIDENCE_BASE64: ${{ inputs.target == 'public-gate' && secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 || '' }}
         run: |
           set -euo pipefail
           git fetch origin \

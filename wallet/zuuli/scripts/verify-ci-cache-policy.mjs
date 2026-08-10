@@ -10,11 +10,13 @@ const readRepo = (path) => readFileSync(resolve(repoDir, path), "utf8");
 const failures = [];
 
 function requireText(label, contents, expected) {
-  if (!contents.includes(expected)) failures.push(`${label}: missing ${expected}`);
+  if (!contents.includes(expected))
+    failures.push(`${label}: missing ${expected}`);
 }
 
 function rejectText(label, contents, forbidden) {
-  if (contents.includes(forbidden)) failures.push(`${label}: contains ${forbidden}`);
+  if (contents.includes(forbidden))
+    failures.push(`${label}: contains ${forbidden}`);
 }
 
 function count(contents, value) {
@@ -110,12 +112,27 @@ requireCount(
 );
 
 for (const family of cacheFamilies) {
-  requireCount("packaging effective cache family", packaging, `shared-key: ${family}`, 1);
-  requireCount("protected release effective cache family", release, `shared-key: ${family}`, 1);
+  requireCount(
+    "packaging effective cache family",
+    packaging,
+    `shared-key: ${family}`,
+    1,
+  );
+  requireCount(
+    "protected release effective cache family",
+    release,
+    `shared-key: ${family}`,
+    1,
+  );
 }
 
 requireCount("protected release cache callers", release, localAction, 4);
-requireCount("protected release restore-only callers", release, 'save: "false"', 4);
+requireCount(
+  "protected release restore-only callers",
+  release,
+  'save: "false"',
+  4,
+);
 rejectText("protected release", release, 'save: "true"');
 for (const writer of [
   "Swatinem/rust-cache@",
@@ -128,7 +145,11 @@ for (const writer of [
   rejectText("protected release direct cache writer", release, writer);
 }
 
-requireText("Play testers protected environment", playTesters, "environment: zuuli-app-stores");
+requireText(
+  "Play testers protected environment",
+  playTesters,
+  "environment: zuuli-app-stores",
+);
 requireText(
   "Play testers protected secret",
   playTesters,
@@ -148,7 +169,12 @@ for (const writer of [
 }
 requireCount("protected release npm auto-cache", release, "cache: npm", 1);
 const prepareJob = job(release, "prepare", "android");
-requireCount("credential-free prepare npm auto-cache", prepareJob, "cache: npm", 1);
+requireCount(
+  "credential-free prepare npm auto-cache",
+  prepareJob,
+  "cache: npm",
+  1,
+);
 requireText(
   "public authorization no-cache setup",
   prepareJob,
@@ -164,6 +190,16 @@ requireText(
   prepareJob,
   "if: inputs.target != 'public-gate'",
 );
+requireText(
+  "public evidence secret condition",
+  prepareJob,
+  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ inputs.target == 'public-gate' && secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 || '' }}",
+);
+rejectText(
+  "prepare job unconditional public evidence secret",
+  prepareJob,
+  "OAUTH_DEVICE_EVIDENCE_BASE64: ${{ secrets.ZUULI_OAUTH_DEVICE_EVIDENCE_BASE64 }}",
+);
 const publicSetup = prepareJob.slice(
   prepareJob.indexOf("Set up Node without a cache for public authorization"),
   prepareJob.indexOf("Set up Node with the credential-free release cache"),
@@ -177,7 +213,12 @@ for (const [name, nextName] of [
 ]) {
   const protectedJob = job(release, name, nextName);
   requireCount(`${name} cache caller`, protectedJob, localAction, 1);
-  requireCount(`${name} restore-only cache caller`, protectedJob, 'save: "false"', 1);
+  requireCount(
+    `${name} restore-only cache caller`,
+    protectedJob,
+    'save: "false"',
+    1,
+  );
   for (const writer of [
     "Swatinem/rust-cache@",
     "actions/cache@",
@@ -197,7 +238,11 @@ requireText("cache cleanup recovery", cleanup, "schedule:");
 requireText("cache cleanup permissions", cleanup, "actions: write");
 requireText("cache cleanup permissions", cleanup, "contents: none");
 requireText("cache cleanup permissions", cleanup, "pull-requests: read");
-requireText("cache cleanup scope", cleanup, 'pr_ref="refs/pull/$PR_NUMBER/merge"');
+requireText(
+  "cache cleanup scope",
+  cleanup,
+  'pr_ref="refs/pull/$PR_NUMBER/merge"',
+);
 requireText("cache cleanup scope", cleanup, 'gh cache list --ref "$pr_ref"');
 requireText("cache cleanup deletion", cleanup, 'gh cache delete "$cache_id"');
 requireText(
@@ -205,7 +250,11 @@ requireText(
   cleanup,
   'state=$(gh api "repos/$GH_REPO/pulls/$pr_number" --jq .state)',
 );
-requireText("cache cleanup closed-state proof", cleanup, '[[ "$state" == closed ]]');
+requireText(
+  "cache cleanup closed-state proof",
+  cleanup,
+  '[[ "$state" == closed ]]',
+);
 requireText(
   "cache cleanup PR-only sweep",
   cleanup,

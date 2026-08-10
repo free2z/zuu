@@ -91,14 +91,34 @@ globalThis.fetch = async (input) => {
     body = { capabilities: { auth: { social: true } } };
     headers.set("cache-control", "no-store");
     headers.set("x-zuuli-oauth-build-sha", backendCommit);
-  } else if (url.includes("/api/auth/social/google/mobile-start")) {
-    status = process.env.MOCK_START_STATUS ? Number(process.env.MOCK_START_STATUS) : 200;
+  } else if (url.includes("/api/auth/social/providers/")) {
+    body = { providers: [
+      { provider: "x", configured: process.env.MOCK_X_DISABLED !== "true" },
+      { provider: "google", configured: true },
+      { provider: "github", configured: false },
+    ] };
+    headers.set("cache-control", "no-store");
+    headers.set("x-zuuli-oauth-build-sha", backendCommit);
+  } else if (
+    url.includes("/api/auth/social/x/mobile-start") ||
+    url.includes("/api/auth/social/google/mobile-start")
+  ) {
+    const provider = url.includes("/x/") ? "x" : "google";
+    status = process.env.MOCK_START_STATUS
+      ? Number(process.env.MOCK_START_STATUS)
+      : provider === "x" && process.env.MOCK_X_START_STATUS
+        ? Number(process.env.MOCK_X_START_STATUS)
+        : 200;
     const start = new URL(url);
     const challenge = start.searchParams.get("code_challenge");
     const authorizationState = "a".repeat(32);
     const completionState = "c".repeat(32);
     const providerRedirectUri = "https://free2z.cash/api/auth/social/mobile/callback";
-    const authorizeUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    const authorizeUrl = new URL(
+      provider === "x"
+        ? "https://twitter.com/i/oauth2/authorize"
+        : "https://accounts.google.com/o/oauth2/v2/auth",
+    );
     authorizeUrl.searchParams.set("response_type", "code");
     authorizeUrl.searchParams.set("state", authorizationState);
     authorizeUrl.searchParams.set("redirect_uri", providerRedirectUri);
@@ -368,13 +388,25 @@ test("public gate binds evidence to the exact live callback build", () => {
 test("public gate requires the isolated mobile-start route", () => {
   const result = runClaimedFixture({ MOCK_START_STATUS: "404" });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /isolated mobile-start contract is not ready/);
+  assert.match(result.stderr, /isolated .* mobile-start contract is not ready/);
+});
+
+test("public gate probes every enabled PKCE-capable mobile provider", () => {
+  const brokenX = runClaimedFixture({ MOCK_X_START_STATUS: "404" });
+  assert.notEqual(brokenX.status, 0);
+  assert.match(brokenX.stderr, /isolated x mobile-start contract is not ready/);
+
+  const disabledX = runClaimedFixture({
+    MOCK_X_START_STATUS: "404",
+    MOCK_X_DISABLED: "true",
+  });
+  assert.equal(disabledX.status, 0, disabledX.stderr);
 });
 
 test("public gate rejects a pre-validation mobile-start error", () => {
   const result = runClaimedFixture({ MOCK_START_STATUS: "400" });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /isolated mobile-start contract is not ready/);
+  assert.match(result.stderr, /isolated .* mobile-start contract is not ready/);
 });
 
 test("public gate requires exact HTTP 200 and JSON media type", () => {

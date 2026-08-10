@@ -42,6 +42,13 @@ const exact = {
   associatedDomain: "applinks:free2z.com",
   packageName: "cash.free2z.zuuli",
 };
+const mobileAuthorizationEndpoints = {
+  x: { origin: "https://twitter.com", pathname: "/i/oauth2/authorize" },
+  google: {
+    origin: "https://accounts.google.com",
+    pathname: "/o/oauth2/v2/auth",
+  },
+};
 const evidenceScenarios = [
   "ios-cold",
   "ios-warm",
@@ -677,74 +684,171 @@ if (publicRelease) {
     } catch {
       failures.push("live callback-tier capabilities could not be verified");
     }
-    const startUrl = new URL(
-      "https://free2z.cash/api/auth/social/google/mobile-start",
-    );
-    const probeChallenge = "A".repeat(43);
-    startUrl.searchParams.set("redirect_uri", exact.claimedRedirectUri);
-    startUrl.searchParams.set("code_challenge", probeChallenge);
+    const providersUrl = "https://free2z.cash/api/auth/social/providers/";
+    const enabledMobileProviders = [];
     try {
-      const response = await fetch(startUrl, {
+      const response = await fetch(providersUrl, {
         redirect: "error",
         cache: "no-store",
         signal: AbortSignal.timeout(10_000),
       });
-      const body = parseUnambiguousJson(
-        new Uint8Array(await response.arrayBuffer()),
-        startUrl.toString(),
-      );
-      let authorizeUrl;
-      try {
-        authorizeUrl = new URL(body?.authorize_url);
-      } catch {
-        authorizeUrl = null;
-      }
-      if (
-        response.status !== 200 ||
-        response.url !== startUrl.toString() ||
-        typeof body?.state !== "string" ||
-        !/^[A-Za-z0-9_-]{32,128}$/.test(body.state) ||
-        typeof body?.authorization_state !== "string" ||
-        !/^[A-Za-z0-9_-]{32,128}$/.test(body.authorization_state) ||
-        body.authorization_state === body.state ||
-        body.provider_redirect_uri !==
-          "https://free2z.cash/api/auth/social/mobile/callback" ||
-        authorizeUrl?.origin !== "https://accounts.google.com" ||
-        authorizeUrl.pathname !== "/o/oauth2/v2/auth" ||
-        authorizeUrl.searchParams.get("response_type") !== "code" ||
-        authorizeUrl.searchParams.get("state") !== body.authorization_state ||
-        authorizeUrl.searchParams.get("redirect_uri") !==
-          body.provider_redirect_uri ||
-        authorizeUrl.searchParams.get("code_challenge") !== probeChallenge ||
-        authorizeUrl.searchParams.get("code_challenge_method") !== "S256"
-      ) {
-        failures.push("the live isolated mobile-start contract is not ready");
+      if (response.status !== 200 || response.url !== providersUrl) {
+        failures.push(`${providersUrl} must return direct HTTP 200`);
       }
       if (
         (response.headers.get("content-type") ?? "")
           .split(";", 1)[0]
           .trim()
           .toLowerCase() !== "application/json"
-      )
-        failures.push("live mobile-start must use application/json");
+      ) {
+        failures.push("live provider discovery must use application/json");
+      }
+      const body = parseUnambiguousJson(
+        new Uint8Array(await response.arrayBuffer()),
+        providersUrl,
+      );
+      const seen = new Set();
+      if (!exactKeys("live provider discovery", body, ["providers"])) {
+        // exactKeys records the failure.
+      } else if (!Array.isArray(body.providers)) {
+        failures.push("live provider discovery providers must be an array");
+      } else {
+        for (const provider of body.providers) {
+          if (
+            !exactKeys("live provider entry", provider, [
+              "provider",
+              "configured",
+            ])
+          ) {
+            continue;
+          }
+          if (
+            !["x", "google", "github"].includes(provider.provider) ||
+            typeof provider.configured !== "boolean" ||
+            seen.has(provider.provider)
+          ) {
+            failures.push(
+              "live provider discovery contains an unknown, duplicated, or malformed provider",
+            );
+            continue;
+          }
+          seen.add(provider.provider);
+          if (
+            provider.configured &&
+            Object.hasOwn(mobileAuthorizationEndpoints, provider.provider)
+          ) {
+            enabledMobileProviders.push(provider.provider);
+          }
+        }
+        if (
+          JSON.stringify([...seen].sort()) !==
+          JSON.stringify(["github", "google", "x"])
+        ) {
+          failures.push(
+            "live provider discovery does not contain the exact reviewed provider set",
+          );
+        }
+      }
       if (
         response.headers.get("x-zuuli-oauth-build-sha") !==
         evidence.backendCommit
       ) {
         failures.push(
-          "mobile-start is not served by the attested callback-tier build",
+          "provider discovery is not served by the attested callback-tier build",
         );
       }
       if (
         (response.headers.get("cache-control") ?? "").toLowerCase() !==
         "no-store"
       ) {
-        failures.push("live mobile-start must be no-store");
+        failures.push("live provider discovery must be no-store");
       }
     } catch {
+      failures.push("live provider discovery could not be verified");
+    }
+    if (enabledMobileProviders.length === 0) {
       failures.push(
-        "the live isolated mobile-start contract could not be verified",
+        "no reviewed PKCE-capable mobile OAuth provider is enabled",
       );
+    }
+    for (const provider of enabledMobileProviders) {
+      const endpoint = mobileAuthorizationEndpoints[provider];
+      const startUrl = new URL(
+        `https://free2z.cash/api/auth/social/${provider}/mobile-start`,
+      );
+      const probeChallenge = "A".repeat(43);
+      startUrl.searchParams.set("redirect_uri", exact.claimedRedirectUri);
+      startUrl.searchParams.set("code_challenge", probeChallenge);
+      try {
+        const response = await fetch(startUrl, {
+          redirect: "error",
+          cache: "no-store",
+          signal: AbortSignal.timeout(10_000),
+        });
+        const body = parseUnambiguousJson(
+          new Uint8Array(await response.arrayBuffer()),
+          startUrl.toString(),
+        );
+        let authorizeUrl;
+        try {
+          authorizeUrl = new URL(body?.authorize_url);
+        } catch {
+          authorizeUrl = null;
+        }
+        const oneQuery = (name) => {
+          const values = authorizeUrl?.searchParams.getAll(name) ?? [];
+          return values.length === 1 ? values[0] : null;
+        };
+        if (
+          response.status !== 200 ||
+          response.url !== startUrl.toString() ||
+          typeof body?.state !== "string" ||
+          !/^[A-Za-z0-9_-]{32,128}$/.test(body.state) ||
+          typeof body?.authorization_state !== "string" ||
+          !/^[A-Za-z0-9_-]{32,128}$/.test(body.authorization_state) ||
+          body.authorization_state === body.state ||
+          body.provider_redirect_uri !==
+            "https://free2z.cash/api/auth/social/mobile/callback" ||
+          authorizeUrl?.origin !== endpoint.origin ||
+          authorizeUrl.pathname !== endpoint.pathname ||
+          oneQuery("response_type") !== "code" ||
+          oneQuery("state") !== body.authorization_state ||
+          oneQuery("redirect_uri") !== body.provider_redirect_uri ||
+          oneQuery("code_challenge") !== probeChallenge ||
+          oneQuery("code_challenge_method") !== "S256"
+        ) {
+          failures.push(
+            `the live isolated ${provider} mobile-start contract is not ready`,
+          );
+        }
+        if (
+          (response.headers.get("content-type") ?? "")
+            .split(";", 1)[0]
+            .trim()
+            .toLowerCase() !== "application/json"
+        )
+          failures.push(
+            `live ${provider} mobile-start must use application/json`,
+          );
+        if (
+          response.headers.get("x-zuuli-oauth-build-sha") !==
+          evidence.backendCommit
+        ) {
+          failures.push(
+            `${provider} mobile-start is not served by the attested callback-tier build`,
+          );
+        }
+        if (
+          (response.headers.get("cache-control") ?? "").toLowerCase() !==
+          "no-store"
+        ) {
+          failures.push(`live ${provider} mobile-start must be no-store`);
+        }
+      } catch {
+        failures.push(
+          `the live isolated ${provider} mobile-start contract could not be verified`,
+        );
+      }
     }
   }
 }
