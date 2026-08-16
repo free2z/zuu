@@ -136,6 +136,19 @@ integrate, and move it forward alongside everything else.
   could never reproduce the build.)
 - ❌ Rely on transitive/implicit behavior (e.g. a Cargo feature enabled only by
   another crate's unification). Declare what we use.
+- ❌ Add a crate that brings a second `rusqlite`. `libsqlite3-sys` declares
+  `links = "sqlite3"`, and Cargo refuses outright to build a graph containing
+  two versions of a `links` package — a hard error, not a warning. Everything
+  under `wallet/` reaches SQLite through `wallet/plugins/tauri-plugin-zcash`'s
+  `rusqlite = { version = "0.37", features = ["bundled", "array"] }`, and
+  `wallet/zuuli/src-tauri` links that plugin together with the rest of the app,
+  so **rusqlite 0.37 is a repo-wide singleton**: any new crate that needs SQLite
+  must resolve to it. All three lockfiles currently agree on `rusqlite 0.37.0` /
+  `libsqlite3-sys 0.35.0`. Worked example: `openmls_sqlite_storage` 0.2.0 — the
+  latest *release* — requires `rusqlite ^0.32` and is therefore unusable here;
+  its `0.3.0-rc` line moved to `^0.37` and would fit. Check the requirement
+  before adopting, because the conflict appears only once the app links both: a
+  crate that builds fine on its own can still be off-limits.
 
 ## Guardrails that keep us honest
 
@@ -161,6 +174,17 @@ integrate, and move it forward alongside everything else.
   code defect. Each has a mirrored job in `zuuallet.yml`, because the required
   `gate` lives in `zuuli.yml` and its change detector does not select
   `wallet/zuuallet/**`.
+- **`wallet/deny.toml`'s `ignore` entries rot, and re-reading them will not tell
+  you.** Each carries a human-written reason that was true the day it was
+  written and quietly stops being true as the graph moves. A stale justification
+  is worse than none: it launders an out-of-date assumption as a reviewed
+  decision. Five high-severity `aws-lc-sys` advisories sat behind "aws-lc-rs
+  1.15.4 pins the vulnerable line, and `0.38`/`0.39` is a semver-major bump we
+  cannot reach" well after `wallet/zuuli/src-tauri` had already resolved
+  aws-lc-rs 1.17.3 → aws-lc-sys 0.43.0 and stopped reporting them at all. So
+  **re-derive instead of re-reading**: empty `ignore` in a local, uncommitted
+  edit, run `scripts/check-rust-deny.sh advisories`, and diff what it actually
+  reports against what the file claims. Remediation is tracked in **#351**.
 
 ## The Rust toolchain pin
 
@@ -224,7 +248,7 @@ consumers.
 A warm local build is a liar. It reuses artifacts and, worse, resolves Cargo
 **features** and npm **optional-dependency trees** differently than a clean
 checkout — so a build that's green on your machine can be red in CI for reasons
-your machine will never show you. Two specific traps we've hit:
+your machine will never show you. The specific traps we've hit:
 
 - **Feature unification masking.** Your local dependency graph may turn on a
   Cargo feature (e.g. `rusqlite/array`, `tonic/transport`) that CI's graph does
@@ -245,6 +269,24 @@ your machine will never show you. Two specific traps we've hit:
   `cargo tree --target x86_64-unknown-linux-gnu -i <crate>` — if it prints
   "nothing to print" for a dep you use everywhere, it's gated to the wrong
   target.
+- **Platform integer widths, and a clippy that sees one target at a time.**
+  libc type widths differ across the targets we ship, but `rustc` and clippy
+  each look at exactly one. A conversion that is the reflexive identity on
+  whichever target the tool happens to run on is load-bearing on the others —
+  and `cargo clippy --fix` will delete it as useless. This half-shipped a
+  release: build `0.1.0+7` went to TestFlight on iOS while Android never
+  produced an AAB, because `stat.st_mode` is `c_uint` on every Android ABI while
+  `mode_t` — the type of `S_IFMT`/`S_IFDIR` — is `u16` on the 32-bit Android
+  ABIs, so the shared plugin died with
+  `error[E0277]: no implementation for u32 & u16`. `st_dev`/`st_ino` diverge the
+  same way between Apple and Linux/Android. The live examples are the
+  `#[allow(clippy::useless_conversion)]` and `#[allow(clippy::unnecessary_cast)]`
+  sites in `wallet/plugins/tauri-plugin-zcash/src/app_data_migration.rs`, each
+  scoped to one statement and each carrying a comment saying not to simplify it.
+  **Never accept a clippy auto-fix inside a `#[cfg]`-gated block without reading
+  it against every target that block compiles for** — the required `gate`
+  compiles for the CI host only and cannot catch this class at all, which is
+  open issue **#321**.
 
 So: for anything touching Rust deps/features, verify in a **clean Linux build
 with CI's toolchain** — a throwaway `ubuntu:24.04` container that installs the
