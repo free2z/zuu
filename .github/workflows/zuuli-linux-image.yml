@@ -9,6 +9,7 @@ on:
       - .github/workflows/zuuli-linux-image.yml
       - docs/ZUULI-LINUX-BUILD-IMAGE.md
       - scripts/check-zuuli-linux-image.mjs
+      - .github/workflows/zuuallet.yml
   push:
     branches: [main]
     paths:
@@ -16,6 +17,7 @@ on:
       - .github/workflows/zuuli-linux-image.yml
       - docs/ZUULI-LINUX-BUILD-IMAGE.md
       - scripts/check-zuuli-linux-image.mjs
+      - .github/workflows/zuuallet.yml
   schedule:
     - cron: "23 9 * * 3"
   workflow_dispatch:
