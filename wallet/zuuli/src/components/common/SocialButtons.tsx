@@ -3,10 +3,9 @@
 // `@/lib/oauth/transport.ts`), wired to `dj.apps.social` on the backend.
 //
 // A button renders ONLY for a provider `useSocialProviders()` reports as
-// configured (GET /api/auth/social/providers/). With nothing configured —
-// the default, and the only state today — the list is empty and this shows
-// nothing but a subtle "more coming" line: fully inert until the backend
-// owner sets up provider credentials.
+// configured for this exact callback transport. A valid all-unconfigured
+// response shows the supplied empty state; transport or contract failure gets
+// a distinct retry affordance and never masquerades as roadmap copy.
 //
 // Used both as a login method (`associate: false`, the login chooser,
 // features/auth) and to link a provider identity to the current account
@@ -19,7 +18,7 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSocialProviders } from "@/hooks/useSocialProviders";
 import { auth } from "@/lib/api/free2z";
@@ -83,7 +82,12 @@ export function SocialButtons({
   emptyState = DEFAULT_EMPTY_STATE,
   loginDestination = "/",
 }: SocialButtonsProps) {
-  const { providers: configured, loading } = useSocialProviders();
+  const {
+    providers: configured,
+    loading,
+    error,
+    reload,
+  } = useSocialProviders();
   const navigate = useNavigate();
   const setUser = useSession((s) => s.setUser);
   const [pending, setPending] = useState<SocialProvider | null>(null);
@@ -91,6 +95,35 @@ export function SocialButtons({
 
   const providers = configured.filter((p) => !alreadyLinked?.includes(p));
 
+  if (error) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col items-center gap-2 text-center text-xs text-muted-foreground"
+      >
+        <span>
+          {associate
+            ? "Couldn't check account-link options."
+            : "Couldn't check sign-in options."}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="min-tap"
+          disabled={loading}
+          onClick={reload}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <RefreshCw className="h-4 w-4" aria-hidden />
+          )}
+          {loading ? "Retrying" : "Retry"}
+        </Button>
+      </div>
+    );
+  }
   if (loading) return null;
   if (providers.length === 0) return <>{emptyState}</>;
 
@@ -138,7 +171,7 @@ export function SocialButtons({
           key={provider}
           type="button"
           variant="outline"
-          className="w-full justify-center gap-2"
+          className="min-tap w-full justify-center gap-2"
           disabled={pending !== null}
           onClick={() => void handleClick(provider)}
         >

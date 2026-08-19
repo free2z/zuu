@@ -13,6 +13,7 @@ import {
   cancelMobileOAuth,
   captureOAuthCode,
   finishMobileOAuth,
+  oauthCallbackTransport,
   type OAuthCapture,
 } from "../oauth/transport";
 import type { OAuthStartResponse } from "../oauth/protocol";
@@ -96,8 +97,38 @@ import type {
   TuziTransaction,
 } from "./types";
 import { validateStripeCheckoutUrl } from "./checkout";
+import { parseSocialProvidersStatus } from "./social-providers";
 
 const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms));
+
+const SOCIAL_PROVIDER_PATH = "/api/auth/social/providers/";
+const MOBILE_SOCIAL_PROVIDER_PATH = "/api/auth/social/mobile/providers/";
+
+function mockSocialProvidersWire(): unknown {
+  const scenario =
+    typeof window === "undefined"
+      ? null
+      : window.sessionStorage.getItem("zuuli.mock.social-providers");
+  if (scenario === "x") {
+    return {
+      providers: [
+        { provider: "x", configured: true },
+        { provider: "google", configured: false },
+        { provider: "github", configured: false },
+      ],
+    };
+  }
+  if (scenario === "contract-error") {
+    return { providers: [{ provider: "x", configured: true }] };
+  }
+  return {
+    providers: [
+      { provider: "x", configured: false },
+      { provider: "google", configured: false },
+      { provider: "github", configured: false },
+    ],
+  };
+}
 
 const mockDonationResults = new Map<
   string,
@@ -681,24 +712,34 @@ export const auth = {
   },
 
   /**
-   * Which social providers (X / Google / GitHub) the backend currently has
-   * OAuth client credentials configured for — GET /api/auth/social/providers/
-   * (`dj.apps.social`, AllowAny). A provider with no client id/secret set
-   * reports `false` and its `/start` and `/{provider}/` endpoints 503.
+   * Which social providers (X / Google / GitHub) are available for this exact
+   * callback transport. Web and Tauri desktop consume credential truth from
+   * GET /api/auth/social/providers/. Tauri iOS/Android consume the stricter
+   * GET /api/auth/social/mobile/providers/ readiness contract (credentials,
+   * PKCE, exact relay policy and rollout activation).
    *
-   * Callers (SocialButtons, LinkedAccounts) render a button ONLY for
-   * providers this reports `true` — with nothing configured (the default,
-   * and the only state today), every key is `false` and nothing renders.
-   * Mock mode mirrors that (all-false) rather than fake a social login.
+   * The wire response is an object containing a `providers` array. Treat it as
+   * unknown until every entry is validated, then normalize it to the stable
+   * internal all-provider map consumed by the UI. Mock mode exercises the same
+   * wire contract rather than maintaining a second response shape.
    */
   async socialProviders(): Promise<SocialProvidersStatus> {
     if (useMock()) {
       await delay(100);
-      return { x: false, google: false, github: false };
+      return parseSocialProvidersStatus(mockSocialProvidersWire());
     }
-    return request<SocialProvidersStatus>("/api/auth/social/providers/", {
+    // If the native discriminator is unavailable, reject discovery. Falling
+    // back to the generic endpoint could advertise a desktop-ready provider
+    // whose mobile relay is deliberately disabled.
+    const transport = await oauthCallbackTransport();
+    const path =
+      transport === "mobile"
+        ? MOBILE_SOCIAL_PROVIDER_PATH
+        : SOCIAL_PROVIDER_PATH;
+    const response = await request<unknown>(path, {
       anonymous: true,
     });
+    return parseSocialProvidersStatus(response);
   },
 
   /**
@@ -740,9 +781,10 @@ export const auth = {
    *     linked elsewhere, or this account already has one for this
    *     provider — surfaced as one clear message, same as `zcashAssociate`.
    *
-   * NEVER exercised with real credentials yet: `socialProviders()` reports
-   * every provider unconfigured, so no button in the app can reach this
-   * without the backend owner turning a provider on first.
+   * Availability is discovered at runtime through the strictly validated
+   * `socialProviders()` contract. A configured discovery result gates the
+   * affordance but does not weaken start/callback validation if deployment
+   * configuration drifts afterward.
    */
   async socialLogin(
     provider: SocialProvider,

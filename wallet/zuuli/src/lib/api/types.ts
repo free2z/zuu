@@ -100,19 +100,18 @@ export interface AuthUser {
 // provider identity to the signed-in account instead. See
 // `src/lib/oauth/transport.ts` for the desktop loopback transport and
 // `auth.socialProviders` / `auth.socialLogin` in `./free2z.ts` for the client.
-export type SocialProvider = "x" | "google" | "github";
+export const SOCIAL_PROVIDERS = ["x", "google", "github"] as const;
 
-export const SOCIAL_PROVIDERS: SocialProvider[] = ["x", "google", "github"];
+export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
 
 /**
- * GET /api/auth/social/providers/ (AllowAny) — which providers the backend
- * currently has OAuth client credentials configured for. A provider with no
- * `client_id`/`client_secret` set reports `false` and its `/start` and
- * `/{provider}/` endpoints 503. Buttons render ONLY for providers reported
- * `true` here — with nothing configured (today: everything), this returns
- * all-false and the UI shows no social buttons at all.
+ * The generic AllowAny discovery endpoint reports provider credential truth
+ * for web/desktop. Its mobile counterpart additionally requires the exact
+ * relay, PKCE support and rollout activation. Buttons render only from the
+ * endpoint matching the app's callback transport. Both wire responses are
+ * validated and normalized before they reach callers.
  */
-export type SocialProvidersStatus = Partial<Record<SocialProvider, boolean>>;
+export type SocialProvidersStatus = Record<SocialProvider, boolean>;
 
 export type SocialAuthResult =
   | { status: "authenticated"; session: AuthenticatedSession }
