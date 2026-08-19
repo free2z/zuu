@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Wordmark } from "@/components/brand/Logo";
 import {
@@ -19,6 +19,7 @@ import {
   NAVIGATION_GROUP_ORDER,
   type NavigationRoute,
 } from "./navigation";
+import { useRouteScroll } from "@/hooks/useRouteScroll";
 
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -27,6 +28,46 @@ const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
       ? "bg-primary/15 text-primary"
       : "text-muted-foreground hover:bg-secondary hover:text-foreground",
   );
+
+function useActiveRouteRetap(item: NavigationRoute) {
+  const location = useLocation();
+  const { scrollToTop } = useRouteScroll();
+
+  return (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      !isNavigationRouteActive(item, location.pathname) ||
+      location.pathname !== item.to
+    ) {
+      return;
+    }
+    event.preventDefault();
+    scrollToTop();
+  };
+}
+
+function DesktopRoute({ item }: { item: NavigationRoute }) {
+  const onClick = useActiveRouteRetap(item);
+  const Icon = item.icon;
+
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      aria-label={item.accessibleLabel}
+      className={desktopLinkClass}
+      onClick={onClick}
+    >
+      <Icon className="h-[18px] w-[18px]" aria-hidden />
+      <span aria-hidden>{item.label}</span>
+    </NavLink>
+  );
+}
 
 export function Sidebar() {
   const signedIn = useSession((state) => Boolean(state.user));
@@ -59,17 +100,8 @@ export function Sidebar() {
                 {NAVIGATION_GROUP_LABELS[group]}
               </h2>
               <div className="flex flex-col gap-1">
-                {groupRoutes.map(({ to, label, accessibleLabel, icon: Icon, end }) => (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    end={end}
-                    aria-label={accessibleLabel}
-                    className={desktopLinkClass}
-                  >
-                    <Icon className="h-[18px] w-[18px]" aria-hidden />
-                    <span aria-hidden>{label}</span>
-                  </NavLink>
+                {groupRoutes.map((item) => (
+                  <DesktopRoute key={item.to} item={item} />
                 ))}
               </div>
             </section>
@@ -81,6 +113,7 @@ export function Sidebar() {
 }
 
 function MobileRoute({ item }: { item: NavigationRoute }) {
+  const onClick = useActiveRouteRetap(item);
   const visibleLabel =
     item.mobile.area === "primary" ? item.mobile.label : item.label;
 
@@ -90,6 +123,7 @@ function MobileRoute({ item }: { item: NavigationRoute }) {
       end={item.end}
       aria-label={item.accessibleLabel}
       data-navigation-id={item.id}
+      onClick={onClick}
       className={({ isActive }) =>
         cn(
           "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -98,9 +132,45 @@ function MobileRoute({ item }: { item: NavigationRoute }) {
       }
     >
       <item.icon className="h-5 w-5" aria-hidden />
-      <span className="max-w-full whitespace-nowrap px-0.5 leading-none" aria-hidden>
+      <span
+        className="max-w-full whitespace-nowrap px-0.5 leading-none"
+        aria-hidden
+      >
         {visibleLabel}
       </span>
+    </NavLink>
+  );
+}
+
+function MobileMoreRoute({
+  item,
+  onSelect,
+}: {
+  item: NavigationRoute;
+  onSelect: () => void;
+}) {
+  const onRetap = useActiveRouteRetap(item);
+
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      aria-label={item.accessibleLabel}
+      onClick={(event) => {
+        onRetap(event);
+        onSelect();
+      }}
+      className={({ isActive }) =>
+        cn(
+          "min-tap flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isActive
+            ? "bg-primary/15 text-primary"
+            : "text-foreground hover:bg-secondary",
+        )
+      }
+    >
+      <item.icon className="h-5 w-5 shrink-0" aria-hidden />
+      <span className="min-w-0">{item.label}</span>
     </NavLink>
   );
 }
@@ -142,8 +212,13 @@ export function MobileTabBar() {
                 )}
               >
                 <Icon className="h-5 w-5" aria-hidden />
-                <span className="whitespace-nowrap px-0.5 leading-none" aria-hidden>
-                  {item.mobile.area === "primary" ? item.mobile.label : item.label}
+                <span
+                  className="whitespace-nowrap px-0.5 leading-none"
+                  aria-hidden
+                >
+                  {item.mobile.area === "primary"
+                    ? item.mobile.label
+                    : item.label}
                 </span>
               </button>
             </DialogTrigger>
@@ -160,24 +235,11 @@ export function MobileTabBar() {
               </div>
               <nav className="mt-2 grid gap-1" aria-label="More navigation">
                 {moreItems.map((moreItem) => (
-                  <NavLink
+                  <MobileMoreRoute
                     key={moreItem.id}
-                    to={moreItem.to}
-                    end={moreItem.end}
-                    aria-label={moreItem.accessibleLabel}
-                    onClick={() => setMoreOpen(false)}
-                    className={({ isActive }) =>
-                      cn(
-                        "min-tap flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        isActive
-                          ? "bg-primary/15 text-primary"
-                          : "text-foreground hover:bg-secondary",
-                      )
-                    }
-                  >
-                    <moreItem.icon className="h-5 w-5 shrink-0" aria-hidden />
-                    <span className="min-w-0">{moreItem.label}</span>
-                  </NavLink>
+                    item={moreItem}
+                    onSelect={() => setMoreOpen(false)}
+                  />
                 ))}
               </nav>
             </DialogContent>

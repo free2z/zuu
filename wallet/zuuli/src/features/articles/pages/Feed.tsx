@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Newspaper, PenLine, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
+import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
 import type { ArticleSort } from "@/lib/api/types";
 import { ArticleCard, ArticleCardSkeleton } from "../components/ArticleCard";
@@ -18,6 +19,7 @@ const SORTS: { value: ArticleSort; label: string }[] = [
 ];
 
 export function Feed() {
+  const { viewport } = useRouteScroll();
   const [sort, setSort] = useState<ArticleSort>("popular");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -54,19 +56,18 @@ export function Feed() {
     );
 
   // Infinite scroll: fire loadMore when the sentinel scrolls into view.
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
+    if (!sentinel || !viewport) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) loadMore();
       },
-      { rootMargin: "600px 0px" },
+      { root: viewport, rootMargin: "600px 0px" },
     );
-    io.observe(el);
+    io.observe(sentinel);
     return () => io.disconnect();
-  }, [loadMore]);
+  }, [loadMore, sentinel, viewport]);
 
   const hasFilters = selectedTags.length > 0 || search.length > 0;
   const showTagBar = knownTags.length > 0;
@@ -255,7 +256,13 @@ export function Feed() {
           {grid}
 
           {/* Infinite-scroll sentinel + loading / end states */}
-          <div ref={sentinelRef} aria-hidden className="h-px w-full" />
+          <div
+            ref={setSentinel}
+            aria-hidden
+            className="h-px w-full"
+            data-article-feed-sentinel
+            data-observer-root-ready={viewport ? "true" : "false"}
+          />
           {loadingMore ? (
             <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 3 }).map((_, i) => (

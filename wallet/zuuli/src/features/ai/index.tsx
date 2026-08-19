@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/common/Markdown";
+import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { ai } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
 import type { AIModel, Personality } from "@/lib/api/types";
@@ -92,6 +93,7 @@ function conversationKey(model: AIModel, personality: Personality | null): strin
 }
 
 export default function AiFeature() {
+  const { registerViewport } = useRouteScroll();
   const user = useSession((s) => s.user);
   const tuzis = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
@@ -171,6 +173,7 @@ export default function AiFeature() {
 
   // Keep the latest message in view.
   useEffect(() => {
+    if (messages.length === 0) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
@@ -404,7 +407,11 @@ export default function AiFeature() {
       </div>
 
       {/* ── Thread ──────────────────────────────────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 md:px-8">
+      <div
+        ref={registerViewport}
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 md:px-8"
+        data-route-scroll
+      >
         {messages.length === 0 ? (
           <EmptyHero
             selected={selected}
