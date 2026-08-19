@@ -22,14 +22,24 @@ const consumerWorkflows = [
   ".github/workflows/zuuli.yml",
   ".github/workflows/zuuli-packaging.yml",
   ".github/workflows/zuuli-release.yml",
+  ".github/workflows/zuuallet.yml",
 ];
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
 const lockedImageDigest = "sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
-const expectedConsumerCount = 5;
+const expectedConsumerCount = 6;
+const requiredConsumerJobs = new Set([
+  ".github/workflows/zuuli.yml:rust_clippy",
+  ".github/workflows/zuuli.yml:rust_plugin",
+  ".github/workflows/zuuli.yml:rust_app",
+  ".github/workflows/zuuli-packaging.yml:desktop",
+  ".github/workflows/zuuli-release.yml:linux",
+  ".github/workflows/zuuallet.yml:rust",
+]);
 const phaseATriggerPaths = [
   ".github/containers/zuuli-linux",
   ".github/workflows/zuuli-linux-image.yml",
+  ".github/workflows/zuuallet.yml",
   "docs/ZUULI-LINUX-BUILD-IMAGE.md",
   "scripts/check-zuuli-linux-image.mjs",
 ];
@@ -163,6 +173,33 @@ function validateConsumerJob(job, failures) {
   while (previousStep >= 0 && !lines[previousStep].startsWith(`${stepIndent}- `)) previousStep -= 1;
   if (previousStep < 0 || !lines[previousStep].trim().startsWith("- uses: actions/checkout@")) {
     failures.push(`${job.name}: exact-workspace trust must immediately follow checkout`);
+  }
+
+  for (const [label, value] of [
+    ["packages-read permission", "packages: read"],
+    ["pull-time username", "username: ${{ github.actor }}"],
+    ["pull-time credential", "password: ${{ secrets.GITHUB_TOKEN }}"],
+    ["explicit Bash default", "shell: bash"],
+    ["inventory invocation", "/usr/local/bin/verify-zuuli-linux-image"],
+  ]) {
+    if (countOccurrences(job.contents, value) !== 1) {
+      failures.push(`${job.name}: require exactly one ${label}`);
+    }
+  }
+
+  if (job.name === ".github/workflows/zuuallet.yml:rust") {
+    for (const expected of [
+      "persist-credentials: false",
+      "dtolnay/rust-toolchain@1.97.1",
+      "Swatinem/rust-cache@v2",
+      "cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml",
+      "cargo test --locked",
+      "--manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml",
+    ]) {
+      if (countOccurrences(job.contents, expected) !== 1) {
+        failures.push(`${job.name}: locked build/test contract is missing ${expected}`);
+      }
+    }
   }
 }
 
@@ -306,9 +343,6 @@ function validate(root) {
   for (const reference of imageReferences) {
     if (reference !== lockedImage) failures.push(`consumers: mutable or mismatched image reference: ${reference}`);
   }
-  if (/^\s*(?:- run:\s*)?(?:sudo\s+)?apt(?:-get)?\s/m.test(consumerContents)) {
-    failures.push("consumers: live apt commands are forbidden after digest promotion");
-  }
   for (const [name, value] of [
     ["packages: read permissions", "packages: read"],
     ["pull-time usernames", "username: ${{ github.actor }}"],
@@ -326,7 +360,23 @@ function validate(root) {
   if (consumerJobs.length !== expectedConsumerCount) {
     failures.push(`consumers: expected ${expectedConsumerCount} digest-pinned job blocks`);
   }
-  for (const job of consumerJobs) validateConsumerJob(job, failures);
+  const actualConsumerJobs = new Set(consumerJobs.map((job) => job.name));
+  for (const requiredJob of requiredConsumerJobs) {
+    if (!actualConsumerJobs.has(requiredJob)) {
+      failures.push(`consumers: required digest-pinned job is missing: ${requiredJob}`);
+    }
+  }
+  for (const actualJob of actualConsumerJobs) {
+    if (!requiredConsumerJobs.has(actualJob)) {
+      failures.push(`consumers: unreviewed digest-pinned job: ${actualJob}`);
+    }
+  }
+  for (const job of consumerJobs) {
+    validateConsumerJob(job, failures);
+    if (/^\s*(?:- run:\s*)?(?:sudo\s+)?apt(?:-get)?\s/m.test(job.contents)) {
+      failures.push(`${job.name}: live apt commands are forbidden in a digest-pinned consumer`);
+    }
+  }
   if (countOccurrences(consumerContents, "for extension in AppImage deb rpm") < 2 ||
       countOccurrences(consumerContents, "-size +0c") < 2) {
     failures.push("consumers: packaging and release must require nonempty AppImage, deb, and rpm artifacts");
@@ -390,6 +440,12 @@ function runSelfTest() {
         expected: "policy path must select",
       },
       {
+        name: "Zuuallet workflow no longer triggers image policy",
+        path: workflowPath,
+        mutate: (value) => value.replaceAll("      - .github/workflows/zuuallet.yml\n", ""),
+        expected: "bootstrap path is not covered: .github/workflows/zuuallet.yml",
+      },
+      {
         name: "fail-open required-gate fallback",
         path: consumerWorkflows[0],
         mutate: (value) => value.replace(
@@ -410,8 +466,48 @@ function runSelfTest() {
       {
         name: "reintroduced live apt",
         path: consumerWorkflows[0],
-        mutate: (value) => `${value}\n      - run: apt-get update\n`,
+        mutate: (value) => value.replace(
+          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n      - run: apt-get update',
+        ),
         expected: "live apt commands",
+      },
+      {
+        name: "Zuuallet consumer reintroduced live apt",
+        path: consumerWorkflows[3],
+        mutate: (value) => value.replace(
+          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n      - run: sudo apt-get update',
+        ),
+        expected: "live apt commands",
+      },
+      {
+        name: "Zuuallet checkout retains credentials",
+        path: consumerWorkflows[3],
+        mutate: (value) => {
+          const consumerStart = value.indexOf(lockedImage);
+          return value.slice(0, consumerStart) + value.slice(consumerStart)
+            .replace("persist-credentials: false", "persist-credentials: true");
+        },
+        expected: "persist-credentials: false",
+      },
+      {
+        name: "Zuuallet build drops the locked graph",
+        path: consumerWorkflows[3],
+        mutate: (value) => value.replace(
+          "cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml",
+          "cargo build --manifest-path wallet/zuuallet/src-tauri/Cargo.toml",
+        ),
+        expected: "cargo build --locked",
+      },
+      {
+        name: "Zuuallet required build floats its Rust toolchain",
+        path: consumerWorkflows[3],
+        mutate: (value) => value.replace(
+          "dtolnay/rust-toolchain@1.97.1",
+          "dtolnay/rust-toolchain@stable",
+        ),
+        expected: "dtolnay/rust-toolchain@1.97.1",
       },
       {
         name: "missing pull-time credential",

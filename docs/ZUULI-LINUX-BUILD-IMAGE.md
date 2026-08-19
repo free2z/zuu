@@ -33,11 +33,18 @@ the main-branch image workflow, and a GitHub-hosted runner.
 
 ## Phase B: digest-pinned consumers
 
-Exactly five Linux consumers use the promoted digest: the required lint,
+Exactly six Linux consumers use the promoted digest: the required lint,
 standalone plugin, and ZUULI backend jobs; the Linux packaging smoke matrix
-entry; and the protected Linux release job. macOS, Android, iOS, lightweight
-format/supply-chain jobs, and all store-upload jobs remain on their native
-runners.
+entry; the protected Linux release job; and Zuuallet's required locked Rust
+build/test job. Zuuallet's lightweight jobs and separately scoped upstream
+canary remain outside this focused consumer set. macOS, Android, iOS,
+lightweight format/supply-chain jobs, and all store-upload jobs remain on their
+native runners.
+
+The image-policy workflow also runs its validator and negative suite whenever
+the Zuuallet workflow changes. This is merge-time policy coverage, not a claim
+that PR-authored workflow code is an immutable pre-execution sandbox; the
+reviewed digest and inventory-first runtime check remain the execution boundary.
 
 GHCR keeps the package private. Each consumer therefore grants only
 `packages: read` and supplies `github.actor` plus `secrets.GITHUB_TOKEN` as
@@ -50,7 +57,7 @@ comes exclusively from the pinned toolchain action and
 `wallet/rust-toolchain.toml`.
 
 `scripts/check-zuuli-linux-image.mjs` enforces the consumed lock state, exactly
-five identical digest references, pull-time credentials, packages-read scope,
+six identical digest references, pull-time credentials, packages-read scope,
 the inventory-first contract, explicit Bash, and absence of live apt commands.
 Its negative tests reject mutable tags, digest skew, missing credentials,
 reordered inventory, missing or broad Git ownership trust, and policy paths
