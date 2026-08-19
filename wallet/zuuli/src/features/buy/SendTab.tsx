@@ -434,7 +434,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                     aria-selected={index === recipientState.highlightedIndex}
                     onClick={() => chooseRecipient(creator)}
                     className={cn(
-                      "flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0",
+                      "flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       index === recipientState.highlightedIndex
                         ? "bg-primary/10"
                         : "hover:bg-secondary",
@@ -519,7 +519,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   aria-pressed={active}
                   disabled={sending || flowLocked}
                   className={cn(
-                    "min-h-11 rounded-xl border p-3 text-center transition-all disabled:opacity-50",
+                    "min-tap rounded-xl border p-3 text-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
                     active
                       ? "border-primary bg-primary/10 shadow-glow"
                       : "border-border hover:border-primary/40 hover:bg-primary/5",

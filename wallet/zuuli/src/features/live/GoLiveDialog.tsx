@@ -141,7 +141,7 @@ export function GoLiveDialog() {
                     aria-checked={active}
                     onClick={() => setKind(k)}
                     className={cn(
-                      "flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "min-tap flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
                         ? "border-primary/60 bg-primary/10 shadow-glow"
                         : "border-border bg-background/40 hover:border-primary/30",

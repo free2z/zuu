@@ -120,7 +120,7 @@ export function TaxFormStep({
           href={form.url}
           target="_blank"
           rel="noreferrer"
-          className="inline-block text-sm text-primary underline-offset-4 hover:underline"
+          className="min-tap inline-flex items-center rounded-md text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Download the {form.kind} form (IRS.gov)
         </a>
@@ -144,7 +144,7 @@ export function TaxFormStep({
             placeholder="Full legal name"
             disabled={!file}
           />
-          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+          <label className="min-h-11 flex items-start gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={checked}

@@ -68,6 +68,16 @@ describe("Markdown images", () => {
   });
 });
 
+describe("Markdown links", () => {
+  it("marks genuine inline prose links for the narrow touch-target exemption", () => {
+    const markup = render("Read [the guide](/articles/guide).", "article");
+
+    expect(markup).toContain('data-touch-target-exempt="inline-text"');
+    expect(markup).toContain('href="/articles/guide"');
+    expect(markup).toContain(">the guide</a>");
+  });
+});
+
 /**
  * free2z stores article bodies with ORIGIN-RELATIVE upload paths, e.g.
  * `![](/uploadz/public/palmar/elg03269-1.webp)`. Those only resolve when the

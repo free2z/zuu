@@ -240,7 +240,7 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
                 target="_blank"
                 rel="noreferrer noopener"
                 aria-label={`${name} on ${social.label}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                className="min-tap inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Icon className="h-3.5 w-3.5" aria-hidden />
                 {social.display}
@@ -720,7 +720,7 @@ function TipButton({ creator }: { creator: CreatorDetail }) {
                 onClick={() => setAmount(String(preset))}
                 aria-pressed={parsedAmount === preset}
                 className={cn(
-                  "rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors",
+                  "min-tap rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   parsedAmount === preset
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
@@ -864,7 +864,7 @@ function BackLink() {
       <button
         type="button"
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
         Back
@@ -875,7 +875,7 @@ function BackLink() {
   return (
     <Link
       to="/search"
-      className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ArrowLeft className="h-4 w-4" aria-hidden />
       Search

@@ -125,7 +125,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <Link
               to={`/creator/${name}`}
-              className="flex items-center gap-2 font-medium text-foreground transition-colors hover:text-primary"
+              className="min-tap flex items-center gap-2 rounded-md font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Avatar className="h-6 w-6">
                 {comment.author.avatar_image ? (

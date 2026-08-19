@@ -46,7 +46,7 @@ function WalletNav() {
           end={end}
           className={({ isActive }) =>
             cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "min-tap inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               isActive
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
@@ -100,7 +100,7 @@ function CleanupNotice() {
           </p>
           {cleanup.diagnostics.length > 0 && cleanup.pendingOperations > 0 && (
             <details className="mt-2 text-xs text-muted-foreground">
-              <summary className="cursor-pointer">Technical details</summary>
+              <summary className="min-tap inline-flex cursor-pointer items-center">Technical details</summary>
               <ul className="mt-1 list-disc space-y-1 pl-5">
                 {cleanup.diagnostics.map((diagnostic) => (
                   <li key={diagnostic}>{diagnostic}</li>

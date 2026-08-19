@@ -118,7 +118,7 @@ export default function SearchFeature() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search creators and pages…"
           aria-label="Search creators and pages"
-          className="h-12 pl-10 pr-10 text-base"
+          className="h-12 pl-10 pr-14 text-base"
         />
         {query ? (
           <button
@@ -128,7 +128,7 @@ export default function SearchFeature() {
               inputRef.current?.focus();
             }}
             aria-label="Clear search"
-            className="min-tap absolute right-1.5 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+            className="min-tap absolute right-1.5 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>

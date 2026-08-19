@@ -95,7 +95,7 @@ function CreatePane({
                 type="button"
                 onClick={() => setWordCount(n)}
                 className={cn(
-                  "rounded-lg border px-4 py-3 text-sm font-medium transition-colors",
+                  "min-tap rounded-lg border px-4 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   wordCount === n
                     ? "border-primary bg-primary/10 text-foreground"
                     : "border-border text-muted-foreground hover:bg-secondary",
@@ -179,7 +179,7 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
             <button
               type="button"
               onClick={() => setReveal((r) => !r)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              className="min-tap inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-pressed={reveal}
             >
               {reveal ? (
@@ -322,7 +322,7 @@ function SeedReveal({
               <button
                 type="button"
                 onClick={() => setReveal(true)}
-                className="absolute inset-0 grid place-items-center rounded-lg bg-background/20 text-sm font-medium backdrop-blur-[2px]"
+                className="absolute inset-0 grid place-items-center rounded-lg bg-background/20 text-sm font-medium backdrop-blur-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="flex items-center gap-2 rounded-full bg-secondary px-4 py-2 shadow">
                   <Eye className="h-4 w-4" />
@@ -344,7 +344,7 @@ function SeedReveal({
             ) : null}
           </div>
 
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border p-3 text-sm">
+          <label className="min-h-11 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border p-3 text-sm">
             <input
               type="checkbox"
               checked={confirmed}

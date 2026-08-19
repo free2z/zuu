@@ -65,7 +65,7 @@ export function SeedReveal({ seedPhrase, onConfirm }: SeedRevealProps) {
           <button
             type="button"
             onClick={() => setRevealed(true)}
-            className="absolute inset-0 grid place-items-center rounded-lg bg-background/40 backdrop-blur-[2px] transition-colors hover:bg-background/25"
+            className="absolute inset-0 grid place-items-center rounded-lg bg-background/40 backdrop-blur-[2px] transition-colors hover:bg-background/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             aria-label="Reveal recovery phrase"
           >
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium shadow-glow">
@@ -96,7 +96,7 @@ export function SeedReveal({ seedPhrase, onConfirm }: SeedRevealProps) {
 
       <Separator />
 
-      <label className="flex cursor-pointer items-start gap-3 text-sm">
+      <label className="min-h-11 flex cursor-pointer items-start gap-3 text-sm">
         <input
           type="checkbox"
           checked={acknowledged}
