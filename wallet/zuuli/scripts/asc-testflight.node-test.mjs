@@ -78,11 +78,17 @@ function fakeApi({
   builds,
   groups = [group()],
   groupBuilds = [],
+  createError,
+  createLands = true,
+  createVisibleAfterGroupReads = 0,
   addError,
   addLands = true,
 } = {}) {
   const calls = [];
   let buildResponses = Array.isArray(builds?.[0]) ? [...builds] : [builds ?? [candidate()]];
+  let groupResources = [...groups];
+  let pendingCreatedGroup;
+  let groupReadsAfterCreate = 0;
   let relationships = [...groupBuilds];
   return {
     calls,
@@ -101,7 +107,25 @@ function fakeApi({
       },
       async listBetaGroups() {
         calls.push(["listBetaGroups"]);
-        return groups;
+        if (pendingCreatedGroup) {
+          if (groupReadsAfterCreate >= createVisibleAfterGroupReads) {
+            groupResources.push(pendingCreatedGroup);
+            pendingCreatedGroup = undefined;
+          } else {
+            groupReadsAfterCreate += 1;
+          }
+        }
+        return [...groupResources];
+      },
+      async createInternalGroup() {
+        calls.push(["createInternalGroup"]);
+        const created = group();
+        if (createLands) {
+          if (createVisibleAfterGroupReads === 0) groupResources.push(created);
+          else pendingCreatedGroup = created;
+        }
+        if (createError) throw createError;
+        return created;
       },
       async listGroupBuildIds(groupId) {
         calls.push(["listGroupBuildIds", groupId]);
@@ -237,6 +261,20 @@ test("constructs exact app/build/group API requests without tester fields", asyn
       ],
       links: {},
     }),
+    jsonResponse(
+      {
+        data: {
+          type: "betaGroups",
+          id: "group-internal",
+          attributes: {
+            name: ASC_INTERNAL_GROUP,
+            isInternalGroup: true,
+            hasAccessToAllBuilds: false,
+          },
+        },
+      },
+      201,
+    ),
     jsonResponse({
       data: [{ type: "builds", id: "build-10", attributes: { version: BUILD } }],
       links: {},
@@ -254,6 +292,7 @@ test("constructs exact app/build/group API requests without tester fields", asyn
   const app = await api.readApp();
   const builds = await api.listBuildCandidates(VERSION, BUILD);
   const groups = await api.listBetaGroups();
+  const createdGroup = await api.createInternalGroup();
   const buildIds = await api.listGroupBuildIds("group-internal");
   await api.addBuildToGroup("group-internal", "build-10");
   assert.equal(app.attributes.bundleId, ASC_BUNDLE_ID);
@@ -264,6 +303,7 @@ test("constructs exact app/build/group API requests without tester fields", asyn
     }),
   ]);
   assert.deepEqual(groups, [group()]);
+  assert.deepEqual(createdGroup, group());
   assert.deepEqual(buildIds, ["build-10"]);
   assert.equal(mock.remaining.length, 0);
   const buildUrl = new URL(mock.calls[1].url);
@@ -278,8 +318,22 @@ test("constructs exact app/build/group API requests without tester fields", asyn
     assert.equal(call.options.signal instanceof AbortSignal, true);
     assert.equal(JSON.stringify(call).includes("email"), false);
   }
-  assert.equal(mock.calls[4].options.method, "POST");
-  assert.deepEqual(JSON.parse(mock.calls[4].options.body), {
+  assert.equal(mock.calls[3].options.method, "POST");
+  assert.deepEqual(JSON.parse(mock.calls[3].options.body), {
+    data: {
+      type: "betaGroups",
+      attributes: {
+        name: ASC_INTERNAL_GROUP,
+        isInternalGroup: true,
+        hasAccessToAllBuilds: false,
+      },
+      relationships: {
+        app: { data: { type: "apps", id: ASC_APP_ID } },
+      },
+    },
+  });
+  assert.equal(mock.calls[5].options.method, "POST");
+  assert.deepEqual(JSON.parse(mock.calls[5].options.body), {
     data: [{ type: "builds", id: "build-10" }],
   });
 });
@@ -587,6 +641,237 @@ test("ensure mode adds once, reads back, and is idempotent on a rerun", async ()
   );
 });
 
+test("bootstrap mode creates the internal group once and converges idempotently", async () => {
+  const fixture = fakeApi({ groups: [], groupBuilds: [] });
+  const first = await convergeTestFlightState({
+    api: fixture.api,
+    version: VERSION,
+    build: BUILD,
+    mode: "bootstrap",
+    timeoutSeconds: 0,
+    pollSeconds: 1,
+    nowMs: () => 1_786_196_000_000,
+  });
+  const second = await convergeTestFlightState({
+    api: fixture.api,
+    version: VERSION,
+    build: BUILD,
+    mode: "bootstrap",
+    timeoutSeconds: 0,
+    pollSeconds: 1,
+    nowMs: () => 1_786_196_001_000,
+  });
+  assert.equal(first.mode, "bootstrap");
+  assert.equal(first.group.exactBuildRelationshipVerified, true);
+  assert.equal(second.group.exactBuildRelationshipVerified, true);
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "createInternalGroup").length,
+    1,
+  );
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "addBuildToGroup").length,
+    1,
+  );
+});
+
+test("bootstrap accepts an ambiguous create only after fresh group readback", async () => {
+  const fixture = fakeApi({
+    groups: [],
+    groupBuilds: ["build-10"],
+    createError: new AscStateError(
+      "ASC_NETWORK_ERROR",
+      "not_observed",
+      "synthetic ambiguous create",
+      { retryable: true },
+    ),
+  });
+  const result = await convergeTestFlightState({
+    api: fixture.api,
+    version: VERSION,
+    build: BUILD,
+    mode: "bootstrap",
+    timeoutSeconds: 0,
+    pollSeconds: 1,
+    nowMs: () => 1_786_196_000_000,
+  });
+  assert.equal(result.state.availableToInternalTesters, true);
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "createInternalGroup").length,
+    1,
+  );
+});
+
+test("bootstrap polls delayed ambiguous-create readback without a second POST", async () => {
+  const fixture = fakeApi({
+    groups: [],
+    groupBuilds: ["build-10"],
+    createVisibleAfterGroupReads: 2,
+    createError: new AscStateError(
+      "ASC_NETWORK_ERROR",
+      "not_observed",
+      "synthetic ambiguous create",
+      { retryable: true },
+    ),
+  });
+  let current = 0;
+  const result = await convergeTestFlightState({
+    api: fixture.api,
+    version: VERSION,
+    build: BUILD,
+    mode: "bootstrap",
+    timeoutSeconds: 5,
+    pollSeconds: 1,
+    nowMs: () => current,
+    sleep: async (milliseconds) => {
+      current += milliseconds;
+    },
+  });
+  assert.equal(result.state.availableToInternalTesters, true);
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "createInternalGroup").length,
+    1,
+  );
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "listBetaGroups").length,
+    4,
+  );
+});
+
+test("bootstrap treats a malformed success response as ambiguous and trusts only readback", async () => {
+  const fixture = fakeApi({
+    groups: [],
+    groupBuilds: ["build-10"],
+    createVisibleAfterGroupReads: 1,
+    createError: new AscStateError(
+      "ASC_INVALID_RESPONSE",
+      "not_observed",
+      "synthetic malformed creation response",
+    ),
+  });
+  let current = 0;
+  const result = await convergeTestFlightState({
+    api: fixture.api,
+    version: VERSION,
+    build: BUILD,
+    mode: "bootstrap",
+    timeoutSeconds: 3,
+    pollSeconds: 1,
+    nowMs: () => current,
+    sleep: async (milliseconds) => {
+      current += milliseconds;
+    },
+  });
+  assert.equal(result.state.availableToInternalTesters, true);
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "createInternalGroup").length,
+    1,
+  );
+});
+
+test("bootstrap times out after one ambiguous create when the group never appears", async () => {
+  const fixture = fakeApi({
+    groups: [],
+    createLands: false,
+    createError: new AscStateError(
+      "ASC_NETWORK_ERROR",
+      "not_observed",
+      "synthetic ambiguous create",
+      { retryable: true },
+    ),
+  });
+  let current = 0;
+  await assert.rejects(
+    convergeTestFlightState({
+      api: fixture.api,
+      version: VERSION,
+      build: BUILD,
+      mode: "bootstrap",
+      timeoutSeconds: 2,
+      pollSeconds: 1,
+      nowMs: () => current,
+      sleep: async (milliseconds) => {
+        current += milliseconds;
+      },
+    }),
+    (error) => error.code === "STATE_TIMEOUT" && error.stage === "processed",
+  );
+  assert.equal(
+    fixture.calls.filter(([operation]) => operation === "createInternalGroup").length,
+    1,
+  );
+});
+
+test("bootstrap fails closed when group creation does not land", async () => {
+  const fixture = fakeApi({
+    groups: [],
+    createLands: false,
+    createError: new AscStateError("ASC_API_ERROR", "not_observed", "sanitized create failure"),
+  });
+  await assert.rejects(
+    convergeTestFlightState({
+      api: fixture.api,
+      version: VERSION,
+      build: BUILD,
+      mode: "bootstrap",
+      timeoutSeconds: 0,
+      pollSeconds: 1,
+      nowMs: () => 1_786_196_000_000,
+    }),
+    (error) =>
+      error.code === "ASC_API_ERROR" &&
+      error.stage === "processed" &&
+      error.message === "sanitized create failure",
+  );
+  assert.equal(fixture.calls.some(([operation]) => operation === "addBuildToGroup"), false);
+});
+
+test("bootstrap never creates around a duplicate or external named group", async () => {
+  for (const [groups, code] of [
+    [[group({ isInternalGroup: false })], "INTERNAL_GROUP_WRONG_TYPE"],
+    [[group(), group({ id: "duplicate" })], "INTERNAL_GROUP_AMBIGUOUS"],
+  ]) {
+    const fixture = fakeApi({ groups });
+    await assert.rejects(
+      convergeTestFlightState({
+        api: fixture.api,
+        version: VERSION,
+        build: BUILD,
+        mode: "bootstrap",
+        timeoutSeconds: 0,
+        pollSeconds: 1,
+        nowMs: () => 1_786_196_000_000,
+      }),
+      (error) => error.code === code,
+    );
+    assert.equal(
+      fixture.calls.some(([operation]) => operation === "createInternalGroup"),
+      false,
+    );
+  }
+});
+
+test("ensure and read-only modes never create a missing group", async () => {
+  for (const mode of ["ensure", "read-only"]) {
+    const fixture = fakeApi({ groups: [] });
+    await assert.rejects(
+      convergeTestFlightState({
+        api: fixture.api,
+        version: VERSION,
+        build: BUILD,
+        mode,
+        timeoutSeconds: 0,
+        pollSeconds: 1,
+        nowMs: () => 1_786_196_000_000,
+      }),
+      (error) => error.code === "INTERNAL_GROUP_MISSING" && error.stage === "processed",
+    );
+    assert.equal(
+      fixture.calls.some(([operation]) => operation === "createInternalGroup"),
+      false,
+    );
+  }
+});
+
 test("waits for eventual relationship readback without repeating the assignment", async () => {
   const fixture = fakeApi({ groupBuilds: [] });
   const readRelationship = fixture.api.listGroupBuildIds;
@@ -815,9 +1100,14 @@ test("validates bounded CLI arguments and explicit mode", () => {
       output: "/tmp/evidence.json",
     },
   );
+  assert.equal(
+    parseCliArgs(["--bootstrap", `--version=${VERSION}`, `--build=${BUILD}`]).mode,
+    "bootstrap",
+  );
   for (const args of [
     [],
     ["--ensure", "--read-only", `--version=${VERSION}`, `--build=${BUILD}`],
+    ["--bootstrap", "--read-only", `--version=${VERSION}`, `--build=${BUILD}`],
     ["--ensure", `--version=${VERSION}`, `--build=${BUILD}`, "--poll-seconds=-1"],
     ["--ensure", `--version=${VERSION}`, `--build=${BUILD}`, "--unknown=x"],
   ]) {

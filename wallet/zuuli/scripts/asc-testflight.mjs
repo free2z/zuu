@@ -451,6 +451,30 @@ export function createAscApiClient({
       });
     },
 
+    async createInternalGroup() {
+      const payload = await request("POST", "/v1/betaGroups", {
+        body: {
+          data: {
+            type: "betaGroups",
+            attributes: {
+              name: ASC_INTERNAL_GROUP,
+              isInternalGroup: true,
+              hasAccessToAllBuilds: false,
+            },
+            relationships: {
+              app: { data: { type: "apps", id: ASC_APP_ID } },
+            },
+          },
+        },
+      });
+      const resource = assertResource(
+        payload?.data,
+        "betaGroups",
+        "internal beta group creation",
+      );
+      return { id: resource.id, ...resource.attributes };
+    },
+
     async listGroupBuildIds(groupId) {
       const params = new URLSearchParams({ "fields[builds]": "version", limit: "200" });
       const resources = await paged(
@@ -635,11 +659,11 @@ export async function convergeTestFlightState({
   onTransition = () => {},
 }) {
   ({ version, build } = validateIdentity(version, build));
-  if (mode !== "ensure" && mode !== "read-only") {
+  if (mode !== "ensure" && mode !== "read-only" && mode !== "bootstrap") {
     throw new AscStateError(
       "INVALID_MODE",
       "not_observed",
-      "mode must be ensure or read-only",
+      "mode must be ensure, read-only, or bootstrap",
     );
   }
   if (
@@ -702,6 +726,7 @@ export async function convergeTestFlightState({
     );
   }
 
+  let groupCreationAttempted = false;
   while (true) {
     try {
       const candidates = await callAtStage(lastStage, () =>
@@ -716,12 +741,49 @@ export async function convergeTestFlightState({
         }
         lastStage = stage;
         if (stage === "processed") {
-          const groups = await callAtStage("processed", () => api.listBetaGroups());
-          const group = selectInternalGroup(groups);
+          let groups = await callAtStage("processed", () => api.listBetaGroups());
+          let group;
+          try {
+            group = selectInternalGroup(groups);
+          } catch (error) {
+            if (error.code !== "INTERNAL_GROUP_MISSING" || mode !== "bootstrap") {
+              throw error;
+            }
+            if (!groupCreationAttempted) {
+              groupCreationAttempted = true;
+              try {
+                await callAtStage("processed", () => api.createInternalGroup());
+              } catch (createError) {
+                if (
+                  !(createError instanceof AscStateError) ||
+                  (!createError.retryable && createError.code !== "ASC_INVALID_RESPONSE")
+                ) {
+                  throw createError;
+                }
+              }
+            }
+            groups = await callAtStage("processed", () => api.listBetaGroups());
+            try {
+              group = selectInternalGroup(groups);
+            } catch (readbackError) {
+              if (readbackError.code !== "INTERNAL_GROUP_MISSING") {
+                throw readbackError;
+              }
+              throw new AscStateError(
+                "INTERNAL_GROUP_CREATE_PENDING",
+                "processed",
+                "App Store Connect has not returned the internal group after the one allowed creation attempt",
+                { retryable: true },
+              );
+            }
+          }
           let groupBuildIds = await callAtStage("processed", () =>
             api.listGroupBuildIds(group.id),
           );
-          if (!groupBuildIds.includes(exactBuild.id) && mode === "ensure") {
+          if (
+            !groupBuildIds.includes(exactBuild.id) &&
+            (mode === "ensure" || mode === "bootstrap")
+          ) {
             let mutationError;
             try {
               await callAtStage("processed", () =>
@@ -791,6 +853,11 @@ export function parseCliArgs(argv) {
       mode = "read-only";
       continue;
     }
+    if (arg === "--bootstrap") {
+      if (mode) throw new AscStateError("INVALID_ARGUMENT", "not_observed", "choose exactly one mode");
+      mode = "bootstrap";
+      continue;
+    }
     const match = /^--([a-z-]+)=(.*)$/.exec(arg);
     if (!match || values.has(match[1])) {
       throw new AscStateError("INVALID_ARGUMENT", "not_observed", "invalid or duplicate command argument");
@@ -807,7 +874,7 @@ export function parseCliArgs(argv) {
     throw new AscStateError(
       "INVALID_ARGUMENT",
       "not_observed",
-      "usage: asc-testflight.mjs <--ensure|--read-only> --version=X.Y.Z " +
+      "usage: asc-testflight.mjs <--ensure|--read-only|--bootstrap> --version=X.Y.Z " +
         "--build=N [--timeout-seconds=N] [--poll-seconds=N] [--output=PATH]",
     );
   }
