@@ -125,7 +125,7 @@ export const NAVIGATION: readonly NavigationItem[] = [
     kind: "route",
     to: "/kyc",
     label: "Revenue share",
-    accessibleLabel: "Apply for revenue share",
+    accessibleLabel: "Revenue share",
     icon: ShieldCheck,
     auth: "signed-in",
     desktop: { group: "account", order: 1 },

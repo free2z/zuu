@@ -34,6 +34,9 @@ describe("app navigation information architecture", () => {
       "profile",
       "revenue-share",
     ]);
+    const revenueShare = NAVIGATION.find((item) => item.id === "revenue-share");
+    expect(revenueShare?.label).toBe("Revenue share");
+    expect(revenueShare?.accessibleLabel).toBe("Revenue share");
   });
 
   it("drives grouped desktop routes from the same config", () => {

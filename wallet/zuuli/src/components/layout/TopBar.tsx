@@ -35,6 +35,13 @@ import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { formatTuzis, formatZecTrim, initials } from "@/lib/format";
 
+const ICON_CONTROL_LABELS = {
+  account: "Account menu",
+  back: "Go back",
+  login: "Log in",
+  search: "Search",
+} as const;
+
 export function TopBar() {
   const { user, tuzis, logout } = useSession();
   const balance = useWallet((s) => s.balance);
@@ -60,15 +67,22 @@ export function TopBar() {
     >
       {/* Global back — available on every screen inside the shell */}
       {canGoBack ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-          className="min-tap h-9 w-9 shrink-0"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild aria-describedby={undefined}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate(-1)}
+              aria-label={ICON_CONTROL_LABELS.back}
+              className="min-tap h-9 w-9 shrink-0"
+            >
+              <ArrowLeft className="h-5 w-5" aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {ICON_CONTROL_LABELS.back}
+          </TooltipContent>
+        </Tooltip>
       ) : null}
 
       {/* Global search */}
@@ -96,13 +110,20 @@ export function TopBar() {
       </form>
 
       {/* Search icon (mobile) */}
-      <Link
-        to="/search"
-        className="min-tap grid place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:hidden"
-        aria-label="Search"
-      >
-        <Search className="h-5 w-5" />
-      </Link>
+      <Tooltip>
+        <TooltipTrigger asChild aria-describedby={undefined}>
+          <Link
+            to="/search"
+            className="min-tap grid place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:hidden"
+            aria-label={ICON_CONTROL_LABELS.search}
+          >
+            <Search className="h-5 w-5" aria-hidden />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {ICON_CONTROL_LABELS.search}
+        </TooltipContent>
+      </Tooltip>
 
       <div className="flex-1" />
 
@@ -138,19 +159,26 @@ export function TopBar() {
 
       {user ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="min-tap rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Account menu"
-            >
-              <Avatar className="h-9 w-9 border border-border">
-                {user.image ? <AvatarImage src={user.image} /> : null}
-                <AvatarFallback className="bg-primary/20 text-primary">
-                  {initials(user.display_name || user.username)}
-                </AvatarFallback>
-              </Avatar>
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild aria-describedby={undefined}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="min-tap rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={ICON_CONTROL_LABELS.account}
+                >
+                  <Avatar className="h-9 w-9 border border-border">
+                    {user.image ? <AvatarImage src={user.image} /> : null}
+                    <AvatarFallback className="bg-primary/20 text-primary">
+                      {initials(user.display_name || user.username)}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {ICON_CONTROL_LABELS.account}
+            </TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>
               <div className="font-medium text-foreground">
@@ -172,7 +200,7 @@ export function TopBar() {
               <Coins /> Buy 2Zs
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/kyc")}>
-              <ShieldCheck /> Apply for revenue share
+              <ShieldCheck /> Revenue share
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>
@@ -182,18 +210,20 @@ export function TopBar() {
         </DropdownMenu>
       ) : (
         <Tooltip>
-          <TooltipTrigger asChild>
+          <TooltipTrigger asChild aria-describedby={undefined}>
             <Button
               variant="ghost"
               size="icon"
               className="min-tap shrink-0 rounded-full"
               onClick={() => navigate("/login")}
-              aria-label="Log in"
+              aria-label={ICON_CONTROL_LABELS.login}
             >
               <LogIn className="h-5 w-5" aria-hidden />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Log in</TooltipContent>
+          <TooltipContent side="bottom">
+            {ICON_CONTROL_LABELS.login}
+          </TooltipContent>
         </Tooltip>
       )}
     </header>
