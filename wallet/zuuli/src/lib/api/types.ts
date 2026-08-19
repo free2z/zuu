@@ -114,6 +114,10 @@ export const SOCIAL_PROVIDERS: SocialProvider[] = ["x", "google", "github"];
  */
 export type SocialProvidersStatus = Partial<Record<SocialProvider, boolean>>;
 
+export type SocialAuthResult =
+  | { status: "authenticated"; session: AuthenticatedSession }
+  | { status: "associated"; user: AuthUser };
+
 /**
  * Editable fields for the signed-in user's own profile —
  * PATCH /api/auth/user/ (CreatorProfileUpdateSerializer). Avatar/banner
@@ -148,8 +152,13 @@ export interface OtpStatus {
  * the caller must finish via `auth.completeOtp`.
  */
 export type LoginResult =
-  | { status: "complete"; user: AuthUser }
+  | { status: "complete"; session: AuthenticatedSession }
   | { status: "otp_required"; username: string };
+
+export interface AuthenticatedSession {
+  token: string;
+  user: AuthUser;
+}
 
 // ── AI ────────────────────────────────────────────────────────────────────
 export interface AIModel {

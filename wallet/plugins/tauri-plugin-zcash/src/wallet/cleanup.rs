@@ -76,6 +76,8 @@ struct CleanupOperation {
     wallet_name: Option<String>,
     #[serde(default)]
     birthday_height: Option<u64>,
+    #[serde(default)]
+    backup_required: bool,
     reason: CleanupReason,
     /// Deletions are not executable until both the manifest and this flag are
     /// durably committed. Rollbacks are executable whenever the exact wallet
@@ -188,6 +190,7 @@ fn schedule(
         db_filename: entry.db_filename.clone(),
         wallet_name: Some(entry.name.clone()),
         birthday_height: entry.birthday_height,
+        backup_required: entry.backup_required,
         reason,
         transition_confirmed: false,
         preserve_custody_if_manifest_missing: false,
@@ -386,6 +389,7 @@ pub(crate) fn recover_published_wallets(
             db_filename: operation.db_filename.clone(),
             birthday_height: operation.birthday_height,
             created_at: operation.generation.clone(),
+            backup_required: operation.backup_required,
         };
         match manifest.commit_wallet(data_dir, entry) {
             Ok(true) => diagnostics.push(format!(
@@ -992,6 +996,7 @@ mod tests {
             db_filename: format!("wallet_{id}.sqlite"),
             birthday_height: Some(1),
             created_at: "2026-08-06T00:00:00Z".into(),
+            backup_required: false,
         }
     }
 
@@ -1211,7 +1216,8 @@ mod tests {
     #[test]
     fn startup_restores_a_published_wallet_before_cancelling_rollback() {
         let dir = TestDir::new("published-recovery");
-        let entry = wallet();
+        let mut entry = wallet();
+        entry.backup_required = true;
         let authorization = schedule_staged_wallet_rollback(&dir.0, &entry).unwrap();
         protect_staged_wallet_custody(&dir.0, &authorization).unwrap();
         let mut manifest = empty_manifest();
@@ -1220,6 +1226,7 @@ mod tests {
         assert_eq!(manifest.wallets.len(), 1);
         assert_eq!(manifest.wallets[0].id, entry.id);
         assert_eq!(manifest.wallets[0].created_at, entry.created_at);
+        assert!(manifest.wallets[0].backup_required);
         assert!(
             diagnostics
                 .iter()

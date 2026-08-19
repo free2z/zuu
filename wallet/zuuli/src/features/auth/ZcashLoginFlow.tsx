@@ -11,6 +11,7 @@ import {
   Loader2,
   RotateCw,
   Sparkles,
+  ShieldAlert,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -71,12 +72,18 @@ export function ZcashLoginFlow({
     error,
     start,
     createIdentity,
+    revealSeedBackup,
     confirmSeedSaved,
     retry,
   } = flow;
 
   useEffect(() => {
-    const busy = phase === "running" || phase === "creating" || phase === "success";
+    const busy =
+      phase === "running" ||
+      phase === "creating" ||
+      phase === "loadingSeed" ||
+      phase === "confirmingBackup" ||
+      phase === "success";
     onBusyChange?.(busy);
   }, [onBusyChange, phase]);
 
@@ -102,6 +109,45 @@ export function ZcashLoginFlow({
         >
           <Sparkles className="h-5 w-5" aria-hidden />
           Continue
+        </Button>
+      </div>
+    );
+  }
+
+  if (phase === "backupRequired" || phase === "loadingSeed") {
+    const loading = phase === "loadingSeed";
+    return (
+      <div className="animate-slide-up space-y-5">
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
+          <div className="space-y-1 text-sm">
+            <p className="font-semibold text-amber-300">Back up your recovery phrase</p>
+            <p className="text-amber-200/80">
+              This identity was created, but its required backup was not confirmed.
+              Finish that step before logging in.
+            </p>
+          </div>
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <Button
+          size="lg"
+          className="w-full"
+          disabled={loading}
+          onClick={() => {
+            onBusyChange?.(true);
+            void revealSeedBackup();
+          }}
+        >
+          {loading ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+          ) : (
+            <Fingerprint className="h-5 w-5" aria-hidden />
+          )}
+          {loading ? "Opening secure backup…" : "Reveal recovery phrase"}
         </Button>
       </div>
     );
@@ -140,13 +186,15 @@ export function ZcashLoginFlow({
   }
 
   // ── Freshly created — back up the recovery phrase before continuing ───────
-  if (phase === "seedReveal" && seedPhrase) {
+  if ((phase === "seedReveal" || phase === "confirmingBackup") && seedPhrase) {
     return (
       <SeedReveal
         seedPhrase={seedPhrase}
+        confirming={phase === "confirmingBackup"}
+        error={error}
         onConfirm={() => {
           onBusyChange?.(true);
-          confirmSeedSaved();
+          return confirmSeedSaved();
         }}
       />
     );

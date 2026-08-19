@@ -23,7 +23,9 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSocialProviders } from "@/hooks/useSocialProviders";
 import { auth } from "@/lib/api/free2z";
+import { setToken } from "@/lib/api/http";
 import { useSession } from "@/store/session";
+import { useAttemptLease } from "@/hooks/useAttemptLease";
 import type { SocialProvider } from "@/lib/api/types";
 import {
   clearPendingSocialLoginDestination,
@@ -85,6 +87,7 @@ export function SocialButtons({
   const navigate = useNavigate();
   const setUser = useSession((s) => s.setUser);
   const [pending, setPending] = useState<SocialProvider | null>(null);
+  const attempt = useAttemptLease();
 
   const providers = configured.filter((p) => !alreadyLinked?.includes(p));
 
@@ -93,18 +96,24 @@ export function SocialButtons({
 
   async function handleClick(provider: SocialProvider) {
     if (pending) return;
+    const isCurrent = attempt.begin();
     setPending(provider);
     if (!associate) rememberPendingSocialLoginDestination(loginDestination);
     try {
-      const user = await auth.socialLogin(provider, { associate });
-      setUser(user);
+      const result = await auth.socialLogin(provider, { associate });
+      if (!isCurrent()) return;
       const name = PROVIDER_NAME[provider];
       if (associate) {
+        if (result.status !== "associated") throw new Error("Unexpected login result");
+        setUser(result.user);
         toast.success(`${name} linked`, {
           description: `This ${name} identity is now linked to your account.`,
         });
         onLinked?.(provider);
       } else {
+        if (result.status !== "authenticated") throw new Error("Unexpected link result");
+        setToken(result.session.token);
+        setUser(result.session.user);
         toast.success("Welcome to ZUULI", {
           description: `Logged in with ${name}.`,
         });
@@ -112,12 +121,13 @@ export function SocialButtons({
         navigate(loginDestination, { replace: true });
       }
     } catch (e) {
+      if (!isCurrent()) return;
       if (!associate) clearPendingSocialLoginDestination();
       toast.error(associate ? "Couldn't link that account" : "Couldn't log in", {
         description: e instanceof Error ? e.message : "Please try again.",
       });
     } finally {
-      setPending(null);
+      if (isCurrent()) setPending(null);
     }
   }
 

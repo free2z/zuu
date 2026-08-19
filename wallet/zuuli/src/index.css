@@ -166,7 +166,14 @@
   }
 
   .app-auth-content {
-    padding-bottom: calc(var(--mobile-tab-bar-height) + 1.5rem);
+    padding-bottom: 0;
+  }
+
+  /* End padding on an overflowing flex scroller is not consistently included
+     in its scroll range. Put the mobile-nav clearance on the content stack so
+     the final seed-backup action can always scroll fully above the fixed bar. */
+  .app-auth-stack {
+    padding-bottom: calc(var(--mobile-tab-bar-height) + 1.25rem);
   }
 
   .app-reader-content {
@@ -181,7 +188,7 @@
 
   @media (min-width: 768px) {
     .app-scroll-content,
-    .app-auth-content {
+    .app-auth-stack {
       padding-bottom: max(2.5rem, var(--safe-area-bottom));
     }
 

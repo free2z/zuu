@@ -6,6 +6,8 @@ permissions = [
     "allow-get-wallet-status",
     "allow-retry-wallet-cleanup",
     "allow-get-seed-phrase",
+    "allow-get-backup-seed-phrase",
+    "allow-confirm-wallet-backup",
     "allow-get-viewing-key",
     "allow-get-spending-key",
     "allow-list-wallets",

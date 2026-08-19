@@ -18,6 +18,7 @@ import {
   Github,
   Loader2,
   RotateCw,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -79,6 +80,7 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     error,
     start,
     createIdentity,
+    revealSeedBackup,
     confirmSeedSaved,
     retry,
   } = flow;
@@ -117,8 +119,46 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     );
   }
 
-  if (phase === "seedReveal" && seedPhrase) {
-    return <SeedReveal seedPhrase={seedPhrase} onConfirm={confirmSeedSaved} />;
+  if (phase === "backupRequired" || phase === "loadingSeed") {
+    const loading = phase === "loadingSeed";
+    return (
+      <div className="animate-slide-up space-y-5">
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
+          <div className="space-y-1 text-sm">
+            <p className="font-semibold text-amber-300">Back up your recovery phrase</p>
+            <p className="text-amber-200/80">
+              Finish the required backup before linking this identity.
+            </p>
+          </div>
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <Button
+          size="lg"
+          className="w-full"
+          disabled={loading}
+          onClick={() => void revealSeedBackup()}
+        >
+          {loading && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
+          {loading ? "Opening secure backup…" : "Reveal recovery phrase"}
+        </Button>
+      </div>
+    );
+  }
+
+  if ((phase === "seedReveal" || phase === "confirmingBackup") && seedPhrase) {
+    return (
+      <SeedReveal
+        seedPhrase={seedPhrase}
+        confirming={phase === "confirmingBackup"}
+        error={error}
+        onConfirm={confirmSeedSaved}
+      />
+    );
   }
 
   if (phase === "success") {

@@ -35,6 +35,9 @@ let syncing = false;
  * wallet boundary so production/native behavior cannot observe them.
  */
 const MOCK_WALLET_SCENARIO_KEY = "zuuli.mock.wallet-scenario";
+const MOCK_CREATED_WALLET_KEY = "zuuli.mock.created-wallet";
+const MOCK_BACKUP_REQUIRED_KEY = "zuuli.mock.backup-required";
+const MOCK_WALLET_ID = "mock-wallet-0";
 function mockWalletScenario(): "empty" | "sign-error" | null {
   try {
     const value = globalThis.localStorage?.getItem(MOCK_WALLET_SCENARIO_KEY);
@@ -83,15 +86,20 @@ let proposalCounter = 1;
 
 export const mockWallet = {
   getWalletStatus(): WalletStatus {
-    const initialized = mockWalletScenario() === "empty" ? false : created;
+    const persistedCreated = globalThis.localStorage?.getItem(MOCK_CREATED_WALLET_KEY) === "1";
+    const initialized =
+      mockWalletScenario() === "empty" && !persistedCreated ? false : created || persistedCreated;
     return {
       initialized,
       hasSeed: initialized,
       syncedHeight: synced,
       chainTip: tip,
-      activeWalletId: "mock-wallet-0",
+      activeWalletId: initialized ? MOCK_WALLET_ID : null,
       activeWalletName: "Main",
       walletCount: 1,
+      backupRequired:
+        initialized &&
+        globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY) === MOCK_WALLET_ID,
       cleanup: {
         pendingOperations: 0,
         blockedOperations: 0,
@@ -117,14 +125,32 @@ export const mockWallet = {
   },
   createWallet(): WalletCreated {
     created = true;
-    return { seedPhrase: MOCK_SEED, birthdayHeight: tip - 100 };
+    globalThis.localStorage?.setItem(MOCK_CREATED_WALLET_KEY, "1");
+    globalThis.localStorage?.setItem(MOCK_BACKUP_REQUIRED_KEY, MOCK_WALLET_ID);
+    return { walletId: MOCK_WALLET_ID, seedPhrase: MOCK_SEED, birthdayHeight: tip - 100 };
   },
   restoreWallet() {
     created = true;
+    globalThis.localStorage?.removeItem(MOCK_BACKUP_REQUIRED_KEY);
     return { success: true };
   },
   getSeedPhrase(): string {
     return MOCK_SEED;
+  },
+  getBackupSeedPhrase(walletId: string): string {
+    if (
+      walletId !== MOCK_WALLET_ID ||
+      globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY) !== walletId
+    ) {
+      throw new Error("backup phrase request does not match the active pending wallet");
+    }
+    return MOCK_SEED;
+  },
+  confirmWalletBackup(walletId: string): void {
+    if (walletId !== MOCK_WALLET_ID) {
+      throw new Error("backup confirmation does not match the active wallet");
+    }
+    globalThis.localStorage?.removeItem(MOCK_BACKUP_REQUIRED_KEY);
   },
   listAccounts(): AccountInfo[] {
     return [{ accountIndex: 0, name: "Main", unifiedAddress: MOCK_UA }];
@@ -222,6 +248,9 @@ export const mockWallet = {
   },
   discardUnrecoverableSend() {},
   signChallenge(challenge: string): SignedChallenge {
+    if (globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY)) {
+      throw new Error("Recovery phrase backup must be confirmed before signing.");
+    }
     if (mockWalletScenario() === "sign-error") {
       throw new Error("The mock wallet could not sign this challenge.");
     }

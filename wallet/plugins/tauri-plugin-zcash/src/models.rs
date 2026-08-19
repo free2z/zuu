@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletCreated {
+    pub wallet_id: String,
     pub seed_phrase: String,
     pub birthday_height: u64,
 }
@@ -17,6 +18,7 @@ pub struct WalletStatus {
     pub active_wallet_id: Option<String>,
     pub active_wallet_name: Option<String>,
     pub wallet_count: u32,
+    pub backup_required: bool,
     /// Durable orphan cleanup state. This is additive so older frontends can
     /// ignore it while operators still receive startup diagnostics.
     #[serde(default)]
@@ -191,6 +193,12 @@ pub struct RestoreWalletArgs {
     pub seed_phrase: String,
     pub birthday_height: Option<u64>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmWalletBackupArgs {
+    pub wallet_id: String,
 }
 
 #[derive(Debug, Deserialize)]

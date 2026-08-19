@@ -3,6 +3,7 @@
 // camelCase on both sides.
 
 export interface WalletCreated {
+  walletId: string;
   seedPhrase: string;
   birthdayHeight: number;
 }
@@ -15,6 +16,7 @@ export interface WalletStatus {
   activeWalletId: string | null;
   activeWalletName: string | null;
   walletCount: number;
+  backupRequired: boolean;
   cleanup: WalletCleanupStatus;
   legacyAppData: LegacyAppDataStatus;
 }

@@ -54,17 +54,19 @@ export function useZcashAssociate(): ZcashAssociateState {
   const setUser = useSession((s) => s.setUser);
 
   return useZcashChallengeFlow({
-    verify: (signed) =>
-      auth.zcashAssociate({
+    verify: async (signed) => ({
+      user: await auth.zcashAssociate({
         address: signed.address,
         challenge: signed.challenge,
         signature: signed.signature,
         pubkey: signed.pubkey,
       }),
+    }),
     verifyErrorMessage:
       "free2z couldn't link that Zcash key. Please try again.",
-    onVerified: (user) => setUser(user),
-    afterSuccess: () => {
+    onVerified: ({ user }) => setUser(user),
+    afterSuccess: (_result, _address, isCurrent) => {
+      if (!isCurrent()) return;
       toast.success("Zcash key linked", {
         description: "This Zcash identity is now linked to your account.",
       });

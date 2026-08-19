@@ -10,6 +10,7 @@
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { auth } from "@/lib/api/free2z";
+import { setToken } from "@/lib/api/http";
 import { useSession } from "@/store/session";
 import type { LoginDestination } from "@/lib/auth/login-destination";
 import {
@@ -66,12 +67,18 @@ export function useZcashLogin(
       }),
     verifyErrorMessage:
       "free2z couldn't verify your Zcash signature. Please try again.",
-    onVerified: (user) => setUser(user),
-    afterSuccess: async () => {
+    onVerified: (session) => {
+      if (!session.token) throw new Error("Zcash login returned no session token");
+      setToken(session.token);
+      setUser(session.user);
+    },
+    afterSuccess: async (_session, _address, isCurrent) => {
+      if (!isCurrent()) return;
       toast.success("Welcome to ZUULI", {
         description: "Logged in with your Zcash key.",
       });
       await new Promise((r) => setTimeout(r, 700));
+      if (!isCurrent()) return;
       navigate(loginDestination, { replace: true });
     },
   });

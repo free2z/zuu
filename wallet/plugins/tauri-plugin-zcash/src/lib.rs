@@ -46,6 +46,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::get_wallet_status,
             commands::retry_wallet_cleanup,
             commands::get_seed_phrase,
+            commands::get_backup_seed_phrase,
+            commands::confirm_wallet_backup,
             commands::get_viewing_key,
             commands::get_spending_key,
             commands::list_wallets,

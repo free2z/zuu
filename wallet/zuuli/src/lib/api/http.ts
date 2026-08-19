@@ -110,6 +110,8 @@ interface RequestOpts {
   cache?: RequestCache;
   /** Skip the auth header even if a token exists. */
   anonymous?: boolean;
+  /** Authenticate this request without publishing a process-wide session. */
+  authToken?: string;
   signal?: AbortSignal;
 }
 
@@ -145,7 +147,7 @@ export async function request<T>(
   if (opts.body !== undefined && !isFormData && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
-  const token = getToken();
+  const token = opts.authToken ?? getToken();
   if (token && !opts.anonymous && !headers["Authorization"]) {
     headers["Authorization"] = `Token ${token}`;
   }
@@ -173,7 +175,7 @@ export async function request<T>(
   return data as T;
 }
 
-/** Knox login: HTTP Basic auth against /api/token/login/ → { token, expiry }. */
+/** Knox login: mint a token without publishing a process-wide session. */
 export async function basicLogin(
   username: string,
   password: string,
@@ -183,7 +185,6 @@ export async function basicLogin(
     "/api/token/login/",
     { method: "POST", anonymous: true, headers: { Authorization: `Basic ${basic}` } },
   );
-  setToken(res.token);
   return res.token;
 }
 

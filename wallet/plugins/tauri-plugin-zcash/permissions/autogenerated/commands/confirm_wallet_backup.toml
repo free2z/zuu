@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-confirm-wallet-backup"
+description = "Enables the confirm_wallet_backup command without any pre-configured scope."
+commands.allow = ["confirm_wallet_backup"]
+
+[[permission]]
+identifier = "deny-confirm-wallet-backup"
+description = "Denies the confirm_wallet_backup command without any pre-configured scope."
+commands.deny = ["confirm_wallet_backup"]
