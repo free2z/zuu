@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "phase": "foundation",
+  "publicationReady": false,
+  "application": {
+    "bundleId": "cash.free2z.zuuli",
+    "appleAppId": "6799322201",
+    "playPackageName": "cash.free2z.zuuli",
+    "defaultLocale": "en-US",
+    "supportEmail": "help@free2z.com",
+    "supportUrl": "https://free2z.cash/docs/",
+    "marketingUrl": "https://free2z.cash/",
+    "privacyPolicyUrl": "https://free2z.cash/docs/legal/privacy-policy/"
+  },
+  "locales": [
+    {
+      "id": "en-US",
+      "appleLocale": "en-US",
+      "playLocale": "en-US",
+      "copyStatus": "proposed-owner-legal-review-required",
+      "appleMetadata": "store/locales/en-US/apple.json",
+      "playMetadata": "store/locales/en-US/play.json"
+    }
+  ],
+  "classification": {
+    "reviewStatus": "proposed-owner-store-review-required",
+    "applePrimaryCategory": "SOCIAL_NETWORKING",
+    "appleSecondaryCategory": "FINANCE",
+    "playCategory": "SOCIAL",
+    "contentRatingNotes": [
+      "User-generated articles, profiles, comments, and livestreams require store questionnaire review.",
+      "Zcash wallet and 2Z purchase flows require financial-feature questionnaire review.",
+      "AI-generated content and live interaction require age-rating questionnaire review."
+    ],
+    "automaticRatingSubmissionAllowed": false
+  },
+  "brandMedia": [
+    {
+      "id": "apple-store-icon",
+      "path": "assets/store/app-store-icon-1024.png",
+      "width": 1024,
+      "height": 1024,
+      "maxBytes": 1048576,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "65810c927fc8427c90886280a6e72f8df9f3a9323722f66264608d1b9a9a1b63"
+    },
+    {
+      "id": "play-store-icon",
+      "path": "assets/store/play-store-icon-512.png",
+      "width": 512,
+      "height": 512,
+      "maxBytes": 1048576,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "7afd7d93b2be52cdeaa07afd644f73419c2a55af2f4a30c3bd80e0f2fdc0b5bf"
+    },
+    {
+      "id": "play-feature-graphic",
+      "path": "assets/store/play-feature-graphic-1024x500.png",
+      "width": 1024,
+      "height": 500,
+      "maxBytes": 15728640,
+      "opaque": true,
+      "encodedRgbOnly": true,
+      "sha256": "29154458799daed9e6a378fa307a7186940b16352828ab9dc49895f6fed2e6f4"
+    }
+  ],
+  "screenshotSets": [
+    {
+      "id": "apple-iphone-6.9-portrait",
+      "provider": "apple",
+      "apiType": "APP_IPHONE_67",
+      "locale": "en-US",
+      "width": 1320,
+      "height": 2868,
+      "minCount": 4,
+      "maxCount": 10,
+      "maxBytes": 10485760,
+      "files": []
+    },
+    {
+      "id": "apple-ipad-13-portrait",
+      "provider": "apple",
+      "apiType": "APP_IPAD_PRO_3GEN_129",
+      "locale": "en-US",
+      "width": 2064,
+      "height": 2752,
+      "minCount": 4,
+      "maxCount": 10,
+      "maxBytes": 10485760,
+      "files": []
+    },
+    {
+      "id": "play-phone-portrait",
+      "provider": "play",
+      "apiType": "phoneScreenshots",
+      "locale": "en-US",
+      "width": 1080,
+      "height": 1920,
+      "minCount": 4,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": []
+    },
+    {
+      "id": "play-7-inch-tablet-portrait",
+      "provider": "play",
+      "apiType": "sevenInchScreenshots",
+      "locale": "en-US",
+      "width": 1200,
+      "height": 1920,
+      "minCount": 4,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": []
+    },
+    {
+      "id": "play-10-inch-tablet-portrait",
+      "provider": "play",
+      "apiType": "tenInchScreenshots",
+      "locale": "en-US",
+      "width": 1600,
+      "height": 2560,
+      "minCount": 4,
+      "maxCount": 8,
+      "maxBytes": 8388608,
+      "files": []
+    }
+  ],
+  "capturePolicy": {
+    "status": "deferred",
+    "blockedByIssues": [
+      267,
+      1257,
+      255
+    ],
+    "fixtureProfile": "store-v1",
+    "releaseEquivalentBuildRequired": true,
+    "safeAreasRequired": true,
+    "realSeedOrPrivateDataAllowed": false,
+    "testerIdentityAllowed": false,
+    "debugOrMockDisclosureAllowed": false,
+    "reviewRequired": true,
+    "forbiddenEmbeddedText": [
+      "seed phrase",
+      "private key",
+      "secret key",
+      "debug build",
+      "mock mode"
+    ]
+  }
+}

@@ -31,7 +31,8 @@ function requireCount(label, contents, value, expected) {
 const action = readRepo(".github/actions/zuuli-rust-cache/action.yml");
 const packaging = readRepo(".github/workflows/zuuli-packaging.yml");
 const release = readRepo(".github/workflows/zuuli-release.yml");
-const playTesters = readRepo(".github/workflows/zuuli-play-testers.yml");
+const storeAudit = readRepo(".github/workflows/zuuli-store-audit.yml");
+const storePublish = readRepo(".github/workflows/zuuli-store-publish.yml");
 const cleanup = readRepo(".github/workflows/cache-cleanup.yml");
 const requiredGate = readRepo(".github/workflows/zuuli.yml");
 const localAction = "uses: ./.github/actions/zuuli-rust-cache";
@@ -128,12 +129,13 @@ for (const writer of [
   rejectText("protected release direct cache writer", release, writer);
 }
 
-requireText("Play testers protected environment", playTesters, "environment: zuuli-app-stores");
+requireText("store audit protected environment", storeAudit, "environment: zuuli-app-stores");
 requireText(
-  "Play testers protected secret",
-  playTesters,
+  "store audit protected secret",
+  storeAudit,
   "PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}",
 );
+requireText("store publication protected environment", storePublish, "environment: zuuli-app-stores");
 for (const writer of [
   "uses: ./.github/actions/zuuli-rust-cache",
   "Swatinem/rust-cache@",
@@ -144,7 +146,8 @@ for (const writer of [
   "bundler-cache: true",
   "gh cache",
 ]) {
-  rejectText("Play testers credential-bearing job", playTesters, writer);
+  rejectText("store audit credential-bearing job", storeAudit, writer);
+  rejectText("store publication gate", storePublish, writer);
 }
 requireCount("protected release npm auto-cache", release, "cache: npm", 1);
 const prepareJob = job(release, "prepare", "android");
@@ -200,9 +203,14 @@ requireText(
   ".github/workflows/cache-cleanup.yml",
 );
 requireText(
-  "required gate Play testers trigger",
+  "required gate store audit trigger",
   requiredGate,
-  ".github/workflows/zuuli-play-testers.yml",
+  ".github/workflows/zuuli-store-audit.yml",
+);
+requireText(
+  "required gate store publication trigger",
+  requiredGate,
+  ".github/workflows/zuuli-store-publish.yml",
 );
 const frontendGate = job(requiredGate, "frontend", "rust_plugin");
 requireCount(

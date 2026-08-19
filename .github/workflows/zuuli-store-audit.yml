@@ -1,0 +1,129 @@
+name: ZUULI / Store listing read-only audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current main commit whose store contract will be audited
+        required: true
+        type: string
+      provider:
+        description: Store provider to inspect
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - apple
+          - play
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zuuli-mobile-store
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Compare protected store state without publication
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: zuuli-app-stores
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    env:
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - name: Verify exact current-main store source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source SHA must be a full lowercase commit SHA" >&2
+            exit 1
+          }
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SOURCE_SHA"
+          git diff --exit-code -- .
+          git diff --cached --exit-code -- .
+      - run: npm ci --ignore-scripts
+      - name: Verify local contract and offline read-only boundaries
+        run: |
+          npm run store:validate
+          npm run test:store-listing
+          npm run release:verify
+      - name: Create isolated credential directory
+        run: |
+          set -euo pipefail
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-store-audit.XXXXXX")
+          chmod 700 "$secret_dir"
+          echo "ZUULI_STORE_AUDIT_SECRET_DIR=$secret_dir" >> "$GITHUB_ENV"
+      - name: Materialize ephemeral ASC credential
+        if: inputs.provider == 'apple' || inputs.provider == 'both'
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
+          chmod 600 "$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
+          test -s "$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
+          echo "ASC_KEY_PATH=$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Materialize ephemeral Play credential
+        if: inputs.provider == 'play' || inputs.provider == 'both'
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${PLAY_SERVICE_ACCOUNT_JSON_BASE64:?PLAY_SERVICE_ACCOUNT_JSON_BASE64 is not configured}"
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON_BASE64" | base64 --decode > "$ZUULI_STORE_AUDIT_SECRET_DIR/play-service-account.json"
+          chmod 600 "$ZUULI_STORE_AUDIT_SECRET_DIR/play-service-account.json"
+          test -s "$ZUULI_STORE_AUDIT_SECRET_DIR/play-service-account.json"
+          echo "PLAY_SERVICE_ACCOUNT_JSON=$ZUULI_STORE_AUDIT_SECRET_DIR/play-service-account.json" >> "$GITHUB_ENV"
+      - name: Audit canonical locales, media, and Play tester mode
+        env:
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/zuuli-store-audit-evidence"
+          mkdir -p "$evidence_dir"
+          echo "ZUULI_STORE_AUDIT_EVIDENCE_DIR=$evidence_dir" >> "$GITHUB_ENV"
+          node scripts/store-state-audit.mjs \
+            "--provider=$PROVIDER" \
+            "--output=$evidence_dir/store-state.json"
+      - name: Destroy ephemeral store credentials
+        if: always()
+        run: |
+          set -u
+          cleanup_failed=0
+          if [[ -n "${ZUULI_STORE_AUDIT_SECRET_DIR:-}" && -d "$ZUULI_STORE_AUDIT_SECRET_DIR" ]]; then
+            find "$ZUULI_STORE_AUDIT_SECRET_DIR" -type f -exec rm -f -- {} + || cleanup_failed=1
+            rmdir "$ZUULI_STORE_AUDIT_SECRET_DIR" || cleanup_failed=1
+          fi
+          if [[ -n "${ZUULI_STORE_AUDIT_SECRET_DIR:-}" && -e "$ZUULI_STORE_AUDIT_SECRET_DIR" ]]; then
+            cleanup_failed=1
+          fi
+          exit "$cleanup_failed"
+      - name: Upload sanitized store-state evidence
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: zuuli-store-state-${{ inputs.provider }}-${{ inputs.source_sha }}
+          path: ${{ env.ZUULI_STORE_AUDIT_EVIDENCE_DIR }}/store-state.json
+          if-no-files-found: error
+          retention-days: 90
