@@ -283,6 +283,16 @@ async fn ensure_active_seed_loaded(
     Ok(())
 }
 
+fn ensure_challenge_signing_allowed(
+    manifest: &crate::wallet::manifest::WalletManifest,
+) -> Result<()> {
+    if manifest.active_backup_required() {
+        Err(Error::BackupRequired)
+    } else {
+        Ok(())
+    }
+}
+
 #[command]
 pub(crate) async fn create_wallet<R: Runtime>(
     app: AppHandle<R>,
@@ -330,10 +340,11 @@ pub(crate) async fn create_wallet<R: Runtime>(
 
     // Allocate an identity, but keep it out of the durable manifest until its
     // database and native seed custody have both committed.
-    let wallet_entry = crate::wallet::manifest::WalletManifest::prepare_wallet(
+    let mut wallet_entry = crate::wallet::manifest::WalletManifest::prepare_wallet(
         wallet_name,
         Some(tip_height),
     );
+    crate::wallet::manifest::WalletManifest::require_backup(&mut wallet_entry);
     let cleanup_authorization =
         crate::wallet::cleanup::schedule_staged_wallet_rollback(
             &zcash.state.data_dir,
@@ -482,6 +493,7 @@ pub(crate) async fn create_wallet<R: Runtime>(
     retry_staged_wallet_cleanup(&zcash.state, "wallet rollback cancellation deferred").await;
 
     Ok(WalletCreated {
+        wallet_id: wallet_entry.id.clone(),
         seed_phrase: mnemonic.phrase().to_string(),
         birthday_height: tip_height,
     })
@@ -750,6 +762,7 @@ pub(crate) async fn get_wallet_status<R: Runtime>(app: AppHandle<R>) -> Result<W
     let manifest = zcash.state.manifest.lock().await;
     let active_wallet_id = manifest.active_wallet_id.clone();
     let active_wallet_name = manifest.get_active().map(|w| w.name.clone());
+    let backup_required = manifest.active_backup_required();
     let wallet_count = manifest.wallets.len() as u32;
     drop(manifest);
     let cleanup = zcash.state.cleanup_status.lock().await.clone();
@@ -778,6 +791,7 @@ pub(crate) async fn get_wallet_status<R: Runtime>(app: AppHandle<R>) -> Result<W
         active_wallet_id,
         active_wallet_name,
         wallet_count,
+        backup_required,
         cleanup,
         legacy_app_data: zcash.legacy_app_data.clone(),
     })
@@ -811,6 +825,47 @@ pub(crate) async fn get_seed_phrase<R: Runtime>(app: AppHandle<R>) -> Result<Str
         .get_seed_phrase(&transition_guard, &wallet_id)
         .await
         .map(|phrase| phrase.to_string())
+}
+
+/// Retrieve the recovery phrase only for the exact active wallet whose backup
+/// acknowledgement is still pending. The transition lock binds the manifest
+/// check and custody read so a concurrent wallet switch cannot disclose a
+/// different wallet's phrase to a stale backup screen.
+#[command]
+pub(crate) async fn get_backup_seed_phrase<R: Runtime>(
+    app: AppHandle<R>,
+    args: ConfirmWalletBackupArgs,
+) -> Result<String> {
+    let zcash = app.zcash();
+    let transition_guard = zcash.state.lock_wallet_transition().await;
+    {
+        let manifest = zcash.state.manifest.lock().await;
+        if !manifest.is_exact_active_backup_pending(&args.wallet_id) {
+            return Err(Error::BackupRequired);
+        }
+    }
+    zcash
+        .state
+        .get_seed_phrase(&transition_guard, &args.wallet_id)
+        .await
+        .map(|phrase| phrase.to_string())
+}
+
+#[command]
+pub(crate) async fn confirm_wallet_backup<R: Runtime>(
+    app: AppHandle<R>,
+    args: ConfirmWalletBackupArgs,
+) -> Result<()> {
+    let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let mut manifest = zcash.state.manifest.lock().await;
+    match manifest.confirm_backup(&zcash.state.data_dir, &args.wallet_id) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(Error::Other(
+            "backup confirmation does not match the active wallet".into(),
+        )),
+        Err(error) => Err(Error::Io(error)),
+    }
 }
 
 #[command]
@@ -1374,7 +1429,25 @@ mod deletion_tests {
             db_filename: format!("wallet_{id}.sqlite"),
             birthday_height: Some(1),
             created_at: "2026-08-06T00:00:00Z".to_string(),
+            backup_required: false,
         }
+    }
+
+    #[test]
+    fn challenge_signing_fails_closed_until_backup_is_confirmed() {
+        let mut required = wallet("new-wallet");
+        required.backup_required = true;
+        let mut manifest = WalletManifest {
+            wallets: vec![required.clone()],
+            active_wallet_id: Some(required.id.clone()),
+        };
+
+        assert!(matches!(
+            ensure_challenge_signing_allowed(&manifest),
+            Err(Error::BackupRequired)
+        ));
+        manifest.wallets[0].backup_required = false;
+        assert!(ensure_challenge_signing_allowed(&manifest).is_ok());
     }
 
     // These tests prove authorization ordering, not custody cryptography. A
@@ -1876,6 +1949,13 @@ pub(crate) async fn sign_challenge<R: Runtime>(
 
     if !zcash.state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
+    }
+
+    // Fail closed before loading seed custody or producing any signature. The
+    // exact active wallet remains stable under the transition lock.
+    {
+        let manifest = zcash.state.manifest.lock().await;
+        ensure_challenge_signing_allowed(&manifest)?;
     }
 
     ensure_active_seed_loaded(&zcash.state, &transition_guard).await?;

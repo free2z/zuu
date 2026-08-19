@@ -76,6 +76,7 @@ import type {
   KycTaxFormUploadResult,
   Livestream,
   LoginResult,
+  AuthenticatedSession,
   OtpStatus,
   Paginated,
   Personality,
@@ -86,6 +87,7 @@ import type {
   PromptResponse,
   SimpleCreator,
   SocialProvider,
+  SocialAuthResult,
   SocialProvidersStatus,
   StreamKind,
   SubscribeResult,
@@ -466,10 +468,11 @@ export const auth = {
    * Login with Zcash).
    *
    * Real flow:
-   *   1. `basicLogin` → Knox Basic-auth login (`/api/token/login/`) mints a token.
+   *   1. `basicLogin` → Knox Basic-auth login (`/api/token/login/`) mints a token
+   *      without storing it.
    *   2. `otpStatus()` (authenticated with that token) reports whether the
    *      account has TOTP 2FA enabled.
-   *   3. If 2FA is ON we DROP the token and return `otp_required`, so an
+   *   3. If 2FA is ON we WITHHOLD the token and return `otp_required`, so an
    *      abandoned code prompt never leaves a live session behind; the caller
    *      finishes via `completeOtp`. If 2FA is OFF, the login is complete.
    *
@@ -481,25 +484,29 @@ export const auth = {
     if (useMock()) {
       await delay();
       if (mockOtpEnabled(username)) return { status: "otp_required", username };
-      setToken("mock-knox-token");
-      return { status: "complete", user: { ...mockUser, username } };
+      return {
+        status: "complete",
+        session: { token: "mock-knox-token", user: { ...mockUser, username } },
+      };
     }
-    await basicLogin(username, password); // sets the Knox token
-    const { enabled } = await auth.otpStatus();
+    const token = await basicLogin(username, password);
+    const { enabled } = await auth.otpStatus(token);
     if (enabled) {
-      setToken(null); // don't persist a session behind an unfinished 2FA prompt
       return { status: "otp_required", username };
     }
-    return { status: "complete", user: await auth.me() };
+    return {
+      status: "complete",
+      session: { token, user: await auth.me(token) },
+    };
   },
 
   /** Whether the currently-authenticated account has TOTP 2FA enabled. */
-  async otpStatus(): Promise<OtpStatus> {
+  async otpStatus(authToken?: string): Promise<OtpStatus> {
     if (useMock()) {
       await delay(120);
       return { enabled: false };
     }
-    return request<OtpStatus>("/api/otp/status/");
+    return request<OtpStatus>("/api/otp/status/", { authToken });
   },
 
   /**
@@ -512,14 +519,16 @@ export const auth = {
     username: string,
     password: string,
     code: string,
-  ): Promise<AuthUser> {
+  ): Promise<AuthenticatedSession> {
     if (useMock()) {
       await delay();
       if (code !== MOCK_OTP_CODE) {
         throw new Error("That code didn't match. (Mock mode expects 123456.)");
       }
-      setToken("mock-knox-token");
-      return { ...mockUser, username };
+      return {
+        token: "mock-knox-token",
+        user: { ...mockUser, username },
+      };
     }
     try {
       await request("/api/otp/login/", {
@@ -535,11 +544,11 @@ export const auth = {
       }
       throw e;
     }
-    await basicLogin(username, password); // establish the real session token
-    return auth.me();
+    const token = await basicLogin(username, password);
+    return { token, user: await auth.me(token) };
   },
 
-  async me(): Promise<AuthUser> {
+  async me(authToken?: string): Promise<AuthUser> {
     if (useMock()) {
       await delay(120);
       return { ...mockUser };
@@ -556,7 +565,7 @@ export const auth = {
       tuzis?: string;
       avatar_image?: RawImage | null;
       banner_image?: RawImage | null;
-    }>("/api/auth/user/", { cache: "no-store" });
+    }>("/api/auth/user/", { cache: "no-store", authToken });
     return {
       username: u.username,
       email: u.email,
@@ -597,20 +606,21 @@ export const auth = {
     challenge: string;
     signature: string;
     pubkey?: string;
-  }): Promise<AuthUser> {
+  }): Promise<AuthenticatedSession> {
     if (useMock()) {
       await delay(400);
-      setToken("mock-knox-token-zcash");
-      return { ...mockUser, zcashLinked: true };
+      return {
+        token: "mock-knox-token-zcash",
+        user: { ...mockUser, zcashLinked: true },
+      };
     }
     const tok = await request<{ token: string }>("/api/auth/zcash/login/", {
       method: "POST",
       body: params,
       anonymous: true,
     });
-    setToken(tok.token);
-    const me = await auth.me();
-    return { ...me, zcashLinked: true };
+    const me = await auth.me(tok.token);
+    return { token: tok.token, user: { ...me, zcashLinked: true } };
   },
 
   /** Ask the backend for a login challenge to sign. */
@@ -718,7 +728,8 @@ export const auth = {
    * Social login / link with a provider (X / Google / GitHub). Runs the
    * OAuth authorization-code round trip over the desktop loopback transport,
    * the mobile free2z-HTTPS-to-app relay, or a web popup fallback
-   * (`../oauth/transport.ts`) — callers see only the resolved `AuthUser`.
+   * (`../oauth/transport.ts`) — callers receive an uncommitted result and own
+   * the final current-attempt session publication.
    *
    * Dual-mode, mirroring `zcashLogin`/`zcashAssociate`:
    *   - `associate: false` (default) — POSTs anonymously; the backend logs
@@ -736,7 +747,7 @@ export const auth = {
   async socialLogin(
     provider: SocialProvider,
     opts: { associate?: boolean } = {},
-  ): Promise<AuthUser> {
+  ): Promise<SocialAuthResult> {
     if (useMock()) {
       throw new Error(
         "Social login isn't available in mock mode — no provider is configured yet.",
@@ -754,7 +765,7 @@ export const auth = {
    * transport. Public so App startup can finish a crash-recovered cold-start
    * callback through exactly the same backend path as the live button flow.
    */
-  async completeSocialOAuth(capture: OAuthCapture): Promise<AuthUser> {
+  async completeSocialOAuth(capture: OAuthCapture): Promise<SocialAuthResult> {
     const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
     await assertMobileOAuthSession(capture);
     const body = {
@@ -788,8 +799,11 @@ export const auth = {
       }
       const me = await auth.me();
       return {
-        ...me,
-        social_identities: { ...me.social_identities, [provider]: true },
+        status: "associated",
+        user: {
+          ...me,
+          social_identities: { ...me.social_identities, [provider]: true },
+        },
       };
     }
 
@@ -802,12 +816,17 @@ export const auth = {
       }
       throw error;
     });
-    setToken(tok.token);
     await finishMobileOAuth(state).catch(() => undefined);
-    const me = await auth.me();
+    const me = await auth.me(tok.token);
     return {
-      ...me,
-      social_identities: { ...me.social_identities, [provider]: true },
+      status: "authenticated",
+      session: {
+        token: tok.token,
+        user: {
+          ...me,
+          social_identities: { ...me.social_identities, [provider]: true },
+        },
+      },
     };
   },
 };

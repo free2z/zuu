@@ -9,6 +9,11 @@ pub struct WalletEntry {
     pub db_filename: String,
     pub birthday_height: Option<u64>,
     pub created_at: String,
+    /// A freshly generated identity cannot sign a login challenge until the
+    /// user has explicitly completed the recovery-phrase backup ceremony.
+    /// Legacy manifests and restored wallets predate/do not need this gate.
+    #[serde(default)]
+    pub backup_required: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +160,7 @@ impl WalletManifest {
             db_filename: "wallet.sqlite".to_string(),
             birthday_height: None,
             created_at: chrono_now(),
+            backup_required: false,
         };
 
         self.wallets.push(entry);
@@ -179,6 +185,18 @@ impl WalletManifest {
             .and_then(|id| self.wallets.iter().find(|w| &w.id == id))
     }
 
+    pub(crate) fn active_backup_required(&self) -> bool {
+        self.get_active()
+            .is_some_and(|wallet| wallet.backup_required)
+    }
+
+    pub(crate) fn is_exact_active_backup_pending(&self, wallet_id: &str) -> bool {
+        self.active_wallet_id.as_deref() == Some(wallet_id)
+            && self
+                .get_active()
+                .is_some_and(|wallet| wallet.backup_required)
+    }
+
     /// Allocate a wallet identity without making it visible or durable.
     ///
     /// Callers initialize the database and commit native seed custody before
@@ -194,7 +212,49 @@ impl WalletManifest {
             db_filename,
             birthday_height,
             created_at: chrono_now(),
+            backup_required: false,
         }
+    }
+
+    /// Mark a newly generated wallet's recovery phrase as requiring backup
+    /// before the entry is ever published in the durable manifest.
+    pub(crate) fn require_backup(entry: &mut WalletEntry) {
+        entry.backup_required = true;
+    }
+
+    /// Atomically clear the backup gate for the exact active wallet.
+    ///
+    /// The wallet ID binding prevents a stale seed screen from acknowledging a
+    /// different identity after a switch. Persistence failure restores memory
+    /// so runtime and restart state cannot disagree.
+    pub(crate) fn confirm_backup(
+        &mut self,
+        data_dir: &Path,
+        wallet_id: &str,
+    ) -> std::io::Result<bool> {
+        if self.active_wallet_id.as_deref() != Some(wallet_id) {
+            return Ok(false);
+        }
+        let Some(wallet) = self
+            .wallets
+            .iter_mut()
+            .find(|wallet| wallet.id == wallet_id)
+        else {
+            return Ok(false);
+        };
+        if !wallet.backup_required {
+            return Ok(true);
+        }
+        wallet.backup_required = false;
+        if let Err(error) = self.save_atomic(data_dir) {
+            self.wallets
+                .iter_mut()
+                .find(|wallet| wallet.id == wallet_id)
+                .expect("active wallet remains present")
+                .backup_required = true;
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// Durably add a fully initialized wallet and set it active.
@@ -499,6 +559,100 @@ mod replacement_tests {
     }
 
     #[test]
+    fn new_wallet_backup_gate_is_published_and_cleared_durably() {
+        let data_dir = test_dir("backup-gate");
+        let mut manifest = WalletManifest {
+            wallets: Vec::new(),
+            active_wallet_id: None,
+        };
+        let mut entry = WalletManifest::prepare_wallet("New identity".into(), Some(42));
+        WalletManifest::require_backup(&mut entry);
+        let wallet_id = entry.id.clone();
+
+        manifest.commit_wallet(&data_dir, entry).unwrap();
+        assert!(manifest.active_backup_required());
+        assert!(
+            WalletManifest::load(&data_dir)
+                .expect("reload required backup")
+                .active_backup_required()
+        );
+
+        assert!(manifest.confirm_backup(&data_dir, &wallet_id).unwrap());
+        assert!(!manifest.active_backup_required());
+        assert!(
+            !WalletManifest::load(&data_dir)
+                .expect("reload confirmed backup")
+                .active_backup_required()
+        );
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn backup_confirmation_binds_active_wallet_and_rolls_back_on_write_failure() {
+        let data_dir = test_dir("backup-confirm-rollback");
+        let mut active = WalletManifest::prepare_wallet("Active".into(), Some(1));
+        WalletManifest::require_backup(&mut active);
+        let other = WalletManifest::prepare_wallet("Other".into(), Some(2));
+        let mut manifest = WalletManifest {
+            wallets: vec![active.clone(), other.clone()],
+            active_wallet_id: Some(active.id.clone()),
+        };
+        manifest.save_atomic(&data_dir).unwrap();
+        assert!(manifest.is_exact_active_backup_pending(&active.id));
+
+        assert!(manifest.set_active(&data_dir, &other.id).unwrap());
+        assert!(
+            !manifest.is_exact_active_backup_pending(&active.id),
+            "a switched-away seed screen cannot retrieve the prior wallet phrase"
+        );
+        assert!(
+            !manifest.confirm_backup(&data_dir, &active.id).unwrap(),
+            "a seed screen from the prior wallet cannot confirm after a switch"
+        );
+        assert!(
+            manifest
+                .wallets
+                .iter()
+                .find(|wallet| wallet.id == active.id)
+                .unwrap()
+                .backup_required
+        );
+        assert!(manifest.set_active(&data_dir, &active.id).unwrap());
+
+        std::fs::remove_file(data_dir.join("wallets.json")).unwrap();
+        std::fs::create_dir(data_dir.join("wallets.json")).unwrap();
+        assert!(manifest.confirm_backup(&data_dir, &active.id).is_err());
+        assert!(
+            manifest.active_backup_required(),
+            "failed persistence must restore the in-memory gate"
+        );
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn legacy_manifest_without_backup_field_defaults_to_complete() {
+        let data_dir = test_dir("legacy-backup-default");
+        std::fs::write(
+            data_dir.join("wallets.json"),
+            r#"{
+              "wallets": [{
+                "id": "legacy",
+                "name": "Legacy",
+                "db_filename": "wallet.sqlite",
+                "birthday_height": null,
+                "created_at": "2025-01-01T00:00:00Z"
+              }],
+              "active_wallet_id": "legacy"
+            }"#,
+        )
+        .unwrap();
+
+        let manifest = WalletManifest::load(&data_dir).expect("load legacy manifest");
+        assert!(!manifest.active_backup_required());
+        std::fs::remove_dir_all(data_dir).expect("remove test directory");
+    }
+
+    #[test]
     fn active_wallet_persistence_failure_rolls_back_memory() {
         let parent = test_dir("activate-rollback");
         let invalid_data_dir = parent.join("not-a-directory");
@@ -621,6 +775,7 @@ mod replacement_tests {
                 db_filename: "../../outside.sqlite".into(),
                 birthday_height: None,
                 created_at: chrono_now(),
+                backup_required: false,
             }],
             active_wallet_id: Some(id),
         };

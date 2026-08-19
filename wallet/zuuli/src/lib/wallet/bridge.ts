@@ -61,6 +61,16 @@ export const wallet = {
     return invoke("get_seed_phrase");
   },
 
+  async getBackupSeedPhrase(walletId: string): Promise<string> {
+    if (useMock()) return mockWallet.getBackupSeedPhrase(walletId);
+    return invoke("get_backup_seed_phrase", { args: { walletId } });
+  },
+
+  async confirmWalletBackup(walletId: string): Promise<void> {
+    if (useMock()) return mockWallet.confirmWalletBackup(walletId);
+    return invoke("confirm_wallet_backup", { args: { walletId } });
+  },
+
   async listAccounts(): Promise<AccountInfo[]> {
     if (useMock()) return mockWallet.listAccounts();
     return invoke("list_accounts");

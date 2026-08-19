@@ -13,10 +13,17 @@ import { cn } from "@/lib/utils";
 
 interface SeedRevealProps {
   seedPhrase: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
+  confirming?: boolean;
+  error?: string | null;
 }
 
-export function SeedReveal({ seedPhrase, onConfirm }: SeedRevealProps) {
+export function SeedReveal({
+  seedPhrase,
+  onConfirm,
+  confirming = false,
+  error,
+}: SeedRevealProps) {
   const [revealed, setRevealed] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const words = seedPhrase.trim().split(/\s+/);
@@ -96,12 +103,18 @@ export function SeedReveal({ seedPhrase, onConfirm }: SeedRevealProps) {
 
       <Separator />
 
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+
       <label className="min-h-11 flex cursor-pointer items-start gap-3 text-sm">
         <input
           type="checkbox"
           checked={acknowledged}
           onChange={(e) => setAcknowledged(e.target.checked)}
-          disabled={!revealed}
+          disabled={!revealed || confirming}
           className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))] disabled:opacity-40"
         />
         <span className={cn(!revealed && "text-muted-foreground")}>
@@ -114,11 +127,11 @@ export function SeedReveal({ seedPhrase, onConfirm }: SeedRevealProps) {
         type="button"
         size="lg"
         className="w-full"
-        disabled={!acknowledged}
-        onClick={onConfirm}
+        disabled={!acknowledged || confirming}
+        onClick={() => void onConfirm()}
       >
         <Check className="h-4 w-4" aria-hidden />
-        I saved it — continue
+        {confirming ? "Saving confirmation…" : "I saved it — continue"}
       </Button>
     </div>
   );

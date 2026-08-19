@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs && playwright test",
+    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/auth-session-boundary.node-test.mjs && playwright test",
     "test:viewport": "playwright test tests/viewport.pw.ts",
     "test:asc-testflight": "node --test scripts/asc-testflight.node-test.mjs",
     "test:store-listing": "node --test scripts/store-contract.node-test.mjs scripts/store-state-audit.node-test.mjs",

@@ -16,6 +16,8 @@ import { NotFound } from "@/components/common/NotFound";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { auth } from "@/lib/api/free2z";
+import { setToken } from "@/lib/api/http";
+import { useAttemptLease } from "@/hooks/useAttemptLease";
 import { recoverMobileOAuth } from "@/lib/oauth/transport";
 import {
   clearPendingSocialLoginDestination,
@@ -63,6 +65,7 @@ function MobileOAuthRecovery() {
   const setUser = useSession((state) => state.setUser);
   const sessionLoading = useSession((state) => state.loading);
   const started = useRef(false);
+  const attempt = useAttemptLease();
 
   useEffect(() => {
     // The pending record is bound to the Knox session that initiated it.
@@ -72,11 +75,18 @@ function MobileOAuthRecovery() {
     // state is one-shot too, but this guard avoids two backend exchanges.
     if (started.current) return;
     started.current = true;
+    const isCurrent = attempt.begin();
     void recoverMobileOAuth()
       .then(async (capture) => {
-        if (!capture) return;
-        const user = await auth.completeSocialOAuth(capture);
-        setUser(user);
+        if (!isCurrent() || !capture) return;
+        const result = await auth.completeSocialOAuth(capture);
+        if (!isCurrent()) return;
+        if (result.status === "authenticated") {
+          setToken(result.session.token);
+          setUser(result.session.user);
+        } else {
+          setUser(result.user);
+        }
         toast.success(capture.associate ? "Account linked" : "Welcome to ZUULI", {
           description: `Finished ${capture.provider} sign-in after returning to the app.`,
         });
@@ -87,12 +97,13 @@ function MobileOAuthRecovery() {
         }
       })
       .catch((error) => {
+        if (!isCurrent()) return;
         clearPendingSocialLoginDestination();
         toast.error("Couldn't finish sign-in", {
           description: error instanceof Error ? error.message : "Please try again.",
         });
       });
-  }, [navigate, sessionLoading, setUser]);
+  }, [attempt, navigate, sessionLoading, setUser]);
 
   return null;
 }

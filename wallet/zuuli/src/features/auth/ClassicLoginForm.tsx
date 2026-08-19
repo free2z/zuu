@@ -10,9 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { auth } from "@/lib/api/free2z";
-import type { AuthUser } from "@/lib/api/types";
+import { setToken } from "@/lib/api/http";
+import type { AuthenticatedSession } from "@/lib/api/types";
 import { useSession } from "@/store/session";
 import type { LoginDestination } from "@/lib/auth/login-destination";
+import { useAttemptLease, type IsCurrentAttempt } from "@/hooks/useAttemptLease";
 
 export function ClassicLoginForm({
   loginDestination = "/",
@@ -30,11 +32,14 @@ export function ClassicLoginForm({
   // When 2FA is required, we advance to the code step; the password stays in
   // component memory only long enough to complete the second factor.
   const [needsOtp, setNeedsOtp] = useState(false);
+  const attempt = useAttemptLease();
 
-  function land(user: AuthUser) {
-    setUser(user);
+  function land(session: AuthenticatedSession, isCurrent: IsCurrentAttempt) {
+    if (!isCurrent()) return;
+    setToken(session.token);
+    setUser(session.user);
     toast.success("Welcome back", {
-      description: `Logged in as ${user.username}.`,
+      description: `Logged in as ${session.user.username}.`,
     });
     navigate(loginDestination, { replace: true });
   }
@@ -43,22 +48,27 @@ export function ClassicLoginForm({
     e.preventDefault();
     if (!username || !password || submitting) return;
     setSubmitting(true);
+    const isCurrent = attempt.begin();
     onBusyChange?.(true);
     setError(null);
     try {
       const result = await auth.login(username.trim(), password);
+      if (!isCurrent()) return;
       if (result.status === "otp_required") {
         setNeedsOtp(true);
       } else {
-        land(result.user);
+        land(result.session, isCurrent);
       }
     } catch (err) {
+      if (!isCurrent()) return;
       setError(
         err instanceof Error ? err.message : "Sign-in failed. Check your details.",
       );
     } finally {
-      setSubmitting(false);
-      onBusyChange?.(false);
+      if (isCurrent()) {
+        setSubmitting(false);
+        onBusyChange?.(false);
+      }
     }
   }
 
@@ -68,8 +78,10 @@ export function ClassicLoginForm({
         username={username.trim()}
         password={password}
         onVerified={land}
+        beginAttempt={attempt.begin}
         onBusyChange={onBusyChange}
         onBack={() => {
+          attempt.invalidate();
           setNeedsOtp(false);
           setError(null);
         }}
@@ -133,12 +145,14 @@ function OtpStep({
   username,
   password,
   onVerified,
+  beginAttempt,
   onBack,
   onBusyChange,
 }: {
   username: string;
   password: string;
-  onVerified: (user: AuthUser) => void;
+  onVerified: (session: AuthenticatedSession, isCurrent: IsCurrentAttempt) => void;
+  beginAttempt: () => IsCurrentAttempt;
   onBack: () => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
@@ -150,17 +164,22 @@ function OtpStep({
     e.preventDefault();
     if (code.length !== 6 || submitting) return;
     setSubmitting(true);
+    const isCurrent = beginAttempt();
     onBusyChange?.(true);
     setError(null);
     try {
-      const user = await auth.completeOtp(username, password, code);
-      onVerified(user);
+      const session = await auth.completeOtp(username, password, code);
+      if (!isCurrent()) return;
+      onVerified(session, isCurrent);
     } catch (err) {
+      if (!isCurrent()) return;
       setError(err instanceof Error ? err.message : "Verification failed.");
       setCode("");
     } finally {
-      setSubmitting(false);
-      onBusyChange?.(false);
+      if (isCurrent()) {
+        setSubmitting(false);
+        onBusyChange?.(false);
+      }
     }
   }
 

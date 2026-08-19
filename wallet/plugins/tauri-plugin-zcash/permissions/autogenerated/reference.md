@@ -9,6 +9,8 @@ Default permissions for the Zcash wallet plugin
 - `allow-get-wallet-status`
 - `allow-retry-wallet-cleanup`
 - `allow-get-seed-phrase`
+- `allow-get-backup-seed-phrase`
+- `allow-confirm-wallet-backup`
 - `allow-get-viewing-key`
 - `allow-get-spending-key`
 - `allow-list-wallets`
@@ -44,6 +46,32 @@ Default permissions for the Zcash wallet plugin
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`zcash:allow-confirm-wallet-backup`
+
+</td>
+<td>
+
+Enables the confirm_wallet_backup command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-confirm-wallet-backup`
+
+</td>
+<td>
+
+Denies the confirm_wallet_backup command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -223,6 +251,32 @@ Enables the get_account_balance command without any pre-configured scope.
 <td>
 
 Denies the get_account_balance command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-get-backup-seed-phrase`
+
+</td>
+<td>
+
+Enables the get_backup_seed_phrase command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-get-backup-seed-phrase`
+
+</td>
+<td>
+
+Denies the get_backup_seed_phrase command without any pre-configured scope.
 
 </td>
 </tr>

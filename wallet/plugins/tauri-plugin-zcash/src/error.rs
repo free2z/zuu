@@ -13,6 +13,9 @@ pub enum Error {
     #[error("wallet already initialized")]
     WalletAlreadyInitialized,
 
+    #[error("recovery phrase backup must be confirmed before signing")]
+    BackupRequired,
+
     #[error("invalid mnemonic: {0}")]
     InvalidMnemonic(String),
 
