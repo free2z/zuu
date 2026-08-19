@@ -162,7 +162,14 @@ come from a code allowlist, never a provider URL or response. If a primary audit
 failure is followed by failure to delete its temporary Play edit, evidence also
 sets `temporaryEditCleanupFailed: true` while retaining the primary stage. The
 workflow then fails after credential cleanup; an artifact is not a successful
-audit verdict. Dispatch only after the source has merged:
+audit verdict.
+
+The Publisher API does not expose Play Console email-list membership. An exact
+empty `Testers` resource therefore means zero API-visible Google Groups, not
+zero internal testers; the audit preserves the owner-declared email-list mode
+and never reads or changes tester identities.
+
+Dispatch only after the source has merged:
 
 ```bash
 source_sha=$(git rev-parse origin/main)

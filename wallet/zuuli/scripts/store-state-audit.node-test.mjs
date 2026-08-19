@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
-import { auditAppleStore, auditPlayStore, main, parsePlayImages, StoreAuditError } from "./store-state-audit.mjs";
+import { auditAppleStore, auditPlayStore, main, parsePlayImages, parsePlayTesterGroupCount, StoreAuditError } from "./store-state-audit.mjs";
 
 const expected = {
   release: { version: "0.1.0", build: 10 },
@@ -98,7 +98,7 @@ test("Apple audit rejects duplicate locale/display-type screenshot sets", async 
   await assert.rejects(() => auditAppleStore({ credentials: appleCredentials, expected, fetchImpl, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "AMBIGUOUS_REMOTE_STATE");
 });
 
-function playMock({ groups = [], invalidListings = false, invalidDetails = false, invalidTrack = false, invalidTesters = false, editId = "audit-edit", listingFailures = 0, deleteFailures = 0, testerStatus = 200, listingTitle = "ZUULI", releaseNotes = "release notes", missingBrandType, duplicateBrandType, imagePayload } = {}) {
+function playMock({ groups = [], testersPayload, invalidListings = false, invalidDetails = false, invalidTrack = false, invalidTesters = false, editId = "audit-edit", listingFailures = 0, deleteFailures = 0, testerStatus = 200, listingTitle = "ZUULI", releaseNotes = "release notes", missingBrandType, duplicateBrandType, imagePayload } = {}) {
   const calls = [];
   let remainingListingFailures = listingFailures;
   let remainingDeleteFailures = deleteFailures;
@@ -119,7 +119,7 @@ function playMock({ groups = [], invalidListings = false, invalidDetails = false
       }
       if (url.pathname.endsWith("/details")) return invalidDetails ? json([]) : json({ defaultLanguage: "en-US", contactEmail: "help@example.com", contactWebsite: "https://example.com/" });
       if (url.pathname.endsWith("/tracks/internal")) return invalidTrack ? json({}) : json({ track: "internal", releases: [{ versionCodes: ["10"], releaseNotes: [{ language: "en-US", text: releaseNotes }] }] });
-      if (url.pathname.endsWith("/testers/internal")) return invalidTesters ? json({}) : testerStatus === 200 ? json({ googleGroups: groups }) : json({ error: { status: "PERMISSION_DENIED" } }, testerStatus);
+      if (url.pathname.endsWith("/testers/internal")) return testersPayload !== undefined ? json(testersPayload) : invalidTesters ? json({ googleGroups: null }) : testerStatus === 200 ? json({ googleGroups: groups }) : json({ error: { status: "PERMISSION_DENIED" } }, testerStatus);
       if (url.pathname.includes("/listings/en-US/")) {
         if (imagePayload !== undefined) return json(imagePayload);
         const imageType = url.pathname.split("/").at(-1);
@@ -152,6 +152,47 @@ test("Play group configuration is flagged without logging group addresses", asyn
   assert.equal(evidence.testerEligibility.publisherApiObservation, "publisher_api_google_groups");
   assert.equal(evidence.testerEligibility.consistentWithOwnerMode, false);
   assert.equal(JSON.stringify(evidence).includes(marker), false);
+});
+
+test("Play treats the live empty Testers resource as zero API-visible Google Groups", async () => {
+  const mock = playMock({ testersPayload: {} });
+  const evidence = await auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 });
+  assert.equal(evidence.testerEligibility.publisherApiObservation, "no_api_visible_google_groups");
+  assert.equal(evidence.testerEligibility.publisherApiGroupCount, 0);
+  assert.equal(evidence.testerEligibility.consistentWithOwnerMode, true);
+  assert.equal(evidence.testerEligibility.emailListIdentitiesReadable, false);
+  assert.equal(mock.calls.at(-1).method, "DELETE");
+});
+
+test("Play Testers parser accepts only exact empty or one-array-member resources", () => {
+  const marker = "Bearer hostile-token attacker@example.invalid";
+  assert.equal(parsePlayTesterGroupCount({}), 0);
+  assert.equal(parsePlayTesterGroupCount({ googleGroups: [] }), 0);
+  const parsed = parsePlayTesterGroupCount({ googleGroups: [marker] });
+  assert.equal(parsed, 1);
+  assert.equal(JSON.stringify(parsed).includes(marker), false);
+  for (const payload of [
+    null,
+    [],
+    "",
+    Object.create(null),
+    new Date("2026-08-19T00:00:00Z"),
+    { foo: marker },
+    { googleGroups: [], foo: marker },
+    { googleGroups: null },
+    { googleGroups: {} },
+    { googleGroups: [marker, 7] },
+    { error: { message: marker } },
+    { errors: [{ message: marker }] },
+  ]) {
+    assert.throws(
+      () => parsePlayTesterGroupCount(payload),
+      (error) => {
+        const errorState = JSON.stringify({ code: error?.code, message: error?.message, stage: error?.stage, status: error?.status });
+        return error instanceof StoreAuditError && error.code === "INVALID_RESPONSE" && error.stage === "testers" && !errorState.includes(marker);
+      },
+    );
+  }
 });
 
 test("Play completeness rejects stale listing copy", async () => {
