@@ -293,7 +293,9 @@ for (const signedIn of [false, true]) {
       await page.keyboard.press("Escape");
 
       await page.goto("/login");
-      await page.getByRole("button", { name: "Continue with Zcash" }).click();
+      await page.getByRole("button", { name: "Zcash", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Zcash" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
       routeFailures.push(
         ...(await auditTouchTargets(page)).failures.map(
           (failure) => `/login?method=zcash: ${failure}`,

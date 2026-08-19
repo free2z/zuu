@@ -106,14 +106,14 @@ export function SocialButtons({
         onLinked?.(provider);
       } else {
         toast.success("Welcome to ZUULI", {
-          description: `Signed in with ${name}.`,
+          description: `Logged in with ${name}.`,
         });
         clearPendingSocialLoginDestination();
         navigate(loginDestination, { replace: true });
       }
     } catch (e) {
       if (!associate) clearPendingSocialLoginDestination();
-      toast.error(associate ? "Couldn't link that account" : "Couldn't sign in", {
+      toast.error(associate ? "Couldn't link that account" : "Couldn't log in", {
         description: e instanceof Error ? e.message : "Please try again.",
       });
     } finally {

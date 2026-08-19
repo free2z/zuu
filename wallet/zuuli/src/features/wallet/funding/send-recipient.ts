@@ -483,7 +483,7 @@ export function transferFailureIsAmbiguous(failure: TransferFailure): boolean {
 }
 
 export const TRANSFER_FAILURE_MESSAGES: Record<TransferFailure, string> = {
-  auth: "Your session expired. Sign in again before sending 2Z.",
+  auth: "Your session expired. Log in again before sending 2Z.",
   balance: "Your 2Z balance changed and is no longer enough for this tip.",
   "not-found":
     "That creator is no longer available. Search again before sending.",

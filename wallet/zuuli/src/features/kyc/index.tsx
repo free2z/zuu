@@ -34,11 +34,11 @@ export default function KycFeature() {
         <PageHeader title="Apply for revenue share" />
         <EmptyState
           icon={Lock}
-          title="Sign in to apply"
-          description="Sign in with Zcash to start your creator revenue-share application."
+          title="Log in to apply"
+          description="Log in to start your creator revenue-share application."
           action={
             <Button asChild>
-              <Link to="/login">Sign in with Zcash</Link>
+              <Link to="/login">Log in</Link>
             </Button>
           }
         />

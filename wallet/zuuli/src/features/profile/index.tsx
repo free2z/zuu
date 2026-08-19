@@ -38,11 +38,11 @@ export default function ProfileFeature() {
         <PageHeader title="Edit profile" />
         <EmptyState
           icon={Lock}
-          title="Sign in with Zcash to edit your profile"
-          description="Sign a challenge with your wallet — no password or email required."
+          title="Log in to edit your profile"
+          description="Choose your login method to continue."
           action={
             <Button asChild>
-              <Link to="/login">Sign in with Zcash</Link>
+              <Link to="/login">Log in</Link>
             </Button>
           }
         />

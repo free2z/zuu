@@ -6,13 +6,13 @@
 
 import {
   AlertCircle,
-  ArrowRight,
   Check,
   Fingerprint,
   Loader2,
   RotateCw,
   Sparkles,
 } from "lucide-react";
+import { useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { truncateAddress } from "@/lib/format";
@@ -57,8 +57,10 @@ function StepIcon({ status }: { status: StepStatus }) {
 
 export function ZcashLoginFlow({
   loginDestination = "/",
+  onBusyChange,
 }: {
   loginDestination?: LoginDestination;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const flow = useZcashLogin(loginDestination);
   const {
@@ -73,29 +75,33 @@ export function ZcashLoginFlow({
     retry,
   } = flow;
 
+  useEffect(() => {
+    const busy = phase === "running" || phase === "creating" || phase === "success";
+    onBusyChange?.(busy);
+  }, [onBusyChange, phase]);
+
   // ── Initial call-to-action ────────────────────────────────────────────────
   if (phase === "idle") {
     return (
-      <div className="space-y-5">
-        <div className="flex items-start gap-3 rounded-lg border border-border bg-background/40 p-4">
-          <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-            <Fingerprint className="h-5 w-5" aria-hidden />
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-background/40 p-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+            <Fingerprint aria-hidden />
           </span>
           <p className="text-sm text-muted-foreground">
-            Sign a one-time challenge with your Zcash key to prove it is yours.
-            No password, no email, no third party — the key never leaves this
-            device.
+            Your key signs a one-time challenge and never leaves this device.
           </p>
         </div>
         <Button
-          size="xl"
+          size="lg"
           className="w-full"
-          onClick={start}
-          aria-label="Login with Zcash"
+          onClick={() => {
+            onBusyChange?.(true);
+            start();
+          }}
         >
           <Sparkles className="h-5 w-5" aria-hidden />
-          Login with Zcash
-          <ArrowRight className="h-5 w-5" aria-hidden />
+          Continue
         </Button>
       </div>
     );
@@ -116,7 +122,10 @@ export function ZcashLoginFlow({
         <Button
           size="xl"
           className="w-full"
-          onClick={() => void createIdentity()}
+          onClick={() => {
+            onBusyChange?.(true);
+            void createIdentity();
+          }}
           disabled={creating}
         >
           {creating ? (
@@ -132,7 +141,15 @@ export function ZcashLoginFlow({
 
   // ── Freshly created — back up the recovery phrase before continuing ───────
   if (phase === "seedReveal" && seedPhrase) {
-    return <SeedReveal seedPhrase={seedPhrase} onConfirm={confirmSeedSaved} />;
+    return (
+      <SeedReveal
+        seedPhrase={seedPhrase}
+        onConfirm={() => {
+          onBusyChange?.(true);
+          confirmSeedSaved();
+        }}
+      />
+    );
   }
 
   // ── Success terminal ──────────────────────────────────────────────────────
@@ -145,7 +162,7 @@ export function ZcashLoginFlow({
         <div>
           <p className="text-lg font-semibold">Identity verified</p>
           <p className="text-sm text-muted-foreground">
-            Signing you in to ZUULI…
+            Logging you in to ZUULI…
           </p>
         </div>
       </div>
@@ -215,7 +232,13 @@ export function ZcashLoginFlow({
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <span>{error ?? "The login could not be completed."}</span>
           </div>
-          <Button className="w-full" onClick={retry}>
+          <Button
+            className="w-full"
+            onClick={() => {
+              onBusyChange?.(true);
+              retry();
+            }}
+          >
             <RotateCw className="h-4 w-4" aria-hidden />
             Try again
           </Button>

@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Link2, Loader2, LogIn, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,8 +16,10 @@ import type { LoginDestination } from "@/lib/auth/login-destination";
 
 export function ClassicLoginForm({
   loginDestination = "/",
+  onBusyChange,
 }: {
   loginDestination?: LoginDestination;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const navigate = useNavigate();
   const setUser = useSession((s) => s.setUser);
@@ -32,7 +34,7 @@ export function ClassicLoginForm({
   function land(user: AuthUser) {
     setUser(user);
     toast.success("Welcome back", {
-      description: `Signed in as ${user.username}.`,
+      description: `Logged in as ${user.username}.`,
     });
     navigate(loginDestination, { replace: true });
   }
@@ -41,6 +43,7 @@ export function ClassicLoginForm({
     e.preventDefault();
     if (!username || !password || submitting) return;
     setSubmitting(true);
+    onBusyChange?.(true);
     setError(null);
     try {
       const result = await auth.login(username.trim(), password);
@@ -55,6 +58,7 @@ export function ClassicLoginForm({
       );
     } finally {
       setSubmitting(false);
+      onBusyChange?.(false);
     }
   }
 
@@ -64,6 +68,7 @@ export function ClassicLoginForm({
         username={username.trim()}
         password={password}
         onVerified={land}
+        onBusyChange={onBusyChange}
         onBack={() => {
           setNeedsOtp(false);
           setError(null);
@@ -116,14 +121,8 @@ export function ClassicLoginForm({
         ) : (
           <LogIn className="h-4 w-4" aria-hidden />
         )}
-        {submitting ? "Signing in…" : "Sign in"}
+        {submitting ? "Logging in…" : "Log in"}
       </Button>
-
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Link2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        You can link this account to your Zcash identity later for keys-only
-        sign-in.
-      </p>
     </form>
   );
 }
@@ -135,11 +134,13 @@ function OtpStep({
   password,
   onVerified,
   onBack,
+  onBusyChange,
 }: {
   username: string;
   password: string;
   onVerified: (user: AuthUser) => void;
   onBack: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -149,6 +150,7 @@ function OtpStep({
     e.preventDefault();
     if (code.length !== 6 || submitting) return;
     setSubmitting(true);
+    onBusyChange?.(true);
     setError(null);
     try {
       const user = await auth.completeOtp(username, password, code);
@@ -158,6 +160,7 @@ function OtpStep({
       setCode("");
     } finally {
       setSubmitting(false);
+      onBusyChange?.(false);
     }
   }
 
@@ -170,7 +173,7 @@ function OtpStep({
         <div className="space-y-0.5">
           <p className="text-sm font-medium">Two-factor authentication</p>
           <p className="text-sm text-muted-foreground">
-            Enter the 6-digit code from your authenticator app to finish signing
+            Enter the 6-digit code from your authenticator app to finish logging
             in as{" "}
             <span className="font-medium text-foreground">{username}</span>.
           </p>
@@ -210,7 +213,7 @@ function OtpStep({
         ) : (
           <ShieldCheck className="h-4 w-4" aria-hidden />
         )}
-        {submitting ? "Verifying…" : "Verify and sign in"}
+        {submitting ? "Verifying…" : "Verify and log in"}
       </Button>
 
       <Button

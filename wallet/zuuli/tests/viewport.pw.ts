@@ -326,14 +326,18 @@ test("signed-out card checkout returns to Wallet funding after login at 320px", 
   await page.goto("/wallet/fund");
   await page.locator("[data-app-frame]").waitFor();
 
-  await page.getByRole("button", { name: "Sign in to buy" }).click();
+  await page.getByRole("button", { name: "Log in to buy" }).click();
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByText("Sign in to ZUULI", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
   expect((await auditHorizontalLayout(page)).failures).toEqual([]);
 
+  await page.getByRole("button", { name: "Password" }).click();
   await page.getByLabel("Email or username").fill("checkout-return");
   await page.getByLabel("Password").fill("mock-password");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page
+    .locator("[data-auth-selected='password']")
+    .getByRole("button", { name: "Log in", exact: true })
+    .click();
 
   await expect(page).toHaveURL(/\/wallet\/fund$/);
   await expect(page.getByRole("button", { name: "Pay with card" })).toBeVisible();

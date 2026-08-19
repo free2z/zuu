@@ -21,7 +21,7 @@ const POINTS = [
   {
     icon: KeyRound,
     title: "You prove control by signing",
-    body: "To sign in you sign a fresh, one-time challenge with your key using ZIP-304. The signature proves you hold the key without ever revealing it.",
+    body: "To log in you sign a fresh, one-time challenge with your key using ZIP-304. The signature proves you hold the key without ever revealing it.",
   },
   {
     icon: ShieldCheck,

@@ -69,7 +69,7 @@ export function useZcashLogin(
     onVerified: (user) => setUser(user),
     afterSuccess: async () => {
       toast.success("Welcome to ZUULI", {
-        description: "Signed in with your Zcash key.",
+        description: "Logged in with your Zcash key.",
       });
       await new Promise((r) => setTimeout(r, 700));
       navigate(loginDestination, { replace: true });

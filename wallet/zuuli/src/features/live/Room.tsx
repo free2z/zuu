@@ -552,7 +552,7 @@ function JoinPanel({
               <Button asChild className="w-full gap-2" size="lg">
                 <Link to="/login">
                   <KeyRound className="h-4 w-4" aria-hidden />
-                  Sign in to subscribe
+                  Log in to subscribe
                 </Link>
               </Button>
             ) : membershipError ? (

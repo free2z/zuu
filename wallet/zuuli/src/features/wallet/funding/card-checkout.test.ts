@@ -97,7 +97,7 @@ describe("card checkout failure guidance", () => {
     "sends an HTTP %i session failure back to sign-in",
     (status) => {
       expect(cardCheckoutFeedback(new ApiError(status, "auth"))).toMatchObject({
-        title: "Sign in again",
+        title: "Log in again",
         signIn: true,
       });
     },

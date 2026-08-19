@@ -29,6 +29,21 @@ let tip = 2_612_004;
 let synced = 2_612_004;
 let syncing = false;
 
+/**
+ * Browser-only scenarios for exercising states that otherwise require a
+ * freshly installed device or a native wallet failure. Kept behind the mock
+ * wallet boundary so production/native behavior cannot observe them.
+ */
+const MOCK_WALLET_SCENARIO_KEY = "zuuli.mock.wallet-scenario";
+function mockWalletScenario(): "empty" | "sign-error" | null {
+  try {
+    const value = globalThis.localStorage?.getItem(MOCK_WALLET_SCENARIO_KEY);
+    return value === "empty" || value === "sign-error" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 const balance: AccountBalance = {
   accountIndex: 0,
   totalShielded: 137_400_000, // 1.374 ZEC
@@ -68,9 +83,10 @@ let proposalCounter = 1;
 
 export const mockWallet = {
   getWalletStatus(): WalletStatus {
+    const initialized = mockWalletScenario() === "empty" ? false : created;
     return {
-      initialized: created,
-      hasSeed: created,
+      initialized,
+      hasSeed: initialized,
       syncedHeight: synced,
       chainTip: tip,
       activeWalletId: "mock-wallet-0",
@@ -206,6 +222,9 @@ export const mockWallet = {
   },
   discardUnrecoverableSend() {},
   signChallenge(challenge: string): SignedChallenge {
+    if (mockWalletScenario() === "sign-error") {
+      throw new Error("The mock wallet could not sign this challenge.");
+    }
     // A believable-looking signature. Real signing happens in the Rust plugin
     // (ZIP-304); this keeps the browser demo flowing.
     const sig = btoa(`${MOCK_UA}:${challenge}`).replace(/=+$/, "");
