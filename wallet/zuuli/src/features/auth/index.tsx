@@ -6,7 +6,7 @@
 // (with 2FA when enabled) and, soon, X / Google follow below as alternatives.
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight, HelpCircle, ShieldCheck } from "lucide-react";
 import { Wordmark } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
@@ -24,10 +24,13 @@ import { BrandPanel } from "./BrandPanel";
 import { ClassicLoginForm } from "./ClassicLoginForm";
 import { ZcashLoginFlow } from "./ZcashLoginFlow";
 import { ZShieldInfo } from "./ZShieldInfo";
+import { loginDestinationFromState } from "@/lib/auth/login-destination";
 
 type Method = "chooser" | "zcash";
 
 export default function AuthFeature() {
+  const location = useLocation();
+  const loginDestination = loginDestinationFromState(location.state);
   const bootstrap = useWallet((s) => s.bootstrap);
   const [method, setMethod] = useState<Method>("chooser");
 
@@ -75,7 +78,7 @@ export default function AuthFeature() {
                       <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
                       All sign-in options
                     </button>
-                    <ZcashLoginFlow />
+                    <ZcashLoginFlow loginDestination={loginDestination} />
                   </div>
                 ) : (
                   <>
@@ -105,11 +108,11 @@ export default function AuthFeature() {
                     </div>
 
                     {/* Alternative — email/username + password (with 2FA) */}
-                    <ClassicLoginForm />
+                    <ClassicLoginForm loginDestination={loginDestination} />
 
                     {/* X / Google / GitHub — renders only for providers the
                         backend reports as configured (none, today) */}
-                    <SocialButtons />
+                    <SocialButtons loginDestination={loginDestination} />
 
                     <div className="flex items-center justify-between">
                       <ZShieldInfo>

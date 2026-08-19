@@ -207,3 +207,25 @@ for (const signedIn of [false, true]) {
     });
   }
 }
+
+test("signed-out card checkout returns to Buy after login at 320px", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await setSession(page, false);
+  await page.goto("/buy");
+  await page.locator("[data-app-frame]").waitFor();
+
+  await page.getByRole("button", { name: "Sign in to buy" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByText("Sign in to ZUULI", { exact: true })).toBeVisible();
+  expect((await auditHorizontalLayout(page)).failures).toEqual([]);
+
+  await page.getByLabel("Email or username").fill("checkout-return");
+  await page.getByLabel("Password").fill("mock-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/buy$/);
+  await expect(page.getByRole("button", { name: "Pay with card" })).toBeVisible();
+  expect((await auditHorizontalLayout(page)).failures).toEqual([]);
+});

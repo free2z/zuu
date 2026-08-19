@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
-import { CreditCard, Check, Loader2, ShieldCheck, Wallet } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  CreditCard,
+  Check,
+  Loader2,
+  LogIn,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Card,
   CardContent,
@@ -43,15 +50,11 @@ import {
   settleZecTopUpDemo,
   type ZecTopUpDemoRuntime,
 } from "./zec-top-up-demo";
-
-/** Open an external URL, falling back to a browser tab outside Tauri. */
-async function open(url: string) {
-  try {
-    await openUrl(url);
-  } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-}
+import {
+  cardCheckoutFeedback,
+  openCardCheckout,
+  startCardCheckout,
+} from "./card-checkout";
 
 type QuoteState =
   | { status: "idle" }
@@ -60,6 +63,9 @@ type QuoteState =
   | { status: "error" };
 
 export function BuyTab() {
+  const navigate = useNavigate();
+  const user = useSession((s) => s.user);
+  const sessionLoading = useSession((s) => s.loading);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const spendable = useWallet((s) => s.balance?.spendable ?? 0);
   const zecDemoRuntime: ZecTopUpDemoRuntime = {
@@ -129,17 +135,30 @@ export function BuyTab() {
 
   async function payWithCard() {
     if (!valid || amount === null) return;
-    setCardLoading(true);
+    const authenticated = user !== null;
+    if (authenticated) setCardLoading(true);
     try {
-      const { url } = await tuzi.buyCheckout(amount);
+      const result = await startCardCheckout({
+        authenticated,
+        amount,
+        createCheckout: tuzi.buyCheckout,
+        openCheckout: openCardCheckout,
+      });
+      if (result === "sign-in") {
+        navigate("/login", { state: { returnTo: "/buy" } });
+        return;
+      }
       toast.info("Opening secure checkout…", {
         description: "Complete your purchase with Stripe.",
       });
-      await open(url);
-    } catch {
-      toast.error("Could not start checkout. Please try again.");
+    } catch (error) {
+      const feedback = cardCheckoutFeedback(error);
+      toast.error(feedback.title, { description: feedback.description });
+      if (feedback.signIn) {
+        navigate("/login", { state: { returnTo: "/buy" } });
+      }
     } finally {
-      setCardLoading(false);
+      if (authenticated) setCardLoading(false);
     }
   }
 
@@ -267,15 +286,17 @@ export function BuyTab() {
           <Button
             size="lg"
             className="w-full"
-            disabled={!valid || cardLoading}
+            disabled={!valid || cardLoading || sessionLoading}
             onClick={payWithCard}
           >
             {cardLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
+            ) : !user ? (
+              <LogIn className="h-4 w-4" />
             ) : (
               <CreditCard className="h-4 w-4" />
             )}
-            Pay with card
+            {user ? "Pay with card" : "Sign in to buy"}
           </Button>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />

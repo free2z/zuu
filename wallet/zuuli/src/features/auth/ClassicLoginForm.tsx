@@ -12,8 +12,13 @@ import { Label } from "@/components/ui/label";
 import { auth } from "@/lib/api/free2z";
 import type { AuthUser } from "@/lib/api/types";
 import { useSession } from "@/store/session";
+import type { LoginDestination } from "@/lib/auth/login-destination";
 
-export function ClassicLoginForm() {
+export function ClassicLoginForm({
+  loginDestination = "/",
+}: {
+  loginDestination?: LoginDestination;
+}) {
   const navigate = useNavigate();
   const setUser = useSession((s) => s.setUser);
   const [username, setUsername] = useState("");
@@ -29,7 +34,7 @@ export function ClassicLoginForm() {
     toast.success("Welcome back", {
       description: `Signed in as ${user.username}.`,
     });
-    navigate("/");
+    navigate(loginDestination, { replace: true });
   }
 
   async function onSubmit(e: React.FormEvent) {
