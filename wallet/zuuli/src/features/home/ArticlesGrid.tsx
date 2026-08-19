@@ -3,6 +3,7 @@ import { BookOpen, Clock, ChevronUp } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { initials, timeAgo } from "@/lib/format";
 import { articles } from "@/lib/api/free2z";
 import { useAsync } from "@/hooks/useAsync";
@@ -88,11 +89,12 @@ function ArticleSkeleton() {
 
 export function ArticlesGrid() {
   // Fresh (recency-decayed) — just the first few for the home rail.
-  const { data, loading } = useAsync(
+  const { data, loading, error, reload } = useAsync(
     () => articles.feed({ sort: "popular", pageSize: 3 }),
     [],
   );
   const top = (data?.items ?? []).slice(0, 3);
+  const initialLoading = loading && data === null;
 
   return (
     <div>
@@ -102,13 +104,29 @@ export function ArticlesGrid() {
         subtitle="Long-form writing from the community"
         to="/articles"
       />
-      {loading ? (
+      {error ? (
+        <SectionLoadError
+          className="mb-4"
+          title={
+            data ? "Articles may be out of date" : "Couldn't load articles"
+          }
+          description={
+            data
+              ? "Showing the last confirmed articles. Retry for the latest writing."
+              : "We couldn't reach the article feed."
+          }
+          retry={reload}
+          retrying={loading}
+          stale={data !== null}
+        />
+      ) : null}
+      {initialLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <ArticleSkeleton key={i} />
           ))}
         </div>
-      ) : top.length === 0 ? (
+      ) : data === null ? null : top.length === 0 ? (
         <EmptyState
           icon={BookOpen}
           title="No articles yet"

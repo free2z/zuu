@@ -1,11 +1,12 @@
 // Wallet overview: balance, sync, address, recent activity.
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDownToLine, ArrowUpRight, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { useAsync } from "@/hooks/useAsync";
 import { formatZecDisplay, splitZec } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
 import type { TransactionEntry } from "@/lib/wallet/types";
@@ -18,26 +19,18 @@ export function Overview() {
   const sync = useWallet((s) => s.sync);
   const unifiedAddress = useWallet((s) => s.unifiedAddress);
 
-  const [recent, setRecent] = useState<TransactionEntry[] | null>(null);
+  const {
+    data: recent,
+    loading: recentLoading,
+    error: recentError,
+    reload: reloadRecent,
+  } = useAsync<TransactionEntry[]>(async () => {
+    const transactions = await wallet.getTransactionHistory(0);
+    return transactions.slice(0, 4);
+  }, []);
 
   // Sync runs automatically and is polled by the wallet store, so there is no
   // manual start/stop here — the SyncBar below is a passive status indicator.
-
-  // Load a small recent-activity preview.
-  useEffect(() => {
-    let alive = true;
-    void wallet
-      .getTransactionHistory(0)
-      .then((tx) => {
-        if (alive) setRecent(tx.slice(0, 4));
-      })
-      .catch(() => {
-        if (alive) setRecent([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const pending = balance
     ? balance.valuePending + balance.changePending
@@ -127,7 +120,25 @@ export function Overview() {
           {recent && recent.length > 0 ? <ViewAllLink /> : null}
         </CardHeader>
         <CardContent className="pt-0">
-          {recent === null ? (
+          {recentError ? (
+            <SectionLoadError
+              className="mb-3"
+              title={
+                recent === null
+                  ? "Couldn't load recent activity"
+                  : "Couldn't refresh recent activity"
+              }
+              description={
+                recent === null
+                  ? "Your transaction history is temporarily unavailable."
+                  : "Showing the last transaction history loaded on this device."
+              }
+              retry={reloadRecent}
+              retrying={recentLoading}
+              stale={recent !== null}
+            />
+          ) : null}
+          {recentLoading && recent === null ? (
             <div className="space-y-2">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="flex items-center gap-3 px-3 py-3">
@@ -140,19 +151,19 @@ export function Overview() {
                 </div>
               ))}
             </div>
-          ) : recent.length === 0 ? (
+          ) : recentError && recent === null ? null : recent?.length === 0 ? (
             <EmptyState
               icon={History}
               title="No transactions yet"
               description="Once you send or receive ZEC, your activity shows up here."
             />
-          ) : (
+          ) : recent ? (
             <div className="-mx-3 divide-y divide-border/60">
               {recent.map((tx) => (
                 <TxRow key={tx.txid} tx={tx} />
               ))}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
     </div>

@@ -1147,7 +1147,9 @@ export const articles = {
       const a = mockArticles.find(
         (x) => x.slug === idOrSlug || String(x.id) === String(idOrSlug),
       );
-      if (!a) throw new Error("Article not found");
+      // Mock mode must preserve the same absence contract as production so the
+      // reader can distinguish an authoritative 404 from a transport failure.
+      if (!a) throw new ApiError(404, "Article not found");
       return a;
     }
     const z = await request<RawZPage>(`/api/zpage/${idOrSlug}/`, {

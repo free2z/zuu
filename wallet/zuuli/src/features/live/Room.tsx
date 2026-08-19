@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { auth, live, tuzi } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
 import { useAsync } from "@/hooks/useAsync";
@@ -72,7 +73,7 @@ export function Room() {
   // fetch entirely — keeping the heavy request off the "Go live" entrance frame
   // so the transition stays smooth. Only a cold visitor (deep link) needs the
   // listing to resolve which stream this is.
-  const { data, loading } = useAsync(
+  const { data, loading, error, reload } = useAsync(
     () => (justStarted ? Promise.resolve<Livestream[]>([]) : live.listPublic()),
     [justStarted],
   );
@@ -110,8 +111,22 @@ export function Room() {
     justStarted?.ticket ?? null,
   );
 
-  if (loading && !stream) {
+  if (loading && !stream && !error) {
     return <RoomSkeleton />;
+  }
+
+  if (error && !stream) {
+    return (
+      <div className="space-y-6">
+        <BackLink />
+        <SectionLoadError
+          title="Couldn't load this stream"
+          description="The stream may still be available. Check your connection and try again."
+          retry={reload}
+          retrying={loading}
+        />
+      </div>
+    );
   }
 
   if (!stream) {
@@ -120,8 +135,8 @@ export function Room() {
         <BackLink />
         <EmptyState
           icon={Radio}
-          title="Stream not found"
-          description={`We couldn't find a stream for @${username}. It may have ended.`}
+          title="Stream unavailable"
+          description={`There is no active public stream listed for @${username}. It may have ended.`}
           action={
             <Button asChild variant="outline">
               <Link to="/live">Browse livestreams</Link>
@@ -139,6 +154,16 @@ export function Room() {
   return (
     <div className="space-y-6 animate-slide-up">
       <BackLink />
+
+      {error ? (
+        <SectionLoadError
+          title="Couldn't refresh this stream"
+          description="Showing the last confirmed stream details."
+          retry={reload}
+          retrying={loading}
+          stale
+        />
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Clock, Newspaper } from "lucide-react";
 import {
@@ -11,48 +10,55 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { useAsync } from "@/hooks/useAsync";
 import { articles } from "@/lib/api/free2z";
 import { initials } from "@/lib/format";
+import {
+  currentResourceData,
+  isConfirmedNotFound,
+  type KeyedRemoteData,
+} from "@/lib/remote-data";
 import type { Article } from "@/lib/api/types";
 import { TipDialog } from "../components/TipDialog";
 import { CommentsSection } from "../components/Comments";
 import { ArticleScore } from "../components/ArticleScore";
 import { coverGradient, formatPublished } from "../lib";
 
-type Status = "loading" | "ready" | "missing";
-
 export function Reader() {
   const { slug } = useParams<{ slug: string }>();
-  const [article, setArticle] = useState<Article | null>(null);
-  const [status, setStatus] = useState<Status>("loading");
+  const key = slug ?? "";
+  const { data, loading, error, reload } = useAsync<
+    KeyedRemoteData<string, Article>
+  >(
+    async () => {
+      if (!slug) throw new Error("The article link is missing a slug.");
+      return { key: slug, value: await articles.get(slug) };
+    },
+    [slug],
+  );
+  const article = currentResourceData(data, key);
 
-  useEffect(() => {
-    if (!slug) {
-      setStatus("missing");
-      return;
-    }
-    let alive = true;
-    setStatus("loading");
-    articles
-      .get(slug)
-      .then((a) => {
-        if (!alive) return;
-        setArticle(a);
-        setStatus("ready");
-      })
-      .catch(() => {
-        if (alive) setStatus("missing");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
-
-  if (status === "loading") {
+  if (loading && article === null && !error) {
     return <ReaderSkeleton />;
   }
 
-  if (status === "missing" || !article) {
+  if (error && article === null) {
+    if (!isConfirmedNotFound(error)) {
+      return (
+        <div className="animate-slide-up">
+          <BackLink />
+          <SectionLoadError
+            className="mt-6"
+            title="Couldn't load this article"
+            description="The article may still be available. Check your connection and try again."
+            retry={reload}
+            retrying={loading}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="animate-slide-up">
         <BackLink />
@@ -71,6 +77,21 @@ export function Reader() {
     );
   }
 
+  if (!article) {
+    return (
+      <div className="animate-slide-up">
+        <BackLink />
+        <SectionLoadError
+          className="mt-6"
+          title="Couldn't load this article"
+          description="The server returned no article. Try again."
+          retry={reload}
+          retrying={loading}
+        />
+      </div>
+    );
+  }
+
   const author = article.author;
   const name = author.display_name || author.username;
 
@@ -78,6 +99,17 @@ export function Reader() {
     <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         <BackLink />
+
+        {error ? (
+          <SectionLoadError
+            className="mt-6"
+            title="Couldn't refresh this article"
+            description="Showing the last version loaded on this device."
+            retry={reload}
+            retrying={loading}
+            stale
+          />
+        ) : null}
 
         <header className="mt-6 min-w-0 space-y-4">
           {article.category ? <Badge>{article.category}</Badge> : null}
