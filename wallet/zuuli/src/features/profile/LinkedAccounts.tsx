@@ -246,8 +246,8 @@ interface IdentityRowProps {
 
 function IdentityRow({ icon, label, detail, action }: IdentityRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 p-4">
-      <div className="flex min-w-0 items-center gap-3">
+    <div className="flex flex-col items-stretch gap-3 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
           {icon}
         </span>
@@ -256,7 +256,7 @@ function IdentityRow({ icon, label, detail, action }: IdentityRowProps) {
           <div className="truncate text-xs text-muted-foreground">{detail}</div>
         </div>
       </div>
-      <div className="shrink-0">{action}</div>
+      <div className="shrink-0 [&>*]:w-full sm:[&>*]:w-auto">{action}</div>
     </div>
   );
 }

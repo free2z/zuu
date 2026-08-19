@@ -144,7 +144,7 @@ export function AddressCard({
 export function TxRow({ tx }: { tx: TransactionEntry }) {
   const incoming = tx.incoming;
   return (
-    <div className="flex items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-secondary/40">
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 rounded-lg px-3 py-3 transition-colors hover:bg-secondary/40 sm:flex sm:gap-3">
       <div
         className={cn(
           "grid h-9 w-9 shrink-0 place-items-center rounded-full",
@@ -183,7 +183,7 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
         )}
       </div>
 
-      <div className="shrink-0 text-right">
+      <div className="col-start-2 mt-1 flex min-w-0 items-baseline justify-between gap-2 text-left sm:mt-0 sm:block sm:shrink-0 sm:text-right">
         <div
           className={cn(
             "text-sm font-semibold tabular-nums",

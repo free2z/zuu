@@ -68,9 +68,9 @@ export function Discovery() {
       />
 
       <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
-        <TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:inline-flex sm:w-auto">
           {FILTERS.map((f) => (
-            <TabsTrigger key={f.value} value={f.value}>
+            <TabsTrigger className="min-h-11" key={f.value} value={f.value}>
               {f.label}
             </TabsTrigger>
           ))}

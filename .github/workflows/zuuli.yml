@@ -119,6 +119,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Install the viewport-test browser
+        run: npx playwright install --with-deps chromium
+
       - name: Test frontend contracts
         run: npm run test
 

@@ -652,8 +652,10 @@ function EmptyHero({
             <LocalIcon className="h-5 w-5" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold">{localModel.display_name}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 break-words font-semibold">
+                {localModel.display_name}
+              </span>
               <Badge variant="default" className="gap-1 px-1.5 py-0 text-[10px]">
                 <ShieldCheck className="h-3 w-3" aria-hidden />
                 private

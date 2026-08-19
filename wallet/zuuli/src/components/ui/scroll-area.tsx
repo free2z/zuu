@@ -8,10 +8,14 @@ const ScrollArea = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
-    className={cn("relative overflow-hidden", className)}
+    className={cn("relative min-w-0 max-w-full overflow-hidden", className)}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    {/* Radix's max-content table wrapper must not widen a vertical page scroller. */}
+    <ScrollAreaPrimitive.Viewport
+      className="h-full w-full min-w-0 max-w-full rounded-[inherit] [&>div]:!block [&>div]:w-full [&>div]:min-w-0 [&>div]:max-w-full"
+      data-scroll-area-viewport
+    >
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />

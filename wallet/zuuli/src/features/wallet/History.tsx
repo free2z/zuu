@@ -75,7 +75,7 @@ export function History() {
 function HistoryRow({ tx }: { tx: TransactionEntry }) {
   const incoming = tx.incoming;
   return (
-    <div className="flex items-start gap-3 px-3 py-4">
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 px-3 py-4 sm:flex sm:gap-3">
       <div
         className={cn(
           "grid h-10 w-10 shrink-0 place-items-center rounded-full",
@@ -123,7 +123,7 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         </div>
       </div>
 
-      <div className="shrink-0 text-right">
+      <div className="col-start-2 mt-1 flex min-w-0 items-baseline justify-between gap-2 text-left sm:mt-0 sm:block sm:shrink-0 sm:text-right">
         <div
           className={cn(
             "text-sm font-semibold tabular-nums",

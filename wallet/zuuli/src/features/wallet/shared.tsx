@@ -110,14 +110,14 @@ export function AmountDisplay({
   sign?: "+" | "−";
 }) {
   const sizes = {
-    lg: "text-5xl md:text-6xl",
+    lg: "text-2xl min-[360px]:text-3xl sm:text-5xl md:text-6xl",
     md: "text-3xl",
     sm: "text-2xl",
   } as const;
   return (
     <div
       className={cn(
-        "flex items-baseline gap-1.5 font-bold tabular-nums leading-none",
+        "flex min-w-0 items-baseline gap-1.5 font-bold tabular-nums leading-none",
         sizes[size],
       )}
     >

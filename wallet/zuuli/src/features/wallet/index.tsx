@@ -36,7 +36,7 @@ const NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
 function WalletNav() {
   return (
     <nav
-      className="mb-6 inline-flex items-center gap-1 rounded-lg bg-muted/60 p-1"
+      className="mb-6 grid w-full grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1 sm:inline-flex sm:w-auto sm:items-center"
       aria-label="Wallet sections"
     >
       {NAV.map(({ to, label, icon: Icon, end }) => (
@@ -46,7 +46,7 @@ function WalletNav() {
           end={end}
           className={({ isActive }) =>
             cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               isActive
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
