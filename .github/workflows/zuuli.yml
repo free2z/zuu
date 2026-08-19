@@ -83,7 +83,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Retain bounded time for the mandatory viewport suite and production build,
+    # including occasional hosted-runner provisioning delays.
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: wallet/zuuli
@@ -119,8 +121,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Install the viewport-test browser
-        run: npx playwright install --with-deps chromium
+      # GitHub's Ubuntu runner image includes stable Google Chrome. Using it in
+      # CI avoids an apt-mirror dependency while preserving real browser tests.
+      - name: Verify the viewport-test browser
+        run: google-chrome --version
 
       - name: Test frontend contracts
         run: npm run test

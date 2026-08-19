@@ -3,16 +3,21 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Coins,
+  LogIn,
   Plus,
   Wallet as WalletIcon,
   LogOut,
   ShieldCheck,
-  User,
   UserCog,
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Avatar,
   AvatarFallback,
@@ -50,7 +55,7 @@ export function TopBar() {
 
   return (
     <header
-      className="app-top-bar sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur"
+      className="app-top-bar sticky top-0 z-30 flex shrink-0 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur sm:gap-3 sm:px-4"
       data-app-top-bar
     >
       {/* Global back — available on every screen inside the shell */}
@@ -102,28 +107,34 @@ export function TopBar() {
       <div className="flex-1" />
 
       {/* ZEC wallet chip */}
-      <Link
-        to="/wallet"
-        className="hidden items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-sm transition-colors hover:bg-secondary sm:flex"
-        aria-label="Open wallet"
-      >
-        <WalletIcon className="h-4 w-4 text-[#f4b728]" />
-        <span className="font-medium tabular-nums">
-          {balance ? formatZecTrim(balance.spendable) : "0.00"}
-        </span>
-        <span className="text-xs text-muted-foreground">ZEC</span>
-      </Link>
+      {user ? (
+        <Link
+          to="/wallet"
+          className="hidden items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-sm transition-colors hover:bg-secondary sm:flex"
+          aria-label="Open wallet"
+        >
+          <WalletIcon className="h-4 w-4 text-[#f4b728]" />
+          <span className="font-medium tabular-nums">
+            {balance ? formatZecTrim(balance.spendable) : "—"}
+          </span>
+          <span className="text-xs text-muted-foreground">ZEC</span>
+        </Link>
+      ) : null}
 
       {/* 2Z balance chip */}
-      <Link
-        to="/buy"
-        className="flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm transition-colors hover:bg-primary/20"
-        aria-label="Buy 2Zs"
-      >
-        <Coins className="h-4 w-4 text-primary" />
-        <span className="font-semibold tabular-nums">{formatTuzis(tuzis)}</span>
-        <Plus className="h-3.5 w-3.5 text-primary" />
-      </Link>
+      {user ? (
+        <Link
+          to="/buy"
+          className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 text-sm transition-colors hover:bg-primary/20 sm:gap-2 sm:px-3"
+          aria-label={`Buy 2Zs. Balance ${formatTuzis(tuzis)}`}
+        >
+          <Coins className="h-4 w-4 shrink-0 text-primary" />
+          <span className="whitespace-nowrap font-semibold tabular-nums">
+            {formatTuzis(tuzis)}
+          </span>
+          <Plus className="hidden h-3.5 w-3.5 shrink-0 text-primary min-[360px]:block" />
+        </Link>
+      ) : null}
 
       {user ? (
         <DropdownMenu>
@@ -170,9 +181,20 @@ export function TopBar() {
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
-        <Button size="sm" onClick={() => navigate("/login")}>
-          <User className="h-4 w-4" /> Login with Zcash
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="min-tap shrink-0 rounded-full"
+              onClick={() => navigate("/login")}
+              aria-label="Log in"
+            >
+              <LogIn className="h-5 w-5" aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Log in</TooltipContent>
+        </Tooltip>
       )}
     </header>
   );

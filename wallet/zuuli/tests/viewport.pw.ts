@@ -37,6 +37,93 @@ async function setSession(page: Page, signedIn: boolean) {
   }, signedIn);
 }
 
+async function assertMobileHeader(page: Page, signedIn: boolean) {
+  const header = page.locator("[data-app-top-bar]");
+  await expect(header).toBeVisible();
+
+  if (signedIn) {
+    await expect(
+      header.getByRole("button", { name: "Account menu" }),
+    ).toBeVisible();
+    await expect(
+      header.getByRole("link", { name: /Buy 2Zs\. Balance/ }),
+    ).toBeVisible();
+    await expect(
+      header.getByRole("button", { name: "Log in", exact: true }),
+    ).toHaveCount(0);
+  } else {
+    const login = header.getByRole("button", { name: "Log in", exact: true });
+    await expect(login).toBeVisible();
+    await expect(login).toHaveText("");
+    await expect(header.getByRole("link", { name: /Buy 2Zs/ })).toHaveCount(0);
+    await expect(header.getByRole("link", { name: "Open wallet" })).toHaveCount(0);
+    await expect(header).not.toContainText("2Z");
+    await expect(header).not.toContainText("ZEC");
+
+    const loginBox = await login.boundingBox();
+    expect(loginBox, "anonymous Log in target must have a layout box").not.toBeNull();
+    expect(
+      loginBox!.width,
+      "anonymous Log in target must be at least 44px wide",
+    ).toBeGreaterThanOrEqual(44);
+    expect(
+      loginBox!.height,
+      "anonymous Log in target must be at least 44px high",
+    ).toBeGreaterThanOrEqual(44);
+  }
+
+  const metrics = await header.evaluate((element) => {
+    const headerRect = element.getBoundingClientRect();
+    const controls = [...element.querySelectorAll<HTMLElement>("a, button")]
+      .map((control) => {
+        const rect = control.getBoundingClientRect();
+        return {
+          height: rect.height,
+          label:
+            (control.getAttribute("aria-label") ?? control.innerText.trim()) ||
+            control.tagName.toLowerCase(),
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+        };
+      })
+      .filter(({ height }) => height > 0);
+    return {
+      clientWidth: element.clientWidth,
+      height: headerRect.height,
+      scrollWidth: element.scrollWidth,
+      controlCenters: controls.map(({ top, bottom }) => (top + bottom) / 2),
+      undersizedControls: controls
+        .filter(({ height, width }) => height < 44 || width < 44)
+        .map(({ height, label, width }) => `${label}: ${width}x${height}`),
+      controlsInside: controls.every(
+        ({ top, bottom }) =>
+          top >= headerRect.top - 1 && bottom <= headerRect.bottom + 1,
+      ),
+    };
+  });
+
+  expect(
+    metrics.scrollWidth,
+    "mobile header must not scroll horizontally",
+  ).toBeLessThanOrEqual(metrics.clientWidth);
+  expect(metrics.height, "mobile header must retain its 56px chrome row").toBe(
+    56,
+  );
+  expect(
+    metrics.controlsInside,
+    "mobile header controls must stay inside the chrome row",
+  ).toBe(true);
+  expect(
+    metrics.undersizedControls,
+    "mobile header controls must retain 44px touch targets",
+  ).toEqual([]);
+  expect(
+    Math.max(...metrics.controlCenters) - Math.min(...metrics.controlCenters),
+    "mobile header controls must remain on one row",
+  ).toBeLessThanOrEqual(1);
+}
+
 async function auditHorizontalLayout(page: Page): Promise<HorizontalAudit> {
   return page.evaluate(() => {
     const genericContent = document.querySelector<HTMLElement>(
@@ -169,6 +256,28 @@ for (const signedIn of [false, true]) {
     }) => {
       await page.setViewportSize({ width, height: 760 });
       await setSession(page, signedIn);
+
+      if (width === 320) {
+        await page.goto("/");
+        await page.locator("[data-app-frame]").waitFor();
+        await assertMobileHeader(page, signedIn);
+
+        await page
+          .locator("[data-app-top-bar]")
+          .getByRole("link", { name: "Search", exact: true })
+          .click();
+        await expect(page).toHaveURL(/\/search$/);
+        await assertMobileHeader(page, signedIn);
+
+        if (signedIn) {
+          await page.setViewportSize({ width: 640, height: 760 });
+          const wallet = page.getByRole("link", { name: "Open wallet" });
+          await expect(wallet).toBeVisible();
+          await expect(wallet).toContainText("ZEC");
+          await expect(wallet).not.toContainText("0.00");
+          await page.setViewportSize({ width, height: 760 });
+        }
+      }
 
       for (const route of ROUTES) {
         await page.goto(route);
