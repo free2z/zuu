@@ -94,7 +94,7 @@ export function Reader() {
             <Link
               to={`/creator/${author.username}`}
               aria-label={`View ${name}’s profile`}
-              className="shrink-0"
+              className="min-tap inline-flex shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Avatar>
                 {author.image ? (
@@ -106,7 +106,7 @@ export function Reader() {
             <div className="text-sm">
               <Link
                 to={`/creator/${author.username}`}
-                className="font-medium text-foreground transition-colors hover:text-primary hover:underline"
+                className="min-tap inline-flex items-center rounded-md font-medium text-foreground transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {name}
               </Link>
@@ -170,7 +170,7 @@ function BackLink() {
   return (
     <Link
       to="/articles"
-      className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ArrowLeft className="h-4 w-4" aria-hidden />
       All articles

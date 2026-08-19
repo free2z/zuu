@@ -111,14 +111,14 @@ export function Feed() {
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search articles by meaning…"
               aria-label="Search articles"
-              className="pl-9 pr-9"
+              className="pl-9 pr-12"
             />
             {searchInput ? (
               <button
                 type="button"
                 onClick={() => setSearchInput("")}
                 aria-label="Clear search"
-                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:text-foreground"
+                className="min-tap absolute right-0 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -143,7 +143,7 @@ export function Feed() {
               aria-selected={sort === s.value}
               onClick={() => setSort(s.value)}
               className={cn(
-                "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                "min-tap rounded-full px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 sort === s.value
                   ? "bg-primary/15 text-primary"
                   : "text-muted-foreground hover:text-foreground",
@@ -167,7 +167,7 @@ export function Feed() {
                 aria-pressed={on}
                 onClick={() => toggleTag(tag)}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  "min-tap rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   on
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -181,7 +181,7 @@ export function Feed() {
             <button
               type="button"
               onClick={() => setSelectedTags([])}
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="min-tap inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-3 w-3" aria-hidden />
               Clear tags

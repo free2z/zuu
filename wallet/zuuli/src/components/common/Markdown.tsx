@@ -85,6 +85,9 @@ async function openExternal(url: string) {
  * the running SPA is never blown away. In-page `#` anchors (footnotes, heading
  * slugs) smooth-scroll to their target instead of routing — router navigation
  * to a hash never scrolls, which is the "footnotes don't scroll" bug.
+ * These are the one deliberate 44px touch-target exemption: prose links must
+ * stay inline so a paragraph remains readable. The browser audit rejects the
+ * marker anywhere outside inline, text-only `.zuuli-markdown` anchors.
  */
 function MarkdownLink({
   href,
@@ -98,6 +101,7 @@ function MarkdownLink({
     return (
       <a
         {...rest}
+        data-touch-target-exempt="inline-text"
         href={href}
         onClick={(e) => {
           e.preventDefault();
@@ -116,6 +120,7 @@ function MarkdownLink({
     return (
       <a
         {...rest}
+        data-touch-target-exempt="inline-text"
         href={href}
         target="_blank"
         rel="noopener noreferrer"
@@ -132,6 +137,7 @@ function MarkdownLink({
   return (
     <a
       {...rest}
+      data-touch-target-exempt="inline-text"
       href={href ?? "#"}
       onClick={(e) => {
         if (!href) return;
@@ -169,7 +175,7 @@ function CopyButton({ getText }: { getText: () => string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1500);
       }}
-      className="absolute right-2 top-2 z-10 inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-border bg-card/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+      className="min-tap absolute right-2 top-2 z-10 inline-flex items-center justify-center rounded-md border border-border bg-card/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
     >
       {copied ? (
         <Check className="h-4 w-4 text-primary" />

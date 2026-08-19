@@ -43,6 +43,8 @@ function RootFallback() {
         type="button"
         onClick={() => window.location.reload()}
         style={{
+          minWidth: "44px",
+          minHeight: "44px",
           padding: "0.5rem 1rem",
           borderRadius: "0.75rem",
           border: "1px solid #3f3f46",

@@ -375,7 +375,7 @@ export function Send() {
                 <button
                   type="button"
                   disabled={hasUnknownBroadcast}
-                  className="text-xs text-muted-foreground hover:text-foreground"
+                  className="min-tap inline-flex items-center justify-center rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => setAmount(formatZec(maxSpendable))}
                 >
                   Max: {formatZecDisplay(maxSpendable)}

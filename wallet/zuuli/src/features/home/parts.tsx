@@ -45,7 +45,7 @@ export function SectionHeader({
       {to ? (
         <Link
           to={to}
-          className="group inline-flex shrink-0 items-center gap-1 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-tap group inline-flex shrink-0 items-center gap-1 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={`${linkLabel}: ${title}`}
         >
           {linkLabel}

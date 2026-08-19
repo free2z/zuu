@@ -72,7 +72,7 @@ export default function AuthFeature() {
                     <button
                       type="button"
                       onClick={() => setMethod("chooser")}
-                      className="inline-flex items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground"
+                      className="min-tap inline-flex items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       aria-label="Back to all sign-in options"
                     >
                       <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
@@ -114,11 +114,11 @@ export default function AuthFeature() {
                         backend reports as configured (none, today) */}
                     <SocialButtons loginDestination={loginDestination} />
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                       <ZShieldInfo>
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1.5 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          className="min-tap inline-flex items-center gap-1.5 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label="How Login with Zcash works"
                         >
                           <HelpCircle className="h-3.5 w-3.5" aria-hidden />

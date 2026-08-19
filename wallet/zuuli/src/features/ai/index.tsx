@@ -453,7 +453,7 @@ export default function AiFeature() {
                   variant="outline"
                   onClick={() => abortRef.current?.abort()}
                   aria-label="Stop generating"
-                  className="h-9 w-9"
+                  className="h-11 w-11"
                 >
                   <Square className="h-3.5 w-3.5 fill-current" />
                 </Button>
@@ -464,7 +464,7 @@ export default function AiFeature() {
                   onClick={() => void send(input)}
                   disabled={!canSend}
                   aria-label="Send message"
-                  className="h-9 w-9"
+                  className="h-11 w-11"
                 >
                   <ArrowUp className="h-4 w-4" />
                 </Button>
@@ -686,7 +686,7 @@ function EmptyHero({
             key={prompt}
             type="button"
             onClick={() => onPrefill(prompt)}
-            className="rounded-full border border-border bg-card/60 px-3.5 py-1.5 text-xs text-foreground/80 transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground"
+            className="min-tap rounded-full border border-border bg-card/60 px-3.5 py-1.5 text-xs text-foreground/80 transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {prompt}
           </button>
