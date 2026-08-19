@@ -146,7 +146,9 @@ export function BuyTab() {
       const result = await startCardCheckout({
         authenticated,
         amount,
-        returnMode: await checkoutReturnMode(),
+        // Signed-out taps must route directly to login even if native
+        // transport discovery is temporarily unavailable.
+        returnMode: authenticated ? await checkoutReturnMode() : "web",
         createCheckout: tuzi.buyCheckout,
         openCheckout: openCardCheckout,
       });

@@ -148,11 +148,14 @@ function MobileCheckoutRecovery() {
         }
       } catch (error) {
         navigate("/wallet/fund", { replace: true });
-        await refreshSession();
+        await refreshSession().catch(() => undefined);
         toast.error("Couldn't verify checkout return", {
           description:
             error instanceof Error ? error.message : "Refresh and try again.",
         });
+        // The bounded authenticated claim is safe to retry. Signal failed
+        // delivery so a repeated cold/warm OS link is not deduplicated.
+        throw error;
       }
     })
       .then((unlisten) => {

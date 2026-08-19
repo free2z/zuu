@@ -5,11 +5,17 @@ export const CHECKOUT_RETURN_URI = "cash.free2z.zuuli://checkout/return";
 // colons, with an optional leading compression marker. Keep this bounded and
 // fail closed before the value reaches the authenticated claim endpoint.
 const CLAIM_CODE = /^[A-Za-z0-9_.:-]{16,2048}$/;
+const STATUS_TOKEN = /^[A-Za-z0-9_.:-]{16,1024}$/;
 
 export type CheckoutReturnMode = "web" | "zuuli_mobile";
 
 export type CheckoutReturnClaim =
   | { outcome: "cancel"; status: "cancelled" }
+  | {
+      outcome: "processing";
+      status: "processing";
+      statusToken?: string;
+    }
   | {
       outcome: "success";
       status: "processing";
@@ -30,6 +36,16 @@ interface RecoveryDependencies {
   refreshSession: () => Promise<void>;
   navigateToBuy: () => void;
   wait?: (milliseconds: number) => Promise<void>;
+}
+
+async function refreshSessionBestEffort(
+  refreshSession: () => Promise<void>,
+): Promise<void> {
+  // The claim/status response remains the authoritative return outcome even
+  // when a sibling balance refresh is temporarily unavailable. Preserve that
+  // truth so users can retry the refresh without losing cancel/processing or
+  // webhook-backed credit confirmation.
+  await refreshSession().catch(() => undefined);
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -84,11 +100,29 @@ export function parseCheckoutReturnClaim(value: unknown): CheckoutReturnClaim {
     return { outcome: "cancel", status: "cancelled" };
   }
   if (
+    value.outcome === "processing" &&
+    value.status === "processing"
+  ) {
+    if (exactKeys(value, ["outcome", "status"])) {
+      return { outcome: "processing", status: "processing" };
+    }
+    if (
+      typeof value.status_token === "string" &&
+      STATUS_TOKEN.test(value.status_token) &&
+      exactKeys(value, ["outcome", "status", "status_token"])
+    ) {
+      return {
+        outcome: "processing",
+        status: "processing",
+        statusToken: value.status_token,
+      };
+    }
+  }
+  if (
     value.outcome === "success" &&
     value.status === "processing" &&
     typeof value.status_token === "string" &&
-    value.status_token.length >= 16 &&
-    value.status_token.length <= 1024 &&
+    STATUS_TOKEN.test(value.status_token) &&
     exactKeys(value, ["outcome", "status", "status_token"])
   ) {
     return {
@@ -135,8 +169,15 @@ export async function recoverCheckoutReturn(
     throw new Error("The checkout return code is invalid.");
   dependencies.navigateToBuy();
   const claim = await dependencies.claim(code);
-  await dependencies.refreshSession();
+  await refreshSessionBestEffort(dependencies.refreshSession);
   if (claim.outcome === "cancel") return { status: "cancelled" };
+  // Older or deliberately uncorrelated processing claims have no status
+  // token. Navigation plus the authoritative session/balance refresh remains
+  // the only safe recovery action for them. A correlated processing token is
+  // still non-authoritative: it enters the same bounded polling path as a
+  // verified-success claim and becomes credited only when the webhook-backed
+  // ledger status endpoint says so.
+  if (!claim.statusToken) return { status: "processing" };
 
   const wait =
     dependencies.wait ??
@@ -145,7 +186,7 @@ export async function recoverCheckoutReturn(
     if (delay) await wait(delay);
     const status = await dependencies.status(claim.statusToken);
     if (status.status === "credited") {
-      await dependencies.refreshSession();
+      await refreshSessionBestEffort(dependencies.refreshSession);
       return status;
     }
   }
@@ -167,7 +208,17 @@ export async function listenForCheckoutReturns(
       const code = parseCheckoutReturnUrl(value);
       if (!code || seen.has(code)) continue;
       seen.add(code);
-      void deliver(code);
+      const retry = () => {
+        // The authenticated claim is deliberately retryable for its bounded
+        // lifetime. Let a repeated OS delivery retry after a transient client
+        // or network failure while still deduplicating successful delivery.
+        seen.delete(code);
+      };
+      try {
+        void Promise.resolve(deliver(code)).catch(retry);
+      } catch {
+        retry();
+      }
     }
   };
   const unlisten = await onOpenUrl(process);
