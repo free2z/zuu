@@ -34,9 +34,6 @@ jobs:
     defaults:
       run:
         working-directory: wallet/zuuli
-    env:
-      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -75,15 +72,23 @@ jobs:
         if: inputs.provider == 'apple' || inputs.provider == 'both'
         env:
           ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
           : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
           : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
           printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
           chmod 600 "$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
           test -s "$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
-          echo "ASC_KEY_PATH=$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8" >> "$GITHUB_ENV"
+          {
+            echo "ASC_KEY_PATH=$ZUULI_STORE_AUDIT_SECRET_DIR/AuthKey.p8"
+            echo "ASC_KEY_ID=$ASC_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
       - name: Materialize ephemeral Play credential
         if: inputs.provider == 'play' || inputs.provider == 'both'
         env:
@@ -96,18 +101,30 @@ jobs:
           test -s "$ZUULI_STORE_AUDIT_SECRET_DIR/play-service-account.json"
           echo "PLAY_SERVICE_ACCOUNT_JSON=$ZUULI_STORE_AUDIT_SECRET_DIR/play-service-account.json" >> "$GITHUB_ENV"
       - name: Audit canonical locales, media, and Play tester mode
+        id: audit
+        continue-on-error: true
         env:
           PROVIDER: ${{ inputs.provider }}
         run: |
           set -euo pipefail
           evidence_dir="$RUNNER_TEMP/zuuli-store-audit-evidence"
           mkdir -p "$evidence_dir"
-          echo "ZUULI_STORE_AUDIT_EVIDENCE_DIR=$evidence_dir" >> "$GITHUB_ENV"
+          set +e
           node scripts/store-state-audit.mjs \
             "--provider=$PROVIDER" \
             "--output=$evidence_dir/store-state.json"
+          audit_status=$?
+          set -e
+          if [[ -s "$evidence_dir/store-state.json" ]]; then
+            echo "evidence_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "evidence_present=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$audit_status"
       - name: Destroy ephemeral store credentials
+        id: cleanup
         if: always()
+        continue-on-error: true
         run: |
           set -u
           cleanup_failed=0
@@ -120,10 +137,32 @@ jobs:
           fi
           exit "$cleanup_failed"
       - name: Upload sanitized store-state evidence
-        if: success()
+        if: always() && steps.audit.outputs.evidence_present == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: zuuli-store-state-${{ inputs.provider }}-${{ inputs.source_sha }}
-          path: ${{ env.ZUULI_STORE_AUDIT_EVIDENCE_DIR }}/store-state.json
+          path: ${{ runner.temp }}/zuuli-store-audit-evidence/store-state.json
           if-no-files-found: error
           retention-days: 90
+      - name: Enforce audit and cleanup verdict
+        if: always()
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          EVIDENCE_PRESENT: ${{ steps.audit.outputs.evidence_present }}
+        run: |
+          set -uo pipefail
+          verdict_failed=0
+          if [[ "$EVIDENCE_PRESENT" != true ]]; then
+            echo "::error::sanitized store audit evidence was not produced"
+            verdict_failed=1
+          fi
+          if [[ "$CLEANUP_OUTCOME" != success ]]; then
+            echo "::error::ephemeral store credential cleanup did not succeed"
+            verdict_failed=1
+          fi
+          if [[ "$AUDIT_OUTCOME" != success ]]; then
+            echo "::error::one or more requested store provider audits failed"
+            verdict_failed=1
+          fi
+          exit "$verdict_failed"
