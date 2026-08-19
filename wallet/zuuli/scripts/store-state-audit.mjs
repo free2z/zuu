@@ -121,6 +121,22 @@ export function parsePlayImages(payload, stage = "unknown") {
   return payload.images;
 }
 
+export function parsePlayTesterGroupCount(payload) {
+  const stage = "testers";
+  const prototype = payload && typeof payload === "object" ? Object.getPrototypeOf(payload) : undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || prototype !== Object.prototype) fail("INVALID_RESPONSE", "Play testers response is malformed", { stage });
+  if (Object.hasOwn(payload, "error") || Object.hasOwn(payload, "errors")) fail("INVALID_RESPONSE", "Play testers response contains an error payload", { stage });
+  const keys = Reflect.ownKeys(payload);
+  if (!Object.hasOwn(payload, "googleGroups")) {
+    if (keys.length !== 0) fail("INVALID_RESPONSE", "Play testers response omitted googleGroups alongside unknown members", { stage });
+    return 0;
+  }
+  if (keys.length !== 1 || keys[0] !== "googleGroups") fail("INVALID_RESPONSE", "Play testers response contains unknown members", { stage });
+  if (!Array.isArray(payload.googleGroups)) fail("INVALID_RESPONSE", "Play testers response has a non-array googleGroups member", { stage });
+  for (const group of payload.googleGroups) if (typeof group !== "string") fail("INVALID_RESPONSE", "Play testers response contains malformed group configuration", { stage });
+  return payload.googleGroups.length;
+}
+
 const SAFE_PROVIDER_FAILURE_MESSAGES = Object.freeze({
   AMBIGUOUS_REMOTE_STATE: "provider returned ambiguous duplicate state",
   API_ERROR: "provider API request failed",
@@ -334,9 +350,7 @@ export async function auditPlayStore({ credentials, expected, fetchImpl = global
     let groupCount = null;
     try {
       const testers = await request("GET", `${editBase}/testers/${PLAY_TRACK}`, undefined, false, "testers");
-      if (!Array.isArray(testers?.googleGroups)) fail("INVALID_RESPONSE", "Play testers response has no googleGroups array", { stage: "testers" });
-      for (const group of testers.googleGroups) if (typeof group !== "string") fail("INVALID_RESPONSE", "Play testers response contains malformed group configuration", { stage: "testers" });
-      groupCount = testers.googleGroups.length;
+      groupCount = parsePlayTesterGroupCount(testers);
       testerMode = groupCount === 0 ? "no_api_visible_google_groups" : "publisher_api_google_groups";
     } catch (error) {
       if (!(error instanceof StoreAuditError) || error.code !== "API_ERROR" || !new Set([403, 404]).has(error.status)) throw error;
