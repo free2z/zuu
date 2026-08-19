@@ -23,6 +23,7 @@ if [[ -n "${ZUULI_RELEASE_SOURCE_SHA:-}" ]]; then
 fi
 identity_json=$(node scripts/release-identity.mjs "${identity_args[@]}")
 identity=$(jq -r .identity <<<"$identity_json")
+version=$(jq -r .version <<<"$identity_json")
 build=$(jq -r .build <<<"$identity_json")
 application_id=$(jq -r .applicationId <<<"$identity_json")
 
@@ -169,6 +170,11 @@ if [[ "$platform" == ios ]]; then
       xcrun altool --upload-app --type ios --file "$ipa_abs" \
         --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
     )
+    node scripts/asc-testflight.mjs \
+      --ensure \
+      "--version=$version" \
+      "--build=$build" \
+      "--output=release-artifacts/ZUULI-${identity}-testflight.json"
   fi
 else
   # shellcheck source=android-toolchain-env.sh
@@ -237,4 +243,8 @@ else
   fi
 fi
 
-echo "ZUULI $identity $platform release validation completed ($([[ "$mode" == --upload ]] && echo uploaded || echo dry-run))."
+if [[ "$platform" == ios && "$mode" == --upload ]]; then
+  echo "ZUULI $identity iOS is processed and available to the configured internal TestFlight group."
+else
+  echo "ZUULI $identity $platform release validation completed ($([[ "$mode" == --upload ]] && echo uploaded || echo dry-run))."
+fi
