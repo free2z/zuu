@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { auth } from "@/lib/api/free2z";
 import { ApiError, isAuthed, setToken } from "@/lib/api/http";
+import {
+  discardPaidIntent,
+  discardPaidIntentForAccountTransition,
+} from "@/lib/auth/paid-intent";
 import type { AuthUser } from "@/lib/api/types";
 
 /**
@@ -38,6 +42,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // No knox token → we're logged out; resolve without ever hitting
     // `/api/auth/user/` (it 403s for anonymous requests).
     if (!isAuthed()) {
+      discardPaidIntent();
       set({ loading: false });
       return;
     }
@@ -45,12 +50,19 @@ export const useSession = create<SessionState>((set, get) => ({
       const user = await auth.me();
       set({ user, tuzis: user.tuzis ?? 0, loading: false });
     } catch (err) {
-      if (isSessionExpired(err)) setToken(null);
+      if (isSessionExpired(err)) {
+        setToken(null);
+        discardPaidIntent();
+      }
       set({ user: null, loading: false });
     }
   },
 
   setUser(user) {
+    discardPaidIntentForAccountTransition(
+      get().user?.username ?? null,
+      user?.username ?? null,
+    );
     set({ user, tuzis: user?.tuzis ?? 0, loading: false });
   },
 
@@ -64,6 +76,7 @@ export const useSession = create<SessionState>((set, get) => ({
     } catch (err) {
       if (isSessionExpired(err)) {
         setToken(null);
+        discardPaidIntent();
         set({ user: null, tuzis: 0 });
       }
       /* otherwise a transient/network error — keep the current session */
@@ -71,6 +84,9 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async logout() {
+    // Clear private pending input before awaiting a network logout. Even if
+    // that request fails, the draft must not survive for another account.
+    discardPaidIntent();
     await auth.logout();
     set({ user: null, tuzis: 0 });
   },

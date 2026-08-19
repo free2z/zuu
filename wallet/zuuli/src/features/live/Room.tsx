@@ -1,10 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useParams,
-} from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Users,
@@ -37,7 +32,10 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { auth, live, tuzi } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
+import { paidActionGate } from "@/lib/auth/paid-action";
+import { preservePaidIntent } from "@/lib/auth/paid-intent";
 import { useAsync } from "@/hooks/useAsync";
+import { usePaidIntent } from "@/hooks/usePaidIntent";
 import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
@@ -331,7 +329,14 @@ function JoinPanel({
   tuzis: number;
   onJoined: (ticket: DyteJoinTicket) => void;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
+  const restored = usePaidIntent(location.pathname, "live-entry");
+  const restoredEntry =
+    restored?.kind === "live-entry" && restored.subject === stream.username
+      ? restored
+      : null;
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [membershipConfirmOpen, setMembershipConfirmOpen] = useState(false);
@@ -343,6 +348,7 @@ function JoinPanel({
   // Keep this key through any ambiguous failure. A retry then asks the backend
   // to replay the same purchase instead of buying another month.
   const membershipAttemptKey = useRef<string | null>(null);
+  const restoredEntryHandled = useRef(false);
 
   const user = useSession((state) => state.user);
   const sessionLoading = useSession((state) => state.loading);
@@ -354,14 +360,17 @@ function JoinPanel({
     reload: reloadMemberships,
   } = useAsync(
     () =>
-      user
-        ? tuzi.subscriptionStatus(stream.username)
-        : Promise.resolve(null),
+      user ? tuzi.subscriptionStatus(stream.username) : Promise.resolve(null),
     [user?.username, stream.username],
   );
 
   const price = stream.price_tuzis;
-  const affordable = tuzis >= price;
+  const ppvGate = paidActionGate({
+    sessionLoading,
+    user,
+    balance: tuzis,
+    cost: price,
+  });
   const membershipPrice =
     membershipPriceOverride !== null
       ? membershipPriceOverride.price
@@ -372,7 +381,41 @@ function JoinPanel({
     hasMembershipPrice && tuzis >= (membershipPrice ?? 0);
   const membership = membershipStatus?.active ? membershipStatus : null;
 
-  async function runExclusive<T>(operation: () => Promise<T>): Promise<T | null> {
+  function signInForEntry(mode: "ppv" | "subscriber") {
+    const returnTo = preservePaidIntent(location.pathname, {
+      kind: "live-entry",
+      subject: stream.username,
+      mode,
+    });
+    navigate("/login", { state: { returnTo } });
+  }
+
+  useEffect(() => {
+    if (!restoredEntry || restoredEntryHandled.current || !user) return;
+    if (restoredEntry.mode === "ppv") {
+      if (ppvGate === "loading") return;
+      restoredEntryHandled.current = true;
+      if (ppvGate === "ready") setConfirmOpen(true);
+      return;
+    }
+    if (membershipLoading) return;
+    restoredEntryHandled.current = true;
+    if (!membershipError && !membership && membershipAffordable) {
+      setMembershipConfirmOpen(true);
+    }
+  }, [
+    restoredEntry,
+    user,
+    ppvGate,
+    membershipLoading,
+    membershipError,
+    membership,
+    membershipAffordable,
+  ]);
+
+  async function runExclusive<T>(
+    operation: () => Promise<T>,
+  ): Promise<T | null> {
     // React state updates are not synchronous. The ref closes the double-click
     // window before the disabled button can render.
     return runSingleFlight(operationInFlight, async () => {
@@ -407,6 +450,11 @@ function JoinPanel({
 
   async function confirmPpv() {
     setConfirmOpen(false);
+    if (!useSession.getState().user) {
+      signInForEntry("ppv");
+      return;
+    }
+    if (ppvGate !== "ready") return;
     const ok = await doJoin();
     if (ok) {
       // onJoined has already debited the balance; celebrate the entry.
@@ -417,7 +465,10 @@ function JoinPanel({
   }
 
   async function confirmMembership() {
-    if (!user) return;
+    if (!useSession.getState().user) {
+      signInForEntry("subscriber");
+      return;
+    }
     const alreadyActive = membership !== null;
     if (
       !alreadyActive &&
@@ -574,11 +625,13 @@ function JoinPanel({
                 Checking membership
               </Button>
             ) : !user ? (
-              <Button asChild className="w-full gap-2" size="lg">
-                <Link to="/login">
-                  <KeyRound className="h-4 w-4" aria-hidden />
-                  Log in to subscribe
-                </Link>
+              <Button
+                className="w-full gap-2"
+                size="lg"
+                onClick={() => signInForEntry("subscriber")}
+              >
+                <KeyRound className="h-4 w-4" aria-hidden />
+                Log in to subscribe
               </Button>
             ) : membershipError ? (
               <div className="space-y-2">
@@ -684,7 +737,9 @@ function JoinPanel({
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">Current balance</span>
+                    <span className="text-muted-foreground">
+                      Current balance
+                    </span>
                     <span className="font-medium tabular-nums">
                       {formatTuzis(tuzis)}
                     </span>
@@ -693,9 +748,7 @@ function JoinPanel({
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">Balance after</span>
                     <span className="font-semibold tabular-nums">
-                      {formatTuzis(
-                        Math.max(0, tuzis - (membershipPrice ?? 0)),
-                      )}
+                      {formatTuzis(Math.max(0, tuzis - (membershipPrice ?? 0)))}
                     </span>
                   </div>
                 </div>
@@ -737,7 +790,21 @@ function JoinPanel({
                 {formatTuzis(price)}
               </span>
             </div>
-            {affordable ? (
+            {ppvGate === "loading" ? (
+              <Button className="w-full gap-2" size="lg" disabled>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Checking account
+              </Button>
+            ) : ppvGate === "sign-in" ? (
+              <Button
+                className="w-full gap-2"
+                size="lg"
+                onClick={() => signInForEntry("ppv")}
+              >
+                <KeyRound className="h-4 w-4" aria-hidden />
+                Sign in to join
+              </Button>
+            ) : ppvGate === "ready" ? (
               <Button
                 className="w-full gap-2"
                 size="lg"
@@ -789,10 +856,7 @@ function JoinPanel({
                   </span>
                 </div>
                 <DialogFooter>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setConfirmOpen(false)}
-                  >
+                  <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
                     Cancel
                   </Button>
                   <Button className="gap-2" onClick={confirmPpv}>
@@ -891,11 +955,7 @@ function ConnectedDetails({
       </dl>
       <Separator className="my-3" />
       <ParticipantStrip count={stream.participants + 1} />
-      <Button
-        variant="outline"
-        className="mt-4 w-full gap-2"
-        onClick={onLeave}
-      >
+      <Button variant="outline" className="mt-4 w-full gap-2" onClick={onLeave}>
         <LogOut className="h-4 w-4" aria-hidden />
         Leave
       </Button>
@@ -930,12 +990,16 @@ function HostControls({
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
         You're hosting as{" "}
-        <span className="font-medium text-foreground">@{stream.username}</span>
-        . Manage your broadcast below.
+        <span className="font-medium text-foreground">@{stream.username}</span>.
+        Manage your broadcast below.
       </p>
       <Separator className="my-3" />
       <ParticipantStrip count={stream.participants + 1} />
-      <Button variant="destructive" className="mt-4 w-full gap-2" onClick={onEnd}>
+      <Button
+        variant="destructive"
+        className="mt-4 w-full gap-2"
+        onClick={onEnd}
+      >
         <Radio className="h-4 w-4" aria-hidden />
         End stream
       </Button>

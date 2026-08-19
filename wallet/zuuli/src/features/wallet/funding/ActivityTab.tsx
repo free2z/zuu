@@ -1,6 +1,8 @@
-import { Receipt, TrendingUp, TrendingDown } from "lucide-react";
+import { LogIn, Receipt, TrendingUp, TrendingDown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
@@ -9,17 +11,24 @@ import { tuzi } from "@/lib/api/free2z";
 import type { TuziTransaction } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { formatTuzis, timeAgo } from "@/lib/format";
+import { useSession } from "@/store/session";
 import { kindMeta, kindIconClass } from "./lib";
 
 export function ActivityTab() {
+  const navigate = useNavigate();
+  const user = useSession((state) => state.user);
+  const sessionLoading = useSession((state) => state.loading);
   const {
     data: txns,
     loading,
     error,
     reload,
-  } = useAsync<TuziTransaction[]>(() => tuzi.transactions(), []);
+  } = useAsync<TuziTransaction[]>(
+    () => (user ? tuzi.transactions() : Promise.resolve([])),
+    [user?.username],
+  );
 
-  if (loading && txns === null && !error) {
+  if (sessionLoading || (user && loading && txns === null && !error)) {
     return (
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -33,11 +42,33 @@ export function ActivityTab() {
     );
   }
 
+  if (!user) {
+    return (
+      <EmptyState
+        icon={Receipt}
+        title="Sign in to view activity"
+        description="Card purchase history belongs to your account."
+        action={
+          <Button
+            onClick={() =>
+              navigate("/login", {
+                state: { returnTo: "/wallet/fund/activity" },
+              })
+            }
+          >
+            <LogIn className="h-4 w-4" aria-hidden />
+            Sign in
+          </Button>
+        }
+      />
+    );
+  }
+
   if (error && txns === null) {
     return (
       <SectionLoadError
-        title="Couldn't load 2Z activity"
-        description="Your 2Z activity is temporarily unavailable."
+        title="Couldn't load purchase history"
+        description="Your card purchase history is temporarily unavailable."
         retry={reload}
         retrying={loading}
       />
@@ -51,8 +82,8 @@ export function ActivityTab() {
       <div className="space-y-3">
         {error ? (
           <SectionLoadError
-            title="Couldn't refresh 2Z activity"
-            description="Showing the last 2Z activity loaded on this device."
+            title="Couldn't refresh purchase history"
+            description="Showing the last card purchase history loaded on this device."
             retry={reload}
             retrying={loading}
             stale
@@ -60,8 +91,8 @@ export function ActivityTab() {
         ) : null}
         <EmptyState
           icon={Receipt}
-          title="No activity yet"
-          description="Your 2Z purchases, tips and charges will show up here."
+          title="No card purchases yet"
+          description="Your available card purchase history will show up here."
         />
       </div>
     );
@@ -78,8 +109,8 @@ export function ActivityTab() {
     <div className="space-y-4">
       {error ? (
         <SectionLoadError
-          title="Couldn't refresh 2Z activity"
-          description="Showing the last 2Z activity loaded on this device."
+          title="Couldn't refresh purchase history"
+          description="Showing the last card purchase history loaded on this device."
           retry={reload}
           retrying={loading}
           stale
@@ -113,13 +144,9 @@ export function ActivityTab() {
             const Icon = meta.icon;
             const credit = t.tuzis_credited > 0;
             const label =
-              t.counterparty ??
-              (t.kind === "buy" ? "Added 2Zs" : meta.label);
+              t.counterparty ?? (t.kind === "buy" ? "Added 2Zs" : meta.label);
             return (
-              <div
-                key={t.id}
-                className="flex items-center gap-3 px-4 py-3.5"
-              >
+              <div key={t.id} className="flex items-center gap-3 px-4 py-3.5">
                 <div
                   className={cn(
                     "grid h-10 w-10 shrink-0 place-items-center rounded-full",

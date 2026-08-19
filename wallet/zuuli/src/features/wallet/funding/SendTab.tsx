@@ -7,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   ArrowRight,
@@ -40,10 +41,14 @@ import {
   formatTuzis,
   initials,
   MAX_TUZIS,
+  parseTuzis,
   tuziInputMaxLength,
   validateTuzis,
 } from "@/lib/format";
 import { TIP_PRESETS } from "./lib";
+import { paidActionGate } from "@/lib/auth/paid-action";
+import { preservePaidIntent } from "@/lib/auth/paid-intent";
+import { usePaidIntent } from "@/hooks/usePaidIntent";
 import {
   classifyTransferFailure,
   clearPendingDonation,
@@ -76,15 +81,19 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
+  const navigate = useNavigate();
   const user = useSession((s) => s.user);
+  const sessionLoading = useSession((s) => s.loading);
   const tuzis = useSession((s) => s.tuzis);
   const setTuzis = useSession((s) => s.setTuzis);
   const setUser = useSession((s) => s.setUser);
   const refreshSession = useSession((s) => s.refresh);
-  const [recipientState, dispatch] = useReducer(
-    recipientReducer,
-    initialRecipientState,
-  );
+  const restored = usePaidIntent("/wallet/fund/send", "send");
+  const restoredSend = restored?.kind === "send" ? restored : null;
+  const restoredHandled = useRef(false);
+  const [recipientState, dispatch] = useReducer(recipientReducer, {
+    ...initialRecipientState,
+  });
   const [selectedAmount, setSelectedAmount] = useState<number>(TIP_PRESETS[1]);
   const [custom, setCustom] = useState("");
   const [sending, setSending] = useState(false);
@@ -96,6 +105,23 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     result: DonationResult;
   } | null>(null);
   const resultsId = useId();
+
+  useEffect(() => {
+    if (!restoredSend || restoredHandled.current) return;
+    restoredHandled.current = true;
+    dispatch({ type: "queryChanged", query: restoredSend.query });
+    const restoredAmount = parseTuzis(restoredSend.amount);
+    if (
+      restoredAmount !== null &&
+      TIP_PRESETS.some((preset) => preset === restoredAmount)
+    ) {
+      setSelectedAmount(restoredAmount);
+      setCustom("");
+    } else {
+      setCustom(restoredSend.amount);
+    }
+  }, [restoredSend]);
+
   const debouncedQuery = useDebounced(
     recipientState.query.trim(),
     SEARCH_DEBOUNCE_MS,
@@ -128,8 +154,8 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
       .then((creators) => {
         if (!alive) return;
         const candidates = ownUsername
-          ? creators.filter((creator) =>
-              !sameUsername(creator.username, ownUsername),
+          ? creators.filter(
+              (creator) => !sameUsername(creator.username, ownUsername),
             )
           : creators;
         dispatch({ type: "searchSucceeded", generation, results: candidates });
@@ -152,10 +178,19 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
   ]);
 
   const hasCustomAmount = custom.length > 0;
-  const customAmount = validateTuzis(custom, { minimum: 1, maximum: MAX_TUZIS });
+  const customAmount = validateTuzis(custom, {
+    minimum: 1,
+    maximum: MAX_TUZIS,
+  });
   const amount = hasCustomAmount ? customAmount.value : selectedAmount;
   const validAmount = !hasCustomAmount || customAmount.error === null;
   const enough = amount !== null && amount <= tuzis;
+  const gate = paidActionGate({
+    sessionLoading,
+    user,
+    balance: tuzis,
+    cost: validAmount ? amount : null,
+  });
   const block = transferBlock({
     selected: recipientState.selected,
     query: recipientState.query,
@@ -168,23 +203,23 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
   const pendingDonation = loadPendingDonation();
   const pendingMatchesCurrent = Boolean(
     pendingDonation &&
-      recipientState.selected &&
-      ownUsername &&
-      amount !== null &&
-      validAmount &&
-      pendingDonationMatches(pendingDonation, {
-        senderUsername: ownUsername,
-        recipient: recipientState.selected,
-        amount,
-      }),
+    recipientState.selected &&
+    ownUsername &&
+    amount !== null &&
+    validAmount &&
+    pendingDonationMatches(pendingDonation, {
+      senderUsername: ownUsername,
+      recipient: recipientState.selected,
+      amount,
+    }),
   );
   const canReview =
     block === null || (block === "balance" && pendingMatchesCurrent);
   const reviewHasPersistedAttempt = Boolean(
     recipientState.review &&
-      pendingDonation &&
-      recipientState.review.idempotencyKey === pendingDonation.idempotencyKey &&
-      pendingDonationMatches(pendingDonation, recipientState.review),
+    pendingDonation &&
+    recipientState.review.idempotencyKey === pendingDonation.idempotencyKey &&
+    pendingDonationMatches(pendingDonation, recipientState.review),
   );
   const reviewIsCurrent = reviewMatchesTransfer({
     review: recipientState.review,
@@ -277,7 +312,20 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     next();
   }
 
+  function signInToSend() {
+    const returnTo = preservePaidIntent("/wallet/fund/send", {
+      kind: "send",
+      query: recipientState.query,
+      amount: custom || String(selectedAmount),
+    });
+    navigate("/login", { state: { returnTo } });
+  }
+
   function beginReview() {
+    if (gate === "sign-in") {
+      signInToSend();
+      return;
+    }
     if (!canReview || amount === null || !ownUsername) return;
     const selected = recipientState.selected;
     if (!selected) return;
@@ -293,7 +341,8 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     }
     let idempotencyKey: string;
     try {
-      idempotencyKey = pending?.idempotencyKey ?? createDonationIdempotencyKey();
+      idempotencyKey =
+        pending?.idempotencyKey ?? createDonationIdempotencyKey();
     } catch {
       setTransferFailure("security");
       return;
@@ -309,11 +358,12 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
 
   async function send() {
     const review = recipientState.review;
-    if (
-      sendingRef.current ||
-      !review ||
-      !reviewIsCurrent
-    ) {
+    if (!useSession.getState().user) {
+      dispatch({ type: "clearReview" });
+      signInToSend();
+      return;
+    }
+    if (sendingRef.current || !review || !reviewIsCurrent) {
       dispatch({ type: "clearReview" });
       return;
     }
@@ -397,7 +447,9 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               role="combobox"
               aria-label="Search for a 2Z recipient"
               aria-autocomplete="list"
-              aria-expanded={showingResults && recipientState.results.length > 0}
+              aria-expanded={
+                showingResults && recipientState.results.length > 0
+              }
               aria-controls={
                 showingResults && recipientState.results.length > 0
                   ? resultsId
@@ -595,21 +647,26 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               {validAmount && amount !== null ? formatTuzis(amount) : "—"}
             </div>
           </div>
-          <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
-            <span className="text-muted-foreground">Balance after</span>
-            <span
-              className={cn(
-                "tabular-nums",
-                validAmount && !enough && "text-destructive",
-              )}
-            >
-              {formatTuzis(
-                Math.max(0, tuzis - (validAmount && amount !== null ? amount : 0)),
-              )}
-            </span>
-          </div>
+          {user ? (
+            <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
+              <span className="text-muted-foreground">Balance after</span>
+              <span
+                className={cn(
+                  "tabular-nums",
+                  validAmount && !enough && "text-destructive",
+                )}
+              >
+                {formatTuzis(
+                  Math.max(
+                    0,
+                    tuzis - (validAmount && amount !== null ? amount : 0),
+                  ),
+                )}
+              </span>
+            </div>
+          ) : null}
 
-          {transferFailure ? (
+          {transferFailure && (user || transferFailure !== "balance") ? (
             <div
               role="alert"
               className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
@@ -644,6 +701,16 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                 Start another transfer
               </Button>
             </div>
+          ) : gate === "loading" ? (
+            <Button className="w-full" disabled>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking account
+            </Button>
+          ) : gate === "sign-in" ? (
+            <Button className="w-full" onClick={signInToSend}>
+              Sign in to send 2Z
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           ) : block === "balance" && !pendingMatchesCurrent ? (
             <Button variant="outline" className="w-full" onClick={onNeedBuy}>
               Not enough 2Z — buy more
