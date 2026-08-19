@@ -51,6 +51,12 @@ In a plain browser ZUULI runs in **mock mode** with realistic data so you can
 explore every screen. Inside a Tauri shell it drives the real wallet engine
 and the real free2z API.
 
+Card checkout permits `https://checkout.stripe.com` by default. If Stripe
+Custom Domains is enabled for the account, add its exact DNS name at build time
+with `VITE_STRIPE_CHECKOUT_HOSTS=pay.example.com` (comma-separated for more than
+one). Do not include a scheme, path, port, userinfo, suffix wildcard, or a domain
+that is not configured in Stripe.
+
 The committed native projects live under `src-tauri/gen/apple` and
 `src-tauri/gen/android`. ZUULI uses application identifier
 `cash.free2z.zuuli`, targets iOS 18+, and supports Android API 29+ while

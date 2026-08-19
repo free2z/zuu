@@ -93,6 +93,7 @@ import type {
   SubscriptionStatus,
   TuziTransaction,
 } from "./types";
+import { validateStripeCheckoutUrl } from "./checkout";
 
 const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms));
 
@@ -1479,24 +1480,24 @@ export const tuzi = {
 
   /**
    * Start a Stripe checkout to buy `tuzis` 2Zs and return the hosted checkout
-   * URL to open. The backend must return the session `url` (a one-line add to
-   * ztripe's create_checkout_session, which today returns only the session id).
+   * URL to open. The returned URL is treated as untrusted input even though the
+   * backend validates it too: only the configured exact Stripe host may leave
+   * the app.
    */
   async buyCheckout(tuzis: number): Promise<{ url: string }> {
     if (useMock()) {
       await delay(400);
-      return { url: `https://checkout.stripe.com/mock?q=${tuzis}` };
+      return {
+        url: validateStripeCheckoutUrl(
+          `https://checkout.stripe.com/mock?q=${tuzis}`,
+        ),
+      };
     }
-    const r = await request<{ id: string; url?: string }>(
+    const r = await request<{ id?: unknown; url?: unknown }>(
       "/api/stripe/create-checkout-session/",
       { method: "POST", body: { quantity: tuzis, currentPath: "/buy" } },
     );
-    if (!r.url) {
-      throw new Error(
-        "Checkout URL unavailable — have the backend return session.url from create_checkout_session.",
-      );
-    }
-    return { url: r.url };
+    return { url: validateStripeCheckoutUrl(r?.url) };
   },
 
   async donate(username: string, tuzis: number): Promise<void> {

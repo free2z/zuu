@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { auth } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
+import type { LoginDestination } from "@/lib/auth/login-destination";
 import {
   STEP_ORDER,
   useZcashChallengeFlow,
@@ -49,7 +50,9 @@ export const STEP_META: Record<StepKey, StepMeta> = {
 
 export type ZcashLoginState = ZcashChallengeFlowState;
 
-export function useZcashLogin(): ZcashLoginState {
+export function useZcashLogin(
+  loginDestination: LoginDestination = "/",
+): ZcashLoginState {
   const navigate = useNavigate();
   const setUser = useSession((s) => s.setUser);
 
@@ -69,7 +72,7 @@ export function useZcashLogin(): ZcashLoginState {
         description: "Signed in with your Zcash key.",
       });
       await new Promise((r) => setTimeout(r, 700));
-      navigate("/");
+      navigate(loginDestination, { replace: true });
     },
   });
 }

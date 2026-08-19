@@ -25,6 +25,11 @@ import { useSocialProviders } from "@/hooks/useSocialProviders";
 import { auth } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
 import type { SocialProvider } from "@/lib/api/types";
+import {
+  clearPendingSocialLoginDestination,
+  rememberPendingSocialLoginDestination,
+  type LoginDestination,
+} from "@/lib/auth/login-destination";
 
 const PROVIDER_NAME: Record<SocialProvider, string> = {
   x: "X",
@@ -59,6 +64,8 @@ export interface SocialButtonsProps {
   onLinked?: (provider: SocialProvider) => void;
   /** Shown when every configured provider is already linked / none configured. */
   emptyState?: ReactNode;
+  /** Narrowly allowlisted route used only after a fresh login. */
+  loginDestination?: LoginDestination;
 }
 
 const DEFAULT_EMPTY_STATE = (
@@ -72,6 +79,7 @@ export function SocialButtons({
   alreadyLinked,
   onLinked,
   emptyState = DEFAULT_EMPTY_STATE,
+  loginDestination = "/",
 }: SocialButtonsProps) {
   const { providers: configured, loading } = useSocialProviders();
   const navigate = useNavigate();
@@ -86,6 +94,7 @@ export function SocialButtons({
   async function handleClick(provider: SocialProvider) {
     if (pending) return;
     setPending(provider);
+    if (!associate) rememberPendingSocialLoginDestination(loginDestination);
     try {
       const user = await auth.socialLogin(provider, { associate });
       setUser(user);
@@ -99,9 +108,11 @@ export function SocialButtons({
         toast.success("Welcome to ZUULI", {
           description: `Signed in with ${name}.`,
         });
-        navigate("/");
+        clearPendingSocialLoginDestination();
+        navigate(loginDestination, { replace: true });
       }
     } catch (e) {
+      if (!associate) clearPendingSocialLoginDestination();
       toast.error(associate ? "Couldn't link that account" : "Couldn't sign in", {
         description: e instanceof Error ? e.message : "Please try again.",
       });

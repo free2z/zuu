@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { truncateAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SeedReveal } from "./SeedReveal";
+import type { LoginDestination } from "@/lib/auth/login-destination";
 import {
   STEP_META,
   STEP_ORDER,
@@ -54,8 +55,12 @@ function StepIcon({ status }: { status: StepStatus }) {
   );
 }
 
-export function ZcashLoginFlow() {
-  const flow = useZcashLogin();
+export function ZcashLoginFlow({
+  loginDestination = "/",
+}: {
+  loginDestination?: LoginDestination;
+}) {
+  const flow = useZcashLogin(loginDestination);
   const {
     phase,
     steps,

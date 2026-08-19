@@ -10,6 +10,10 @@ import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { auth } from "@/lib/api/free2z";
 import { recoverMobileOAuth } from "@/lib/oauth/transport";
+import {
+  clearPendingSocialLoginDestination,
+  consumePendingSocialLoginDestination,
+} from "@/lib/auth/login-destination";
 
 import AuthFeature from "@/features/auth";
 
@@ -64,9 +68,14 @@ function MobileOAuthRecovery() {
         toast.success(capture.associate ? "Account linked" : "Welcome to ZUULI", {
           description: `Finished ${capture.provider} sign-in after returning to the app.`,
         });
-        if (!capture.associate) navigate("/", { replace: true });
+        if (!capture.associate) {
+          navigate(consumePendingSocialLoginDestination(), { replace: true });
+        } else {
+          clearPendingSocialLoginDestination();
+        }
       })
       .catch((error) => {
+        clearPendingSocialLoginDestination();
         toast.error("Couldn't finish sign-in", {
           description: error instanceof Error ? error.message : "Please try again.",
         });
