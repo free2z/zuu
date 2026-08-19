@@ -20,6 +20,7 @@ describe("card checkout authentication boundary", () => {
       startCardCheckout({
         authenticated: false,
         amount: 2_000,
+        returnMode: "web",
         createCheckout,
         openCheckout,
       }),
@@ -31,17 +32,20 @@ describe("card checkout authentication boundary", () => {
   it("opens the validated backend URL directly for a signed-in user", async () => {
     const url = "https://checkout.stripe.com/c/pay/cs_test_123?prefilled=true";
     const openCheckout = vi.fn().mockResolvedValue(undefined);
+    const createCheckout = vi.fn().mockResolvedValue({ url });
 
     await expect(
       startCardCheckout({
         authenticated: true,
         amount: 2_000,
-        createCheckout: vi.fn().mockResolvedValue({ url }),
+        returnMode: "zuuli_mobile",
+        createCheckout,
         openCheckout,
       }),
     ).resolves.toBe("opened");
     expect(openCheckout).toHaveBeenCalledOnce();
     expect(openCheckout).toHaveBeenCalledWith(url);
+    expect(createCheckout).toHaveBeenCalledWith(2_000, "zuuli_mobile");
   });
 });
 

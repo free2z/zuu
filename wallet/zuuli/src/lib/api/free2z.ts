@@ -98,6 +98,13 @@ import type {
 } from "./types";
 import { validateStripeCheckoutUrl } from "./checkout";
 import { parseSocialProvidersStatus } from "./social-providers";
+import {
+  parseCheckoutPaymentStatus,
+  parseCheckoutReturnClaim,
+  type CheckoutPaymentStatus,
+  type CheckoutReturnClaim,
+  type CheckoutReturnMode,
+} from "@/lib/checkout/native-return";
 
 const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms));
 
@@ -1547,7 +1554,10 @@ export const tuzi = {
    * backend validates it too: only the configured exact Stripe host may leave
    * the app.
    */
-  async buyCheckout(tuzis: number): Promise<{ url: string }> {
+  async buyCheckout(
+    tuzis: number,
+    returnMode: CheckoutReturnMode = "web",
+  ): Promise<{ url: string }> {
     if (useMock()) {
       await delay(400);
       return {
@@ -1560,10 +1570,28 @@ export const tuzi = {
       "/api/stripe/create-checkout-session/",
       {
         method: "POST",
-        body: { quantity: tuzis, currentPath: "/wallet/fund" },
+        body: { quantity: tuzis, currentPath: "/wallet/fund", returnMode },
       },
     );
     return { url: validateStripeCheckoutUrl(r?.url) };
+  },
+
+  async claimCheckoutReturn(code: string): Promise<CheckoutReturnClaim> {
+    const value = await request<unknown>("/api/stripe/native-return/claim/", {
+      method: "POST",
+      body: { code },
+    });
+    return parseCheckoutReturnClaim(value);
+  },
+
+  async checkoutReturnStatus(
+    statusToken: string,
+  ): Promise<CheckoutPaymentStatus> {
+    const value = await request<unknown>("/api/stripe/native-return/status/", {
+      method: "POST",
+      body: { status_token: statusToken },
+    });
+    return parseCheckoutPaymentStatus(value);
   },
 
   async donate(username: string, tuzis: number): Promise<void> {

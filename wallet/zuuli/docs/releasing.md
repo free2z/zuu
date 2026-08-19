@@ -223,6 +223,34 @@ later reviewed publication phase must add mocked provider writes and
 fresh readback before that stop can be replaced. Never dispatch it as evidence
 of publication while `publicationReady` is false.
 
+### Native Checkout return gate
+
+The shipping mobile manifests register two exact private-use routes under the
+existing `cash.free2z.zuuli` scheme: OAuth at `oauth/callback` and Checkout at
+`checkout/return`. Android must contain separate browsable intent filters for
+those host/path pairs; iOS registers the scheme and the TypeScript parser
+enforces host/path. `src-tauri` tests pin that generated configuration.
+
+Before releasing card purchase changes, use signed-in staging accounts on both
+iOS and Android and verify all four cases: success and cancel with ZUULI warm,
+then success and cancel after terminating ZUULI while Checkout is open. The
+system browser must first land on the canonical Free2Z HTTPS page; its fallback
+may open only
+`cash.free2z.zuuli://checkout/return?code=<signed-claim>`. Every return must
+navigate to Wallet funding and refresh the authoritative session and balance.
+Cancel says cancelled; success says processing until the verified
+webhook-authored credit exists, then reports the confirmed 2Z amount. A
+correlated processing token is non-authoritative and cannot itself produce a
+payment-success message. A browser redirect alone is never success evidence.
+
+The current build does not claim the Free2Z HTTPS host as an iOS universal link
+or Android app link (`appLink: false`). Do not enable that capability until the
+production signing identifiers/fingerprints are served from both platform
+association files on every canonical environment. The HTTPS page plus exact
+private-use fallback is the supported path meanwhile. Tuzi issuance remains
+default-off until its dedicated callback DNS, TLS, isolated Ingress, and live
+readiness probes pass; see free2z/tuzi#1265.
+
 ## Local release dry run
 
 Credentials are paths or environment values; never paste a private key, service

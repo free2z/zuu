@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ApiError } from "@/lib/api/http";
 import { CheckoutLinkError } from "@/lib/api/checkout";
 import { isTauri } from "@/lib/platform";
+import type { CheckoutReturnMode } from "@/lib/checkout/native-return";
 
 interface CheckoutSession {
   url: string;
@@ -10,7 +11,11 @@ interface CheckoutSession {
 interface StartCardCheckoutOptions {
   authenticated: boolean;
   amount: number;
-  createCheckout: (amount: number) => Promise<CheckoutSession>;
+  returnMode: CheckoutReturnMode;
+  createCheckout: (
+    amount: number,
+    returnMode: CheckoutReturnMode,
+  ) => Promise<CheckoutSession>;
   openCheckout: (url: string) => Promise<void>;
 }
 
@@ -33,11 +38,12 @@ export class CheckoutOpenError extends Error {
 export async function startCardCheckout({
   authenticated,
   amount,
+  returnMode,
   createCheckout,
   openCheckout,
 }: StartCardCheckoutOptions): Promise<CardCheckoutResult> {
   if (!authenticated) return "sign-in";
-  const { url } = await createCheckout(amount);
+  const { url } = await createCheckout(amount, returnMode);
   try {
     await openCheckout(url);
   } catch (cause) {

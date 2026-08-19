@@ -56,6 +56,7 @@ import {
   openCardCheckout,
   startCardCheckout,
 } from "./card-checkout";
+import { checkoutReturnMode } from "@/lib/checkout/native-return";
 
 type QuoteState =
   | { status: "idle" }
@@ -145,6 +146,7 @@ export function BuyTab() {
       const result = await startCardCheckout({
         authenticated,
         amount,
+        returnMode: await checkoutReturnMode(),
         createCheckout: tuzi.buyCheckout,
         openCheckout: openCardCheckout,
       });
