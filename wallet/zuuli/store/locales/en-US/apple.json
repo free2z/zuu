@@ -1,0 +1,13 @@
+{
+  "name": "ZUULI",
+  "subtitle": "Zcash wallet. Creator tools.",
+  "description": "ZUULI brings a Zcash wallet and Free2Z creator tools into one app. Explore articles and livestreams, use AI tools, support creators, and manage Zcash from a mobile-first interface. 2Z credits are separate from Zcash and are used for eligible Free2Z experiences.\n\nThis preview is distributed only to approved internal testers. Use only small amounts you can afford to lose during internal testing, and report unexpected wallet, sign-in, payment, media, or accessibility behavior through the support channel.",
+  "keywords": "zcash,wallet,creators,livestream,articles,AI,payments",
+  "promotionalText": "ZUULI brings Zcash and Free2Z creator tools together.",
+  "supportUrl": "https://free2z.cash/docs/",
+  "marketingUrl": "https://free2z.cash/",
+  "privacyPolicyUrl": "https://free2z.cash/docs/legal/privacy-policy/",
+  "releaseNotes": "Internal preview: exercise wallet, sign-in, creator, AI, article, livestream, payment, and accessibility flows. Use only small amounts you can afford to lose during internal testing.",
+  "betaDescription": "Help test ZUULI's Zcash wallet and creator experience. Use only small amounts you can afford to lose during internal testing, and report unexpected behavior.",
+  "betaFeedbackEmail": "help@free2z.com"
+}

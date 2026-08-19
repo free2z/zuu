@@ -29,7 +29,7 @@ npm run tauri -- android dev
 npm run tauri -- android build # Android APK/AAB
 npm run release:verify         # cross-platform version/build/identity contract
 node scripts/verify-ci-cache-policy.mjs # release-cache trust boundaries
-npm run test:play-testers  # offline protected Play tester transaction tests
+npm run test:store-listing # offline listing contract and read-only audit tests
 ```
 
 The web dev server runs on **1423** so it never collides with zuuallet (1421).

@@ -205,6 +205,8 @@ const testFlightRecoveryWorkflow = read(
 const testFlightBootstrapWorkflow = read(
   "../../.github/workflows/zuuli-testflight-bootstrap.yml",
 );
+const storeAuditWorkflow = read("../../.github/workflows/zuuli-store-audit.yml");
+const storePublishWorkflow = read("../../.github/workflows/zuuli-store-publish.yml");
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
 
 expect("package.json version", packageJson.version, release.version);
@@ -750,6 +752,41 @@ for (const forbiddenBootstrapContract of ["--ensure", "--read-only", "betaTester
 }
 if (!gateWorkflow.includes(".github/workflows/zuuli-testflight-bootstrap.yml"))
   failures.push("ZUULI gate must select TestFlight bootstrap workflow changes");
+for (const auditContract of [
+  "name: ZUULI / Store listing read-only audit",
+  "environment: zuuli-app-stores",
+  "test \"$(git rev-parse refs/remotes/origin/main)\" = \"$SOURCE_SHA\"",
+  "npm run test:store-listing",
+  "node scripts/store-state-audit.mjs",
+  "Destroy ephemeral store credentials",
+  "Upload sanitized store-state evidence",
+]) {
+  if (!storeAuditWorkflow.includes(auditContract))
+    failures.push(`store audit workflow is missing: ${auditContract}`);
+}
+for (const forbiddenAuditContract of ["edits:commit", "updateTesters", "betaTesters"])
+  if (storeAuditWorkflow.includes(forbiddenAuditContract))
+    failures.push(`store audit workflow has a forbidden contract: ${forbiddenAuditContract}`);
+for (const publishContract of [
+  "name: ZUULI / Store listing publication gate",
+  "environment: zuuli-app-stores",
+  "test \"$(git rev-parse refs/remotes/origin/main)\" = \"$SOURCE_SHA\"",
+  "test \"$actual_locales\" = \"$CONFIRMED_LOCALES\"",
+  "npm run store:validate -- --publish",
+  "Phase A has no enabled store writer",
+]) {
+  if (!storePublishWorkflow.includes(publishContract))
+    failures.push(`store publication gate is missing: ${publishContract}`);
+}
+for (const forbiddenPublishContract of ["ASC_KEY_BASE64", "PLAY_SERVICE_ACCOUNT_JSON_BASE64", "fastlane deliver", "fastlane supply"])
+  if (storePublishWorkflow.includes(forbiddenPublishContract))
+    failures.push(`Phase A store publication gate must not materialize credentials or invoke a writer: ${forbiddenPublishContract}`);
+for (const workflowPath of [
+  ".github/workflows/zuuli-store-audit.yml",
+  ".github/workflows/zuuli-store-publish.yml",
+]) {
+  if (!gateWorkflow.includes(workflowPath)) failures.push(`ZUULI gate must select ${workflowPath} changes`);
+}
 const unsignedIosBuild = packagingWorkflow.indexOf(
   "./node_modules/.bin/tauri ios build --ci --no-sign",
 );

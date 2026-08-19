@@ -113,17 +113,16 @@ upload to the internal track, and `0.1.0+2` confirmed the repeatable protected
 path. Subsequent protected releases use the same dedicated principal and upload
 key. Do not weaken the account check or upload a debug key.
 
-Internal tester eligibility is managed additively with the protected
-`ZUULI / Play tester groups` workflow. Its default private group is
-`zuuli-internal-testers-free2z@googlegroups.com`. The workflow shares the
-mobile-store concurrency lane, preserves every existing Google Group, commits
-the requested group through the Android Publisher API, and verifies the result
-through a fresh edit. It accepts only lowercase `@googlegroups.com` addresses;
-Play's API does not support Console email lists. Run the offline transaction
-tests before changing this path:
+Internal tester eligibility remains in the owner-selected Play Console
+email-list mode during 0.1.x testing (#296). No repository workflow adds,
+migrates, or removes testers. The Publisher API cannot enumerate or manage the
+Console email-list membership. The protected read-only store audit reports the
+owner-declared mode and whether the API exposes a conflicting Google Groups
+configuration, without emitting addresses or claiming email-list eligibility
+was verified. Run the offline boundary tests before changing this path:
 
 ```bash
-npm run test:play-testers
+npm run test:store-listing
 ```
 
 Primary references:
@@ -137,6 +136,49 @@ Primary references:
 - Google Publisher tracks: https://developers.google.com/android-publisher/tracks
 - Tauri iOS/App Store: https://v2.tauri.app/distribute/app-store/
 - Tauri Google Play: https://v2.tauri.app/distribute/google-play/
+
+### Store listing source and protected audit
+
+`store/manifest.json` and `store/locales/` are the canonical locale mapping,
+proposed copy, classification proposals, and exact media contract. During Phase
+A, `publicationReady` is false and every screenshot set is empty while #267,
+#1257, and #255 complete. Run:
+
+```bash
+npm run store:validate
+npm run test:store-listing
+npm run store:validate -- --publish # must fail during Phase A
+```
+
+The protected `ZUULI / Store listing read-only audit` workflow compares current
+App Store Connect and Play state with an exact current `main` source SHA. Apple
+requests are GET-only. Google requires an ephemeral edit to read listings and
+images; the audit always deletes it and never sends PUT or commit. Its evidence
+contains locale/media counts and status booleans only—never remote copy, image
+URLs, Google Group addresses, or tester identities. Dispatch only after the
+source has merged:
+
+```bash
+source_sha=$(git rev-parse origin/main)
+gh workflow run zuuli-store-audit.yml --ref main \
+  -f "source_sha=$source_sha" \
+  -f provider=both
+```
+
+The public App Store lookup returning no record or the public Play page
+returning 404 does not prove anything about protected/internal listing state.
+Only the authenticated audit is authoritative. Its Play tester-mode result can
+detect an API-visible Google Groups configuration but cannot enumerate Console
+email-list membership; that limitation is part of the evidence, not success
+claimed by inference.
+
+`ZUULI / Store listing publication gate` is protected by the same serialized
+environment. Phase A intentionally contains no store writer and no publication
+credentials: exact current SHA, release identity, locale allowlist, offline
+tests, and `--publish` validation all precede a terminal fail-closed stop. A
+later reviewed screenshot/publication phase must add mocked provider writes and
+fresh readback before that stop can be replaced. Never dispatch it as evidence
+of publication while `publicationReady` is false.
 
 ## Local signed dry run
 

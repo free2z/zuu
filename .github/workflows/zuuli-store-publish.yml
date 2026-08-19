@@ -1,0 +1,81 @@
+name: ZUULI / Store listing publication gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current main commit containing reviewed store media
+        required: true
+        type: string
+      identity:
+        description: Exact current release identity (for example 0.1.0+10)
+        required: true
+        type: string
+      locales:
+        description: Exact manifest locale allowlist
+        required: true
+        default: en-US
+        type: string
+      confirmation:
+        description: Type PUBLISH_INTERNAL_LISTING after reviewing the manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zuuli-mobile-store
+  cancel-in-progress: false
+
+jobs:
+  publication-gate:
+    name: Prove immutable publication inputs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: zuuli-app-stores
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - name: Verify exact current-main release and locale allowlist
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CONFIRMED_IDENTITY: ${{ inputs.identity }}
+          CONFIRMED_LOCALES: ${{ inputs.locales }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "source SHA must be a full lowercase commit SHA" >&2
+            exit 1
+          }
+          test "$CONFIRMATION" = PUBLISH_INTERNAL_LISTING
+          actual_locales=$(jq -r '[.locales[].id] | join(",")' store/manifest.json)
+          test "$actual_locales" = "$CONFIRMED_LOCALES"
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse refs/remotes/origin/main)" = "$SOURCE_SHA"
+          actual_identity=$(jq -r '.version + "+" + (.build | tostring)' release.json)
+          test "$actual_identity" = "$CONFIRMED_IDENTITY"
+          git diff --exit-code -- .
+          git diff --cached --exit-code -- .
+      - run: npm ci --ignore-scripts
+      - name: Verify transaction contracts offline
+        run: |
+          npm run test:store-listing
+          npm run release:verify
+      - name: Require complete reviewed media before any credential or network access
+        run: npm run store:validate -- --publish
+      - name: Phase A has no enabled store writer
+        run: |
+          echo "store mutation remains disabled until the reviewed screenshot phase adds and tests the provider transaction" >&2
+          exit 1
