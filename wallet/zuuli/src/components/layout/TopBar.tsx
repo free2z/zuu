@@ -124,7 +124,7 @@ export function TopBar() {
       {/* 2Z balance chip */}
       {user ? (
         <Link
-          to="/buy"
+          to="/wallet/fund"
           className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 text-sm transition-colors hover:bg-primary/20 sm:gap-2 sm:px-3"
           aria-label={`Buy 2Zs. Balance ${formatTuzis(tuzis)}`}
         >
@@ -168,7 +168,7 @@ export function TopBar() {
             <DropdownMenuItem onClick={() => navigate("/wallet")}>
               <WalletIcon /> Wallet
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate("/buy")}>
+            <DropdownMenuItem onClick={() => navigate("/wallet/fund")}>
               <Coins /> Buy 2Zs
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/kyc")}>

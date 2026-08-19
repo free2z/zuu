@@ -12,7 +12,7 @@ function renderTopBar({ pushed = false } = {}) {
   });
 
   return renderToStaticMarkup(
-    <MemoryRouter initialEntries={[pushed ? "/buy" : "/"]}>
+    <MemoryRouter initialEntries={[pushed ? "/wallet/fund" : "/"]}>
       <TooltipProvider>
         <TopBar />
       </TooltipProvider>
@@ -40,7 +40,7 @@ describe("TopBar account chrome", () => {
     expect(markup).not.toContain("Login with Zcash");
     expect(markup).not.toContain("0 2Z");
     expect(markup).not.toContain("0.00");
-    expect(markup).not.toContain('href="/buy"');
+    expect(markup).not.toContain('href="/wallet/fund"');
     expect(markup).not.toContain('href="/wallet"');
     expect(markup).toContain('aria-label="Search"');
     expect(markup.includes('aria-label="Go back"')).toBe(pushed);

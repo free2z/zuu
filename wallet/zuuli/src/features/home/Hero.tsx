@@ -77,7 +77,7 @@ export function Hero() {
 
       <div className="mt-8 flex flex-wrap gap-3">
         <StatChip
-          to="/buy"
+          to="/wallet/fund"
           icon={Coins}
           label="2Z balance"
           value={formatTuzis(tuzis)}

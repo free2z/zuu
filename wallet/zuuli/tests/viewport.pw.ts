@@ -12,6 +12,7 @@ const ROUTES = [
   "/wallet/send",
   "/wallet/receive",
   "/wallet/history",
+  "/wallet/fund",
   "/ai",
   "/live",
   "/live/nine",
@@ -317,12 +318,12 @@ for (const signedIn of [false, true]) {
   }
 }
 
-test("signed-out card checkout returns to Buy after login at 320px", async ({
+test("signed-out card checkout returns to Wallet funding after login at 320px", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await setSession(page, false);
-  await page.goto("/buy");
+  await page.goto("/wallet/fund");
   await page.locator("[data-app-frame]").waitFor();
 
   await page.getByRole("button", { name: "Sign in to buy" }).click();
@@ -334,7 +335,7 @@ test("signed-out card checkout returns to Buy after login at 320px", async ({
   await page.getByLabel("Password").fill("mock-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
-  await expect(page).toHaveURL(/\/buy$/);
+  await expect(page).toHaveURL(/\/wallet\/fund$/);
   await expect(page.getByRole("button", { name: "Pay with card" })).toBeVisible();
   expect((await auditHorizontalLayout(page)).failures).toEqual([]);
 });

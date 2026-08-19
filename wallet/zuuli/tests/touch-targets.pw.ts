@@ -12,6 +12,7 @@ const ROUTES = [
   "/wallet/send",
   "/wallet/receive",
   "/wallet/history",
+  "/wallet/fund",
   "/ai",
   "/live",
   "/live/nine",
@@ -238,12 +239,13 @@ for (const signedIn of [false, true]) {
         routeFailures.push(...audit.failures.map((failure) => `${route}: ${failure}`));
       }
 
-      await page.goto("/buy");
+      await page.goto("/wallet/fund");
       for (const tab of ["Send & Tip", "Activity"]) {
         await page.getByRole("tab", { name: tab }).click();
         routeFailures.push(
           ...(await auditTouchTargets(page)).failures.map(
-            (failure) => `/buy?tab=${tab.toLowerCase().replaceAll(" ", "-")}: ${failure}`,
+            (failure) =>
+              `/wallet/fund?tab=${tab.toLowerCase().replaceAll(" ", "-")}: ${failure}`,
           ),
         );
       }
@@ -280,6 +282,15 @@ for (const signedIn of [false, true]) {
           ),
         );
       }
+
+      await page.goto("/");
+      await page.getByRole("button", { name: "More navigation" }).click();
+      routeFailures.push(
+        ...(await auditTouchTargets(page)).failures.map(
+          (failure) => `/?menu=more: ${failure}`,
+        ),
+      );
+      await page.keyboard.press("Escape");
 
       await page.goto("/login");
       await page.getByRole("button", { name: "Continue with Zcash" }).click();

@@ -145,6 +145,18 @@
     padding-left: var(--safe-area-left);
   }
 
+  .app-mobile-more-dialog {
+    max-height: min(80vh, 32rem);
+    max-height: min(80dvh, 32rem);
+    padding-right: calc(1rem + var(--safe-area-right));
+    padding-bottom: calc(1rem + var(--safe-area-bottom));
+    padding-left: calc(1rem + var(--safe-area-left));
+  }
+
+  .app-mobile-more-close {
+    right: calc(0.5rem + var(--safe-area-right));
+  }
+
   .app-scroll-content {
     padding-bottom: calc(var(--mobile-tab-bar-height) + 1.5rem);
   }

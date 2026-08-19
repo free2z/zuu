@@ -1,4 +1,4 @@
-export type LoginDestination = "/" | "/buy";
+export type LoginDestination = "/" | "/wallet/fund";
 
 export const DEFAULT_LOGIN_DESTINATION: LoginDestination = "/";
 
@@ -9,16 +9,18 @@ type DestinationStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /**
  * Resolve history state through a deliberately tiny allowlist. This must never
- * become a generic internal-URL redirect: login currently needs only `/buy`.
+ * become a generic internal-URL redirect: login currently needs only Wallet's
+ * exact funding route.
  */
 export function loginDestinationFromState(state: unknown): LoginDestination {
   try {
-    if (
-      typeof state === "object" &&
-      state !== null &&
-      (state as { returnTo?: unknown }).returnTo === "/buy"
-    ) {
-      return "/buy";
+    if (typeof state !== "object" || state === null) {
+      return DEFAULT_LOGIN_DESTINATION;
+    }
+
+    const returnTo = (state as { returnTo?: unknown }).returnTo;
+    if (returnTo === "/wallet/fund" || returnTo === "/buy") {
+      return "/wallet/fund";
     }
   } catch {
     // Treat proxies/getters like any other malformed navigation state.
@@ -45,7 +47,7 @@ export function rememberPendingSocialLoginDestination(
 ): void {
   if (!storage) return;
   try {
-    if (destination === "/buy") {
+    if (destination === "/wallet/fund") {
       storage.setItem(PENDING_SOCIAL_LOGIN_DESTINATION, destination);
     } else {
       storage.removeItem(PENDING_SOCIAL_LOGIN_DESTINATION);

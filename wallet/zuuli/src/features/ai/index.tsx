@@ -397,7 +397,7 @@ export default function AiFeature() {
               chatting. Top up to continue.
             </span>
             <Button asChild size="sm" className="ml-auto">
-              <Link to="/buy">Buy 2Zs</Link>
+              <Link to="/wallet/fund">Buy 2Zs</Link>
             </Button>
           </div>
         ) : null}

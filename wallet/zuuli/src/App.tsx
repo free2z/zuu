@@ -1,5 +1,12 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Routes,
+  Route,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -27,7 +34,6 @@ const WalletFeature = lazy(() => import("@/features/wallet"));
 const AiFeature = lazy(() => import("@/features/ai"));
 const LiveFeature = lazy(() => import("@/features/live"));
 const ArticlesFeature = lazy(() => import("@/features/articles"));
-const BuyFeature = lazy(() => import("@/features/buy"));
 const SearchFeature = lazy(() => import("@/features/search"));
 const CreatorFeature = lazy(() => import("@/features/creator"));
 const ProfileFeature = lazy(() => import("@/features/profile"));
@@ -43,6 +49,12 @@ function RouteFallback() {
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
     </div>
   );
+}
+
+/** Keep old links/bookmarks working while funding now lives inside Wallet. */
+function LegacyBuyRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate replace to={`/wallet/fund${search}${hash}`} />;
 }
 
 /** Finish a mobile OAuth callback that cold-started or resumed the app. */
@@ -177,11 +189,7 @@ export default function App() {
             />
             <Route
               path="/buy/*"
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <BuyFeature />
-                </Suspense>
-              }
+              element={<LegacyBuyRedirect />}
             />
 
             {/* Catch-all: unknown paths render a NotFound inside the shell */}

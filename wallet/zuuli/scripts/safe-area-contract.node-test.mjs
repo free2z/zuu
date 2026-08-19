@@ -45,12 +45,26 @@ test("cover is enabled only together with four authoritative inset fallbacks", (
 
   assert.match(cssRule("app-top-bar"), /var\(--safe-area-top\)/);
   assert.match(cssRule("app-bottom-nav"), /var\(--safe-area-bottom\)/);
+  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-left\)/);
+  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-right\)/);
+  assert.match(cssRule("app-mobile-more-dialog"), /var\(--safe-area-bottom\)/);
+  assert.match(cssRule("app-mobile-more-close"), /var\(--safe-area-right\)/);
+  const moreDialogRule = cssRule("app-mobile-more-dialog");
+  const legacyMoreHeight = moreDialogRule.indexOf("max-height: min(80vh, 32rem);");
+  const dynamicMoreHeight = moreDialogRule.indexOf("max-height: min(80dvh, 32rem);");
+  assert.ok(legacyMoreHeight >= 0, "More sheet lacks the legacy vh fallback");
+  assert.ok(
+    dynamicMoreHeight > legacyMoreHeight,
+    "More sheet must override vh with dvh in declaration order",
+  );
   assert.match(cssRule("app-viewport"), /var\(--safe-area-left\)/);
   assert.match(cssRule("app-viewport"), /var\(--safe-area-right\)/);
   assert.match(topBar, /className="app-top-bar /);
   assert.match(sidebar, /className="app-bottom-nav /);
   assert.match(topBar, /data-app-top-bar/);
   assert.match(sidebar, /data-app-bottom-nav/);
+  assert.match(sidebar, /className="app-mobile-more-dialog /);
+  assert.match(sidebar, /closeClassName="app-mobile-more-close /);
 });
 
 test("the document and app are bounded to one dynamic viewport frame", () => {
