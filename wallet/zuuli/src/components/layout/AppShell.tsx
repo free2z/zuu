@@ -32,11 +32,9 @@ function LegacyWalletNotice() {
 export function AppShell() {
   const location = useLocation();
   // AI and login each own a bounded internal scroll region while the header
-  // and mobile tabs stay pinned. Radix's
-  // ScrollArea wraps children in a `display: table` div that sizes to
-  // content, so a `h-full` flex column nested inside it can never resolve a
-  // real height. Give that route a plain, height-bound `main` instead of the
-  // page-scrolling ScrollArea every other route uses.
+  // and mobile tabs stay pinned. Keep those routes in a plain, height-bound
+  // main instead of nesting their scroll owners inside the generic page
+  // ScrollArea used by every other route.
   const isFullBleed =
     location.pathname.startsWith("/ai") || location.pathname === "/login";
 
@@ -51,8 +49,8 @@ export function AppShell() {
             <Outlet />
           </main>
         ) : (
-          <ScrollArea className="min-h-0 flex-1" data-route-scroll>
-            <main className="app-scroll-content mx-auto w-full max-w-6xl px-4 pt-6 md:px-8">
+          <ScrollArea className="min-h-0 min-w-0 max-w-full flex-1" data-route-scroll>
+            <main className="app-scroll-content mx-auto w-full min-w-0 max-w-6xl px-4 pt-6 md:px-8">
               <Outlet />
             </main>
           </ScrollArea>

@@ -90,7 +90,7 @@ export function Overview() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap">
               <Button asChild variant="zec" size="lg">
                 <Link to="/wallet/send">
                   <ArrowUpRight className="h-4 w-4" />

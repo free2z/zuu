@@ -21,7 +21,7 @@ export function BalanceHero() {
     <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-card via-card to-primary/5">
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-primary/20 blur-3xl"
+        className="pointer-events-none absolute right-0 top-0 h-52 w-52 rounded-full bg-primary/20 blur-3xl"
       />
       <div className="relative grid gap-6 p-6 sm:grid-cols-[1.4fr_auto_1fr] sm:items-center sm:p-8">
         {/* 2Z balance */}

@@ -75,7 +75,7 @@ export function Author() {
           title="Sign in with Zcash to publish"
           description="Authoring is free — sign a challenge with your wallet, no password or email required."
           action={
-            <div className="flex gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
               <Button asChild>
                 <Link to="/login">Sign in with Zcash</Link>
               </Button>

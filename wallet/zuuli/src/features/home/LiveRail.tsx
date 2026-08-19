@@ -120,8 +120,8 @@ export function LiveRail() {
       ) : (
         <div
           className={cn(
-            "-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-2",
-            "sm:mx-0 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-3",
+            "flex snap-x snap-mandatory gap-4 overflow-x-auto px-1 pb-2",
+            "sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-3",
           )}
         >
           {streams.map((s) => (
