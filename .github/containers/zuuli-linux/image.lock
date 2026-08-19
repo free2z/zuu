@@ -1,0 +1,6 @@
+schema_version=1
+phase=bootstrap
+repository=ghcr.io/free2z/zuuli-linux-ci
+base_digest=sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316
+image_digest=UNPUBLISHED
+source_sha256=13eb98f352e0e3d1198f30abe333d289f504ae5cacef01cb83b21c1f7e030056
