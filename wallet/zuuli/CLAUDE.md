@@ -1,9 +1,9 @@
 # ZUULI — Agent instructions
 
-**ZUULI, by 2Z Inc**, is the flagship Zcash-native app: a cutting-edge Zcash
-wallet fused with the free2z platform — AI (multi-provider, metered in 2Zs),
-livestreaming (broadcast / subscriber / PPV / private), articles, and a 2Z
-credit economy — with **Login with Zcash** (no password, no email, no KYC).
+**ZUULI, by 2Z Inc**, is the flagship Zcash-native app: a native Zcash wallet
+combined with free2z AI, livestreaming, articles, profile/KYC, and 2Z-credit
+surfaces. Implemented UI or source wiring is not itself production evidence;
+the per-surface status and release blockers live in [`STATUS.md`](STATUS.md).
 
 It is distinct from **`../zuuallet`**, the whitelabel *reference* wallet. Both
 apps share the Zcash engine in `../plugins/tauri-plugin-zcash` (the "guts").
@@ -21,8 +21,9 @@ cd wallet/zuuli
 npm install
 npm run typecheck          # tsc --noEmit
 npm run build              # tsc && vite build
-npm run dev                # vite dev server on :1423 (browser = mock mode)
-npm run tauri dev          # full desktop app (real wallet)
+VITE_MOCK=1 npm run dev    # browser fixtures on :1423 (UI/demo only)
+npm run dev                # real staging API on :1423; no native wallet
+npm run tauri dev          # native wallet + staging API by default
 npm run tauri -- ios dev   # iOS simulator/device through Xcode
 npm run tauri -- ios build # unsigned/signing-configured iOS archive as applicable
 npm run tauri -- android dev
@@ -75,19 +76,26 @@ never merge two identity directories or add an insecure mobile import path.
 - @tauri-apps/api 2 (IPC), Tauri v2 backend
 - react-markdown (articles + AI), qrcode.react, sonner (toasts), lucide-react
 
-## Two runtime modes — the key architectural idea
+## Runtime selection — two independent boundaries
 
-Every data path has a real implementation AND a mock fallback, chosen at
-runtime by `src/lib/platform.ts`:
+The API and wallet contracts have real implementations plus fixture fallbacks,
+but a plain browser is **not** itself the mock-mode switch:
 
-- **Tauri desktop/mobile** (`isTauri()`): the wallet bridge calls the real
-  `tauri-plugin-zcash` commands (librustzcash); the API layer hits the real
-  free2z backend.
-- **Plain browser / `VITE_MOCK=1`**: realistic fixtures (`src/lib/api/mock-data.ts`,
-  `src/lib/wallet/mock.ts`) so the whole UI runs, demos, and screenshots with
-  no backend and no chain sync.
+- **`VITE_MOCK=1`:** normal API and wallet calls select fixtures from
+  `src/lib/api/mock-data.ts` and `src/lib/wallet/mock.ts`. This is UI/demo
+  evidence only, not a network-isolation guarantee: a native profile can retain
+  one-shot OAuth recovery state from an earlier real run. Use a fresh plain
+  browser profile plus network controls when an offline proof is required.
+- **Without `VITE_MOCK=1`:** API calls are real. Development uses the Vite proxy
+  and defaults to staging. Production builds default to `free2z.cash`; packaged
+  Tauri uses the registered native HTTP plugin, while a non-Tauri browser build
+  uses `window.fetch` and remains subject to browser-origin policy.
+- **Tauri is required for a real wallet:** the wallet bridge invokes
+  `tauri-plugin-zcash`. A plain browser without `VITE_MOCK=1` can exercise API
+  surfaces, but it cannot exercise the wallet and is not a whole-app run.
 
-This is why `npm run dev` in a browser shows a fully working app.
+Never describe a browser fixture, compile, package, upload, or store-listing
+result as proof of a product operation.
 
 ## Architecture / conventions
 
@@ -121,10 +129,13 @@ This is why `npm run dev` in a browser shows a fully working app.
 
 ## Backend follow-ups (see repo STATUS / the free2z backend)
 
-- `plugin:zcash|sign_challenge` powers Login with Zcash on desktop (ZIP-304).
-- Real endpoints for Zcash login (`/api/auth/zcash/login/`) and pay-with-ZEC
-  top-ups live in the free2z backend (`tuzi/py`). The client contract already
-  targets them; mock mode stands in until they ship.
+- `plugin:zcash|sign_challenge` powers the current transparent-address Zcash
+  Signed Message login. Do not call it ZIP-304; that shielded design is a
+  separate future upgrade.
+- The client targets the Zcash login endpoints, but the production
+  challenge/signature/session round trip still needs recorded native evidence.
+- Production pricing/quote endpoints exist for ZEC top-ups; wallet spend,
+  settlement, and 2Z credit do not. Track that boundary in #155.
 
 ## Social OAuth callbacks
 

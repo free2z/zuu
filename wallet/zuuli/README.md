@@ -6,56 +6,66 @@
 
 *Your Z. Your keys. Your universe.*
 
-A Zcash-native app for desktop and mobile: a cutting-edge wallet fused with the
-free2z platform — AI, livestreaming, articles, and a credit economy — all
-metered in **2Zs**, all shielded by default.
+A Zcash-native app for desktop and mobile: a wallet fused with the free2z
+platform's AI, livestreaming, articles, and **2Z** credit economy.
 
 </div>
 
 ---
 
-## What ZUULI does
+## What ZUULI includes
 
-- 🔑 **Login with Zcash** — your key is your identity. No password, no email, no
-  KYC, no third party. Sign a challenge (ZIP-304), your address becomes a W3C
-  DID. Associate an existing free2z account if you have one.
-- 🪙 **A real Zcash wallet, right here** — create/restore, sync, send, receive,
-  history. Powered by `librustzcash` via `tauri-plugin-zcash` (the same engine
-  as the `zuuallet` reference wallet).
-- 🤖 **AI from every provider, anonymously** — OpenAI, Anthropic, xAI, Kimi, and
-  open-source models on our hardware. You go through the free2z API, so the
-  provider never sees *you*. Priced cost-plus, rounded up to whole 2Zs.
-- 📡 **Livestreaming** — start a broadcast, subscriber-only, PPV, or private
-  stream. Discover what's live. Join a PPV stream by spending 2Zs.
-- ✍️ **Articles** — read a feed, or author your own with a live markdown editor.
-- 💸 **The 2Z economy** — buy 2Zs with a card *or* with ZEC from your in-app
-  wallet. Donate 2Zs or ZEC to creators without ever leaving the app.
+- **Zcash-key sign-in integration** — the native wallet can sign a free2z
+  challenge with its transparent login key, without an email or password.
+- **A native Zcash wallet** — create/restore, sync, send, receive, and history
+  surfaces backed by `librustzcash` through `tauri-plugin-zcash` (the same
+  engine as the `zuuallet` reference wallet).
+- **AI Studio** — model and personality selection through free2z's metered
+  conversation API, with the authoritative 2Z balance refreshed after a turn.
+- **Livestreaming surfaces** — public discovery and RealtimeKit room UI, with
+  authenticated broadcast, subscriber, PPV, and private-stream contracts.
+- **Articles surfaces** — public feed/reader plus authenticated authoring,
+  comments, and tips.
+- **The 2Z economy** — 2Z balances, creator tips, memberships, Activity, and
+  top-up surfaces. Card checkout and ZEC settlement are still incomplete.
+
+These are implemented surfaces, not a claim that every production path has
+passed. The source-and-runtime evidence, release blockers, and issue links live
+in [STATUS.md](STATUS.md). Mock-mode flows are demo evidence only.
 
 ## The 2Z (Tuzi)
 
-`1 Tuzi = 1 US cent`. Everything metered — an AI prompt, a PPV seat — is charged
-at our upstream cost plus a thin margin, **rounded up** to the nearest 2Z. If a
-prompt costs us `$0.0323478`, you pay `4 2Z`.
+ZUULI represents free2z platform credits as integer 2Z (Tuzis). Production
+pricing and quote endpoints provide the authoritative current card/ZEC quote;
+individual charging and settlement paths remain subject to the evidence and
+gaps in [STATUS.md](STATUS.md).
 
 ## Run it
 
 ```bash
 npm install
-npm run dev          # browser, mock mode — the whole app, no backend needed
-npm run tauri dev    # the real desktop app with a live Zcash wallet
+VITE_MOCK=1 npm run dev  # browser fixtures for UI exploration/screenshots
+npm run dev              # real staging API through Vite; no native wallet
+npm run tauri dev        # native wallet + staging API by default
 npm run tauri -- ios dev
 npm run tauri -- android dev
 ```
 
-In a plain browser ZUULI runs in **mock mode** with realistic data so you can
-explore every screen. Inside a Tauri shell it drives the real wallet engine
-and the real free2z API.
+Mock selection is explicit: set `VITE_MOCK=1` to use normal API and wallet
+fixtures. It does not erase persisted native OAuth recovery state or guarantee
+network isolation; use a fresh plain-browser profile plus network controls for
+an offline proof. Without the flag, the API layer is real-first. Development
+defaults to `stage.free2z.cash`; production bundles default to `free2z.cash`.
+The real wallet bridge requires a Tauri shell, so a plain real-first browser run
+is not an end-to-end wallet run.
 
 Card checkout permits `https://checkout.stripe.com` by default. If Stripe
 Custom Domains is enabled for the account, add its exact DNS name at build time
 with `VITE_STRIPE_CHECKOUT_HOSTS=pay.example.com` (comma-separated for more than
 one). Do not include a scheme, path, port, userinfo, suffix wildcard, or a domain
-that is not configured in Stripe.
+that is not configured in Stripe. This is an outbound-URL safety policy, not
+evidence that native checkout and settlement work end to end; see
+[STATUS.md](STATUS.md).
 
 The committed native projects live under `src-tauri/gen/apple` and
 `src-tauri/gen/android`. ZUULI uses application identifier
