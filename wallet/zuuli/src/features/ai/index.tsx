@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowUp,
@@ -20,6 +20,9 @@ import { Markdown } from "@/components/common/Markdown";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { ai } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
+import { paidActionGate } from "@/lib/auth/paid-action";
+import { preservePaidIntent } from "@/lib/auth/paid-intent";
+import { usePaidIntent } from "@/hooks/usePaidIntent";
 import type { AIModel, Personality } from "@/lib/api/types";
 import { formatTuzis, initials } from "@/lib/format";
 import { useSession } from "@/store/session";
@@ -88,13 +91,18 @@ function isAbortError(err: unknown): boolean {
 }
 
 /** Key identifying which (model, personality) pair a live conversation belongs to. */
-function conversationKey(model: AIModel, personality: Personality | null): string {
+function conversationKey(
+  model: AIModel,
+  personality: Personality | null,
+): string {
   return `${model.id}:${personality?.id ?? "default"}`;
 }
 
 export default function AiFeature() {
   const { registerViewport } = useRouteScroll();
+  const navigate = useNavigate();
   const user = useSession((s) => s.user);
+  const sessionLoading = useSession((s) => s.loading);
   const tuzis = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const refreshSession = useSession((s) => s.refresh);
@@ -108,6 +116,8 @@ export default function AiFeature() {
   const [personality, setPersonality] = useState<Personality | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
 
+  const restoredIntent = usePaidIntent("/ai", "ai");
+  const restoredIntentHandled = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -120,17 +130,32 @@ export default function AiFeature() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const lowBalance = tuzis < MIN_TUZIS_TO_CHAT;
+  useEffect(() => {
+    if (restoredIntent?.kind !== "ai" || restoredIntentHandled.current) return;
+    restoredIntentHandled.current = true;
+    setInput(restoredIntent.draft);
+  }, [restoredIntent]);
+
+  const gate = paidActionGate({
+    sessionLoading,
+    user,
+    balance: tuzis,
+    cost: MIN_TUZIS_TO_CHAT,
+  });
+  const lowBalance = gate === "low-balance";
   const canSend =
-    !!selected && !isSending && !lowBalance && input.trim().length > 0;
+    !!selected &&
+    !isSending &&
+    gate !== "loading" &&
+    !lowBalance &&
+    input.trim().length > 0;
 
   // Load models + personalities once; default to the highest-`order` GA
   // model (the API already returns them sorted by `-order`, so this is the
   // first GA entry — the one most likely to actually work).
   useEffect(() => {
     let active = true;
-    ai
-      .models()
+    ai.models()
       .then((list) => {
         if (!active) return;
         const sorted = [...list].sort((a, b) => b.order - a.order);
@@ -189,7 +214,13 @@ export default function AiFeature() {
   const send = useCallback(
     async (text: string) => {
       const prompt = text.trim();
-      if (!prompt || !selected || isSending || tuzis < MIN_TUZIS_TO_CHAT) return;
+      if (!prompt || !selected || isSending || gate === "loading") return;
+      if (!useSession.getState().user || gate === "sign-in") {
+        const returnTo = preservePaidIntent("/ai", { kind: "ai", draft: text });
+        navigate("/login", { state: { returnTo } });
+        return;
+      }
+      if (gate === "low-balance") return;
 
       const model = selected;
       const pers = personality;
@@ -300,7 +331,16 @@ export default function AiFeature() {
         setIsSending(false);
       }
     },
-    [selected, personality, isSending, tuzis, adjustTuzis, refreshSession],
+    [
+      selected,
+      personality,
+      isSending,
+      gate,
+      navigate,
+      tuzis,
+      adjustTuzis,
+      refreshSession,
+    ],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -380,7 +420,10 @@ export default function AiFeature() {
                 className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5"
                 title="Spent this session"
               >
-                <Coins className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+                <Coins
+                  className="h-3.5 w-3.5 shrink-0 text-primary"
+                  aria-hidden
+                />
                 <span className="hidden text-[11px] text-muted-foreground sm:inline">
                   This session
                 </span>
@@ -392,9 +435,33 @@ export default function AiFeature() {
           </div>
         </div>
 
-        {lowBalance ? (
+        {gate === "sign-in" ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
+            <ShieldCheck
+              className="h-4 w-4 shrink-0 text-primary"
+              aria-hidden
+            />
+            <span className="text-foreground">Sign in to use AI.</span>
+            <Button
+              size="sm"
+              className="ml-auto"
+              onClick={() => {
+                const returnTo = preservePaidIntent("/ai", {
+                  kind: "ai",
+                  draft: input,
+                });
+                navigate("/login", { state: { returnTo } });
+              }}
+            >
+              Sign in
+            </Button>
+          </div>
+        ) : lowBalance ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden />
+            <AlertTriangle
+              className="h-4 w-4 shrink-0 text-destructive"
+              aria-hidden
+            />
             <span className="text-foreground">
               You need at least {formatTuzis(MIN_TUZIS_TO_CHAT)} to start
               chatting. Top up to continue.
@@ -416,7 +483,9 @@ export default function AiFeature() {
           <EmptyHero
             selected={selected}
             localModel={localModel}
-            onSelectLocal={localModel ? () => setSelected(localModel) : undefined}
+            onSelectLocal={
+              localModel ? () => setSelected(localModel) : undefined
+            }
             onPrefill={prefill}
           />
         ) : (
@@ -442,13 +511,15 @@ export default function AiFeature() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={lowBalance}
+              disabled={gate === "loading" || lowBalance}
               rows={1}
               aria-label="Message"
               placeholder={
-                lowBalance
-                  ? "Buy 2Zs to start chatting…"
-                  : `Message ${selected?.display_name ?? "the model"}…`
+                gate === "loading"
+                  ? "Checking your account…"
+                  : lowBalance
+                    ? "Buy 2Zs to start chatting…"
+                    : `Message ${selected?.display_name ?? "the model"}…`
               }
               className="max-h-[40vh] min-h-[52px] resize-none overflow-y-auto border-0 bg-transparent py-3.5 pl-4 pr-14 text-[15px] focus-visible:ring-0 focus-visible:ring-offset-0"
             />
@@ -470,7 +541,11 @@ export default function AiFeature() {
                   size="icon"
                   onClick={() => void send(input)}
                   disabled={!canSend}
-                  aria-label="Send message"
+                  aria-label={
+                    gate === "sign-in"
+                      ? "Sign in to send message"
+                      : "Send message"
+                  }
                   className="h-11 w-11"
                 >
                   <ArrowUp className="h-4 w-4" />
@@ -507,7 +582,9 @@ export default function AiFeature() {
             setPersonality(change.created);
           } else if (change.updated) {
             setPersonalities((prev) =>
-              prev.map((p) => (p.id === change.updated!.id ? change.updated! : p)),
+              prev.map((p) =>
+                p.id === change.updated!.id ? change.updated! : p,
+              ),
             );
             setPersonality((cur) =>
               cur?.id === change.updated!.id ? change.updated! : cur,
@@ -516,7 +593,9 @@ export default function AiFeature() {
             setPersonalities((prev) =>
               prev.filter((p) => p.id !== change.deletedId),
             );
-            setPersonality((cur) => (cur?.id === change.deletedId ? null : cur));
+            setPersonality((cur) =>
+              cur?.id === change.deletedId ? null : cur,
+            );
           }
         }}
       />
@@ -535,7 +614,9 @@ function MessageRow({
     return (
       <div className="flex animate-slide-up justify-end gap-3">
         <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-[15px] leading-relaxed text-foreground">
-          <span className="whitespace-pre-wrap break-words">{message.content}</span>
+          <span className="whitespace-pre-wrap break-words">
+            {message.content}
+          </span>
         </div>
         <Avatar className="h-8 w-8 border border-border">
           <AvatarFallback className="bg-primary/20 text-xs text-primary">
@@ -663,14 +744,20 @@ function EmptyHero({
               <span className="min-w-0 break-words font-semibold">
                 {localModel.display_name}
               </span>
-              <Badge variant="default" className="gap-1 px-1.5 py-0 text-[10px]">
+              <Badge
+                variant="default"
+                className="gap-1 px-1.5 py-0 text-[10px]"
+              >
                 <ShieldCheck className="h-3 w-3" aria-hidden />
                 private
               </Badge>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Open-source, run on 2Z hardware — nothing leaves our walls. From{" "}
-              <span className="tabular-nums">{pricePerMessage(localModel)}</span>.
+              <span className="tabular-nums">
+                {pricePerMessage(localModel)}
+              </span>
+              .
             </p>
           </div>
           {onSelectLocal ? (

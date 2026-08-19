@@ -87,7 +87,10 @@ export function BuyTab() {
   // The custom field wins whenever it has input, keeping one source of
   // truth for "amount". Everything downstream reads `amount`.
   const hasCustomAmount = custom.length > 0;
-  const customAmount = validateTuzis(custom, { minimum: 1, maximum: MAX_TUZIS });
+  const customAmount = validateTuzis(custom, {
+    minimum: 1,
+    maximum: MAX_TUZIS,
+  });
   const customTuzis = customAmount.value;
   const amount = hasCustomAmount ? customTuzis : selected;
   const valid = !hasCustomAmount || customAmount.error === null;
@@ -99,7 +102,7 @@ export function BuyTab() {
   // `zec_amount`. A cancel flag keeps only the latest request's result, and a
   // 503 / fetch error surfaces as an "unavailable" state (no fabricated number).
   useEffect(() => {
-    if (!zecDemoEnabled || !valid || amount === null) {
+    if (!user || !zecDemoEnabled || !valid || amount === null) {
       setQuoteState({ status: "idle" });
       return;
     }
@@ -121,7 +124,7 @@ export function BuyTab() {
       ctrl.abort();
       clearTimeout(t);
     };
-  }, [amount, valid, zecDemoEnabled]);
+  }, [amount, user, valid, zecDemoEnabled]);
 
   const quote = quoteState.status === "ready" ? quoteState.quote : null;
   const zatoshisNeeded = quote ? zatoshisFromQuote(quote) : null;
@@ -135,7 +138,7 @@ export function BuyTab() {
 
   async function payWithCard() {
     if (!valid || amount === null) return;
-    const authenticated = user !== null;
+    const authenticated = useSession.getState().user !== null;
     if (authenticated) setCardLoading(true);
     try {
       const result = await startCardCheckout({
@@ -163,6 +166,10 @@ export function BuyTab() {
   }
 
   async function payWithZec() {
+    if (!useSession.getState().user) {
+      navigate("/login", { state: { returnTo: "/wallet/fund" } });
+      return;
+    }
     if (
       !zecDemoEnabled ||
       !valid ||
@@ -186,9 +193,9 @@ export function BuyTab() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+    <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[1.5fr_1fr]">
       {/* Packs + custom */}
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5">
         <div>
           <h2 className="text-sm font-semibold">Choose an amount</h2>
           <p className="text-sm text-muted-foreground">
@@ -270,7 +277,7 @@ export function BuyTab() {
       </div>
 
       {/* Checkout panel */}
-      <Card className="h-fit lg:sticky lg:top-4">
+      <Card className="h-fit min-w-0 lg:sticky lg:top-4">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-baseline justify-between">
             <span>You pay</span>
@@ -314,18 +321,28 @@ export function BuyTab() {
             variant="zec"
             className="w-full"
             disabled={
-              !zecDemoEnabled ||
+              sessionLoading ||
+              (user !== null && !zecDemoEnabled) ||
               !valid ||
-              !validQuote ||
-              !enoughZec ||
-              quoteLoading
+              (user !== null && (!validQuote || !enoughZec || quoteLoading))
             }
-            onClick={() => setZecConfirm(true)}
+            onClick={() => {
+              if (!user) void payWithZec();
+              else setZecConfirm(true);
+            }}
           >
-            <Wallet className="h-4 w-4" />
-            {zecDemoEnabled ? "Demo: Pay with ZEC" : "Pay with ZEC unavailable"}
+            {!user ? (
+              <LogIn className="h-4 w-4" />
+            ) : (
+              <Wallet className="h-4 w-4" />
+            )}
+            {!user
+              ? "Log in to pay with ZEC"
+              : zecDemoEnabled
+                ? "Demo: Pay with ZEC"
+                : "Pay with ZEC unavailable"}
           </Button>
-          {zecDemoEnabled ? (
+          {user && zecDemoEnabled ? (
             <>
               <div className="space-y-1 text-xs">
                 <div className="flex items-center justify-between text-muted-foreground">
@@ -363,16 +380,16 @@ export function BuyTab() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Demo only: this changes a local mock 2Z balance. It does not send
-                ZEC or create a real purchase.
+                Demo only: this changes a local mock 2Z balance. It does not
+                send ZEC or create a real purchase.
               </p>
             </>
-          ) : (
+          ) : user ? (
             <p className="text-xs text-muted-foreground">
               ZEC top-ups are not available yet. No ZEC will be sent and no 2Z
               balance will change. Pay with card for now.
             </p>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
@@ -412,7 +429,8 @@ export function BuyTab() {
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Demo only: no transaction is proposed, signed, broadcast, or settled.
+            Demo only: no transaction is proposed, signed, broadcast, or
+            settled.
           </p>
           <DialogFooter>
             <Button

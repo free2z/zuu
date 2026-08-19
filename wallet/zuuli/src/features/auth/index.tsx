@@ -5,7 +5,7 @@
 // prominent choice — passwordless, no email, no KYC. Email/username + password
 // (with 2FA when enabled) and, soon, X / Google follow below as alternatives.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
@@ -16,12 +16,7 @@ import {
 } from "lucide-react";
 import { Wordmark } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Tooltip,
   TooltipContent,
@@ -38,6 +33,8 @@ import {
   loginDestinationFromState,
   type LoginDestination,
 } from "@/lib/auth/login-destination";
+import { discardPaidIntent } from "@/lib/auth/paid-intent";
+import { useSession } from "@/store/session";
 
 export type AuthMethod = "chooser" | "zcash" | "password";
 
@@ -47,10 +44,37 @@ export default function AuthFeature() {
   const loginDestination = loginDestinationFromState(location.state);
   const bootstrap = useWallet((s) => s.bootstrap);
   const [method, setMethod] = useState<AuthMethod>("chooser");
+  const abandonedIntentTimer = useRef<number | null>(null);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    const clearAbandonedFullPageLogin = () => {
+      if (!useSession.getState().user) discardPaidIntent();
+    };
+
+    // sessionStorage survives reloads and same-tab full-page departures. A
+    // pagehide listener closes that privacy boundary; social auth uses the
+    // app's popup/native-loopback transport, so its login page stays mounted.
+    window.addEventListener("pagehide", clearAbandonedFullPageLogin);
+
+    // React StrictMode replays effects in development. Cancel the first
+    // cleanup on the replayed setup, but clear after a real SPA departure when
+    // no login flow committed a user. This prevents one guest's private draft
+    // from being restored into a later account in the same tab.
+    if (abandonedIntentTimer.current !== null) {
+      window.clearTimeout(abandonedIntentTimer.current);
+      abandonedIntentTimer.current = null;
+    }
+    return () => {
+      window.removeEventListener("pagehide", clearAbandonedFullPageLogin);
+      abandonedIntentTimer.current = window.setTimeout(() => {
+        if (!useSession.getState().user) discardPaidIntent();
+      }, 0);
+    };
+  }, []);
 
   return (
     <div
@@ -130,10 +154,7 @@ export function AuthChooser({
 
         {/* Configured providers are additional methods. The empty state adds
             no decision and no translation surface, so it stays invisible. */}
-        <SocialButtons
-          emptyState={null}
-          loginDestination={loginDestination}
-        />
+        <SocialButtons emptyState={null} loginDestination={loginDestination} />
 
         <div className="flex min-h-11 items-center justify-between">
           <ZShieldInfo>

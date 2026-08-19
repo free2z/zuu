@@ -24,11 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -62,8 +58,11 @@ import {
   type KeyedRemoteData,
 } from "@/lib/remote-data";
 import { useAsync } from "@/hooks/useAsync";
+import { usePaidIntent } from "@/hooks/usePaidIntent";
 import { useSession } from "@/store/session";
 import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
+import { paidActionGate } from "@/lib/auth/paid-action";
+import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
 
 /** Icon per canonical social platform key, falling back to a plain link glyph. */
 const SOCIAL_ICONS: Record<SocialLink["key"], LucideIcon> = {
@@ -155,6 +154,7 @@ export default function CreatorFeature() {
 
   return (
     <CreatorProfile
+      key={creator.username}
       creator={creator}
       refreshError={error}
       refresh={reload}
@@ -175,6 +175,11 @@ function CreatorProfile({
   refreshing: boolean;
 }) {
   const name = creator.display_name || creator.username;
+  const location = useLocation();
+  const restoredPaidIntent = usePaidIntent(location.pathname, [
+    "creator-subscription",
+    "creator-tip",
+  ]);
   const {
     data: pagesData,
     loading: pagesLoading,
@@ -292,8 +297,8 @@ function CreatorProfile({
               </Link>
             </Button>
           ) : null}
-          <TipButton creator={creator} />
-          <SubscribeButton creator={creator} />
+          <TipButton creator={creator} restored={restoredPaidIntent} />
+          <SubscribeButton creator={creator} restored={restoredPaidIntent} />
         </div>
       </div>
 
@@ -443,10 +448,18 @@ function formatMembershipDate(iso?: string): string {
   });
 }
 
-function SubscribeButton({ creator }: { creator: CreatorDetail }) {
+function SubscribeButton({
+  creator,
+  restored,
+}: {
+  creator: CreatorDetail;
+  restored: PaidIntent | null;
+}) {
   const name = creator.display_name || creator.username;
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useSession((s) => s.user);
+  const sessionLoading = useSession((s) => s.loading);
   const balance = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
   const [open, setOpen] = useState(false);
@@ -470,8 +483,30 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
   // from the UI immediately and keep it dropped across the refetch.
   const [unfollowed, setUnfollowed] = useState(false);
 
+  useEffect(() => {
+    if (
+      restored?.kind === "creator-subscription" &&
+      restored.subject === creator.username
+    ) {
+      setOpen(true);
+    }
+  }, [creator.username, restored]);
+
   const price = creator.member_price ?? 0;
-  const enough = price <= balance;
+  const gate = paidActionGate({
+    sessionLoading,
+    user,
+    balance,
+    cost: price,
+  });
+
+  function signInToSubscribe() {
+    const returnTo = preservePaidIntent(location.pathname, {
+      kind: "creator-subscription",
+      subject: creator.username,
+    });
+    navigate("/login", { state: { returnTo } });
+  }
 
   const { data: subscriptions, reload: reloadSubscriptions } = useAsync<
     Subscription[]
@@ -496,10 +531,12 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
   // renewal at the current price — so they share one runner and differ only in
   // the copy and whether the dialog stays open to show the flipped state.
   async function runSubscribe(mode: "subscribe" | "resume") {
-    if (!user) {
-      navigate("/login");
+    const currentUser = useSession.getState().user;
+    if (!currentUser || gate === "sign-in") {
+      signInToSubscribe();
       return;
     }
+    if (gate !== "ready") return;
     setBusy(true);
     try {
       await tuzi.subscribe(creator.username);
@@ -511,8 +548,8 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
       if (mode === "resume") setRenewOverride(true);
       setJustSubscribed({
         fan: {
-          username: user.username,
-          free2zaddr: user.free2zaddr ?? user.username,
+          username: currentUser.username,
+          free2zaddr: currentUser.free2zaddr ?? currentUser.username,
         },
         star: { username: creator.username, free2zaddr: creator.free2zaddr },
         expires,
@@ -554,6 +591,10 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
   // stops. The dialog stays open so it re-renders into the "Resume renewal"
   // state.
   async function cancelRenewal() {
+    if (!useSession.getState().user) {
+      signInToSubscribe();
+      return;
+    }
     setBusy(true);
     try {
       await tuzi.unsubscribe(creator.username);
@@ -574,6 +615,10 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
 
   // Free follow: undo the follow entirely.
   async function unfollow() {
+    if (!useSession.getState().user) {
+      signInToSubscribe();
+      return;
+    }
     setBusy(true);
     try {
       await tuzi.unsubscribe(creator.username);
@@ -594,10 +639,8 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
       <Button
         variant={subscribed ? "secondary" : "default"}
         onClick={subscribed ? unfollow : subscribe}
-        disabled={busy}
-        aria-label={
-          subscribed ? `Unfollow ${name}` : `Follow ${name}`
-        }
+        disabled={busy || gate === "loading"}
+        aria-label={subscribed ? `Unfollow ${name}` : `Follow ${name}`}
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -651,10 +694,21 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            <Button
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              disabled={busy}
+            >
               Close
             </Button>
-            {renewing ? (
+            {gate === "loading" ? (
+              <Button disabled>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Checking account
+              </Button>
+            ) : gate === "sign-in" ? (
+              <Button onClick={signInToSubscribe}>Sign in to manage</Button>
+            ) : renewing ? (
               <Button
                 variant="outline"
                 onClick={cancelRenewal}
@@ -666,7 +720,7 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
                 ) : null}
                 Cancel membership
               </Button>
-            ) : enough ? (
+            ) : gate === "ready" ? (
               <Button
                 onClick={resumeRenewal}
                 disabled={busy}
@@ -707,8 +761,8 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
           <DialogTitle>Subscribe to {name}</DialogTitle>
           <DialogDescription>
             This is {name}'s membership price — what it costs you to become a
-            subscriber. It unlocks their subscriber posts and livestreams for
-            30 days.
+            subscriber. It unlocks their subscriber posts and livestreams for 30
+            days.
           </DialogDescription>
         </DialogHeader>
 
@@ -721,16 +775,29 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
               {formatTuzis(price)}
             </span>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground tabular-nums">
-            Your balance: {formatTuzis(balance)}
-          </p>
+          {user ? (
+            <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+              Your balance: {formatTuzis(balance)}
+            </p>
+          ) : null}
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+          <Button
+            variant="ghost"
+            onClick={() => setOpen(false)}
+            disabled={busy}
+          >
             Cancel
           </Button>
-          {enough ? (
+          {gate === "loading" ? (
+            <Button disabled>
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Checking account
+            </Button>
+          ) : gate === "sign-in" ? (
+            <Button onClick={signInToSubscribe}>Sign in to subscribe</Button>
+          ) : gate === "ready" ? (
             <Button onClick={subscribe} disabled={busy}>
               {busy ? (
                 <>
@@ -762,22 +829,62 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
 // ─── Tip ──────────────────────────────────────────────────────────────────────
 const TIP_PRESETS = [50, 100, 250, 500];
 
-function TipButton({ creator }: { creator: CreatorDetail }) {
+function TipButton({
+  creator,
+  restored,
+}: {
+  creator: CreatorDetail;
+  restored: PaidIntent | null;
+}) {
   const name = creator.display_name || creator.username;
   const navigate = useNavigate();
+  const location = useLocation();
+  const user = useSession((s) => s.user);
+  const sessionLoading = useSession((s) => s.loading);
   const balance = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
+  const restoredTip =
+    restored?.kind === "creator-tip" && restored.subject === creator.username
+      ? restored
+      : null;
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("100");
   const [busy, setBusy] = useState(false);
 
-  const amountResult = validateTuzis(amount, { minimum: 1, maximum: MAX_TUZIS });
+  useEffect(() => {
+    if (!restoredTip) return;
+    setAmount(restoredTip.amount);
+    setOpen(true);
+  }, [restoredTip]);
+
+  const amountResult = validateTuzis(amount, {
+    minimum: 1,
+    maximum: MAX_TUZIS,
+  });
   const parsedAmount = amountResult.value;
   const validAmount = amountResult.error === null;
-  const enough = parsedAmount !== null && parsedAmount <= balance;
-  const canSend = validAmount && enough && !busy;
+  const gate = paidActionGate({
+    sessionLoading,
+    user,
+    balance,
+    cost: validAmount ? parsedAmount : null,
+  });
+  const canSend = validAmount && gate === "ready" && !busy;
+
+  function signInToTip() {
+    const returnTo = preservePaidIntent(location.pathname, {
+      kind: "creator-tip",
+      subject: creator.username,
+      amount,
+    });
+    navigate("/login", { state: { returnTo } });
+  }
 
   async function send() {
+    if (!useSession.getState().user || gate === "sign-in") {
+      signInToTip();
+      return;
+    }
     if (!canSend || parsedAmount === null) return;
     setBusy(true);
     try {
@@ -837,13 +944,25 @@ function TipButton({ creator }: { creator: CreatorDetail }) {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="tabular-nums"
-              aria-describedby="creator-tip-error creator-tip-balance"
+              aria-describedby={
+                user
+                  ? "creator-tip-error creator-tip-balance"
+                  : "creator-tip-error"
+              }
               aria-invalid={amount.length > 0 && !validAmount}
             />
-            <p id="creator-tip-balance" className="text-xs text-muted-foreground tabular-nums">
-              Balance: {formatTuzis(balance)}
-            </p>
-            <p id="creator-tip-error" className="min-h-[1rem] text-xs text-destructive">
+            {user ? (
+              <p
+                id="creator-tip-balance"
+                className="text-xs text-muted-foreground tabular-nums"
+              >
+                Balance: {formatTuzis(balance)}
+              </p>
+            ) : null}
+            <p
+              id="creator-tip-error"
+              className="min-h-[1rem] text-xs text-destructive"
+            >
               {amountResult.error === "tooLarge"
                 ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
                 : amount.length > 0 && amountResult.error !== null
@@ -854,10 +973,21 @@ function TipButton({ creator }: { creator: CreatorDetail }) {
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+          <Button
+            variant="ghost"
+            onClick={() => setOpen(false)}
+            disabled={busy}
+          >
             Cancel
           </Button>
-          {validAmount && !enough ? (
+          {gate === "loading" ? (
+            <Button disabled>
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Checking account
+            </Button>
+          ) : gate === "sign-in" ? (
+            <Button onClick={signInToTip}>Sign in to tip</Button>
+          ) : validAmount && gate === "low-balance" ? (
             <Button
               variant="outline"
               onClick={() => {
@@ -876,7 +1006,10 @@ function TipButton({ creator }: { creator: CreatorDetail }) {
                   Sending
                 </>
               ) : (
-                <>Send {parsedAmount !== null ? formatTuzis(parsedAmount) : "2Zs"}</>
+                <>
+                  Send{" "}
+                  {parsedAmount !== null ? formatTuzis(parsedAmount) : "2Zs"}
+                </>
               )}
             </Button>
           )}
