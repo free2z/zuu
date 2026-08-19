@@ -156,9 +156,13 @@ requests are GET-only. Google requires an ephemeral edit to read listings and
 images; the audit always deletes it and never sends PUT or commit. Its evidence
 contains locale/media counts and status booleans only—never remote copy, image
 URLs, Google Group addresses, or tester identities. A provider failure still
-uploads this sanitized evidence when available, then the workflow fails after
-credential cleanup; an artifact is not a successful audit verdict. Dispatch
-only after the source has merged:
+uploads this sanitized evidence when available, including a fixed operation
+stage such as `listings`, `internal-track`, or `images:phoneScreenshots`. Stages
+come from a code allowlist, never a provider URL or response. If a primary audit
+failure is followed by failure to delete its temporary Play edit, evidence also
+sets `temporaryEditCleanupFailed: true` while retaining the primary stage. The
+workflow then fails after credential cleanup; an artifact is not a successful
+audit verdict. Dispatch only after the source has merged:
 
 ```bash
 source_sha=$(git rev-parse origin/main)

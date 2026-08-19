@@ -15,18 +15,40 @@ export const PLAY_TRACK = "internal";
 export const EXPECTED_PLAY_ACCOUNT = "corpan-play-verifier@corpora1.iam.gserviceaccount.com";
 const MAX_PAGES = 10;
 const TIMEOUT_MS = 30_000;
+const SAFE_AUDIT_STAGES = new Set([
+  "unknown",
+  "credentials",
+  "oauth",
+  "edit",
+  "listings",
+  "details",
+  "internal-track",
+  "images:icon",
+  "images:featureGraphic",
+  "images:phoneScreenshots",
+  "images:sevenInchScreenshots",
+  "images:tenInchScreenshots",
+  "testers",
+  "cleanup",
+]);
+
+function safeAuditStage(stage) {
+  return typeof stage === "string" && SAFE_AUDIT_STAGES.has(stage) ? stage : "unknown";
+}
 
 export class StoreAuditError extends Error {
-  constructor(code, message, { status } = {}) {
+  constructor(code, message, { status, stage, temporaryEditCleanupFailed = false } = {}) {
     super(message);
     this.name = "StoreAuditError";
     this.code = code;
     this.status = status;
+    this.stage = safeAuditStage(stage);
+    this.temporaryEditCleanupFailed = temporaryEditCleanupFailed === true;
   }
 }
 
-function fail(code, message) {
-  throw new StoreAuditError(code, message);
+function fail(code, message, details) {
+  throw new StoreAuditError(code, message, details);
 }
 
 function safeError(payload) {
@@ -34,7 +56,7 @@ function safeError(payload) {
   return typeof raw === "string" || typeof raw === "number" ? String(raw).replace(/[^A-Z0-9_.-]/gi, "").slice(0, 80) : "UNKNOWN";
 }
 
-async function fetchJson(fetchImpl, url, init, operation, { allowEmpty = false, timeoutMs = TIMEOUT_MS } = {}) {
+async function fetchJson(fetchImpl, url, init, operation, { allowEmpty = false, timeoutMs = TIMEOUT_MS, stage = "unknown" } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
   let response;
@@ -43,14 +65,14 @@ async function fetchJson(fetchImpl, url, init, operation, { allowEmpty = false, 
     response = await fetchImpl(url, { ...init, signal: controller.signal });
     text = await response.text();
   } catch {
-    fail("NETWORK_ERROR", `${operation} failed before receiving a response`);
+    fail("NETWORK_ERROR", `${operation} failed before receiving a response`, { stage });
   } finally {
     clearTimeout(timer);
   }
   let payload;
-  try { payload = text ? JSON.parse(text) : undefined; } catch { fail("INVALID_RESPONSE", `${operation} returned invalid JSON`); }
-  if (!response.ok) throw new StoreAuditError("API_ERROR", `${operation} failed with HTTP ${response.status} (${safeError(payload)})`, { status: response.status });
-  if (payload === undefined && !allowEmpty) fail("INVALID_RESPONSE", `${operation} returned an empty response`);
+  try { payload = text ? JSON.parse(text) : undefined; } catch { fail("INVALID_RESPONSE", `${operation} returned invalid JSON`, { stage }); }
+  if (!response.ok) throw new StoreAuditError("API_ERROR", `${operation} failed with HTTP ${response.status} (${safeError(payload)})`, { status: response.status, stage });
+  if (payload === undefined && !allowEmpty) fail("INVALID_RESPONSE", `${operation} returned an empty response`, { stage });
   return payload;
 }
 
@@ -87,15 +109,15 @@ function fieldsMatch(actual, expected, mapping) {
   return Object.entries(mapping).every(([remoteKey, expectedKey]) => actual?.[remoteKey] === expected?.[expectedKey]);
 }
 
-export function parsePlayImages(payload) {
+export function parsePlayImages(payload, stage = "unknown") {
   const prototype = payload && typeof payload === "object" ? Object.getPrototypeOf(payload) : undefined;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload) || prototype !== Object.prototype) fail("INVALID_RESPONSE", "Play images response is malformed");
-  if (Object.hasOwn(payload, "error") || Object.hasOwn(payload, "errors")) fail("INVALID_RESPONSE", "Play images response contains an error payload");
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || prototype !== Object.prototype) fail("INVALID_RESPONSE", "Play images response is malformed", { stage });
+  if (Object.hasOwn(payload, "error") || Object.hasOwn(payload, "errors")) fail("INVALID_RESPONSE", "Play images response contains an error payload", { stage });
   if (!Object.hasOwn(payload, "images")) {
-    if (Reflect.ownKeys(payload).length !== 0) fail("INVALID_RESPONSE", "Play images response omitted images alongside unknown members");
+    if (Reflect.ownKeys(payload).length !== 0) fail("INVALID_RESPONSE", "Play images response omitted images alongside unknown members", { stage });
     return [];
   }
-  if (!Array.isArray(payload.images)) fail("INVALID_RESPONSE", "Play images response has a non-array images member");
+  if (!Array.isArray(payload.images)) fail("INVALID_RESPONSE", "Play images response has a non-array images member", { stage });
   return payload.images;
 }
 
@@ -114,9 +136,12 @@ const SAFE_PROVIDER_FAILURE_MESSAGES = Object.freeze({
 });
 
 function sanitizedProviderFailure(provider, error) {
-  if (!(error instanceof StoreAuditError)) return { provider, code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" };
+  const cleanupFailure = error?.temporaryEditCleanupFailed === true ? { temporaryEditCleanupFailed: true } : {};
+  if (!(error instanceof StoreAuditError)) return { provider, stage: "unknown", code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly", ...cleanupFailure };
   const message = SAFE_PROVIDER_FAILURE_MESSAGES[error.code];
-  return message ? { provider, code: error.code, message } : { provider, code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" };
+  return message
+    ? { provider, stage: safeAuditStage(error.stage), code: error.code, message, ...cleanupFailure }
+    : { provider, stage: "unknown", code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly", ...cleanupFailure };
 }
 
 export async function auditAppleStore({ credentials, expected, fetchImpl = globalThis.fetch, nowSeconds = () => Math.floor(Date.now() / 1000) }) {
@@ -219,8 +244,8 @@ export async function auditAppleStore({ credentials, expected, fetchImpl = globa
 }
 
 function validatePlayCredentials(credentials) {
-  if (credentials?.type !== "service_account" || credentials.project_id !== "corpora1" || credentials.client_email !== EXPECTED_PLAY_ACCOUNT || typeof credentials.private_key !== "string" || typeof credentials.private_key_id !== "string" || typeof credentials.token_uri !== "string") fail("INVALID_CREDENTIALS", "Play credential is not the dedicated ZUULI service-account document");
-  if (credentials.token_uri !== TOKEN_URL) fail("INVALID_CREDENTIALS", "Play credential has an unexpected token endpoint");
+  if (credentials?.type !== "service_account" || credentials.project_id !== "corpora1" || credentials.client_email !== EXPECTED_PLAY_ACCOUNT || typeof credentials.private_key !== "string" || typeof credentials.private_key_id !== "string" || typeof credentials.token_uri !== "string") fail("INVALID_CREDENTIALS", "Play credential is not the dedicated ZUULI service-account document", { stage: "credentials" });
+  if (credentials.token_uri !== TOKEN_URL) fail("INVALID_CREDENTIALS", "Play credential has an unexpected token endpoint", { stage: "credentials" });
 }
 
 function playAssertion(credentials, nowSeconds) {
@@ -234,58 +259,58 @@ function playAssertion(credentials, nowSeconds) {
   try {
     return `${input}.${signer.sign(credentials.private_key, "base64url")}`;
   } catch {
-    fail("INVALID_CREDENTIALS", "Play credential private key is malformed");
+    fail("INVALID_CREDENTIALS", "Play credential private key is malformed", { stage: "credentials" });
   }
 }
 
 export async function auditPlayStore({ credentials, expected, fetchImpl = globalThis.fetch, nowSeconds = () => Math.floor(Date.now() / 1000), nowMillis = () => Date.now(), sleepImpl = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), transactionTimeoutMs = 120_000 }) {
   const assertion = playAssertion(credentials, nowSeconds());
-  const tokenPayload = await fetchJson(fetchImpl, TOKEN_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }) }, "Play OAuth exchange");
-  if (typeof tokenPayload?.access_token !== "string" || tokenPayload.access_token.length < 1) fail("INVALID_RESPONSE", "Play OAuth exchange returned no access token");
+  const tokenPayload = await fetchJson(fetchImpl, TOKEN_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }) }, "Play OAuth exchange", { stage: "oauth" });
+  if (typeof tokenPayload?.access_token !== "string" || tokenPayload.access_token.length < 1) fail("INVALID_RESPONSE", "Play OAuth exchange returned no access token", { stage: "oauth" });
   const base = `${PLAY_ROOT}/applications/${encodeURIComponent(PACKAGE_NAME)}/edits`;
   const deadline = nowMillis() + transactionTimeoutMs;
-  async function request(method, url, body, allowEmpty = false) {
-    if (!url.startsWith(`${base}/`) && url !== base) fail("INVALID_REQUEST", "refusing Play request outside the fixed package edit scope");
+  async function request(method, url, body, allowEmpty = false, stage = "unknown") {
+    if (!url.startsWith(`${base}/`) && url !== base) fail("INVALID_REQUEST", "refusing Play request outside the fixed package edit scope", { stage });
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (nowMillis() >= deadline) fail("TRANSACTION_TIMEOUT", "Play read transaction exceeded its bounded deadline");
+      if (nowMillis() >= deadline) fail("TRANSACTION_TIMEOUT", "Play read transaction exceeded its bounded deadline", { stage });
       try {
-        return await fetchJson(fetchImpl, url, { method, headers: { authorization: `Bearer ${tokenPayload.access_token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, `Play ${method} read transaction`, { allowEmpty, timeoutMs: Math.min(TIMEOUT_MS, deadline - nowMillis()) });
+        return await fetchJson(fetchImpl, url, { method, headers: { authorization: `Bearer ${tokenPayload.access_token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, `Play ${method} read transaction`, { allowEmpty, timeoutMs: Math.min(TIMEOUT_MS, deadline - nowMillis()), stage });
       } catch (error) {
         const retryable = error instanceof StoreAuditError && error.code === "API_ERROR" && (error.status === 429 || error.status >= 500) && new Set(["GET", "DELETE"]).has(method);
         if (!retryable || attempt === 2 || nowMillis() + 250 * (attempt + 1) >= deadline) throw error;
         await sleepImpl(250 * (attempt + 1));
       }
     }
-    fail("TRANSACTION_TIMEOUT", "Play read transaction exhausted its retry budget");
+    fail("TRANSACTION_TIMEOUT", "Play read transaction exhausted its retry budget", { stage });
   }
   let editId;
   let primaryError;
   try {
-    const inserted = await request("POST", base, {});
+    const inserted = await request("POST", base, {}, false, "edit");
     if (typeof inserted?.id === "string" && inserted.id.length >= 1 && inserted.id.length <= 200) editId = inserted.id;
-    if (!editId || !/^[A-Za-z0-9_-]{1,200}$/.test(editId)) fail("INVALID_RESPONSE", "Play edit insertion returned an invalid edit ID");
+    if (!editId || !/^[A-Za-z0-9_-]{1,200}$/.test(editId)) fail("INVALID_RESPONSE", "Play edit insertion returned an invalid edit ID", { stage: "edit" });
     const editBase = `${base}/${encodeURIComponent(editId)}`;
-    const listings = await request("GET", `${editBase}/listings`);
-    if (!Array.isArray(listings?.listings)) fail("INVALID_RESPONSE", "Play listings response has no listings array");
+    const listings = await request("GET", `${editBase}/listings`, undefined, false, "listings");
+    if (!Array.isArray(listings?.listings)) fail("INVALID_RESPONSE", "Play listings response has no listings array", { stage: "listings" });
     const expectedLocales = new Set(expected.locales.map(({ playLocale }) => playLocale));
     const localeState = expected.locales.map(({ playLocale: locale, playMetadata }) => {
       const matches = listings.listings.filter((listing) => listing?.language === locale);
-      if (matches.length > 1) fail("AMBIGUOUS_REMOTE_STATE", `Play returned duplicate ${locale} listings`);
+      if (matches.length > 1) fail("AMBIGUOUS_REMOTE_STATE", `Play returned duplicate ${locale} listings`, { stage: "listings" });
       return { locale, listingPresent: matches.length === 1, listingMatched: fieldsMatch(matches[0], playMetadata, { title: "title", shortDescription: "shortDescription", fullDescription: "fullDescription" }) };
     });
-    const details = await request("GET", `${editBase}/details`);
-    if (!details || typeof details !== "object" || Array.isArray(details)) fail("INVALID_RESPONSE", "Play app details response is malformed");
+    const details = await request("GET", `${editBase}/details`, undefined, false, "details");
+    if (!details || typeof details !== "object" || Array.isArray(details)) fail("INVALID_RESPONSE", "Play app details response is malformed", { stage: "details" });
     const defaultMetadata = expected.locales.find(({ id }) => id === expected.application.defaultLocale)?.playMetadata;
-    if (!defaultMetadata) fail("INVALID_SOURCE", "default Play locale metadata is missing");
+    if (!defaultMetadata) fail("INVALID_SOURCE", "default Play locale metadata is missing", { stage: "details" });
     const detailsMatched = details.defaultLanguage === expected.application.defaultLocale && details.contactEmail === defaultMetadata.supportEmail && details.contactWebsite === defaultMetadata.websiteUrl;
-    const track = await request("GET", `${editBase}/tracks/${PLAY_TRACK}`);
-    if (track?.track !== PLAY_TRACK || !Array.isArray(track.releases)) fail("INVALID_RESPONSE", "Play internal-track response is malformed");
+    const track = await request("GET", `${editBase}/tracks/${PLAY_TRACK}`, undefined, false, "internal-track");
+    if (track?.track !== PLAY_TRACK || !Array.isArray(track.releases)) fail("INVALID_RESPONSE", "Play internal-track response is malformed", { stage: "internal-track" });
     const exactReleases = track.releases.filter((release) => Array.isArray(release?.versionCodes) && release.versionCodes.includes(String(expected.release.build)));
-    if (exactReleases.length > 1) fail("AMBIGUOUS_REMOTE_STATE", "Play returned duplicate releases for the exact build");
+    if (exactReleases.length > 1) fail("AMBIGUOUS_REMOTE_STATE", "Play returned duplicate releases for the exact build", { stage: "internal-track" });
     const exactRelease = exactReleases[0];
     const remoteNotes = new Map();
     for (const note of exactRelease?.releaseNotes ?? []) {
-      if (typeof note?.language !== "string" || typeof note?.text !== "string" || remoteNotes.has(note.language)) fail("INVALID_RESPONSE", "Play exact release has malformed or duplicate localized notes");
+      if (typeof note?.language !== "string" || typeof note?.text !== "string" || remoteNotes.has(note.language)) fail("INVALID_RESPONSE", "Play exact release has malformed or duplicate localized notes", { stage: "internal-track" });
       remoteNotes.set(note.language, note.text);
     }
     const releaseNotes = expected.locales.map(({ playLocale: locale, playMetadata }) => ({ locale, matched: exactRelease === undefined ? false : remoteNotes.get(locale) === playMetadata.releaseNotes }));
@@ -297,9 +322,10 @@ export async function auditPlayStore({ credentials, expected, fetchImpl = global
     ]);
     for (const locale of expectedLocales) {
       for (const imageType of imageTypes) {
-        const payload = await request("GET", `${editBase}/listings/${encodeURIComponent(locale)}/${encodeURIComponent(imageType)}`);
-        const images = parsePlayImages(payload);
-        for (const image of images) if (typeof image?.id !== "string") fail("INVALID_RESPONSE", "Play images response contains malformed media");
+        const imageStage = safeAuditStage(`images:${imageType}`);
+        const payload = await request("GET", `${editBase}/listings/${encodeURIComponent(locale)}/${encodeURIComponent(imageType)}`, undefined, false, imageStage);
+        const images = parsePlayImages(payload, imageStage);
+        for (const image of images) if (typeof image?.id !== "string") fail("INVALID_RESPONSE", "Play images response contains malformed media", { stage: imageStage });
         const expectedDigest = brandDigestByType.get(imageType);
         imageState.push({ locale, imageType, count: images.length, contentMatched: expectedDigest === undefined ? null : images.length === 1 && images[0].sha256 === expectedDigest });
       }
@@ -307,9 +333,9 @@ export async function auditPlayStore({ credentials, expected, fetchImpl = global
     let testerMode = "publisher_api_unavailable";
     let groupCount = null;
     try {
-      const testers = await request("GET", `${editBase}/testers/${PLAY_TRACK}`);
-      if (!Array.isArray(testers?.googleGroups)) fail("INVALID_RESPONSE", "Play testers response has no googleGroups array");
-      for (const group of testers.googleGroups) if (typeof group !== "string") fail("INVALID_RESPONSE", "Play testers response contains malformed group configuration");
+      const testers = await request("GET", `${editBase}/testers/${PLAY_TRACK}`, undefined, false, "testers");
+      if (!Array.isArray(testers?.googleGroups)) fail("INVALID_RESPONSE", "Play testers response has no googleGroups array", { stage: "testers" });
+      for (const group of testers.googleGroups) if (typeof group !== "string") fail("INVALID_RESPONSE", "Play testers response contains malformed group configuration", { stage: "testers" });
       groupCount = testers.googleGroups.length;
       testerMode = groupCount === 0 ? "no_api_visible_google_groups" : "publisher_api_google_groups";
     } catch (error) {
@@ -339,9 +365,10 @@ export async function auditPlayStore({ credentials, expected, fetchImpl = global
     throw error;
   } finally {
     if (editId) {
-      try { await request("DELETE", `${base}/${encodeURIComponent(editId)}`, undefined, true); }
+      try { await request("DELETE", `${base}/${encodeURIComponent(editId)}`, undefined, true, "cleanup"); }
       catch (cleanupError) {
         if (!primaryError) throw cleanupError;
+        primaryError.temporaryEditCleanupFailed = true;
         primaryError.message += "; temporary Play edit cleanup also failed";
       }
     }
@@ -371,7 +398,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, depe
   const evidence = { schemaVersion: 1, contractPhase: expected.phase, publicationReady: expected.publicationReady, sourceIdentity: { ...expected.application, release: expected.release }, providers: [], providerFailures: [] };
   if (args.provider === "apple" || args.provider === "both") {
     try {
-      if (!env.ASC_KEY_PATH || !env.ASC_KEY_ID || !env.ASC_ISSUER_ID) fail("MISSING_CREDENTIALS", "ASC audit credential is not configured");
+      if (!env.ASC_KEY_PATH || !env.ASC_KEY_ID || !env.ASC_ISSUER_ID) fail("MISSING_CREDENTIALS", "ASC audit credential is not configured", { stage: "credentials" });
       evidence.providers.push(await auditApple({ credentials: { keyId: env.ASC_KEY_ID, issuerId: env.ASC_ISSUER_ID, privateKey: await read(env.ASC_KEY_PATH, "utf8") }, expected }));
     } catch (error) {
       evidence.providerFailures.push(sanitizedProviderFailure("apple", error));
@@ -379,9 +406,9 @@ export async function main(argv = process.argv.slice(2), env = process.env, depe
   }
   if (args.provider === "play" || args.provider === "both") {
     try {
-      if (!env.PLAY_SERVICE_ACCOUNT_JSON) fail("MISSING_CREDENTIALS", "Play audit credential is not configured");
+      if (!env.PLAY_SERVICE_ACCOUNT_JSON) fail("MISSING_CREDENTIALS", "Play audit credential is not configured", { stage: "credentials" });
       let credentials;
-      try { credentials = JSON.parse(await read(env.PLAY_SERVICE_ACCOUNT_JSON, "utf8")); } catch { fail("INVALID_CREDENTIALS", "Play credential document is invalid JSON"); }
+      try { credentials = JSON.parse(await read(env.PLAY_SERVICE_ACCOUNT_JSON, "utf8")); } catch { fail("INVALID_CREDENTIALS", "Play credential document is invalid JSON", { stage: "credentials" }); }
       evidence.providers.push(await auditPlay({ credentials, expected }));
     } catch (error) {
       evidence.providerFailures.push(sanitizedProviderFailure("play", error));
@@ -391,7 +418,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, depe
   await write(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
   process.stdout.write(`${JSON.stringify({ auditedProviders: evidence.providers.map(({ provider }) => provider), failedProviders: evidence.providerFailures.map(({ provider }) => provider), complete: evidence.providerFailures.length === 0 && evidence.providers.every(({ complete }) => complete) })}\n`);
   if (evidence.providerFailures.length > 0) {
-    const summary = evidence.providerFailures.map(({ provider, code, message }) => `${provider} ${code}: ${message}`).join("; ");
+    const summary = evidence.providerFailures.map(({ provider, stage, code, message }) => `${provider} ${stage} ${code}: ${message}`).join("; ");
     fail("PROVIDER_AUDIT_FAILED", `${summary}; sanitized evidence written`);
   }
 }

@@ -98,7 +98,7 @@ test("Apple audit rejects duplicate locale/display-type screenshot sets", async 
   await assert.rejects(() => auditAppleStore({ credentials: appleCredentials, expected, fetchImpl, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "AMBIGUOUS_REMOTE_STATE");
 });
 
-function playMock({ groups = [], invalidListings = false, editId = "audit-edit", listingFailures = 0, deleteFailures = 0, testerStatus = 200, listingTitle = "ZUULI", releaseNotes = "release notes", missingBrandType, duplicateBrandType, imagePayload } = {}) {
+function playMock({ groups = [], invalidListings = false, invalidDetails = false, invalidTrack = false, invalidTesters = false, editId = "audit-edit", listingFailures = 0, deleteFailures = 0, testerStatus = 200, listingTitle = "ZUULI", releaseNotes = "release notes", missingBrandType, duplicateBrandType, imagePayload } = {}) {
   const calls = [];
   let remainingListingFailures = listingFailures;
   let remainingDeleteFailures = deleteFailures;
@@ -117,9 +117,9 @@ function playMock({ groups = [], invalidListings = false, editId = "audit-edit",
         if (remainingListingFailures-- > 0) return json({ error: { status: "UNAVAILABLE" } }, 503);
         return invalidListings ? json({}) : json({ listings: [{ language: "en-US", title: listingTitle, shortDescription: "short", fullDescription: "full" }] });
       }
-      if (url.pathname.endsWith("/details")) return json({ defaultLanguage: "en-US", contactEmail: "help@example.com", contactWebsite: "https://example.com/" });
-      if (url.pathname.endsWith("/tracks/internal")) return json({ track: "internal", releases: [{ versionCodes: ["10"], releaseNotes: [{ language: "en-US", text: releaseNotes }] }] });
-      if (url.pathname.endsWith("/testers/internal")) return testerStatus === 200 ? json({ googleGroups: groups }) : json({ error: { status: "PERMISSION_DENIED" } }, testerStatus);
+      if (url.pathname.endsWith("/details")) return invalidDetails ? json([]) : json({ defaultLanguage: "en-US", contactEmail: "help@example.com", contactWebsite: "https://example.com/" });
+      if (url.pathname.endsWith("/tracks/internal")) return invalidTrack ? json({}) : json({ track: "internal", releases: [{ versionCodes: ["10"], releaseNotes: [{ language: "en-US", text: releaseNotes }] }] });
+      if (url.pathname.endsWith("/testers/internal")) return invalidTesters ? json({}) : testerStatus === 200 ? json({ googleGroups: groups }) : json({ error: { status: "PERMISSION_DENIED" } }, testerStatus);
       if (url.pathname.includes("/listings/en-US/")) {
         if (imagePayload !== undefined) return json(imagePayload);
         const imageType = url.pathname.split("/").at(-1);
@@ -201,7 +201,7 @@ test("Play rejects malformed, explicit-null, non-array, and error image payloads
     const mock = playMock({ imagePayload });
     await assert.rejects(
       () => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }),
-      (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE",
+      (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE" && error.stage === "images:icon",
     );
     assert.equal(mock.calls.at(-1).method, "DELETE");
   }
@@ -226,14 +226,29 @@ test("Play API-unavailable tester state remains unknown, not inferred as email-l
 
 test("Play audit cleans up the temporary edit when a read fails", async () => {
   const mock = playMock({ invalidListings: true });
-  await assert.rejects(() => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE");
+  await assert.rejects(() => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE" && error.stage === "listings");
   assert.equal(mock.calls.at(-1).method, "DELETE");
   assert.equal(mock.calls.some(({ pathname }) => pathname.endsWith(":commit")), false);
 });
 
+test("Play response failures retain only fixed operation stages", async () => {
+  for (const [options, stage] of [
+    [{ invalidDetails: true }, "details"],
+    [{ invalidTrack: true }, "internal-track"],
+    [{ invalidTesters: true }, "testers"],
+  ]) {
+    const mock = playMock(options);
+    await assert.rejects(
+      () => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }),
+      (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE" && error.stage === stage,
+    );
+    assert.equal(mock.calls.at(-1).method, "DELETE");
+  }
+});
+
 test("Play audit retains a bounded malformed edit ID for best-effort cleanup", async () => {
   const mock = playMock({ editId: "unexpected edit id" });
-  await assert.rejects(() => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE");
+  await assert.rejects(() => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE" && error.stage === "edit");
   assert.equal(mock.calls.at(-1).method, "DELETE");
   assert.match(mock.calls.at(-1).pathname, /unexpected%20edit%20id$/);
   assert.equal(mock.calls.some(({ pathname }) => pathname.endsWith(":commit")), false);
@@ -246,6 +261,48 @@ test("Play retries only GET and DELETE without repeating edit insertion", async 
   assert.equal(mock.calls.filter(({ method, pathname }) => method === "POST" && pathname.endsWith("/edits")).length, 1);
   assert.equal(mock.calls.filter(({ method, pathname }) => method === "GET" && pathname.endsWith("/listings")).length, 2);
   assert.equal(mock.calls.filter(({ method }) => method === "DELETE").length, 2);
+});
+
+test("Play terminal cleanup failure reports the fixed cleanup stage", async () => {
+  const mock = playMock({ deleteFailures: 3 });
+  await assert.rejects(
+    () => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000, sleepImpl: async () => {} }),
+    (error) => error instanceof StoreAuditError && error.code === "API_ERROR" && error.stage === "cleanup",
+  );
+  assert.equal(mock.calls.filter(({ method }) => method === "DELETE").length, 3);
+});
+
+test("sanitized evidence preserves a primary stage and secondary edit-cleanup failure", async () => {
+  const mock = playMock({ invalidListings: true, deleteFailures: 3 });
+  let written;
+  await assert.rejects(
+    () => main(
+      ["--provider=play", "--output=store-state.json"],
+      { PLAY_SERVICE_ACCOUNT_JSON: "play-key" },
+      {
+        validate: async () => ({ ...expected, phase: "foundation", publicationReady: false }),
+        read: async () => JSON.stringify(playCredentials),
+        write: async (_path, contents) => { written = contents; },
+        auditPlay: async ({ credentials, expected: validated }) => auditPlayStore({ credentials, expected: validated, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000, sleepImpl: async () => {} }),
+      },
+    ),
+    (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && error.message.includes("play listings INVALID_RESPONSE"),
+  );
+  assert.equal(mock.calls.filter(({ method }) => method === "DELETE").length, 3);
+  assert.deepEqual(JSON.parse(written).providerFailures, [{
+    provider: "play",
+    stage: "listings",
+    code: "INVALID_RESPONSE",
+    message: "provider API returned an invalid response",
+    temporaryEditCleanupFailed: true,
+  }]);
+});
+
+test("Play OAuth failures report the fixed OAuth stage", async () => {
+  await assert.rejects(
+    () => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: async () => json({}), nowSeconds: () => 1_800_000_000 }),
+    (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE" && error.stage === "oauth",
+  );
 });
 
 test("Play cleanup reports when the single transaction deadline is exhausted", async () => {
@@ -264,7 +321,7 @@ test("Play cleanup reports when the single transaction deadline is exhausted", a
   };
   await assert.rejects(
     () => auditPlayStore({ credentials: playCredentials, expected, fetchImpl, nowSeconds: () => 1_800_000_000, nowMillis: () => clock, transactionTimeoutMs: 100 }),
-    (error) => error instanceof StoreAuditError && error.code === "NETWORK_ERROR" && error.message.includes("cleanup also failed"),
+    (error) => error instanceof StoreAuditError && error.code === "NETWORK_ERROR" && error.stage === "listings" && error.temporaryEditCleanupFailed === true && error.message.includes("cleanup also failed"),
   );
   assert.equal(calls.filter(({ method, pathname }) => method === "POST" && pathname.endsWith("/edits")).length, 1);
   assert.equal(calls.some(({ method }) => method === "DELETE"), false);
@@ -281,15 +338,15 @@ test("combined audit writes sanitized successful-provider and failure evidence b
         read: async (path) => path === "play-key" ? JSON.stringify(playCredentials) : appleCredentials.privateKey,
         write: async (_path, contents, options) => { written = { contents, options }; },
         auditApple: async () => ({ provider: "apple", readOnly: true, complete: false }),
-        auditPlay: async () => { throw new StoreAuditError("INVALID_RESPONSE", "Play images response has a non-array images member"); },
+        auditPlay: async () => { throw new StoreAuditError("INVALID_RESPONSE", "Play images response has a non-array images member", { stage: "images:featureGraphic" }); },
       },
     ),
-    (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && error.message.includes("play INVALID_RESPONSE"),
+    (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && error.message.includes("play images:featureGraphic INVALID_RESPONSE"),
   );
   assert.equal(written.options.mode, 0o600);
   const evidence = JSON.parse(written.contents);
   assert.deepEqual(evidence.providers, [{ provider: "apple", readOnly: true, complete: false }]);
-  assert.deepEqual(evidence.providerFailures, [{ provider: "play", code: "INVALID_RESPONSE", message: "provider API returned an invalid response" }]);
+  assert.deepEqual(evidence.providerFailures, [{ provider: "play", stage: "images:featureGraphic", code: "INVALID_RESPONSE", message: "provider API returned an invalid response" }]);
 });
 
 test("provider failures never copy hostile remote strings into evidence or the verdict", async () => {
@@ -303,13 +360,13 @@ test("provider failures never copy hostile remote strings into evidence or the v
         validate: async () => ({ ...expected, phase: "foundation", publicationReady: false }),
         read: async () => JSON.stringify(playCredentials),
         write: async (_path, contents) => { written = contents; },
-        auditPlay: async () => { throw new StoreAuditError("INVALID_RESPONSE", `duplicate remote locale ${marker}`); },
+        auditPlay: async () => { throw new StoreAuditError("INVALID_RESPONSE", `duplicate remote locale ${marker}`, { stage: marker }); },
       },
     ),
     (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && !error.message.includes(marker),
   );
   assert.equal(written.includes(marker), false);
-  assert.deepEqual(JSON.parse(written).providerFailures, [{ provider: "play", code: "INVALID_RESPONSE", message: "provider API returned an invalid response" }]);
+  assert.deepEqual(JSON.parse(written).providerFailures, [{ provider: "play", stage: "unknown", code: "INVALID_RESPONSE", message: "provider API returned an invalid response" }]);
 });
 
 test("unexpected provider failures remain generic", async () => {
@@ -329,5 +386,5 @@ test("unexpected provider failures remain generic", async () => {
     (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && !error.message.includes(marker),
   );
   assert.equal(written.includes(marker), false);
-  assert.deepEqual(JSON.parse(written).providerFailures, [{ provider: "play", code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" }]);
+  assert.deepEqual(JSON.parse(written).providerFailures, [{ provider: "play", stage: "unknown", code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" }]);
 });
