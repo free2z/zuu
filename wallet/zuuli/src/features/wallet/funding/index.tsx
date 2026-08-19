@@ -9,14 +9,14 @@ import { ActivityTab } from "./ActivityTab";
 
 type TabKey = "buy" | "send" | "activity";
 
-export default function BuyFeature() {
+export default function FundingFeature() {
   const [tab, setTab] = useState<TabKey>("buy");
 
   return (
     <div className="animate-fade-in space-y-6">
       <PageHeader
-        title="2Z economy"
-        description="Your two balances, one app — buy 2Zs, tip creators, and track every transaction."
+        title="Wallet funding"
+        description="Buy or send 2Zs and review activity."
       />
 
       <BalanceHero />

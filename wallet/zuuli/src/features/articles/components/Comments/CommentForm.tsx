@@ -212,7 +212,7 @@ export function CommentForm({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => navigate("/buy")}
+              onClick={() => navigate("/wallet/fund")}
             >
               Not enough 2Z
               <ArrowRight className="h-4 w-4" aria-hidden />

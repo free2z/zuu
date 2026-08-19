@@ -585,7 +585,7 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
                 variant="outline"
                 onClick={() => {
                   setOpen(false);
-                  navigate("/buy");
+                  navigate("/wallet/fund");
                 }}
               >
                 Not enough 2Z — buy more
@@ -649,7 +649,7 @@ function SubscribeButton({ creator }: { creator: CreatorDetail }) {
               variant="outline"
               onClick={() => {
                 setOpen(false);
-                navigate("/buy");
+                navigate("/wallet/fund");
               }}
             >
               Not enough 2Z — buy more
@@ -765,7 +765,7 @@ function TipButton({ creator }: { creator: CreatorDetail }) {
               variant="outline"
               onClick={() => {
                 setOpen(false);
-                navigate("/buy");
+                navigate("/wallet/fund");
               }}
             >
               Not enough 2Z — buy more

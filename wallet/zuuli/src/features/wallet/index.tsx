@@ -9,6 +9,7 @@ import {
 import {
   ArrowDownToLine,
   ArrowUpRight,
+  Coins,
   LayoutDashboard,
   ListOrdered,
   RefreshCw,
@@ -25,12 +26,14 @@ import { Send } from "./Send";
 import { Receive } from "./Receive";
 import { History } from "./History";
 import { Onboarding } from "./Onboarding";
+import FundingFeature from "./funding";
 
 const NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
   { to: "/wallet", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/wallet/send", label: "Send", icon: ArrowUpRight },
   { to: "/wallet/receive", label: "Receive", icon: ArrowDownToLine },
   { to: "/wallet/history", label: "History", icon: ListOrdered },
+  { to: "/wallet/fund", label: "Fund", icon: Coins },
 ];
 
 function WalletNav() {
@@ -127,11 +130,16 @@ function CleanupNotice() {
   );
 }
 
+export function isWalletFundingPath(pathname: string): boolean {
+  return pathname === "/wallet/fund" || pathname.startsWith("/wallet/fund/");
+}
+
 export default function WalletFeature() {
   const status = useWallet((s) => s.status);
   const loading = useWallet((s) => s.loading);
   const bootstrap = useWallet((s) => s.bootstrap);
   const location = useLocation();
+  const isFunding = isWalletFundingPath(location.pathname);
 
   // Ensure data is loaded even if we land here before the app-level bootstrap.
   useEffect(() => {
@@ -139,7 +147,7 @@ export default function WalletFeature() {
   }, [status, bootstrap]);
 
   // Initial load: skeleton chrome.
-  if (loading && !status) {
+  if (!isFunding && loading && !status) {
     return (
       <div>
         <PageHeader title="Wallet" description="Your Zcash, shielded by default." />
@@ -153,7 +161,7 @@ export default function WalletFeature() {
   }
 
   // No wallet yet → create/restore flow (no sub-nav).
-  if (status && !status.initialized) {
+  if (!isFunding && status && !status.initialized) {
     return <Onboarding />;
   }
 
@@ -161,17 +169,22 @@ export default function WalletFeature() {
 
   return (
     <div>
-      <PageHeader
-        title={title.heading}
-        description={title.description}
-      />
-      <CleanupNotice />
+      {!isFunding ? (
+        <>
+          <PageHeader
+            title={title.heading}
+            description={title.description}
+          />
+          <CleanupNotice />
+        </>
+      ) : null}
       <WalletNav />
       <Routes>
         <Route index element={<Overview />} />
         <Route path="send" element={<Send />} />
         <Route path="receive" element={<Receive />} />
         <Route path="history" element={<History />} />
+        <Route path="fund/*" element={<FundingFeature />} />
         <Route path="*" element={<Overview />} />
       </Routes>
     </div>
@@ -194,5 +207,9 @@ const SECTION_TITLES: Record<
   "/wallet/history": {
     heading: "History",
     description: "Every payment in and out of this wallet.",
+  },
+  "/wallet/fund": {
+    heading: "Fund",
+    description: "Add 2Zs for tips, AI, and memberships.",
   },
 };

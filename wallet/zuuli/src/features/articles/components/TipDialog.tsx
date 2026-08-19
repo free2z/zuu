@@ -132,7 +132,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
               variant="outline"
               onClick={() => {
                 setOpen(false);
-                navigate("/buy");
+                navigate("/wallet/fund");
               }}
             >
               Not enough 2Z — buy more

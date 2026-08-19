@@ -22,8 +22,16 @@ class MemoryStorage {
 }
 
 describe("post-login destination", () => {
-  it("accepts only the exact Buy route", () => {
-    expect(loginDestinationFromState({ returnTo: "/buy" })).toBe("/buy");
+  it("accepts the exact Wallet funding route", () => {
+    expect(loginDestinationFromState({ returnTo: "/wallet/fund" })).toBe(
+      "/wallet/fund",
+    );
+  });
+
+  it("normalizes the legacy exact Buy route for in-flight logins", () => {
+    expect(loginDestinationFromState({ returnTo: "/buy" })).toBe(
+      "/wallet/fund",
+    );
   });
 
   it.each([
@@ -31,13 +39,14 @@ describe("post-login destination", () => {
     null,
     {},
     { returnTo: "/" },
-    { returnTo: "https://evil.example/buy" },
-    { returnTo: "//evil.example/buy" },
-    { returnTo: "/buy?next=https://evil.example" },
-    { returnTo: "/buy#checkout" },
-    { returnTo: "%2Fbuy" },
-    { returnTo: "/%62uy" },
-    { returnTo: { pathname: "/buy" } },
+    { returnTo: "/buy/" },
+    { returnTo: "https://evil.example/wallet/fund" },
+    { returnTo: "//evil.example/wallet/fund" },
+    { returnTo: "/wallet/fund?next=https://evil.example" },
+    { returnTo: "/wallet/fund#checkout" },
+    { returnTo: "%2Fwallet%2Ffund" },
+    { returnTo: "/wallet/%66und" },
+    { returnTo: { pathname: "/wallet/fund" } },
   ])("falls back home for absent, hostile, or encoded state: %j", (state) => {
     expect(loginDestinationFromState(state)).toBe("/");
   });
@@ -56,14 +65,21 @@ describe("post-login destination", () => {
 
   it("round-trips an allowlisted mobile social-login destination once", () => {
     const storage = new MemoryStorage();
-    rememberPendingSocialLoginDestination("/buy", storage);
-    expect(consumePendingSocialLoginDestination(storage)).toBe("/buy");
+    rememberPendingSocialLoginDestination("/wallet/fund", storage);
+    expect(consumePendingSocialLoginDestination(storage)).toBe("/wallet/fund");
+    expect(consumePendingSocialLoginDestination(storage)).toBe("/");
+  });
+
+  it("migrates a pending legacy Buy destination once", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("zuuli.auth.pending-social-login-destination", "/buy");
+    expect(consumePendingSocialLoginDestination(storage)).toBe("/wallet/fund");
     expect(consumePendingSocialLoginDestination(storage)).toBe("/");
   });
 
   it("does not persist the default destination", () => {
     const storage = new MemoryStorage();
-    rememberPendingSocialLoginDestination("/buy", storage);
+    rememberPendingSocialLoginDestination("/wallet/fund", storage);
     rememberPendingSocialLoginDestination("/", storage);
     expect(consumePendingSocialLoginDestination(storage)).toBe("/");
   });
@@ -72,7 +88,7 @@ describe("post-login destination", () => {
     const storage = new MemoryStorage();
     storage.setItem(
       "zuuli.auth.pending-social-login-destination",
-      "https://evil.example/buy",
+      "https://evil.example/wallet/fund",
     );
     expect(consumePendingSocialLoginDestination(storage)).toBe("/");
   });

@@ -609,7 +609,7 @@ function JoinPanel({
                   Not enough 2Zs
                 </Button>
                 <Button asChild variant="outline" className="w-full gap-2">
-                  <Link to="/buy">
+                  <Link to="/wallet/fund">
                     <Coins className="h-4 w-4" aria-hidden />
                     Buy more 2Zs
                   </Link>
@@ -732,7 +732,7 @@ function JoinPanel({
                   Not enough 2Zs
                 </Button>
                 <Button asChild variant="outline" className="w-full gap-2">
-                  <Link to="/buy">
+                  <Link to="/wallet/fund">
                     <Coins className="h-4 w-4" aria-hidden />
                     Buy more 2Zs
                   </Link>

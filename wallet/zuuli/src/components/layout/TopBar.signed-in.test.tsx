@@ -42,7 +42,7 @@ describe("TopBar signed-in account chrome", () => {
     expect(markup).toContain(">—</span>");
     expect(markup).toContain(">ZEC</span>");
     expect(markup).not.toContain("0.00");
-    expect(markup).toContain('href="/buy"');
+    expect(markup).toContain('href="/wallet/fund"');
     expect(markup).toContain('aria-label="Buy 2Zs. Balance 4,210 2Z"');
     expect(markup).toContain('aria-label="Account menu"');
     expect(markup).not.toContain('aria-label="Log in"');

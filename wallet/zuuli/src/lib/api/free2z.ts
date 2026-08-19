@@ -1495,7 +1495,10 @@ export const tuzi = {
     }
     const r = await request<{ id?: unknown; url?: unknown }>(
       "/api/stripe/create-checkout-session/",
-      { method: "POST", body: { quantity: tuzis, currentPath: "/buy" } },
+      {
+        method: "POST",
+        body: { quantity: tuzis, currentPath: "/wallet/fund" },
+      },
     );
     return { url: validateStripeCheckoutUrl(r?.url) };
   },

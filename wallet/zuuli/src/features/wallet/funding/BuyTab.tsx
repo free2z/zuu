@@ -145,7 +145,7 @@ export function BuyTab() {
         openCheckout: openCardCheckout,
       });
       if (result === "sign-in") {
-        navigate("/login", { state: { returnTo: "/buy" } });
+        navigate("/login", { state: { returnTo: "/wallet/fund" } });
         return;
       }
       toast.info("Opening secure checkout…", {
@@ -155,7 +155,7 @@ export function BuyTab() {
       const feedback = cardCheckoutFeedback(error);
       toast.error(feedback.title, { description: feedback.description });
       if (feedback.signIn) {
-        navigate("/login", { state: { returnTo: "/buy" } });
+        navigate("/login", { state: { returnTo: "/wallet/fund" } });
       }
     } finally {
       if (authenticated) setCardLoading(false);
