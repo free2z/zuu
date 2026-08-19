@@ -5,10 +5,10 @@ development libraries that are not part of GitHub's Ubuntu runner image. The
 repo-owned `ghcr.io/free2z/zuuli-linux-ci` image turns that mutable apt setup
 into a reviewed, content-addressed OS dependency layer.
 
-This document covers the two-phase bootstrap tracked in #407. The application,
+This document records the two-phase rollout tracked in #407. The application,
 Rust dependency graph and release credentials never belong in this image.
 
-## Phase A: publish, but do not consume
+## Phase A: published and attested
 
 The source lives in `.github/containers/zuuli-linux/`:
 
@@ -16,8 +16,7 @@ The source lives in `.github/containers/zuuli-linux/`:
 - `packages.txt` is the complete reviewed package manifest.
 - `verify-inventory.sh` proves the OS, architecture, native `pkg-config`
   surface, AppImage execution mode and absence of Rust/source/cache state.
-- `image.lock` binds those sources together. `UNPUBLISHED` is intentional until
-  the first post-merge image exists.
+- `image.lock` binds those sources to the promoted registry digest.
 
 `.github/workflows/zuuli-linux-image.yml` validates every pull request and
 performs a real amd64 Docker build plus inventory check. A push to `main`, a
@@ -25,39 +24,37 @@ Wednesday schedule, or a manual run from `main` publishes two convenience tags
 and records the immutable digest. BuildKit attaches an OCI SBOM and maximal
 provenance; GitHub also publishes a registry attestation for that digest.
 
-The ordinary required `wallet/zuuli` workflow still runs on a Phase A pull
-request, but its checked-out diff does not classify this isolated bootstrap
-surface as a release-impacting wallet change. Its fail-closed base/diff checks
-and Rust-toolchain consistency check still run; the existing apt-heavy wallet
-jobs legitimately skip. The dedicated image workflow is the authoritative
-Phase A test. Do not add these bootstrap paths to the full-wallet change filter
-before an immutable image can replace its apt steps.
+The first published image was built from `da58e6567698a173db6cf8bf64c8dcab23f9c5fa`.
+[GitHub attestation 41577363](https://github.com/free2z/zuu/attestations/41577363)
+binds the untagged subject
+`ghcr.io/free2z/zuuli-linux-ci` to digest
+`sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1`,
+the main-branch image workflow, and a GitHub-hosted runner.
 
-## Phase B: pin and consume
+## Phase B: digest-pinned consumers
 
-After Phase A merges and the publish job succeeds:
+Exactly five Linux consumers use the promoted digest: the required lint,
+standalone plugin, and ZUULI backend jobs; the Linux packaging smoke matrix
+entry; and the protected Linux release job. macOS, Android, iOS, lightweight
+format/supply-chain jobs, and all store-upload jobs remain on their native
+runners.
 
-1. Record `ghcr.io/free2z/zuuli-linux-ci@sha256:<digest>` from the job summary.
-2. Verify the registry SBOM and provenance/attestation for that exact digest.
-3. In a separate PR, change `image.lock` from `bootstrap`/`UNPUBLISHED` to the
-   reviewed digest and switch only the Linux consumers named in #407.
-4. Give each consumer `packages: read` and job-level `container.credentials`
-   using `github.actor` and `secrets.GITHUB_TOKEN`; the runner pulls a job
-   container before any login step can run. The OCI source label links the
-   package to this repository, but confirm the new package inherited Actions
-   access because an organization can disable automatic inheritance. Public
-   visibility is optional, not assumed.
-5. Remove their live apt steps, retain the inventory check as their first
-   command, then install and verify the Rust version selected by
-   `wallet/rust-toolchain.toml` exactly as today.
-6. Add a hosted job-container smoke test using the exact digest. It must run
-   checkout and setup actions plus explicit Bash commands before proving clean
-   Rust builds and real AppImage, deb and RPM packages. Never consume
-   `ubuntu-24.04` or another mutable tag.
+GHCR keeps the package private. Each consumer therefore grants only
+`packages: read` and supplies `github.actor` plus `secrets.GITHUB_TOKEN` as
+job-level `container.credentials`; the runner must authenticate before any
+step exists. The image inventory and Bash smoke are the first step, followed by
+checkout, an immediate exact-workspace Git ownership exception, and setup
+actions. This proves the runner-provided JavaScript action runtime works inside
+the minimal image without granting broad `safe.directory` trust. Rust still
+comes exclusively from the pinned toolchain action and
+`wallet/rust-toolchain.toml`.
 
-The first consumer PR must extend `scripts/check-zuuli-linux-image.mjs` so every
-consumer references the one locked digest and a mutable/mismatched reference is
-rejected. Until then, the validator rejects every consumer reference.
+`scripts/check-zuuli-linux-image.mjs` enforces the consumed lock state, exactly
+five identical digest references, pull-time credentials, packages-read scope,
+the inventory-first contract, explicit Bash, and absence of live apt commands.
+Its negative tests reject mutable tags, digest skew, missing credentials,
+reordered inventory, missing or broad Git ownership trust, and policy paths
+that no longer select the full required gate.
 
 ## Rebuild, promotion and rollback
 
@@ -69,9 +66,10 @@ provenance record; they do not move consumers automatically. The
 through a PR that reviews the inventory/security delta and passes all consumer
 smoke tests.
 
-Rollback is a one-line digest change through the same reviewed PR path. Keep
-the previous known-good digest in GHCR until its replacement has completed at
-least two main-branch gates and a packaging canary. GHCR access uses the
+Rollback promotes the previous digest through the same reviewed PR path,
+updating the lock, validator binding, and every consumer together. Keep the
+previous known-good digest in GHCR until its replacement has completed at least
+two main-branch gates and a packaging canary. GHCR access uses the
 workflow-scoped `GITHUB_TOKEN`; no registry password or release credential is
 stored in the image or repository.
 
