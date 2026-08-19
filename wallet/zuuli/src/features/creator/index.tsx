@@ -44,6 +44,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { discover, live, tuzi } from "@/lib/api/free2z";
 import {
   formatTuzis,
@@ -55,6 +56,11 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { parseBioFrontmatter, type SocialLink } from "@/lib/utils/bio";
+import {
+  currentResourceData,
+  isConfirmedNotFound,
+  type KeyedRemoteData,
+} from "@/lib/remote-data";
 import { useAsync } from "@/hooks/useAsync";
 import { useSession } from "@/store/session";
 import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
@@ -85,14 +91,35 @@ function bannerGradient(seed: string): string {
 
 export default function CreatorFeature() {
   const { username = "" } = useParams<{ username: string }>();
-  const { data, loading, error } = useAsync<CreatorDetail>(
-    () => discover.creator(username),
+  const { data, loading, error, reload } = useAsync<
+    KeyedRemoteData<string, CreatorDetail>
+  >(
+    async () => ({
+      key: username,
+      value: await discover.creator(username),
+    }),
     [username],
   );
+  const creator = currentResourceData(data, username);
 
-  if (loading) return <CreatorSkeleton />;
+  if (loading && creator === null && !error) return <CreatorSkeleton />;
 
-  if (error || !data) {
+  if (error && creator === null) {
+    if (!isConfirmedNotFound(error)) {
+      return (
+        <div className="animate-slide-up">
+          <BackLink />
+          <SectionLoadError
+            className="mt-6"
+            title="Couldn't load this creator"
+            description="The profile may still be available. Check your connection and try again."
+            retry={reload}
+            retrying={loading}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="animate-slide-up">
         <BackLink />
@@ -111,15 +138,56 @@ export default function CreatorFeature() {
     );
   }
 
-  return <CreatorProfile creator={data} />;
+  if (!creator) {
+    return (
+      <div className="animate-slide-up">
+        <BackLink />
+        <SectionLoadError
+          className="mt-6"
+          title="Couldn't load this creator"
+          description="The server returned no profile. Try again."
+          retry={reload}
+          retrying={loading}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <CreatorProfile
+      creator={creator}
+      refreshError={error}
+      refresh={reload}
+      refreshing={loading}
+    />
+  );
 }
 
-function CreatorProfile({ creator }: { creator: CreatorDetail }) {
+function CreatorProfile({
+  creator,
+  refreshError,
+  refresh,
+  refreshing,
+}: {
+  creator: CreatorDetail;
+  refreshError: unknown | null;
+  refresh: () => void;
+  refreshing: boolean;
+}) {
   const name = creator.display_name || creator.username;
-  const { data: pages, loading: pagesLoading } = useAsync<Article[]>(
-    () => discover.creatorPages(creator.username),
+  const {
+    data: pagesData,
+    loading: pagesLoading,
+    error: pagesError,
+    reload: reloadPages,
+  } = useAsync<KeyedRemoteData<string, Article[]>>(
+    async () => ({
+      key: creator.username,
+      value: await discover.creatorPages(creator.username),
+    }),
     [creator.username],
   );
+  const pages = currentResourceData(pagesData, creator.username);
   const { body: bio, socials } = useMemo(
     () => parseBioFrontmatter(creator.bio),
     [creator.bio],
@@ -133,6 +201,17 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
   return (
     <div className="animate-slide-up pb-6">
       <BackLink />
+
+      {refreshError ? (
+        <SectionLoadError
+          className="mt-4"
+          title="Couldn't refresh this profile"
+          description="Showing the last version loaded on this device."
+          retry={refresh}
+          retrying={refreshing}
+          stale
+        />
+      ) : null}
 
       {/* Banner */}
       <div
@@ -255,25 +334,43 @@ function CreatorProfile({ creator }: { creator: CreatorDetail }) {
         <h2 className="mb-4 text-lg font-semibold tracking-tight">
           Pages by {name}
         </h2>
-        {pagesLoading ? (
+        {pagesError ? (
+          <SectionLoadError
+            className="mb-4"
+            title={
+              pages === null
+                ? "Couldn't load this creator's pages"
+                : "Couldn't refresh this creator's pages"
+            }
+            description={
+              pages === null
+                ? "The published pages are temporarily unavailable."
+                : "Showing the last pages loaded on this device."
+            }
+            retry={reloadPages}
+            retrying={pagesLoading}
+            stale={pages !== null}
+          />
+        ) : null}
+        {pagesLoading && pages === null ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <PageCardSkeleton key={i} />
             ))}
           </div>
-        ) : !pages || pages.length === 0 ? (
+        ) : pagesError && pages === null ? null : pages?.length === 0 ? (
           <EmptyState
             icon={FileText}
             title="No pages yet"
             description={`${name} hasn't published any pages yet.`}
           />
-        ) : (
+        ) : pages ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {pages.map((p) => (
               <PageCard key={String(p.id)} article={p} />
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

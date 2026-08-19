@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Radio } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { live } from "@/lib/api/free2z";
 import { useAsync } from "@/hooks/useAsync";
@@ -19,7 +20,10 @@ const FILTERS: { value: Filter; label: string }[] = [
 ];
 
 export function Discovery() {
-  const { data, loading, reload } = useAsync(() => live.listPublic(), []);
+  const { data, loading, error, reload } = useAsync(
+    () => live.listPublic(),
+    [],
+  );
   const [filter, setFilter] = useState<Filter>("all");
 
   // Refresh the listing periodically, but never while the tab is hidden (no
@@ -52,15 +56,18 @@ export function Discovery() {
   }, [data, filter]);
 
   const liveCount = (data ?? []).filter((s) => s.live).length;
+  const initialLoading = loading && data === null;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Livestreams"
         description={
-          loading
+          initialLoading
             ? "Loading the room…"
-            : liveCount > 0
+            : error && data === null
+              ? "Live status is temporarily unavailable."
+              : liveCount > 0
               ? `${liveCount} creator${liveCount === 1 ? "" : "s"} live right now.`
               : "No one is live yet — be the first to go on air."
         }
@@ -77,13 +84,29 @@ export function Discovery() {
         </TabsList>
       </Tabs>
 
-      {loading ? (
+      {error ? (
+        <SectionLoadError
+          title={
+            data ? "Live status may be out of date" : "Couldn't load livestreams"
+          }
+          description={
+            data
+              ? "Showing the last confirmed listing. Retry to refresh live status."
+              : "We couldn't confirm which creators are live."
+          }
+          retry={reload}
+          retrying={loading}
+          stale={data !== null}
+        />
+      ) : null}
+
+      {initialLoading ? (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <StreamCardSkeleton key={i} />
           ))}
         </div>
-      ) : streams.length === 0 ? (
+      ) : data === null ? null : streams.length === 0 ? (
         <EmptyState
           icon={Radio}
           title="Nothing here yet"

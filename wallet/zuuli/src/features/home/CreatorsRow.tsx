@@ -3,6 +3,7 @@ import { Users, BadgeCheck, ArrowUpRight } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { initials } from "@/lib/format";
 import { discover } from "@/lib/api/free2z";
 import { parseBioFrontmatter } from "@/lib/utils/bio";
@@ -71,8 +72,12 @@ function CreatorSkeleton() {
 }
 
 export function CreatorsRow() {
-  const { data, loading } = useAsync(() => discover.creators(), []);
+  const { data, loading, error, reload } = useAsync(
+    () => discover.creators(),
+    [],
+  );
   const creators = data ?? [];
+  const initialLoading = loading && data === null;
 
   return (
     <div>
@@ -81,13 +86,31 @@ export function CreatorsRow() {
         title="Creators to watch"
         subtitle="Voices worth following on ZUULI"
       />
-      {loading ? (
+      {error ? (
+        <SectionLoadError
+          className="mb-4"
+          title={
+            data
+              ? "Creator suggestions may be out of date"
+              : "Couldn't load creators"
+          }
+          description={
+            data
+              ? "Showing the last confirmed suggestions. Retry to refresh them."
+              : "We couldn't reach creator discovery."
+          }
+          retry={reload}
+          retrying={loading}
+          stale={data !== null}
+        />
+      ) : null}
+      {initialLoading ? (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <CreatorSkeleton key={i} />
           ))}
         </div>
-      ) : creators.length === 0 ? (
+      ) : data === null ? null : creators.length === 0 ? (
         <EmptyState
           icon={Users}
           title="No creators to show"

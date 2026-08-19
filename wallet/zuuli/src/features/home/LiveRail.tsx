@@ -3,6 +3,7 @@ import { Radio, Users, RadioTower } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { formatTuzis } from "@/lib/format";
 import { live } from "@/lib/api/free2z";
 import { useAsync } from "@/hooks/useAsync";
@@ -93,8 +94,12 @@ function StreamSkeleton() {
 }
 
 export function LiveRail() {
-  const { data, loading } = useAsync(() => live.listPublic(), []);
+  const { data, loading, error, reload } = useAsync(
+    () => live.listPublic(),
+    [],
+  );
   const streams = (data ?? []).filter((s) => s.live === true);
+  const initialLoading = loading && data === null;
 
   return (
     <div>
@@ -105,13 +110,29 @@ export function LiveRail() {
         to="/live"
         accent="text-[#fb7185]"
       />
-      {loading ? (
+      {error ? (
+        <SectionLoadError
+          className="mb-4"
+          title={
+            data ? "Live status may be out of date" : "Couldn't load live status"
+          }
+          description={
+            data
+              ? "Showing the last confirmed streams. Retry to check who is live now."
+              : "We couldn't confirm whether anyone is live."
+          }
+          retry={reload}
+          retrying={loading}
+          stale={data !== null}
+        />
+      ) : null}
+      {initialLoading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <StreamSkeleton key={i} />
           ))}
         </div>
-      ) : streams.length === 0 ? (
+      ) : data === null ? null : streams.length === 0 ? (
         <EmptyState
           icon={Radio}
           title="No one is live right now"

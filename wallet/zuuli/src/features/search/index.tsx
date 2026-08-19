@@ -21,8 +21,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { useAsync } from "@/hooks/useAsync";
 import { discover } from "@/lib/api/free2z";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
+import {
+  currentResourceData,
+  type KeyedRemoteData,
+} from "@/lib/remote-data";
 import type { Article, SimpleCreator } from "@/lib/api/types";
 
 const DEBOUNCE_MS = 300;
@@ -42,10 +48,33 @@ export default function SearchFeature() {
   const [query, setQuery] = useState(initial);
   const debounced = useDebounced(query, DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const [creators, setCreators] = useState<SimpleCreator[] | null>(null);
-  const [pages, setPages] = useState<Article[] | null>(null);
-  const [error, setError] = useState(false);
+  const searchKey = debounced.trim();
+  const {
+    data: creatorData,
+    loading: creatorsLoading,
+    error: creatorsError,
+    reload: reloadCreators,
+  } = useAsync<KeyedRemoteData<string, SimpleCreator[]>>(
+    async () => ({
+      key: searchKey,
+      value: searchKey ? await discover.searchCreators(searchKey) : [],
+    }),
+    [searchKey],
+  );
+  const {
+    data: pageData,
+    loading: pagesLoading,
+    error: pagesError,
+    reload: reloadPages,
+  } = useAsync<KeyedRemoteData<string, Article[]>>(
+    async () => ({
+      key: searchKey,
+      value: searchKey ? await discover.searchPages(searchKey) : [],
+    }),
+    [searchKey],
+  );
+  const creators = currentResourceData(creatorData, searchKey);
+  const pages = currentResourceData(pageData, searchKey);
 
   // Focus the box on mount for a keyboard-first feel.
   useEffect(() => {
@@ -59,43 +88,16 @@ export default function SearchFeature() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
 
-  // Fetch both corpora in parallel whenever the debounced query changes.
-  useEffect(() => {
-    const q = debounced.trim();
-    if (!q) {
-      setCreators(null);
-      setPages(null);
-      setError(false);
-      return;
-    }
-    let alive = true;
-    setCreators(null);
-    setPages(null);
-    setError(false);
-    Promise.allSettled([
-      discover.searchCreators(q),
-      discover.searchPages(q),
-    ]).then(([c, p]) => {
-      if (!alive) return;
-      if (c.status === "fulfilled") setCreators(c.value);
-      else setCreators([]);
-      if (p.status === "fulfilled") setPages(p.value);
-      else setPages([]);
-      if (c.status === "rejected" && p.status === "rejected") setError(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [debounced]);
-
-  const hasQuery = debounced.trim().length > 0;
-  const loading = hasQuery && (creators === null || pages === null);
+  const hasQuery = searchKey.length > 0;
   const creatorCount = creators?.length ?? 0;
   const pageCount = pages?.length ?? 0;
 
   const defaultTab = useMemo(
-    () => (creatorCount === 0 && pageCount > 0 ? "pages" : "creators"),
-    [creatorCount, pageCount],
+    () =>
+      !creatorsLoading && !pagesLoading && creatorCount === 0 && pageCount > 0
+        ? "pages"
+        : "creators",
+    [creatorCount, creatorsLoading, pageCount, pagesLoading],
   );
 
   return (
@@ -141,61 +143,99 @@ export default function SearchFeature() {
           title="Search all of free2z"
           description="Start typing to find creators by name and pages by meaning — results update as you go."
         />
-      ) : error ? (
-        <EmptyState
-          icon={SearchIcon}
-          title="Search is unavailable"
-          description="Something went wrong reaching search. Try again in a moment."
-        />
       ) : (
         <Tabs defaultValue={defaultTab} key={defaultTab}>
           <TabsList>
             <TabsTrigger value="creators">
               <Users className="mr-1.5 h-4 w-4" aria-hidden />
               Creators
-              <ResultCountBadge n={creatorCount} loading={loading} />
+              <ResultCountBadge
+                n={creatorCount}
+                loading={creatorsLoading && creators === null}
+                available={creators !== null}
+              />
             </TabsTrigger>
             <TabsTrigger value="pages">
               <FileText className="mr-1.5 h-4 w-4" aria-hidden />
               Pages
-              <ResultCountBadge n={pageCount} loading={loading} />
+              <ResultCountBadge
+                n={pageCount}
+                loading={pagesLoading && pages === null}
+                available={pages !== null}
+              />
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="creators">
-            {creators === null ? (
+            {creatorsError ? (
+              <SectionLoadError
+                className="mb-4"
+                title={
+                  creators === null
+                    ? "Creator search is unavailable"
+                    : "Couldn't refresh creator results"
+                }
+                description={
+                  creators === null
+                    ? "Pages may still be available in the other tab."
+                    : "Showing the last creator results loaded on this device."
+                }
+                retry={reloadCreators}
+                retrying={creatorsLoading}
+                stale={creators !== null}
+              />
+            ) : null}
+            {creatorsLoading && creators === null ? (
               <CreatorGridSkeleton />
-            ) : creators.length === 0 ? (
+            ) : creatorsError && creators === null ? null : creators?.length === 0 ? (
               <EmptyState
                 icon={Users}
                 title="No creators found"
                 description={`No creators match “${debounced.trim()}”. Creators are matched by username and name.`}
               />
-            ) : (
+            ) : creators ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {creators.map((c) => (
                   <CreatorResultCard key={c.username} creator={c} />
                 ))}
               </div>
-            )}
+            ) : null}
           </TabsContent>
 
           <TabsContent value="pages">
-            {pages === null ? (
+            {pagesError ? (
+              <SectionLoadError
+                className="mb-4"
+                title={
+                  pages === null
+                    ? "Page search is unavailable"
+                    : "Couldn't refresh page results"
+                }
+                description={
+                  pages === null
+                    ? "Creators may still be available in the other tab."
+                    : "Showing the last page results loaded on this device."
+                }
+                retry={reloadPages}
+                retrying={pagesLoading}
+                stale={pages !== null}
+              />
+            ) : null}
+            {pagesLoading && pages === null ? (
               <PageListSkeleton />
-            ) : pages.length === 0 ? (
+            ) : pagesError && pages === null ? null : pages?.length === 0 ? (
               <EmptyState
                 icon={BookOpen}
                 title="No pages found"
                 description={`No pages match “${debounced.trim()}”. Try different or broader terms.`}
               />
-            ) : (
+            ) : pages ? (
               <div className="flex flex-col gap-3">
                 {pages.map((p) => (
                   <PageResultRow key={String(p.id)} article={p} />
                 ))}
               </div>
-            )}
+            ) : null}
           </TabsContent>
         </Tabs>
       )}
@@ -203,8 +243,16 @@ export default function SearchFeature() {
   );
 }
 
-function ResultCountBadge({ n, loading }: { n: number; loading: boolean }) {
-  if (loading) return null;
+function ResultCountBadge({
+  n,
+  loading,
+  available,
+}: {
+  n: number;
+  loading: boolean;
+  available: boolean;
+}) {
+  if (loading || !available) return null;
   return (
     <span className="ml-2 rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
       {n}

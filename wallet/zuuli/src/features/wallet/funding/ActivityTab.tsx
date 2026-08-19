@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
 import { Receipt, TrendingUp, TrendingDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { useAsync } from "@/hooks/useAsync";
 import { tuzi } from "@/lib/api/free2z";
 import type { TuziTransaction } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -11,20 +12,14 @@ import { formatTuzis, timeAgo } from "@/lib/format";
 import { kindMeta, kindIconClass } from "./lib";
 
 export function ActivityTab() {
-  const [txns, setTxns] = useState<TuziTransaction[] | null>(null);
+  const {
+    data: txns,
+    loading,
+    error,
+    reload,
+  } = useAsync<TuziTransaction[]>(() => tuzi.transactions(), []);
 
-  useEffect(() => {
-    let alive = true;
-    tuzi
-      .transactions()
-      .then((t) => alive && setTxns(t))
-      .catch(() => alive && setTxns([]));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (txns === null) {
+  if (loading && txns === null && !error) {
     return (
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -38,13 +33,37 @@ export function ActivityTab() {
     );
   }
 
+  if (error && txns === null) {
+    return (
+      <SectionLoadError
+        title="Couldn't load 2Z activity"
+        description="Your 2Z activity is temporarily unavailable."
+        retry={reload}
+        retrying={loading}
+      />
+    );
+  }
+
+  if (!txns) return null;
+
   if (txns.length === 0) {
     return (
-      <EmptyState
-        icon={Receipt}
-        title="No activity yet"
-        description="Your 2Z purchases, tips and charges will show up here."
-      />
+      <div className="space-y-3">
+        {error ? (
+          <SectionLoadError
+            title="Couldn't refresh 2Z activity"
+            description="Showing the last 2Z activity loaded on this device."
+            retry={reload}
+            retrying={loading}
+            stale
+          />
+        ) : null}
+        <EmptyState
+          icon={Receipt}
+          title="No activity yet"
+          description="Your 2Z purchases, tips and charges will show up here."
+        />
+      </div>
     );
   }
 
@@ -57,6 +76,15 @@ export function ActivityTab() {
 
   return (
     <div className="space-y-4">
+      {error ? (
+        <SectionLoadError
+          title="Couldn't refresh 2Z activity"
+          description="Showing the last 2Z activity loaded on this device."
+          retry={reload}
+          retrying={loading}
+          stale
+        />
+      ) : null}
       {/* Summary chips — "Total spent" only appears once there is real spend
           (the purchases-only Stripe ledger has none, so it isn't shown as a
           permanent 0). */}

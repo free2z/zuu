@@ -1,9 +1,14 @@
 // Full transaction history.
-import { useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, History as HistoryIcon } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  History as HistoryIcon,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { useAsync } from "@/hooks/useAsync";
 import {
   formatDate,
   formatZecDisplay,
@@ -15,24 +20,14 @@ import { cn } from "@/lib/utils";
 import { CopyButton } from "./shared";
 
 export function History() {
-  const [txs, setTxs] = useState<TransactionEntry[] | null>(null);
+  const {
+    data: txs,
+    loading,
+    error,
+    reload,
+  } = useAsync<TransactionEntry[]>(() => wallet.getTransactionHistory(0), []);
 
-  useEffect(() => {
-    let alive = true;
-    void wallet
-      .getTransactionHistory(0)
-      .then((res) => {
-        if (alive) setTxs(res);
-      })
-      .catch(() => {
-        if (alive) setTxs([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (txs === null) {
+  if (loading && txs === null && !error) {
     return (
       <Card className="rounded-xl">
         <CardContent className="divide-y divide-border/60 p-2">
@@ -51,24 +46,59 @@ export function History() {
     );
   }
 
-  if (txs.length === 0) {
+  if (error && txs === null) {
     return (
-      <EmptyState
-        icon={HistoryIcon}
-        title="No transactions yet"
-        description="Send or receive ZEC and every transaction will appear here."
+      <SectionLoadError
+        title="Couldn't load transaction history"
+        description="Your transaction history is temporarily unavailable."
+        retry={reload}
+        retrying={loading}
       />
     );
   }
 
+  if (!txs) return null;
+
+  if (txs.length === 0) {
+    return (
+      <div className="space-y-3">
+        {error ? (
+          <SectionLoadError
+            title="Couldn't refresh transaction history"
+            description="Showing the last transaction history loaded on this device."
+            retry={reload}
+            retrying={loading}
+            stale
+          />
+        ) : null}
+        <EmptyState
+          icon={HistoryIcon}
+          title="No transactions yet"
+          description="Send or receive ZEC and every transaction will appear here."
+        />
+      </div>
+    );
+  }
+
   return (
-    <Card className="rounded-xl">
-      <CardContent className="divide-y divide-border/60 p-2">
-        {txs.map((tx) => (
-          <HistoryRow key={tx.txid} tx={tx} />
-        ))}
-      </CardContent>
-    </Card>
+    <div className="space-y-3">
+      {error ? (
+        <SectionLoadError
+          title="Couldn't refresh transaction history"
+          description="Showing the last transaction history loaded on this device."
+          retry={reload}
+          retrying={loading}
+          stale
+        />
+      ) : null}
+      <Card className="rounded-xl">
+        <CardContent className="divide-y divide-border/60 p-2">
+          {txs.map((tx) => (
+            <HistoryRow key={tx.txid} tx={tx} />
+          ))}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

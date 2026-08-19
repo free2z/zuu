@@ -1,10 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  beginRemoteLoad,
+  initialRemoteData,
+  remoteFailure,
+  remoteSuccess,
+  type RemoteDataState,
+} from "@/lib/remote-data";
 
-interface AsyncState<T> {
-  data: T | null;
-  loading: boolean;
-  error: string | null;
+interface AsyncState<T> extends RemoteDataState<T> {
   reload: () => void;
+}
+
+function sameDependencies(
+  previous: React.DependencyList,
+  current: React.DependencyList,
+): boolean {
+  return (
+    previous.length === current.length &&
+    previous.every((value, index) => Object.is(value, current[index]))
+  );
 }
 
 /**
@@ -15,33 +29,48 @@ export function useAsync<T>(
   loader: () => Promise<T>,
   deps: React.DependencyList = [],
 ): AsyncState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<RemoteDataState<T>>(() =>
+    initialRemoteData<T>(),
+  );
   const [nonce, setNonce] = useState(0);
   const idRef = useRef(0);
+  const committedDepsRef = useRef<React.DependencyList>([...deps]);
+
+  // Effects run after render. Hide the prior resource synchronously so a route
+  // or search-key change cannot briefly attribute its data or error (including
+  // an authoritative 404) to the new key.
+  const dependencyChanged = !sameDependencies(committedDepsRef.current, deps);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
+    const resourceChanged = !sameDependencies(committedDepsRef.current, deps);
+    committedDepsRef.current = [...deps];
     const id = ++idRef.current;
-    setLoading(true);
-    setError(null);
+    let active = true;
+    setState((current) =>
+      beginRemoteLoad(current, { retainData: !resourceChanged }),
+    );
     loader()
       .then((res) => {
-        if (idRef.current === id) {
-          setData(res);
-          setLoading(false);
+        if (active && idRef.current === id) {
+          setState(remoteSuccess(res));
         }
       })
       .catch((e: unknown) => {
-        if (idRef.current === id) {
-          setError(e instanceof Error ? e.message : String(e));
-          setLoading(false);
+        if (active && idRef.current === id) {
+          setState((current) => remoteFailure(current, e));
         }
       });
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce]);
 
-  return { data, loading, error, reload };
+  const visibleState = dependencyChanged
+    ? beginRemoteLoad(state, { retainData: false })
+    : state;
+
+  return { ...visibleState, reload };
 }
