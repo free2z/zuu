@@ -758,8 +758,17 @@ for (const auditContract of [
   "test \"$(git rev-parse refs/remotes/origin/main)\" = \"$SOURCE_SHA\"",
   "npm run test:store-listing",
   "node scripts/store-state-audit.mjs",
+  "id: audit\n        continue-on-error: true",
+  "id: cleanup\n        if: always()\n        continue-on-error: true",
+  "steps.audit.outputs.evidence_present == 'true'",
+  "steps.audit.outcome",
+  "steps.cleanup.outcome",
+  "::add-mask::$ASC_KEY_ID",
   "Destroy ephemeral store credentials",
   "Upload sanitized store-state evidence",
+  "Enforce audit and cleanup verdict",
+  "ephemeral store credential cleanup did not succeed",
+  "one or more requested store provider audits failed",
 ]) {
   if (!storeAuditWorkflow.includes(auditContract))
     failures.push(`store audit workflow is missing: ${auditContract}`);
@@ -767,6 +776,21 @@ for (const auditContract of [
 for (const forbiddenAuditContract of ["edits:commit", "updateTesters", "betaTesters"])
   if (storeAuditWorkflow.includes(forbiddenAuditContract))
     failures.push(`store audit workflow has a forbidden contract: ${forbiddenAuditContract}`);
+if (storeAuditWorkflow.includes("    env:\n      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}"))
+  failures.push("store audit workflow must not expose ASC identifiers in every Play-only step");
+const storeAuditExecution = storeAuditWorkflow.indexOf("      - name: Audit canonical locales, media, and Play tester mode");
+const storeAuditCleanup = storeAuditWorkflow.indexOf("      - name: Destroy ephemeral store credentials");
+const storeAuditEvidence = storeAuditWorkflow.indexOf("      - name: Upload sanitized store-state evidence");
+const storeAuditVerdict = storeAuditWorkflow.indexOf("      - name: Enforce audit and cleanup verdict");
+if (
+  storeAuditExecution === -1 ||
+  storeAuditCleanup === -1 ||
+  storeAuditEvidence === -1 ||
+  storeAuditVerdict === -1 ||
+  storeAuditExecution > storeAuditCleanup ||
+  storeAuditCleanup > storeAuditEvidence ||
+  storeAuditEvidence > storeAuditVerdict
+) failures.push("store audit must execute, clean credentials, upload sanitized evidence, then enforce its verdict");
 for (const publishContract of [
   "name: ZUULI / Store listing publication gate",
   "environment: zuuli-app-stores",

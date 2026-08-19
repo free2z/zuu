@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
-import { auditAppleStore, auditPlayStore, StoreAuditError } from "./store-state-audit.mjs";
+import { auditAppleStore, auditPlayStore, main, parsePlayImages, StoreAuditError } from "./store-state-audit.mjs";
 
 const expected = {
   release: { version: "0.1.0", build: 10 },
@@ -98,7 +98,7 @@ test("Apple audit rejects duplicate locale/display-type screenshot sets", async 
   await assert.rejects(() => auditAppleStore({ credentials: appleCredentials, expected, fetchImpl, nowSeconds: () => 1_800_000_000 }), (error) => error instanceof StoreAuditError && error.code === "AMBIGUOUS_REMOTE_STATE");
 });
 
-function playMock({ groups = [], invalidListings = false, editId = "audit-edit", listingFailures = 0, deleteFailures = 0, testerStatus = 200, listingTitle = "ZUULI", releaseNotes = "release notes", missingBrandType, duplicateBrandType } = {}) {
+function playMock({ groups = [], invalidListings = false, editId = "audit-edit", listingFailures = 0, deleteFailures = 0, testerStatus = 200, listingTitle = "ZUULI", releaseNotes = "release notes", missingBrandType, duplicateBrandType, imagePayload } = {}) {
   const calls = [];
   let remainingListingFailures = listingFailures;
   let remainingDeleteFailures = deleteFailures;
@@ -121,6 +121,7 @@ function playMock({ groups = [], invalidListings = false, editId = "audit-edit",
       if (url.pathname.endsWith("/tracks/internal")) return json({ track: "internal", releases: [{ versionCodes: ["10"], releaseNotes: [{ language: "en-US", text: releaseNotes }] }] });
       if (url.pathname.endsWith("/testers/internal")) return testerStatus === 200 ? json({ googleGroups: groups }) : json({ error: { status: "PERMISSION_DENIED" } }, testerStatus);
       if (url.pathname.includes("/listings/en-US/")) {
+        if (imagePayload !== undefined) return json(imagePayload);
         const imageType = url.pathname.split("/").at(-1);
         const count = imageType === missingBrandType ? 0 : imageType === duplicateBrandType ? 2 : new Set(["phoneScreenshots", "sevenInchScreenshots", "tenInchScreenshots"]).has(imageType) ? 4 : 1;
         return json({ images: Array.from({ length: count }, (_, index) => ({ id: `${imageType}-${index}`, sha256: "a".repeat(64) })) });
@@ -176,6 +177,34 @@ test("Play completeness requires hash-matched icon and feature media", async () 
   assert.equal(feature.count, 0);
   assert.equal(feature.contentMatched, false);
   assert.equal(evidence.complete, false);
+});
+
+test("Play treats the live empty image-list object as exactly zero images", async () => {
+  const mock = playMock({ imagePayload: {} });
+  const evidence = await auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 });
+  assert.equal(evidence.imageState.length, 5);
+  assert.equal(evidence.imageState.every(({ count }) => count === 0), true);
+  assert.equal(evidence.imageState.find(({ imageType }) => imageType === "icon").contentMatched, false);
+  assert.equal(evidence.complete, false);
+  assert.equal(mock.calls.at(-1).method, "DELETE");
+});
+
+test("Play accepts only an exact plain empty object when images is absent", () => {
+  assert.deepEqual(parsePlayImages({}), []);
+  for (const payload of [{ foo: "bar" }, Object.create(null), new Date("2026-08-19T00:00:00Z")]) {
+    assert.throws(() => parsePlayImages(payload), (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE");
+  }
+});
+
+test("Play rejects malformed, explicit-null, non-array, and error image payloads", async () => {
+  for (const imagePayload of [null, [], "", { foo: "bar" }, { images: null }, { images: {} }, { error: { status: "FAILED_PRECONDITION" } }, { errors: [{ code: "FAILED_PRECONDITION" }] }]) {
+    const mock = playMock({ imagePayload });
+    await assert.rejects(
+      () => auditPlayStore({ credentials: playCredentials, expected, fetchImpl: mock.fetch, nowSeconds: () => 1_800_000_000 }),
+      (error) => error instanceof StoreAuditError && error.code === "INVALID_RESPONSE",
+    );
+    assert.equal(mock.calls.at(-1).method, "DELETE");
+  }
 });
 
 test("Play singleton brand media rejects duplicate remote assets", async () => {
@@ -239,4 +268,66 @@ test("Play cleanup reports when the single transaction deadline is exhausted", a
   );
   assert.equal(calls.filter(({ method, pathname }) => method === "POST" && pathname.endsWith("/edits")).length, 1);
   assert.equal(calls.some(({ method }) => method === "DELETE"), false);
+});
+
+test("combined audit writes sanitized successful-provider and failure evidence before rejecting", async () => {
+  let written;
+  await assert.rejects(
+    () => main(
+      ["--provider=both", "--output=store-state.json"],
+      { ASC_KEY_PATH: "apple-key", ASC_KEY_ID: "ABCDEFGHIJ", ASC_ISSUER_ID: "11111111-2222-3333-4444-555555555555", PLAY_SERVICE_ACCOUNT_JSON: "play-key" },
+      {
+        validate: async () => ({ ...expected, phase: "foundation", publicationReady: false }),
+        read: async (path) => path === "play-key" ? JSON.stringify(playCredentials) : appleCredentials.privateKey,
+        write: async (_path, contents, options) => { written = { contents, options }; },
+        auditApple: async () => ({ provider: "apple", readOnly: true, complete: false }),
+        auditPlay: async () => { throw new StoreAuditError("INVALID_RESPONSE", "Play images response has a non-array images member"); },
+      },
+    ),
+    (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && error.message.includes("play INVALID_RESPONSE"),
+  );
+  assert.equal(written.options.mode, 0o600);
+  const evidence = JSON.parse(written.contents);
+  assert.deepEqual(evidence.providers, [{ provider: "apple", readOnly: true, complete: false }]);
+  assert.deepEqual(evidence.providerFailures, [{ provider: "play", code: "INVALID_RESPONSE", message: "provider API returned an invalid response" }]);
+});
+
+test("provider failures never copy hostile remote strings into evidence or the verdict", async () => {
+  const marker = "attacker+locale@example.invalid Bearer hostile-token locale-SECRET";
+  let written;
+  await assert.rejects(
+    () => main(
+      ["--provider=play", "--output=store-state.json"],
+      { PLAY_SERVICE_ACCOUNT_JSON: "play-key" },
+      {
+        validate: async () => ({ ...expected, phase: "foundation", publicationReady: false }),
+        read: async () => JSON.stringify(playCredentials),
+        write: async (_path, contents) => { written = contents; },
+        auditPlay: async () => { throw new StoreAuditError("INVALID_RESPONSE", `duplicate remote locale ${marker}`); },
+      },
+    ),
+    (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && !error.message.includes(marker),
+  );
+  assert.equal(written.includes(marker), false);
+  assert.deepEqual(JSON.parse(written).providerFailures, [{ provider: "play", code: "INVALID_RESPONSE", message: "provider API returned an invalid response" }]);
+});
+
+test("unexpected provider failures remain generic", async () => {
+  const marker = "private credential marker";
+  let written;
+  await assert.rejects(
+    () => main(
+      ["--provider=play", "--output=store-state.json"],
+      { PLAY_SERVICE_ACCOUNT_JSON: "play-key" },
+      {
+        validate: async () => ({ ...expected, phase: "foundation", publicationReady: false }),
+        read: async () => JSON.stringify(playCredentials),
+        write: async (_path, contents) => { written = contents; },
+        auditPlay: async () => { throw new Error(marker); },
+      },
+    ),
+    (error) => error instanceof StoreAuditError && error.code === "PROVIDER_AUDIT_FAILED" && !error.message.includes(marker),
+  );
+  assert.equal(written.includes(marker), false);
+  assert.deepEqual(JSON.parse(written).providerFailures, [{ provider: "play", code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" }]);
 });

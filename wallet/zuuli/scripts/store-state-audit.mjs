@@ -87,6 +87,38 @@ function fieldsMatch(actual, expected, mapping) {
   return Object.entries(mapping).every(([remoteKey, expectedKey]) => actual?.[remoteKey] === expected?.[expectedKey]);
 }
 
+export function parsePlayImages(payload) {
+  const prototype = payload && typeof payload === "object" ? Object.getPrototypeOf(payload) : undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || prototype !== Object.prototype) fail("INVALID_RESPONSE", "Play images response is malformed");
+  if (Object.hasOwn(payload, "error") || Object.hasOwn(payload, "errors")) fail("INVALID_RESPONSE", "Play images response contains an error payload");
+  if (!Object.hasOwn(payload, "images")) {
+    if (Reflect.ownKeys(payload).length !== 0) fail("INVALID_RESPONSE", "Play images response omitted images alongside unknown members");
+    return [];
+  }
+  if (!Array.isArray(payload.images)) fail("INVALID_RESPONSE", "Play images response has a non-array images member");
+  return payload.images;
+}
+
+const SAFE_PROVIDER_FAILURE_MESSAGES = Object.freeze({
+  AMBIGUOUS_REMOTE_STATE: "provider returned ambiguous duplicate state",
+  API_ERROR: "provider API request failed",
+  IDENTITY_MISMATCH: "provider application identity did not match ZUULI",
+  INVALID_CREDENTIALS: "provider audit credential was invalid",
+  INVALID_REQUEST: "provider request escaped the fixed audit scope",
+  INVALID_RESPONSE: "provider API returned an invalid response",
+  INVALID_SOURCE: "canonical store source was invalid",
+  MISSING_CREDENTIALS: "provider audit credential was not configured",
+  NETWORK_ERROR: "provider request failed before receiving a response",
+  PAGINATION_LIMIT: "provider audit exceeded its page limit",
+  TRANSACTION_TIMEOUT: "provider audit exceeded its transaction deadline",
+});
+
+function sanitizedProviderFailure(provider, error) {
+  if (!(error instanceof StoreAuditError)) return { provider, code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" };
+  const message = SAFE_PROVIDER_FAILURE_MESSAGES[error.code];
+  return message ? { provider, code: error.code, message } : { provider, code: "STORE_AUDIT_FAILED", message: "provider audit failed unexpectedly" };
+}
+
 export async function auditAppleStore({ credentials, expected, fetchImpl = globalThis.fetch, nowSeconds = () => Math.floor(Date.now() / 1000) }) {
   async function get(pathOrUrl) {
     const url = pathOrUrl instanceof URL ? pathOrUrl : new URL(pathOrUrl, ASC_ROOT);
@@ -266,10 +298,10 @@ export async function auditPlayStore({ credentials, expected, fetchImpl = global
     for (const locale of expectedLocales) {
       for (const imageType of imageTypes) {
         const payload = await request("GET", `${editBase}/listings/${encodeURIComponent(locale)}/${encodeURIComponent(imageType)}`);
-        if (!Array.isArray(payload?.images)) fail("INVALID_RESPONSE", "Play images response has no images array");
-        for (const image of payload.images) if (typeof image?.id !== "string") fail("INVALID_RESPONSE", "Play images response contains malformed media");
+        const images = parsePlayImages(payload);
+        for (const image of images) if (typeof image?.id !== "string") fail("INVALID_RESPONSE", "Play images response contains malformed media");
         const expectedDigest = brandDigestByType.get(imageType);
-        imageState.push({ locale, imageType, count: payload.images.length, contentMatched: expectedDigest === undefined ? null : payload.images.length === 1 && payload.images[0].sha256 === expectedDigest });
+        imageState.push({ locale, imageType, count: images.length, contentMatched: expectedDigest === undefined ? null : images.length === 1 && images[0].sha256 === expectedDigest });
       }
     }
     let testerMode = "publisher_api_unavailable";
@@ -328,28 +360,45 @@ export function parseAuditArgs(argv) {
   return result;
 }
 
-export async function main(argv = process.argv.slice(2), env = process.env) {
+export async function main(argv = process.argv.slice(2), env = process.env, dependencies = {}) {
+  const validate = dependencies.validate ?? validateStoreContract;
+  const read = dependencies.read ?? readFile;
+  const write = dependencies.write ?? writeFile;
+  const auditApple = dependencies.auditApple ?? auditAppleStore;
+  const auditPlay = dependencies.auditPlay ?? auditPlayStore;
   const args = parseAuditArgs(argv);
-  const expected = await validateStoreContract();
-  const evidence = { schemaVersion: 1, contractPhase: expected.phase, publicationReady: expected.publicationReady, sourceIdentity: { ...expected.application, release: expected.release }, providers: [] };
+  const expected = await validate();
+  const evidence = { schemaVersion: 1, contractPhase: expected.phase, publicationReady: expected.publicationReady, sourceIdentity: { ...expected.application, release: expected.release }, providers: [], providerFailures: [] };
   if (args.provider === "apple" || args.provider === "both") {
-    if (!env.ASC_KEY_PATH || !env.ASC_KEY_ID || !env.ASC_ISSUER_ID) fail("MISSING_CREDENTIALS", "ASC audit credential is not configured");
-    evidence.providers.push(await auditAppleStore({ credentials: { keyId: env.ASC_KEY_ID, issuerId: env.ASC_ISSUER_ID, privateKey: await readFile(env.ASC_KEY_PATH, "utf8") }, expected }));
+    try {
+      if (!env.ASC_KEY_PATH || !env.ASC_KEY_ID || !env.ASC_ISSUER_ID) fail("MISSING_CREDENTIALS", "ASC audit credential is not configured");
+      evidence.providers.push(await auditApple({ credentials: { keyId: env.ASC_KEY_ID, issuerId: env.ASC_ISSUER_ID, privateKey: await read(env.ASC_KEY_PATH, "utf8") }, expected }));
+    } catch (error) {
+      evidence.providerFailures.push(sanitizedProviderFailure("apple", error));
+    }
   }
   if (args.provider === "play" || args.provider === "both") {
-    if (!env.PLAY_SERVICE_ACCOUNT_JSON) fail("MISSING_CREDENTIALS", "Play audit credential is not configured");
-    let credentials;
-    try { credentials = JSON.parse(await readFile(env.PLAY_SERVICE_ACCOUNT_JSON, "utf8")); } catch { fail("INVALID_CREDENTIALS", "Play credential document is invalid JSON"); }
-    evidence.providers.push(await auditPlayStore({ credentials, expected }));
+    try {
+      if (!env.PLAY_SERVICE_ACCOUNT_JSON) fail("MISSING_CREDENTIALS", "Play audit credential is not configured");
+      let credentials;
+      try { credentials = JSON.parse(await read(env.PLAY_SERVICE_ACCOUNT_JSON, "utf8")); } catch { fail("INVALID_CREDENTIALS", "Play credential document is invalid JSON"); }
+      evidence.providers.push(await auditPlay({ credentials, expected }));
+    } catch (error) {
+      evidence.providerFailures.push(sanitizedProviderFailure("play", error));
+    }
   }
   const outputPath = resolve(args.output);
-  await writeFile(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-  process.stdout.write(`${JSON.stringify({ auditedProviders: evidence.providers.map(({ provider }) => provider), complete: evidence.providers.every(({ complete }) => complete) })}\n`);
+  await write(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+  process.stdout.write(`${JSON.stringify({ auditedProviders: evidence.providers.map(({ provider }) => provider), failedProviders: evidence.providerFailures.map(({ provider }) => provider), complete: evidence.providerFailures.length === 0 && evidence.providers.every(({ complete }) => complete) })}\n`);
+  if (evidence.providerFailures.length > 0) {
+    const summary = evidence.providerFailures.map(({ provider, code, message }) => `${provider} ${code}: ${message}`).join("; ");
+    fail("PROVIDER_AUDIT_FAILED", `${summary}; sanitized evidence written`);
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((error) => {
-    process.stderr.write(`${error instanceof StoreAuditError ? error.code : "STORE_AUDIT_FAILED"}: ${error.message}\n`);
+    process.stderr.write(error instanceof StoreAuditError ? `${error.code}: ${error.message}\n` : "STORE_AUDIT_FAILED: store audit failed unexpectedly\n");
     process.exitCode = 1;
   });
 }
