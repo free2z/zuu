@@ -76,14 +76,6 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div
-        className="shrink-0 px-5 py-4 text-[11px] leading-relaxed text-muted-foreground"
-        data-sidebar-footer
-      >
-        Shielded by default.
-        <br />
-        Powered by free2z.
-      </div>
     </aside>
   );
 }

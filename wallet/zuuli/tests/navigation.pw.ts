@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 const WIDTHS = [320, 360] as const;
 const PRIMARY_IDS = ["home", "live", "ai", "wallet", "more"] as const;
 const PRIMARY_LABELS = ["Home", "Live", "AI", "Wallet", "More"] as const;
+const GERMAN_PRIMARY_LABELS = ["Start", "Live", "KI", "Wallet", "Mehr"] as const;
 
 async function setSession(page: Page, signedIn: boolean) {
   await page.addInitScript((authenticated) => {
@@ -18,7 +19,10 @@ async function primaryNavigation(page: Page) {
   return navigation;
 }
 
-async function expectFiveItemGeometry(navigation: Locator) {
+async function expectFiveItemGeometry(
+  navigation: Locator,
+  expectedLabels: readonly string[] = PRIMARY_LABELS,
+) {
   const controls = navigation.locator("[data-navigation-id]");
   await expect(controls).toHaveCount(5);
   expect(await controls.evaluateAll((items) => items.map((item) => item.dataset.navigationId))).toEqual(
@@ -69,7 +73,7 @@ async function expectFiveItemGeometry(navigation: Locator) {
   const visibleLabels = await controls.evaluateAll((items) =>
     items.map((item) => item.querySelector("span")?.textContent?.trim()),
   );
-  expect(visibleLabels).toEqual(PRIMARY_LABELS);
+  expect(visibleLabels).toEqual(expectedLabels);
 }
 
 for (const signedIn of [false, true]) {
@@ -127,7 +131,7 @@ for (const signedIn of [false, true]) {
       const moreNavigation = dialog.getByRole("navigation", { name: "More navigation" });
       const rows = moreNavigation.getByRole("link");
       const expectedNames = signedIn
-        ? ["Articles", "Edit profile", "Apply for revenue share"]
+        ? ["Articles", "Edit profile", "Revenue share"]
         : ["Articles", "Log in"];
       await expect(rows).toHaveCount(expectedNames.length);
       for (const name of expectedNames) {
@@ -181,6 +185,152 @@ test("long localized accessible names do not change the 320px bar", async ({ pag
     await expect(navigation.getByLabel(name, { exact: true })).toBeVisible();
   }
   await expectFiveItemGeometry(navigation);
+});
+
+test("German proxy copy fits the signed-in chrome and Revenue share destination at 320px", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await setSession(page, true);
+  await page.goto("/kyc");
+
+  const navigation = await primaryNavigation(page);
+  await navigation.locator("[data-navigation-id]").evaluateAll((items, labels) => {
+    items.forEach((item, index) => {
+      const label = item.querySelector<HTMLElement>("span");
+      if (label) label.textContent = labels[index];
+    });
+  }, GERMAN_PRIMARY_LABELS);
+  await expectFiveItemGeometry(navigation, GERMAN_PRIMARY_LABELS);
+
+  const heading = page.getByRole("heading", { name: "Revenue share" });
+  await expect(heading).toBeVisible();
+  const headingGeometry = await heading.evaluate((element) => {
+    element.textContent = "Umsatzbeteiligung für Kreative";
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      viewportWidth: document.documentElement.clientWidth,
+    };
+  });
+  expect(headingGeometry.left).toBeGreaterThanOrEqual(0);
+  expect(headingGeometry.right).toBeLessThanOrEqual(headingGeometry.viewportWidth);
+  expect(headingGeometry.scrollWidth).toBeLessThanOrEqual(headingGeometry.clientWidth);
+
+  await navigation.locator('[data-navigation-id="more"]').click();
+  const dialog = page.getByRole("dialog", { name: "More" });
+  const rows = dialog.getByRole("navigation", { name: "More navigation" }).getByRole("link");
+  await rows.evaluateAll((items, labels) => {
+    items.forEach((item, index) => {
+      const label = item.querySelector<HTMLElement>("span");
+      if (label) label.textContent = labels[index];
+    });
+  }, ["Artikel", "Profil bearbeiten", "Umsatzbeteiligung"]);
+  const germanGeometry = await dialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const rows = [...element.querySelectorAll<HTMLElement>("nav a")];
+    return {
+      left: rect.left,
+      right: rect.right,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+      rows: rows.map((row) => {
+        const rowRect = row.getBoundingClientRect();
+        return { left: rowRect.left, right: rowRect.right };
+      }),
+    };
+  });
+  expect(germanGeometry.left).toBeGreaterThanOrEqual(0);
+  expect(germanGeometry.right).toBeLessThanOrEqual(germanGeometry.viewportWidth);
+  expect(germanGeometry.scrollWidth).toBeLessThanOrEqual(germanGeometry.clientWidth);
+  expect(
+    germanGeometry.rows.every(
+      ({ left, right }) => left >= germanGeometry.left && right <= germanGeometry.right,
+    ),
+  ).toBe(true);
+});
+
+test("conventional icon-only TopBar controls expose pointer tooltips", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await setSession(page, false);
+  await page.goto("/");
+
+  const topBar = page.locator("[data-app-top-bar]");
+  for (const name of ["Search", "Log in"]) {
+    await topBar
+      .getByRole(name === "Search" ? "link" : "button", {
+        name,
+        exact: true,
+      })
+      .hover();
+    await expect(page.getByRole("tooltip", { name })).toBeVisible();
+    await expect(topBar.getByLabel(name, { exact: true })).toHaveAccessibleName(name);
+    await expect(topBar.getByLabel(name, { exact: true })).not.toHaveAttribute(
+      "aria-describedby",
+    );
+    await page.reload();
+  }
+
+  const navigation = await primaryNavigation(page);
+  await navigation.locator('[data-navigation-id="more"]').click();
+  await page.getByRole("dialog", { name: "More" }).getByRole("link", { name: "Articles" }).click();
+  const back = topBar.getByRole("button", { name: "Go back" });
+  await back.hover();
+  await expect(page.getByRole("tooltip", { name: "Go back" })).toBeVisible();
+  await expect(back).toHaveAccessibleName("Go back");
+  await expect(back).not.toHaveAttribute("aria-describedby");
+
+  await setSession(page, true);
+  await page.reload();
+  const account = topBar.getByRole("button", { name: "Account menu" });
+  await account.hover();
+  await expect(page.getByRole("tooltip", { name: "Account menu" })).toBeVisible();
+  await expect(account).toHaveAccessibleName("Account menu");
+  await expect(account).not.toHaveAttribute("aria-describedby");
+  await account.click();
+  await expect(page.getByRole("menuitem", { name: "Revenue share" })).toBeVisible();
+  await expect(page.getByRole("tooltip", { name: "Account menu" })).toBeHidden();
+
+  await page.keyboard.press("Escape");
+  await page.reload();
+  for (let index = 0; index < 6 && !(await account.evaluate((element) => element === document.activeElement)); index += 1) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(account).toBeFocused();
+  expect(await account.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+  expect(
+    await account.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.boxShadow !== "none" || style.outlineStyle !== "none";
+    }),
+  ).toBe(true);
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Revenue share" })).toBeVisible();
+  await expect(page.getByRole("tooltip", { name: "Account menu" })).toBeHidden();
+});
+
+test.describe("touch icon controls", () => {
+  test.use({ hasTouch: true });
+
+  test("search, back, and account menu act on the first touch", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 760 });
+    await setSession(page, true);
+    await page.goto("/");
+
+    const topBar = page.locator("[data-app-top-bar]");
+    await topBar.getByRole("button", { name: "Account menu" }).tap();
+    await expect(page.getByRole("menuitem", { name: "Revenue share" })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await topBar.getByRole("link", { name: "Search", exact: true }).tap();
+    await expect(page).toHaveURL(/\/search$/);
+    await topBar.getByRole("button", { name: "Go back" }).tap();
+    await expect(page).toHaveURL(/\/$/);
+  });
 });
 
 test("More sheet keeps controls inside native horizontal safe areas", async ({ page }) => {
@@ -239,9 +389,8 @@ test("grouped desktop navigation stays reachable in a short landscape viewport",
 
   const navigation = page.getByRole("navigation", { name: "App navigation" });
   const revenueShare = navigation.getByRole("link", {
-    name: "Apply for revenue share",
+    name: "Revenue share",
   });
-  const footer = page.locator("[data-sidebar-footer]");
   const metrics = await navigation.evaluate((element) => ({
     clientHeight: element.clientHeight,
     overflowY: getComputedStyle(element).overflowY,
@@ -252,5 +401,5 @@ test("grouped desktop navigation stays reachable in a short landscape viewport",
   expect(metrics.scrollHeight).toBeGreaterThanOrEqual(metrics.clientHeight);
   await revenueShare.scrollIntoViewIfNeeded();
   await expect(revenueShare).toBeVisible();
-  await expect(footer).toBeVisible();
+  await expect(page.locator("[data-sidebar-footer]")).toHaveCount(0);
 });

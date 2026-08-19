@@ -31,7 +31,7 @@ export default function KycFeature() {
   if (!user) {
     return (
       <div className="animate-slide-up">
-        <PageHeader title="Apply for revenue share" />
+        <PageHeader title="Revenue share" />
         <EmptyState
           icon={Lock}
           title="Log in to apply"
@@ -87,7 +87,7 @@ function KycApplication() {
   if (loading) {
     return (
       <div className="animate-slide-up space-y-4">
-        <PageHeader title="Apply for revenue share" />
+        <PageHeader title="Revenue share" />
         <Skeleton className="h-52 w-full rounded-xl" />
       </div>
     );
@@ -96,7 +96,7 @@ function KycApplication() {
   if (loadError || !profile) {
     return (
       <div className="animate-slide-up">
-        <PageHeader title="Apply for revenue share" />
+        <PageHeader title="Revenue share" />
         <EmptyState
           title="Couldn't load your application"
           description="Something went wrong reaching the KYC service. Please try again shortly."
@@ -172,7 +172,7 @@ function KycApplication() {
   return (
     <div className="mx-auto max-w-2xl animate-slide-up">
       <PageHeader
-        title="Apply for revenue share"
+        title="Revenue share"
         description="Verify your identity and complete a tax form to become an eligible revenue-share creator. This is the application step only — payouts aren't live yet."
       />
       <Stepper step={step} />
