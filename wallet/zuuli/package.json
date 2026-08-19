@@ -11,6 +11,7 @@
     "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs && playwright test",
     "test:viewport": "playwright test tests/viewport.pw.ts",
     "test:play-testers": "node --test scripts/play-tester-groups.node-test.mjs",
+    "test:asc-testflight": "node --test scripts/asc-testflight.node-test.mjs",
     "typecheck": "tsc --noEmit",
     "icons:generate": "node scripts/brand-assets.mjs",
     "icons:check": "node scripts/brand-assets.mjs --check",

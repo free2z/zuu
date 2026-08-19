@@ -196,7 +196,12 @@ const androidManifest = read(
 const androidToolchain = read("scripts/android-toolchain-env.sh");
 const gemLock = read("Gemfile.lock");
 const mobileRelease = read("scripts/mobile-release.sh");
+const ascTestFlight = read("scripts/asc-testflight.mjs");
+const gateWorkflow = read("../../.github/workflows/zuuli.yml");
 const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
+const testFlightRecoveryWorkflow = read(
+  "../../.github/workflows/zuuli-testflight-recovery.yml",
+);
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
 
 expect("package.json version", packageJson.version, release.version);
@@ -649,6 +654,9 @@ const appleValidation = mobileRelease.indexOf(
   "\n    xcrun altool --validate-app",
 );
 const appleUpload = mobileRelease.indexOf("\n      xcrun altool --upload-app");
+const testFlightConvergence = mobileRelease.indexOf(
+  "\n    node scripts/asc-testflight.mjs \\",
+);
 const signingPreparation = mobileRelease.indexOf(
   "node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing",
 );
@@ -666,16 +674,49 @@ if (
   ipaVerification === -1 ||
   appleValidation === -1 ||
   appleUpload === -1 ||
+  testFlightConvergence === -1 ||
   signingPreparation > tauriIosBuild ||
   tauriIosBuild > signingNormalization ||
   signingNormalization > ipaVerification ||
   ipaVerification > appleValidation ||
-  ipaVerification > appleUpload
+  ipaVerification > appleUpload ||
+  appleUpload > testFlightConvergence
 ) {
   failures.push(
-    "iOS release must prepare signing keys, build, normalize, inspect the IPA, then validate and upload with Apple",
+    "iOS release must prepare signing keys, build, normalize, inspect the IPA, validate, upload, then prove internal TestFlight availability",
   );
 }
+for (const contract of [
+  'export const ASC_APP_ID = "6799322201"',
+  'export const ASC_BUNDLE_ID = "cash.free2z.zuuli"',
+  'export const ASC_INTERNAL_GROUP = "ZUULI Internal Testers"',
+  '"filter[preReleaseVersion.version]"',
+  '"filter[preReleaseVersion.platform]"',
+  '"MISSING_EXPORT_COMPLIANCE"',
+  '"INVALID_BINARY"',
+  '"AMBIGUOUS_EXACT_BUILD"',
+  'availableToInternalTesters: true',
+  '/relationships/builds',
+]) {
+  if (!ascTestFlight.includes(contract))
+    failures.push(`App Store Connect state contract is missing: ${contract}`);
+}
+if (ascTestFlight.includes("betaTesters"))
+  failures.push("App Store Connect state machine must never request tester identities");
+for (const recoveryContract of [
+  "name: ZUULI / TestFlight read-only recovery",
+  "environment: zuuli-app-stores",
+  "--read-only",
+  "source SHA must be the commit that established this release identity",
+  "node --test scripts/asc-testflight.node-test.mjs",
+]) {
+  if (!testFlightRecoveryWorkflow.includes(recoveryContract))
+    failures.push(`TestFlight recovery workflow is missing: ${recoveryContract}`);
+}
+if (testFlightRecoveryWorkflow.includes("--ensure"))
+  failures.push("TestFlight recovery workflow must remain read-only");
+if (!gateWorkflow.includes(".github/workflows/zuuli-testflight-recovery.yml"))
+  failures.push("ZUULI gate must select TestFlight recovery workflow changes");
 const unsignedIosBuild = packagingWorkflow.indexOf(
   "./node_modules/.bin/tauri ios build --ci --no-sign",
 );

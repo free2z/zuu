@@ -78,10 +78,13 @@ repeat bootstrap work or substitute unrelated credentials.
    Distribution certificate, and profile `ZUULI App Store CI`. CI verifies the
    profile's team, application identifier, UUID, and certificate linkage before
    it signs.
-4. Add internal TestFlight testers and complete the beta metadata after Apple
-   processes the first upload. The exempt-encryption declaration described below
-   is embedded in each package; do not answer the same question differently in
-   App Store Connect.
+4. Maintain exactly one internal TestFlight group named `ZUULI Internal Testers`.
+   The name and internal-only requirement are fixed in
+   `scripts/asc-testflight.mjs`; the release refuses a missing, duplicate, or
+   external group. Group membership remains an owner-managed App Store Connect
+   concern. Automation never reads or logs tester resources or email addresses.
+   The exempt-encryption declaration described below is embedded in each package;
+   do not answer the same question differently in App Store Connect.
 
 ### Google Play (Corpora)
 
@@ -125,6 +128,9 @@ Primary references:
 
 - Apple: https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/
 - Apple distribution: https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases
+- Apple exact-build query: https://developer.apple.com/documentation/appstoreconnectapi/get-v1-builds
+- Apple internal-state values: https://developer.apple.com/documentation/appstoreconnectapi/internalbetastate
+- Apple group relationship: https://developer.apple.com/documentation/appstoreconnectapi/post-v1-betagroups-_id_-relationships-builds
 - Android signing: https://developer.android.com/studio/publish/app-signing
 - Google Publisher tracks: https://developers.google.com/android-publisher/tracks
 - Tauri iOS/App Store: https://v2.tauri.app/distribute/app-store/
@@ -241,6 +247,19 @@ scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
 
+The iOS upload command does not stop at Transporter acceptance. After `altool`
+accepts the IPA, it polls the exact app `6799322201`, bundle
+`cash.free2z.zuuli`, marketing version, iOS platform, and build number for at
+most 45 minutes. It records `uploaded`, `processed`, and
+`internal_group_available` as distinct transitions; invalid binaries,
+processing exceptions, missing or contradictory export compliance, expired
+builds, unknown states, duplicate exact identities, and bounded timeouts fail
+with sanitized diagnostics. Once valid, it idempotently adds the build to
+`ZUULI Internal Testers` only when absent and reads the group's build
+relationship back before the protected job can succeed. The resulting
+`ZUULI-<VERSION>+<BUILD>-testflight.json` is sanitized release evidence and
+contains no tester resources.
+
 ## Protected GitHub release
 
 The GitHub environment `zuuli-app-stores` holds the dedicated mobile signing and
@@ -314,9 +333,9 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    | `0.1.0+5` | [run 31254971614](https://github.com/free2z/zuu/actions/runs/31254971614) | Play internal succeeded; Apple rejected a bundled static archive with error 90171. |
    | `0.1.0+6` | [run 31257912883](https://github.com/free2z/zuu/actions/runs/31257912883) | Both protected jobs succeeded after the static archive became link-only; App Store Connect required the build-specific exempt-encryption answer before beta testing. |
    | `0.1.0+7` | [run 31270095364](https://github.com/free2z/zuu/actions/runs/31270095364) | iOS upload succeeded with the declaration packaged; Android exposed the 32-bit app-data-migration compile error. |
-   | `0.1.0+8` | [run 31293265075](https://github.com/free2z/zuu/actions/runs/31293265075) | Android/Play internal and iOS/TestFlight jobs both succeeded after the cross-ABI fix. |
-   | `0.1.0+9` | [run 31301302280](https://github.com/free2z/zuu/actions/runs/31301302280) | Android/Play internal and iOS/TestFlight jobs both succeeded. |
-   | `0.1.0+10` | [run 31323759501](https://github.com/free2z/zuu/actions/runs/31323759501) | Android/Play internal and iOS/TestFlight jobs both succeeded. |
+   | `0.1.0+8` | [run 31293265075](https://github.com/free2z/zuu/actions/runs/31293265075) | Play internal succeeded and Apple accepted the iOS upload after the cross-ABI fix; the historical workflow did not prove TestFlight group availability. |
+   | `0.1.0+9` | [run 31301302280](https://github.com/free2z/zuu/actions/runs/31301302280) | Play internal succeeded and Apple accepted the iOS upload; the historical workflow did not prove TestFlight group availability. |
+   | `0.1.0+10` | [run 31323759501](https://github.com/free2z/zuu/actions/runs/31323759501) | Play internal succeeded and Apple accepted the iOS upload; use the protected read-only recovery below for current processing/group evidence. |
 
    Packaging is a separate credential-free signal. Query the
    [scheduled packaging runs](https://github.com/free2z/zuu/actions/workflows/zuuli-packaging.yml?query=event%3Aschedule)
@@ -333,14 +352,40 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    to its first parent. It must also match the current `origin/main` release
    identity, so a superseded build cannot be recovered after a newer release.
    The initial `release.json` baseline is the only no-previous-identity
-   exception. Desktop `dry_run=true` packaging does not load signing credentials
-   or contact Apple's notarization service.
+   exception. This current-main restriction applies to a protected release that
+   can rebuild or upload. The read-only TestFlight observation below
+   intentionally accepts an exact identity-establishing SHA that remains on
+   `main`, including a superseded build, because it cannot change App Store
+   Connect. Desktop `dry_run=true` packaging does not load signing credentials or
+   contact Apple's notarization service.
 5. Optionally create an annotated (preferably signed) tag on that exact remote
    commit as `zuuli-v<VERSION>+<BUILD>`. If the matching tag exists before a
    manual recovery run, the workflow also maintains an idempotent draft GitHub
    release. Store upload authority does not depend on a tag.
-6. Wait for App Store processing; assign the build to internal TestFlight.
-   Confirm the Play internal release is available to the tester list.
+6. Require the iOS job's sanitized state evidence to show all three Booleans:
+   `uploaded`, `processed`, and `availableToInternalTesters`. A successful upload
+   alone is not TestFlight delivery. Confirm the Play internal release is
+   available to the tester list.
+
+### Read-only TestFlight recovery
+
+To inspect an already-uploaded build without rebuilding, re-uploading, or
+changing App Store Connect, dispatch **ZUULI / TestFlight read-only recovery**
+from `main`. For Build 10 use source
+`6359bbe8ddbb23a5024383b1ce780a00b76c5e3f` and identity `0.1.0+10`. The workflow
+requires that exact commit to be on `main` and to be the commit that established
+the identity. It uses the protected ASC key only to read the fixed app, exact
+build, TestFlight build detail, internal groups, and the configured group's
+build relationship. The workflow has no ensure/upload option and never requests
+tester resources.
+
+The recovery succeeds only if the exact build is processed, export compliance
+is resolved as the packaged `false` declaration, and the group relationship is
+visible on a fresh read. If it reports `processed` but not internally available,
+the owner must add that historical build to `ZUULI Internal Testers` in App Store
+Connect and rerun the read-only proof. Future uploads have no such manual gap:
+the protected release performs the idempotent relationship transaction and
+readback itself.
 
 Store build numbers are append-only. Signed packages are not bit-reproducible:
 timestamps and signatures can change on a rebuild, while neither store permits a
