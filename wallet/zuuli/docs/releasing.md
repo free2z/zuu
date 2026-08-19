@@ -367,11 +367,18 @@ The final two are needed only for direct-download macOS signing/notarization.
 Base64 values are decoded only into mode-0700 runner-temporary directories and
 destroyed even when a job fails. GitHub never exports store secrets into a PR.
 
-1. Merge only with the required `gate` and `ZUULI / packaging smoke` green.
-2. From a clean version worktree run
+1. Re-derive [`../STATUS.md`](../STATUS.md) from the candidate source and current
+   production/native evidence. Every visible **known broken/incomplete** path
+   must either be fixed and evidenced or be removed/disabled for that target
+   with its reviewed disposition linked in the matrix. Mock, compile, package,
+   upload, and listing evidence cannot satisfy an operation that the matrix
+   requires to run. Do not start promotion with a stale commit/date or an
+   undispositioned non-ready row.
+2. Merge only with the required `gate` and `ZUULI / packaging smoke` green.
+3. From a clean version worktree run
    `npm run release:bump -- --version=<VERSION> --build=<BUILD>`, review every
    generated change, run `npm run release:verify`, and merge the version PR.
-3. A push to `main` that changes an existing `release.json` automatically pins
+4. A push to `main` that changes an existing `release.json` automatically pins
    the exact pushed SHA, proves that `build` strictly increased and `version`
    did not decrease, builds/signs both mobile artifacts, and uploads them to
    TestFlight and Play internal. Adding `release.json` for the first time is a
@@ -400,7 +407,7 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    [run 32006817573](https://github.com/free2z/zuu/actions/runs/32006817573)
    is the cache-free, all-target success recorded for the commit audited by
    issue #389.
-4. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
+5. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and
    the appropriate `dry_run` value. A real manual recovery requires the same
@@ -415,11 +422,11 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    `main`, including a superseded build, because it cannot change App Store
    Connect. Desktop `dry_run=true` packaging does not load signing credentials or
    contact Apple's notarization service.
-5. Optionally create an annotated (preferably signed) tag on that exact remote
+6. Optionally create an annotated (preferably signed) tag on that exact remote
    commit as `zuuli-v<VERSION>+<BUILD>`. If the matching tag exists before a
    manual recovery run, the workflow also maintains an idempotent draft GitHub
    release. Store upload authority does not depend on a tag.
-6. Require the iOS job's sanitized state evidence to show all three Booleans:
+7. Require the iOS job's sanitized state evidence to show all three Booleans:
    `uploaded`, `processed`, and `availableToInternalTesters`. A successful upload
    alone is not TestFlight delivery. Confirm the Play internal release is
    available to the tester list.
