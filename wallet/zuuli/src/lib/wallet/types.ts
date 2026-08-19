@@ -8,6 +8,12 @@ export interface WalletCreated {
   birthdayHeight: number;
 }
 
+export interface WalletRestored {
+  success: boolean;
+  /** Exact native manifest identity atomically published by restore. */
+  walletId: string;
+}
+
 export interface WalletStatus {
   initialized: boolean;
   hasSeed: boolean;

@@ -30,7 +30,7 @@ export async function restoreWallet(
   seedPhrase: string,
   birthdayHeight?: number,
   name?: string,
-): Promise<{ success: boolean }> {
+): Promise<{ success: boolean; walletId: string }> {
   return invoke("plugin:zcash|restore_wallet", {
     args: { seedPhrase, birthdayHeight, name },
   });

@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthChooser, SelectedAuthMethod } from "./index";
+import { RestoreIdentity } from "./RestoreIdentity";
 
 function render(ui: React.ReactNode): string {
   return renderToStaticMarkup(
@@ -65,5 +66,34 @@ describe("selected auth methods", () => {
     expect(markup).toContain("<h1>Password</h1>");
     expect(markup).toContain('for="f2z-username"');
     expect(markup).toContain('for="f2z-password"');
+  });
+});
+
+describe("existing Zcash identity recovery", () => {
+  it("keeps recovery local, masked, accessible, and explicit about signer support", () => {
+    const markup = render(
+      <RestoreIdentity
+        restoring={false}
+        error={null}
+        onCancel={vi.fn()}
+        onRestore={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("data-auth-restore");
+    expect(markup).toContain("Use existing identity");
+    expect(markup).toContain("Never sent to free2z");
+    expect(markup).toContain("External wallet signing isn’t supported yet");
+    expect(markup).toContain('aria-label="Back to identity choices"');
+    expect(markup).toContain('autoComplete="off"');
+    expect(markup).toContain('autoCapitalize="none"');
+    expect(markup).toContain('autoCorrect="off"');
+    expect(markup).toContain('spellcheck="false"');
+    expect(markup).toContain("Restore and continue");
+    expect(markup).not.toContain("Create new identity");
+
+    for (const [control] of markup.matchAll(/<(?:button|input|textarea)[^>]+>/g)) {
+      expect(control).toMatch(/(?:min-tap|h-11|min-h-20)/);
+    }
   });
 });

@@ -12,6 +12,7 @@ import type {
   SyncStatus,
   TransactionEntry,
   WalletCreated,
+  WalletRestored,
   WalletStatus,
 } from "./types";
 import { parseZecToZatoshis } from "../format";
@@ -38,10 +39,24 @@ const MOCK_WALLET_SCENARIO_KEY = "zuuli.mock.wallet-scenario";
 const MOCK_CREATED_WALLET_KEY = "zuuli.mock.created-wallet";
 const MOCK_BACKUP_REQUIRED_KEY = "zuuli.mock.backup-required";
 const MOCK_WALLET_ID = "mock-wallet-0";
-function mockWalletScenario(): "empty" | "sign-error" | null {
+function mockWalletScenario():
+  | "empty"
+  | "sign-error"
+  | "identity-switch"
+  | "wallet-switch"
+  | "slow-restore"
+  | "slow-restore-error"
+  | null {
   try {
     const value = globalThis.localStorage?.getItem(MOCK_WALLET_SCENARIO_KEY);
-    return value === "empty" || value === "sign-error" ? value : null;
+    return value === "empty" ||
+      value === "sign-error" ||
+      value === "identity-switch" ||
+      value === "wallet-switch" ||
+      value === "slow-restore" ||
+      value === "slow-restore-error"
+      ? value
+      : null;
   } catch {
     return null;
   }
@@ -87,14 +102,27 @@ let proposalCounter = 1;
 export const mockWallet = {
   getWalletStatus(): WalletStatus {
     const persistedCreated = globalThis.localStorage?.getItem(MOCK_CREATED_WALLET_KEY) === "1";
+    const scenario = mockWalletScenario();
+    const needsRestore = [
+      "empty",
+      "identity-switch",
+      "wallet-switch",
+      "slow-restore",
+      "slow-restore-error",
+    ].includes(scenario ?? "");
     const initialized =
-      mockWalletScenario() === "empty" && !persistedCreated ? false : created || persistedCreated;
+      needsRestore && !persistedCreated ? false : created || persistedCreated;
     return {
       initialized,
       hasSeed: initialized,
       syncedHeight: synced,
       chainTip: tip,
-      activeWalletId: initialized ? MOCK_WALLET_ID : null,
+      activeWalletId:
+        initialized && scenario === "wallet-switch"
+          ? "mock-wallet-switched-after-restore"
+          : initialized
+            ? MOCK_WALLET_ID
+            : null,
       activeWalletName: "Main",
       walletCount: 1,
       backupRequired:
@@ -129,10 +157,28 @@ export const mockWallet = {
     globalThis.localStorage?.setItem(MOCK_BACKUP_REQUIRED_KEY, MOCK_WALLET_ID);
     return { walletId: MOCK_WALLET_ID, seedPhrase: MOCK_SEED, birthdayHeight: tip - 100 };
   },
-  restoreWallet() {
-    created = true;
-    globalThis.localStorage?.removeItem(MOCK_BACKUP_REQUIRED_KEY);
-    return { success: true };
+  restoreWallet(seedPhrase: string): WalletRestored | Promise<WalletRestored> {
+    if (mockWalletScenario() === "slow-restore-error") {
+      return new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Recovery phrase is not a valid supported BIP39 mnemonic.")),
+          250,
+        ),
+      );
+    }
+    if (seedPhrase.trim().replace(/\s+/g, " ") !== MOCK_SEED) {
+      throw new Error("Recovery phrase is not a valid supported BIP39 mnemonic.");
+    }
+    const publish = (): WalletRestored => {
+      created = true;
+      globalThis.localStorage?.setItem(MOCK_CREATED_WALLET_KEY, "1");
+      globalThis.localStorage?.removeItem(MOCK_BACKUP_REQUIRED_KEY);
+      return { success: true, walletId: MOCK_WALLET_ID };
+    };
+    if (mockWalletScenario() === "slow-restore") {
+      return new Promise((resolve) => setTimeout(() => resolve(publish()), 750));
+    }
+    return publish();
   },
   getSeedPhrase(): string {
     return MOCK_SEED;
@@ -253,6 +299,16 @@ export const mockWallet = {
     }
     if (mockWalletScenario() === "sign-error") {
       throw new Error("The mock wallet could not sign this challenge.");
+    }
+    if (
+      mockWalletScenario() === "identity-switch" &&
+      challenge !== "ZUULI-Login:identity-probe"
+    ) {
+      return {
+        address: `${MOCK_UA}-different-identity`,
+        challenge,
+        signature: "must-not-reach-backend",
+      };
     }
     // A believable-looking signature. Real signing happens in the Rust plugin
     // (ZIP-304); this keeps the browser demo flowing.

@@ -29,7 +29,12 @@ pub fn generate_mnemonic(word_count: u32) -> Result<Mnemonic> {
 
 /// Parse an existing mnemonic phrase.
 pub fn parse_mnemonic(phrase: &str) -> Result<Mnemonic> {
-    Mnemonic::from_phrase(phrase).map_err(|e| Error::InvalidMnemonic(e.to_string()))
+    // Parser diagnostics can contain an invalid input word. Recovery material
+    // must never be copied into logs, IPC errors, toast text, or telemetry, so
+    // expose only a content-free validation result.
+    Mnemonic::from_phrase(phrase).map_err(|_| {
+        Error::InvalidMnemonic("recovery phrase is not a valid supported BIP39 mnemonic".to_owned())
+    })
 }
 
 /// Derive a seed from a mnemonic.
@@ -293,6 +298,29 @@ fn hex_encode(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
+
+    #[test]
+    fn parses_a_supported_bip39_recovery_phrase() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let mnemonic = parse_mnemonic(phrase).expect("known BIP39 recovery phrase");
+
+        assert_eq!(mnemonic.phrase(), phrase);
+    }
+
+    #[test]
+    fn invalid_mnemonic_error_never_echoes_recovery_input() {
+        let private_input = "not-a-bip39-word private-recovery-material";
+        let error = parse_mnemonic(private_input).expect_err("phrase must be invalid");
+        let message = error.to_string();
+
+        assert_eq!(
+            message,
+            "invalid mnemonic: recovery phrase is not a valid supported BIP39 mnemonic"
+        );
+        for word in private_input.split_whitespace() {
+            assert!(!message.contains(word));
+        }
+    }
 
     /// Sign a fixed challenge with a fixed seed, then INDEPENDENTLY recover the
     /// signing pubkey from the recoverable signature + reconstructed digest and

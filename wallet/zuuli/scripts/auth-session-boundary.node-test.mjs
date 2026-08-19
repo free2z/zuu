@@ -38,3 +38,37 @@ test("uncommitted profile probes use a private explicit token header", () => {
   assert.match(requestBody, /opts\.authToken \?\? getToken\(\)/);
   assert.match(requestBody, /headers\["Authorization"\] = `Token \$\{token\}`/);
 });
+
+test("recovery phrases cannot enter browser persistence, URLs, logs, or toasts", () => {
+  const flow = readFileSync(
+    new URL("../src/features/auth/useZcashChallengeFlow.ts", import.meta.url),
+    "utf8",
+  );
+  const form = readFileSync(
+    new URL("../src/features/auth/RestoreIdentity.tsx", import.meta.url),
+    "utf8",
+  );
+  const restoreFlow = between(
+    flow,
+    "  const restoreIdentity = useCallback",
+    "  const createIdentity = useCallback",
+  );
+
+  for (const source of [restoreFlow, form]) {
+    assert.doesNotMatch(source, /localStorage\s*\./);
+    assert.doesNotMatch(source, /sessionStorage\s*\./);
+    assert.doesNotMatch(source, /URLSearchParams|location\.(?:href|search|hash)/);
+    assert.doesNotMatch(source, /console\.(?:debug|info|log|warn|error)\s*\(/);
+    assert.doesNotMatch(source, /toast\s*\./);
+  }
+
+  assert.match(
+    restoreFlow,
+    /const restoration = wallet\.restoreWallet\([\s\S]*?seedPhrase = "";[\s\S]*?const restored = await restoration;/,
+  );
+  assert.match(
+    restoreFlow,
+    /clearPhrase\(\);[\s\S]*?await useWallet\.getState\(\)\.bootstrap\(\);[\s\S]*?if \(!isCurrent\(\)\) return;[\s\S]*?await runCrypto/,
+  );
+  assert.doesNotMatch(form, /await onRestore\(/);
+});
