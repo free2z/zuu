@@ -24,6 +24,9 @@ const consumerWorkflows = [
   ".github/workflows/zuuli-release.yml",
 ];
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
+const lockedImageDigest = "sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1";
+const lockedImage = `${imageRepository}@${lockedImageDigest}`;
+const expectedConsumerCount = 5;
 const phaseATriggerPaths = [
   ".github/containers/zuuli-linux",
   ".github/workflows/zuuli-linux-image.yml",
@@ -125,6 +128,44 @@ function shellPatternMatches(pattern, path) {
   return new RegExp(`^${regex}$`).test(path);
 }
 
+function countOccurrences(contents, value) {
+  return contents.split(value).length - 1;
+}
+
+function workflowJobs(contents, workflow) {
+  const starts = [...contents.matchAll(/^  ([a-zA-Z0-9_-]+):\s*$/gm)];
+  return starts.map((match, index) => ({
+    name: `${workflow}:${match[1]}`,
+    contents: contents.slice(match.index, starts[index + 1]?.index ?? contents.length),
+  }));
+}
+
+function validateConsumerJob(job, failures) {
+  const exactTrust = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
+  const inventoryFirst = job.contents.match(/steps:\s*\n\s*- name: Verify pinned Linux build image/);
+  if (!inventoryFirst) {
+    failures.push(`${job.name}: image inventory and Bash smoke must be the first step`);
+  }
+  if (countOccurrences(job.contents, "working-directory: /") !== 1) {
+    failures.push(`${job.name}: pre-checkout inventory must run from an existing absolute directory`);
+  }
+  if (countOccurrences(job.contents, "- name: Configure exact Git workspace trust") !== 1 ||
+      countOccurrences(job.contents, exactTrust) !== 1 ||
+      countOccurrences(job.contents, "safe.directory") !== 1) {
+    failures.push(`${job.name}: require one narrow exact-workspace Git ownership trust step`);
+    return;
+  }
+
+  const lines = job.contents.split("\n");
+  const trustIndex = lines.findIndex((line) => line.trim() === "- name: Configure exact Git workspace trust");
+  const stepIndent = lines[trustIndex].match(/^\s*/)[0];
+  let previousStep = trustIndex - 1;
+  while (previousStep >= 0 && !lines[previousStep].startsWith(`${stepIndent}- `)) previousStep -= 1;
+  if (previousStep < 0 || !lines[previousStep].trim().startsWith("- uses: actions/checkout@")) {
+    failures.push(`${job.name}: exact-workspace trust must immediately follow checkout`);
+  }
+}
+
 function validate(root) {
   const failures = [];
   const dockerfile = read(root, `${contextDir}/Dockerfile`);
@@ -136,10 +177,10 @@ function validate(root) {
   const workflow = read(root, workflowPath);
 
   if (lock.get("schema_version") !== "1") failures.push("image.lock: schema_version must be 1");
-  if (lock.get("phase") !== "bootstrap") failures.push("image.lock: Phase A must remain bootstrap");
+  if (lock.get("phase") !== "consumed") failures.push("image.lock: Phase B must be consumed");
   if (lock.get("repository") !== imageRepository) failures.push("image.lock: unexpected repository");
-  if (lock.get("image_digest") !== "UNPUBLISHED") {
-    failures.push("image.lock: Phase A image_digest must be UNPUBLISHED");
+  if (lock.get("image_digest") !== lockedImageDigest) {
+    failures.push("image.lock: image_digest must match the reviewed published digest");
   }
   if (!/^sha256:[0-9a-f]{64}$/.test(lock.get("base_digest") ?? "")) {
     failures.push("image.lock: base_digest must be an immutable sha256 digest");
@@ -241,8 +282,8 @@ function validate(root) {
   } else {
     const gatePatterns = gatePatternMatch[1].split("|").map((pattern) => pattern.trim());
     for (const phaseAPath of phaseASamplePaths) {
-      if (gatePatterns.some((pattern) => shellPatternMatches(pattern, phaseAPath))) {
-        failures.push(`required gate: bootstrap path unexpectedly selects full wallet jobs: ${phaseAPath}`);
+      if (!gatePatterns.some((pattern) => shellPatternMatches(pattern, phaseAPath))) {
+        failures.push(`required gate: consumed-image policy path must select full wallet jobs: ${phaseAPath}`);
       }
     }
   }
@@ -255,11 +296,40 @@ function validate(root) {
       failures.push(`image workflow: bootstrap path is not covered: ${phaseAPath}`);
     }
   }
-  for (const consumer of consumerWorkflows) {
-    const contents = read(root, consumer);
-    if (contents.includes(imageRepository)) {
-      failures.push(`${consumer}: Phase A must not consume the unpublished image`);
+  const workflowContents = consumerWorkflows.map((consumer) => [consumer, read(root, consumer)]);
+  const consumerContents = workflowContents.map(([, contents]) => contents).join("\n");
+  if (countOccurrences(consumerContents, lockedImage) !== expectedConsumerCount) {
+    failures.push(`consumers: expected ${expectedConsumerCount} references to the one locked image digest`);
+  }
+  const imageReferences = [...consumerContents.matchAll(/ghcr\.io\/free2z\/zuuli-linux-ci(?:@sha256:[0-9a-f]+|:[^\s'"}]+)/g)]
+    .map((match) => match[0]);
+  for (const reference of imageReferences) {
+    if (reference !== lockedImage) failures.push(`consumers: mutable or mismatched image reference: ${reference}`);
+  }
+  if (/^\s*(?:- run:\s*)?(?:sudo\s+)?apt(?:-get)?\s/m.test(consumerContents)) {
+    failures.push("consumers: live apt commands are forbidden after digest promotion");
+  }
+  for (const [name, value] of [
+    ["packages: read permissions", "packages: read"],
+    ["pull-time usernames", "username: ${{ github.actor }}"],
+    ["pull-time credentials", "password: ${{ secrets.GITHUB_TOKEN }}"],
+    ["Bash defaults", "shell: bash"],
+    ["inventory invocations", "/usr/local/bin/verify-zuuli-linux-image"],
+  ]) {
+    if (countOccurrences(consumerContents, value) < expectedConsumerCount) {
+      failures.push(`consumers: missing ${name}`);
     }
+  }
+  const consumerJobs = workflowContents
+    .flatMap(([workflow, contents]) => workflowJobs(contents, workflow))
+    .filter((job) => job.contents.includes(lockedImage));
+  if (consumerJobs.length !== expectedConsumerCount) {
+    failures.push(`consumers: expected ${expectedConsumerCount} digest-pinned job blocks`);
+  }
+  for (const job of consumerJobs) validateConsumerJob(job, failures);
+  if (countOccurrences(consumerContents, "for extension in AppImage deb rpm") < 2 ||
+      countOccurrences(consumerContents, "-size +0c") < 2) {
+    failures.push("consumers: packaging and release must require nonempty AppImage, deb, and rpm artifacts");
   }
 
   return failures;
@@ -284,9 +354,9 @@ function runSelfTest() {
 
     const cases = [
       {
-        name: "mutable image reference",
+        name: "mismatched lock digest",
         path: lockPath,
-        mutate: (value) => value.replace("image_digest=UNPUBLISHED", "image_digest=latest"),
+        mutate: (value) => value.replace(lockedImageDigest, `${lockedImageDigest.slice(0, -1)}0`),
         expected: "image_digest",
       },
       {
@@ -302,16 +372,22 @@ function runSelfTest() {
         expected: "missing libwebkit2gtk-4.1-dev",
       },
       {
-        name: "premature consumer",
+        name: "mutable consumer image",
         path: consumerWorkflows[0],
-        mutate: (value) => `${value}\n# ${imageRepository}:latest\n`,
-        expected: "must not consume",
+        mutate: (value) => value.replace(lockedImage, `${imageRepository}:ubuntu-24.04`),
+        expected: "mutable or mismatched",
       },
       {
-        name: "overbroad required-gate pattern",
+        name: "mismatched consumer digest",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace("scripts/check-rust-clippy.sh|", "scripts/*|"),
-        expected: "bootstrap path unexpectedly selects",
+        mutate: (value) => value.replace(lockedImageDigest, `${lockedImageDigest.slice(0, -1)}0`),
+        expected: "one locked image digest",
+      },
+      {
+        name: "missing required-gate policy path",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace("scripts/check-zuuli-linux-image.mjs|", ""),
+        expected: "policy path must select",
       },
       {
         name: "fail-open required-gate fallback",
@@ -330,6 +406,72 @@ function runSelfTest() {
           "subject-digest: sha256:deadbeef",
         ),
         expected: "subject-digest",
+      },
+      {
+        name: "reintroduced live apt",
+        path: consumerWorkflows[0],
+        mutate: (value) => `${value}\n      - run: apt-get update\n`,
+        expected: "live apt commands",
+      },
+      {
+        name: "missing pull-time credential",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace("password: ${{ secrets.GITHUB_TOKEN }}", "password: missing"),
+        expected: "pull-time credentials",
+      },
+      {
+        name: "inventory is not first",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace("steps:\n      - name: Verify pinned Linux build image", "steps:\n      - run: true\n      - name: Verify pinned Linux build image"),
+        expected: "must be the first step",
+      },
+      {
+        name: "pre-checkout inventory uses a missing workspace",
+        path: consumerWorkflows[1],
+        mutate: (value) => value.replace("working-directory: /", "working-directory: wallet/zuuli"),
+        expected: "pre-checkout inventory",
+      },
+      {
+        name: "wildcard Git ownership trust",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          'git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+          "git config --global --add safe.directory '*'",
+        ),
+        expected: "narrow exact-workspace Git ownership trust",
+      },
+      {
+        name: "broad Git ownership trust",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          'git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+          'git config --global --add safe.directory "/__w"',
+        ),
+        expected: "narrow exact-workspace Git ownership trust",
+      },
+      {
+        name: "missing Git ownership trust",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n',
+          "",
+        ),
+        expected: "narrow exact-workspace Git ownership trust",
+      },
+      {
+        name: "Git ownership trust moved before checkout",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          '      - uses: actions/checkout@v7\n      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n      - uses: actions/checkout@v7',
+        ),
+        expected: "must immediately follow checkout",
+      },
+      {
+        name: "missing package format acceptance",
+        path: consumerWorkflows[1],
+        mutate: (value) => value.replace("for extension in AppImage deb rpm", "for extension in AppImage deb"),
+        expected: "nonempty AppImage, deb, and rpm",
       },
     ];
 

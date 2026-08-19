@@ -291,18 +291,38 @@ jobs:
           - name: Linux packages
             os: ubuntu-24.04
             bundles: appimage,deb,rpm
+            container: ghcr.io/free2z/zuuli-linux-ci@sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1
           - name: macOS universal app
             os: macos-26
             bundles: app,dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ matrix.container }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     defaults:
       run:
         working-directory: wallet/zuuli
+        shell: bash
     steps:
+      - name: Verify pinned Linux build image
+        if: runner.os == 'Linux'
+        working-directory: /
+        run: |
+          set -euo pipefail
+          /usr/local/bin/verify-zuuli-linux-image
+          test -n "$BASH_VERSION"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Configure exact Git workspace trust
+        if: runner.os == 'Linux'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Fetch librustzcash
         run: git submodule update --init z/zcash/librustzcash
         working-directory: .
@@ -317,14 +337,6 @@ jobs:
       - name: Install macOS universal Rust targets
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - name: Install Linux package dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev libxdo-dev libdbus-1-dev \
-            libssl-dev build-essential file pkg-config rpm
       - name: Select and verify Xcode
         if: runner.os == 'macOS'
         run: |
@@ -353,6 +365,9 @@ jobs:
           else
             ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked
           fi
+      - name: Verify generated projects remain clean
+        run: git diff --exit-code
+        working-directory: .
       - name: Collect packages
         run: |
           mkdir release-artifacts
@@ -364,7 +379,13 @@ jobs:
             test -n "$app"
             ditto -c -k --keepParent "$app" release-artifacts/ZUULI-macos-universal-unsigned.zip
           fi
-          test -n "$(find release-artifacts -type f -print -quit)"
+          if [[ "${{ runner.os }}" == Linux ]]; then
+            for extension in AppImage deb rpm; do
+              test -n "$(find release-artifacts -type f -name "*.$extension" -size +0c -print -quit)"
+            done
+          else
+            test -n "$(find release-artifacts -type f -print -quit)"
+          fi
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0

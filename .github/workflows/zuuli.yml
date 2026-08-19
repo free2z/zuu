@@ -71,7 +71,7 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|z/zcash/librustzcash|.gitmodules|.github/workflows/zuuli.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-play-testers.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*)
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-play-testers.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
                 zuuli=true
                 ;;
             esac
@@ -227,26 +227,30 @@ jobs:
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Verify pinned Linux build image
+        working-directory: /
+        run: |
+          set -euo pipefail
+          /usr/local/bin/verify-zuuli-linux-image
+          test -n "$BASH_VERSION"
       - uses: actions/checkout@v7
+      - name: Configure exact Git workspace trust
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libxdo-dev \
-            libdbus-1-dev \
-            libssl-dev \
-            build-essential curl wget file pkg-config
 
       - name: Resolve the pinned Rust toolchain
         id: rust_toolchain
@@ -280,27 +284,31 @@ jobs:
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Verify pinned Linux build image
+        working-directory: /
+        run: |
+          set -euo pipefail
+          /usr/local/bin/verify-zuuli-linux-image
+          test -n "$BASH_VERSION"
       - uses: actions/checkout@v7
+      - name: Configure exact Git workspace trust
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # Fetch only the in-source dependency required by the app/plugin graph.
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libxdo-dev \
-            libdbus-1-dev \
-            libssl-dev \
-            build-essential curl wget file pkg-config
 
       # Keep CI explicit as well as repository-pinned so runner state cannot
       # silently select a newer compiler. The version is read from
@@ -333,26 +341,30 @@ jobs:
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Verify pinned Linux build image
+        working-directory: /
+        run: |
+          set -euo pipefail
+          /usr/local/bin/verify-zuuli-linux-image
+          test -n "$BASH_VERSION"
       - uses: actions/checkout@v7
+      - name: Configure exact Git workspace trust
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Fetch librustzcash submodule
         run: git submodule update --init z/zcash/librustzcash
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libxdo-dev \
-            libdbus-1-dev \
-            libssl-dev \
-            build-essential curl wget file pkg-config
 
       - name: Resolve the pinned Rust toolchain
         id: rust_toolchain
