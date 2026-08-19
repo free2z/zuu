@@ -202,6 +202,9 @@ const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
 const testFlightRecoveryWorkflow = read(
   "../../.github/workflows/zuuli-testflight-recovery.yml",
 );
+const testFlightBootstrapWorkflow = read(
+  "../../.github/workflows/zuuli-testflight-bootstrap.yml",
+);
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
 
 expect("package.json version", packageJson.version, release.version);
@@ -696,6 +699,12 @@ for (const contract of [
   '"INVALID_BINARY"',
   '"AMBIGUOUS_EXACT_BUILD"',
   'availableToInternalTesters: true',
+  'async createInternalGroup()',
+  'let groupCreationAttempted = false',
+  '"POST", "/v1/betaGroups"',
+  'isInternalGroup: true',
+  'hasAccessToAllBuilds: false',
+  'app: { data: { type: "apps", id: ASC_APP_ID } }',
   '/relationships/builds',
 ]) {
   if (!ascTestFlight.includes(contract))
@@ -713,10 +722,34 @@ for (const recoveryContract of [
   if (!testFlightRecoveryWorkflow.includes(recoveryContract))
     failures.push(`TestFlight recovery workflow is missing: ${recoveryContract}`);
 }
-if (testFlightRecoveryWorkflow.includes("--ensure"))
+if (
+  testFlightRecoveryWorkflow.includes("--ensure") ||
+  testFlightRecoveryWorkflow.includes("--bootstrap")
+)
   failures.push("TestFlight recovery workflow must remain read-only");
 if (!gateWorkflow.includes(".github/workflows/zuuli-testflight-recovery.yml"))
   failures.push("ZUULI gate must select TestFlight recovery workflow changes");
+for (const bootstrapContract of [
+  "name: ZUULI / TestFlight protected bootstrap",
+  "environment: zuuli-app-stores",
+  "--bootstrap",
+  "source SHA must be the commit that established this release identity",
+  "confirmed identity is no longer current on origin/main",
+  "node --test scripts/asc-testflight.node-test.mjs",
+  "Destroy ephemeral ASC credential",
+  "Upload sanitized bootstrap evidence",
+]) {
+  if (!testFlightBootstrapWorkflow.includes(bootstrapContract))
+    failures.push(`TestFlight bootstrap workflow is missing: ${bootstrapContract}`);
+}
+for (const forbiddenBootstrapContract of ["--ensure", "--read-only", "betaTesters"]) {
+  if (testFlightBootstrapWorkflow.includes(forbiddenBootstrapContract))
+    failures.push(
+      `TestFlight bootstrap workflow has a forbidden contract: ${forbiddenBootstrapContract}`,
+    );
+}
+if (!gateWorkflow.includes(".github/workflows/zuuli-testflight-bootstrap.yml"))
+  failures.push("ZUULI gate must select TestFlight bootstrap workflow changes");
 const unsignedIosBuild = packagingWorkflow.indexOf(
   "./node_modules/.bin/tauri ios build --ci --no-sign",
 );

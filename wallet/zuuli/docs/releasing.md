@@ -80,11 +80,13 @@ repeat bootstrap work or substitute unrelated credentials.
    it signs.
 4. Maintain exactly one internal TestFlight group named `ZUULI Internal Testers`.
    The name and internal-only requirement are fixed in
-   `scripts/asc-testflight.mjs`; the release refuses a missing, duplicate, or
-   external group. Group membership remains an owner-managed App Store Connect
-   concern. Automation never reads or logs tester resources or email addresses.
-   The exempt-encryption declaration described below is embedded in each package;
-   do not answer the same question differently in App Store Connect.
+   `scripts/asc-testflight.mjs`; ordinary release and read-only recovery refuse
+   a missing, duplicate, or external group. The protected bootstrap transaction
+   below is the only automation allowed to create it. Group membership remains
+   an owner-managed App Store Connect concern. Automation never reads or logs
+   tester resources or email addresses. The exempt-encryption declaration
+   described below is embedded in each package; do not answer the same question
+   differently in App Store Connect.
 
 ### Google Play (Corpora)
 
@@ -381,11 +383,43 @@ tester resources.
 
 The recovery succeeds only if the exact build is processed, export compliance
 is resolved as the packaged `false` declaration, and the group relationship is
-visible on a fresh read. If it reports `processed` but not internally available,
-the owner must add that historical build to `ZUULI Internal Testers` in App Store
-Connect and rerun the read-only proof. Future uploads have no such manual gap:
-the protected release performs the idempotent relationship transaction and
-readback itself.
+visible on a fresh read. If it reports `INTERNAL_GROUP_MISSING` for the current
+release identity, use the protected bootstrap transaction below. Future uploads
+then have no setup gap: the protected release performs the idempotent
+relationship transaction and readback itself.
+
+### Protected TestFlight group bootstrap
+
+The one-time **ZUULI / TestFlight protected bootstrap** workflow is a narrowly
+scoped write transaction for the current release identity. It requires the
+exact identity-establishing commit to remain on `main`, requires that identity
+to still equal `origin/main`'s current `release.json`, and runs the complete
+offline mock suite before loading the protected ASC credential. It creates
+`ZUULI Internal Testers` only after a fresh lookup proves the name absent, with
+`isInternalGroup=true` and `hasAccessToAllBuilds=false`; a duplicate or external
+group fails closed. A run makes at most one create request; an ambiguous response
+switches permanently to bounded readback polling instead of risking a duplicate.
+It then relates only the exact processed build and requires
+fresh group and build-relationship readback. An ambiguous create or relationship
+response is accepted only when that readback proves the requested state landed.
+The workflow never requests tester membership or identities and emits only the
+sanitized state evidence.
+
+For Build 10, after the bootstrap workflow is merged and its required gate is
+green, dispatch it once and then repeat the read-only proof:
+
+```bash
+gh workflow run zuuli-testflight-bootstrap.yml --repo free2z/zuu --ref main \
+  -f source_sha=6359bbe8ddbb23a5024383b1ce780a00b76c5e3f \
+  -f identity=0.1.0+10
+gh workflow run zuuli-testflight-recovery.yml --repo free2z/zuu --ref main \
+  -f source_sha=6359bbe8ddbb23a5024383b1ce780a00b76c5e3f \
+  -f identity=0.1.0+10
+```
+
+The create contract follows Apple's [Create a Beta Group](https://developer.apple.com/documentation/appstoreconnectapi/post-v1-betagroups)
+API and its required app relationship. Do not use this workflow for a superseded
+identity; read-only recovery may still inspect historical builds.
 
 Store build numbers are append-only. Signed packages are not bit-reproducible:
 timestamps and signatures can change on a rebuild, while neither store permits a
