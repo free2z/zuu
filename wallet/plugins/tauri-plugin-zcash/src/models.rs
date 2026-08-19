@@ -8,6 +8,18 @@ pub struct WalletCreated {
     pub birthday_height: u64,
 }
 
+/// Result of atomically restoring and publishing a wallet.
+///
+/// `wallet_id` identifies the exact manifest entry committed by the native
+/// transition. Callers must bind any follow-up identity operation to this ID
+/// rather than re-reading whichever wallet happens to be active later.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletRestored {
+    pub success: bool,
+    pub wallet_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletStatus {
@@ -66,6 +78,35 @@ impl From<crate::app_data_migration::MigrationOutcome> for LegacyAppDataStatus {
 #[cfg(test)]
 mod legacy_app_data_tests {
     use super::*;
+
+    #[test]
+    fn restored_wallet_result_binds_the_exact_manifest_identity() {
+        let value = serde_json::to_value(WalletRestored {
+            success: true,
+            wallet_id: "wallet-restored-123".to_owned(),
+        })
+        .expect("serialize restore result");
+
+        assert_eq!(value["success"], true);
+        assert_eq!(value["walletId"], "wallet-restored-123");
+        assert_eq!(value.as_object().expect("object").len(), 2);
+    }
+
+    #[test]
+    fn restore_arguments_redact_recovery_material_from_debug_output() {
+        let private_input = "private recovery material";
+        let debug = format!(
+            "{:?}",
+            RestoreWalletArgs {
+                seed_phrase: private_input.to_owned(),
+                birthday_height: Some(2_600_000),
+                name: Some("Recovered identity".to_owned()),
+            }
+        );
+
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains(private_input));
+    }
 
     #[test]
     fn preserved_conflict_serializes_as_structured_import_pending_status() {
@@ -187,12 +228,23 @@ pub struct CreateWalletArgs {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreWalletArgs {
     pub seed_phrase: String,
     pub birthday_height: Option<u64>,
     pub name: Option<String>,
+}
+
+impl std::fmt::Debug for RestoreWalletArgs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RestoreWalletArgs")
+            .field("seed_phrase", &"[REDACTED]")
+            .field("birthday_height", &self.birthday_height)
+            .field("name", &self.name)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize)]

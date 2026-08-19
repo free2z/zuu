@@ -5,14 +5,27 @@ const PHONE_VIEWPORTS = [
   { label: "iPhone SE", width: 375, height: 667 },
 ] as const;
 
+const RECOVERY_PHRASE =
+  "wisdom shadow orchard zebra pledge notice frost violet render " +
+  "summer harvest mirror canyon velvet ranch fossil pupil sunset " +
+  "quantum ledger prosper anchor beyond zephyr";
+
 async function openLogin(
   page: Page,
   viewport: (typeof PHONE_VIEWPORTS)[number],
-  walletScenario?: "empty" | "sign-error",
+  walletScenario?:
+    | "empty"
+    | "sign-error"
+    | "identity-switch"
+    | "wallet-switch"
+    | "slow-restore"
+    | "slow-restore-error",
 ) {
   await page.setViewportSize(viewport);
   await page.addInitScript((scenario) => {
     localStorage.removeItem("zuuli.knox.token");
+    localStorage.removeItem("zuuli.mock.created-wallet");
+    localStorage.removeItem("zuuli.mock.backup-required");
     if (scenario) localStorage.setItem("zuuli.mock.wallet-scenario", scenario);
     else localStorage.removeItem("zuuli.mock.wallet-scenario");
   }, walletScenario);
@@ -168,7 +181,17 @@ for (const viewport of PHONE_VIEWPORTS) {
     await page.getByRole("button", { name: "Zcash", exact: true }).click();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(page.getByText("No Zcash identity on this device")).toBeVisible();
-    await page.getByRole("button", { name: "Create a Zcash identity" }).click();
+    await expectReachable(
+      scroller,
+      page.getByRole("button", { name: "Use existing identity" }),
+    );
+    await expect(
+      page.getByText("A new key creates a distinct identity and may open a different account."),
+    ).toBeVisible();
+    const createIdentity = page.getByRole("button", { name: "Create new identity" });
+    await expectReachable(scroller, createIdentity);
+    await expectAuthGeometry(page, false);
+    await createIdentity.click();
 
     await expect(page.getByText("This recovery phrase is your identity.")).toBeVisible();
     const reveal = page.getByRole("button", { name: "Reveal recovery phrase" });
@@ -181,4 +204,158 @@ for (const viewport of PHONE_VIEWPORTS) {
     await expect(page.getByText(/Anyone who sees them controls your account/)).toBeVisible();
     await expectAuthGeometry(page, false);
   });
+
+  test(`existing identity recovery is private and reachable on ${viewport.label}`, async ({
+    page,
+  }) => {
+    await openLogin(page, viewport, "empty");
+    const scroller = page.locator("[data-route-frame] [data-route-scroll]");
+    const privateInput = Array.from({ length: 12 }, (_, index) => `private${index}`).join(
+      " ",
+    );
+    const consoleText: string[] = [];
+    page.on("console", (message) => consoleText.push(message.text()));
+
+    await page.getByRole("button", { name: "Zcash", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Use existing identity" }).click();
+
+    const phrase = page.getByLabel("Recovery phrase");
+    await expect(phrase).toBeVisible();
+    await expect(page.getByText("External wallet signing isn’t supported yet.")).toBeVisible();
+    await phrase.fill(privateInput);
+    expect(
+      await phrase.evaluate(
+        (element) => getComputedStyle(element).webkitTextSecurity,
+      ),
+    ).toBe("disc");
+    await expectReachable(
+      scroller,
+      page.getByRole("button", { name: "Restore and continue" }),
+    );
+    await page.getByRole("button", { name: "Restore and continue" }).click();
+
+    const error = page.getByRole("alert");
+    await expect(error).toHaveText(
+      "Couldn't restore this identity. Check the recovery words, birthday, and connection, then try again.",
+    );
+    await expect(error).not.toContainText(privateInput);
+    await expect(phrase).toHaveValue(privateInput);
+    expect(page.url()).not.toContain("private0");
+    expect(consoleText.join("\n")).not.toContain("private0");
+    expect(
+      await page.evaluate((secret) =>
+        Object.values(localStorage).some((value) => value.includes(secret)),
+      "private0"),
+    ).toBe(false);
+    await expectAuthGeometry(page, false);
+
+    await page.getByRole("button", { name: "Choose another login method" }).click();
+    await expect(page.locator("textarea")).toHaveCount(0);
+    await page.getByRole("button", { name: "Zcash", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Use existing identity" }).click();
+    await expect(page.getByLabel("Recovery phrase")).toHaveValue("");
+    await expectAuthGeometry(page, false);
+  });
+
+  test(`restored identity resumes the original funding login on ${viewport.label}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.addInitScript(() => {
+      localStorage.removeItem("zuuli.knox.token");
+      localStorage.removeItem("zuuli.mock.created-wallet");
+      localStorage.removeItem("zuuli.mock.backup-required");
+      localStorage.setItem("zuuli.mock.wallet-scenario", "empty");
+    });
+    const consoleText: string[] = [];
+    page.on("console", (message) => consoleText.push(message.text()));
+    await page.goto("/wallet/fund");
+    await page.getByRole("button", { name: "Log in to buy" }).click();
+    await page.getByRole("button", { name: "Zcash", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Use existing identity" }).click();
+    await page.getByLabel("Recovery phrase").fill(RECOVERY_PHRASE);
+    await page.getByRole("button", { name: "Restore and continue" }).click();
+
+    await expect(page.locator("textarea")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/wallet\/fund$/, { timeout: 10_000 });
+    expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBe(
+      "mock-knox-token-zcash",
+    );
+    expect(await page.evaluate(() => localStorage.getItem("zuuli.mock.backup-required"))).toBeNull();
+    expect(
+      await page.evaluate((secret) =>
+        Object.values(localStorage).some((value) => value.includes(secret)),
+      "wisdom shadow"),
+    ).toBe(false);
+    expect(consoleText.join("\n")).not.toContain("wisdom shadow");
+
+    // Use the rendered production navigation so this proves the successful
+    // restore refreshed the already-cached `initialized: false` wallet store
+    // without a reload while preserving React Router's real history state.
+    await page.getByRole("link", { name: "Zcash wallet", exact: true }).click();
+    await expect(page).toHaveURL(/\/wallet$/);
+    await expect(page.getByText("Set up your Zcash wallet")).toHaveCount(0);
+    await expect(page.getByText("Spendable balance")).toBeVisible();
+  });
 }
+
+test("an asynchronous invalid restore releases the method fence only after failure", async ({
+  page,
+}) => {
+  await openLogin(page, PHONE_VIEWPORTS[0], "slow-restore-error");
+  await page.getByRole("button", { name: "Zcash", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Use existing identity" }).click();
+  await page.getByLabel("Recovery phrase").fill("private invalid recovery material");
+  await page.getByRole("button", { name: "Restore and continue" }).click();
+
+  const switchMethod = page.getByRole("button", {
+    name: "Choose another login method",
+  });
+  await expect(page.getByRole("button", { name: "Restoring identity…" })).toBeVisible();
+  await expect(switchMethod).toBeDisabled();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Couldn't restore this identity. Check the recovery words, birthday, and connection, then try again.",
+  );
+  await expect(switchMethod).toBeEnabled();
+  await switchMethod.click();
+  await expect(page.locator("textarea")).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBeNull();
+});
+
+test("a changed signer cannot verify the restored identity", async ({ page }) => {
+  await openLogin(page, PHONE_VIEWPORTS[0], "identity-switch");
+  await page.getByRole("button", { name: "Zcash", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Use existing identity" }).click();
+  await page.getByLabel("Recovery phrase").fill(RECOVERY_PHRASE);
+  await page.getByRole("button", { name: "Restore and continue" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(
+    "The active Zcash identity changed before signing. No login was sent.",
+  );
+  expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBeNull();
+  await expect(page).toHaveURL(/\/login$/);
+  await expectAuthGeometry(page, false);
+});
+
+test("a switched active wallet cannot replace the exact restored wallet", async ({
+  page,
+}) => {
+  await openLogin(page, PHONE_VIEWPORTS[0], "wallet-switch");
+  await page.getByRole("button", { name: "Zcash", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Use existing identity" }).click();
+  await page.getByLabel("Recovery phrase").fill(RECOVERY_PHRASE);
+  await page.getByRole("button", { name: "Restore and continue" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(
+    "The selected Zcash identity is no longer active. Try again.",
+  );
+  expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBeNull();
+  await expect(page).toHaveURL(/\/login$/);
+  await expectAuthGeometry(page, false);
+});

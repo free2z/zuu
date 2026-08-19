@@ -1,8 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const TOKEN_KEY = "zuuli.knox.token";
+const RECOVERY_PHRASE =
+  "wisdom shadow orchard zebra pledge notice frost violet render " +
+  "summer harvest mirror canyon velvet ranch fossil pupil sunset " +
+  "quantum ledger prosper anchor beyond zephyr";
 
-async function openLogin(page: Page, walletScenario?: "empty" | "sign-error") {
+async function openLogin(
+  page: Page,
+  walletScenario?: "empty" | "sign-error" | "slow-restore",
+) {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.addInitScript((scenario) => {
     localStorage.removeItem("zuuli.knox.token");
@@ -83,6 +90,30 @@ test("an unmounted Zcash retry cannot revive the failed attempt", async ({ page 
   await expectNoInvisibleLogin(page);
 });
 
+test("an unmounted recovery cannot continue into challenge verification", async ({
+  page,
+}) => {
+  await openLogin(page, "slow-restore");
+  await page.getByRole("button", { name: "Zcash", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Use existing identity" }).click();
+  await page.getByLabel("Recovery phrase").fill(RECOVERY_PHRASE);
+  await page.getByRole("button", { name: "Restore and continue" }).click();
+  await expect(page.getByRole("button", { name: "Restoring identity…" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Choose another login method" }),
+  ).toBeDisabled();
+
+  await unmountLoginWithoutReload(page);
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expectNoInvisibleLogin(page);
+  expect(
+    await page.evaluate((secret) =>
+      Object.values(localStorage).some((value) => value.includes(secret)),
+    "wisdom shadow"),
+  ).toBe(false);
+});
+
 test("new identity backup resumes after method switch and process-style reload", async ({
   page,
 }) => {
@@ -90,7 +121,10 @@ test("new identity backup resumes after method switch and process-style reload",
   await page.getByRole("button", { name: "Zcash", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByText("No Zcash identity on this device")).toBeVisible();
-  await page.getByRole("button", { name: "Create a Zcash identity" }).click();
+  await expect(
+    page.getByText("A new key creates a distinct identity and may open a different account."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create new identity" }).click();
   await expect(page.getByText("This recovery phrase is your identity.")).toBeVisible();
 
   await page.getByRole("button", { name: "Choose another login method" }).click();

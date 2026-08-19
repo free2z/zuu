@@ -20,6 +20,7 @@ import type {
   SyncStatus,
   TransactionEntry,
   WalletCreated,
+  WalletRestored,
   WalletCleanupStatus,
   WalletStatus,
 } from "./types";
@@ -37,12 +38,18 @@ export const wallet = {
     return invoke("create_wallet", { args: { mnemonicWordCount, name } });
   },
 
-  async restoreWallet(
+  restoreWallet(
     seedPhrase: string,
     birthdayHeight?: number,
     name?: string,
-  ): Promise<{ success: boolean }> {
-    if (useMock()) return mockWallet.restoreWallet();
+  ): Promise<WalletRestored> {
+    if (useMock()) {
+      try {
+        return Promise.resolve(mockWallet.restoreWallet(seedPhrase));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
     return invoke("restore_wallet", { args: { seedPhrase, birthdayHeight, name } });
   },
 

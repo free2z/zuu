@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { truncateAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SeedReveal } from "./SeedReveal";
+import { RestoreIdentity } from "./RestoreIdentity";
 import type { LoginDestination } from "@/lib/auth/login-destination";
 import {
   STEP_META,
@@ -71,6 +72,9 @@ export function ZcashLoginFlow({
     seedPhrase,
     error,
     start,
+    showRestoreIdentity,
+    cancelRestoreIdentity,
+    restoreIdentity,
     createIdentity,
     revealSeedBackup,
     confirmSeedSaved,
@@ -80,6 +84,7 @@ export function ZcashLoginFlow({
   useEffect(() => {
     const busy =
       phase === "running" ||
+      phase === "restoring" ||
       phase === "creating" ||
       phase === "loadingSeed" ||
       phase === "confirmingBackup" ||
@@ -153,34 +158,69 @@ export function ZcashLoginFlow({
     );
   }
 
-  // ── No wallet yet — offer to mint an identity ─────────────────────────────
+  if (phase === "restoreIdentity" || phase === "restoring") {
+    return (
+      <RestoreIdentity
+        restoring={phase === "restoring"}
+        error={error}
+        onCancel={cancelRestoreIdentity}
+        onRestore={(...args) => {
+          onBusyChange?.(true);
+          return restoreIdentity(...args).finally(() => onBusyChange?.(false));
+        }}
+      />
+    );
+  }
+
+  // ── No wallet yet — separate recovery from new identity creation ─────────
   if (phase === "needsWallet" || phase === "creating") {
     const creating = phase === "creating";
     return (
-      <div className="animate-slide-up space-y-5">
-        <div className="rounded-lg border border-border bg-background/40 p-4">
+      <div className="animate-slide-up space-y-4">
+        <div className="rounded-lg border border-border bg-background/40 p-3">
           <p className="text-sm font-medium">No Zcash identity on this device</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Create one now. We generate a Zcash key that becomes your DID — your
-            login, owned entirely by you.
+            Restore the key already linked to your account.
           </p>
         </div>
         <Button
-          size="xl"
+          size="lg"
           className="w-full"
-          onClick={() => {
-            onBusyChange?.(true);
-            void createIdentity();
-          }}
+          onClick={showRestoreIdentity}
           disabled={creating}
         >
-          {creating ? (
-            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-          ) : (
-            <Sparkles className="h-5 w-5" aria-hidden />
-          )}
-          {creating ? "Creating your identity…" : "Create a Zcash identity"}
+          <Fingerprint className="h-5 w-5" aria-hidden />
+          Use existing identity
         </Button>
+
+        <div className="flex items-center gap-3" aria-hidden>
+          <span className="h-px flex-1 bg-border" />
+          <span className="text-xs uppercase tracking-wider text-muted-foreground">or</span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <p className="text-sm text-amber-100">
+            A new key creates a distinct identity and may open a different account.
+          </p>
+          <Button
+            size="lg"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              onBusyChange?.(true);
+              void createIdentity();
+            }}
+            disabled={creating}
+          >
+            {creating ? (
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            ) : (
+              <Sparkles className="h-5 w-5" aria-hidden />
+            )}
+            {creating ? "Creating identity…" : "Create new identity"}
+          </Button>
+        </div>
       </div>
     );
   }
@@ -276,7 +316,10 @@ export function ZcashLoginFlow({
 
       {phase === "error" && (
         <div className="space-y-3 animate-fade-in">
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+          >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <span>{error ?? "The login could not be completed."}</span>
           </div>

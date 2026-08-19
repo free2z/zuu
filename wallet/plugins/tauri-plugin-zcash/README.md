@@ -57,7 +57,7 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | Command | Args | Returns | Description |
 |---------|------|---------|-------------|
 | `create_wallet` | `CreateWalletArgs { mnemonicWordCount?, name? }` | `WalletCreated` | Generate new wallet with BIP-39 mnemonic, fetch birthday from chain tip |
-| `restore_wallet` | `RestoreWalletArgs { seedPhrase, birthdayHeight?, name? }` | `{ success: true }` | Restore wallet from existing seed phrase |
+| `restore_wallet` | `RestoreWalletArgs { seedPhrase, birthdayHeight?, name? }` | `WalletRestored { success, walletId }` | Restore a wallet and return the exact atomically published manifest identity |
 | `get_wallet_status` | — | `WalletStatus` | Check if wallet is initialized, has seed, synced height, active wallet info |
 | `retry_wallet_cleanup` | — | `WalletCleanupStatus` | Explicitly retry pending orphan cleanup and return diagnostics |
 | `get_seed_phrase` | — | `String` | Authenticate and retrieve the seed from platform-native custody |

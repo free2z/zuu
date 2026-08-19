@@ -539,6 +539,7 @@ mod replacement_tests {
         };
         let entry = WalletManifest::prepare_wallet("Staged".into(), Some(42));
 
+        assert!(!entry.backup_required);
         assert!(manifest.wallets.is_empty());
         assert!(manifest.active_wallet_id.is_none());
         assert!(!WalletManifest::manifest_path(&data_dir).exists());

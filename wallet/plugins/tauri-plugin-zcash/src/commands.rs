@@ -522,16 +522,27 @@ pub(crate) async fn create_wallet<R: Runtime>(
 pub(crate) async fn restore_wallet<R: Runtime>(
     app: AppHandle<R>,
     args: RestoreWalletArgs,
-) -> Result<serde_json::Value> {
+) -> Result<WalletRestored> {
+    let RestoreWalletArgs {
+        seed_phrase,
+        birthday_height,
+        name,
+    } = args;
+    // Wrap renderer-supplied recovery material before the first await so a
+    // contended transition lock never leaves it in an ordinary String for the
+    // duration of the wait.
+    let seed_phrase = Zeroizing::new(seed_phrase);
     let zcash = app.zcash();
     let transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
     let _send_guard = Arc::clone(&zcash.state.send_operation).lock_owned().await;
-    let mnemonic = keys::parse_mnemonic(&args.seed_phrase)?;
+    // Error text is deliberately generic (see `parse_mnemonic`) and must never
+    // echo a phrase word.
+    let mnemonic = keys::parse_mnemonic(seed_phrase.as_str())?;
     let seed = keys::mnemonic_to_seed(&mnemonic);
-    let birthday_height = args.birthday_height.unwrap_or(419200); // sapling activation
-    let wallet_name = args.name.unwrap_or_else(|| "Restored".to_string());
+    let birthday_height = birthday_height.unwrap_or(419200); // sapling activation
+    let wallet_name = name.unwrap_or_else(|| "Restored".to_string());
 
     // Stop any running sync and retain an identity-bound recovery obligation
     // until the restored wallet context has committed.
@@ -571,7 +582,9 @@ pub(crate) async fn restore_wallet<R: Runtime>(
         .map_err(|e| Error::DatabaseError(format!("failed to create birthday: {}", format_birthday_error(e))))?;
 
     // Allocate an identity, but keep it out of the durable manifest until its
-    // database and native seed custody have both committed.
+    // database and native seed custody have both committed. Unlike a newly
+    // generated key, restored custody is already backed up, so the prepared
+    // entry intentionally retains `backup_required = false`.
     let wallet_entry = crate::wallet::manifest::WalletManifest::prepare_wallet(
         wallet_name,
         Some(birthday_height),
@@ -730,7 +743,10 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     )
     .await;
 
-    Ok(serde_json::json!({ "success": true }))
+    Ok(WalletRestored {
+        success: true,
+        wallet_id: wallet_entry.id.clone(),
+    })
     }
     .await;
 

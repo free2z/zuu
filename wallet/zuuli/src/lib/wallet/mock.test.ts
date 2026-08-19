@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { mockWallet } from "./mock";
 
+const RECOVERY_PHRASE =
+  "wisdom shadow orchard zebra pledge notice frost violet render " +
+  "summer harvest mirror canyon velvet ranch fossil pupil sunset " +
+  "quantum ledger prosper anchor beyond zephyr";
+
 describe("mockWallet.parsePaymentUri", () => {
   it("preserves an exact eight-decimal URI amount", () => {
     expect(mockWallet.parsePaymentUri("zcash:u1test?amount=1.00000001").amount).toBe(
@@ -16,4 +21,30 @@ describe("mockWallet.parsePaymentUri", () => {
       ).toThrow("Invalid ZEC amount");
     },
   );
+});
+
+describe("mockWallet.restoreWallet", () => {
+  it("returns the exact published wallet identity without a backup obligation", async () => {
+    expect(await mockWallet.restoreWallet(RECOVERY_PHRASE)).toEqual({
+      success: true,
+      walletId: "mock-wallet-0",
+    });
+    expect(mockWallet.getWalletStatus()).toMatchObject({
+      activeWalletId: "mock-wallet-0",
+      backupRequired: false,
+      initialized: true,
+    });
+  });
+
+  it("rejects invalid recovery input without echoing it", () => {
+    const privateInput = "private invalid recovery material";
+    expect(() => mockWallet.restoreWallet(privateInput)).toThrow(
+      "Recovery phrase is not a valid supported BIP39 mnemonic.",
+    );
+    try {
+      mockWallet.restoreWallet(privateInput);
+    } catch (error) {
+      expect(String(error)).not.toContain(privateInput);
+    }
+  });
 });
