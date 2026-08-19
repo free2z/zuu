@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useWallet } from "@/store/wallet";
 import { SocialButtons } from "@/components/common/SocialButtons";
+import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { BrandPanel } from "./BrandPanel";
 import { ClassicLoginForm } from "./ClassicLoginForm";
 import { ZcashLoginFlow } from "./ZcashLoginFlow";
@@ -42,6 +43,7 @@ export type AuthMethod = "chooser" | "zcash" | "password";
 
 export default function AuthFeature() {
   const location = useLocation();
+  const { registerViewport } = useRouteScroll();
   const loginDestination = loginDestinationFromState(location.state);
   const bootstrap = useWallet((s) => s.bootstrap);
   const [method, setMethod] = useState<AuthMethod>("chooser");
@@ -52,6 +54,7 @@ export default function AuthFeature() {
 
   return (
     <div
+      ref={registerViewport}
       className="grid h-full min-h-0 w-full grid-cols-1 overflow-y-auto bg-background lg:grid-cols-2"
       data-route-scroll
     >

@@ -25,6 +25,7 @@ export function ArticleCard({
 
   return (
     <Card
+      data-article-card
       className={cn(
         "group flex flex-col overflow-hidden rounded-xl border-border/60 bg-card/60 transition-colors hover:border-primary/40",
         className,

@@ -4,6 +4,8 @@ import { TopBar } from "./TopBar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TriangleAlert } from "lucide-react";
 import { useWallet } from "@/store/wallet";
+import { useRouteScroll } from "@/hooks/useRouteScroll";
+import { RouteScrollProvider } from "./route-scroll";
 
 function LegacyWalletNotice() {
   const legacy = useWallet((state) => state.status?.legacyAppData);
@@ -29,8 +31,9 @@ function LegacyWalletNotice() {
   );
 }
 
-export function AppShell() {
+function AppShellContent() {
   const location = useLocation();
+  const { registerViewport } = useRouteScroll();
   // AI and login each own a bounded internal scroll region while the header
   // and mobile tabs stay pinned. Keep those routes in a plain, height-bound
   // main instead of nesting their scroll owners inside the generic page
@@ -49,7 +52,11 @@ export function AppShell() {
             <Outlet />
           </main>
         ) : (
-          <ScrollArea className="min-h-0 min-w-0 max-w-full flex-1" data-route-scroll>
+          <ScrollArea
+            className="min-h-0 min-w-0 max-w-full flex-1"
+            data-route-scroll
+            viewportRef={registerViewport}
+          >
             <main className="app-scroll-content mx-auto w-full min-w-0 max-w-6xl px-4 pt-6 md:px-8">
               <Outlet />
             </main>
@@ -58,5 +65,13 @@ export function AppShell() {
       </div>
       <MobileTabBar />
     </div>
+  );
+}
+
+export function AppShell() {
+  return (
+    <RouteScrollProvider>
+      <AppShellContent />
+    </RouteScrollProvider>
   );
 }
