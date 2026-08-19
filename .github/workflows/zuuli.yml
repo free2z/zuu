@@ -104,6 +104,9 @@ jobs:
       - name: Verify release cache security policy
         run: node scripts/verify-ci-cache-policy.mjs
 
+      - name: Verify generated app and store icons
+        run: npm run icons:check
+
       - name: Test protected Play tester transaction
         run: npm run test:play-testers
 
