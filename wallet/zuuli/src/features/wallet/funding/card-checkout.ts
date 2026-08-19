@@ -70,8 +70,8 @@ export function cardCheckoutFeedback(error: unknown): CardCheckoutFeedback {
     (error.status === 401 || error.status === 403)
   ) {
     return {
-      title: "Sign in again",
-      description: "Your session expired. Sign in, then retry your purchase.",
+      title: "Log in again",
+      description: "Your session expired. Log in, then retry your purchase.",
       signIn: true,
     };
   }

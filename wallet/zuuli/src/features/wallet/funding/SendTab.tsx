@@ -213,7 +213,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
       : undefined;
 
   const recipientHelp = useMemo(() => {
-    if (!ownUsername) return "Sign in before sending 2Z.";
+    if (!ownUsername) return "Log in before sending 2Z.";
     if (exactSelfQuery) return "You can't send 2Z to your own account.";
     if (recipientState.searchStatus === "error") {
       return "Creator search failed. Check your connection and try again.";

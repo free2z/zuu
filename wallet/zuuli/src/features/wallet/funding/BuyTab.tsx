@@ -296,7 +296,7 @@ export function BuyTab() {
             ) : (
               <CreditCard className="h-4 w-4" />
             )}
-            {user ? "Pay with card" : "Sign in to buy"}
+            {user ? "Pay with card" : "Log in to buy"}
           </Button>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />

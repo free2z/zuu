@@ -46,7 +46,7 @@ export function BrandPanel() {
       <div className="relative max-w-md space-y-10">
         <div className="space-y-3">
           <h1 className="text-balance text-4xl font-bold leading-[1.1] tracking-tight xl:text-5xl">
-            Sign in your way — including with{" "}
+            Log in your way — including with{" "}
             <span className="zuuli-gradient-text">just your key</span>.
           </h1>
           <p className="text-lg text-muted-foreground">{APP_TAGLINE}</p>
@@ -54,20 +54,20 @@ export function BrandPanel() {
 
         <div className="space-y-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Why Continue with Zcash
+            Why Zcash
           </p>
           <ul className="space-y-5">
-          {VALUES.map(({ icon: Icon, title, body }) => (
-            <li key={title} className="flex gap-3.5">
-              <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-                <Icon className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="space-y-0.5">
-                <p className="font-semibold">{title}</p>
-                <p className="text-sm text-muted-foreground">{body}</p>
-              </div>
-            </li>
-          ))}
+            {VALUES.map(({ icon: Icon, title, body }) => (
+              <li key={title} className="flex gap-3.5">
+                <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="space-y-0.5">
+                  <p className="font-semibold">{title}</p>
+                  <p className="text-sm text-muted-foreground">{body}</p>
+                </div>
+              </li>
+            ))}
           </ul>
         </div>
       </div>

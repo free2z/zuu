@@ -76,8 +76,8 @@ export function GoLiveDialog() {
       // ("Authentication credentials were not provided.").
       if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
         setOpen(false);
-        toast.error("Sign in to go live", {
-          description: "Your session ended — please sign in again.",
+        toast.error("Log in to go live", {
+          description: "Your session ended — please log in again.",
         });
         navigate("/login");
         return;
@@ -91,7 +91,7 @@ export function GoLiveDialog() {
   }
 
   // Going live requires an account. When signed out, don't offer a broadcast
-  // action that can only fail — route the user to sign in instead.
+  // action that can only fail — route the user to log in instead.
   if (!user) {
     return (
       <Button
@@ -101,7 +101,7 @@ export function GoLiveDialog() {
         onClick={() => navigate("/login")}
       >
         <LogIn className="h-4 w-4" aria-hidden />
-        Authenticate to go live
+        Log in to go live
       </Button>
     );
   }

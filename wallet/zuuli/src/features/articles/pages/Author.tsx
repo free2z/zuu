@@ -72,12 +72,12 @@ export function Author() {
         <PageHeader title="Write an article" />
         <EmptyState
           icon={Lock}
-          title="Sign in with Zcash to publish"
-          description="Authoring is free — sign a challenge with your wallet, no password or email required."
+          title="Log in to publish"
+          description="Authoring is free. Choose your login method to continue."
           action={
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
               <Button asChild>
-                <Link to="/login">Sign in with Zcash</Link>
+                <Link to="/login">Log in</Link>
               </Button>
               <Button asChild variant="outline">
                 <Link to="/articles">Back to articles</Link>

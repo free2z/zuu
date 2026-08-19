@@ -100,7 +100,7 @@ export function PersonalityManager({
             <div className="space-y-4">
               {!isAuthed ? (
                 <p className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-                  Sign in with Zcash to create your own personalities. You can
+                  Log in to create your own personalities. You can
                   still use public ones below.
                 </p>
               ) : (

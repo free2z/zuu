@@ -62,17 +62,17 @@ export function SeedReveal({ seedPhrase, onConfirm }: SeedRevealProps) {
         </ol>
 
         {!revealed && (
-          <button
-            type="button"
-            onClick={() => setRevealed(true)}
-            className="absolute inset-0 grid place-items-center rounded-lg bg-background/40 backdrop-blur-[2px] transition-colors hover:bg-background/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            aria-label="Reveal recovery phrase"
-          >
-            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium shadow-glow">
+          <div className="absolute inset-0 grid place-items-center rounded-lg bg-background/40 backdrop-blur-[2px]">
+            <button
+              type="button"
+              onClick={() => setRevealed(true)}
+              className="min-tap inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium shadow-glow transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label="Reveal recovery phrase"
+            >
               <Eye className="h-4 w-4" aria-hidden />
               Tap to reveal
-            </span>
-          </button>
+            </button>
+          </div>
         )}
       </div>
 
