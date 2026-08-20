@@ -8,6 +8,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { initials, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Article } from "@/lib/api/types";
@@ -31,36 +32,52 @@ export function ArticleCard({
         className,
       )}
     >
+      {/* Cover consent cannot live inside the article link: the first click
+          must load only this media item, never navigate as a side effect. */}
+      <div
+        className="relative aspect-[16/9] w-full overflow-hidden"
+        style={
+          article.image
+            ? undefined
+            : { backgroundImage: coverGradient(article.title) }
+        }
+      >
+        {article.image ? (
+          <RemoteMedia
+            source={article.image}
+            kind="image"
+            className="h-full min-h-0 rounded-none border-0 p-0"
+          >
+            {({ url }) => (
+              <Link
+                to={articleHref(article)}
+                aria-label={`Read “${article.title}”`}
+                className="block h-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <img
+                  src={url}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              </Link>
+            )}
+          </RemoteMedia>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+        )}
+        {article.category ? (
+          <Badge className="pointer-events-none absolute left-3 top-3 backdrop-blur-sm">
+            {article.category}
+          </Badge>
+        ) : null}
+      </div>
+
       <Link
         to={articleHref(article)}
         aria-label={`Read “${article.title}”`}
         className="flex flex-1 flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {/* Cover */}
-        <div
-          className="relative aspect-[16/9] w-full overflow-hidden"
-          style={
-            article.image
-              ? undefined
-              : { backgroundImage: coverGradient(article.title) }
-          }
-        >
-          {article.image ? (
-            <img
-              src={article.image}
-              alt=""
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            />
-          ) : (
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-          )}
-          {article.category ? (
-            <Badge className="absolute left-3 top-3 backdrop-blur-sm">
-              {article.category}
-            </Badge>
-          ) : null}
-        </div>
-
         {/* Body */}
         <div className="flex flex-1 flex-col gap-2 p-5 pb-3">
           <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground transition-colors group-hover:text-primary">

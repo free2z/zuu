@@ -29,29 +29,21 @@ function expectNoErrorFallback(markup: string) {
 }
 
 describe("Markdown images", () => {
-  it("renders a real <img> for the trusted article variant", () => {
-    // Regression: the `components` map used to carry `img: undefined` for the
-    // article variant. react-markdown resolves overrides by KEY PRESENCE, so
-    // the element type became `undefined`, React threw "Element type is
-    // invalid", the ErrorBoundary caught it, and every article containing an
-    // image rendered as raw markdown source. See issue #319.
+  it("holds an article image behind destination-specific consent", () => {
     const markup = render(IMAGE, "article");
 
-    expect(markup).toContain("<img");
-    expect(markup).toContain('src="https://example.com/y.png"');
-    expect(markup).toContain('alt="alt text"');
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('data-remote-media-host="example.com"');
+    expect(markup).toContain('aria-label="Load image from example.com"');
     expectNoErrorFallback(markup);
   });
 
-  it("degrades an image to a plain link for the untrusted comment variant", () => {
-    // Privacy: an untrusted comment must never auto-load a remote image, which
-    // would beacon the reader's IP to an attacker-chosen host on render.
+  it("uses the same one-item consent boundary for comments", () => {
     const markup = render(IMAGE, "comment");
 
     expect(markup).not.toContain("<img");
-    expect(markup).toContain('href="https://example.com/y.png"');
-    expect(markup).toContain('rel="noopener noreferrer"');
-    expect(markup).toContain("alt text");
+    expect(markup).toContain('data-remote-media-host="example.com"');
+    expect(markup).toContain('aria-label="Load image from example.com"');
     expectNoErrorFallback(markup);
   });
 
@@ -64,7 +56,8 @@ describe("Markdown images", () => {
       "article",
     );
 
-    expect(markup).toContain('src="/uploadz/public/palmar/elg03269-1.webp"');
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('data-remote-media-host="zuuli.invalid"');
   });
 });
 
@@ -83,8 +76,8 @@ describe("Markdown links", () => {
  * `![](/uploadz/public/palmar/elg03269-1.webp)`. Those only resolve when the
  * document itself is served from free2z. A production `tauri build` has no Vite
  * proxy and runs on the `tauri://localhost` origin, so the path would resolve
- * against the app's own bundled `dist/` and 404. The article `img` renderer
- * absolutizes it via `mediaUrl()`.
+ * against the app's own bundled `dist/` and 404. The consent policy resolves
+ * it via `mediaUrl()` but withholds a media DOM source until the reader clicks.
  *
  * `MEDIA_BASE` is captured at module-eval time (and is "" under vitest, which
  * runs with `import.meta.env.DEV`), so these cases need a re-imported module
@@ -115,55 +108,42 @@ describe("Markdown article images against a remote media host", () => {
     vi.resetModules();
   });
 
-  it("absolutizes a relative /uploadz src against the media host", () => {
+  it("discloses the media host for a relative /uploadz src", () => {
     const markup = renderArticle("![](/uploadz/public/palmar/elg03269-1.webp)");
 
-    expect(markup).toContain(
-      `src="${MEDIA}/uploadz/public/palmar/elg03269-1.webp"`,
-    );
-    // Exactly one slash between host and path — no `https://media.example//…`.
-    expect(markup).not.toContain(`${MEDIA}//uploadz`);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('data-remote-media-host="media.example"');
   });
 
-  it("absolutizes a path with no leading slash", () => {
+  it("discloses the media host for a path with no leading slash", () => {
     const markup = renderArticle("![](uploadz/public/x.webp)");
 
-    expect(markup).toContain(`src="${MEDIA}/uploadz/public/x.webp"`);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('data-remote-media-host="media.example"');
   });
 
-  it("leaves an already-absolute https src untouched", () => {
+  it("names an already-absolute https destination", () => {
     const markup = renderArticle("![alt text](https://example.com/y.png)");
 
-    expect(markup).toContain('src="https://example.com/y.png"');
-    expect(markup).not.toContain(MEDIA);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('data-remote-media-host="example.com"');
   });
 
-  it("leaves a protocol-relative src untouched", () => {
-    // `//cdn.example/z.png` is already absolute w.r.t. the scheme; prefixing it
-    // would produce `https://media.example//cdn.example/z.png`.
+  it("normalizes and names a protocol-relative destination", () => {
     const markup = renderArticle("![](//cdn.example/z.png)");
 
-    expect(markup).toContain('src="//cdn.example/z.png"');
-    expect(markup).not.toContain(MEDIA);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain('data-remote-media-host="cdn.example"');
   });
 
-  it("does not corrupt a data: URI into a media-host path", () => {
-    // react-markdown's `defaultUrlTransform` blocks non-http(s) protocols, so a
-    // `data:` image arrives here already emptied. Whatever it becomes, it must
-    // never turn into `https://media.example/data:image/...` — and an empty
-    // `src=""` (which browsers resolve to the current document URL) must not
-    // survive either.
+  it("fails closed for a data URI", () => {
     const markup = renderArticle("![dot](data:image/png;base64,iVBORw0KGgo=)");
 
-    expect(markup).toContain("<img");
-    expect(markup).not.toContain(`${MEDIA}/data:`);
-    expect(markup).not.toContain(`${MEDIA}/image/png`);
-    expect(markup).not.toContain('src=""');
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("data-remote-media-blocked");
   });
 
-  it("still degrades a relative comment image to a plain link", () => {
-    // Privacy guard: absolutizing article images must NOT make untrusted
-    // comment images auto-load. A relative comment src stays a link.
+  it("uses the same remote host consent for a relative comment image", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <Markdown variant="comment">
@@ -173,7 +153,6 @@ describe("Markdown article images against a remote media host", () => {
     );
 
     expect(markup).not.toContain("<img");
-    expect(markup).toContain('href="/uploadz/public/tracker.webp"');
-    expect(markup).toContain("shot");
+    expect(markup).toContain('data-remote-media-host="zuuli.invalid"');
   });
 });

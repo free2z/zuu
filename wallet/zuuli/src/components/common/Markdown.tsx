@@ -20,7 +20,6 @@ import rehypePrism from "rehype-prism-plus";
 import rehypeSlug from "rehype-slug";
 
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { mediaUrl } from "@/lib/api/http";
 import { isTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
@@ -28,23 +27,26 @@ import remarkOembed from "@/lib/markdown/remark-oembed";
 import remarkQrCodePlugin from "@/lib/markdown/remark-qrcode";
 import Mermaid from "@/components/common/Mermaid";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import {
+  RemoteImage,
+  RemoteMedia,
+  resolveRemoteMediaSource,
+} from "@/components/common/RemoteMedia";
 
 import "./markdown.css";
 
 /**
  * Rendering variants:
- *   • "article"  — trusted, creator/AI long-form content. Full rich pipeline:
- *                  auto-loading images, native video/audio embeds, QR codes,
- *                  mermaid diagrams.
+ *   • "article"  — creator/AI long-form content. Full rich pipeline, but every
+ *                  network image/audio/video/provider embed is held behind
+ *                  one-item destination consent.
  *   • "comment"  — UNTRUSTED, user-supplied comment bodies. Hardened: remote
- *                  images and media embeds degrade to plain external LINKS (no
- *                  silent network beacons that deanonymize readers by IP), and
+ *                  images and media embeds use the same one-item consent
+ *                  boundary (no silent network beacons by IP), and
  *                  `::qrcode` / mermaid are shown as text/code rather than a
  *                  scannable QR or rendered diagram (phishing + perf). This is
  *                  the primary render-layer privacy fix; see also the CSP note
- *                  in `src-tauri/tauri.conf.json` (intentionally NOT tightened
- *                  for images because trusted article markdown legitimately
- *                  hotlinks arbitrary hosts).
+ *                  in `src-tauri/tauri.conf.json`.
  */
 export type MarkdownVariant = "article" | "comment";
 
@@ -219,13 +221,17 @@ function CodeBlock({
  */
 function youTubeId(url: URL): string | null {
   const host = url.hostname.replace(/^www\./, "");
-  if (host === "youtu.be") return url.pathname.slice(1) || null;
-  if (host === "youtube.com" || host === "youtube-nocookie.com") {
-    if (url.pathname.startsWith("/embed/"))
-      return url.pathname.split("/")[2] || null;
-    return url.searchParams.get("v");
-  }
-  return null;
+  const candidate =
+    host === "youtu.be"
+      ? url.pathname.slice(1)
+      : host === "youtube.com" || host === "youtube-nocookie.com"
+        ? url.pathname.startsWith("/embed/")
+          ? url.pathname.split("/")[2] || null
+          : url.searchParams.get("v")
+        : null;
+  return candidate && /^[A-Za-z0-9_-]{1,64}$/.test(candidate)
+    ? candidate
+    : null;
 }
 
 /** Extract a numeric Vimeo id (exact-host match only). */
@@ -245,119 +251,117 @@ function vimeoId(url: URL): string | null {
  *   • .mp3/... → native <audio controls>
  *   • anything else → a plain external link.
  *
- * In the "comment" (untrusted) variant, NOTHING auto-loads: every embed
- * degrades to a plain external link. Native <video>/<audio> from an arbitrary
- * attacker host would silently beacon every reader's IP on render, and even the
- * fixed YouTube/Vimeo iframes ping third parties — neither is acceptable for
- * anonymous, unmoderated comment content in a wallet.
+ * Every recognized media target uses the shared one-item consent boundary.
+ * Unknown targets remain external links and do not issue an in-app request.
  */
-function SafeEmbed({ url, variant }: { url: string; variant: MarkdownVariant }) {
-  // Untrusted comments never auto-load remote media — always a link.
-  if (variant === "comment") {
-    return <MarkdownLink href={url}>{url}</MarkdownLink>;
-  }
-
-  let parsed: URL | null = null;
-  try {
-    parsed = new URL(url);
-  } catch {
-    parsed = null;
-  }
+function SafeEmbed({ url }: { url: string }) {
+  const authoredTarget = resolveRemoteMediaSource(url);
+  const parsed = authoredTarget ? new URL(authoredTarget.url) : null;
 
   // Only https targets get rich embeds; everything else degrades to a link.
   if (parsed && parsed.protocol === "https:") {
     const yt = youTubeId(parsed);
     if (yt) {
       return (
-        <div className="my-4 aspect-video w-full overflow-hidden rounded-lg border border-border">
-          <iframe
-            className="h-full w-full"
-            src={`https://www.youtube-nocookie.com/embed/${yt}`}
-            title="YouTube video"
-            loading="lazy"
-            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
-        </div>
+        <RemoteMedia
+          source={`https://www.youtube-nocookie.com/embed/${yt}`}
+          kind="video"
+          className="my-4 aspect-video w-full overflow-hidden"
+        >
+          {({ url: consentedUrl }) => (
+            <iframe
+              className="h-full w-full"
+              src={consentedUrl}
+              title="YouTube video"
+              referrerPolicy="no-referrer"
+              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          )}
+        </RemoteMedia>
       );
     }
 
     const vm = vimeoId(parsed);
     if (vm) {
       return (
-        <div className="my-4 aspect-video w-full overflow-hidden rounded-lg border border-border">
-          <iframe
-            className="h-full w-full"
-            src={`https://player.vimeo.com/video/${vm}`}
-            title="Vimeo video"
-            loading="lazy"
-            allow="autoplay; fullscreen; picture-in-picture"
-            allowFullScreen
-          />
-        </div>
+        <RemoteMedia
+          source={`https://player.vimeo.com/video/${vm}`}
+          kind="video"
+          className="my-4 aspect-video w-full overflow-hidden"
+        >
+          {({ url: consentedUrl }) => (
+            <iframe
+              className="h-full w-full"
+              src={consentedUrl}
+              title="Vimeo video"
+              referrerPolicy="no-referrer"
+              allow="autoplay; fullscreen; picture-in-picture"
+              allowFullScreen
+            />
+          )}
+        </RemoteMedia>
       );
     }
 
     if (/\.(mp4|webm|ogv|mov)$/i.test(parsed.pathname)) {
       return (
-        <video controls className="my-4 w-full rounded-lg border border-border">
-          <source src={url} />
-        </video>
+        <RemoteMedia
+          source={parsed.href}
+          kind="video"
+          className="my-4 w-full"
+        >
+          {({ url: consentedUrl }) => (
+            <video
+              controls
+              preload="metadata"
+              className="w-full rounded-lg border border-border"
+              src={consentedUrl}
+            />
+          )}
+        </RemoteMedia>
       );
     }
 
     if (/\.(mp3|ogg|wav|m4a|flac)$/i.test(parsed.pathname)) {
-      return <audio controls className="my-4 w-full" src={url} />;
+      return (
+        <RemoteMedia
+          source={parsed.href}
+          kind="audio"
+          className="my-4 w-full"
+        >
+          {({ url: consentedUrl }) => (
+            <audio
+              controls
+              preload="metadata"
+              className="w-full"
+              src={consentedUrl}
+            />
+          )}
+        </RemoteMedia>
+      );
     }
   }
 
   // Fallback: a plain external link (reuses out-of-app open handling).
-  return <MarkdownLink href={url}>{url}</MarkdownLink>;
-}
-
-/**
- * `img` renderer for the UNTRUSTED "comment" variant: a remote image is
- * degraded to a plain external link so it never auto-loads and beacons the
- * reader's IP to an attacker-chosen host on render. Deliberate privacy
- * behavior — see `MarkdownVariant`; do not "fix" it into a real <img>.
- *
- * Hoisted to module scope (like `MarkdownLink` / `CodeBlock`) so it is a stable
- * component identity instead of a fresh function on every render.
- */
-function CommentImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
-  const href = typeof src === "string" ? src : "#";
   return (
-    <MarkdownLink href={href}>
-      {alt || (typeof src === "string" ? src : "image")}
+    <MarkdownLink href={authoredTarget?.url ?? url}>
+      {authoredTarget?.url ?? url}
     </MarkdownLink>
   );
 }
 
-/**
- * `img` renderer for the trusted "article" variant: a real, auto-loading
- * `<img>` whose `src` is resolved against the media host.
- *
- * free2z authors embed uploads as ORIGIN-RELATIVE paths — a real body reads
- * `![](/uploadz/public/palmar/elg03269-1.webp)`. That only resolves by accident
- * in `npm run dev` / `tauri dev`, where the Vite proxy forwards `/uploadz` to
- * the backend from the same origin. A production `tauri build` has no proxy and
- * the webview origin is `tauri://localhost`, so the same path resolves against
- * the app's own bundled `dist/` (which contains only `index.html` + `assets/`)
- * and 404s — every in-body image is broken. `mediaUrl()` absolutizes it against
- * `MEDIA_BASE`, and leaves already-absolute `https:` / `data:` /
- * protocol-relative sources untouched.
- *
- * `node` is destructured out because react-markdown passes the hast node to
- * every override and it must not reach the DOM element.
- */
-function ArticleImage({
+/** Shared article/comment image consent renderer. */
+function MarkdownRemoteImage({
   node: _node,
   src,
   alt,
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
-  const resolved = typeof src === "string" ? mediaUrl(src) : undefined;
-  return <img {...rest} src={resolved} alt={alt ?? ""} />;
+  if (typeof src !== "string") {
+    return <span data-remote-media-blocked>Media blocked</span>;
+  }
+  return <RemoteImage {...rest} src={src} alt={alt ?? ""} />;
 }
 
 // ── Math DoS guard (defense-in-depth) ───────────────────────────────────────
@@ -468,13 +472,9 @@ export function Markdown({
         components={{
           a: MarkdownLink,
           pre: CodeBlock,
-          // Images. BOTH variants must map to a REAL component:
-          //   • article — <ArticleImage>: a real <img>, src absolutized against
-          //     the media host so origin-relative `/uploadz/…` bodies load in a
-          //     production build (where there is no Vite proxy).
-          //   • comment — <CommentImageLink>: degrades to a plain external link
-          //     so untrusted images never auto-load and beacon the reader's IP
-          //     to an attacker-chosen host.
+          // Both variants use the exact same one-item consent boundary. The
+          // source is resolved against the media host, but no <img> exists
+          // until the reader chooses this exact destination.
           //
           // NEVER write `img: cond ? X : undefined` (nor any other
           // conditionally-`undefined` entry in this map). react-markdown@9
@@ -491,7 +491,7 @@ export function Markdown({
           // image renders as raw markdown source (issue #319). If a variant
           // ever needs the plain intrinsic tag, omit the key entirely via a
           // spread — do not set it to `undefined`.
-          img: isComment ? CommentImageLink : ArticleImage,
+          img: MarkdownRemoteImage,
           table: ({ node, ...props }) => (
             <div className="overflow-x-auto">
               <table {...props} />
@@ -539,7 +539,7 @@ export function Markdown({
                 node?.properties?.["dataEmbedUrl"]?.toString() ||
                 node?.properties?.["data-embed-url"]?.toString() ||
                 "";
-              if (url) return <SafeEmbed url={url} variant={variant} />;
+              if (url) return <SafeEmbed url={url} />;
             }
 
             return (

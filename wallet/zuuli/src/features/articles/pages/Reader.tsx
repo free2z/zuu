@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
+import { RemoteImage } from "@/components/common/RemoteMedia";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { useAsync } from "@/hooks/useAsync";
 import { articles } from "@/lib/api/free2z";
@@ -170,10 +171,11 @@ export function Reader() {
           }
         >
           {article.image ? (
-            <img
+            <RemoteImage
               src={article.image}
               alt=""
               className="h-full w-full object-cover"
+              containerClassName="h-full min-h-0 rounded-none border-0 p-0"
             />
           ) : null}
         </div>
