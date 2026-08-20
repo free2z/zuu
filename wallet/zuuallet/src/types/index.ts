@@ -93,9 +93,25 @@ export interface SaplingParamsStatus {
 
 export interface SendProposal {
   proposalId: number;
+  review: SendReview;
+  reviewDigest: string;
+  confirmationToken: string;
+}
+
+export interface SendPaymentReview {
+  recipient: string;
   amount: number;
+  memo: string | null;
+}
+
+export interface SendReview {
+  version: number;
+  network: string;
+  payments: SendPaymentReview[];
+  feePolicy: string;
   fee: number;
   total: number;
+  changePolicy: string;
 }
 
 export type BroadcastStatus = "accepted" | "rejected" | "unknown";

@@ -128,7 +128,7 @@ export const wallet = {
   },
 
   async proposeSend(to: string, amount: number, memo?: string): Promise<SendProposal> {
-    if (useMock()) return mockWallet.proposeSend(to, amount);
+    if (useMock()) return mockWallet.proposeSend(to, amount, memo);
     return invoke("propose_send", { args: { to, amount, memo } });
   },
 
@@ -137,9 +137,28 @@ export const wallet = {
     return invoke("ensure_sapling_params");
   },
 
-  async executeSend(proposalId: number): Promise<ExecuteSendResult> {
-    if (useMock()) return mockWallet.executeSend();
-    return invoke("execute_send", { args: { proposalId } });
+  async executeSend(
+    proposalId: number,
+    reviewDigest: string,
+    confirmationToken: string,
+  ): Promise<ExecuteSendResult> {
+    if (useMock()) return mockWallet.executeSend(proposalId, reviewDigest, confirmationToken);
+    return invoke("execute_send", {
+      args: { proposalId, reviewDigest, confirmationToken },
+    });
+  },
+
+  async discardSendProposal(
+    proposalId: number,
+    reviewDigest: string,
+    confirmationToken: string,
+  ): Promise<void> {
+    if (useMock()) {
+      return mockWallet.discardSendProposal(proposalId, reviewDigest, confirmationToken);
+    }
+    return invoke("discard_send_proposal", {
+      args: { proposalId, reviewDigest, confirmationToken },
+    });
   },
 
   async getPendingSend(): Promise<PendingSendStatus | null> {

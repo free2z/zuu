@@ -25,6 +25,7 @@ permissions = [
     "allow-propose-send",
     "allow-propose-send-all",
     "allow-execute-send",
+    "allow-discard-send-proposal",
     "allow-get-pending-send",
     "allow-retry-pending-send",
     "allow-discard-unrecoverable-send",

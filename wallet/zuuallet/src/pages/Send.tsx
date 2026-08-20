@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletStore } from "../store/wallet";
 import * as api from "../lib/tauri";
-import { formatZecDisplay, formatZec, truncateAddress } from "../lib/format";
+import { formatZecDisplay, formatZec } from "../lib/format";
+import { assertExactSendProposal } from "../lib/send-review";
 import type {
   AddressValidation,
   BroadcastStatus,
@@ -12,7 +13,8 @@ import { QrScanner } from "../components/QrScanner";
 
 const MIN_FEE_ESTIMATE = 10000; // 0.0001 ZEC — minimum ZIP-317 fee for display only
 
-type SendStep = "form" | "proposing" | "review" | "executing" | "success" | "error";
+type SendStep =
+  "form" | "proposing" | "review" | "executing" | "success" | "error";
 
 export function Send() {
   const { balance } = useWalletStore();
@@ -22,12 +24,19 @@ export function Send() {
   const [memo, setMemo] = useState("");
   const [step, setStep] = useState<SendStep>("form");
   const [txid, setTxid] = useState<string | null>(null);
-  const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatus | null>(null);
+  const [broadcastStatus, setBroadcastStatus] =
+    useState<BroadcastStatus | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(null);
+  const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(
+    null,
+  );
 
   // Proposal state
   const [proposal, setProposal] = useState<SendProposal | null>(null);
+  const proposalRef = useRef<SendProposal | null>(null);
+  const generationRef = useRef(0);
+  const mountedRef = useRef(true);
+  const confirmingRef = useRef(false);
   const [paramsReady, setParamsReady] = useState(false);
   const [paramsDownloading, setParamsDownloading] = useState(false);
   const [feeNotice, setFeeNotice] = useState<string | null>(null);
@@ -47,23 +56,55 @@ export function Send() {
   // ZIP-321 indicator
   const [filledFromUri, setFilledFromUri] = useState(false);
 
-  // Review step: show full address toggle
-  const [showFullAddress, setShowFullAddress] = useState(false);
-
   const spendable = balance?.spendable ?? 0;
+
+  const discardNativeProposal = useCallback(async (stale: SendProposal) => {
+    try {
+      await api.discardSendProposal(
+        stale.proposalId,
+        stale.reviewDigest,
+        stale.confirmationToken,
+      );
+    } catch {
+      // Exact discard deliberately preserves any newer native proposal.
+    }
+  }, []);
+
+  const invalidateReview = useCallback(() => {
+    generationRef.current += 1;
+    const stale = proposalRef.current;
+    proposalRef.current = null;
+    setProposal(null);
+    if (stale) void discardNativeProposal(stale);
+  }, [discardNativeProposal]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      const stale = proposalRef.current;
+      proposalRef.current = null;
+      if (stale) void discardNativeProposal(stale);
+    };
+  }, [discardNativeProposal]);
 
   // Kick off sapling params download in background on mount
   useEffect(() => {
     setParamsDownloading(true);
-    api.ensureSaplingParams()
+    api
+      .ensureSaplingParams()
       .then(() => setParamsReady(true))
-      .catch(() => {/* will retry before execute */})
+      .catch(() => {
+        /* will retry before execute */
+      })
       .finally(() => setParamsDownloading(false));
   }, []);
 
   useEffect(() => {
     let active = true;
-    api.getPendingSend()
+    api
+      .getPendingSend()
       .then((pending) => {
         if (!active || pending?.status !== "unknown") return;
         setTxid(pending.txid);
@@ -101,7 +142,11 @@ export function Send() {
         const result = await api.validateAddress(to.trim());
         setAddressValidation(result);
       } catch {
-        setAddressValidation({ valid: false, addressType: null, canReceiveMemo: false });
+        setAddressValidation({
+          valid: false,
+          addressType: null,
+          canReceiveMemo: false,
+        });
       }
       setValidatingAddress(false);
     }, 300);
@@ -114,40 +159,40 @@ export function Send() {
   // Parse amount to zatoshis
   const zatoshis = Math.round(parseFloat(amount) * 1e8);
   const validAmount = !isNaN(zatoshis) && zatoshis > 0;
-  const exceedsBalance = validAmount && (zatoshis + MIN_FEE_ESTIMATE) > spendable;
+  const exceedsBalance = validAmount && zatoshis + MIN_FEE_ESTIMATE > spendable;
   const memoBytes = new TextEncoder().encode(memo).length;
   const showMemo = addressValidation?.canReceiveMemo !== false;
 
   const canSend = maxMode
     ? addressValidation?.valid && memoBytes <= 512
-    : addressValidation?.valid && validAmount && !exceedsBalance && memoBytes <= 512;
+    : addressValidation?.valid &&
+      validAmount &&
+      !exceedsBalance &&
+      memoBytes <= 512;
 
   // Handle pasting — detect zcash: URIs
-  const handleAddressChange = useCallback(
-    async (value: string) => {
-      const trimmed = value.trim();
-      if (trimmed.startsWith("zcash:")) {
-        try {
-          const parsed = await api.parsePaymentUri(trimmed);
-          setTo(parsed.address);
-          if (parsed.amount) {
-            setAmount(formatZec(parsed.amount));
-            setMaxMode(false);
-          }
-          if (parsed.memo) {
-            setMemo(parsed.memo);
-          }
-          setFilledFromUri(true);
-          return;
-        } catch {
-          // Not a valid URI, treat as raw text
+  const handleAddressChange = useCallback(async (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("zcash:")) {
+      try {
+        const parsed = await api.parsePaymentUri(trimmed);
+        setTo(parsed.address);
+        if (parsed.amount) {
+          setAmount(formatZec(parsed.amount));
+          setMaxMode(false);
         }
+        if (parsed.memo) {
+          setMemo(parsed.memo);
+        }
+        setFilledFromUri(true);
+        return;
+      } catch {
+        // Not a valid URI, treat as raw text
       }
-      setTo(trimmed);
-      setFilledFromUri(false);
-    },
-    [],
-  );
+    }
+    setTo(trimmed);
+    setFilledFromUri(false);
+  }, []);
 
   const handleMax = () => {
     if (maxMode) {
@@ -166,34 +211,77 @@ export function Send() {
 
   const handleReview = async () => {
     if (!canSend) return;
+    invalidateReview();
+    const generation = generationRef.current;
+    const requested = {
+      recipient: to.trim(),
+      amount: zatoshis,
+      memo: showMemo && memo ? memo : undefined,
+    };
     setStep("proposing");
     setFeeNotice(null);
 
     try {
       const result = maxMode
-        ? await api.proposeSendAll(to.trim(), memo || undefined)
-        : await api.proposeSend(to.trim(), zatoshis, memo || undefined);
+        ? await api.proposeSendAll(requested.recipient, requested.memo)
+        : await api.proposeSend(
+            requested.recipient,
+            requested.amount,
+            requested.memo,
+          );
+      if (!mountedRef.current || generation !== generationRef.current) {
+        void discardNativeProposal(result);
+        return;
+      }
+      try {
+        const expected = maxMode
+          ? {
+              ...requested,
+              amount: result.review.payments[0]?.amount ?? requested.amount,
+            }
+          : requested;
+        assertExactSendProposal(expected, result);
+      } catch (error) {
+        void discardNativeProposal(result);
+        throw error;
+      }
+      proposalRef.current = result;
       setProposal(result);
-      setAmount(formatZec(result.amount));
+      setAmount(formatZec(result.review.payments[0].amount));
       setStep("review");
     } catch (e) {
-      setSendError(String(e));
-      setStep("error");
+      if (mountedRef.current && generation === generationRef.current) {
+        setSendError(String(e));
+        setStep("error");
+      }
     }
   };
 
   const handleConfirmSend = async () => {
-    if (!proposal) return;
+    const confirmedProposal = proposalRef.current;
+    if (!confirmedProposal || confirmingRef.current) return;
+    confirmingRef.current = true;
+    const generation = generationRef.current;
+    let executionStarted = false;
     setStep("executing");
 
     try {
       // Ensure params are ready before executing
       if (!paramsReady) {
         await api.ensureSaplingParams();
+        if (!mountedRef.current || generation !== generationRef.current) return;
         setParamsReady(true);
       }
 
-      const result = await api.executeSend(proposal.proposalId);
+      executionStarted = true;
+      const result = await api.executeSend(
+        confirmedProposal.proposalId,
+        confirmedProposal.reviewDigest,
+        confirmedProposal.confirmationToken,
+      );
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      proposalRef.current = null;
+      setProposal(null);
       setTxid(result.txid);
       setBroadcastStatus(result.status);
       if (result.status === "accepted") {
@@ -203,7 +291,7 @@ export function Send() {
         if (result.status === "unknown") {
           setPendingSend({
             ...result,
-            proposalId: proposal.proposalId,
+            proposalId: confirmedProposal.proposalId,
             recoveryRequired: false,
             canDiscard: false,
           });
@@ -217,6 +305,11 @@ export function Send() {
     } catch (e) {
       const errorStr = String(e);
       const recovered = await api.getPendingSend().catch(() => null);
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      if (executionStarted) {
+        proposalRef.current = null;
+        setProposal(null);
+      }
       if (recovered?.status === "unknown") {
         setPendingSend(recovered);
         setTxid(recovered.txid);
@@ -225,14 +318,49 @@ export function Send() {
       // A proposal is process-local and may be stale after a remount or
       // restart. Re-propose for a fresh review, but never sign automatically:
       // the user must explicitly confirm the replacement proposal.
-      if (errorStr.includes("stale") || errorStr.includes("mismatch") || errorStr.includes("no pending proposal")) {
+      if (
+        errorStr.includes("stale") ||
+        errorStr.includes("mismatch") ||
+        errorStr.includes("no pending proposal")
+      ) {
         try {
+          const payment = confirmedProposal.review.payments[0];
+          const requested = {
+            recipient: payment.recipient,
+            amount: payment.amount,
+            memo: payment.memo ?? undefined,
+          };
           const newProposal = maxMode
-            ? await api.proposeSendAll(to.trim(), memo || undefined)
-            : await api.proposeSend(to.trim(), proposal.amount, memo || undefined);
+            ? await api.proposeSendAll(requested.recipient, requested.memo)
+            : await api.proposeSend(
+                requested.recipient,
+                requested.amount,
+                requested.memo,
+              );
+          if (!mountedRef.current || generation !== generationRef.current) {
+            void discardNativeProposal(newProposal);
+            return;
+          }
+          try {
+            assertExactSendProposal(
+              maxMode
+                ? {
+                    ...requested,
+                    amount:
+                      newProposal.review.payments[0]?.amount ??
+                      requested.amount,
+                  }
+                : requested,
+              newProposal,
+            );
+          } catch (error) {
+            void discardNativeProposal(newProposal);
+            throw error;
+          }
+          proposalRef.current = newProposal;
           setProposal(newProposal);
           setFeeNotice(
-            newProposal.fee === proposal.fee
+            newProposal.review.fee === confirmedProposal.review.fee
               ? "Proposal refreshed after wallet activity"
               : "Fee updated due to new wallet activity",
           );
@@ -246,6 +374,8 @@ export function Send() {
       }
       setSendError(errorStr);
       setStep("error");
+    } finally {
+      confirmingRef.current = false;
     }
   };
 
@@ -293,6 +423,7 @@ export function Send() {
   };
 
   const resetForm = () => {
+    invalidateReview();
     setTo("");
     setAmount("");
     setMemo("");
@@ -302,11 +433,9 @@ export function Send() {
     setPendingSend(null);
     setStep("form");
     setSendError(null);
-    setProposal(null);
     setFeeNotice(null);
     setFilledFromUri(false);
     setAddressValidation(null);
-    setShowFullAddress(false);
   };
 
   const handleQrScan = useCallback(
@@ -411,30 +540,35 @@ export function Send() {
               } else if (txid && proposal) {
                 void handleConfirmSend();
               } else {
+                invalidateReview();
                 setStep("form");
               }
             }}
-            disabled={Boolean(pendingSend?.recoveryRequired && !pendingSend.canDiscard)}
+            disabled={Boolean(
+              pendingSend?.recoveryRequired && !pendingSend.canDiscard,
+            )}
             className="flex-1 py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
           >
             {pendingSend?.canDiscard
               ? "I Checked History — Unlock Sends"
               : pendingSend?.recoveryRequired
-              ? "Recovery Data Locked"
-              : broadcastStatus === "unknown"
-              ? "Retry Recovered Transaction"
-              : broadcastStatus === "rejected"
-                ? "Edit Payment"
-              : txid && proposal
-                ? "Retry Same Transaction"
-                : "Try Again"}
+                ? "Recovery Data Locked"
+                : broadcastStatus === "unknown"
+                  ? "Retry Recovered Transaction"
+                  : broadcastStatus === "rejected"
+                    ? "Edit Payment"
+                    : txid && proposal
+                      ? "Retry Same Transaction"
+                      : "Try Again"}
           </button>
           <button
             onClick={resetForm}
             disabled={broadcastStatus === "unknown"}
             className="flex-1 py-3 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors"
           >
-            {broadcastStatus === "unknown" ? "Resolve Broadcast First" : "Cancel"}
+            {broadcastStatus === "unknown"
+              ? "Resolve Broadcast First"
+              : "Cancel"}
           </button>
         </div>
       </div>
@@ -445,11 +579,15 @@ export function Send() {
   if (step === "proposing") {
     return (
       <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
-        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Preparing transaction" />
-        <p className="text-lg text-white font-medium">Preparing transaction...</p>
-        <p className="text-sm text-zinc-500 mt-2">
-          Calculating fee...
+        <div
+          className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6"
+          role="status"
+          aria-label="Preparing transaction"
+        />
+        <p className="text-lg text-white font-medium">
+          Preparing transaction...
         </p>
+        <p className="text-sm text-zinc-500 mt-2">Calculating fee...</p>
       </div>
     );
   }
@@ -458,17 +596,22 @@ export function Send() {
   if (step === "executing") {
     return (
       <div className="p-6 max-w-lg mx-auto flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
-        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6" role="status" aria-label="Sending transaction" />
-        <p className="text-lg text-white font-medium">Signing and broadcasting...</p>
-        <p className="text-sm text-zinc-500 mt-2">
-          This may take a moment...
+        <div
+          className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-6"
+          role="status"
+          aria-label="Sending transaction"
+        />
+        <p className="text-lg text-white font-medium">
+          Signing and broadcasting...
         </p>
+        <p className="text-sm text-zinc-500 mt-2">This may take a moment...</p>
       </div>
     );
   }
 
   // --- Review step ---
-  if (step === "review" && proposal) {
+  const reviewedPayment = proposal?.review.payments[0];
+  if (step === "review" && proposal && reviewedPayment) {
     return (
       <div className="p-6 max-w-lg mx-auto animate-fade-in">
         <h2 className="text-2xl font-bold text-white mb-6">
@@ -486,13 +629,12 @@ export function Send() {
             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
               Recipient
             </p>
-            <button
-              onClick={() => setShowFullAddress(!showFullAddress)}
+            <p
               className="text-sm text-white font-mono break-all text-left"
-              aria-label={showFullAddress ? "Collapse address" : "Show full address"}
+              data-testid="send-review-recipient"
             >
-              {showFullAddress ? to : truncateAddress(to, 16)}
-            </button>
+              {reviewedPayment.recipient}
+            </p>
             {addressValidation?.addressType && (
               <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 capitalize">
                 {addressValidation.addressType}
@@ -505,16 +647,21 @@ export function Send() {
               Amount
             </p>
             <p className="text-lg text-white font-semibold">
-              {formatZecDisplay(proposal.amount)}
+              {formatZecDisplay(reviewedPayment.amount)}
             </p>
           </div>
 
-          {memo && (
+          {reviewedPayment.memo && (
             <div className="border-t border-zinc-800 pt-3">
               <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
                 Memo
               </p>
-              <p className="text-sm text-zinc-300 break-words">{memo}</p>
+              <p
+                className="text-sm text-zinc-300 whitespace-pre-wrap break-words"
+                data-testid="send-review-memo"
+              >
+                {reviewedPayment.memo}
+              </p>
             </div>
           )}
 
@@ -523,7 +670,28 @@ export function Send() {
               Network Fee
             </p>
             <p className="text-sm text-zinc-300">
-              {formatZecDisplay(proposal.fee)}
+              {formatZecDisplay(proposal.review.fee)}
+            </p>
+          </div>
+
+          <div className="border-t border-zinc-800 pt-3">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+              Network
+            </p>
+            <p className="text-sm text-zinc-300 capitalize">
+              {proposal.review.network}
+            </p>
+          </div>
+
+          <div className="border-t border-zinc-800 pt-3">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">
+              Change
+            </p>
+            <p
+              className="text-sm text-zinc-300"
+              title={proposal.review.changePolicy}
+            >
+              Shielded automatically
             </p>
           </div>
 
@@ -532,7 +700,7 @@ export function Send() {
               Total Deducted
             </p>
             <p className="text-lg text-white font-bold">
-              {formatZecDisplay(proposal.total)}
+              {formatZecDisplay(proposal.review.total)}
             </p>
           </div>
         </div>
@@ -545,7 +713,10 @@ export function Send() {
             Confirm Send
           </button>
           <button
-            onClick={() => setStep("form")}
+            onClick={() => {
+              invalidateReview();
+              setStep("form");
+            }}
             className="flex-1 py-3 bg-zinc-800 text-zinc-300 rounded-xl hover:bg-zinc-700 transition-colors"
           >
             Cancel
@@ -640,7 +811,11 @@ export function Send() {
           {to.trim() && (
             <div className="flex items-center gap-2 mt-1.5" aria-live="polite">
               {validatingAddress ? (
-                <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" role="status" aria-label="Validating address" />
+                <div
+                  className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"
+                  role="status"
+                  aria-label="Validating address"
+                />
               ) : addressValidation?.valid ? (
                 <svg
                   width="16"
@@ -704,7 +879,9 @@ export function Send() {
             <button
               onClick={handleMax}
               className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors min-tap ${maxMode ? "bg-purple-500 text-white" : "text-purple-400 bg-purple-500/10 hover:bg-purple-500/20"}`}
-              aria-label={maxMode ? "Disable maximum amount" : "Set maximum amount"}
+              aria-label={
+                maxMode ? "Disable maximum amount" : "Set maximum amount"
+              }
               aria-pressed={maxMode}
             >
               MAX
@@ -765,8 +942,14 @@ export function Send() {
         {/* Params download indicator */}
         {paramsDownloading && (
           <div className="flex items-center gap-2 px-3 py-2 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
-            <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" role="status" aria-label="Downloading parameters" />
-            <span className="text-xs text-zinc-500">Downloading proving parameters...</span>
+            <div
+              className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"
+              role="status"
+              aria-label="Downloading parameters"
+            />
+            <span className="text-xs text-zinc-500">
+              Downloading proving parameters...
+            </span>
           </div>
         )}
       </div>

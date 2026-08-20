@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-discard-send-proposal"
+description = "Enables the discard_send_proposal command without any pre-configured scope."
+commands.allow = ["discard_send_proposal"]
+
+[[permission]]
+identifier = "deny-discard-send-proposal"
+description = "Denies the discard_send_proposal command without any pre-configured scope."
+commands.deny = ["discard_send_proposal"]

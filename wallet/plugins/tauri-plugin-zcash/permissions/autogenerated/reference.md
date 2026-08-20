@@ -28,6 +28,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-propose-send`
 - `allow-propose-send-all`
 - `allow-execute-send`
+- `allow-discard-send-proposal`
 - `allow-get-pending-send`
 - `allow-retry-pending-send`
 - `allow-discard-unrecoverable-send`
@@ -147,6 +148,32 @@ Enables the delete_wallet command without any pre-configured scope.
 <td>
 
 Denies the delete_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-discard-send-proposal`
+
+</td>
+<td>
+
+Enables the discard_send_proposal command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-discard-send-proposal`
+
+</td>
+<td>
+
+Denies the discard_send_proposal command without any pre-configured scope.
 
 </td>
 </tr>

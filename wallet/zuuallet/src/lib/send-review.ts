@@ -1,4 +1,4 @@
-import type { SendProposal } from "./types";
+import type { SendProposal } from "../types";
 
 interface ExpectedPayment {
   recipient: string;
@@ -38,6 +38,8 @@ export function assertExactSendProposal(
     !/^[a-f0-9]{64}$/.test(proposal.reviewDigest) ||
     !/^[a-f0-9]{64}$/.test(proposal.confirmationToken)
   ) {
-    throw new Error("Wallet proposal returned unsupported review authorization");
+    throw new Error(
+      "Wallet proposal returned unsupported review authorization",
+    );
   }
 }

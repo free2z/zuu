@@ -66,6 +66,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::propose_send,
             commands::propose_send_all,
             commands::execute_send,
+            commands::discard_send_proposal,
             commands::get_pending_send,
             commands::retry_pending_send,
             commands::discard_unrecoverable_send,

@@ -1847,8 +1847,32 @@ pub(crate) async fn execute_send<R: Runtime>(
 ) -> Result<ExecuteSendResult> {
     let zcash = app.zcash();
     let transition_guard = zcash.state.lock_wallet_transition().await;
+    let _send_operation = zcash.state.send_operation.lock().await;
+    let proposal = crate::wallet::send::take_send_proposal(
+        &zcash.state,
+        args.proposal_id,
+        &args.review_digest,
+        &args.confirmation_token,
+    )
+    .await?;
     ensure_active_seed_loaded(&zcash.state, &transition_guard).await?;
-    crate::wallet::send::execute_send(&zcash.state, args.proposal_id).await
+    crate::wallet::send::execute_send(&zcash.state, args.proposal_id, proposal).await
+}
+
+#[command]
+pub(crate) async fn discard_send_proposal<R: Runtime>(
+    app: AppHandle<R>,
+    args: DiscardSendProposalArgs,
+) -> Result<()> {
+    let zcash = app.zcash();
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    crate::wallet::send::discard_send_proposal(
+        &zcash.state,
+        args.proposal_id,
+        &args.review_digest,
+        &args.confirmation_token,
+    )
+    .await
 }
 
 #[command]

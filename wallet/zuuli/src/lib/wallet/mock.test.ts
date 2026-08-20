@@ -48,3 +48,31 @@ describe("mockWallet.restoreWallet", () => {
     }
   });
 });
+
+describe("mockWallet send confirmation", () => {
+  it("requires exact credentials and consumes them once", async () => {
+    const proposal = await mockWallet.proposeSend("u1recipient", 50_000, "memo");
+
+    expect(() =>
+      mockWallet.discardSendProposal(
+        proposal.proposalId,
+        proposal.reviewDigest,
+        "wrong-token",
+      ),
+    ).toThrow("does not match");
+    expect(() =>
+      mockWallet.executeSend(
+        proposal.proposalId,
+        proposal.reviewDigest,
+        proposal.confirmationToken,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      mockWallet.executeSend(
+        proposal.proposalId,
+        proposal.reviewDigest,
+        proposal.confirmationToken,
+      ),
+    ).toThrow("does not match");
+  });
+});

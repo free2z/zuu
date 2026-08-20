@@ -102,9 +102,25 @@ export interface AddressValidation {
 
 export interface SendProposal {
   proposalId: number;
+  review: SendReview;
+  reviewDigest: string;
+  confirmationToken: string;
+}
+
+export interface SendPaymentReview {
+  recipient: string;
   amount: number;
+  memo: string | null;
+}
+
+export interface SendReview {
+  version: number;
+  network: "mainnet" | "testnet";
+  payments: SendPaymentReview[];
+  feePolicy: string;
   fee: number;
   total: number;
+  changePolicy: string;
 }
 
 export interface SaplingParamsStatus {

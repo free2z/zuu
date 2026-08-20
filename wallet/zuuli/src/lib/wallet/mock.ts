@@ -98,6 +98,20 @@ const history: TransactionEntry[] = [
 ];
 
 let proposalCounter = 1;
+let pendingProposal: SendProposal | null = null;
+
+function mockProposalDelay(): number {
+  try {
+    const value = Number(globalThis.localStorage?.getItem("zuuli.mock.send-proposal-delay-ms"));
+    return Number.isFinite(value) && value > 0 ? Math.min(value, 5_000) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function proposalCredential(counter: number, marker: string): string {
+  return `${counter.toString(16).padStart(8, "0")}${marker.repeat(56)}`;
+}
 
 export const mockWallet = {
   getWalletStatus(): WalletStatus {
@@ -264,23 +278,56 @@ export const mockWallet = {
       label: params.get("label"),
     };
   },
-  proposeSend(_to: string, amount: number): SendProposal {
-    return {
-      proposalId: proposalCounter++,
-      amount,
-      fee: 10_000,
-      total: amount + 10_000,
+  async proposeSend(to: string, amount: number, memo?: string): Promise<SendProposal> {
+    const delay = mockProposalDelay();
+    if (delay) await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
+    const proposalId = proposalCounter++;
+    const proposal: SendProposal = {
+      proposalId,
+      review: {
+        version: 1,
+        network: "mainnet",
+        payments: [{ recipient: to, amount, memo: memo ?? null }],
+        feePolicy: "zip317-standard",
+        fee: 10_000,
+        total: amount + 10_000,
+        changePolicy: "zip317-shielded-auto",
+      },
+      reviewDigest: proposalCredential(proposalId, "d"),
+      confirmationToken: proposalCredential(proposalId, "c"),
     };
+    pendingProposal = proposal;
+    return proposal;
   },
   ensureSaplingParams() {
     return { ready: true };
   },
-  executeSend() {
+  executeSend(proposalId: number, reviewDigest: string, confirmationToken: string) {
+    if (
+      !pendingProposal ||
+      pendingProposal.proposalId !== proposalId ||
+      pendingProposal.reviewDigest !== reviewDigest ||
+      pendingProposal.confirmationToken !== confirmationToken
+    ) {
+      throw new Error("Send confirmation does not match the reviewed proposal");
+    }
+    pendingProposal = null;
     return {
       txid: "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5",
       status: "accepted" as const,
       message: null,
     };
+  },
+  discardSendProposal(proposalId: number, reviewDigest: string, confirmationToken: string) {
+    if (
+      !pendingProposal ||
+      pendingProposal.proposalId !== proposalId ||
+      pendingProposal.reviewDigest !== reviewDigest ||
+      pendingProposal.confirmationToken !== confirmationToken
+    ) {
+      throw new Error("Send confirmation does not match the reviewed proposal");
+    }
+    pendingProposal = null;
   },
   getPendingSend() {
     return null;

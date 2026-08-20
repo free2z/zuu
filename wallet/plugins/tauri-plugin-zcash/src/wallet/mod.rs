@@ -71,7 +71,7 @@ pub struct WalletState {
     /// and prover locks protect data; this lock protects the send state machine
     /// from two concurrent IPC requests advancing different transitions.
     pub send_operation: Arc<Mutex<()>>,
-    pub pending_proposal: Arc<Mutex<Option<(u32, WalletProposal)>>>,
+    pub pending_proposal: Arc<Mutex<Option<send::PendingProposal>>>,
     /// The exact serialized transaction produced for the most recently
     /// executed proposal. It is retained until a newer proposal is executed
     /// so an ambiguous/rejected broadcast can only retry the same bytes.

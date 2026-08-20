@@ -273,22 +273,46 @@ pub struct ProposeSendArgs {
     pub memo: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SendPaymentReview {
+    pub recipient: String,
+    pub amount: u64,
+    pub memo: Option<String>,
+}
+
+// Deliberately omit `Debug`: an encrypted memo is still private plaintext in
+// the review process and must not become convenient log material.
+#[derive(Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SendReview {
+    pub version: u32,
+    pub network: String,
+    pub payments: Vec<SendPaymentReview>,
+    pub fee_policy: String,
+    pub fee: u64,
+    pub total: u64,
+    pub change_policy: String,
+}
+
+// Deliberately omit `Debug`: the opaque confirmation token must never reach a
+// log through routine value formatting.
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendProposal {
     pub proposal_id: u32,
-    pub amount: u64,
-    pub fee: u64,
-    pub total: u64,
+    pub review: SendReview,
+    pub review_digest: String,
+    pub confirmation_token: String,
 }
 
 /// Result of broadcasting a locally-created transaction.
 ///
 /// `Unknown` is deliberately distinct from failure: once a transaction has
 /// been created, a transport error may mean the server accepted it but the
-/// response was lost. Callers may retry the same `proposal_id`; the plugin
-/// will rebroadcast the exact same transaction bytes instead of creating a
-/// second transaction.
+/// response was lost. `retry_pending_send` rebroadcasts the exact same bytes
+/// instead of creating a second transaction. The reviewed confirmation is
+/// one-use and cannot be replayed as the retry path.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum BroadcastStatus {
@@ -330,10 +354,21 @@ pub struct ProposeSendAllArgs {
     pub memo: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+// Deliberately omit `Debug`: confirmation credentials must not be loggable.
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteSendArgs {
     pub proposal_id: u32,
+    pub review_digest: String,
+    pub confirmation_token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscardSendProposalArgs {
+    pub proposal_id: u32,
+    pub review_digest: String,
+    pub confirmation_token: String,
 }
 
 #[derive(Debug, Deserialize)]
