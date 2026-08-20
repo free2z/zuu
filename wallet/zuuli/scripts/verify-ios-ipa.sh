@@ -81,6 +81,11 @@ self_test() (
   printf '\317\372\355\376\014\000\000\001' > "$fixture_app/ZUULI"
   printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>ITSAppUsesNonExemptEncryption</key><false/></dict></plist>' > "$fixture_app/Info.plist"
   printf 'fixture\n' > "$fixture_dir/expected.mobileprovision"
+  if output=$("$script_path" --expected-profile-sha256 not-a-hash "$fixture_dir/missing.ipa" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
+    fail "malformed profile-digest self-test unexpectedly passed"
+  fi
+  grep -Fq 'expected provisioning-profile SHA-256 is malformed' <<<"$output" ||
+    fail "malformed profile-digest self-test failed for the wrong reason: $output"
   fixture_ipa="$fixture_dir/missing-profile.ipa"
   (cd "$fixture_dir/root" && zip -qry "$fixture_ipa" Payload)
   if output=$("$script_path" "$fixture_ipa" "$fixture_dir/expected.mobileprovision" F9AV5HKF6N cash.free2z.zuuli 2>&1); then
@@ -250,19 +255,31 @@ if [[ "${1:-}" == --verify-app-structure ]]; then
   exit 0
 fi
 
-if [[ $# -ne 4 ]]; then
-  echo "usage: scripts/verify-ios-ipa.sh <ipa> <expected.mobileprovision> <team-id> <application-id>" >&2
+expected_profile=""
+expected_profile_sha256=""
+if [[ "${1:-}" == --expected-profile-sha256 ]]; then
+  [[ $# -eq 5 ]] || fail "--expected-profile-sha256 requires a hash, IPA, team ID, and application ID"
+  expected_profile_sha256=$2
+  ipa=$3
+  team_id=$4
+  application_id=$5
+  [[ "$expected_profile_sha256" =~ ^[0-9a-f]{64}$ ]] ||
+    fail "expected provisioning-profile SHA-256 is malformed"
+elif [[ $# -eq 4 ]]; then
+  ipa=$1
+  expected_profile=$2
+  team_id=$3
+  application_id=$4
+else
+  echo "usage: scripts/verify-ios-ipa.sh [--expected-profile-sha256 <sha256>] <ipa> <expected.mobileprovision|team-id> <team-id|application-id> [application-id]" >&2
   exit 64
 fi
 
-ipa=$1
-expected_profile=$2
-team_id=$3
-application_id=$4
-
 [[ -f "$ipa" && ! -L "$ipa" ]] || fail "IPA must be a regular, non-symlink file"
-[[ -f "$expected_profile" && ! -L "$expected_profile" ]] ||
-  fail "expected provisioning profile must be a regular, non-symlink file"
+if [[ -n "$expected_profile" ]]; then
+  [[ -f "$expected_profile" && ! -L "$expected_profile" ]] ||
+    fail "expected provisioning profile must be a regular, non-symlink file"
+fi
 [[ "$team_id" == F9AV5HKF6N ]] || fail "unexpected Apple team $team_id"
 [[ "$application_id" == cash.free2z.zuuli ]] ||
   fail "unexpected application identifier $application_id"
@@ -295,8 +312,14 @@ embedded_profile="$app/embedded.mobileprovision"
 verify_app_structure "$app"
 [[ -f "$embedded_profile" && ! -L "$embedded_profile" ]] ||
   fail "embedded provisioning profile is not a regular file"
-cmp -s "$expected_profile" "$embedded_profile" ||
-  fail "embedded provisioning profile differs from the protected input"
+if [[ -n "$expected_profile" ]]; then
+  cmp -s "$expected_profile" "$embedded_profile" ||
+    fail "embedded provisioning profile differs from the protected input"
+else
+  embedded_profile_sha256=$(shasum -a 256 "$embedded_profile" | awk '{print $1}')
+  [[ "$embedded_profile_sha256" == "$expected_profile_sha256" ]] ||
+    fail "embedded provisioning profile differs from the protected-input digest"
+fi
 
 profile_plist="$inspect_dir/profile.plist"
 security cms -D -i "$embedded_profile" > "$profile_plist" ||

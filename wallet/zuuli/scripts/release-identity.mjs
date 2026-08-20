@@ -6,6 +6,8 @@ import { dirname, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { fileURLToPath } from "node:url";
 
+import { verifyAppleCredentialBoundary } from "./apple-credential-boundary.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 const json = (path) => JSON.parse(read(path));
@@ -557,139 +559,25 @@ expect(
   // truth fails here too. scripts/check-rust-toolchain.sh holds it in step.
   "1.97.1",
 );
-for (const wiring of [
-  "IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}",
-  "ZUULI_PREFLIGHT_KEYCHAIN=$keychain",
-  'security list-keychains -d user -s "${keychains[@]}"',
-  'security delete-keychain "$ZUULI_PREFLIGHT_KEYCHAIN"',
-  "-t cert -f pkcs12",
-  "-T /usr/bin/codesign -T /usr/bin/xcodebuild",
-]) {
-  if (!releaseWorkflow.includes(wiring))
-    failures.push(`protected iOS signing-keychain wiring is missing: ${wiring}`);
-}
-expect(
-  "protected build certificate secret exposure count",
-  occurrenceCount(
-    releaseWorkflow,
-    "IOS_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}",
-  ),
-  0,
-);
-expect(
-  "protected build certificate password secret exposure count",
-  occurrenceCount(
-    releaseWorkflow,
-    "IOS_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}",
-  ),
-  0,
-);
-expect(
-  "protected certificate materialization count",
-  occurrenceCount(
-    releaseWorkflow,
-    "CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}",
-  ),
-  1,
-);
-expect(
-  "protected certificate password materialization count",
-  occurrenceCount(
-    releaseWorkflow,
-    "CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}",
-  ),
-  1,
-);
-expect(
-  "protected provisioning-profile build exposure count",
-  occurrenceCount(
-    releaseWorkflow,
-    "IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}",
-  ),
-  1,
-);
-const explicitCertificateImport = releaseWorkflow.indexOf(
-  'security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD"',
-);
-const decodedCertificateRemoval = releaseWorkflow.indexOf(
-  'rm -f -- "$files/distribution.p12" "$files/profile-certificate.der"',
-);
-const protectedIosBuild = releaseWorkflow.indexOf(
-  "      - name: Build, validate, and optionally upload",
-);
-const protectedIosCleanup = releaseWorkflow.indexOf(
-  "      - name: Destroy ephemeral Apple credentials",
-);
-if (
-  explicitCertificateImport === -1 ||
-  decodedCertificateRemoval === -1 ||
-  protectedIosBuild === -1 ||
-  protectedIosCleanup === -1 ||
-  explicitCertificateImport > decodedCertificateRemoval ||
-  decodedCertificateRemoval > protectedIosBuild ||
-  protectedIosBuild > protectedIosCleanup
-) {
-  failures.push(
-    "protected iOS release must explicitly import, remove the decoded P12, build from the keychain, then clean up",
-  );
-}
-for (const guard of [
-  "refusing duplicate iOS certificate import",
-  "refusing Tauri skip-signing path",
-  "verified ephemeral keychain is missing from the user search list",
-  "user keychain search list does not resolve the unique Corpora distribution identity",
-]) {
-  if (!mobileRelease.includes(guard))
-    failures.push(`iOS release keychain guard is missing: ${guard}`);
-}
-for (const forbiddenTauriCredential of [
-  'APPLE_API_ISSUER="$ASC_ISSUER_ID"',
-  'APPLE_API_KEY="$ASC_KEY_ID"',
-  'APPLE_API_KEY_PATH="$key_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"',
-]) {
-  if (mobileRelease.includes(forbiddenTauriCredential))
-    failures.push(
-      `Tauri must not receive App Store credentials that enable its skip-signing path: ${forbiddenTauriCredential}`,
-    );
-}
-const ipaVerification = mobileRelease.indexOf(
-  "\n  scripts/verify-ios-ipa.sh \\\n",
-);
-const appleValidation = mobileRelease.indexOf(
-  "\n    xcrun altool --validate-app",
-);
-const appleUpload = mobileRelease.indexOf("\n      xcrun altool --upload-app");
-const testFlightConvergence = mobileRelease.indexOf(
-  "\n    node scripts/asc-testflight.mjs \\",
-);
-const signingPreparation = mobileRelease.indexOf(
+for (const boundaryFailure of verifyAppleCredentialBoundary(releaseWorkflow))
+  failures.push(`Apple credential boundary: ${boundaryFailure}`);
+if (mobileRelease.includes("tauri ios build") || mobileRelease.includes("platform == ios"))
+  failures.push("mobile-release.sh must not recombine iOS credentials with dependency-controlled builds");
+for (const preservedContract of [
   "node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing",
-);
-const tauriIosBuild = mobileRelease.indexOf(
-  "./node_modules/.bin/tauri ios build",
-);
-const signingNormalization = mobileRelease.indexOf(
-  "\n  node scripts/normalize-generated-ios-project.mjs\n",
-  tauriIosBuild,
-);
-if (
-  signingPreparation === -1 ||
-  tauriIosBuild === -1 ||
-  signingNormalization === -1 ||
-  ipaVerification === -1 ||
-  appleValidation === -1 ||
-  appleUpload === -1 ||
-  testFlightConvergence === -1 ||
-  signingPreparation > tauriIosBuild ||
-  tauriIosBuild > signingNormalization ||
-  signingNormalization > ipaVerification ||
-  ipaVerification > appleValidation ||
-  ipaVerification > appleUpload ||
-  appleUpload > testFlightConvergence
-) {
-  failures.push(
-    "iOS release must prepare signing keys, build, normalize, inspect the IPA, validate, upload, then prove internal TestFlight availability",
-  );
+  "./node_modules/.bin/tauri ios build --ci --no-sign --archive-only -- --locked",
+  "node scripts/normalize-generated-ios-project.mjs",
+  "xcodebuild -exportArchive",
+  "scripts/verify-ios-ipa.sh --expected-profile-sha256",
+  "xcrun altool --validate-app",
+  "xcrun altool --upload-app",
+  "node verified-ios/asc-testflight.mjs --ensure",
+  "xcrun notarytool submit",
+  "xcrun stapler validate",
+  "node scripts/release-manifest.mjs",
+]) {
+  if (!releaseWorkflow.includes(preservedContract))
+    failures.push(`protected Apple release contract is missing: ${preservedContract}`);
 }
 for (const contract of [
   'export const ASC_APP_ID = "6799322201"',

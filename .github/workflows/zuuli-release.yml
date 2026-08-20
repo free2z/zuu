@@ -162,13 +162,15 @@ jobs:
             fi
           fi
 
-          echo "identity=$actual" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "target=$target" >> "$GITHUB_OUTPUT"
-          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
-          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
+          {
+            echo "identity=$actual"
+            echo "tag=$tag"
+            echo "tag_exists=$tag_exists"
+            echo "source_sha=$source_sha"
+            echo "target=$target"
+            echo "dry_run=$dry_run"
+            echo "should_release=$should_release"
+          } >> "$GITHUB_OUTPUT"
 
   android:
     name: Android / Play internal
@@ -321,8 +323,8 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  ios:
-    name: iOS / TestFlight
+  ios-build:
+    name: iOS / credential-free unsigned archive
     needs: prepare
     if: >-
       needs.prepare.outputs.should_release == 'true' &&
@@ -331,7 +333,6 @@ jobs:
       needs.prepare.outputs.target == 'all')
     runs-on: macos-26
     timeout-minutes: 120
-    environment: zuuli-app-stores
     permissions:
       contents: read
       id-token: write
@@ -339,11 +340,10 @@ jobs:
     defaults:
       run:
         working-directory: wallet/zuuli
+    outputs:
+      artifact_sha256: ${{ steps.unsigned.outputs.artifact_sha256 }}
+      payload_sha256: ${{ steps.unsigned.outputs.payload_sha256 }}
     env:
-      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
-      ZUULI_CONFIRM_UPLOAD: ${{ needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.identity || '' }}
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -374,157 +374,429 @@ jobs:
         with:
           shared-key: zuuli-release-ios-device-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device
           save: "false"
+      - name: Prove Apple credentials are absent before dependency code
+        run: scripts/assert-no-apple-credentials.sh
       - run: npm ci
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
-      - name: Materialize ephemeral Apple credentials
+      - name: Reverify exact release source
+        run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main
+      - name: Build source-bound unsigned archive
+        id: unsigned
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing
+          ./node_modules/.bin/tauri ios build --ci --no-sign --archive-only -- --locked
+          node scripts/normalize-generated-ios-project.mjs
+          git diff --exit-code
+          archives=(src-tauri/gen/apple/build/arm64/*.xcarchive)
+          [[ ${#archives[@]} -eq 1 && -d "${archives[0]}" ]]
+          mkdir unsigned-ios
+          ditto -c -k --sequesterRsrc --keepParent "${archives[0]}" unsigned-ios/ZUULI.xcarchive.zip
+          cat > unsigned-ios/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>destination</key><string>export</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>method</key><string>app-store-connect</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>teamID</key><string>F9AV5HKF6N</string>
+            <key>provisioningProfiles</key><dict>
+              <key>cash.free2z.zuuli</key><string>ZUULI App Store CI</string>
+            </dict>
+          </dict></plist>
+          PLIST
+          version=${RELEASE_IDENTITY%+*}
+          build=${RELEASE_IDENTITY#*+}
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg version "$version" --arg build "$build" \
+            '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,version:$version,build:$build,kind:"ios-unsigned-xcarchive"}' \
+            > unsigned-ios/source-record.json
+          (cd unsigned-ios && shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256)
+          artifact_sha256=$(shasum -a 256 unsigned-ios/ZUULI.xcarchive.zip | awk '{print $1}')
+          payload_sha256=$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
+      - name: Prove Apple credentials remained absent through the build
+        run: scripts/assert-no-apple-credentials.sh
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/zuuli/unsigned-ios/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/unsigned-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-sign:
+    name: iOS / system export and signing
+    needs: [prepare, ios-build]
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      needs.ios-build.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 30
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_sha256: ${{ steps.sign.outputs.artifact_sha256 }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: unsigned-ios
+      - name: Verify source-bound artifact
+        env:
+          EXPECTED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.ios-build.outputs.payload_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          expected_members=$(printf '%s\n' \
+            ./CHECKSUMS.sha256 ./ExportOptions.plist ./ZUULI.xcarchive.zip ./source-record.json | LC_ALL=C sort)
+          actual_members=$(cd unsigned-ios && find . -mindepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]]
+          for member in CHECKSUMS.sha256 ExportOptions.plist ZUULI.xcarchive.zip source-record.json; do
+            [[ -f "unsigned-ios/$member" && ! -L "unsigned-ios/$member" ]]
+          done
+          test "$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          test "$(shasum -a 256 unsigned-ios/ZUULI.xcarchive.zip | awk '{print $1}')" = "$EXPECTED_ARCHIVE_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
+            '.schemaVersion == 1 and .kind == "ios-unsigned-xcarchive" and .identity == $identity and .sourceSha == $source' \
+            unsigned-ios/source-record.json
+          # The attested canonical manifest and its build-job output bind every
+          # unsigned payload member, including ExportOptions.plist.
+          gh attestation verify unsigned-ios/CHECKSUMS.sha256 --repo "$GITHUB_REPOSITORY"
+          mkdir archive-root
+          ditto -x -k unsigned-ios/ZUULI.xcarchive.zip archive-root
+          archives=(archive-root/*.xcarchive)
+          [[ ${#archives[@]} -eq 1 && -d "${archives[0]}" ]]
+          echo "ZUULI_UNSIGNED_ARCHIVE=${archives[0]}" >> "$GITHUB_ENV"
+      - name: Materialize, export, and destroy ephemeral iOS signing credential
+        id: sign
         env:
           CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
-          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
           PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          UNSIGNED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
         run: |
           set -euo pipefail
+          umask 077
           : "${CERTIFICATE_BASE64:?APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is not configured}"
           : "${CERTIFICATE_PASSWORD:?APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD is not configured}"
-          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
           : "${PROVISIONING_PROFILE_BASE64:?APPLE_PROVISIONING_PROFILE_BASE64 is not configured}"
-          : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is not configured}"
-          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
-          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
-          files=$(mktemp -d "$RUNNER_TEMP/zuuli-apple.XXXXXX")
-          chmod 700 "$files"
-          files=$(CDPATH= cd -P -- "$files" && pwd)
-          echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
-          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$files/distribution.p12"
-          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$files/AuthKey.p8"
-          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$files/zuuli.mobileprovision"
-          test -s "$files/distribution.p12"
-          test -s "$files/AuthKey.p8"
-          test -s "$files/zuuli.mobileprovision"
-          original_keychains="$files/original-user-keychains.txt"
-          security list-keychains -d user |
-            sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' > "$original_keychains"
-          [[ -s "$original_keychains" ]] || {
-            echo "user keychain search list is unexpectedly empty" >&2
-            exit 1
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-ios-sign.XXXXXX")
+          keychain="$secret_dir/release.keychain-db"
+          original_keychains_file="$secret_dir/original-keychains.txt"
+          cleanup_failed="$RUNNER_TEMP/zuuli-ios-sign-cleanup-failed"
+          profile_path=""
+          rm -f -- "$cleanup_failed"
+          security list-keychains -d user | sed -E 's/^[[:space:]]*"([^"]+)"[[:space:]]*$/\1/' > "$original_keychains_file"
+          test -s "$original_keychains_file"
+          cleanup() {
+            set +e
+            cleanup_status=0
+            if [[ -n "$profile_path" ]] && ! rm -f -- "$profile_path"; then cleanup_status=1; fi
+            original_keychains=()
+            while IFS= read -r original_keychain; do
+              [[ -z "$original_keychain" ]] || original_keychains+=("$original_keychain")
+            done < "$original_keychains_file"
+            [[ ${#original_keychains[@]} -gt 0 ]] || cleanup_status=1
+            [[ ${#original_keychains[@]} -eq 0 ]] || security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=1
+            [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || cleanup_status=1
+            find "$secret_dir" -depth -delete || cleanup_status=1
+            [[ "$cleanup_status" -eq 0 ]] || : > "$cleanup_failed"
+            return 0
           }
-          keychain="$files/release.keychain-db"
-          keychain_password=$(openssl rand -hex 24)
-          echo "ZUULI_PREFLIGHT_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-          echo "ZUULI_ORIGINAL_KEYCHAIN_LIST=$original_keychains" >> "$GITHUB_ENV"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$files/distribution.p12" -P "$CERTIFICATE_PASSWORD" \
-            -t cert -f pkcs12 \
-            -T /usr/bin/codesign -T /usr/bin/xcodebuild \
-            -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
-          keychains=("$keychain")
-          while IFS= read -r existing_keychain; do
-            [[ -z "$existing_keychain" ]] || keychains+=("$existing_keychain")
-          done < "$original_keychains"
-          security list-keychains -d user -s "${keychains[@]}"
-          identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -Fc 'Apple Distribution: Corpora Inc (F9AV5HKF6N)' || true)
-          [[ "$identity_count" -eq 1 ]] || {
-            echo "expected exactly one dedicated Corpora Apple Distribution identity" >&2
-            exit 1
-          }
-          searchable_distribution_count=$(security find-identity -v -p codesigning |
-            grep -Fc 'Apple Distribution:' || true)
-          searchable_identity_count=$(security find-identity -v -p codesigning |
-            grep -Fc 'Apple Distribution: Corpora Inc (F9AV5HKF6N)' || true)
-          [[ "$searchable_distribution_count" -eq 1 && "$searchable_identity_count" -eq 1 ]] || {
-            echo "user keychain search list does not resolve the unique Corpora distribution identity" >&2
-            exit 1
-          }
-          identity_sha=$(security find-identity -v -p codesigning "$keychain" | awk '/Apple Distribution: Corpora Inc/ {print $2; exit}')
-          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]] || {
-            echo "dedicated Corpora Apple Distribution identity was not imported" >&2
-            exit 1
-          }
-
-          security cms -D -i "$files/zuuli.mobileprovision" > "$files/profile.plist"
-          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$files/profile.plist")
-          profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$files/profile.plist")
-          profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$files/profile.plist")
-          profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$files/profile.plist")
+          trap cleanup EXIT
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$secret_dir/distribution.p12"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$secret_dir/zuuli.mobileprovision"
+          test -s "$secret_dir/distribution.p12"
+          test -s "$secret_dir/zuuli.mobileprovision"
+          security cms -D -i "$secret_dir/zuuli.mobileprovision" > "$secret_dir/profile.plist"
+          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$secret_dir/profile.plist")
+          profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$secret_dir/profile.plist")
+          profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$secret_dir/profile.plist")
+          profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$secret_dir/profile.plist")
           [[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]]
           [[ "$profile_name" == 'ZUULI App Store CI' ]]
           [[ "$profile_team" == F9AV5HKF6N ]]
           [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]]
+          keychain_password=$(openssl rand -hex 24)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$secret_dir/distribution.p12" -P "$CERTIFICATE_PASSWORD" -t cert -f pkcs12 \
+            -T /usr/bin/codesign -T /usr/bin/xcodebuild -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          identity_sha=$(security find-identity -v -p codesigning "$keychain" | awk '/Apple Distribution: Corpora Inc/ {print $2; exit}')
+          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]]
           profile_authorizes_identity=false
           certificate_index=0
-          while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$files/profile.plist" 2>/dev/null); do
-            printf '%s' "$certificate_base64" | base64 --decode > "$files/profile-certificate.der"
-            profile_sha=$(openssl x509 -inform DER -in "$files/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
-            if [[ "$profile_sha" == "$identity_sha" ]]; then
-              profile_authorizes_identity=true
-              break
-            fi
+          while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$secret_dir/profile.plist" 2>/dev/null); do
+            printf '%s' "$certificate_base64" | base64 --decode > "$secret_dir/profile-certificate.der"
+            profile_sha=$(openssl x509 -inform DER -in "$secret_dir/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+            [[ "$profile_sha" != "$identity_sha" ]] || profile_authorizes_identity=true
             certificate_index=$((certificate_index + 1))
           done
-          [[ "$profile_authorizes_identity" == true ]] || {
-            echo "provisioning profile is not linked to the imported distribution certificate" >&2
-            exit 1
-          }
-          rm -f -- "$files/distribution.p12" "$files/profile-certificate.der"
+          [[ "$profile_authorizes_identity" == true ]]
           profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$profile_dir"
-          cp "$files/zuuli.mobileprovision" "$profile_dir/$profile_uuid.mobileprovision"
-          echo "ASC_KEY_PATH=$files/AuthKey.p8" >> "$GITHUB_ENV"
-          echo "ZUULI_PROFILE_PATH=$profile_dir/$profile_uuid.mobileprovision" >> "$GITHUB_ENV"
-      - name: Build, validate, and optionally upload
-        env:
-          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
-          IOS_MOBILE_PROVISION: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [[ "$DRY_RUN" == false ]]; then
-            scripts/mobile-release.sh ios --upload
-          else
-            scripts/mobile-release.sh ios
-          fi
-      - name: Destroy ephemeral Apple credentials
+          profile_candidate="$profile_dir/$profile_uuid.mobileprovision"
+          [[ ! -e "$profile_candidate" ]]
+          profile_path="$profile_candidate"
+          cp "$secret_dir/zuuli.mobileprovision" "$profile_path"
+          mkdir signed-export signed-ios
+          xcodebuild -exportArchive \
+            -archivePath "$ZUULI_UNSIGNED_ARCHIVE" \
+            -exportPath signed-export \
+            -exportOptionsPlist unsigned-ios/ExportOptions.plist
+          ipas=(signed-export/*.ipa)
+          [[ ${#ipas[@]} -eq 1 && -f "${ipas[0]}" ]]
+          archive_listing=$(/usr/bin/unzip -Z1 "${ipas[0]}")
+          embedded=$(awk -F/ '$1 == "Payload" && $2 ~ /\.app$/ && $3 == "embedded.mobileprovision" {print; exit}' <<<"$archive_listing")
+          [[ -n "$embedded" ]]
+          /usr/bin/unzip -p "${ipas[0]}" "$embedded" > "$secret_dir/embedded.mobileprovision"
+          cmp -s "$secret_dir/zuuli.mobileprovision" "$secret_dir/embedded.mobileprovision"
+          cp "${ipas[0]}" "signed-ios/ZUULI-${RELEASE_IDENTITY}-ios.ipa"
+          ipa_sha256=$(shasum -a 256 "signed-ios/ZUULI-${RELEASE_IDENTITY}-ios.ipa" | awk '{print $1}')
+          profile_sha256=$(shasum -a 256 "$secret_dir/zuuli.mobileprovision" | awk '{print $1}')
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg unsignedArchiveSha256 "$UNSIGNED_ARCHIVE_SHA256" --arg ipaSha256 "$ipa_sha256" \
+            --arg profileSha256 "$profile_sha256" --arg signerSha1 "$identity_sha" \
+            '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,kind:"ios-signed-ipa",unsignedArchiveSha256:$unsignedArchiveSha256,ipaSha256:$ipaSha256,profileSha256:$profileSha256,signerSha1:$signerSha1}' \
+            > signed-ios/signing-record.json
+          (cd signed-ios && shasum -a 256 ./* > CHECKSUMS.sha256)
+          artifact_sha256=$(shasum -a 256 "signed-ios/ZUULI-${RELEASE_IDENTITY}-ios.ipa" | awk '{print $1}')
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+      - name: Destroy ephemeral iOS signing credential
         if: always()
         run: |
-          set -u
-          cleanup_failed=0
-          if [[ -n "${ZUULI_ORIGINAL_KEYCHAIN_LIST:-}" && -s "$ZUULI_ORIGINAL_KEYCHAIN_LIST" ]]; then
-            original_keychains=()
-            while IFS= read -r existing_keychain; do
-              [[ -z "$existing_keychain" ]] || original_keychains+=("$existing_keychain")
-            done < "$ZUULI_ORIGINAL_KEYCHAIN_LIST"
-            if [[ ${#original_keychains[@]} -gt 0 ]]; then
-              security list-keychains -d user -s "${original_keychains[@]}" || cleanup_failed=1
-            else
-              echo "recorded user keychain search list is empty" >&2
-              cleanup_failed=1
-            fi
-          elif [[ -n "${ZUULI_PREFLIGHT_KEYCHAIN:-}" ]]; then
-            echo "cannot restore the original user keychain search list" >&2
-            cleanup_failed=1
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-ios-sign.*' -print -quit | grep -q .; then
+            echo "ephemeral iOS signing directory survived cleanup" >&2
+            exit 1
           fi
-          if [[ -n "${ZUULI_PREFLIGHT_KEYCHAIN:-}" && -e "$ZUULI_PREFLIGHT_KEYCHAIN" ]]; then
-            security delete-keychain "$ZUULI_PREFLIGHT_KEYCHAIN" || cleanup_failed=1
+          if security list-keychains -d user | grep -Fq 'zuuli-ios-sign.'; then
+            echo "ephemeral iOS signing keychain survived cleanup" >&2
+            exit 1
           fi
-          if [[ -n "${ZUULI_PROFILE_PATH:-}" ]]; then
-            rm -f -- "$ZUULI_PROFILE_PATH" || cleanup_failed=1
+          if [[ -e "$HOME/Library/MobileDevice/Provisioning Profiles/e5ead62c-83ec-4e54-abb6-4770833b5e0d.mobileprovision" ]]; then
+            echo "ephemeral iOS provisioning profile survived cleanup" >&2
+            exit 1
           fi
-          if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
-            find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} + || cleanup_failed=1
-            rmdir "$ZUULI_SECRET_DIR" || cleanup_failed=1
+          if [[ -e "$RUNNER_TEMP/zuuli-ios-sign-cleanup-failed" ]]; then
+            echo "iOS signing credential cleanup or keychain restoration failed" >&2
+            exit 1
           fi
-          [[ -z "${ZUULI_PREFLIGHT_KEYCHAIN:-}" || ! -e "$ZUULI_PREFLIGHT_KEYCHAIN" ]] || cleanup_failed=1
-          [[ -z "${ZUULI_PROFILE_PATH:-}" || ! -e "$ZUULI_PROFILE_PATH" ]] || cleanup_failed=1
-          [[ -z "${ZUULI_SECRET_DIR:-}" || ! -e "$ZUULI_SECRET_DIR" ]] || cleanup_failed=1
-          if [[ -n "${ZUULI_PREFLIGHT_KEYCHAIN:-}" ]] &&
-            security list-keychains -d user | grep -Fq "$ZUULI_PREFLIGHT_KEYCHAIN"; then
-            echo "ephemeral release keychain remains in the user search list" >&2
-            cleanup_failed=1
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: signed-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-verify:
+    name: iOS / credential-free signed artifact verification
+    needs: [prepare, ios-sign]
+    if: needs.ios-sign.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      artifact_sha256: ${{ steps.verify.outputs.artifact_sha256 }}
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-ios-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/signed-ios
+      - name: Verify signed IPA and prepare upload payload
+        id: verify
+        env:
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_IPA_SHA256: ${{ needs.ios-sign.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          (cd signed-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_IPA_SHA256" \
+            '.schemaVersion == 1 and .kind == "ios-signed-ipa" and .identity == $identity and .sourceSha == $source and .ipaSha256 == $sha' \
+            signed-ios/signing-record.json
+          ipa="signed-ios/ZUULI-${EXPECTED_IDENTITY}-ios.ipa"
+          profile_sha=$(jq -er .profileSha256 signed-ios/signing-record.json)
+          scripts/verify-ios-ipa.sh --expected-profile-sha256 "$profile_sha" "$ipa" F9AV5HKF6N cash.free2z.zuuli
+          mkdir verified-ios
+          cp "$ipa" signed-ios/signing-record.json scripts/asc-testflight.mjs verified-ios/
+          (cd verified-ios && shasum -a 256 ./* > CHECKSUMS.sha256)
+          artifact_sha256=$(shasum -a 256 "$ipa" | awk '{print $1}')
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/zuuli/verified-ios/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/verified-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-upload:
+    name: iOS / App Store validation and TestFlight
+    needs: [prepare, ios-verify]
+    if: needs.ios-verify.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      payload_sha256: ${{ steps.upload.outputs.payload_sha256 }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: verified-ios
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - name: Verify source-bound artifact
+        env:
+          EXPECTED_IPA_SHA256: ${{ needs.ios-verify.outputs.artifact_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd verified-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          ipa="verified-ios/ZUULI-${EXPECTED_IDENTITY}-ios.ipa"
+          expected_members=$(printf '%s\n' \
+            ./CHECKSUMS.sha256 "./ZUULI-${EXPECTED_IDENTITY}-ios.ipa" \
+            ./asc-testflight.mjs ./signing-record.json | LC_ALL=C sort)
+          actual_members=$(cd verified-ios && find . -mindepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]]
+          for member in CHECKSUMS.sha256 "ZUULI-${EXPECTED_IDENTITY}-ios.ipa" asc-testflight.mjs signing-record.json; do
+            [[ -f "verified-ios/$member" && ! -L "verified-ios/$member" ]]
+          done
+          test "$(shasum -a 256 "$ipa" | awk '{print $1}')" = "$EXPECTED_IPA_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
+            '.identity == $identity and .sourceSha == $source' verified-ios/signing-record.json
+          gh attestation verify "$ipa" --repo "$GITHUB_REPOSITORY"
+          gh attestation verify verified-ios/asc-testflight.mjs --repo "$GITHUB_REPOSITORY"
+      - name: Materialize, upload, reconcile, and destroy ephemeral ASC credential
+        id: upload
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-ios-asc.XXXXXX")
+          cleanup() { find "$secret_dir" -depth -delete 2>/dev/null || true; }
+          trap cleanup EXIT
+          mkdir "$secret_dir/private_keys"
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$secret_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          test -s "$secret_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          ipa="$GITHUB_WORKSPACE/verified-ios/ZUULI-${RELEASE_IDENTITY}-ios.ipa"
+          (cd "$secret_dir" && xcrun altool --validate-app --type ios --file "$ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID")
+          mkdir uploaded-ios
+          cp verified-ios/* uploaded-ios/
+          if [[ "$DRY_RUN" == false ]]; then
+            (cd "$secret_dir" && xcrun altool --upload-app --type ios --file "$ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID")
+            version=${RELEASE_IDENTITY%+*}
+            build=${RELEASE_IDENTITY#*+}
+            ASC_KEY_PATH="$secret_dir/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+              node verified-ios/asc-testflight.mjs --ensure "--version=$version" "--build=$build" \
+                --output=uploaded-ios/testflight.json
           fi
-          exit "$cleanup_failed"
+          find uploaded-ios -name CHECKSUMS.sha256 -delete
+          (cd uploaded-ios && shasum -a 256 ./* > CHECKSUMS.sha256)
+          payload_sha256=$(shasum -a 256 uploaded-ios/CHECKSUMS.sha256 | awk '{print $1}')
+          echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
+      - name: Destroy ephemeral ASC credential
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-ios-asc.*' -print -quit | grep -q .; then
+            echo "ephemeral ASC credential directory survived cleanup" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-ios-uploaded-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: uploaded-ios
+          if-no-files-found: error
+          retention-days: 1
+
+  ios-finalize:
+    name: iOS / credential-free shipped-artifact provenance
+    needs: [prepare, ios-upload]
+    if: needs.ios-upload.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-ios-uploaded-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/uploaded-ios
+      - name: Verify uploaded payload and collect shipped artifact
+        env:
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.ios-upload.outputs.payload_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          set -euo pipefail
+          test "$(shasum -a 256 uploaded-ios/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd uploaded-ios && shasum -a 256 -c CHECKSUMS.sha256)
+          mkdir release-artifacts
+          cp "uploaded-ios/ZUULI-${EXPECTED_IDENTITY}-ios.ipa" uploaded-ios/signing-record.json release-artifacts/
+          [[ ! -f uploaded-ios/testflight.json ]] || cp uploaded-ios/testflight.json release-artifacts/
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
@@ -536,7 +808,7 @@ jobs:
       - name: Record checksums and provenance
         run: |
           jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-ios.sbom.cdx.json
-          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+          node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: wallet/zuuli/release-artifacts/*
@@ -645,8 +917,8 @@ jobs:
             retention-days: 90,
           }
 
-  macos:
-    name: macOS universal signed and notarized
+  macos-build:
+    name: macOS / credential-free unsigned packages
     needs: prepare
     if: >-
       needs.prepare.outputs.should_release == 'true' &&
@@ -654,7 +926,6 @@ jobs:
       needs.prepare.outputs.target == 'all')
     runs-on: macos-26
     timeout-minutes: 120
-    environment: zuuli-app-stores
     permissions:
       contents: read
       id-token: write
@@ -662,10 +933,10 @@ jobs:
     defaults:
       run:
         working-directory: wallet/zuuli
+    outputs:
+      artifact_sha256: ${{ steps.unsigned.outputs.artifact_sha256 }}
+      payload_sha256: ${{ steps.unsigned.outputs.payload_sha256 }}
     env:
-      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_DEVELOPER_ID_IDENTITY }}
-      APPLE_API_ISSUER: ${{ vars.ASC_ISSUER_ID }}
-      APPLE_API_KEY: ${{ vars.ASC_KEY_ID }}
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -700,83 +971,404 @@ jobs:
         with:
           shared-key: zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64
           save: "false"
+      - name: Prove Apple credentials are absent before dependency code
+        run: scripts/assert-no-apple-credentials.sh
       - run: npm ci
       - name: Reverify exact release source
         run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
-      - name: Build unsigned universal packages without Apple credentials
-        if: needs.prepare.outputs.dry_run == 'true'
+      - name: Build source-bound unsigned universal packages
+        id: unsigned
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           set -euo pipefail
           unset APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH
-          ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles app,dmg -- --locked
+          ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles app,dmg --no-sign -- --locked
           git diff --exit-code
-      - name: Build signed and notarized universal packages
-        if: needs.prepare.outputs.dry_run == 'false'
+          apps=(src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app)
+          dmgs=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
+          [[ ${#dmgs[@]} -eq 1 && -f "${dmgs[0]}" ]]
+          mkdir unsigned-macos
+          ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" unsigned-macos/ZUULI.app.zip
+          cp "${dmgs[0]}" unsigned-macos/ZUULI-layout.dmg
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,kind:"macos-unsigned-app-and-layout"}' \
+            > unsigned-macos/source-record.json
+          (cd unsigned-macos && shasum -a 256 ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256)
+          artifact_sha256=$(shasum -a 256 unsigned-macos/ZUULI.app.zip | awk '{print $1}')
+          payload_sha256=$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
+      - name: Prove Apple credentials remained absent through the build
+        run: scripts/assert-no-apple-credentials.sh
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: wallet/zuuli/unsigned-macos/*
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-macos-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/unsigned-macos
+          if-no-files-found: error
+          retention-days: 1
+
+  macos-sign:
+    name: macOS / system signing and notarization
+    needs: [prepare, macos-build]
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      needs.macos-build.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_DEVELOPER_ID_IDENTITY }}
+      ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-macos-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: unsigned-macos
+      - name: Verify source-bound artifact
+        env:
+          EXPECTED_APP_SHA256: ${{ needs.macos-build.outputs.artifact_sha256 }}
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.macos-build.outputs.payload_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_APP_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          expected_members=$(printf '%s\n' \
+            ./CHECKSUMS.sha256 ./ZUULI-layout.dmg ./ZUULI.app.zip ./source-record.json | LC_ALL=C sort)
+          actual_members=$(cd unsigned-macos && find . -mindepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]]
+          for member in CHECKSUMS.sha256 ZUULI-layout.dmg ZUULI.app.zip source-record.json; do
+            [[ -f "unsigned-macos/$member" && ! -L "unsigned-macos/$member" ]]
+          done
+          test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)
+          test "$(shasum -a 256 unsigned-macos/ZUULI.app.zip | awk '{print $1}')" = "$EXPECTED_APP_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
+            '.schemaVersion == 1 and .kind == "macos-unsigned-app-and-layout" and .identity == $identity and .sourceSha == $source' \
+            unsigned-macos/source-record.json
+          # The attested canonical manifest and its build-job output bind both
+          # the app archive and the creator-controlled shipping layout DMG.
+          gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo "$GITHUB_REPOSITORY"
+          mkdir signing-work
+          ditto -x -k unsigned-macos/ZUULI.app.zip signing-work
+          apps=(signing-work/*.app)
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
+          echo "ZUULI_SIGNED_APP=${apps[0]}" >> "$GITHUB_ENV"
+      - name: Materialize, sign app, and destroy ephemeral Developer ID credential
         env:
           CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
         run: |
           set -euo pipefail
+          umask 077
           : "${APPLE_SIGNING_IDENTITY:?APPLE_DEVELOPER_ID_IDENTITY is not configured}"
           : "${CERTIFICATE_BASE64:?APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 is not configured}"
           : "${CERTIFICATE_PASSWORD:?APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD is not configured}"
-          : "${APPLE_API_ISSUER:?ASC_ISSUER_ID is not configured}"
-          : "${APPLE_API_KEY:?ASC_KEY_ID is not configured}"
-          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
-          files=$(mktemp -d "$RUNNER_TEMP/zuuli-notary.XXXXXX")
-          chmod 700 "$files"
-          keychain="$files/notary.keychain-db"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-macos-app-sign.XXXXXX")
+          keychain="$secret_dir/signing.keychain-db"
+          original_keychains_file="$secret_dir/original-keychains.txt"
+          cleanup_failed="$RUNNER_TEMP/zuuli-macos-app-sign-cleanup-failed"
           keychain_password=$(openssl rand -hex 24)
+          rm -f -- "$cleanup_failed"
+          security list-keychains -d user | sed -E 's/^[[:space:]]*"([^"]+)"[[:space:]]*$/\1/' > "$original_keychains_file"
+          test -s "$original_keychains_file"
           cleanup() {
-            security delete-keychain "$keychain" 2>/dev/null || true
-            find "$files" -type f -exec rm -f -- {} +
-            rmdir "$files"
+            set +e
+            cleanup_status=0
+            original_keychains=()
+            while IFS= read -r original_keychain; do
+              [[ -z "$original_keychain" ]] || original_keychains+=("$original_keychain")
+            done < "$original_keychains_file"
+            [[ ${#original_keychains[@]} -gt 0 ]] || cleanup_status=1
+            [[ ${#original_keychains[@]} -eq 0 ]] || security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=1
+            [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || cleanup_status=1
+            find "$secret_dir" -depth -delete || cleanup_status=1
+            [[ "$cleanup_status" -eq 0 ]] || : > "$cleanup_failed"
+            return 0
           }
           trap cleanup EXIT
-          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$files/developer-id.p12"
-          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$files/AuthKey.p8"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$secret_dir/developer-id.p12"
           security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$files/developer-id.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security import "$secret_dir/developer-id.p12" -P "$CERTIFICATE_PASSWORD" -t cert -f pkcs12 \
+            -T /usr/bin/codesign -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain"
           identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true)
-          [[ "$identity_count" -eq 1 ]] || {
-            echo "expected exactly one configured Developer ID identity" >&2
-            exit 1
-          }
-          export APPLE_API_KEY_PATH="$files/AuthKey.p8"
-          ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles app,dmg -- --locked
-          git diff --exit-code
-      - name: Collect packages
-        run: |
-          mkdir release-artifacts
-          find src-tauri/target -path '*/release/bundle/*' -type f -name '*.dmg' -exec cp {} release-artifacts/ \;
-          app=$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print -quit)
-          test -n "$app"
-          ditto -c -k --keepParent "$app" release-artifacts/ZUULI-macos-universal.zip
-      - name: Verify Developer ID signature and notarization
-        if: needs.prepare.outputs.dry_run == 'false'
+          [[ "$identity_count" -eq 1 ]]
+          codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$ZUULI_SIGNED_APP"
+          codesign --verify --deep --strict --verbose=2 "$ZUULI_SIGNED_APP"
+      - name: Destroy ephemeral app-signing credential
+        if: always()
         run: |
           set -euo pipefail
-          apps=()
-          while IFS= read -r -d '' path; do apps+=("$path"); done < <(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print0)
-          [[ "${#apps[@]}" -eq 1 ]] || { echo "expected one macOS app, found ${#apps[@]}" >&2; exit 1; }
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-macos-app-sign.*' -print -quit | grep -q .; then
+            echo "ephemeral app-signing directory survived cleanup" >&2
+            exit 1
+          fi
+          if security list-keychains -d user | grep -Fq 'zuuli-macos-app-sign.'; then
+            echo "ephemeral app-signing keychain survived cleanup" >&2
+            exit 1
+          fi
+          if [[ -e "$RUNNER_TEMP/zuuli-macos-app-sign-cleanup-failed" ]]; then
+            echo "app-signing credential cleanup or keychain restoration failed" >&2
+            exit 1
+          fi
+      - name: Materialize, notarize app, and destroy ephemeral ASC credential
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-macos-app-notary.XXXXXX")
+          cleanup() { find "$secret_dir" -depth -delete 2>/dev/null || true; }
+          trap cleanup EXIT
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$secret_dir/AuthKey.p8"
+          ditto -c -k --keepParent "$ZUULI_SIGNED_APP" "$secret_dir/ZUULI.app.zip"
+          xcrun notarytool submit "$secret_dir/ZUULI.app.zip" --wait \
+            --key "$secret_dir/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID"
+          xcrun stapler staple "$ZUULI_SIGNED_APP"
+          xcrun stapler validate "$ZUULI_SIGNED_APP"
+      - name: Destroy ephemeral app-notarization credential
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-macos-app-notary.*' -print -quit | grep -q .; then
+            echo "ephemeral app-notarization directory survived cleanup" >&2
+            exit 1
+          fi
+      - name: Materialize, create and sign DMG, and destroy ephemeral Developer ID credential
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${APPLE_SIGNING_IDENTITY:?APPLE_DEVELOPER_ID_IDENTITY is not configured}"
+          : "${CERTIFICATE_BASE64:?APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 is not configured}"
+          : "${CERTIFICATE_PASSWORD:?APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-macos-dmg-sign.XXXXXX")
+          keychain="$secret_dir/signing.keychain-db"
+          original_keychains_file="$secret_dir/original-keychains.txt"
+          cleanup_failed="$RUNNER_TEMP/zuuli-macos-dmg-sign-cleanup-failed"
+          mountpoint="$secret_dir/mount"
+          mounted=false
+          rm -f -- "$cleanup_failed"
+          security list-keychains -d user | sed -E 's/^[[:space:]]*"([^"]+)"[[:space:]]*$/\1/' > "$original_keychains_file"
+          test -s "$original_keychains_file"
+          cleanup() {
+            set +e
+            cleanup_status=0
+            if [[ "$mounted" == true ]] && ! hdiutil detach "$mountpoint" -force >/dev/null; then cleanup_status=1; fi
+            original_keychains=()
+            while IFS= read -r original_keychain; do
+              [[ -z "$original_keychain" ]] || original_keychains+=("$original_keychain")
+            done < "$original_keychains_file"
+            [[ ${#original_keychains[@]} -gt 0 ]] || cleanup_status=1
+            [[ ${#original_keychains[@]} -eq 0 ]] || security list-keychains -d user -s "${original_keychains[@]}" || cleanup_status=1
+            [[ ! -e "$keychain" ]] || security delete-keychain "$keychain" || cleanup_status=1
+            find "$secret_dir" -depth -delete || cleanup_status=1
+            [[ "$cleanup_status" -eq 0 ]] || : > "$cleanup_failed"
+            return 0
+          }
+          trap cleanup EXIT
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$secret_dir/developer-id.p12"
+          keychain_password=$(openssl rand -hex 24)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 1800 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$secret_dir/developer-id.p12" -P "$CERTIFICATE_PASSWORD" -t cert -f pkcs12 \
+            -T /usr/bin/codesign -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain"
+          [[ $(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true) -eq 1 ]]
+          hdiutil convert unsigned-macos/ZUULI-layout.dmg -format UDRW -o "$secret_dir/rewritable.dmg" >/dev/null
+          image_bytes=$(stat -f %z "$secret_dir/rewritable.dmg")
+          image_megabytes=$(( (image_bytes + 1048575) / 1048576 + 64 ))
+          hdiutil resize -size "${image_megabytes}m" "$secret_dir/rewritable.dmg" >/dev/null
+          mkdir "$mountpoint"
+          hdiutil attach "$secret_dir/rewritable.dmg" -readwrite -nobrowse -mountpoint "$mountpoint" >/dev/null
+          mounted=true
+          [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]]
+          find "$mountpoint/ZUULI.app" -depth -delete
+          ditto "$ZUULI_SIGNED_APP" "$mountpoint/ZUULI.app"
+          hdiutil detach "$mountpoint" >/dev/null
+          mounted=false
+          mkdir signed-macos
+          hdiutil convert "$secret_dir/rewritable.dmg" -format UDZO -imagekey zlib-level=9 \
+            -o "signed-macos/ZUULI-${RELEASE_IDENTITY}-macos.dmg" >/dev/null
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "signed-macos/ZUULI-${RELEASE_IDENTITY}-macos.dmg"
+          codesign --verify --verbose=2 "signed-macos/ZUULI-${RELEASE_IDENTITY}-macos.dmg"
+      - name: Destroy ephemeral DMG-signing credential
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-macos-dmg-sign.*' -print -quit | grep -q .; then
+            echo "ephemeral DMG-signing directory survived cleanup" >&2
+            exit 1
+          fi
+          if security list-keychains -d user | grep -Fq 'zuuli-macos-dmg-sign.'; then
+            echo "ephemeral DMG-signing keychain survived cleanup" >&2
+            exit 1
+          fi
+          if hdiutil info | grep -Fq 'zuuli-macos-dmg-sign.'; then
+            echo "ephemeral DMG-signing image remained mounted after cleanup" >&2
+            exit 1
+          fi
+          if [[ -e "$RUNNER_TEMP/zuuli-macos-dmg-sign-cleanup-failed" ]]; then
+            echo "DMG-signing credential cleanup or keychain restoration failed" >&2
+            exit 1
+          fi
+      - name: Materialize, notarize DMG, and destroy ephemeral ASC credential
+        id: package
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          UNSIGNED_APP_SHA256: ${{ needs.macos-build.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${ASC_KEY_BASE64:?ASC_KEY_BASE64 is not configured}"
+          : "${ASC_KEY_ID:?ASC_KEY_ID is not configured}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-macos-dmg-notary.XXXXXX")
+          cleanup() { find "$secret_dir" -depth -delete 2>/dev/null || true; }
+          trap cleanup EXIT
+          printf '%s' "$ASC_KEY_BASE64" | base64 --decode > "$secret_dir/AuthKey.p8"
+          dmg="signed-macos/ZUULI-${RELEASE_IDENTITY}-macos.dmg"
+          xcrun notarytool submit "$dmg" --wait \
+            --key "$secret_dir/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID"
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          ditto -c -k --sequesterRsrc --keepParent "$ZUULI_SIGNED_APP" \
+            "signed-macos/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip"
+          app_sha256=$(shasum -a 256 "signed-macos/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" | awk '{print $1}')
+          dmg_sha256=$(shasum -a 256 "$dmg" | awk '{print $1}')
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg unsignedAppSha256 "$UNSIGNED_APP_SHA256" --arg appSha256 "$app_sha256" --arg dmgSha256 "$dmg_sha256" \
+            '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,kind:"macos-signed-notarized",unsignedAppSha256:$unsignedAppSha256,appSha256:$appSha256,dmgSha256:$dmgSha256}' \
+            > signed-macos/signing-record.json
+          (cd signed-macos && shasum -a 256 ./* > CHECKSUMS.sha256)
+          artifact_sha256=$(shasum -a 256 signed-macos/CHECKSUMS.sha256 | awk '{print $1}')
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+      - name: Destroy ephemeral DMG-notarization credential
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-macos-dmg-notary.*' -print -quit | grep -q .; then
+            echo "ephemeral DMG-notarization directory survived cleanup" >&2
+            exit 1
+          fi
+      - name: Destroy all ephemeral Apple credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 \( -name 'zuuli-macos-*-sign.*' -o -name 'zuuli-macos-*-notary.*' \) -print -quit | grep -q .; then
+            echo "ephemeral macOS Apple credential directory survived cleanup" >&2
+            exit 1
+          fi
+          if security list-keychains -d user | grep -Fq 'zuuli-macos-'; then
+            echo "ephemeral macOS Apple keychain survived cleanup" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-macos-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: signed-macos
+          if-no-files-found: error
+          retention-days: 1
+
+  macos-finalize:
+    name: macOS / credential-free shipped-artifact provenance
+    needs: [prepare, macos-sign]
+    if: needs.macos-sign.result == 'success'
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.18.0"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-macos-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/signed-macos
+      - name: Verify source-bound signed packages
+        env:
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.macos-sign.outputs.artifact_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(shasum -a 256 signed-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd signed-macos && shasum -a 256 -c CHECKSUMS.sha256)
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
+            '.schemaVersion == 1 and .kind == "macos-signed-notarized" and .identity == $identity and .sourceSha == $source' \
+            signed-macos/signing-record.json
+          inspect=$(mktemp -d "$RUNNER_TEMP/zuuli-macos-verify.XXXXXX")
+          trap 'find "$inspect" -depth -delete' EXIT
+          ditto -x -k "signed-macos/ZUULI-${EXPECTED_IDENTITY}-macos-universal.zip" "$inspect"
+          apps=("$inspect"/*.app)
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
           codesign --verify --deep --strict --verbose=2 "${apps[0]}"
           signature=$(codesign -dvv "${apps[0]}" 2>&1)
           grep -F 'Authority=Developer ID Application: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
           grep -F 'TeamIdentifier=F9AV5HKF6N' <<<"$signature"
-          unset signature
           xcrun stapler validate "${apps[0]}"
           spctl -a -vvv -t exec "${apps[0]}"
-          dmgs=()
-          while IFS= read -r -d '' path; do dmgs+=("$path"); done < <(find release-artifacts -type f -name '*.dmg' -print0)
-          [[ "${#dmgs[@]}" -eq 1 ]] || { echo "expected one DMG, found ${#dmgs[@]}" >&2; exit 1; }
-          codesign --verify --verbose=2 "${dmgs[0]}"
+          dmg="signed-macos/ZUULI-${EXPECTED_IDENTITY}-macos.dmg"
+          codesign --verify --verbose=2 "$dmg"
+          xcrun stapler validate "$dmg"
+          mountpoint="$inspect/dmg"
+          mkdir "$mountpoint"
+          mounted=false
+          cleanup_dmg() {
+            [[ "$mounted" != true ]] || hdiutil detach "$mountpoint" -force >/dev/null
+          }
+          trap 'cleanup_dmg; find "$inspect" -depth -delete' EXIT
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mountpoint" >/dev/null
+          mounted=true
+          [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]]
+          [[ -L "$mountpoint/Applications" && "$(readlink "$mountpoint/Applications")" == /Applications ]]
+          codesign --verify --deep --strict --verbose=2 "$mountpoint/ZUULI.app"
+          xcrun stapler validate "$mountpoint/ZUULI.app"
+          hdiutil detach "$mountpoint" >/dev/null
+          mounted=false
+          mkdir release-artifacts
+          cp "$dmg" "signed-macos/ZUULI-${EXPECTED_IDENTITY}-macos-universal.zip" \
+            signed-macos/signing-record.json release-artifacts/
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           {
@@ -790,7 +1382,7 @@ jobs:
       - name: Record checksums and provenance
         run: |
           jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-macos.sbom.cdx.json
-          npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
+          node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with: { subject-path: "wallet/zuuli/release-artifacts/*" }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -804,15 +1396,15 @@ jobs:
 
   release-index:
     name: Immutable GitHub release index
-    needs: [prepare, android, ios, linux, macos]
+    needs: [prepare, android, ios-finalize, linux, macos-finalize]
     if: >-
       always() && !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.should_release == 'true' &&
       (needs.android.result == 'success' || needs.android.result == 'skipped') &&
-      (needs.ios.result == 'success' || needs.ios.result == 'skipped') &&
+      (needs.ios-finalize.result == 'success' || needs.ios-finalize.result == 'skipped') &&
       (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
-      (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+      (needs.macos-finalize.result == 'success' || needs.macos-finalize.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

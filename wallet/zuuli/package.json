@@ -8,9 +8,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs && playwright test",
+    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/apple-credential-boundary.node-test.mjs && node scripts/apple-credential-boundary.mjs && playwright test",
     "test:mermaid-security": "node scripts/check-mermaid-security.mjs && node --test scripts/mermaid-security.node-test.mjs && playwright test tests/mermaid-security.pw.ts",
     "test:send-review": "node --test scripts/send-review-boundary.node-test.mjs && playwright test tests/send-review.pw.ts",
+    "test:apple-credential-boundary": "node --test scripts/apple-credential-boundary.node-test.mjs && node scripts/apple-credential-boundary.mjs",
     "test:viewport": "playwright test tests/viewport.pw.ts",
     "test:asc-testflight": "node --test scripts/asc-testflight.node-test.mjs",
     "test:store-listing": "node --test scripts/store-contract.node-test.mjs scripts/store-state-audit.node-test.mjs",
@@ -77,6 +78,7 @@
     "tailwindcss": "^3.4.0",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "yaml": "2.9.0"
   }
 }
