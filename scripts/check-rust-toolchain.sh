@@ -66,6 +66,14 @@ ACCEPTED_EXPRESSIONS=(
   'steps.rust_toolchain.outputs.version'
 )
 
+# These are implementation identities, not alternate version decisions. The
+# generic branch commit accepts the source-derived `toolchain:` input; the
+# version-branch commit hardcodes exactly PINNED_ACTION_CHANNEL. Re-derive both
+# from dtolnay/rust-toolchain's authoritative refs during a toolchain bump.
+GENERIC_ACTION_SHA=4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+PINNED_ACTION_CHANNEL=1.97.1
+PINNED_ACTION_SHA=032958afbdc797a9164d3bc0b56325c1308924a5
+
 errors=0
 
 fail() {
@@ -110,10 +118,59 @@ read_channel() {
   printf '%s\n' "$channel"
 }
 
+# Print `line-number<TAB>value` for toolchain inputs that are structurally
+# nested under this exact action step's `with:` mapping. Comments, sibling
+# steps, and values at the wrong indentation cannot satisfy the contract.
+step_toolchain_inputs() {
+  local file=$1 uses_line=$2
+  awk -v target="$uses_line" '
+    function indentation(line, copy) {
+      copy = line
+      sub(/[^ ].*$/, "", copy)
+      return length(copy)
+    }
+    NR == target {
+      uses_indent = indentation($0)
+      copy = $0
+      sub(/^[ ]*/, "", copy)
+      step_indent = uses_indent
+      if (copy !~ /^-[ ]+/) step_indent -= 2
+      next
+    }
+    NR > target {
+      if ($0 ~ /^[ ]*$/ || $0 ~ /^[ ]*#/) next
+      current_indent = indentation($0)
+      if (current_indent <= step_indent) exit
+
+      if (!in_with) {
+        if (current_indent == step_indent + 2 && $0 ~ /^[ ]*with:[ ]*$/) {
+          in_with = 1
+          with_indent = current_indent
+        }
+        next
+      }
+
+      if (current_indent <= with_indent) {
+        in_with = 0
+        next
+      }
+      if (current_indent == with_indent + 2 && $0 ~ /^[ ]*toolchain:[ ]*/) {
+        value = $0
+        sub(/^[ ]*toolchain:[ ]*/, "", value)
+        print NR "\t" value
+      }
+    }
+  ' "$file"
+}
+
 check_workflows() {
   local root=$1 channel=$2
-  local file rel lineno text ref comment window value expression
+  local file rel lineno text ref comment value expression job binding binding_count input_lineno
   local refs=0 inputs=0 floating=0
+
+  if [[ $PINNED_ACTION_CHANNEL != "$channel" ]]; then
+    fail "dtolnay/rust-toolchain expected-commit map is for $PINNED_ACTION_CHANNEL, expected $channel"
+  fi
 
   local files=()
   shopt -s nullglob
@@ -139,22 +196,65 @@ check_workflows() {
         comment=$(trim "${text#*#}")
         comment=${comment%%[[:space:]]*}
       fi
-      window=$(awk -v start="$lineno" '
-        NR > start {
-          if ($0 ~ /^[[:space:]]*-[[:space:]]/ || NR > start + 10) exit
-          print
-        }' "$file")
+      job=$(awk -v end="$lineno" '
+        NR >= end { exit }
+        /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+          value=$0
+          sub(/^  /, "", value)
+          sub(/:[[:space:]]*$/, "", value)
+          job=value
+        }
+        END { print job }
+      ' "$file")
 
       if [[ $ref =~ ^[0-9a-f]{40}$ ]]; then
-        # dtolnay/rust-toolchain's version branches hardcode the toolchain in
-        # action.yml and do not even declare a `toolchain` input, so a
-        # commit-pinned ref decides the compiler on its own and any
-        # `toolchain:` beside it is inert. The trailing comment is the only
-        # human- and machine-readable record of what the SHA installs.
+        # A commit from a version branch hardcodes that compiler and is marked
+        # with the canonical channel. A commit from the generic stable branch
+        # pins the action implementation while `toolchain:` remains the
+        # compiler input; the one canary with no input deliberately follows
+        # rustup's stable channel. The comment distinguishes those two upstream
+        # action shapes without making the action ref mutable again.
         if [[ -z $comment ]]; then
-          fail "$rel:$lineno pins dtolnay/rust-toolchain by commit with no '# <version>' comment; the SHA alone selects the compiler"
+          fail "$rel:$lineno pins dtolnay/rust-toolchain by commit with no '# <version-or-channel>' comment"
+        elif [[ $comment == stable ]]; then
+          if [[ $ref != "$GENERIC_ACTION_SHA" ]]; then
+            fail "$rel:$lineno labels dtolnay/rust-toolchain@$ref as stable, expected verified generic commit $GENERIC_ACTION_SHA"
+          fi
+          binding=$(step_toolchain_inputs "$file" "$lineno")
+          binding_count=$(awk 'NF { count++ } END { print count + 0 }' <<<"$binding")
+          if (( binding_count == 0 )); then
+            if [[ $rel == .github/workflows/zuuallet.yml && $job == upstream-canary ]]; then
+              floating=$((floating + 1))
+            else
+              fail "$rel:$lineno ($job) pins the generic stable action without a source-derived toolchain input; only zuuallet/upstream-canary may follow stable"
+            fi
+          elif (( binding_count != 1 )); then
+            fail "$rel:$lineno ($job) must have exactly one toolchain input in its own with: mapping, found $binding_count"
+          else
+            input_lineno=${binding%%$'\t'*}
+            value=${binding#*$'\t'}
+            inputs=$((inputs + 1))
+            if [[ $value == '"'* ]]; then
+              value=${value#\"}
+              value=${value%%\"*}
+            fi
+            if [[ $value == '${{'* ]]; then
+              expression=${value#*\{\{}
+              expression=${expression%%\}\}*}
+              expression=$(trim "$expression")
+              if ! contains "$expression" "${ACCEPTED_EXPRESSIONS[@]}"; then
+                fail "$rel:$input_lineno resolves the toolchain from \${{ $expression }}, which cannot be traced back to $TOOLCHAIN_FILE"
+              fi
+            else
+              value=${value%%[[:space:]]*}
+              [[ $value == "$channel" ]] ||
+                fail "$rel:$input_lineno sets toolchain: $value, expected $channel"
+            fi
+          fi
         elif [[ $comment != "$channel" ]]; then
-          fail "$rel:$lineno pins dtolnay/rust-toolchain by commit commented '# $comment', expected '# $channel'"
+          fail "$rel:$lineno pins dtolnay/rust-toolchain by commit commented '# $comment', expected '# stable' or '# $channel'"
+        elif [[ $ref != "$PINNED_ACTION_SHA" ]]; then
+          fail "$rel:$lineno labels dtolnay/rust-toolchain@$ref as $channel, expected verified version-branch commit $PINNED_ACTION_SHA"
         fi
       elif [[ $ref =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
         [[ $ref == "$channel" ]] ||
@@ -163,7 +263,9 @@ check_workflows() {
         # A moving ref is only a pin when the step also passes `toolchain:`.
         # Without one the job deliberately floats (the zuuallet canary does);
         # that is reported, not failed.
-        if ! grep -qE '(^|[[:space:],{])toolchain:' <<<"$window"; then
+        binding=$(step_toolchain_inputs "$file" "$lineno")
+        binding_count=$(awk 'NF { count++ } END { print count + 0 }' <<<"$binding")
+        if (( binding_count == 0 )); then
           floating=$((floating + 1))
         fi
       else
@@ -171,8 +273,12 @@ check_workflows() {
       fi
     done < <(grep -nE 'uses:[[:space:]]*dtolnay/rust-toolchain@' "$file" || true)
 
-    # 2. Explicit `toolchain:` inputs, in both block and flow mapping style.
+    # 2. Other explicit `toolchain:` inputs, in both block and flow mapping
+    #    style. The generic-action inputs were already structurally bound above;
+    #    this inventory also checks the inert but documented release inputs.
     while IFS=: read -r lineno text; do
+      value=$(trim "$text")
+      [[ $value == \#* ]] && continue
       inputs=$((inputs + 1))
       value=$(trim "${text#*toolchain:}")
       if [[ $value == '"'* ]]; then
@@ -221,9 +327,11 @@ check_workflows() {
     fail "no dtolnay/rust-toolchain steps matched; this check has gone blind"
   (( inputs > 0 )) ||
     fail "no 'toolchain:' inputs matched; this check has gone blind"
+  (( floating == 1 )) ||
+    fail "expected exactly one stable-following Rust compiler selection at zuuallet/upstream-canary, found $floating"
 
   if (( floating > 0 )); then
-    printf 'note: %d rust-toolchain step(s) intentionally float on a moving ref (upstream canaries).\n' \
+    printf 'note: %d Rust compiler selection(s) intentionally follow the stable channel (upstream canaries).\n' \
       "$floating"
   fi
 }
@@ -296,7 +404,12 @@ run_checks() {
 SELF_TEST_MUTATIONS=(
   $'a commit-pinned action loses its version comment\t.github/workflows/zuuli-packaging.yml\ts| # %CHANNEL%||'
   $'a workflow declares a stale ZUULI_RUST_VERSION\t.github/workflows/zuuli-packaging.yml\ts|ZUULI_RUST_VERSION: "%CHANNEL%"|ZUULI_RUST_VERSION: "%BOGUS%"|'
-  $'a version-branch action ref drifts\t.github/workflows/zuuallet.yml\ts|rust-toolchain@%CHANNEL%|rust-toolchain@%BOGUS%|'
+  $'a generic action revision loses stable provenance\t.github/workflows/zuuallet.yml\ts|# stable|# beta|'
+  $'a generic action SHA disagrees with its stable label\t.github/workflows/zuuallet.yml\ts|%GENERIC_ACTION_SHA% # stable|%PINNED_ACTION_SHA% # stable|'
+  $'a version action SHA disagrees with its channel label\t.github/workflows/zuuallet.yml\ts|%PINNED_ACTION_SHA% # %CHANNEL%|%GENERIC_ACTION_SHA% # %CHANNEL%|'
+  $'a required job cannot borrow another step toolchain input\t.github/workflows/zuuli.yml\t/^  rust_fmt:/,/^  rust_deny:/ s|toolchain: \${{ steps.rust_toolchain.outputs.version }}|compiler: \${{ steps.rust_toolchain.outputs.version }}|'
+  $'a commented-out toolchain input is not real\t.github/workflows/zuuli.yml\t/^  rust_fmt:/,/^  rust_deny:/ s|          toolchain: \${{ steps.rust_toolchain.outputs.version }}|          # toolchain: \${{ steps.rust_toolchain.outputs.version }}|'
+  $'a wrongly indented toolchain input is not step-bound\t.github/workflows/zuuli.yml\t/^  rust_fmt:/,/^  rust_deny:/ s|          toolchain: \${{ steps.rust_toolchain.outputs.version }}|        toolchain: \${{ steps.rust_toolchain.outputs.version }}|'
   $'the required gate stops reading the source of truth\t.github/workflows/zuuli.yml\ts|steps.rust_toolchain.outputs.version|steps.somewhere_else.outputs.version|'
   $'a crate manifest MSRV drifts\twallet/zuuli/src-tauri/Cargo.toml\ts|rust-version = "%MSRV%"|rust-version = "%BOGUS_MSRV%"|'
   $'documentation still names the old version\twallet/plugins/tauri-plugin-zcash/README.md\ts|MSRV\\*\\*: %MSRV%|MSRV**: %BOGUS_MSRV%|'
@@ -367,6 +480,8 @@ self_test() {
     index=$((index + 1))
     IFS=$'\t' read -r description rel script <<<"$mutation"
     script=${script//%CHANNEL%/$channel}
+    script=${script//%GENERIC_ACTION_SHA%/$GENERIC_ACTION_SHA}
+    script=${script//%PINNED_ACTION_SHA%/$PINNED_ACTION_SHA}
     script=${script//%MSRV%/$msrv}
     script=${script//%BOGUS_MSRV%/$bogus_msrv}
     script=${script//%BOGUS%/$bogus}

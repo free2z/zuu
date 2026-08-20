@@ -64,6 +64,12 @@ const pinnedActions = [
   "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2",
 ];
+const pinnedZuualletToolchain =
+  "dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1";
+const pinnedGenericToolchain =
+  "dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable";
+const pinnedRustCache =
+  "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2";
 const requiredPackages = [
   "bash",
   "build-essential",
@@ -199,8 +205,8 @@ function validateConsumerJob(job, failures) {
   if (job.name === ".github/workflows/zuuallet.yml:rust") {
     for (const expected of [
       "persist-credentials: false",
-      "dtolnay/rust-toolchain@1.97.1",
-      "Swatinem/rust-cache@v2",
+      pinnedZuualletToolchain,
+      pinnedRustCache,
       "cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml",
       "cargo test --locked",
       "--manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml",
@@ -631,10 +637,10 @@ function runSelfTest() {
         name: "Zuuallet required build floats its Rust toolchain",
         path: consumerWorkflows[3],
         mutate: (value) => value.replace(
-          "dtolnay/rust-toolchain@1.97.1",
-          "dtolnay/rust-toolchain@stable",
+          pinnedZuualletToolchain,
+          pinnedGenericToolchain,
         ),
-        expected: "dtolnay/rust-toolchain@1.97.1",
+        expected: pinnedZuualletToolchain,
       },
       {
         name: "missing pull-time credential",
@@ -685,8 +691,8 @@ function runSelfTest() {
         name: "Git ownership trust moved before checkout",
         path: consumerWorkflows[0],
         mutate: (value) => value.replace(
-          '      - uses: actions/checkout@v7\n      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"',
-          '      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n      - uses: actions/checkout@v7',
+          `      - uses: ${pinnedActions[0]}\n      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"`,
+          `      - name: Configure exact Git workspace trust\n        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n      - uses: ${pinnedActions[0]}`,
         ),
         expected: "must immediately follow checkout",
       },
