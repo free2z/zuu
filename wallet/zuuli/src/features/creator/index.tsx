@@ -204,7 +204,10 @@ function CreatorProfile({
   const isLive = useLiveGate(creator.username, creator.is_live);
 
   return (
-    <div className="animate-slide-up pb-6">
+    <div
+      className="creator-profile animate-slide-up pb-6"
+      data-creator-profile
+    >
       <BackLink />
 
       {refreshError ? (
@@ -220,7 +223,7 @@ function CreatorProfile({
 
       {/* Banner */}
       <div
-        className="relative mt-4 h-40 w-full overflow-hidden rounded-xl border border-border md:h-56"
+        className="creator-profile-banner relative mt-4 h-40 w-full overflow-hidden rounded-xl border border-border"
         style={
           creator.banner
             ? undefined
@@ -238,8 +241,11 @@ function CreatorProfile({
       </div>
 
       {/* Header */}
-      <div className="relative -mt-12 flex flex-col gap-4 px-1 sm:flex-row sm:items-end sm:justify-between md:px-4">
-        <div className="flex items-end gap-4">
+      <div
+        className="creator-profile-header relative -mt-12 flex flex-col gap-4 px-1"
+        data-creator-profile-header
+      >
+        <div className="flex min-w-0 items-end gap-4" data-creator-identity>
           <Avatar className="h-24 w-24 border-4 border-background shadow-md">
             {creator.image ? (
               <AvatarImage src={creator.image} alt={name} />
@@ -250,7 +256,7 @@ function CreatorProfile({
           </Avatar>
           <div className="min-w-0 pb-1">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-2xl font-bold tracking-tight md:text-3xl">
+              <h1 className="creator-profile-name truncate text-2xl font-bold tracking-tight">
                 {name}
               </h1>
               {creator.is_verified ? (
@@ -285,7 +291,10 @@ function CreatorProfile({
         </div>
 
         {/* Actions */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2 pb-1">
+        <div
+          className="creator-profile-actions flex min-w-0 flex-wrap items-center gap-2 pb-1"
+          data-creator-actions
+        >
           {isLive ? (
             <Button asChild variant="outline">
               <Link
@@ -304,7 +313,7 @@ function CreatorProfile({
 
       {/* Bio */}
       {bio ? (
-        <div className="mt-8 md:px-4">
+        <div className="creator-profile-inset mt-8">
           <div className="rounded-xl border border-border/60 bg-card/40 p-5">
             <Markdown>{bio}</Markdown>
           </div>
@@ -314,7 +323,7 @@ function CreatorProfile({
       {/* Links / socials — parsed from a frontmatter block at the top of the
           bio (e.g. `---\nsocials:\n  twitter: handle\n---`). */}
       {socials.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-2 md:px-4">
+        <div className="creator-profile-inset mt-4 flex flex-wrap gap-2">
           {socials.map((social) => {
             const Icon = SOCIAL_ICONS[social.key];
             return (
@@ -335,7 +344,7 @@ function CreatorProfile({
       ) : null}
 
       {/* Pages */}
-      <div className="mt-10 md:px-4">
+      <div className="creator-profile-inset mt-10" data-creator-pages>
         <h2 className="mb-4 text-lg font-semibold tracking-tight">
           Pages by {name}
         </h2>
@@ -358,7 +367,7 @@ function CreatorProfile({
           />
         ) : null}
         {pagesLoading && pages === null ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="creator-pages-grid grid grid-cols-1 gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <PageCardSkeleton key={i} />
             ))}
@@ -370,7 +379,7 @@ function CreatorProfile({
             description={`${name} hasn't published any pages yet.`}
           />
         ) : pages ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="creator-pages-grid grid grid-cols-1 gap-4">
             {pages.map((p) => (
               <PageCard key={String(p.id)} article={p} />
             ))}

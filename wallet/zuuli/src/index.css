@@ -161,6 +161,58 @@
     padding-bottom: calc(var(--mobile-tab-bar-height) + 1.5rem);
   }
 
+  /* Creator profiles live beside a persistent 15rem sidebar on desktop. Their
+     usable width can therefore be much narrower than the browser window (for
+     example, 560px in an 800px window). Keep profile breakpoints tied to the
+     route content itself so window-level media queries cannot force the
+     identity and actions into a row that does not fit. */
+  .creator-profile {
+    container-name: creator-profile;
+    container-type: inline-size;
+  }
+
+  @container creator-profile (min-width: 24rem) {
+    .creator-pages-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @container creator-profile (min-width: 36rem) {
+    .creator-profile-inset,
+    .creator-profile-header {
+      padding-right: 1rem;
+      padding-left: 1rem;
+    }
+  }
+
+  @container creator-profile (min-width: 40rem) {
+    .creator-profile-banner {
+      height: 14rem;
+    }
+
+    .creator-profile-name {
+      font-size: 1.875rem;
+      line-height: 2.25rem;
+    }
+  }
+
+  @container creator-profile (min-width: 42rem) {
+    .creator-pages-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* The widest mock header needs 676px before its profile inset. Waiting for
+     720px leaves that content 688px and prevents a one-pixel breakpoint from
+     recreating horizontal scroll at neighboring tablet widths. */
+  @container creator-profile (min-width: 45rem) {
+    .creator-profile-header {
+      flex-direction: row;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+  }
+
   .app-full-bleed-inset {
     padding-bottom: var(--mobile-tab-bar-height);
   }
