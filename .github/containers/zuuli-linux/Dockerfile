@@ -27,10 +27,13 @@ RUN timeout 10m apt-get \
 
 COPY packages.txt /usr/local/share/zuuli-linux-image/packages.txt
 COPY verify-inventory.sh /usr/local/bin/verify-zuuli-linux-image
+COPY verify-libxdo.sh /usr/local/bin/verify-zuuli-libxdo
 
 # linuxdeploy/AppImage tooling cannot mount FUSE inside an ordinary Actions job
 # container. Extraction preserves the package output without privileged mounts.
 ENV APPIMAGE_EXTRACT_AND_RUN=1
 
-RUN chmod 0755 /usr/local/bin/verify-zuuli-linux-image \
+RUN chmod 0755 \
+      /usr/local/bin/verify-zuuli-libxdo \
+      /usr/local/bin/verify-zuuli-linux-image \
     && /usr/local/bin/verify-zuuli-linux-image

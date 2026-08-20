@@ -38,7 +38,7 @@ done
 # Ubuntu's libxdo-dev package does not ship pkg-config metadata. Verify the
 # development interface that xdotool-sys actually links against instead.
 [[ -r /usr/include/xdo.h ]] || fail "libxdo development header is missing"
-ldconfig -p | grep -qE 'libxdo\.so([[:space:]]|$)' || fail "libxdo shared library is missing"
+/usr/local/bin/verify-zuuli-libxdo || fail "libxdo shared library is missing"
 
 for command in \
   desktop-file-validate \

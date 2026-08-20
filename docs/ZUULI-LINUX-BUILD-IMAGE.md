@@ -16,7 +16,9 @@ The source lives in `.github/containers/zuuli-linux/`:
 - `packages.txt` is the complete reviewed package manifest.
 - `verify-inventory.sh` proves the OS, architecture, native `pkg-config`
   surface, AppImage execution mode and absence of Rust/source/cache state.
-- `image.lock` binds those sources to the promoted registry digest.
+- `image.lock` binds consumed sources to the promoted registry digest. During
+  an image rebuild, `phase=candidate` preserves that consumed binding while a
+  separate `candidate_source_sha256` identifies exactly what Phase A builds.
 
 `.github/workflows/zuuli-linux-image.yml` validates every pull request and
 performs a real amd64 Docker build plus inventory check. A push to `main`, a
@@ -30,6 +32,15 @@ binds the untagged subject
 `ghcr.io/free2z/zuuli-linux-ci` to digest
 `sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1`,
 the main-branch image workflow, and a GitHub-hosted runner.
+
+The candidate tracked by #434 replaces an unsafe `ldconfig | grep -q` inventory
+pipeline. Under `pipefail`, an early successful match could close the pipe and
+turn `ldconfig`'s SIGPIPE into a false missing-`libxdo` result. The candidate
+captures the complete linker cache before matching it and dynamically tests an
+early match followed by output larger than a pipe buffer. It also retains a
+negative case for a genuinely absent library. The consumed digest above stays
+unchanged until the candidate is published, attested, reviewed, and promoted
+in a separate Phase B PR.
 
 ## Phase B: digest-pinned consumers
 
@@ -72,6 +83,20 @@ provenance record; they do not move consumers automatically. The
 `ubuntu-24.04` convenience tag is mutable by design. Promote a new digest only
 through a PR that reviews the inventory/security delta and passes all consumer
 smoke tests.
+
+An ordinary rebuild uses two reviewed changes:
+
+1. Phase A sets `phase=candidate`, leaves the consumed `image_digest` and
+   `source_sha256` untouched, records the exact `candidate_source_sha256`, and
+   lets the main-branch image workflow publish and attest that source as a new
+   immutable digest.
+2. Phase B verifies the published digest, changes every consumer and
+   `image_digest` together, promotes the candidate hash to `source_sha256`,
+   removes `candidate_source_sha256`, and restores `phase=consumed`.
+
+Never relabel the consumed source as the candidate, point consumers at a
+convenience tag, or update a digest before registry and attestation evidence
+exists.
 
 Rollback promotes the previous digest through the same reviewed PR path,
 updating the lock, validator binding, and every consumer together. Keep the
