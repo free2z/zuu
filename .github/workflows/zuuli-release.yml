@@ -562,7 +562,7 @@ jobs:
       id-token: write
       attestations: write
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
