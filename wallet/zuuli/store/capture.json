@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+  "fixtureProfile": "store-v1",
+  "locale": "en-US",
+  "timezone": "UTC",
+  "fixedTime": "2026-08-19T12:00:00.000Z",
+  "colorScheme": "dark",
+  "browser": {
+    "engine": "chromium",
+    "playwrightVersion": "1.62.1",
+    "containerImage": "mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac",
+    "platform": "linux/amd64"
+  },
+  "targets": [
+    {
+      "setId": "apple-iphone-6.9-portrait",
+      "cssWidth": 440,
+      "cssHeight": 956,
+      "deviceScaleFactor": 3,
+      "safeArea": {
+        "top": 62,
+        "right": 0,
+        "bottom": 34,
+        "left": 0
+      }
+    },
+    {
+      "setId": "apple-ipad-13-portrait",
+      "cssWidth": 1032,
+      "cssHeight": 1376,
+      "deviceScaleFactor": 2,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 20,
+        "left": 0
+      }
+    },
+    {
+      "setId": "play-phone-portrait",
+      "cssWidth": 360,
+      "cssHeight": 640,
+      "deviceScaleFactor": 3,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      }
+    },
+    {
+      "setId": "play-7-inch-tablet-portrait",
+      "cssWidth": 600,
+      "cssHeight": 960,
+      "deviceScaleFactor": 2,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      }
+    },
+    {
+      "setId": "play-10-inch-tablet-portrait",
+      "cssWidth": 800,
+      "cssHeight": 1280,
+      "deviceScaleFactor": 2,
+      "safeArea": {
+        "top": 24,
+        "right": 0,
+        "bottom": 24,
+        "left": 0
+      }
+    }
+  ],
+  "shots": [
+    {
+      "id": "01-articles-fresh",
+      "route": "/articles",
+      "action": "fresh"
+    },
+    {
+      "id": "02-semantic-search",
+      "route": "/articles",
+      "action": "search-privacy"
+    },
+    {
+      "id": "03-article-reader",
+      "route": "/articles/why-shielded-defaults-matter",
+      "action": "article-reader"
+    },
+    {
+      "id": "04-creator-profile",
+      "route": "/creator/example_editorial",
+      "action": "creator-profile"
+    }
+  ]
+}

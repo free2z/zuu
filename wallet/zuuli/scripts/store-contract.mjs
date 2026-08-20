@@ -6,6 +6,12 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 import { PNG } from "pngjs";
+import {
+  CAPTURE_CONFIG_PATH,
+  CAPTURE_RECORD_PATH,
+  ScreenshotContractError,
+  validateCaptureRecord,
+} from "./store-screenshot-contract.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalManifestPath = resolve(projectRoot, "store/manifest.json");
@@ -267,7 +273,7 @@ export async function validateStoreContract({ root = projectRoot, manifestPath =
   exactKeys(release, ["$schema", "schemaVersion", "applicationId", "iosUsesNonExemptEncryption", "version", "build", "minimums"], "release identity");
   if (release.schemaVersion !== 2 || release.applicationId !== "cash.free2z.zuuli" || release.iosUsesNonExemptEncryption !== false || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(release.version) || !Number.isSafeInteger(release.build) || release.build < 1) fail("IDENTITY_MISMATCH", "release.json does not contain the canonical ZUULI release identity");
   exactKeys(manifest, ["schemaVersion", "phase", "publicationReady", "application", "locales", "classification", "brandMedia", "screenshotSets", "capturePolicy"], "store manifest");
-  if (manifest.schemaVersion !== 1 || manifest.phase !== (publish ? "ready" : manifest.phase) || !new Set(["foundation", "ready"]).has(manifest.phase) || manifest.publicationReady !== (manifest.phase === "ready")) {
+  if (manifest.schemaVersion !== 1 || manifest.phase !== (publish ? "ready" : manifest.phase) || !new Set(["foundation", "captured", "ready"]).has(manifest.phase) || manifest.publicationReady !== (manifest.phase === "ready")) {
     fail(publish ? "NOT_PUBLICATION_READY" : "INVALID_MANIFEST", publish ? "store manifest is not approved for publication" : "manifest phase/readiness is inconsistent");
   }
   exactKeys(manifest.application, ["bundleId", "appleAppId", "playPackageName", "defaultLocale", "supportEmail", "supportUrl", "marketingUrl", "privacyPolicyUrl"], "manifest.application");
@@ -328,7 +334,7 @@ export async function validateStoreContract({ root = projectRoot, manifestPath =
     const tuple = `${set.locale}:${set.provider}:${set.apiType}`;
     if (screenshotTuples.has(tuple)) fail("INVALID_MANIFEST", `duplicate screenshot contract ${tuple}`);
     screenshotTuples.add(tuple);
-    if (publish && set.files.length < set.minCount) fail("NOT_PUBLICATION_READY", `${set.id} requires at least ${set.minCount} reviewed screenshots`);
+    if (manifest.phase !== "foundation" && set.files.length < set.minCount) fail(manifest.phase === "ready" ? "NOT_PUBLICATION_READY" : "INVALID_MANIFEST", `${set.id} requires at least ${set.minCount} captured screenshots`);
     if (!publish && manifest.phase === "foundation" && set.files.length !== 0) fail("INVALID_MANIFEST", "foundation phase must not carry unapproved screenshots");
     const screenshotFileIds = new Set();
     for (const file of set.files) {
@@ -349,15 +355,36 @@ export async function validateStoreContract({ root = projectRoot, manifestPath =
   const actualScreenshots = await listPngs(resolve(root, "store/media"));
   for (const file of actualScreenshots) if (!declaredScreenshots.has(file)) fail("UNDECLARED_MEDIA", `undeclared store media: ${relative(root, file)}`);
 
-  exactKeys(manifest.capturePolicy, ["status", "blockedByIssues", "fixtureProfile", "releaseEquivalentBuildRequired", "safeAreasRequired", "realSeedOrPrivateDataAllowed", "testerIdentityAllowed", "debugOrMockDisclosureAllowed", "reviewRequired", "forbiddenEmbeddedText"], "capturePolicy");
+  exactKeys(manifest.capturePolicy, ["status", "blockedByIssues", "fixtureProfile", "releaseEquivalentBuildRequired", "safeAreasRequired", "realSeedOrPrivateDataAllowed", "testerIdentityAllowed", "debugOrMockDisclosureAllowed", "reviewRequired", "forbiddenEmbeddedText", "sourceSha", "sourceDigest", "contractDigest", "captureConfig", "captureRecord"], "capturePolicy");
   const policy = manifest.capturePolicy;
-  if (policy.fixtureProfile !== "store-v1" || policy.releaseEquivalentBuildRequired !== true || policy.safeAreasRequired !== true || policy.realSeedOrPrivateDataAllowed !== false || policy.testerIdentityAllowed !== false || policy.debugOrMockDisclosureAllowed !== false || policy.reviewRequired !== true || !Array.isArray(policy.forbiddenEmbeddedText) || policy.forbiddenEmbeddedText.length < 1) fail("INVALID_MANIFEST", "capture policy does not preserve the store safety contract");
-  if (manifest.phase === "foundation" && (policy.status !== "deferred" || JSON.stringify(policy.blockedByIssues) !== "[267,1257,255]")) fail("INVALID_MANIFEST", "foundation screenshots must remain deferred behind issues #267, #1257, and #255");
+  if (policy.fixtureProfile !== "store-v1" || policy.releaseEquivalentBuildRequired !== true || policy.safeAreasRequired !== true || policy.realSeedOrPrivateDataAllowed !== false || policy.testerIdentityAllowed !== false || policy.debugOrMockDisclosureAllowed !== false || policy.reviewRequired !== true || !Array.isArray(policy.forbiddenEmbeddedText) || policy.forbiddenEmbeddedText.length < 1 || !/^[0-9a-f]{40}$/.test(policy.sourceSha) || !SHA256_PATTERN.test(policy.sourceDigest) || !SHA256_PATTERN.test(policy.contractDigest) || policy.captureConfig !== CAPTURE_CONFIG_PATH || policy.captureRecord !== CAPTURE_RECORD_PATH) fail("INVALID_MANIFEST", "capture policy does not preserve the store safety and provenance contract");
+  if (manifest.phase === "foundation" && (policy.status !== "deferred" || JSON.stringify(policy.blockedByIssues) !== "[1257,1253,1260]")) fail("INVALID_MANIFEST", "foundation screenshots must remain deferred behind upstream issues #1257, #1253, and #1260");
+  if (manifest.phase === "captured" && (policy.status !== "captured-owner-review-required" || JSON.stringify(policy.blockedByIssues) !== "[371,373,1257,1253,1260]")) fail("INVALID_MANIFEST", "captured screenshots must remain unapproved behind the exact owner-controlled security-policy and upstream dependency blocker set");
   if (manifest.phase === "ready" && (!Array.isArray(policy.blockedByIssues) || policy.blockedByIssues.length !== 0)) fail("INVALID_MANIFEST", "publication-ready screenshots cannot retain unresolved blocker issues");
   if (publish && policy.status !== "approved") fail("NOT_PUBLICATION_READY", "capture policy has not been approved");
   for (const phrase of policy.forbiddenEmbeddedText) {
     requireString(phrase, "capturePolicy.forbiddenEmbeddedText entry", { max: 100, singleLine: true });
     if (mediaText.some((text) => text.includes(phrase.toLowerCase()))) fail("FORBIDDEN_MEDIA_TEXT", "declared store media contains a forbidden embedded-text marker");
+  }
+
+  if (manifest.phase !== "foundation") {
+    let capture;
+    try {
+      capture = await validateCaptureRecord({ root, screenshotSets: manifest.screenshotSets, enforceCurrentSource: publish });
+    } catch (error) {
+      if (error instanceof ScreenshotContractError) fail(error.code, error.message);
+      throw error;
+    }
+    if (policy.sourceSha !== capture.config.sourceSha || policy.sourceDigest !== capture.sourceDigest || policy.contractDigest !== capture.record.contractDigest) fail("STALE_CAPTURE", "capture policy does not match the deterministic capture source");
+    const entries = new Map(capture.record.entries.map((entry) => [`${entry.setId}:${entry.id}`, entry]));
+    for (const set of manifest.screenshotSets) {
+      for (const file of set.files) {
+        const entry = entries.get(`${set.id}:${file.id}`);
+        if (!entry || file.path !== entry.path || file.sha256 !== entry.sha256 || file.sourceSha !== entry.sourceSha || file.reviewIssue !== 387) fail("INVALID_CAPTURE_RECORD", `${set.id} screenshot declaration does not match its capture record`);
+        entries.delete(`${set.id}:${file.id}`);
+      }
+    }
+    if (entries.size !== 0) fail("INVALID_CAPTURE_RECORD", "capture record contains undeclared screenshots");
   }
 
   return { schemaVersion: 1, phase: manifest.phase, publicationReady: manifest.publicationReady, application: { bundleId: manifest.application.bundleId, appleAppId: manifest.application.appleAppId, playPackageName: manifest.application.playPackageName, defaultLocale: manifest.application.defaultLocale }, release: { version: release.version, build: release.build }, locales, brandMedia, screenshotSets: manifest.screenshotSets.map(({ id, provider, apiType, locale, width, height, minCount, maxCount, files }) => ({ id, provider, apiType, locale, width, height, minCount, maxCount, count: files.length })) };

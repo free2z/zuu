@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "profile": "store-v1",
+  "locale": "en-US",
+  "identityClassification": "fictional-editorial",
+  "creators": [
+    {
+      "username": "example_editorial",
+      "full_name": "Example Editorial",
+      "avatar_image": null,
+      "banner_image": null,
+      "member_price": null,
+      "description": "Independent educational notes about Zcash, privacy, and open technology.",
+      "is_verified": true,
+      "can_stream": false,
+      "total": "839",
+      "zpages": 8,
+      "is_live": false,
+      "p2paddr": null
+    },
+    {
+      "username": "sample_research",
+      "full_name": "Sample Zcash Research",
+      "avatar_image": null,
+      "banner_image": null,
+      "member_price": null,
+      "description": "Illustrative public research notes.",
+      "is_verified": true,
+      "can_stream": false,
+      "total": "521",
+      "zpages": 6,
+      "is_live": false,
+      "p2paddr": null
+    },
+    {
+      "username": "illustrative_fieldnotes",
+      "full_name": "Illustrative Zcash Fieldnotes",
+      "avatar_image": null,
+      "banner_image": null,
+      "member_price": null,
+      "description": "Illustrative notes about open protocols.",
+      "is_verified": false,
+      "can_stream": false,
+      "total": "377",
+      "zpages": 5,
+      "is_live": false,
+      "p2paddr": null
+    },
+    {
+      "username": "reference_review",
+      "full_name": "Reference Zcash Review",
+      "avatar_image": null,
+      "banner_image": null,
+      "member_price": null,
+      "description": "Fictional reference material for reproducible capture.",
+      "is_verified": false,
+      "can_stream": false,
+      "total": "244",
+      "zpages": 4,
+      "is_live": false,
+      "p2paddr": null
+    }
+  ],
+  "articles": [
+    {
+      "free2zaddr": "editorial-shielded-defaults",
+      "vanity": "why-shielded-defaults-matter",
+      "title": "Why Shielded Defaults Matter",
+      "description": "Privacy works best when it is ordinary, understandable, and available by default.",
+      "content": "# Why Shielded Defaults Matter\n\nFinancial privacy is the ability to choose what to reveal, when, and to whom. Zcash gives people tools for selective disclosure without making every transaction a public record.\n\n## Better defaults, clearer choices\n\nGood privacy tools should explain their tradeoffs plainly and keep people in control. A shielded default can reduce accidental exposure while preserving deliberate sharing.",
+      "category": "Zcash",
+      "featured_image": null,
+      "f2z_score": "184",
+      "created_at": "2026-08-15T12:00:00.000Z",
+      "publish_at": "2026-08-15T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "privacy",
+        "zcash"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-wallet-basics",
+      "vanity": "a-clear-guide-to-zcash-wallets",
+      "title": "A Clear Guide to Zcash Wallets",
+      "description": "Addresses, confirmations, fees, and recovery explained without jargon.",
+      "content": "# A Clear Guide to Zcash Wallets\n\nA wallet helps you manage addresses, review transactions, and authorize sends. The most important habit is to understand how recovery works before relying on any wallet for meaningful value.\n\n## Start carefully\n\nLearn with small amounts, verify addresses, and keep recovery material offline and private.",
+      "category": "Education",
+      "featured_image": null,
+      "f2z_score": "143",
+      "created_at": "2026-08-14T12:00:00.000Z",
+      "publish_at": "2026-08-14T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "education",
+        "wallet",
+        "zcash"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-selective-disclosure",
+      "vanity": "selective-disclosure-in-practice",
+      "title": "Selective Disclosure in Practice",
+      "description": "Share the information a situation needs without exposing an entire financial history.",
+      "content": "# Selective Disclosure in Practice\n\nPrivacy and accountability are not opposites. Selective disclosure gives people a way to provide specific evidence without publishing unrelated activity.\n\n## Context matters\n\nDifferent relationships call for different levels of disclosure. Useful tools make those boundaries visible and understandable.",
+      "category": "Privacy",
+      "featured_image": null,
+      "f2z_score": "121",
+      "created_at": "2026-08-13T12:00:00.000Z",
+      "publish_at": "2026-08-13T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "privacy",
+        "zcash"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-unified-addresses",
+      "vanity": "understanding-unified-addresses",
+      "title": "Understanding Unified Addresses",
+      "description": "One address can describe several compatible ways to receive Zcash.",
+      "content": "# Understanding Unified Addresses\n\nA Unified Address can contain multiple receiver types. Compatible wallets choose the receiver they support while keeping the address presentation simple.\n\n## Check compatibility\n\nBefore sending, confirm that both wallets support the intended receiver and network.",
+      "category": "Zcash",
+      "featured_image": null,
+      "f2z_score": "98",
+      "created_at": "2026-08-12T12:00:00.000Z",
+      "publish_at": "2026-08-12T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "addresses",
+        "education",
+        "zcash"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-light-clients",
+      "vanity": "how-light-clients-work",
+      "title": "How Light Clients Work",
+      "description": "A practical overview of compact blocks, scanning, and local wallet state.",
+      "content": "# How Light Clients Work\n\nLight clients use compact blockchain data to discover relevant transactions without downloading every full block. Wallet software scans that data and maintains local state.\n\n## Verify progress\n\nA useful wallet distinguishes synchronization progress from a current confirmed balance.",
+      "category": "Technology",
+      "featured_image": null,
+      "f2z_score": "87",
+      "created_at": "2026-08-11T12:00:00.000Z",
+      "publish_at": "2026-08-11T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "light-client",
+        "technology",
+        "zcash"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-open-protocols",
+      "vanity": "open-protocols-and-user-choice",
+      "title": "Open Protocols and User Choice",
+      "description": "Interoperable foundations let people choose tools without giving up portability.",
+      "content": "# Open Protocols and User Choice\n\nOpen protocols make it possible for independent tools to communicate. That creates room for experimentation while letting people move between compatible applications.\n\n## Durable foundations\n\nClear specifications and independent implementations make an ecosystem more resilient.",
+      "category": "Community",
+      "featured_image": null,
+      "f2z_score": "76",
+      "created_at": "2026-08-10T12:00:00.000Z",
+      "publish_at": "2026-08-10T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "community",
+        "open-source",
+        "protocols"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-metadata",
+      "vanity": "privacy-beyond-transaction-content",
+      "title": "Privacy Beyond Transaction Content",
+      "description": "Timing, network behavior, and account habits can matter alongside transaction details.",
+      "content": "# Privacy Beyond Transaction Content\n\nProtecting transaction content is important, but metadata can also reveal patterns. Privacy-aware design considers what an observer can infer from timing and repeated behavior.\n\n## Layered protection\n\nNo single feature solves every privacy problem. Clear expectations help people choose appropriate tools.",
+      "category": "Privacy",
+      "featured_image": null,
+      "f2z_score": "69",
+      "created_at": "2026-08-09T12:00:00.000Z",
+      "publish_at": "2026-08-09T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "privacy",
+        "zcash"
+      ]
+    },
+    {
+      "free2zaddr": "editorial-recovery-planning",
+      "vanity": "recovery-planning-before-you-need-it",
+      "title": "Recovery Planning Before You Need It",
+      "description": "A calm backup plan is easier to create before a device is lost or damaged.",
+      "content": "# Recovery Planning Before You Need It\n\nWallet recovery material can control funds, so it deserves deliberate handling. Keep it private, verify the process, and avoid relying on a single device.\n\n## Practice safely\n\nUnderstand the recovery flow with minimal value before depending on it.",
+      "category": "Education",
+      "featured_image": null,
+      "f2z_score": "61",
+      "created_at": "2026-08-08T12:00:00.000Z",
+      "publish_at": "2026-08-08T12:00:00.000Z",
+      "creator": {
+        "username": "example_editorial",
+        "full_name": "Example Editorial",
+        "avatar_image": null,
+        "member_price": null,
+        "description": "Public educational writing about Zcash and open technology.",
+        "is_verified": true,
+        "zpages": 8,
+        "is_live": false
+      },
+      "tags": [
+        "education",
+        "recovery",
+        "wallet"
+      ]
+    }
+  ]
+}

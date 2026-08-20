@@ -145,15 +145,40 @@ Primary references:
 ### Store listing source and protected audit
 
 `store/manifest.json` and `store/locales/` are the canonical locale mapping,
-proposed copy, classification proposals, and exact media contract. During Phase
-A, `publicationReady` is false and every screenshot set is empty while #267,
-#1257, and #255 complete. Run:
+proposed copy, classification proposals, and exact media contract. Phase B has
+four source- and hash-pinned screenshot candidates for every required device
+class, but `publicationReady` remains false while upstream #1257, #1253, and
+#1260, owner verification of the minimum Apple credential role required by
+#371, the repository Actions policy required by #373, plus owner/legal copy and
+visual approval. The candidates are not assertions about live store media. Run:
 
 ```bash
 npm run store:validate
 npm run test:store-listing
-npm run store:validate -- --publish # must fail during Phase A
+node scripts/store-screenshot-capture.mjs --verify-reproducible # immutable image, two passes
+npm run store:validate -- --publish  # must fail during Phase B
 ```
+
+Capture builds the production Vite bundle with all `VITE_*` overrides removed
+and refuses Vite environment files that a production build would load, serves
+it only on loopback, and intercepts a narrow allowlist of exact anonymous
+public API reads using explicitly fictional locale fixtures. It never enables
+application mock mode. The immutable image digest, browser version, UTC/fixed
+clock, viewport/DPR, safe areas, rendered-text hashes, image hashes, source
+digest, and contract digest live in `store/{capture,capture-record}.json`.
+Unexpected external requests, loading states, overflow, wrong dimensions,
+duplicate pixels, stale source, private identities, or mock/debug disclosure
+fail closed. `node scripts/store-screenshot-capture.mjs --write` is the only
+writer and does two identical
+passes before replacing candidate files. Source and contract digests are checked
+before and after config parsing, build, both capture passes, and replacement, so
+concurrent input drift fails instead of being attributed to the wrong source.
+It has no store credential or upload path.
+
+The attempted creator-profile surface failed its real 800px/tablet geometry and
+was corrected in #432, and Search clear-control duplication was corrected in
+#254. Both surfaces must be revalidated in
+the final readable-scale visual review rather than hidden with capture-only CSS.
 
 The protected `ZUULI / Store listing read-only audit` workflow compares current
 App Store Connect and Play state with an exact current `main` source SHA. Apple
@@ -191,10 +216,10 @@ email-list membership; that limitation is part of the evidence, not success
 claimed by inference.
 
 `ZUULI / Store listing publication gate` is protected by the same serialized
-environment. Phase A intentionally contains no store writer and no publication
+environment. Phase B intentionally contains no store writer and no publication
 credentials: exact current SHA, release identity, locale allowlist, offline
 tests, and `--publish` validation all precede a terminal fail-closed stop. A
-later reviewed screenshot/publication phase must add mocked provider writes and
+later reviewed publication phase must add mocked provider writes and
 fresh readback before that stop can be replaced. Never dispatch it as evidence
 of publication while `publicationReady` is false.
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "phase": "foundation",
+  "phase": "captured",
   "publicationReady": false,
   "application": {
     "bundleId": "cash.free2z.zuuli",
@@ -77,7 +77,36 @@
       "minCount": 4,
       "maxCount": 10,
       "maxBytes": 10485760,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/01-articles-fresh.png",
+          "sha256": "6dc7ecd949bcc952196e159f3c611a0d43564dcf4c97d900ed5da4806cba505d",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "02-semantic-search",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/02-semantic-search.png",
+          "sha256": "6fbb26b8437beff99526d2607e16e5b8f11a7a5cd72735c145702ade9a90f5ba",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "03-article-reader",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/03-article-reader.png",
+          "sha256": "47851b1a9672920bad9400f42d99787f99bc0911f994553807774ae3e3f68e4c",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "04-creator-profile",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/04-creator-profile.png",
+          "sha256": "05e6c78e8d0346a6be6e8688793095b1e1b7f2cc6a63c43b9a3536f0c5dde933",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        }
+      ]
     },
     {
       "id": "apple-ipad-13-portrait",
@@ -89,7 +118,36 @@
       "minCount": 4,
       "maxCount": 10,
       "maxBytes": 10485760,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/apple-ipad-13-portrait/01-articles-fresh.png",
+          "sha256": "5ceb3bd737abaf381b7e3d3c274e23ca084de4fa1bc58e87f58e538448c013d4",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "02-semantic-search",
+          "path": "store/media/en-US/apple-ipad-13-portrait/02-semantic-search.png",
+          "sha256": "a89d11b3b1e39f8eccf05c2d33583a7e0b0f3bd6c3f1c3895bed3acf80b2ec16",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "03-article-reader",
+          "path": "store/media/en-US/apple-ipad-13-portrait/03-article-reader.png",
+          "sha256": "07d7a2e598938b9c36993aec4f006939a8ae57540ca4c6d8375eac0800043bb8",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "04-creator-profile",
+          "path": "store/media/en-US/apple-ipad-13-portrait/04-creator-profile.png",
+          "sha256": "6a17abe4fa255ad1c33f849a772807652344ef666bc5b7a006279ad01522052f",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        }
+      ]
     },
     {
       "id": "play-phone-portrait",
@@ -101,7 +159,36 @@
       "minCount": 4,
       "maxCount": 8,
       "maxBytes": 8388608,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-phone-portrait/01-articles-fresh.png",
+          "sha256": "d76e47a3f5760181422ce5f29d21ba763ffcb318d9f6d882249442638faa5621",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "02-semantic-search",
+          "path": "store/media/en-US/play-phone-portrait/02-semantic-search.png",
+          "sha256": "e8d4faecec84b7de03c62af47c75564ce9c263eeff334daf2b1c9cc649914870",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "03-article-reader",
+          "path": "store/media/en-US/play-phone-portrait/03-article-reader.png",
+          "sha256": "7351ba23fb56f41a2975d37aef2273dada32790b6067db251d9f8320a4603fff",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "04-creator-profile",
+          "path": "store/media/en-US/play-phone-portrait/04-creator-profile.png",
+          "sha256": "e8d7d8e6fbed8a3adea553ac93759daabbd78efc3396972d45ca7df9af4e953f",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        }
+      ]
     },
     {
       "id": "play-7-inch-tablet-portrait",
@@ -113,7 +200,36 @@
       "minCount": 4,
       "maxCount": 8,
       "maxBytes": 8388608,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/01-articles-fresh.png",
+          "sha256": "4f06be22b949c27ef6ed24cdbb284aed66eb2d91550e6083a11ac59a9b74752a",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "02-semantic-search",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/02-semantic-search.png",
+          "sha256": "d643053d0569038faa469e42359db4b15fd613e73c33f09e4be27741cd50d151",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "03-article-reader",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/03-article-reader.png",
+          "sha256": "dfc00c429e27dd97ef4356039cfad53a78298510584cd98d6b95abf3c25063d2",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "04-creator-profile",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/04-creator-profile.png",
+          "sha256": "ca7e9bddacc1ee3404e81c3b2f819f43b0b0ee8da73766a134e5156f16b50051",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        }
+      ]
     },
     {
       "id": "play-10-inch-tablet-portrait",
@@ -125,15 +241,46 @@
       "minCount": 4,
       "maxCount": 8,
       "maxBytes": 8388608,
-      "files": []
+      "files": [
+        {
+          "id": "01-articles-fresh",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/01-articles-fresh.png",
+          "sha256": "3540babb53473b4f3becd4f98c9d38e93ecdecd28636f9e6868995568afa7262",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "02-semantic-search",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/02-semantic-search.png",
+          "sha256": "a9064c7f76a9b58707e3a50635ca267f4849aeb305d60922fad388dac6c8fb47",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "03-article-reader",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/03-article-reader.png",
+          "sha256": "f7a8a6bd17b6b91223c1edb3be1ae9f43bc9efe6fb74212ebc3ce2260530fb0b",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        },
+        {
+          "id": "04-creator-profile",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/04-creator-profile.png",
+          "sha256": "eedeaf6eaad5510d2fb07045c427fc26ec20eaaf522094dcaa84c84936e255da",
+          "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+          "reviewIssue": 387
+        }
+      ]
     }
   ],
   "capturePolicy": {
-    "status": "deferred",
+    "status": "captured-owner-review-required",
     "blockedByIssues": [
-      267,
+      371,
+      373,
       1257,
-      255
+      1253,
+      1260
     ],
     "fixtureProfile": "store-v1",
     "releaseEquivalentBuildRequired": true,
@@ -142,12 +289,20 @@
     "testerIdentityAllowed": false,
     "debugOrMockDisclosureAllowed": false,
     "reviewRequired": true,
+    "sourceSha": "31176d4b4780652c28d3d392614e2a56e2e21b05",
+    "sourceDigest": "3109da1ba465483fd289ac611834a61e3ff73188c01740e396482640844981c9",
+    "contractDigest": "e232912a224c5b8b7f839c5906cb22c28985048409d8c57f26c995e44b71e732",
+    "captureConfig": "store/capture.json",
+    "captureRecord": "store/capture-record.json",
     "forbiddenEmbeddedText": [
       "seed phrase",
       "private key",
       "secret key",
       "debug build",
-      "mock mode"
+      "mock mode",
+      "fixture",
+      "localhost",
+      "playwright"
     ]
   }
 }
