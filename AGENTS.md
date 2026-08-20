@@ -199,8 +199,8 @@ read a TOML file at the moment they need the value:
 |---|---|
 | `rust-version` in the three `Cargo.toml` manifests | Cargo needs a literal, and it is the **two-component MSRV floor** (`X.Y`) of the three-component channel (`X.Y.Z`) — deliberately a different form, compared as such |
 | `ZUULI_RUST_VERSION` in `zuuli-packaging.yml` and `zuuli-release.yml` | A workflow-level `env:` cannot be computed from a file, and the release jobs verify the installed compiler with `rustc --version \| grep -F "rustc $ZUULI_RUST_VERSION "` |
-| `dtolnay/rust-toolchain@<sha> # <version>` in the packaging/release workflows | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
-| `dtolnay/rust-toolchain@<version>` in `zuuallet.yml` | `uses:` cannot contain an expression |
+| `dtolnay/rust-toolchain@<sha> # <version>` in packaging/release and target-native Zuuallet jobs | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
+| `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `wallet/rust-toolchain.toml`; the upstream canary deliberately omits that input so only its compiler selection follows `stable` |
 | MSRV/`cargo +<version>` lines in the wallet READMEs, the plugin `CLAUDE.md`, and `wallet/zuuli/docs/releasing.md` | Prose |
 
 The `wallet/zuuli` gate reads the channel out of the file (`--print-channel`) and
@@ -215,7 +215,7 @@ all**. Every remaining restatement is verified against the file by
    not followed, with file and line.
 3. Update exactly what it names — including moving each commit-pinned
    `dtolnay/rust-toolchain` SHA to the new version branch **and** its `# <version>`
-   comment.
+   comment, plus the checker’s re-derived generic/version expected commits.
 4. Re-run until it passes. `scripts/check-rust-toolchain.sh --self-test` proves
    the check can still fail; CI runs both.
 
