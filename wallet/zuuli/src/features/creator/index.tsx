@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
+import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { discover, live, tuzi } from "@/lib/api/free2z";
 import {
@@ -1031,25 +1032,40 @@ function TipButton({
 // ─── Page card ────────────────────────────────────────────────────────────────
 function PageCard({ article }: { article: Article }) {
   return (
-    <Link
-      to={`/articles/${article.slug ?? article.id}`}
-      aria-label={`Read “${article.title}”`}
-      className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
+    <div className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40">
       <div className="aspect-[16/9] w-full overflow-hidden bg-secondary">
         {article.image ? (
-          <img
-            src={article.image}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
+          <RemoteMedia
+            source={article.image}
+            kind="image"
+            className="h-full min-h-0 rounded-none border-0 p-0"
+          >
+            {({ url }) => (
+              <Link
+                to={`/articles/${article.slug ?? article.id}`}
+                aria-label={`Read “${article.title}”`}
+                className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <img
+                  src={url}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              </Link>
+            )}
+          </RemoteMedia>
         ) : (
           <div className="grid h-full w-full place-items-center text-muted-foreground">
             <FileText className="h-6 w-6" aria-hidden />
           </div>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <Link
+        to={`/articles/${article.slug ?? article.id}`}
+        aria-label={`Read “${article.title}”`}
+        className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <h3 className="line-clamp-2 font-semibold leading-snug group-hover:text-primary">
           {article.title}
         </h3>
@@ -1069,8 +1085,8 @@ function PageCard({ article }: { article: Article }) {
             <span>{timeAgo(article.published_at)}</span>
           ) : null}
         </div>
-      </div>
-    </Link>
+      </Link>
+    </div>
   );
 }
 

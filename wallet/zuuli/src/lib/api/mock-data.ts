@@ -460,6 +460,40 @@ const featuredArticles: Article[] = [
     reading_minutes: 5,
     tags: ["zcash", "identity", "auth"],
   },
+  {
+    // Reserved fixture for the remote-media privacy contract. The `.test`
+    // destinations are intercepted only by Playwright; keeping this article
+    // old prevents it from displacing normal mock content in the feed.
+    id: 4,
+    slug: "remote-media-consent-audit",
+    free2zaddr: "remote-media-consent-audit",
+    title: "Remote Media Consent Audit",
+    subtitle: "Deterministic privacy fixtures for article media.",
+    content: [
+      "# Remote Media Consent Audit",
+      "",
+      "![Inline tracker](https://inline.media.test/pixel.png)",
+      "",
+      "![Protocol-relative tracker](//protocol.media.test/pixel.png)",
+      "",
+      "![Encoded tracker](https://%65ncoded.media.test/%70ixel.png)",
+      "",
+      "::embed[https://video.media.test/clip.webm]",
+      "",
+      "::embed[https://audio.media.test/clip.ogg]",
+      "",
+      "::embed[https://youtu.be/PrivacyAudit01]",
+      "",
+      "::embed[https://vimeo.com/123456789]",
+    ].join("\n"),
+    image: "https://cover.media.test/redirect",
+    category: "Privacy",
+    author: mockCreators[0],
+    votes: 0,
+    published_at: "2020-01-01T00:00:00.000Z",
+    reading_minutes: 1,
+    tags: ["privacy", "test"],
+  },
 ];
 
 // A broader synthetic corpus so mock mode can demo infinite scroll, tag
@@ -998,6 +1032,16 @@ function seedComment(
     "Great piece. Worth noting Halo2 drops the trusted setup entirely — might be worth a follow-up article.",
     23,
     45,
+  );
+
+  seedComment(
+    featuredArticles[3].free2zaddr!,
+    mockCreators[1],
+    null,
+    "Remote comment media audit",
+    "![Comment tracker](https://comment.media.test/pixel.png)\n\n::embed[https://comment-video.media.test/clip.webm]",
+    1,
+    5,
   );
 })();
 

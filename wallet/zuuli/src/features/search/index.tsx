@@ -22,6 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { useAsync } from "@/hooks/useAsync";
 import { discover } from "@/lib/api/free2z";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
@@ -136,7 +137,7 @@ export default function SearchFeature() {
               inputRef.current?.focus();
             }}
             aria-label="Clear search"
-            className="min-tap absolute right-1.5 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-tap absolute right-1.5 top-1/2 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
@@ -334,25 +335,40 @@ function PageResultRow({ article }: { article: Article }) {
   const name = author.display_name || author.username;
   const body = article.subtitle || excerpt(article.content);
   return (
-    <Link
-      to={`/articles/${article.slug ?? article.id}`}
-      aria-label={`Read “${article.title}”`}
-      className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="hidden h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary sm:block">
+    <div className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40">
+      <div className="hidden h-28 w-32 shrink-0 overflow-hidden rounded-lg bg-secondary sm:block">
         {article.image ? (
-          <img
-            src={article.image}
-            alt=""
-            className="h-full w-full object-cover"
-          />
+          <RemoteMedia
+            source={article.image}
+            kind="image"
+            className="h-full min-h-0 rounded-none border-0 px-2 py-1"
+          >
+            {({ url }) => (
+              <Link
+                to={`/articles/${article.slug ?? article.id}`}
+                aria-label={`Read “${article.title}”`}
+                className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <img
+                  src={url}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="h-full w-full object-cover"
+                />
+              </Link>
+            )}
+          </RemoteMedia>
         ) : (
           <div className="grid h-full w-full place-items-center text-muted-foreground">
             <FileText className="h-5 w-5" aria-hidden />
           </div>
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <Link
+        to={`/articles/${article.slug ?? article.id}`}
+        aria-label={`Read “${article.title}”`}
+        className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <div className="flex items-start justify-between gap-3">
           <h3 className="min-w-0 truncate font-semibold leading-snug group-hover:text-primary">
             {article.title}
@@ -380,8 +396,8 @@ function PageResultRow({ article }: { article: Article }) {
             </>
           ) : null}
         </div>
-      </div>
-    </Link>
+      </Link>
+    </div>
   );
 }
 
