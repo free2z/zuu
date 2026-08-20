@@ -19,13 +19,17 @@ destination from a request. Claimed HTTPS Universal Links / Android App Links
 remain the store-grade upgrade tracked in #242; they require the Apple Team ID
 and final Android signing-certificate fingerprints.
 
-The Free2Z capability contract is the release assertion, while
-`/api/auth/social/providers/` controls which sign-in buttons render. Safe
-defaults keep the capability false and the relay unset. Provider credentials do
-not by themselves enable the path: mobile `/start` fails closed while the relay
-is unset. Mobile accepts only X and Google after an operator completes the
-backend rollout checklist; their authorization URLs must contain PKCE S256.
-GitHub OAuth Apps do not offer PKCE and therefore remain desktop/web-only.
+Provider discovery is transport-specific. Web and Tauri desktop use
+`/api/auth/social/providers/`, which reports provider credential readiness.
+Tauri iOS and Android use `/api/auth/social/mobile/providers/`, which reports a
+provider only when credentials, PKCE support, the exact safe relay, and the
+explicit mobile rollout flag are all ready. A native transport-discriminator or
+mobile discovery failure fails closed; the client must never fall back to the
+generic endpoint. Safe defaults keep every mobile capability false. Provider
+credentials do not by themselves enable the path. Mobile accepts only X and
+Google after an operator completes the backend rollout checklist; their
+authorization URLs must contain PKCE S256. GitHub OAuth Apps do not offer PKCE
+and therefore remain desktop/web-only.
 
 The companion backend suppresses nginx logging for the exact relay and redacts
 the query from gunicorn/daphne records. Before enabling a provider, verify that
@@ -44,10 +48,40 @@ at the edge.
   exact redirect/state binding, app-generated PKCE S256, and one-way Knox token
   binding. Only the challenge leaves the app before callback; an app that
   intercepts the private-use URI cannot redeem the code without the verifier.
-- The tuzi companion change #903 exposes the one-destination HTTPS relay,
+- The tuzi companion change #1260 exposes transport-specific discovery and the
+  one-destination HTTPS relay,
   consumes provider callbacks exactly once, binds the returned code, accepts
   only the canonical app URI for PKCE providers, and preserves the exact
   desktop loopback shape. It does not enable a capability or provider.
+
+### Read-only production start preflight
+
+Before a signed-device smoke, verify discovery and the native start responses:
+
+```sh
+cd wallet/zuuli
+npm ci
+npm run verify:social-start
+```
+
+This command makes anonymous, credential-free GET requests to production. It
+strictly parses both generic and mobile provider discovery, requires X to be
+advertised by the matching contract before requesting its representative
+desktop and exact mobile starts, and validates the returned authorization URLs
+in memory. The production mobile response must name the exact production relay,
+a nonempty X client identifier, and the required X identity scopes. It never
+opens a provider URL and never calls the OAuth completion
+endpoint, so it cannot sign in, link an identity, or mutate an account. A
+missing mobile endpoint, disabled rollout flag, missing relay, invalid redirect
+policy, or unsafe authorization response makes the command fail. Passing this
+preflight is necessary but does not replace the signed-device callback proof
+below.
+
+The backend rollout in free2z/tuzi#1260 must be deployed before this preflight
+can pass. At the time this client change was prepared, the production mobile
+discovery path still resolved to an authenticated legacy route and returned
+HTTP 403, while the generic endpoint reported desktop X ready. That is an
+external activation blocker, not evidence of live mobile success.
 
 ## Signed-device smoke test
 

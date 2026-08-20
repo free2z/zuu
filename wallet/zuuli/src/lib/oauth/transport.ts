@@ -65,6 +65,18 @@ async function nativeTransport(): Promise<"desktop" | "mobile"> {
   return transportKind;
 }
 
+export type OAuthCallbackTransport = "web" | "desktop" | "mobile";
+
+/**
+ * Resolve the callback transport from the native command rather than from a
+ * user agent or the presence of Tauri alone. Provider discovery uses the same
+ * decision as the actual OAuth flow, so desktop never consumes mobile rollout
+ * readiness and mobile never falls back to desktop credential truth.
+ */
+export async function oauthCallbackTransport(): Promise<OAuthCallbackTransport> {
+  return isTauri() ? nativeTransport() : "web";
+}
+
 async function runDesktopLoopback(
   provider: SocialProvider,
   associate: boolean,
@@ -300,8 +312,9 @@ export async function captureOAuthCode(
     codeChallenge?: string,
   ) => Promise<OAuthStartResponse>,
 ): Promise<OAuthCapture> {
-  if (isTauri()) {
-    return (await nativeTransport()) === "mobile"
+  const transport = await oauthCallbackTransport();
+  if (transport !== "web") {
+    return transport === "mobile"
       ? runMobileDeepLink(provider, associate, buildStart)
       : runDesktopLoopback(provider, associate, buildStart);
   }

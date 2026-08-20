@@ -15,6 +15,7 @@
     "test:viewport": "playwright test tests/viewport.pw.ts",
     "test:asc-testflight": "node --test scripts/asc-testflight.node-test.mjs",
     "test:store-listing": "node --test scripts/store-contract.node-test.mjs scripts/store-state-audit.node-test.mjs",
+    "verify:social-start": "node scripts/verify-social-provider-start.mjs",
     "typecheck": "tsc --noEmit",
     "icons:generate": "node scripts/brand-assets.mjs",
     "icons:check": "node scripts/brand-assets.mjs --check",
