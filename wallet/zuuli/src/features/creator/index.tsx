@@ -48,6 +48,7 @@ import {
   initials,
   MAX_TUZIS,
   timeAgo,
+  tuziInputExample,
   tuziInputMaxLength,
   validateTuzis,
 } from "@/lib/format";
@@ -976,7 +977,7 @@ function TipButton({
               {amountResult.error === "tooLarge"
                 ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
                 : amount.length > 0 && amountResult.error !== null
-                  ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                  ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
                   : null}
             </p>
           </div>

@@ -40,39 +40,76 @@ export interface TuziInputResult {
   error: TuziInputError | null;
 }
 
-/** Maximum raw length for an integer that may contain canonical ASCII commas. */
-export function tuziInputMaxLength(maximum: number): number {
-  const digits = String(maximum).length;
-  return digits + Math.floor((digits - 1) / 3);
+/** Digits 0-9 in `locale`'s numbering system, mapped back to ASCII. */
+function localeDigits(locale?: string): Map<string, string> {
+  const fmt = new Intl.NumberFormat(locale, { useGrouping: false });
+  const map = new Map<string, string>();
+  for (let d = 0; d <= 9; d++) map.set(fmt.format(d), String(d));
+  return map;
+}
+
+/** `locale`'s grouping separator glyph, read off a real formatted number instead of hardcoded. */
+function localeGroupSeparator(locale?: string): string {
+  const part = new Intl.NumberFormat(locale)
+    .formatToParts(1234567)
+    .find((p) => p.type === "group");
+  return part?.value ?? ",";
+}
+
+/** Max raw input length for a whole 2Z amount, per `locale`'s own grouping (hi-IN groups in 2s, not just 3s). */
+export function tuziInputMaxLength(maximum: number, locale?: string): number {
+  return maximum.toLocaleString(locale).length;
 }
 
 /**
- * Parse an exact, non-negative whole-2Z amount.
- *
- * ASCII commas are the only supported grouping separator, and when present
- * they must delimit groups of three digits. Returning `null` (instead of a
- * fallback number) keeps malformed input from being silently changed before
- * it is displayed or submitted.
+ * Parse a whole-2Z amount using `locale`'s grouping separator and digits
+ * (default: runtime locale, same as `formatTuzis`). Mirrors display, so
+ * whatever the app shows parses back — see #324. `null` on anything
+ * malformed rather than a best-effort guess.
  */
-export function parseTuzis(raw: string): number | null {
-  if (!/^(?:0|[1-9]\d*|[1-9]\d{0,2}(?:,\d{3})+)$/.test(raw)) return null;
+export function parseTuzis(raw: string, locale?: string): number | null {
+  if (!raw) return null;
 
-  const normalized = raw.replace(/,/g, "");
+  const group = localeGroupSeparator(locale);
+  const digits = localeDigits(locale);
+  const hasGroupSeparator = group !== "" && raw.includes(group);
+  const stripped = hasGroupSeparator ? raw.split(group).join("") : raw;
+
+  let ascii = "";
+  for (const glyph of stripped) {
+    const digit = digits.get(glyph);
+    if (digit === undefined) return null;
+    ascii += digit;
+  }
+  if (!/^(?:0|[1-9]\d*)$/.test(ascii)) return null;
+
   // Bound work before BigInt construction, even when called outside an input
   // with maxLength (for example, from pasted/programmatic values).
-  if (normalized.length > MAX_SAFE_INTEGER_DIGITS) return null;
+  if (ascii.length > MAX_SAFE_INTEGER_DIGITS) return null;
 
-  const value = BigInt(normalized);
+  const value = BigInt(ascii);
   if (value > MAX_SAFE_INTEGER_BIGINT) return null;
-  return Number(value);
+  const num = Number(value);
+
+  // Ungrouped digits are fine as-is. If a separator is present it has to
+  // match the locale's canonical grouping for this value, or malformed
+  // shapes like "1,00" would silently parse as 100.
+  if (hasGroupSeparator && num.toLocaleString(locale) !== raw) return null;
+
+  return num;
+}
+
+/** Example grouped-integer string for input hints, in `locale` (e.g. "3,000", "3.000", "३,०००"). */
+export function tuziInputExample(value = 3000, locale?: string): string {
+  return value.toLocaleString(locale);
 }
 
 /** Parse a whole-2Z input and retain why a syntactically valid value failed. */
 export function validateTuzis(
   raw: string,
-  { minimum, maximum }: { minimum: number; maximum: number },
+  { minimum, maximum, locale }: { minimum: number; maximum: number; locale?: string },
 ): TuziInputResult {
-  const value = parseTuzis(raw);
+  const value = parseTuzis(raw, locale);
   if (value === null) return { value: null, error: "invalid" };
   if (value < minimum) return { value, error: "tooSmall" };
   if (value > maximum) return { value, error: "tooLarge" };
@@ -85,6 +122,10 @@ export function validateTuzis(
  * ZEC input deliberately supports no grouping separators and at most eight
  * decimal places. Integer arithmetic avoids the rounding that comes from
  * multiplying a JavaScript floating-point value by 1e8.
+ *
+ * NOTE: stays ASCII-only and locale-independent on purpose, unlike the 2Z
+ * (Tuzi) parsing above — ZEC is a consensus amount, not a display number.
+ * Don't make this locale-aware too. See #324.
  */
 export function parseZecToZatoshis(raw: string): number | null {
   const match = /^(\d+)(?:\.(\d{1,8}))?$/.exec(raw);
@@ -101,7 +142,12 @@ export function parseZecToZatoshis(raw: string): number | null {
   return Number(value);
 }
 
-/** Format zatoshis as a plain ZEC string (8dp). */
+/**
+ * Format zatoshis as a plain ZEC string (8dp).
+ *
+ * NOTE: same as `parseZecToZatoshis` — hard `.` decimal, Western digits, no
+ * locale grouping, on purpose.
+ */
 export function formatZec(zatoshis: number): string {
   if (!Number.isSafeInteger(zatoshis)) {
     throw new RangeError("Zatoshi amount must be a safe integer");

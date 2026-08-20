@@ -38,6 +38,7 @@ import {
   formatUsd,
   formatZecTrim,
   MAX_TUZIS,
+  tuziInputExample,
   tuziInputMaxLength,
   tuzisToUsd,
   validateTuzis,
@@ -246,7 +247,7 @@ export function BuyTab() {
             <Input
               id="custom-tuzis"
               inputMode="numeric"
-              placeholder="e.g. 3,000"
+              placeholder={`e.g. ${tuziInputExample()}`}
               maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
@@ -270,7 +271,7 @@ export function BuyTab() {
             {hasCustomAmount && customAmount.error === "tooLarge"
               ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per purchase.`
               : hasCustomAmount && customAmount.error !== null
-                ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
                 : null}
           </div>
         </div>

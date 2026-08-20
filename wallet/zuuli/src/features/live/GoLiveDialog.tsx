@@ -20,6 +20,7 @@ import { useSession } from "@/store/session";
 import {
   formatTuzis,
   MAX_PPV_PRICE_TUZIS,
+  tuziInputExample,
   tuziInputMaxLength,
   validateTuzis,
 } from "@/lib/format";
@@ -194,7 +195,7 @@ export function GoLiveDialog() {
                 {priceResult.error === "tooLarge"
                   ? `Max ${MAX_PPV_PRICE_TUZIS.toLocaleString()} 2Z for PPV.`
                   : !validPrice
-                    ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                    ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
                     : null}
               </p>
             </div>

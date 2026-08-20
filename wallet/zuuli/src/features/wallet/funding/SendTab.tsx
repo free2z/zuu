@@ -42,6 +42,7 @@ import {
   initials,
   MAX_TUZIS,
   parseTuzis,
+  tuziInputExample,
   tuziInputMaxLength,
   validateTuzis,
 } from "@/lib/format";
@@ -611,7 +612,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             {hasCustomAmount && customAmount.error === "tooLarge"
               ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
               : hasCustomAmount && customAmount.error !== null
-                ? "Enter a positive whole 2Z amount; commas may separate thousands."
+                ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
                 : null}
           </div>
         </div>
