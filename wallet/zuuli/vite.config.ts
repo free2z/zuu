@@ -25,12 +25,19 @@ export default defineConfig(async () => ({
     PACKAGE_VERSION: JSON.stringify("3.2.1"),
   },
   optimizeDeps: {
+    // Pre-bundle the worker's cold dependencies before tests/dev navigation;
+    // otherwise Vite discovers them on the first diagram and reloads the app
+    // while the disposable worker is still rendering.
+    include: ["linkedom/worker", "mermaid"],
     esbuildOptions: {
       define: {
         PACKAGE_VERSION: JSON.stringify("3.2.1"),
       },
     },
   },
+  // Mermaid is intentionally code-split inside a dedicated module Worker so
+  // creator-controlled parsing/layout never shares the wallet UI thread.
+  worker: { format: "es" },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
