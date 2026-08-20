@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
@@ -9,13 +10,19 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const contextDir = ".github/containers/zuuli-linux";
-const contextFiles = ["Dockerfile", "packages.txt", "verify-inventory.sh"];
+const contextFiles = [
+  "Dockerfile",
+  "packages.txt",
+  "verify-inventory.sh",
+  "verify-libxdo.sh",
+];
 const lockPath = `${contextDir}/image.lock`;
 const workflowPath = ".github/workflows/zuuli-linux-image.yml";
 const consumerWorkflows = [
@@ -26,6 +33,7 @@ const consumerWorkflows = [
 ];
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
 const lockedImageDigest = "sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1";
+const lockedImageSourceHash = "13eb98f352e0e3d1198f30abe333d289f504ae5cacef01cb83b21c1f7e030056";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
 const expectedConsumerCount = 6;
 const requiredConsumerJobs = new Set([
@@ -103,7 +111,7 @@ function parseLock(contents, failures) {
     if (lock.has(match[1])) failures.push(`image.lock: duplicate key ${match[1]}`);
     lock.set(match[1], match[2]);
   }
-  const expectedKeys = [
+  const requiredKeys = [
     "schema_version",
     "phase",
     "repository",
@@ -111,11 +119,12 @@ function parseLock(contents, failures) {
     "image_digest",
     "source_sha256",
   ];
-  for (const key of expectedKeys) {
+  const allowedKeys = [...requiredKeys, "candidate_source_sha256"];
+  for (const key of requiredKeys) {
     if (!lock.has(key)) failures.push(`image.lock: missing ${key}`);
   }
   for (const key of lock.keys()) {
-    if (!expectedKeys.includes(key)) failures.push(`image.lock: unknown key ${key}`);
+    if (!allowedKeys.includes(key)) failures.push(`image.lock: unknown key ${key}`);
   }
   return lock;
 }
@@ -210,11 +219,15 @@ function validate(root) {
     .split("\n")
     .filter(Boolean);
   const inventory = read(root, `${contextDir}/verify-inventory.sh`);
+  const libxdoVerifier = read(root, `${contextDir}/verify-libxdo.sh`);
   const lock = parseLock(read(root, lockPath), failures);
   const workflow = read(root, workflowPath);
 
   if (lock.get("schema_version") !== "1") failures.push("image.lock: schema_version must be 1");
-  if (lock.get("phase") !== "consumed") failures.push("image.lock: Phase B must be consumed");
+  const phase = lock.get("phase");
+  if (phase !== "consumed" && phase !== "candidate") {
+    failures.push("image.lock: phase must be consumed or candidate");
+  }
   if (lock.get("repository") !== imageRepository) failures.push("image.lock: unexpected repository");
   if (lock.get("image_digest") !== lockedImageDigest) {
     failures.push("image.lock: image_digest must match the reviewed published digest");
@@ -222,8 +235,23 @@ function validate(root) {
   if (!/^sha256:[0-9a-f]{64}$/.test(lock.get("base_digest") ?? "")) {
     failures.push("image.lock: base_digest must be an immutable sha256 digest");
   }
-  if (lock.get("source_sha256") !== contextHash(root)) {
-    failures.push("image.lock: source_sha256 does not match reviewed image context");
+  if (phase === "candidate") {
+    if (lock.get("source_sha256") !== lockedImageSourceHash) {
+      failures.push("image.lock: candidate must preserve the consumed source binding");
+    }
+    if (lock.get("candidate_source_sha256") !== contextHash(root)) {
+      failures.push("image.lock: candidate_source_sha256 does not match candidate image context");
+    }
+  } else {
+    if (lock.has("candidate_source_sha256")) {
+      failures.push("image.lock: consumed phase must not retain a candidate source");
+    }
+    if (lock.get("source_sha256") !== lockedImageSourceHash) {
+      failures.push("image.lock: consumed source must match the validator binding");
+    }
+    if (lock.get("source_sha256") !== contextHash(root)) {
+      failures.push("image.lock: source_sha256 does not match reviewed image context");
+    }
   }
 
   const from = dockerfile.match(/^FROM\s+ubuntu:24\.04@(sha256:[0-9a-f]{64})$/m);
@@ -247,6 +275,7 @@ function validate(root) {
     "Acquire::http::Timeout=30",
     "Acquire::https::Timeout=30",
     "timeout 30m apt-get",
+    "COPY verify-libxdo.sh /usr/local/bin/verify-zuuli-libxdo",
   ]) {
     if (!dockerfile.includes(expected)) failures.push(`Dockerfile: missing ${expected}`);
   }
@@ -279,6 +308,22 @@ function validate(root) {
     "for forbidden in cargo rustc rustup",
   ]) {
     if (!inventory.includes(expected)) failures.push(`inventory: missing ${expected}`);
+  }
+  if (!inventory.includes("/usr/local/bin/verify-zuuli-libxdo")) {
+    failures.push("inventory: libxdo check must use the complete-cache verifier");
+  }
+  for (const expected of [
+    'linker_cache=$("$ldconfig_command" -p)',
+    "readonly linker_cache",
+    "grep -E 'libxdo\\.so([[:space:]]|$)'",
+    '<<<"$linker_cache" >/dev/null',
+  ]) {
+    if (!libxdoVerifier.includes(expected)) {
+      failures.push(`libxdo verifier: missing ${expected}`);
+    }
+  }
+  if (/ldconfig[^\n]*\|[^\n]*grep\s+-q/.test(libxdoVerifier)) {
+    failures.push("libxdo verifier: early-closing grep pipeline is forbidden");
   }
 
   for (const expected of [
@@ -395,12 +440,57 @@ function copyFixture(destination) {
   cpSync(resolve(repoRoot, contextDir), resolve(destination, contextDir), { recursive: true });
 }
 
+function validateLibxdoVerifierRuntime(root) {
+  const failures = [];
+  const runtimeFixture = mkdtempSync(join(tmpdir(), "zuuli-libxdo-verifier-"));
+  try {
+    const earlyMatch = resolve(runtimeFixture, "early-match-ldconfig");
+    const absent = resolve(runtimeFixture, "absent-ldconfig");
+    writeFileSync(
+      earlyMatch,
+      "#!/usr/bin/env bash\nset -euo pipefail\nprintf 'libxdo.so x86-64\\n'\nseq 1 50000\n",
+    );
+    writeFileSync(
+      absent,
+      "#!/usr/bin/env bash\nset -euo pipefail\nprintf 'libsomething-else.so x86-64\\n'\n",
+    );
+    chmodSync(earlyMatch, 0o755);
+    chmodSync(absent, 0o755);
+
+    const verifier = resolve(root, `${contextDir}/verify-libxdo.sh`);
+    const positive = spawnSync("bash", [verifier, earlyMatch], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    if (positive.status !== 0) {
+      failures.push(
+        `libxdo verifier: early-match large-output regression failed (${positive.status ?? positive.error?.message ?? "unknown"})`,
+      );
+    }
+
+    const negative = spawnSync("bash", [verifier, absent], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    if (negative.status === 0) {
+      failures.push("libxdo verifier: genuinely absent library was accepted");
+    }
+  } finally {
+    rmSync(runtimeFixture, { recursive: true, force: true });
+  }
+  return failures;
+}
+
 function runSelfTest() {
   const fixture = mkdtempSync(join(tmpdir(), "zuuli-linux-image-policy-"));
   try {
     copyFixture(fixture);
     const baseline = validate(fixture);
     if (baseline.length > 0) throw new Error(`baseline fixture failed: ${baseline.join("; ")}`);
+    const runtimeBaseline = validateLibxdoVerifierRuntime(fixture);
+    if (runtimeBaseline.length > 0) {
+      throw new Error(`libxdo runtime fixture failed: ${runtimeBaseline.join("; ")}`);
+    }
 
     const cases = [
       {
@@ -408,6 +498,34 @@ function runSelfTest() {
         path: lockPath,
         mutate: (value) => value.replace(lockedImageDigest, `${lockedImageDigest.slice(0, -1)}0`),
         expected: "image_digest",
+      },
+      {
+        name: "candidate overwrites consumed source binding",
+        path: lockPath,
+        mutate: (value) => value.replace(lockedImageSourceHash, "0".repeat(64)),
+        expected: "preserve the consumed source binding",
+      },
+      {
+        name: "candidate source hash does not match candidate context",
+        path: lockPath,
+        mutate: (value) => value.replace(
+          /^candidate_source_sha256=.*$/m,
+          `candidate_source_sha256=${"0".repeat(64)}`,
+        ),
+        expected: "candidate_source_sha256",
+      },
+      {
+        name: "promotion forgets to refresh validator source binding",
+        path: lockPath,
+        mutate: (value) => {
+          const candidate = value.match(/^candidate_source_sha256=(.*)$/m)?.[1];
+          if (!candidate) throw new Error("fixture has no candidate source hash");
+          return value
+            .replace("phase=candidate", "phase=consumed")
+            .replace(`source_sha256=${lockedImageSourceHash}`, `source_sha256=${candidate}`)
+            .replace(/^candidate_source_sha256=.*\n/m, "");
+        },
+        expected: "validator binding",
       },
       {
         name: "baked Rust toolchain",
@@ -580,7 +698,26 @@ function runSelfTest() {
         throw new Error(`${testCase.name}: validator did not report ${testCase.expected}`);
       }
     }
-    console.log(`ZUULI Linux image policy self-test passed (${cases.length} negative cases).`);
+
+    copyFixture(fixture);
+    const unsafeVerifier = resolve(fixture, `${contextDir}/verify-libxdo.sh`);
+    writeFileSync(
+      unsafeVerifier,
+      readFileSync(unsafeVerifier, "utf8")
+        .replace('linker_cache=$("$ldconfig_command" -p)\nreadonly linker_cache\n\n', "")
+        .replace(
+          "grep -E 'libxdo\\.so([[:space:]]|$)' <<<\"$linker_cache\" >/dev/null",
+          '"$ldconfig_command" -p | grep -qE \'libxdo\\.so([[:space:]]|$)\'',
+        ),
+    );
+    const unsafeRuntime = validateLibxdoVerifierRuntime(fixture);
+    if (!unsafeRuntime.some((failure) => failure.includes("early-match large-output"))) {
+      throw new Error("unsafe grep -q pipeline unexpectedly passed the SIGPIPE regression");
+    }
+
+    console.log(
+      `ZUULI Linux image policy self-test passed (${cases.length} negative cases + libxdo runtime cases).`,
+    );
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
