@@ -7,6 +7,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
 import { StoreContractError, validateStoreContract } from "./store-contract.mjs";
+import { CAPTURE_INPUTS } from "./store-screenshot-contract.mjs";
+import "./store-screenshot-contract.node-test.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -16,6 +18,11 @@ async function fixture() {
   await cp(resolve(projectRoot, "store"), resolve(root, "store"), { recursive: true });
   await cp(resolve(projectRoot, "assets/store"), resolve(root, "assets/store"), { recursive: true });
   await cp(resolve(projectRoot, "release.json"), resolve(root, "release.json"));
+  for (const input of CAPTURE_INPUTS) {
+    const destination = resolve(root, input);
+    await mkdir(dirname(destination), { recursive: true });
+    await cp(resolve(projectRoot, input), destination, { recursive: true });
+  }
   return root;
 }
 
@@ -51,11 +58,13 @@ function insertTextChunk(png, text) {
   return Buffer.concat([png.subarray(0, png.length - 12), chunk, png.subarray(png.length - 12)]);
 }
 
-test("the repository foundation contract validates and publication fails closed", async () => {
+test("the repository captured-media contract validates and publication fails closed", async () => {
   const result = await validateStoreContract({ root: projectRoot });
-  assert.equal(result.phase, "foundation");
+  assert.equal(result.phase, "captured");
   assert.equal(result.publicationReady, false);
-  assert.deepEqual(result.screenshotSets.map(({ count }) => count), [0, 0, 0, 0, 0]);
+  assert.deepEqual(result.screenshotSets.map(({ count }) => count), [4, 4, 4, 4, 4]);
+  const manifest = JSON.parse(await readFile(resolve(projectRoot, "store/manifest.json"), "utf8"));
+  assert.deepEqual(manifest.capturePolicy.blockedByIssues, [371, 373, 1257, 1253, 1260]);
   await rejectsCode(() => validateStoreContract({ root: projectRoot, publish: true }), "NOT_PUBLICATION_READY");
 });
 
