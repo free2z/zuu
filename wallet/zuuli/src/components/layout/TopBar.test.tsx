@@ -6,13 +6,19 @@ import { useWallet } from "@/store/wallet";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "./TopBar";
 
-function renderTopBar({ pushed = false } = {}) {
+function renderTopBar({
+  pushed = false,
+  route = pushed ? "/wallet/fund" : "/",
+}: {
+  pushed?: boolean;
+  route?: string;
+} = {}) {
   vi.stubGlobal("window", {
     history: { state: { idx: pushed ? 1 : 0 } },
   });
 
   return renderToStaticMarkup(
-    <MemoryRouter initialEntries={[pushed ? "/wallet/fund" : "/"]}>
+    <MemoryRouter initialEntries={[route]}>
       <TooltipProvider>
         <TopBar />
       </TooltipProvider>
@@ -44,5 +50,14 @@ describe("TopBar account chrome", () => {
     expect(markup).not.toContain('href="/wallet"');
     expect(markup).toContain('aria-label="Search"');
     expect(markup.includes('aria-label="Go back"')).toBe(pushed);
+  });
+
+  it("yields all search chrome to the route while /search is active", () => {
+    const markup = renderTopBar({ pushed: true, route: "/search?q=zcash" });
+
+    expect(markup).not.toContain('role="search"');
+    expect(markup).not.toContain('aria-label="Search"');
+    expect(markup).toContain('aria-label="Go back"');
+    expect(markup).toContain('aria-label="Log in"');
   });
 });

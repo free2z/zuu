@@ -30,6 +30,7 @@ import {
   type KeyedRemoteData,
 } from "@/lib/remote-data";
 import type { Article, SimpleCreator } from "@/lib/api/types";
+import { SEARCH_INPUT_LABEL, withSearchQuery } from "@/lib/search-route";
 
 const DEBOUNCE_MS = 300;
 
@@ -44,8 +45,7 @@ function excerpt(text: string, max = 160): string {
 
 export default function SearchFeature() {
   const [params, setParams] = useSearchParams();
-  const initial = params.get("q") ?? "";
-  const [query, setQuery] = useState(initial);
+  const query = params.get("q") ?? "";
   const debounced = useDebounced(query, DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchKey = debounced.trim();
@@ -81,14 +81,9 @@ export default function SearchFeature() {
     inputRef.current?.focus();
   }, []);
 
-  // Keep ?q= in the URL in sync with the debounced query (shareable results).
-  useEffect(() => {
-    const q = debounced.trim();
-    setParams(q ? { q } : {}, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
-
-  const hasQuery = searchKey.length > 0;
+  // The route, not the debounce timer, owns visible empty-vs-results state.
+  // Clearing `?q=` must clear the screen in the same render.
+  const hasQuery = query.trim().length > 0;
   const creatorCount = creators?.length ?? 0;
   const pageCount = pages?.length ?? 0;
 
@@ -115,18 +110,29 @@ export default function SearchFeature() {
         />
         <Input
           ref={inputRef}
-          type="search"
+          type="text"
+          role="searchbox"
+          inputMode="search"
+          enterKeyHint="search"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            setParams((current) => withSearchQuery(current, value), {
+              replace: true,
+            });
+          }}
           placeholder="Search creators and pages…"
-          aria-label="Search creators and pages"
+          aria-label={SEARCH_INPUT_LABEL}
+          data-custom-search-clear
           className="h-12 pl-10 pr-14 text-base"
         />
         {query ? (
           <button
             type="button"
             onClick={() => {
-              setQuery("");
+              setParams((current) => withSearchQuery(current, ""), {
+                replace: true,
+              });
               inputRef.current?.focus();
             }}
             aria-label="Clear search"

@@ -107,11 +107,15 @@ export function Feed() {
               aria-hidden
             />
             <Input
-              type="search"
+              type="text"
+              role="searchbox"
+              inputMode="search"
+              enterKeyHint="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search articles by meaning…"
               aria-label="Search articles"
+              data-custom-search-clear
               className="pl-9 pr-12"
             />
             {searchInput ? (
