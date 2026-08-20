@@ -24,6 +24,7 @@ const COMMANDS: &[&str] = &[
     "propose_send",
     "propose_send_all",
     "execute_send",
+    "discard_send_proposal",
     "get_pending_send",
     "retry_pending_send",
     "discard_unrecoverable_send",

@@ -7,7 +7,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use rand::{RngCore, rngs::OsRng};
 use secrecy::ExposeSecret;
+use sha2::{Digest, Sha256};
 use zcash_client_backend::data_api::WalletRead;
 use zcash_client_backend::data_api::wallet::{
     ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
@@ -28,11 +30,11 @@ use zcash_protocol::{ShieldedPool, TxId};
 use crate::error::{Error, Result};
 use crate::models::{
     AddressValidation, BroadcastStatus, ExecuteSendResult, PendingSendStatus, SaplingParamsStatus,
-    SendProposal,
+    SendPaymentReview, SendProposal, SendReview,
 };
-use crate::wallet::WalletState;
 use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::keys;
+use crate::wallet::{WalletProposal, WalletState};
 
 /// A transaction that has already been created in the wallet database.
 /// Retrying this record always rebroadcasts `raw_transaction`; it never signs
@@ -60,6 +62,190 @@ const INTERRUPTED_CREATION_RECOVERY_ERROR: &str = "Transaction creation was inte
 // integer-array expansion. Bound both allocation and streaming reads so a
 // local malformed journal cannot exhaust process memory during startup.
 const MAX_PENDING_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
+const SEND_REVIEW_VERSION: u32 = 1;
+const SEND_REVIEW_DOMAIN: &[u8] = b"ZUULI_SEND_REVIEW\0";
+const SEND_FEE_POLICY: &str = "zip317-standard";
+const SEND_CHANGE_POLICY: &str = "zip317-shielded-auto";
+
+struct ProposalAuthorization {
+    proposal_id: u32,
+    review_digest: String,
+    confirmation_token_hash: [u8; 32],
+}
+
+/// Native-only proposal state. The executable proposal and its reviewed
+/// authorization are installed and consumed atomically under `send_operation`.
+pub struct PendingProposal {
+    authorization: ProposalAuthorization,
+    review: SendReview,
+    proposal: WalletProposal,
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn token_hash(token: &str) -> [u8; 32] {
+    Sha256::digest(token.as_bytes()).into()
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
+}
+
+impl ProposalAuthorization {
+    fn verify_confirmation(
+        &self,
+        proposal_id: u32,
+        review_digest: &str,
+        confirmation_token: &str,
+    ) -> Result<()> {
+        let token_matches = constant_time_eq(
+            &self.confirmation_token_hash,
+            &token_hash(confirmation_token),
+        );
+        if self.proposal_id != proposal_id
+            || !constant_time_eq(self.review_digest.as_bytes(), review_digest.as_bytes())
+            || !token_matches
+        {
+            return Err(Error::SendError(
+                "send confirmation does not match the reviewed proposal".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl PendingProposal {
+    fn verify_confirmation(
+        &self,
+        proposal_id: u32,
+        review_digest: &str,
+        confirmation_token: &str,
+    ) -> Result<()> {
+        if !constant_time_eq(
+            send_review_digest(&self.review).as_bytes(),
+            self.authorization.review_digest.as_bytes(),
+        ) {
+            return Err(Error::SendError(
+                "native send review no longer matches its proposal".into(),
+            ));
+        }
+        self.authorization
+            .verify_confirmation(proposal_id, review_digest, confirmation_token)
+    }
+}
+
+fn take_authorized<T>(slot: &mut Option<T>, authorize: impl FnOnce(&T) -> Result<()>) -> Result<T> {
+    let pending = slot.as_ref().ok_or_else(|| {
+        Error::SendError("no pending proposal — create and review a new proposal".into())
+    })?;
+    authorize(pending)?;
+    slot.take()
+        .ok_or_else(|| Error::SendError("pending proposal disappeared during confirmation".into()))
+}
+
+fn push_digest_field(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+fn send_review_digest(review: &SendReview) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(SEND_REVIEW_DOMAIN);
+    hasher.update(review.version.to_be_bytes());
+    push_digest_field(&mut hasher, review.network.as_bytes());
+    hasher.update((review.payments.len() as u64).to_be_bytes());
+    for payment in &review.payments {
+        push_digest_field(&mut hasher, payment.recipient.as_bytes());
+        hasher.update(payment.amount.to_be_bytes());
+        match &payment.memo {
+            Some(memo) => {
+                hasher.update([1]);
+                push_digest_field(&mut hasher, memo.as_bytes());
+            }
+            None => hasher.update([0]),
+        }
+    }
+    push_digest_field(&mut hasher, review.fee_policy.as_bytes());
+    hasher.update(review.fee.to_be_bytes());
+    hasher.update(review.total.to_be_bytes());
+    push_digest_field(&mut hasher, review.change_policy.as_bytes());
+    encode_hex(&hasher.finalize())
+}
+
+fn network_label(network: &zcash_protocol::consensus::Network) -> &'static str {
+    match network {
+        zcash_protocol::consensus::Network::MainNetwork => "mainnet",
+        zcash_protocol::consensus::Network::TestNetwork => "testnet",
+    }
+}
+
+fn create_pending_proposal(
+    proposal_id: u32,
+    proposal: WalletProposal,
+    review: SendReview,
+) -> (PendingProposal, SendProposal) {
+    let review_digest = send_review_digest(&review);
+    let mut token_bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut token_bytes);
+    let confirmation_token = encode_hex(&token_bytes);
+    let pending = PendingProposal {
+        authorization: ProposalAuthorization {
+            proposal_id,
+            review_digest: review_digest.clone(),
+            confirmation_token_hash: token_hash(&confirmation_token),
+        },
+        review: review.clone(),
+        proposal,
+    };
+    let public = SendProposal {
+        proposal_id,
+        review,
+        review_digest,
+        confirmation_token,
+    };
+    (pending, public)
+}
+
+fn single_payment_review(
+    network: &zcash_protocol::consensus::Network,
+    recipient: &zcash_address::ZcashAddress,
+    amount: u64,
+    memo: Option<&str>,
+    fee: u64,
+) -> Result<SendReview> {
+    let total = amount
+        .checked_add(fee)
+        .ok_or_else(|| Error::SendError("send total overflowed".into()))?;
+    Ok(SendReview {
+        version: SEND_REVIEW_VERSION,
+        network: network_label(network).to_owned(),
+        payments: vec![SendPaymentReview {
+            recipient: recipient.encode(),
+            amount,
+            memo: memo.map(ToOwned::to_owned),
+        }],
+        fee_policy: SEND_FEE_POLICY.to_owned(),
+        fee,
+        total,
+        change_policy: SEND_CHANGE_POLICY.to_owned(),
+    })
+}
 
 fn pending_broadcast_path(data_dir: &Path, wallet_id: &str) -> Result<std::path::PathBuf> {
     if wallet_id.is_empty()
@@ -747,8 +933,15 @@ pub async fn propose_send(
         None => None,
     };
 
-    let payment = zip321::Payment::new(recipient, Some(zatoshis), memo_bytes, None, None, vec![])
-        .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
+    let payment = zip321::Payment::new(
+        recipient.clone(),
+        Some(zatoshis),
+        memo_bytes,
+        None,
+        None,
+        vec![],
+    )
+    .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
 
     let request = zip321::TransactionRequest::new(vec![payment])
         .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
@@ -803,15 +996,8 @@ pub async fn propose_send(
             .map(|s| u64::from(s.balance().fee_required()))
             .sum();
         let id = state.proposal_counter.fetch_add(1, Ordering::Relaxed);
-        Ok((
-            (id, proposal),
-            SendProposal {
-                proposal_id: id,
-                amount,
-                fee,
-                total: amount + fee,
-            },
-        ))
+        let review = single_payment_review(&state.network, &recipient, amount, memo, fee)?;
+        Ok(create_pending_proposal(id, proposal, review))
     });
     let mut pending_broadcast = state.pending_broadcast.lock().await;
     ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;
@@ -973,14 +1159,17 @@ pub async fn propose_send_all(
                     if let Some(record) = pending_broadcast.as_ref() {
                         clear_pending_broadcast(&state.data_dir, &record.wallet_id)?;
                     }
-                    *state.pending_proposal.lock().await = Some((id, proposal));
-                    *pending_broadcast = None;
-                    return Ok(SendProposal {
-                        proposal_id: id,
+                    let review = single_payment_review(
+                        &state.network,
+                        &recipient,
                         amount,
-                        fee: actual_fee,
-                        total: amount + actual_fee,
-                    });
+                        memo,
+                        actual_fee,
+                    )?;
+                    let (pending, public) = create_pending_proposal(id, proposal, review);
+                    *state.pending_proposal.lock().await = Some(pending);
+                    *pending_broadcast = None;
+                    return Ok(public);
                 }
 
                 // Fee was higher than expected — adjust and retry
@@ -1011,9 +1200,29 @@ pub async fn propose_send_all(
     ))
 }
 
-/// Execute a previously-proposed send transaction.
-pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<ExecuteSendResult> {
-    let _send_operation = state.send_operation.lock().await;
+/// Atomically validate and consume a reviewed proposal. The caller must hold
+/// `send_operation` across this call and `execute_send`, so no replacement can
+/// interleave after authorization. Consumption is deliberately before custody
+/// loading: a failed execution always requires a fresh native review.
+pub async fn take_send_proposal(
+    state: &WalletState,
+    proposal_id: u32,
+    review_digest: &str,
+    confirmation_token: &str,
+) -> Result<PendingProposal> {
+    let mut proposal_guard = state.pending_proposal.lock().await;
+    take_authorized(&mut *proposal_guard, |pending| {
+        pending.verify_confirmation(proposal_id, review_digest, confirmation_token)
+    })
+}
+
+/// Execute a previously-authorized send transaction. The proposal has already
+/// been consumed, so all failures from this point require a new review.
+pub async fn execute_send(
+    state: &WalletState,
+    proposal_id: u32,
+    pending_proposal: PendingProposal,
+) -> Result<ExecuteSendResult> {
     if !state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
     }
@@ -1034,15 +1243,10 @@ pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<Execu
             ));
         }
         if record.proposal_id == proposal_id {
-            if record.status != BroadcastStatus::Unknown {
-                return Ok(ExecuteSendResult {
-                    txid: record.txid.clone(),
-                    status: record.status,
-                    message: record.message.clone(),
-                });
-            }
-
-            return broadcast_record(state, record).await;
+            return Err(Error::SendError(
+                "this confirmation was already consumed; use retry_pending_send for an ambiguous broadcast"
+                    .into(),
+            ));
         }
 
         ensure_no_unresolved_broadcast(Some(record))?;
@@ -1050,23 +1254,8 @@ pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<Execu
         *broadcast_guard = None;
     }
 
-    // Fail before consuming the proposal when proving data is unavailable.
     let prover_guard = state.prover.lock().await;
     let prover = require_prover(prover_guard.as_ref())?;
-
-    // Keep the proposal in the slot until transaction creation and local
-    // serialization succeed. A rejected creation can therefore be retried;
-    // it never advances into the broadcast state.
-    let mut prop_guard = state.pending_proposal.lock().await;
-    let (stored_id, proposal) = prop_guard.as_ref().ok_or(Error::SendError(
-        "no pending proposal — call propose_send first".into(),
-    ))?;
-
-    if *stored_id != proposal_id {
-        return Err(Error::SendError(
-            "proposal_id mismatch — stale proposal".into(),
-        ));
-    }
 
     // Derive USK from seed
     let usk = {
@@ -1120,7 +1309,7 @@ pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<Execu
             prover,
             &spending_keys,
             OvkPolicy::Sender,
-            proposal,
+            &pending_proposal.proposal,
             // `expiry_height: None` keeps the builder-derived expiry for every step.
             None,
         )
@@ -1173,10 +1362,6 @@ pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<Execu
         }
     };
     *broadcast_guard = Some(record);
-    // Only now is the proposal consumed. From this point on every retry uses
-    // the exact serialized transaction stored above.
-    *prop_guard = None;
-
     // Replace the intent with complete retry bytes before any network I/O.
     // If this fails, the in-memory record remains retryable and the durable
     // intent remains fail-closed after restart.
@@ -1187,7 +1372,6 @@ pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<Execu
 
     // Drop cryptographic and database locks before network I/O. The broadcast
     // state lock stays held to serialize retries.
-    drop(prop_guard);
     drop(db_guard);
     drop(prover_guard);
 
@@ -1195,6 +1379,23 @@ pub async fn execute_send(state: &WalletState, proposal_id: u32) -> Result<Execu
         .as_mut()
         .ok_or_else(|| Error::SendError("internal broadcast state was lost".into()))?;
     broadcast_record(state, record).await
+}
+
+/// Discard exactly the native proposal the renderer is abandoning. Stale or
+/// forged credentials never clear a newer proposal.
+pub async fn discard_send_proposal(
+    state: &WalletState,
+    proposal_id: u32,
+    review_digest: &str,
+    confirmation_token: &str,
+) -> Result<()> {
+    let _send_operation = state.send_operation.lock().await;
+    let mut proposal_guard = state.pending_proposal.lock().await;
+    let discarded = take_authorized(&mut *proposal_guard, |pending| {
+        pending.verify_confirmation(proposal_id, review_digest, confirmation_token)
+    })?;
+    drop(discarded);
+    Ok(())
 }
 
 pub async fn get_pending_send(state: &WalletState) -> Result<Option<PendingSendStatus>> {
@@ -1577,6 +1778,133 @@ mod tests {
             attempts: 0,
             had_ambiguous_attempt: false,
             recovery_error: None,
+        }
+    }
+
+    fn review() -> SendReview {
+        SendReview {
+            version: SEND_REVIEW_VERSION,
+            network: "mainnet".into(),
+            payments: vec![SendPaymentReview {
+                recipient: MAINNET_TADDR.into(),
+                amount: 50_000,
+                memo: Some("exact private memo".into()),
+            }],
+            fee_policy: SEND_FEE_POLICY.into(),
+            fee: 10_000,
+            total: 60_000,
+            change_policy: SEND_CHANGE_POLICY.into(),
+        }
+    }
+
+    fn authorization(token: &str) -> ProposalAuthorization {
+        ProposalAuthorization {
+            proposal_id: 17,
+            review_digest: send_review_digest(&review()),
+            confirmation_token_hash: token_hash(token),
+        }
+    }
+
+    #[test]
+    fn review_digest_binds_every_ordered_review_field() {
+        let original = review();
+        let original_digest = send_review_digest(&original);
+        let mut ordered = original.clone();
+        ordered.payments.push(SendPaymentReview {
+            recipient: "second-recipient".into(),
+            amount: 1,
+            memo: None,
+        });
+        let mut reordered = ordered.clone();
+        reordered.payments.reverse();
+        assert_ne!(send_review_digest(&ordered), send_review_digest(&reordered));
+        let mutations = [
+            SendReview {
+                version: 2,
+                ..original.clone()
+            },
+            SendReview {
+                network: "testnet".into(),
+                ..original.clone()
+            },
+            SendReview {
+                payments: vec![SendPaymentReview {
+                    recipient: TESTNET_TADDR.into(),
+                    ..original.payments[0].clone()
+                }],
+                ..original.clone()
+            },
+            SendReview {
+                payments: vec![SendPaymentReview {
+                    amount: 50_001,
+                    ..original.payments[0].clone()
+                }],
+                ..original.clone()
+            },
+            SendReview {
+                payments: vec![SendPaymentReview {
+                    memo: None,
+                    ..original.payments[0].clone()
+                }],
+                ..original.clone()
+            },
+            SendReview {
+                fee_policy: "different".into(),
+                ..original.clone()
+            },
+            SendReview {
+                fee: 20_000,
+                ..original.clone()
+            },
+            SendReview {
+                total: 70_000,
+                ..original.clone()
+            },
+            SendReview {
+                change_policy: "different".into(),
+                ..original.clone()
+            },
+        ];
+
+        for mutation in mutations {
+            assert_ne!(send_review_digest(&mutation), original_digest);
+        }
+    }
+
+    #[test]
+    fn confirmation_is_exact_and_one_use() {
+        let token = "opaque-confirmation-token";
+        let digest = send_review_digest(&review());
+        let mut slot = Some(authorization(token));
+
+        assert!(
+            take_authorized(&mut slot, |pending| {
+                pending.verify_confirmation(17, &digest, token)
+            })
+            .is_ok()
+        );
+        assert!(slot.is_none());
+        assert!(take_authorized(&mut slot, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn wrong_confirmation_cannot_discard_the_current_proposal() {
+        let token = "opaque-confirmation-token";
+        let digest = send_review_digest(&review());
+        let mut slot = Some(authorization(token));
+
+        for (proposal_id, supplied_digest, supplied_token) in [
+            (18, digest.as_str(), token),
+            (17, "wrong-digest", token),
+            (17, digest.as_str(), "wrong-token"),
+        ] {
+            assert!(
+                take_authorized(&mut slot, |pending| {
+                    pending.verify_confirmation(proposal_id, supplied_digest, supplied_token)
+                })
+                .is_err()
+            );
+            assert!(slot.is_some());
         }
     }
 

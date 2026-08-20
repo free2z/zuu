@@ -96,6 +96,47 @@ export function Send() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const debounceRef = useRef<number | null>(null);
+  const generationRef = useRef(0);
+  const mountedRef = useRef(true);
+  const proposalRef = useRef<SendProposal | null>(null);
+  const confirmingRef = useRef(false);
+
+  const discardNativeProposal = useCallback(async (stale: SendProposal) => {
+    try {
+      await wallet.discardSendProposal(
+        stale.proposalId,
+        stale.reviewDigest,
+        stale.confirmationToken,
+      );
+    } catch {
+      // Exact credentials make this safe when a newer proposal replaced it or
+      // execution already consumed it. Discard must not surface private review
+      // details through a toast during navigation or unmount.
+    }
+  }, []);
+
+  const invalidateReview = useCallback(() => {
+    generationRef.current += 1;
+    const stale = proposalRef.current;
+    proposalRef.current = null;
+    setProposal(null);
+    setDialogOpen(false);
+    setPreparingParams(false);
+    setReviewing(false);
+    if (stale) void discardNativeProposal(stale);
+    return generationRef.current;
+  }, [discardNativeProposal]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      const stale = proposalRef.current;
+      proposalRef.current = null;
+      if (stale) void discardNativeProposal(stale);
+    };
+  }, [discardNativeProposal]);
 
   const canReceiveMemo = validation?.valid ? validation.canReceiveMemo : true;
   const zatoshis = parseZecToZatoshis(amount);
@@ -108,6 +149,8 @@ export function Send() {
   const memoBytes = memoByteLength(memo);
   const hasUnknownBroadcast =
     broadcastResult?.status === "unknown" || pendingSend?.status === "unknown";
+  const formLocked =
+    hasUnknownBroadcast || preparingParams || reviewing || sending || proposal !== null;
 
   useEffect(() => {
     let active = true;
@@ -125,17 +168,24 @@ export function Send() {
   }, []);
 
   // Parse a pasted `zcash:` payment URI and prefill the form.
-  const applyUri = useCallback(async (uri: string) => {
-    try {
-      const req = await wallet.parsePaymentUri(uri);
-      setTo(req.address);
-      if (req.amount !== null) setAmount(formatZec(req.amount));
-      if (req.memo !== null) setMemo(clampToBytes(req.memo, MEMO_MAX_BYTES));
-      toast.success("Payment request loaded");
-    } catch {
-      toast.error("Couldn't read that payment link");
-    }
-  }, []);
+  const applyUri = useCallback(
+    async (uri: string) => {
+      const generation = invalidateReview();
+      try {
+        const req = await wallet.parsePaymentUri(uri);
+        if (!mountedRef.current || generation !== generationRef.current) return;
+        setTo(req.address);
+        if (req.amount !== null) setAmount(formatZec(req.amount));
+        if (req.memo !== null) setMemo(clampToBytes(req.memo, MEMO_MAX_BYTES));
+        toast.success("Payment request loaded");
+      } catch {
+        if (mountedRef.current && generation === generationRef.current) {
+          toast.error("Couldn't read that payment link");
+        }
+      }
+    },
+    [invalidateReview],
+  );
 
   const onToChange = useCallback(
     (raw: string) => {
@@ -144,9 +194,10 @@ export function Send() {
         void applyUri(v);
         return;
       }
+      invalidateReview();
       setTo(raw);
     },
-    [applyUri],
+    [applyUri, invalidateReview],
   );
 
   // Debounced live validation of the destination address.
@@ -174,62 +225,99 @@ export function Send() {
   // Clear a memo the destination can't carry.
   useEffect(() => {
     if (validation && validation.valid && !validation.canReceiveMemo && memo) {
+      invalidateReview();
       setMemo("");
     }
-  }, [validation, memo]);
+  }, [validation, memo, invalidateReview]);
 
   const canReview =
     !!validation?.valid && zatoshis !== null && !overBalance && !validating;
 
   const onReview = useCallback(async () => {
-    if (hasUnknownBroadcast && proposal) {
-      setDialogOpen(true);
-      return;
-    }
     if (!canReview || zatoshis === null) return;
+    const generation = invalidateReview();
+    const requested = {
+      recipient: to.trim(),
+      amount: zatoshis,
+      memo: canReceiveMemo && memo ? memo : undefined,
+    };
     setBroadcastResult(null);
     setPreparingParams(true);
     try {
       const params = await wallet.ensureSaplingParams();
+      if (!mountedRef.current || generation !== generationRef.current) return;
       if (!params.ready) {
         throw new Error("Sapling proving parameters are not ready");
       }
       setPreparingParams(false);
       setReviewing(true);
-      const p = await wallet.proposeSend(
-        to.trim(),
-        zatoshis,
-        canReceiveMemo && memo ? memo : undefined,
-      );
-      assertExactSendProposal(zatoshis, p);
+      const p = await wallet.proposeSend(requested.recipient, requested.amount, requested.memo);
+      if (!mountedRef.current || generation !== generationRef.current) {
+        void discardNativeProposal(p);
+        return;
+      }
+      try {
+        assertExactSendProposal(requested, p);
+      } catch (error) {
+        void discardNativeProposal(p);
+        throw error;
+      }
+      proposalRef.current = p;
       setProposal(p);
       setDialogOpen(true);
     } catch (e) {
-      toast.error(errorMessage(e, "Couldn't build the transaction"));
+      if (mountedRef.current && generation === generationRef.current) {
+        toast.error(errorMessage(e, "Couldn't build the transaction"));
+      }
     } finally {
-      setPreparingParams(false);
-      setReviewing(false);
+      if (mountedRef.current && generation === generationRef.current) {
+        setPreparingParams(false);
+        setReviewing(false);
+      }
     }
-  }, [hasUnknownBroadcast, proposal, canReview, zatoshis, to, memo, canReceiveMemo]);
+  }, [
+    canReview,
+    zatoshis,
+    invalidateReview,
+    to,
+    canReceiveMemo,
+    memo,
+    discardNativeProposal,
+  ]);
 
   const onConfirm = useCallback(async () => {
-    if (!proposal) return;
+    const confirmedProposal = proposalRef.current;
+    if (!confirmedProposal || confirmingRef.current) return;
+    confirmingRef.current = true;
+    const generation = generationRef.current;
     setSending(true);
     try {
-      const result = await wallet.executeSend(proposal.proposalId);
+      const result = await wallet.executeSend(
+        confirmedProposal.proposalId,
+        confirmedProposal.reviewDigest,
+        confirmedProposal.confirmationToken,
+      );
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      proposalRef.current = null;
+      setProposal(null);
+      setDialogOpen(false);
       setBroadcastResult(result);
       if (result.status === "accepted") {
         setPendingSend(null);
-        setDialogOpen(false);
         toast.success("Transaction sent", {
           description: `txid ${truncateAddress(result.txid)}`,
         });
-        await refreshBalance();
+        await refreshBalance().catch(() => {
+          if (mountedRef.current && generation === generationRef.current) {
+            toast.warning("Payment sent; balance refresh is still pending");
+          }
+        });
+        if (!mountedRef.current || generation !== generationRef.current) return;
         navigate("/wallet/history");
       } else if (result.status === "unknown") {
         setPendingSend({
           ...result,
-          proposalId: proposal.proposalId,
+          proposalId: confirmedProposal.proposalId,
           recoveryRequired: false,
           canDiscard: false,
         });
@@ -243,12 +331,17 @@ export function Send() {
       }
     } catch (e) {
       const recovered = await wallet.getPendingSend().catch(() => null);
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      proposalRef.current = null;
+      setProposal(null);
+      setDialogOpen(false);
       if (recovered?.status === "unknown") setPendingSend(recovered);
       toast.error(errorMessage(e, "Send failed"));
     } finally {
-      setSending(false);
+      confirmingRef.current = false;
+      if (mountedRef.current && generation === generationRef.current) setSending(false);
     }
-  }, [proposal, refreshBalance, navigate]);
+  }, [refreshBalance, navigate]);
 
   const onRetryPending = useCallback(async () => {
     setSending(true);
@@ -271,6 +364,7 @@ export function Send() {
         });
       } else {
         setPendingSend(null);
+        proposalRef.current = null;
         setProposal(null);
         toast.info("Transaction expired without being found", {
           description: result.message ?? "It is safe to review a new payment.",
@@ -294,6 +388,7 @@ export function Send() {
       await wallet.discardUnrecoverableSend(pendingSend.proposalId);
       setPendingSend(null);
       setBroadcastResult(null);
+      proposalRef.current = null;
       setProposal(null);
       toast.warning("Recovery lock discarded after wallet-history confirmation");
     } catch (error) {
@@ -335,7 +430,7 @@ export function Send() {
               placeholder="u1… / zs1… / t1… or paste a zcash: link"
               autoComplete="off"
               spellCheck={false}
-              disabled={hasUnknownBroadcast}
+              disabled={formLocked}
               className={cn(
                 "font-mono",
                 validation && !validation.valid && to.trim() && "border-destructive",
@@ -374,9 +469,12 @@ export function Send() {
               {balance ? (
                 <button
                   type="button"
-                  disabled={hasUnknownBroadcast}
+                  disabled={formLocked}
                   className="min-tap inline-flex items-center justify-center rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => setAmount(formatZec(maxSpendable))}
+                  onClick={() => {
+                    invalidateReview();
+                    setAmount(formatZec(maxSpendable));
+                  }}
                 >
                   Max: {formatZecDisplay(maxSpendable)}
                 </button>
@@ -386,12 +484,15 @@ export function Send() {
               <Input
                 id="amount"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  invalidateReview();
+                  setAmount(e.target.value);
+                }}
                 placeholder="0.00"
                 inputMode="decimal"
                 maxLength={MAX_ZEC_INPUT_LENGTH}
                 type="text"
-                disabled={hasUnknownBroadcast}
+                disabled={formLocked}
                 className={cn(
                   "pr-14 tabular-nums",
                   (invalidAmount || overBalance) && "border-destructive",
@@ -438,8 +539,11 @@ export function Send() {
             <Textarea
               id="memo"
               value={memo}
-              onChange={(e) => setMemo(clampToBytes(e.target.value, MEMO_MAX_BYTES))}
-              disabled={!canReceiveMemo || hasUnknownBroadcast}
+              onChange={(e) => {
+                invalidateReview();
+                setMemo(clampToBytes(e.target.value, MEMO_MAX_BYTES));
+              }}
+              disabled={!canReceiveMemo || formLocked}
               placeholder={
                 canReceiveMemo
                   ? "Encrypted note delivered with the payment"
@@ -465,6 +569,7 @@ export function Send() {
               preparingParams ||
               reviewing ||
               sending ||
+              proposal !== null ||
               Boolean(pendingSend?.recoveryRequired && !pendingSend.canDiscard)
             }
             onClick={
@@ -517,8 +622,13 @@ export function Send() {
       </Card>
 
       {/* Confirmation dialog */}
-      <Dialog open={dialogOpen} onOpenChange={(o) => !sending && setDialogOpen(o)}>
-        <DialogContent>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!sending && !open) invalidateReview();
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Confirm payment</DialogTitle>
             <DialogDescription>
@@ -529,31 +639,54 @@ export function Send() {
           {proposal ? (
             <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
               <Row label="To">
-                <span className="break-all font-mono text-xs">
-                  {truncateAddress(to.trim())}
+                <span
+                  className="min-w-0 break-all text-right font-mono text-xs"
+                  data-testid="send-review-recipient"
+                >
+                  {proposal.review.payments[0]?.recipient ?? ""}
                 </span>
               </Row>
               <Row label="Amount">
-                <span className="tabular-nums">
-                  {formatZecDisplay(proposal.amount)}
+                <span className="tabular-nums" data-testid="send-review-amount">
+                  {formatZecDisplay(proposal.review.payments[0]?.amount ?? 0)}
                 </span>
               </Row>
               <Row label="Network fee">
-                <span className="tabular-nums text-muted-foreground">
-                  {formatZecDisplay(proposal.fee)}
+                <span
+                  className="tabular-nums text-muted-foreground"
+                  title={proposal.review.feePolicy}
+                >
+                  {formatZecDisplay(proposal.review.fee)}
                 </span>
               </Row>
-              {canReceiveMemo && memo ? (
+              {proposal.review.payments[0]?.memo ? (
                 <Row label="Memo">
-                  <span className="max-w-[16rem] truncate text-right text-muted-foreground">
-                    {memo}
+                  <span
+                    className="min-w-0 whitespace-pre-wrap break-words text-right text-muted-foreground"
+                    data-testid="send-review-memo"
+                  >
+                    {proposal.review.payments[0].memo}
                   </span>
                 </Row>
               ) : null}
+              <Row label="Network">
+                <span className="capitalize text-muted-foreground">
+                  {proposal.review.network}
+                </span>
+              </Row>
+              <Row label="Change">
+                <span
+                  className="text-muted-foreground"
+                  data-testid="send-review-change-policy"
+                  title={proposal.review.changePolicy}
+                >
+                  Shielded automatically
+                </span>
+              </Row>
               <Separator />
               <Row label="Total">
                 <span className="text-base font-semibold tabular-nums text-[#f4b728]">
-                  {formatZecDisplay(proposal.total)}
+                  {formatZecDisplay(proposal.review.total)}
                 </span>
               </Row>
             </div>
@@ -587,7 +720,7 @@ export function Send() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDialogOpen(false)}
+              onClick={invalidateReview}
               disabled={sending}
             >
               Cancel
@@ -595,15 +728,7 @@ export function Send() {
             <Button
               type="button"
               variant="zec"
-              onClick={
-                broadcastResult?.status === "rejected"
-                  ? () => {
-                      setDialogOpen(false);
-                      setBroadcastResult(null);
-                      setProposal(null);
-                    }
-                  : onConfirm
-              }
+              onClick={onConfirm}
               disabled={sending}
             >
               {sending ? (
@@ -612,11 +737,7 @@ export function Send() {
                   Sending…
                 </>
               ) : (
-                broadcastResult?.status === "rejected"
-                  ? "Edit payment"
-                  : broadcastResult
-                    ? "Retry same transaction"
-                    : "Confirm & send"
+                "Confirm & send"
               )}
             </Button>
           </DialogFooter>
@@ -634,8 +755,8 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
+    <div className="flex min-w-0 items-start justify-between gap-4">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
       {children}
     </div>
   );
