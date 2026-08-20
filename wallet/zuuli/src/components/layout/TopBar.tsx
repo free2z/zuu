@@ -34,6 +34,11 @@ import {
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { formatTuzis, formatZecTrim, initials } from "@/lib/format";
+import {
+  isSearchRoute,
+  searchHref,
+  SEARCH_INPUT_LABEL,
+} from "@/lib/search-route";
 
 const ICON_CONTROL_LABELS = {
   account: "Account menu",
@@ -48,6 +53,7 @@ export function TopBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [q, setQ] = useState("");
+  const searchOwnsChrome = isSearchRoute(location.pathname);
 
   // This is an app, not a browser — surface a persistent back affordance so
   // fans can retreat from any screen. React Router stamps a monotonic `idx`
@@ -86,44 +92,47 @@ export function TopBar() {
       ) : null}
 
       {/* Global search */}
-      <form
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const term = q.trim();
-          navigate(term ? `/search?q=${encodeURIComponent(term)}` : "/search");
-        }}
-        className="relative hidden max-w-sm flex-1 sm:block"
-      >
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search creators and pages…"
-          aria-label="Search creators and pages"
-          className="h-9 w-full rounded-full border border-border bg-card/60 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring"
-        />
-      </form>
+      {!searchOwnsChrome ? (
+        <form
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            navigate(searchHref(q));
+          }}
+          className="relative hidden max-w-sm flex-1 sm:block"
+        >
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search creators and pages…"
+            aria-label={SEARCH_INPUT_LABEL}
+            className="h-9 w-full rounded-full border border-border bg-card/60 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </form>
+      ) : null}
 
       {/* Search icon (mobile) */}
-      <Tooltip>
-        <TooltipTrigger asChild aria-describedby={undefined}>
-          <Link
-            to="/search"
-            className="min-tap grid place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:hidden"
-            aria-label={ICON_CONTROL_LABELS.search}
-          >
-            <Search className="h-5 w-5" aria-hidden />
-          </Link>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {ICON_CONTROL_LABELS.search}
-        </TooltipContent>
-      </Tooltip>
+      {!searchOwnsChrome ? (
+        <Tooltip>
+          <TooltipTrigger asChild aria-describedby={undefined}>
+            <Link
+              to="/search"
+              className="min-tap grid place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground sm:hidden"
+              aria-label={ICON_CONTROL_LABELS.search}
+            >
+              <Search className="h-5 w-5" aria-hidden />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {ICON_CONTROL_LABELS.search}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
 
       <div className="flex-1" />
 
