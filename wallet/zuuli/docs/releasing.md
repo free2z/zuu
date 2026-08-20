@@ -74,10 +74,15 @@ repeat bootstrap work or substitute unrelated credentials.
 1. The explicit App ID `cash.free2z.zuuli` exists under team `F9AV5HKF6N`.
 2. App Store Connect app `6799322201` is `ZUULI`, bundle
    `cash.free2z.zuuli`, SKU `zuuli-ios`, with `en-US` localization.
-3. The protected environment contains the Admin ASC key, dedicated ZUULI Apple
-   Distribution certificate, and profile `ZUULI App Store CI`. CI verifies the
-   profile's team, application identifier, UUID, and certificate linkage before
-   it signs.
+3. The protected environment currently contains an Admin ASC key, dedicated
+   ZUULI Apple Distribution certificate, and profile `ZUULI App Store CI`. CI
+   verifies the profile's team, application identifier, UUID, and certificate
+   linkage before it signs. Admin is not accepted as the final least-privilege
+   state: an owner must replace it with the minimum App Store Connect role that
+   passes upload, build-status reconciliation, and internal-group assignment,
+   then record that protected-run evidence. Repository tests cannot prove the
+   external role, so Apple publication and issue closure remain blocked until
+   that owner-side evidence exists.
 4. Maintain exactly one internal TestFlight group named `ZUULI Internal Testers`.
    The name and internal-only requirement are fixed in
    `scripts/asc-testflight.mjs`; ordinary release and read-only recovery refuse
@@ -193,7 +198,7 @@ later reviewed screenshot/publication phase must add mocked provider writes and
 fresh readback before that stop can be replaced. Never dispatch it as evidence
 of publication while `publicationReady` is false.
 
-## Local signed dry run
+## Local release dry run
 
 Credentials are paths or environment values; never paste a private key, service
 account document, seed phrase, or password into a command line. Disable shell
@@ -202,39 +207,36 @@ paths, a partial Android signing setup, and dirty source trees. Python 3 is a
 release prerequisite: the standard-library plist verifier preserves duplicate
 evidence that Apple's semantic plist tools discard.
 
-Apple variables:
+Apple signing is intentionally not available through a combined local build
+script. The protected workflow first runs every source/dependency-controlled
+step in jobs that cannot access the protected environment: iOS produces a
+`--no-sign --archive-only` archive and macOS produces a `--no-sign` universal
+app plus the Tauri-created DMG layout. Those source-bound artifacts carry
+checksums and attestations before entering a signing job.
 
-```text
-APPLE_TEAM_ID
-ASC_KEY_ID
-ASC_ISSUER_ID
-ASC_KEY_PATH                 path to the .p8 file
-ZUULI_PREFLIGHT_KEYCHAIN     path to an unlocked, ephemeral signing keychain
-IOS_MOBILE_PROVISION         base64-encoded ZUULI App Store CI profile
-```
+The signing jobs do not check out source and never run npm, Cargo, Tauri,
+CocoaPods, an Xcode build/archive action, or a project build hook. iOS uses only
+`xcodebuild -exportArchive`; macOS uses `codesign`, `hdiutil`, `notarytool`, and
+`stapler`, replacing the app inside the reviewed unsigned DMG so the Tauri
+layout is preserved. Distribution and App Store Connect credentials are
+materialized as separate classes immediately before their operation and are
+unconditionally destroyed before artifact upload. Separate credential-free
+jobs then verify the shipped packages, generate SBOM/checksum/provenance files,
+and attest the result.
 
-The protected release validates that the certificate, profile, team, and App ID
-are linked, removes the decoded PKCS#12 file, and keeps the unlocked ephemeral
-keychain in the user search list through Tauri and Xcode export. The import ACL
-trusts only `codesign` and `xcodebuild`. Tauri receives only the provisioning
-profile—not the distribution P12 and not the ASC API credentials—so Xcode signs
-the archive directly and neither Tauri 2.11.4 PKCS#12-import path can run. This
-avoids the path that could not read this dedicated P12 on macOS 26. The release
-script rejects certificate variables and Tauri-facing `APPLE_API_*` variables,
-proves the dedicated identity is still present and discoverable, prepares every
-signing key that Tauri updates in a validated generated-project shape, then
-restores the
-committed Automatic-debug project byte-for-byte after the build. The resulting
-IPA is unpacked and its exact embedded profile, distribution signature,
-certificate linkage, signed entitlements, and packaged encryption declaration
-are verified before Apple validation or upload. The plist verifier rejects
+The iOS generated project is still prepared in its validated manual-signing
+shape before the unsigned archive and restored to the committed
+Automatic-debug shape byte-for-byte afterward. The signed IPA is unpacked and
+its exact protected-profile digest, distribution signature, certificate
+linkage, signed entitlements, and packaged encryption declaration are verified
+before Apple validation or upload. The plist verifier rejects
 duplicate root keys before semantic decoding: it walks XML dictionary entries
 directly and, for binary plists, inspects the raw object table and dictionary key
 references. This matters because `plutil` and ordinary plist decoders collapse
 duplicate keys and can disagree about which value wins. Both same-value and
 conflicting duplicates are invalid; no binary duplicate ambiguity is accepted.
-The workflow then restores the original keychain search list and fails if the
-keychain, installed profile, or credential directory survives cleanup.
+Each credential operation uses a dedicated temporary keychain/directory and
+fails if any keychain, installed profile, or credential directory survives.
 
 The implicit-format import regression is reported upstream as
 [`tauri-apps/tauri#15843`](https://github.com/tauri-apps/tauri/issues/15843).
@@ -269,7 +271,6 @@ installed:
 npm ci
 /opt/homebrew/opt/ruby/bin/bundle install # Android upload tooling on this Mac
 npm run release:verify
-scripts/mobile-release.sh ios
 scripts/mobile-release.sh android
 ```
 
@@ -300,11 +301,10 @@ must both be confirmed:
 ```bash
 export ZUULI_RELEASE_SOURCE_SHA="$(git rev-parse HEAD)"
 export ZUULI_CONFIRM_UPLOAD="$(jq -er '.version + "+" + (.build | tostring)' release.json)"
-scripts/mobile-release.sh ios --upload
 scripts/mobile-release.sh android --upload
 ```
 
-The iOS upload command does not stop at Transporter acceptance. After `altool`
+The protected iOS upload job does not stop at Transporter acceptance. After `altool`
 accepts the IPA, it polls the exact app `6799322201`, bundle
 `cash.free2z.zuuli`, marketing version, iOS platform, and build number for at
 most 45 minutes. It records `uploaded`, `processed`, and
@@ -364,8 +364,22 @@ base64 < "$PLAY_SERVICE_ACCOUNT_JSON" | tr -d '\n' | \
 ```
 
 The final two are needed only for direct-download macOS signing/notarization.
-Base64 values are decoded only into mode-0700 runner-temporary directories and
-destroyed even when a job fails. GitHub never exports store secrets into a PR.
+Base64 values are decoded only inside the system-tool credential jobs into
+mode-0700 runner-temporary directories and destroyed even when a job fails.
+Dependency-controlled build jobs neither reference the protected environment
+nor contain secret expressions. GitHub never exports store secrets into a PR.
+`scripts/apple-credential-boundary.mjs` parses the workflow as YAML nodes,
+rejects aliases, anchors, tagged/explicit/duplicate keys, and permits only the
+named secret set for each credential job. The three Apple credential jobs are
+also sealed by reviewed whole-job digests: changing a step, action input, shell,
+or command requires reviewing the complete credential execution program and
+updating its digest. The workflow root is a closed authority envelope: its
+trigger, permissions, serialization, inherited environment, and exact job set
+are bound, and reusable-workflow jobs or inherited secret forwarding are
+forbidden. Their downloaded payloads must contain exactly the
+canonical manifested members before any credential is materialized; the
+separately attested TestFlight reconciliation helper is the sole project script
+allowed to execute in a credential-bearing job.
 
 1. Re-derive [`../STATUS.md`](../STATUS.md) from the candidate source and current
    production/native evidence. Every visible **known broken/incomplete** path
@@ -420,8 +434,10 @@ destroyed even when a job fails. GitHub never exports store secrets into a PR.
    can rebuild or upload. The read-only TestFlight observation below
    intentionally accepts an exact identity-establishing SHA that remains on
    `main`, including a superseded build, because it cannot change App Store
-   Connect. Desktop `dry_run=true` packaging does not load signing credentials or
-   contact Apple's notarization service.
+   Connect. Desktop `dry_run=true` still signs and notarizes the macOS packages,
+   because notarization is part of shipped-artifact validation; it suppresses
+   publication of the draft GitHub release, not Apple credential use or contact
+   with Apple's notarization service.
 6. Optionally create an annotated (preferably signed) tag on that exact remote
    commit as `zuuli-v<VERSION>+<BUILD>`. If the matching tag exists before a
    manual recovery run, the workflow also maintains an idempotent draft GitHub

@@ -88,6 +88,18 @@ function replaceSetting(lines, key, expectedValue, replacementValue) {
   else lines[index] = settingLine(key, replacementValue);
 }
 
+function replaceKnownSetting(lines, key, expectedValues, replacementValue) {
+  const index = settingIndex(lines, key);
+  const expected = expectedValues.map((value) => settingLine(key, value));
+  if (!expected.includes(lines[index])) {
+    throw new Error(
+      `refusing to normalize ${key}: expected one of ${JSON.stringify(expected)}, found ${JSON.stringify(lines[index])}`,
+    );
+  }
+  if (replacementValue === null) lines.splice(index, 1);
+  else lines[index] = settingLine(key, replacementValue);
+}
+
 function insertSettingAfter(lines, afterKey, key, value) {
   if (lines.some((line) => line.trimStart().startsWith(`${key} = `))) {
     throw new Error(`refusing to prepare duplicate ${key} setting`);
@@ -148,21 +160,28 @@ function normalizeAppSigning(body, configuration) {
         : `"${distributionIdentity}"`,
       null,
     );
-    replaceSetting(
+    replaceKnownSetting(
       lines,
       "CODE_SIGN_STYLE",
-      "Manual",
+      configuration === "debug" ? ["Automatic", "Manual"] : ["Manual"],
       configuration === "debug" ? "Automatic" : "Manual",
     );
     replaceSetting(lines, "DEVELOPMENT_TEAM", teamId, teamId);
     replaceSetting(lines, sdkTeam, teamId, null);
-    replaceSetting(
+    const preparedProfile =
+      configuration === "debug" ? '""' : `"${profileName}"`;
+    replaceKnownSetting(
       lines,
       "PROVISIONING_PROFILE_SPECIFIER",
-      `"${profileUuid}"`,
+      [preparedProfile, `"${profileUuid}"`],
       configuration === "debug" ? null : `"${profileName}"`,
     );
-    replaceSetting(lines, sdkProfile, `"${profileUuid}"`, null);
+    replaceKnownSetting(
+      lines,
+      sdkProfile,
+      [preparedProfile, `"${profileUuid}"`],
+      null,
+    );
   }
 
   return lines.join("\n");
@@ -369,6 +388,11 @@ function selfTest() {
   const prepared = prepareManualSigningProject(canonical);
   if (prepared === canonical) {
     throw new Error("manual-signing preparation did not add guarded settings");
+  }
+  if (normalizeProject(prepared) !== canonical) {
+    throw new Error(
+      "unsigned manual-signing project did not normalize to canonical bytes",
+    );
   }
   let tauriGenerated = normalizeBuildSetting(
     prepared,

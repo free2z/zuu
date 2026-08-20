@@ -153,10 +153,10 @@ requireCount("protected release npm auto-cache", release, "cache: npm", 1);
 const prepareJob = job(release, "prepare", "android");
 requireCount("credential-free prepare npm auto-cache", prepareJob, "cache: npm", 1);
 for (const [name, nextName] of [
-  ["android", "ios"],
-  ["ios", "linux"],
-  ["linux", "macos"],
-  ["macos", "release-index"],
+  ["android", "ios-build"],
+  ["ios-build", "ios-sign"],
+  ["linux", "macos-build"],
+  ["macos-build", "macos-sign"],
 ]) {
   const protectedJob = job(release, name, nextName);
   requireCount(`${name} cache caller`, protectedJob, localAction, 1);
@@ -171,6 +171,25 @@ for (const [name, nextName] of [
     "gh cache",
   ]) {
     rejectText(`${name} protected job`, protectedJob, writer);
+  }
+}
+for (const [name, nextName] of [
+  ["ios-sign", "ios-verify"],
+  ["ios-upload", "ios-finalize"],
+  ["macos-sign", "macos-finalize"],
+]) {
+  const credentialJob = job(release, name, nextName);
+  rejectText(`${name} credential-bearing job`, credentialJob, localAction);
+  for (const writer of [
+    "Swatinem/rust-cache@",
+    "actions/cache@",
+    "actions/cache/save@",
+    "cache: npm",
+    "cache: gradle",
+    "bundler-cache: true",
+    "gh cache",
+  ]) {
+    rejectText(`${name} credential-bearing job`, credentialJob, writer);
   }
 }
 
