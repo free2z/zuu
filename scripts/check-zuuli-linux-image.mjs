@@ -32,8 +32,8 @@ const consumerWorkflows = [
   ".github/workflows/zuuallet.yml",
 ];
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
-const lockedImageDigest = "sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1";
-const lockedImageSourceHash = "13eb98f352e0e3d1198f30abe333d289f504ae5cacef01cb83b21c1f7e030056";
+const lockedImageDigest = "sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1";
+const lockedImageSourceHash = "6801078c61b2de196e642a8d57402949c3ff94b74a10be9df133f4400d2c4475";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
 const expectedConsumerCount = 6;
 const requiredConsumerJobs = new Set([
@@ -483,6 +483,11 @@ function validateLibxdoVerifierRuntime(root) {
 
 function runSelfTest() {
   const fixture = mkdtempSync(join(tmpdir(), "zuuli-linux-image-policy-"));
+  const asCandidateLock = (value, candidateHash) => {
+    const withoutCandidate = value.replace(/^candidate_source_sha256=.*\n?/m, "");
+    return `${withoutCandidate.replace(/^phase=.*$/m, "phase=candidate").trimEnd()}\n` +
+      `candidate_source_sha256=${candidateHash}\n`;
+  };
   try {
     copyFixture(fixture);
     const baseline = validate(fixture);
@@ -502,28 +507,32 @@ function runSelfTest() {
       {
         name: "candidate overwrites consumed source binding",
         path: lockPath,
-        mutate: (value) => value.replace(lockedImageSourceHash, "0".repeat(64)),
+        mutate: (value) => asCandidateLock(value, lockedImageSourceHash).replace(
+          `source_sha256=${lockedImageSourceHash}`,
+          `source_sha256=${"0".repeat(64)}`,
+        ),
         expected: "preserve the consumed source binding",
       },
       {
         name: "candidate source hash does not match candidate context",
         path: lockPath,
-        mutate: (value) => value.replace(
-          /^candidate_source_sha256=.*$/m,
-          `candidate_source_sha256=${"0".repeat(64)}`,
-        ),
+        mutate: (value) => asCandidateLock(value, "0".repeat(64)),
         expected: "candidate_source_sha256",
       },
       {
         name: "promotion forgets to refresh validator source binding",
-        path: lockPath,
-        mutate: (value) => {
-          const candidate = value.match(/^candidate_source_sha256=(.*)$/m)?.[1];
-          if (!candidate) throw new Error("fixture has no candidate source hash");
-          return value
-            .replace("phase=candidate", "phase=consumed")
-            .replace(`source_sha256=${lockedImageSourceHash}`, `source_sha256=${candidate}`)
-            .replace(/^candidate_source_sha256=.*\n/m, "");
+        mutateFixture: (root) => {
+          const dockerfilePath = resolve(root, `${contextDir}/Dockerfile`);
+          writeFileSync(dockerfilePath, `${readFileSync(dockerfilePath, "utf8")}\n# next candidate\n`);
+          const candidate = contextHash(root);
+          const fixtureLock = resolve(root, lockPath);
+          writeFileSync(
+            fixtureLock,
+            asCandidateLock(readFileSync(fixtureLock, "utf8"), candidate)
+              .replace("phase=candidate", "phase=consumed")
+              .replace(`source_sha256=${lockedImageSourceHash}`, `source_sha256=${candidate}`)
+              .replace(/^candidate_source_sha256=.*\n/m, ""),
+          );
         },
         expected: "validator binding",
       },
@@ -691,8 +700,12 @@ function runSelfTest() {
 
     for (const testCase of cases) {
       copyFixture(fixture);
-      const path = resolve(fixture, testCase.path);
-      writeFileSync(path, testCase.mutate(readFileSync(path, "utf8")));
+      if (testCase.mutateFixture) {
+        testCase.mutateFixture(fixture);
+      } else {
+        const path = resolve(fixture, testCase.path);
+        writeFileSync(path, testCase.mutate(readFileSync(path, "utf8")));
+      }
       const failures = validate(fixture);
       if (!failures.some((failure) => failure.includes(testCase.expected))) {
         throw new Error(`${testCase.name}: validator did not report ${testCase.expected}`);

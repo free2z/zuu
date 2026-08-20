@@ -33,14 +33,20 @@ binds the untagged subject
 `sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1`,
 the main-branch image workflow, and a GitHub-hosted runner.
 
-The candidate tracked by #434 replaces an unsafe `ldconfig | grep -q` inventory
-pipeline. Under `pipefail`, an early successful match could close the pipe and
-turn `ldconfig`'s SIGPIPE into a false missing-`libxdo` result. The candidate
+The current promoted image was built from
+`d946765402106cfd231c2d50f619738bdf6537f0`. [GitHub attestation
+41745676](https://github.com/free2z/zuu/attestations/41745676) binds the subject
+`ghcr.io/free2z/zuuli-linux-ci` to digest
+`sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1`.
+The same main-branch job pulled that exact digest and passed its embedded
+inventory before promotion.
+
+This #434 rebuild replaces an unsafe `ldconfig | grep -q` inventory pipeline.
+Under `pipefail`, an early successful match could close the pipe and turn
+`ldconfig`'s SIGPIPE into a false missing-`libxdo` result. The promoted verifier
 captures the complete linker cache before matching it and dynamically tests an
 early match followed by output larger than a pipe buffer. It also retains a
-negative case for a genuinely absent library. The consumed digest above stays
-unchanged until the candidate is published, attested, reviewed, and promoted
-in a separate Phase B PR.
+negative case for a genuinely absent library.
 
 ## Phase B: digest-pinned consumers
 
