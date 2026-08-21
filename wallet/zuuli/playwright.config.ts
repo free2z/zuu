@@ -16,6 +16,8 @@ export default defineConfig({
     browserName: "chromium",
     channel: process.env.CI ? "chrome" : undefined,
     colorScheme: "dark",
+    locale: "en-US",
+    timezoneId: "UTC",
     trace: "retain-on-failure",
   },
   webServer: {
