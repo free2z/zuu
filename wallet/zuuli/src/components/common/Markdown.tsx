@@ -21,6 +21,7 @@ import rehypeSlug from "rehype-slug";
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isTauri } from "@/lib/platform";
+import { mediaUrl } from "@/lib/api/http";
 import { cn } from "@/lib/utils";
 
 import remarkOembed from "@/lib/markdown/remark-oembed";
@@ -81,6 +82,59 @@ async function openExternal(url: string) {
 }
 
 /**
+ * Path segments ZUULI itself routes (`src/App.tsx`). A relative href whose
+ * first segment matches one of these is a genuine in-app path and must keep
+ * navigating through the router exactly as before. `""` covers `/` (index).
+ */
+const APP_ROUTE_SEGMENTS = new Set([
+  "",
+  "login",
+  "search",
+  "creator",
+  "profile",
+  "kyc",
+  "wallet",
+  "ai",
+  "live",
+  "articles",
+  "buy",
+]);
+
+/**
+ * Article bodies are authored on free2z.cash, where relative hrefs mean
+ * free2z routes — which mostly don't exist in ZUULI (issue #337). Classify a
+ * non-anchor, non-external href so `MarkdownLink` can send it somewhere that
+ * actually resolves instead of dead-ending in `NotFound`:
+ *
+ *   • `/uploadz/…`        — an upload; absolutize against the media host and
+ *                            open it out-of-app, same as `mediaUrl()` does
+ *                            for images.
+ *   • a genuine app route  — unchanged, still routed in-app.
+ *   • `/{username}/{slug}`— a zpage; ZUULI's article route is slug-only
+ *                            (`/articles/:slug`, `src/features/articles`),
+ *                            so map onto that and keep navigation native.
+ *   • `/{username}`       — a creator profile; map onto `/creator/:username`.
+ */
+function classifyInternalHref(
+  href: string,
+): { kind: "app"; to: string } | { kind: "media"; url: string } {
+  const path = href.split(/[?#]/)[0] ?? "";
+  const segments = path.replace(/^\/+/, "").split("/").filter(Boolean);
+  const first = segments[0] ?? "";
+
+  if (first === "uploadz") {
+    return { kind: "media", url: mediaUrl(href) ?? href };
+  }
+  if (APP_ROUTE_SEGMENTS.has(first)) {
+    return { kind: "app", to: href };
+  }
+  if (segments.length >= 2) {
+    return { kind: "app", to: `/articles/${segments[1]}` };
+  }
+  return { kind: "app", to: `/creator/${segments[0]}` };
+}
+
+/**
  * Markdown anchor. Article/AI content is remote/untrusted: external links open
  * outside the app (OS browser on desktop, new tab in the browser build) and
  * always carry `rel="noopener noreferrer"`; internal links use the router so
@@ -136,17 +190,42 @@ function MarkdownLink({
     );
   }
 
+  if (href) {
+    const target = classifyInternalHref(href);
+    if (target.kind === "media") {
+      return (
+        <a
+          {...rest}
+          data-touch-target-exempt="inline-text"
+          href={target.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => {
+            e.preventDefault();
+            void openExternal(target.url);
+          }}
+        >
+          {children}
+        </a>
+      );
+    }
+    return (
+      <a
+        {...rest}
+        data-touch-target-exempt="inline-text"
+        href={target.to}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate(target.to);
+        }}
+      >
+        {children}
+      </a>
+    );
+  }
+
   return (
-    <a
-      {...rest}
-      data-touch-target-exempt="inline-text"
-      href={href ?? "#"}
-      onClick={(e) => {
-        if (!href) return;
-        e.preventDefault();
-        navigate(href);
-      }}
-    >
+    <a {...rest} data-touch-target-exempt="inline-text" href="#">
       {children}
     </a>
   );
