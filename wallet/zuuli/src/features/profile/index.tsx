@@ -18,6 +18,7 @@ import { profile } from "@/lib/api/free2z";
 import {
   initials,
   MAX_MEMBER_PRICE_TUZIS,
+  tuziInputExample,
   tuziInputMaxLength,
   validateTuzis,
 } from "@/lib/format";
@@ -196,7 +197,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
               {memberPriceResult.error === "tooLarge"
                 ? `Max ${MAX_MEMBER_PRICE_TUZIS.toLocaleString()} 2Z per membership.`
                 : !memberPriceValid
-                  ? "Enter a non-negative whole 2Z amount; commas may separate thousands."
+                  ? `Enter a non-negative whole 2Z amount, e.g. ${tuziInputExample()}.`
                   : null}
             </p>
           </div>

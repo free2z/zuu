@@ -131,10 +131,10 @@ test("send keeps malformed restored money text invalid instead of coercing it to
   await page.locator("[data-app-frame]").waitFor();
 
   await expect(page.getByLabel("Custom tip amount in 2Z")).toHaveValue("0100");
+  // The example in the hint is rendered in the browser's own locale, so match
+  // only the locale-independent prefix.
   await expect(
-    page.getByText(
-      "Enter a positive whole 2Z amount; commas may separate thousands.",
-    ),
+    page.getByText(/Enter a positive whole 2Z amount, e\.g\./),
   ).toBeVisible();
 });
 
