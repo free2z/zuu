@@ -69,6 +69,38 @@ describe("Markdown links", () => {
     expect(markup).toContain('href="/articles/guide"');
     expect(markup).toContain(">the guide</a>");
   });
+
+  // free2z article bodies are authored on free2z.cash, where relative hrefs
+  // mean free2z routes — which mostly don't exist in ZUULI (#337). These must
+  // resolve to something real instead of dead-ending in `NotFound`.
+
+  it("keeps a genuine ZUULI app route routed as-is", () => {
+    const markup = render("[wallet](/wallet/send)", "article");
+
+    expect(markup).toContain('href="/wallet/send"');
+  });
+
+  it("maps a free2z {username}/{slug} content link onto the in-app article route", () => {
+    const markup = render("[post](/palmar/7th-meetup-zcash-club-queretaro)", "article");
+
+    expect(markup).toContain('href="/articles/7th-meetup-zcash-club-queretaro"');
+  });
+
+  it("maps a free2z {username} link onto the in-app creator route", () => {
+    const markup = render("[palmar](/palmar)", "article");
+
+    expect(markup).toContain('href="/creator/palmar"');
+  });
+
+  it("routes an /uploadz link as out-of-app media instead of the SPA router", () => {
+    const markup = render(
+      "[report](/uploadz/public/x/report.pdf)",
+      "article",
+    );
+
+    expect(markup).toContain('target="_blank"');
+    expect(markup).toContain('rel="noopener noreferrer"');
+  });
 });
 
 /**
