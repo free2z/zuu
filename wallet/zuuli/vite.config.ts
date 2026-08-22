@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
@@ -14,6 +14,15 @@ const apiTarget = process.env.VITE_F2Z_PROXY || "https://stage.free2z.cash";
 // reference wallet (1421). Tauri drives this via beforeDevCommand.
 export default defineConfig(async () => ({
   plugins: [react()],
+  test: {
+    // Workers must not inherit a contributor's locale or timezone. LC_ALL is
+    // pinned with LANG because it takes precedence on POSIX systems.
+    env: {
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+      TZ: "UTC",
+    },
+  },
   // `mathjax-full` (pulled in by rehype-mathjax for offline SVG math in the
   // Markdown renderer) reads its version via `eval('require')(...)` UNLESS a
   // global `PACKAGE_VERSION` is defined — see mathjax-full/js/components/
