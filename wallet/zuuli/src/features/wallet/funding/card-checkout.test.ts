@@ -49,6 +49,93 @@ describe("card checkout authentication boundary", () => {
   });
 });
 
+describe("native return mode fallback", () => {
+  const url = "https://checkout.stripe.com/c/pay/cs_test_123";
+
+  it("retries once as web when free2z has native return issuance gated off", async () => {
+    const openCheckout = vi.fn().mockResolvedValue(undefined);
+    const createCheckout = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(503, "Native checkout return is not enabled."),
+      )
+      .mockResolvedValueOnce({ url });
+
+    await expect(
+      startCardCheckout({
+        authenticated: true,
+        amount: 2_000,
+        returnMode: "zuuli_mobile",
+        createCheckout,
+        openCheckout,
+      }),
+    ).resolves.toBe("opened");
+    expect(createCheckout).toHaveBeenCalledTimes(2);
+    expect(createCheckout).toHaveBeenNthCalledWith(1, 2_000, "zuuli_mobile");
+    expect(createCheckout).toHaveBeenNthCalledWith(2, 2_000, "web");
+    expect(openCheckout).toHaveBeenCalledWith(url);
+  });
+
+  it("does not retry a second time when web is unavailable too", async () => {
+    const openCheckout = vi.fn();
+    const createCheckout = vi
+      .fn()
+      .mockRejectedValue(new ApiError(503, "unavailable"));
+
+    await expect(
+      startCardCheckout({
+        authenticated: true,
+        amount: 2_000,
+        returnMode: "zuuli_mobile",
+        createCheckout,
+        openCheckout,
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(createCheckout).toHaveBeenCalledTimes(2);
+    expect(openCheckout).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 401, 429, 500])(
+    "never downgrades the return mode on a %s",
+    async (status) => {
+      const openCheckout = vi.fn();
+      const createCheckout = vi
+        .fn()
+        .mockRejectedValue(new ApiError(status, "no"));
+
+      await expect(
+        startCardCheckout({
+          authenticated: true,
+          amount: 2_000,
+          returnMode: "zuuli_mobile",
+          createCheckout,
+          openCheckout,
+        }),
+      ).rejects.toBeInstanceOf(ApiError);
+      expect(createCheckout).toHaveBeenCalledOnce();
+      expect(createCheckout).toHaveBeenCalledWith(2_000, "zuuli_mobile");
+    },
+  );
+
+  it("never retries a web request as anything else", async () => {
+    const openCheckout = vi.fn();
+    const createCheckout = vi
+      .fn()
+      .mockRejectedValue(new ApiError(503, "unavailable"));
+
+    await expect(
+      startCardCheckout({
+        authenticated: true,
+        amount: 2_000,
+        returnMode: "web",
+        createCheckout,
+        openCheckout,
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(createCheckout).toHaveBeenCalledOnce();
+  });
+});
+
 describe("Stripe Checkout URL policy", () => {
   const customHosts = stripeCheckoutHosts("pay.free2z.cash");
 
