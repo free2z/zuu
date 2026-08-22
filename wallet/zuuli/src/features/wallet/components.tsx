@@ -68,7 +68,7 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
 
       <p
         className={cn(
-          "mt-0.5 truncate text-xs tabular-nums text-muted-foreground",
+          "mt-0.5 text-xs tabular-nums text-muted-foreground",
           hasError && "text-amber-400/80",
         )}
         title={hasError ? errorMsg : undefined}
@@ -173,7 +173,7 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
           ) : null}
         </div>
         {tx.memo ? (
-          <p className="truncate text-xs text-muted-foreground" title={tx.memo}>
+          <p className="text-xs text-muted-foreground" title={tx.memo}>
             {tx.memo}
           </p>
         ) : (

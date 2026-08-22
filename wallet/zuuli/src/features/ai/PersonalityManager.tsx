@@ -211,7 +211,7 @@ function PersonalityRow({
     <div className="flex items-start gap-2 rounded-lg border border-border bg-card/50 px-3 py-2.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate font-medium">{personality.display_name}</span>
+          <span className="min-w-0 break-words font-medium">{personality.display_name}</span>
           {personality.is_public ? (
             <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
               public
@@ -223,7 +223,10 @@ function PersonalityRow({
             Delete this personality? This can&rsquo;t be undone.
           </p>
         ) : (
-          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+          <p
+            className="mt-0.5 line-clamp-2 text-xs text-muted-foreground"
+            data-user-content
+          >
             {personality.system_message}
           </p>
         )}

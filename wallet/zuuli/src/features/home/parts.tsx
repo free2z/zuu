@@ -34,12 +34,12 @@ export function SectionHeader({
           >
             <Icon className="h-[18px] w-[18px]" />
           </span>
-          <h2 className="truncate text-lg font-semibold tracking-tight md:text-xl">
+          <h2 className="text-lg font-semibold tracking-tight md:text-xl">
             {title}
           </h2>
         </div>
         {subtitle ? (
-          <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
+          <p className="text-sm text-muted-foreground">{subtitle}</p>
         ) : null}
       </div>
       {to ? (

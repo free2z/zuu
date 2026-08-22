@@ -495,8 +495,8 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   >
                     <CreatorAvatar creator={creator} className="h-9 w-9" />
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block break-words font-medium">{name}</span>
+                      <span className="block break-words text-xs text-muted-foreground">
                         @{creator.username}
                       </span>
                     </span>
@@ -515,12 +515,12 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 font-medium">
                   <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden />
-                  <span className="truncate">
+                  <span className="min-w-0 break-words">
                     {recipientState.selected.display_name ||
                       recipientState.selected.username}
                   </span>
                 </div>
-                <div className="truncate text-sm text-muted-foreground">
+                <div className="break-words text-sm text-muted-foreground">
                   @{recipientState.selected.username}
                 </div>
               </div>
@@ -630,11 +630,11 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             <span className="text-sm text-muted-foreground">Recipient</span>
             {recipientState.selected ? (
               <span className="min-w-0 text-right">
-                <span className="block truncate font-medium">
+                <span className="block break-words font-medium">
                   {recipientState.selected.display_name ||
                     recipientState.selected.username}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
+                <span className="block break-words text-xs text-muted-foreground">
                   @{recipientState.selected.username}
                 </span>
               </span>

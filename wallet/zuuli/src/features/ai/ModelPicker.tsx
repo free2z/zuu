@@ -48,12 +48,12 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
-            className="h-10 min-w-0 max-w-full justify-start gap-2.5 pr-2"
+            className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pr-2 text-left"
             disabled={disabled || !value}
             aria-label="Select AI model"
           >
             {value ? <ModelGlyph model={value} /> : null}
-            <span className="min-w-0 flex-1 truncate text-left font-medium">
+            <span className="min-w-0 flex-1 break-words text-left font-medium">
               {value?.display_name ?? "Select a model"}
             </span>
             <ChevronsUpDown className="ml-auto text-muted-foreground" aria-hidden />
@@ -89,7 +89,7 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
                       <ModelGlyph model={model} className="mt-0.5" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="truncate font-medium">
+                          <span className="min-w-0 break-words font-medium">
                             {model.display_name}
                           </span>
                           {model.is_ga ? (

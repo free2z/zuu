@@ -37,7 +37,7 @@ import { preservePaidIntent } from "@/lib/auth/paid-intent";
 import { useAsync } from "@/hooks/useAsync";
 import { usePaidIntent } from "@/hooks/usePaidIntent";
 import { useSession } from "@/store/session";
-import { formatTuzis, timeAgo, initials } from "@/lib/format";
+import { formatTuzis, timeAgo, initials, truncateAddress } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { KIND_META, gradientFor } from "./lib";
 import {
@@ -246,8 +246,8 @@ export function Room() {
                 <AvatarFallback>{initials(creatorName)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0">
-                <div className="truncate font-medium">{creatorName}</div>
-                <div className="truncate text-xs text-muted-foreground">
+                <div className="break-words font-medium">{creatorName}</div>
+                <div className="break-words text-xs text-muted-foreground">
                   @{stream.username}
                   {stream.live && stream.started_at
                     ? ` · started ${timeAgo(stream.started_at)}`
@@ -934,15 +934,21 @@ function ConnectedDetails({
       <dl className="mt-3 space-y-2 text-xs">
         <div className="flex items-center justify-between gap-2">
           <dt className="text-muted-foreground">Meeting ID</dt>
-          <dd className="truncate font-mono text-foreground">
-            {ticket.meetingId}
+          <dd
+            className="min-w-0 break-all font-mono text-foreground"
+            title={ticket.meetingId}
+          >
+            {truncateAddress(ticket.meetingId)}
           </dd>
         </div>
         {ticket.roomName ? (
           <div className="flex items-center justify-between gap-2">
             <dt className="text-muted-foreground">Room</dt>
-            <dd className="truncate font-mono text-foreground">
-              {ticket.roomName}
+            <dd
+              className="min-w-0 break-all font-mono text-foreground"
+              title={ticket.roomName}
+            >
+              {truncateAddress(ticket.roomName)}
             </dd>
           </div>
         ) : null}

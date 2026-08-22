@@ -91,7 +91,10 @@ export function StreamCard({ stream }: { stream: Livestream }) {
       </div>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug">
+        <h3
+          className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug"
+          data-user-content
+        >
           {stream.title}
         </h3>
 
@@ -105,8 +108,8 @@ export function StreamCard({ stream }: { stream: Livestream }) {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium">{creatorName}</div>
-            <div className="truncate text-[11px] text-muted-foreground">
+            <div className="break-words text-xs font-medium">{creatorName}</div>
+            <div className="break-words text-[11px] text-muted-foreground">
               {stream.live
                 ? stream.started_at
                   ? `Started ${timeAgo(stream.started_at)}`

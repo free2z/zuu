@@ -55,11 +55,11 @@ function StreamCard({ stream }: { stream: Livestream }) {
         </div>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
-        <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug" data-user-content>
           {stream.title}
         </h3>
         <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-          <span className="truncate text-xs text-muted-foreground">
+          <span className="min-w-0 break-words text-xs text-muted-foreground">
             @{stream.username}
           </span>
           {stream.kind === "ppv" && stream.price_tuzis > 0 ? (

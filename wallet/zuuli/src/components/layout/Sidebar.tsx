@@ -213,7 +213,7 @@ export function MobileTabBar() {
               >
                 <Icon className="h-5 w-5" aria-hidden />
                 <span
-                  className="whitespace-nowrap px-0.5 leading-none"
+                  className="max-w-full whitespace-nowrap px-0.5 leading-none"
                   aria-hidden
                 >
                   {item.mobile.area === "primary"

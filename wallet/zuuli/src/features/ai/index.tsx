@@ -369,7 +369,7 @@ export default function AiFeature() {
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold leading-tight">AI Studio</h1>
-              <p className="hidden truncate text-[11px] leading-tight text-muted-foreground sm:block">
+              <p className="hidden text-[11px] leading-tight text-muted-foreground sm:block">
                 Anonymous, multi-provider — metered in 2Zs
               </p>
             </div>

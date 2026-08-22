@@ -36,17 +36,20 @@ function ArticleCard({ article }: { article: Article }) {
           {article.category}
         </span>
       ) : null}
-      <h3 className="line-clamp-2 text-base font-semibold leading-snug transition-colors group-hover:text-primary">
+      <h3
+        className="line-clamp-2 text-base font-semibold leading-snug transition-colors group-hover:text-primary"
+        data-user-content
+      >
         {article.title}
       </h3>
       {article.subtitle ? (
-        <p className="line-clamp-2 text-sm text-muted-foreground">
+        <p className="line-clamp-2 text-sm text-muted-foreground" data-user-content>
           {article.subtitle}
         </p>
       ) : null}
       <div className="mt-auto flex items-center gap-2 pt-2 text-xs text-muted-foreground">
         <AuthorAvatar author={article.author} />
-        <span className="truncate font-medium text-foreground/90">{name}</span>
+        <span className="min-w-0 break-words font-medium text-foreground/90">{name}</span>
         {article.published_at ? (
           <>
             <span aria-hidden>·</span>

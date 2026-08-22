@@ -126,6 +126,18 @@ result as proof of a product operation.
 - `tabular-nums` for all money. `min-tap` (44px) on icon buttons. `aria-label` on
   interactive elements. No emojis in UI chrome. Entrances via `animate-slide-up`.
 - Toasts via `import { toast } from "sonner"`. Loading via `<Skeleton>`. Empty via `<EmptyState>`.
+- **UI copy never truncates.** Design the layout so the words fit — wrap, reflow,
+  or shorten the string; never clip it. `truncate`/`text-ellipsis` are banned
+  outright (`scripts/ui-copy-truncation.node-test.mjs` fails the build).
+  **Opaque identifiers** (Zcash addresses, txids, DIDs, meeting IDs) are the one
+  exception: shorten them in the **middle, tail-weighted**, with
+  `truncateAddress()` (`src/lib/format.ts`) or `truncateMiddle()`
+  (`src/lib/utils/bio.ts`) — and render the result with **no CSS clip on top**,
+  because a second ellipsis eats the trailing checksum a human verifies (use
+  `break-all`). **User-authored body content** (article excerpts, bios, system
+  messages) may wrap and `line-clamp` — and the element must say so with
+  `data-user-content`, which is also what exempts it from the audit in
+  `tests/viewport.pw.ts`.
 
 ## Backend follow-ups (see repo STATUS / the free2z backend)
 

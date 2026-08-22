@@ -258,7 +258,7 @@ function CreatorProfile({
           </Avatar>
           <div className="min-w-0 pb-1">
             <div className="flex items-center gap-2">
-              <h1 className="creator-profile-name truncate text-2xl font-bold tracking-tight">
+              <h1 className="creator-profile-name min-w-0 break-words text-2xl font-bold tracking-tight">
                 {name}
               </h1>
               {creator.is_verified ? (
@@ -1067,11 +1067,14 @@ function PageCard({ article }: { article: Article }) {
         aria-label={`Read “${article.title}”`}
         className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <h3 className="line-clamp-2 font-semibold leading-snug group-hover:text-primary">
+        <h3
+          className="line-clamp-2 font-semibold leading-snug group-hover:text-primary"
+          data-user-content
+        >
           {article.title}
         </h3>
         {article.subtitle ? (
-          <p className="line-clamp-2 text-sm text-muted-foreground">
+          <p className="line-clamp-2 text-sm text-muted-foreground" data-user-content>
             {article.subtitle}
           </p>
         ) : null}

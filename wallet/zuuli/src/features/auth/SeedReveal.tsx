@@ -63,7 +63,7 @@ export function SeedReveal({
               <span className="w-5 shrink-0 text-right font-mono text-xs text-muted-foreground">
                 {i + 1}
               </span>
-              <span className="truncate font-mono text-sm">{word}</span>
+              <span className="min-w-0 break-words font-mono text-sm">{word}</span>
             </li>
           ))}
         </ol>

@@ -171,7 +171,7 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
           <p className="text-lg font-semibold">Zcash key linked</p>
           {address && (
             <code
-              className="mt-1 block truncate font-mono text-xs text-muted-foreground"
+              className="mt-1 block break-all font-mono text-xs text-muted-foreground"
               title={address}
             >
               {truncateAddress(address)}
@@ -293,7 +293,7 @@ function IdentityRow({ icon, label, detail, action }: IdentityRowProps) {
         </span>
         <div className="min-w-0">
           <div className="font-medium">{label}</div>
-          <div className="truncate text-xs text-muted-foreground">{detail}</div>
+          <div className="break-all text-xs text-muted-foreground">{detail}</div>
         </div>
       </div>
       <div className="shrink-0 [&>*]:w-full sm:[&>*]:w-auto">{action}</div>
