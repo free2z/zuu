@@ -247,9 +247,14 @@ The current build does not claim the Free2Z HTTPS host as an iOS universal link
 or Android app link (`appLink: false`). Do not enable that capability until the
 production signing identifiers/fingerprints are served from both platform
 association files on every canonical environment. The HTTPS page plus exact
-private-use fallback is the supported path meanwhile. Tuzi issuance remains
-default-off until its dedicated callback DNS, TLS, isolated Ingress, and live
-readiness probes pass; see free2z/tuzi#1265.
+private-use fallback is the supported path meanwhile. free2z/tuzi#1265 is
+merged and live in production, but Tuzi issuance remains default-off
+(`ZUULI_NATIVE_CHECKOUT_ENABLED=false` in every environment) until its
+dedicated callback DNS, TLS, isolated Ingress, and live readiness probes pass.
+While it is off, free2z answers `returnMode: "zuuli_mobile"` with 503 and the
+app falls back to the `web` return mode, so card checkout keeps working and
+returns to the Free2Z HTTPS page instead of into ZUULI. Treat a native return
+that never arrives as that gate being closed before suspecting the client.
 
 ## Local release dry run
 

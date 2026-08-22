@@ -158,7 +158,12 @@ export async function checkoutReturnMode(): Promise<CheckoutReturnMode> {
   return (await isMobileTauri()) ? "zuuli_mobile" : "web";
 }
 
-const STATUS_DELAYS_MS = [0, 750, 1_500, 3_000];
+// Stripe redirects the payer the instant the Session completes, so the
+// webhook that actually credits the ledger is usually still in flight. Poll
+// across ~18s rather than the ~5s a naive backoff gives: long enough for a
+// normal webhook, short enough that a real delay still resolves to an honest
+// "processing" instead of an indefinite spinner.
+const STATUS_DELAYS_MS = [0, 750, 1_500, 3_000, 5_000, 8_000];
 
 /** Redeem once, then poll only the bounded server status token. */
 export async function recoverCheckoutReturn(
@@ -192,6 +197,10 @@ export async function recoverCheckoutReturn(
   }
   // The verified webhook may arrive later. Never promote a successful browser
   // return (or even Stripe's paid status) to credited without the ledger row.
+  // Refresh once more on the way out: a credit that landed during polling but
+  // after the last status read would otherwise leave a payer who really was
+  // charged looking at the balance from before their purchase.
+  await refreshSessionBestEffort(dependencies.refreshSession);
   return { status: "processing" };
 }
 

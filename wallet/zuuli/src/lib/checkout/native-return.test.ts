@@ -238,8 +238,10 @@ describe("native Checkout recovery", () => {
     await expect(recoverCheckoutReturn(CODE, dependencies)).resolves.toEqual({
       status: "processing",
     });
-    expect(dependencies.status).toHaveBeenCalledTimes(4);
-    expect(dependencies.refreshSession).toHaveBeenCalledOnce();
+    expect(dependencies.status).toHaveBeenCalledTimes(6);
+    // Once after the claim and once on the way out, so a credit that landed
+    // during polling is not hidden behind a stale balance.
+    expect(dependencies.refreshSession).toHaveBeenCalledTimes(2);
   });
 
   it.each([
