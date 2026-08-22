@@ -34,8 +34,8 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
             {initials(name)}
           </AvatarFallback>
         </Avatar>
-        <div className="mt-2 flex items-center gap-1 truncate text-sm font-semibold">
-          {name}
+        <div className="mt-2 flex w-full min-w-0 items-center justify-center gap-1 text-sm font-semibold">
+          <span className="min-w-0 break-words">{name}</span>
           {creator.is_verified ? (
             <BadgeCheck
               className="h-4 w-4 shrink-0 text-primary"
@@ -44,7 +44,10 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
           ) : null}
         </div>
         {bio ? (
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <p
+            className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground"
+            data-user-content
+          >
             {bio}
           </p>
         ) : null}

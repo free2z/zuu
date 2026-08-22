@@ -157,7 +157,7 @@ export function ActivityTab() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">
+                    <span className="min-w-0 break-words font-medium">
                       {t.counterparty ? `@${t.counterparty}` : label}
                     </span>
                     <Badge variant={meta.badge} className="shrink-0">

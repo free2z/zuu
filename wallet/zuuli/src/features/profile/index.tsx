@@ -234,7 +234,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
               </Avatar>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate font-semibold">
+                  <span className="min-w-0 break-words font-semibold">
                     {trimmedName || user.username}
                   </span>
                   {user.is_verified ? (
@@ -244,7 +244,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
                     />
                   ) : null}
                 </div>
-                <div className="truncate text-xs text-muted-foreground">
+                <div className="break-words text-xs text-muted-foreground">
                   @{user.username}
                 </div>
               </div>

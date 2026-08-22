@@ -76,7 +76,8 @@ const history: TransactionEntry[] = [
     blockHeight: 2_611_980,
     timestamp: Math.floor(Date.now() / 1000) - 3600,
     value: 50_000_000,
-    memo: "Welcome to ZUULI 🎉",
+    memo:
+      "Welcome to ZUULI 🎉 — this first note carries a memo long enough to prove a transaction row wraps instead of clipping it.",
     incoming: true,
   },
   {
@@ -84,7 +85,7 @@ const history: TransactionEntry[] = [
     blockHeight: 2_611_500,
     timestamp: Math.floor(Date.now() / 1000) - 86400,
     value: -12_000_000,
-    memo: "Bought 2Zs",
+    memo: "Bought 2Zs — top-up settled against the shielded pool",
     incoming: false,
   },
   {

@@ -283,7 +283,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="truncate font-semibold group-hover:text-primary">
+          <span className="min-w-0 break-words font-semibold group-hover:text-primary">
             {name}
           </span>
           {creator.is_verified ? (
@@ -305,7 +305,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
             </span>
           ) : null}
         </div>
-        <div className="truncate text-xs text-muted-foreground">
+        <div className="break-words text-xs text-muted-foreground">
           @{creator.username}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -370,22 +370,31 @@ function PageResultRow({ article }: { article: Article }) {
         className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-start justify-between gap-3">
-          <h3 className="min-w-0 truncate font-semibold leading-snug group-hover:text-primary">
+          <h3
+            className="min-w-0 flex-1 line-clamp-2 font-semibold leading-snug group-hover:text-primary"
+            data-user-content
+          >
             {article.title}
           </h3>
+          {/* Category is UI copy from a small controlled vocabulary, so it
+              keeps its own words intact and the title — user-authored, and
+              already clamped — absorbs the width instead. */}
           {article.category ? (
-            <Badge variant="secondary" className="max-w-[40%] shrink-0 truncate">
+            <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
               {article.category}
             </Badge>
           ) : null}
         </div>
         {body ? (
-          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+          <p
+            className="mt-1 line-clamp-2 text-sm text-muted-foreground"
+            data-user-content
+          >
             {body}
           </p>
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span className="min-w-0 max-w-full truncate">by {name}</span>
+          <span className="min-w-0 max-w-full break-words">by {name}</span>
           {article.published_at ? (
             <>
               <span aria-hidden>·</span>
