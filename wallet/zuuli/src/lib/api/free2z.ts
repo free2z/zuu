@@ -108,6 +108,9 @@ import {
 
 const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms));
 
+/** Per-request deadline for the two native checkout return calls. */
+const NATIVE_RETURN_TIMEOUT_MS = 15_000;
+
 const SOCIAL_PROVIDER_PATH = "/api/auth/social/providers/";
 const MOBILE_SOCIAL_PROVIDER_PATH = "/api/auth/social/mobile/providers/";
 
@@ -1576,10 +1579,16 @@ export const tuzi = {
     return { url: validateStripeCheckoutUrl(r?.url) };
   },
 
+  // The recovery loop is only bounded if each request is. Without a deadline a
+  // callback host that accepts the connection and then stalls (a deploy, a
+  // dependency flap) leaves one status request pending forever: the poll never
+  // reaches its final refresh, the code stays deduplicated, and the payer gets
+  // no outcome at all until the app restarts.
   async claimCheckoutReturn(code: string): Promise<CheckoutReturnClaim> {
     const value = await request<unknown>("/api/stripe/native-return/claim/", {
       method: "POST",
       body: { code },
+      signal: AbortSignal.timeout(NATIVE_RETURN_TIMEOUT_MS),
     });
     return parseCheckoutReturnClaim(value);
   },
@@ -1590,6 +1599,7 @@ export const tuzi = {
     const value = await request<unknown>("/api/stripe/native-return/status/", {
       method: "POST",
       body: { status_token: statusToken },
+      signal: AbortSignal.timeout(NATIVE_RETURN_TIMEOUT_MS),
     });
     return parseCheckoutPaymentStatus(value);
   },

@@ -142,8 +142,11 @@ function MobileCheckoutRecovery() {
           });
         } else {
           toast.info("Payment processing", {
+            // Never promise the balance updates on its own: recovery polls a
+            // bounded window and stops, so a slow webhook lands after the app
+            // has given up watching for it.
             description:
-              "Your balance updates after Stripe's verified confirmation.",
+              "Free2Z credits your 2Z when Stripe's confirmation arrives — it hasn't yet. Reopen ZUULI to see the updated balance.",
           });
         }
       } catch (error) {
@@ -163,6 +166,11 @@ function MobileCheckoutRecovery() {
         else stop = unlisten;
       })
       .catch((error) => {
+        // A transient deep-link IPC failure at startup must not permanently
+        // disarm the listener: without this the app would still ask for the
+        // native return mode and then have nothing listening when the OS
+        // delivers it, recoverable only by killing the app.
+        started.current = false;
         toast.error("Checkout return unavailable", {
           description:
             error instanceof Error
