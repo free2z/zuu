@@ -213,7 +213,7 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
               <span
                 className={cn(
                   "tabular-nums",
-                  validWordCount ? "text-emerald-400" : "text-muted-foreground",
+                  validWordCount ? "text-success" : "text-muted-foreground",
                 )}
               >
                 {wordCount} words
@@ -275,7 +275,7 @@ function SeedReveal({
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div className="space-y-2 text-center">
-        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#f4b728]/15 text-[#f4b728]">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-zec/10 text-zec">
           <ShieldAlert className="h-6 w-6" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight">
@@ -286,10 +286,10 @@ function SeedReveal({
         </p>
       </div>
 
-      <Card className="rounded-xl border-[#f4b728]/40">
+      <Card className="rounded-xl border-zec/40">
         <CardContent className="space-y-4 p-6">
-          <div className="flex items-start gap-3 rounded-lg border border-[#f4b728]/30 bg-[#f4b728]/10 p-3 text-sm">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#f4b728]" />
+          <div className="flex items-start gap-3 rounded-lg border border-zec/30 bg-zec/10 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-zec" />
             <p className="text-foreground/90">
               This phrase is the <strong>only</strong> backup of your funds.
               Anyone who sees it can take your ZEC. ZUULI can never recover it
@@ -350,7 +350,7 @@ function SeedReveal({
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
               disabled={!reveal}
-              className="mt-0.5 h-4 w-4 accent-[#f4b728]"
+              className="mt-0.5 h-4 w-4 accent-zec"
             />
             <span>
               I've written down my recovery phrase and stored it somewhere safe.

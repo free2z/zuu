@@ -131,7 +131,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
                 {comment.author.avatar_image ? (
                   <AvatarImage src={comment.author.avatar_image} alt={name} />
                 ) : null}
-                <AvatarFallback className="text-[10px]">
+                <AvatarFallback className="text-xs">
                   {initials(name)}
                 </AvatarFallback>
               </Avatar>

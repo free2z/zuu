@@ -39,7 +39,8 @@ import { usePaidIntent } from "@/hooks/usePaidIntent";
 import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials, truncateAddress } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
-import { KIND_META, gradientFor } from "./lib";
+import { coverTone } from "@/lib/cover";
+import { KIND_META } from "./lib";
 import {
   enterSubscriberStream,
   MembershipPriceChangedError,
@@ -168,7 +169,7 @@ export function Room() {
           {/* Cinematic stage */}
           <div
             className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border shadow-lg"
-            style={{ background: gradientFor(seed) }}
+            style={{ background: coverTone(seed) }}
           >
             <div
               className="absolute inset-0 opacity-[0.12]"
@@ -185,7 +186,7 @@ export function Room() {
               {stream.live ? (
                 <Badge variant="live" className="gap-1.5 shadow">
                   <span
-                    className="h-1.5 w-1.5 rounded-full bg-[#fb7185] animate-pulse-live"
+                    className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live"
                     aria-hidden
                   />
                   LIVE
@@ -781,12 +782,12 @@ function JoinPanel({
         {/* PPV */}
         {stream.kind === "ppv" ? (
           <>
-            <div className="flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2.5">
+            <div className="flex items-center justify-between rounded-lg bg-warning/10 px-3 py-2.5">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Coins className="h-4 w-4 text-amber-400" aria-hidden />
+                <Coins className="h-4 w-4 text-warning" aria-hidden />
                 Entry price
               </span>
-              <span className="text-base font-semibold tabular-nums text-amber-400">
+              <span className="text-base font-semibold tabular-nums text-warning">
                 {formatTuzis(price)}
               </span>
             </div>
@@ -905,7 +906,7 @@ function JoinPanel({
           </form>
         ) : null}
 
-        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-center text-xs leading-relaxed text-muted-foreground">
           Live video is powered by Cloudflare RealtimeKit — mic, camera, and
           chat all run in the room once you join.
         </p>
@@ -924,7 +925,7 @@ function ConnectedDetails({
   onLeave: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
+    <div className="rounded-xl border border-success/30 bg-success/[0.06] p-4">
       <div className="flex items-center gap-2">
         <Badge variant="success" className="gap-1.5">
           <ShieldCheck className="h-3 w-3" aria-hidden />
@@ -981,7 +982,7 @@ function HostControls({
       <div className="flex items-center justify-between">
         <Badge variant="live" className="gap-1.5">
           <span
-            className="h-1.5 w-1.5 rounded-full bg-[#fb7185] animate-pulse-live"
+            className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live"
             aria-hidden
           />
           On air
@@ -1020,7 +1021,7 @@ function HostControls({
 function ParticipantStrip({ count }: { count: number }) {
   return (
     <div>
-      <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="mb-2 eyebrow text-muted-foreground">
         In the room
       </div>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

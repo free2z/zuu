@@ -58,7 +58,7 @@ export function CopyButton({
         onClick={onCopy}
         className={className}
       >
-        <Icon className={cn("h-4 w-4", copied && "text-emerald-400")} />
+        <Icon className={cn("h-4 w-4", copied && "text-success")} />
         {copied ? "Copied" : "Copy"}
       </Button>
     );
@@ -75,7 +75,7 @@ export function CopyButton({
           onClick={onCopy}
           className={className}
         >
-          <Icon className={cn("h-4 w-4", copied && "text-emerald-400")} />
+          <Icon className={cn("h-4 w-4", copied && "text-success")} />
         </Button>
       </TooltipTrigger>
       <TooltipContent>{copied ? "Copied" : ariaLabel}</TooltipContent>
@@ -86,18 +86,22 @@ export function CopyButton({
 /** The Zcash-gold "ZEC" unit tag used alongside amounts. */
 export function ZecTag({ className }: { className?: string }) {
   return (
-    <span
-      className={cn(
-        "text-[#f4b728] font-semibold tracking-wide",
-        className,
-      )}
-    >
+    <span className={cn("font-semibold tracking-[0.06em] text-zec", className)}>
       ZEC
     </span>
   );
 }
 
-/** Big split-amount display: bold whole part, faded decimals, ZEC tag. */
+/**
+ * The amount readout.
+ *
+ * Money is the characteristic material of a wallet, so it is set the way a
+ * precision instrument sets a readout: fixed-width figures on a stable digit
+ * grid, tracking pulled in, the whole part carrying the weight and the
+ * fractional part stepped down so the eye lands on the magnitude first. The
+ * unit stays small and gold. This is the one place in ZUULI that is allowed to
+ * be loud.
+ */
 export function AmountDisplay({
   whole,
   decimal,
@@ -110,21 +114,38 @@ export function AmountDisplay({
   sign?: "+" | "−";
 }) {
   const sizes = {
-    lg: "text-2xl min-[360px]:text-3xl sm:text-5xl md:text-6xl",
-    md: "text-3xl",
-    sm: "text-2xl",
+    lg: {
+      whole: "text-4xl min-[360px]:text-5xl md:text-6xl",
+      fraction: "text-xl min-[360px]:text-2xl md:text-3xl",
+      unit: "ml-2 text-sm md:text-base",
+    },
+    md: {
+      whole: "text-3xl",
+      fraction: "text-lg",
+      unit: "ml-1.5 text-xs",
+    },
+    sm: {
+      whole: "text-2xl",
+      fraction: "text-base",
+      unit: "ml-1 text-xs",
+    },
   } as const;
+  const step = sizes[size];
+
   return (
-    <div
-      className={cn(
-        "flex min-w-0 items-baseline gap-1.5 font-bold tabular-nums leading-none",
-        sizes[size],
-      )}
-    >
-      {sign ? <span className="text-foreground/80">{sign}</span> : null}
-      <span className="text-foreground">{whole}</span>
-      <span className="text-muted-foreground/70">{decimal}</span>
-      <ZecTag className={size === "lg" ? "ml-1 text-base md:text-lg" : "ml-0.5 text-xs"} />
+    <div className="numeral flex min-w-0 items-baseline leading-none">
+      {sign ? (
+        <span className={cn("mr-1 text-muted-foreground", step.fraction)}>
+          {sign}
+        </span>
+      ) : null}
+      <span className={cn("font-semibold text-foreground", step.whole)}>
+        {whole}
+      </span>
+      <span className={cn("text-muted-foreground", step.fraction)}>
+        {decimal}
+      </span>
+      <ZecTag className={step.unit} />
     </div>
   );
 }

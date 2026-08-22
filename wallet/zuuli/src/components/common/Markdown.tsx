@@ -639,7 +639,7 @@ export function Markdown({
     <div
       className={cn(
         "zuuli-markdown",
-        "space-y-4 text-[15px] leading-relaxed text-foreground/90",
+        "space-y-4 text-base leading-relaxed text-foreground/90",
         "[&_h1]:mt-6 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:tracking-tight",
         "[&_h2]:mt-6 [&_h2]:text-xl [&_h2]:font-semibold",
         "[&_h3]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold",
@@ -661,7 +661,7 @@ export function Markdown({
         "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6",
         "[&_li]:my-1",
         "[&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
-        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px]",
+        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-sm",
         "[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-4 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_img]:rounded-lg [&_img]:border [&_img]:border-border",
         "[&_hr]:my-6 [&_hr]:border-border",

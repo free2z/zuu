@@ -187,7 +187,7 @@ export function Author() {
 
         {/* Live preview */}
         <div className="lg:sticky lg:top-6 lg:self-start">
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="mb-2 eyebrow text-muted-foreground">
             Preview
           </div>
           <Card className="min-h-[420px] rounded-xl border-border/60 bg-card/40 p-6">

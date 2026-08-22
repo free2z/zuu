@@ -1,3 +1,5 @@
+@import "./fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -18,55 +20,88 @@
       var(--mobile-tab-content-height) + var(--safe-area-bottom)
     );
 
-    /* ZUULI runs dark-first. Light tokens exist for completeness. */
-    --background: 240 6% 10%;
-    --foreground: 0 0% 98%;
-    --card: 240 5% 13%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 6% 12%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 271 91% 65%;
-    --primary-foreground: 0 0% 100%;
-    /* Lighter than --primary: used for hyperlinks in rendered content
-       (articles/zpages/AI chat) so they clear WCAG AA (4.5:1) against the
-       near-black background and card surfaces while staying in the same
-       violet hue as the brand accent. */
-    --link: 271 91% 74%;
-    --secondary: 240 4% 20%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 18%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 271 60% 24%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 72% 51%;
+    --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* ZUULI is dark-only; there is no light theme. This block is the fallback
+       for a root element that somehow lacks `.dark`, so it is a slightly
+       softer graphite of the same palette rather than a second design.
+
+       The ground is true neutral graphite: surfaces separate by a hairline
+       border and a small lift in lightness, never by glow. Violet appears
+       only where the interface can be acted on — focus, primary action,
+       links — and never as decoration. */
+    --background: 0 0% 9%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 264 56% 66%;
+    --primary-foreground: 0 0% 8%;
+    /* Text-weight violet for hyperlinks inside rendered content
+       (articles/zpages/AI chat): lighter than --primary so link text clears
+       WCAG AA on both the page ground and card surfaces while staying in the
+       accent hue. */
+    --link: 264 58% 74%;
+    --secondary: 0 0% 17%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 64%;
+    --destructive: 0 65% 52%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5% 22%;
-    --input: 240 5% 22%;
-    --ring: 271 91% 65%;
+    --success: 152 45% 62%;
+    --success-foreground: 0 0% 8%;
+    --warning: 40 80% 66%;
+    --warning-foreground: 0 0% 8%;
+    --info: 205 60% 66%;
+    --info-foreground: 0 0% 8%;
+    /* Zcash gold and the LIVE rose keep their established meanings. */
+    --zec: 42 90% 56%;
+    --zec-foreground: 36 63% 6%;
+    --tuzi: 264 56% 66%;
+    --tuzi-foreground: 0 0% 8%;
+    --live: 350 89% 60%;
+    --live-foreground: 0 0% 8%;
+    --border: 0 0% 19%;
+    --input: 0 0% 19%;
+    --ring: 264 56% 66%;
     --radius: 0.75rem;
   }
 
+  /* index.html hardcodes class="dark", so this is the palette that actually
+     ships. Keep :root above in sync in kind, not in value. */
   .dark {
-    --background: 240 8% 8%;
-    --foreground: 0 0% 98%;
-    --card: 240 6% 12%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 7% 11%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 271 91% 65%;
-    --primary-foreground: 0 0% 100%;
-    --link: 271 91% 74%;
-    --secondary: 240 5% 18%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 5% 16%;
-    --muted-foreground: 240 5% 64%;
-    --accent: 271 55% 22%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 72% 51%;
+    --background: 0 0% 7%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 264 56% 66%;
+    --primary-foreground: 0 0% 8%;
+    --link: 264 58% 74%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 64%;
+    --destructive: 0 65% 52%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5% 20%;
-    --input: 240 5% 20%;
-    --ring: 271 91% 65%;
+    --success: 152 45% 62%;
+    --success-foreground: 0 0% 8%;
+    --warning: 40 80% 66%;
+    --warning-foreground: 0 0% 8%;
+    --info: 205 60% 66%;
+    --info-foreground: 0 0% 8%;
+    --zec: 42 90% 56%;
+    --zec-foreground: 36 63% 6%;
+    --tuzi: 264 56% 66%;
+    --tuzi-foreground: 0 0% 8%;
+    --live: 350 89% 60%;
+    --live-foreground: 0 0% 8%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 264 56% 66%;
   }
 
   * {
@@ -86,8 +121,20 @@
     overscroll-behavior: none;
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: var(--font-sans);
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Headings tighten as they grow; Plex Sans sets wide by default and needs
+     the optical correction to read as display type rather than body text. */
+  h1,
+  h2,
+  h3 {
+    font-weight: 600;
+    letter-spacing: -0.018em;
   }
 
   /* Themed scrollbars */
@@ -104,6 +151,21 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Entrances, the live pulse, and every transition are conveniences, not
+     content. Anyone who has asked their OS to stop moving things gets the same
+     interface without the movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
@@ -253,39 +315,41 @@
     }
   }
 
-  .zuuli-gradient-text {
-    background-image: linear-gradient(
-      100deg,
-      hsl(271 91% 72%),
-      hsl(320 85% 68%),
-      hsl(43 90% 55%)
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+  /*
+   * The signature: amounts are the instrument readout.
+   *
+   * Money and quantities are set in Plex Mono with fixed-width figures and
+   * tightened tracking, so digits sit on a stable grid and a balance updating
+   * in place never reflows the line around it.
+   */
+  .numeral {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.03em;
   }
 
-  .zuuli-hero-glow {
-    background:
-      radial-gradient(60% 60% at 50% 0%, hsl(271 91% 65% / 0.16), transparent 70%),
-      radial-gradient(50% 50% at 100% 100%, hsl(320 85% 60% / 0.1), transparent 70%);
+  /*
+   * Opaque identifiers — addresses, txids, seed words. Same face as amounts,
+   * but with the slashed zero on, because here a 0 really can be misread as an
+   * O and the value is transcribed by hand.
+   */
+  .mono-id {
+    font-family: var(--font-mono);
+    font-feature-settings: "zero" 1;
   }
 
-  .skeleton-shimmer {
-    position: relative;
-    overflow: hidden;
-  }
-  .skeleton-shimmer::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    transform: translateX(-100%);
-    background: linear-gradient(
-      90deg,
-      transparent,
-      hsl(0 0% 100% / 0.06),
-      transparent
-    );
-    animation: shimmer 1.6s infinite;
+  /*
+   * The one micro-label style. Every uppercase eyebrow in the app uses this
+   * and nothing else, so section labels stop drifting between 9px, 10px and
+   * 11px at three different tracking values. 12px is the floor for any text
+   * that is meant to be read.
+   */
+  .eyebrow {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 }

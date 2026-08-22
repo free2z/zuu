@@ -118,7 +118,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
 
       <Card className="mb-6 flex flex-col items-start justify-between gap-3 rounded-xl border-border/60 bg-card/60 p-5 sm:flex-row sm:items-center">
         <div className="flex items-start gap-3">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground">
             <ShieldCheck className="h-5 w-5" aria-hidden />
           </div>
           <div>
@@ -214,21 +214,21 @@ function ProfileForm({ user }: { user: AuthUser }) {
               value={p2paddr}
               onChange={(e) => setP2paddr(e.target.value.slice(0, ADDR_MAX))}
               placeholder="Defaults to your account address if left blank"
-              className="font-mono text-xs"
+              className="mono-id font-mono text-xs"
             />
           </div>
         </Card>
 
         {/* Preview */}
         <div className="space-y-3 lg:sticky lg:top-6 lg:self-start">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="eyebrow text-muted-foreground">
             Preview
           </div>
           <Card className="rounded-xl border-border/60 bg-card/40 p-5">
             <div className="flex items-center gap-3">
               <Avatar className="h-14 w-14 border border-border">
                 {user.image ? <AvatarImage src={user.image} alt={name} /> : null}
-                <AvatarFallback className="bg-primary/15 text-lg text-primary">
+                <AvatarFallback className="bg-secondary text-lg text-muted-foreground">
                   {initials(trimmedName || user.username)}
                 </AvatarFallback>
               </Avatar>

@@ -95,7 +95,7 @@ export function Sidebar() {
             <section key={group} aria-labelledby={`nav-group-${group}`}>
               <h2
                 id={`nav-group-${group}`}
-                className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70"
+                className="mb-1 px-3 eyebrow text-muted-foreground"
               >
                 {NAVIGATION_GROUP_LABELS[group]}
               </h2>
@@ -126,7 +126,7 @@ function MobileRoute({ item }: { item: NavigationRoute }) {
       onClick={onClick}
       className={({ isActive }) =>
         cn(
-          "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           isActive ? "text-primary" : "text-muted-foreground",
         )
       }
@@ -207,7 +207,7 @@ export function MobileTabBar() {
                 aria-current={moreIsActive ? "page" : undefined}
                 data-navigation-id={item.id}
                 className={cn(
-                  "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   moreIsActive ? "text-primary" : "text-muted-foreground",
                 )}
               >

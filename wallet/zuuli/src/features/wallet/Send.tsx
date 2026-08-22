@@ -406,7 +406,7 @@ export function Send() {
         </CardHeader>
         <CardContent className="space-y-5">
           {pendingSend?.status === "unknown" ? (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" role="status">
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning" role="status">
               <p className="font-medium">A previous broadcast is unresolved</p>
               <p className="mt-1 text-xs">
                 {pendingSend.canDiscard
@@ -415,7 +415,7 @@ export function Send() {
                     ? "The recovery journal could not be decoded safely. It remains locked to preserve possible transaction evidence; restore or reconcile the wallet data before sending again."
                   : "ZUULI recovered the exact transaction after restart. Retry it before creating another payment."}
               </p>
-              <p className="mt-1 break-all font-mono text-xs opacity-75">
+              <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
                 txid {pendingSend.txid}
               </p>
             </div>
@@ -445,7 +445,7 @@ export function Send() {
                 </span>
               ) : validation && to.trim() ? (
                 validation.valid ? (
-                  <span className="flex items-center gap-1.5 text-emerald-400">
+                  <span className="flex items-center gap-1.5 text-success">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Valid {validation.addressType} address
                     {validation.canReceiveMemo
@@ -640,7 +640,7 @@ export function Send() {
             <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
               <Row label="To">
                 <span
-                  className="min-w-0 break-all text-right font-mono text-xs"
+                  className="mono-id min-w-0 break-all text-right font-mono text-xs"
                   data-testid="send-review-recipient"
                 >
                   {proposal.review.payments[0]?.recipient ?? ""}
@@ -685,7 +685,7 @@ export function Send() {
               </Row>
               <Separator />
               <Row label="Total">
-                <span className="text-base font-semibold tabular-nums text-[#f4b728]">
+                <span className="text-base font-semibold tabular-nums text-zec">
                   {formatZecDisplay(proposal.review.total)}
                 </span>
               </Row>
@@ -697,7 +697,7 @@ export function Send() {
               className={cn(
                 "rounded-lg border p-3 text-sm",
                 broadcastResult.status === "unknown"
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                  ? "border-warning/30 bg-warning/10 text-warning"
                   : "border-destructive/40 bg-destructive/10 text-destructive",
               )}
               role="status"
@@ -710,7 +710,7 @@ export function Send() {
               <p className="mt-1 text-xs opacity-90">
                 {broadcastResult.message}
               </p>
-              <p className="mt-1 break-all font-mono text-xs opacity-75">
+              <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
                 txid {broadcastResult.txid}
               </p>
             </div>

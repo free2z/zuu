@@ -123,15 +123,15 @@ export function AuthChooser({
 }) {
   return (
     <Card
-      className="border-border/80 bg-card/70 shadow-glow backdrop-blur"
+      className="border-border/80 bg-card/70 backdrop-blur"
       data-auth-chooser
     >
-      <CardHeader className="p-5 pb-4">
+      <CardHeader className="px-5 pb-3 pt-4">
         <CardTitle className="text-2xl">
           <h1>Log in</h1>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 p-5 pt-0">
+      <CardContent className="space-y-4 px-5 pb-4 pt-0">
         <Button
           type="button"
           size="lg"
@@ -199,10 +199,10 @@ export function SelectedAuthMethod({
   const title = method === "zcash" ? "Zcash" : "Password";
   return (
     <Card
-      className="border-border/80 bg-card/70 shadow-glow backdrop-blur"
+      className="border-border/80 bg-card/70 backdrop-blur"
       data-auth-selected={method}
     >
-      <CardHeader className="flex-row items-center gap-3 space-y-0 p-5 pb-4">
+      <CardHeader className="flex-row items-center gap-3 space-y-0 px-5 pb-3 pt-4">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -223,7 +223,7 @@ export function SelectedAuthMethod({
           <h1>{title}</h1>
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-5 pt-0">
+      <CardContent className="px-5 pb-4 pt-0">
         {method === "zcash" ? (
           <ZcashLoginFlow
             loginDestination={loginDestination}

@@ -12,7 +12,8 @@ import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { initials, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Article } from "@/lib/api/types";
-import { articleHref, coverGradient } from "../lib";
+import { coverTone } from "@/lib/cover";
+import { articleHref } from "../lib";
 
 export function ArticleCard({
   article,
@@ -39,7 +40,7 @@ export function ArticleCard({
         style={
           article.image
             ? undefined
-            : { backgroundImage: coverGradient(article.title) }
+            : { backgroundImage: coverTone(article.title) }
         }
       >
         {article.image ? (

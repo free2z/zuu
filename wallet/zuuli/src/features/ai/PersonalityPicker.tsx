@@ -135,7 +135,7 @@ function PersonalityItem({
         <div className="flex items-center gap-2">
           <span className="min-w-0 break-words font-medium">{personality.display_name}</span>
           {personality.is_public ? (
-            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+            <Badge variant="secondary" className="px-1.5 py-0 text-xs">
               public
             </Badge>
           ) : null}

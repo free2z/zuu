@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, Check, Eye, EyeOff, ShieldAlert } from "lucide-react";
+import { Callout } from "@/components/ui/callout";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -30,22 +31,16 @@ export function SeedReveal({
 
   return (
     <div className="animate-slide-up space-y-5">
-      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-        <ShieldAlert
-          className="mt-0.5 h-5 w-5 shrink-0 text-amber-400"
-          aria-hidden
-        />
-        <div className="space-y-1 text-sm">
-          <p className="font-semibold text-amber-300">
-            This recovery phrase is your identity.
-          </p>
-          <p className="text-amber-200/80">
-            Write these {words.length} words down in order and keep them
-            offline. Anyone who sees them controls your account. We cannot
-            recover them for you — there is no reset.
-          </p>
-        </div>
-      </div>
+      <Callout
+        icon={ShieldAlert}
+        title="This recovery phrase is your identity."
+      >
+        <p className="text-muted-foreground">
+          Write these {words.length} words down in order and keep them offline.
+          Anyone who sees them controls your account. We cannot recover them for
+          you — there is no reset.
+        </p>
+      </Callout>
 
       <div className="relative">
         <ol
@@ -73,7 +68,7 @@ export function SeedReveal({
             <button
               type="button"
               onClick={() => setRevealed(true)}
-              className="min-tap inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium shadow-glow transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="min-tap inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label="Reveal recovery phrase"
             >
               <Eye className="h-4 w-4" aria-hidden />
@@ -86,7 +81,7 @@ export function SeedReveal({
       {revealed && (
         <div className="flex items-center justify-between animate-fade-in">
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" aria-hidden />
+            <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden />
             Never share this. No one from 2Z will ever ask for it.
           </p>
           <Button

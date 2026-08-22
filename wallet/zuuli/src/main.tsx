@@ -27,8 +27,8 @@ function RootFallback() {
         gap: "1rem",
         padding:
           "calc(2rem + var(--safe-area-top)) calc(2rem + var(--safe-area-right)) calc(2rem + var(--safe-area-bottom)) calc(2rem + var(--safe-area-left))",
-        background: "#0a0a0f",
-        color: "#e5e5ea",
+        background: "#121212",
+        color: "#f5f5f5",
         fontFamily: "system-ui, sans-serif",
         textAlign: "center",
       }}
@@ -36,7 +36,7 @@ function RootFallback() {
       <h1 style={{ fontSize: "1.25rem", fontWeight: 600 }}>
         Something went wrong
       </h1>
-      <p style={{ maxWidth: "28rem", color: "#a1a1aa" }}>
+      <p style={{ maxWidth: "28rem", color: "#a3a3a3" }}>
         ZUULI hit an unexpected error. Reloading usually fixes it.
       </p>
       <button
@@ -47,9 +47,9 @@ function RootFallback() {
           minHeight: "44px",
           padding: "0.5rem 1rem",
           borderRadius: "0.75rem",
-          border: "1px solid #3f3f46",
-          background: "#6d28d9",
-          color: "#fff",
+          border: "1px solid #2b2b2b",
+          background: "#9f78d9",
+          color: "#141414",
           fontWeight: 600,
           cursor: "pointer",
         }}

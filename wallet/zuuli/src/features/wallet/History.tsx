@@ -110,7 +110,7 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         className={cn(
           "grid h-10 w-10 shrink-0 place-items-center rounded-full",
           incoming
-            ? "bg-emerald-500/15 text-emerald-400"
+            ? "bg-success/10 text-success"
             : "bg-secondary text-muted-foreground",
         )}
         aria-hidden
@@ -128,7 +128,7 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
             {incoming ? "Received" : "Sent"}
           </span>
           {tx.blockHeight === null ? (
-            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
               Pending
             </span>
           ) : null}
@@ -141,7 +141,7 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         ) : null}
 
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs text-muted-foreground/70">
+          <span className="mono-id font-mono text-xs text-muted-foreground/70">
             {truncateAddress(tx.txid)}
           </span>
           <CopyButton
@@ -157,7 +157,7 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
         <div
           className={cn(
             "text-sm font-semibold tabular-nums",
-            incoming ? "text-emerald-400" : "text-foreground",
+            incoming ? "text-success" : "text-foreground",
           )}
         >
           {incoming ? "+" : "−"}
