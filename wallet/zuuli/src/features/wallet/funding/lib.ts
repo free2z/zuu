@@ -62,15 +62,15 @@ export function kindMeta(kind?: Kind): KindMeta {
 export function kindIconClass(kind?: Kind): string {
   switch (kind) {
     case "buy":
-      return "bg-emerald-500/15 text-emerald-400";
+      return "bg-success/10 text-success";
     case "donate":
-      return "bg-primary/15 text-primary";
+      return "bg-primary/10 text-link";
     case "ai":
-      return "bg-violet-500/15 text-violet-300";
+      return "bg-secondary text-muted-foreground";
     case "ppv":
-      return "bg-amber-500/15 text-amber-400";
+      return "bg-warning/10 text-warning";
     case "subscribe":
-      return "bg-sky-500/15 text-sky-400";
+      return "bg-info/10 text-info";
     default:
       return "bg-secondary text-muted-foreground";
   }

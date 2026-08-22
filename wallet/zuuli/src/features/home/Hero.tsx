@@ -27,7 +27,7 @@ function StatChip({
     <Link
       to={to}
       aria-label={ariaLabel}
-      className="group flex items-center gap-3 rounded-xl border border-border bg-card/70 px-4 py-3 shadow-sm backdrop-blur transition-colors hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className="group flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <span
         className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg", accent)}
@@ -36,10 +36,8 @@ function StatChip({
         <Icon className="h-[18px] w-[18px]" />
       </span>
       <div className="min-w-0">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          {label}
-        </div>
-        <div className="text-base font-semibold tabular-nums leading-tight">
+        <div className="eyebrow text-muted-foreground">{label}</div>
+        <div className="numeral text-lg font-medium leading-tight">
           {loading ? "—" : value}
         </div>
       </div>
@@ -60,14 +58,10 @@ export function Hero() {
   const spendable = balance?.spendable ?? 0;
 
   return (
-    <div className="zuuli-hero-glow relative overflow-hidden rounded-2xl border border-border bg-card/40 px-6 py-10 md:px-10 md:py-14">
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-10 md:px-10 md:py-14">
       <div className="max-w-2xl space-y-3">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          Discover
-        </p>
-        <h1 className="text-3xl font-bold tracking-tight md:text-5xl">
-          <span className="zuuli-gradient-text">{greeting}</span>
-        </h1>
+        <p className="eyebrow text-muted-foreground">Discover</p>
+        <h1 className="text-3xl font-semibold md:text-4xl">{greeting}</h1>
         <p className="max-w-xl text-sm text-muted-foreground md:text-base">
           Livestreams, long-form writing, and any AI model — metered in 2Zs,
           shielded by default. Your key is your identity; the provider never
@@ -82,7 +76,7 @@ export function Hero() {
           label="2Z balance"
           value={formatTuzis(tuzis)}
           loading={sessionLoading}
-          accent="bg-primary/15 text-primary"
+          accent="bg-tuzi/10 text-tuzi"
           ariaLabel={`2Z balance ${formatTuzis(tuzis)}. Buy more 2Z.`}
         />
         <StatChip
@@ -91,7 +85,7 @@ export function Hero() {
           label="ZEC spendable"
           value={`${formatZecTrim(spendable)} ZEC`}
           loading={walletLoading}
-          accent="bg-[#f4b728]/15 text-[#f4b728]"
+          accent="bg-zec/10 text-zec"
           ariaLabel={`ZEC spendable ${formatZecTrim(spendable)}. Open wallet.`}
         />
       </div>

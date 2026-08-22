@@ -179,7 +179,7 @@ function Section({
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-1.5 eyebrow text-muted-foreground">
         <Icon className="h-3.5 w-3.5" aria-hidden />
         {title}
       </div>
@@ -213,7 +213,7 @@ function PersonalityRow({
         <div className="flex items-center gap-2">
           <span className="min-w-0 break-words font-medium">{personality.display_name}</span>
           {personality.is_public ? (
-            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+            <Badge variant="secondary" className="px-1.5 py-0 text-xs">
               public
             </Badge>
           ) : null}

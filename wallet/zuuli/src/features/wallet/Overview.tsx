@@ -41,10 +41,9 @@ export function Overview() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Balance hero */}
         <Card className="relative overflow-hidden rounded-xl lg:col-span-2">
-          <div className="zuuli-hero-glow pointer-events-none absolute inset-0" />
-          <CardContent className="relative space-y-5 p-6">
-            <div className="space-y-2">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <CardContent className="relative space-y-6 p-6">
+            <div className="space-y-2.5">
+              <div className="eyebrow text-muted-foreground">
                 Spendable balance
               </div>
               {balance ? (
@@ -58,23 +57,25 @@ export function Overview() {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Pending</div>
+            {/* Secondary readouts sit on the same digit grid as the hero
+                amount above, one hairline below it. */}
+            <div className="flex flex-wrap gap-x-8 gap-y-3 border-t border-border pt-4">
+              <div className="space-y-1">
+                <div className="eyebrow text-muted-foreground">Pending</div>
                 {balance ? (
-                  <div className="font-medium tabular-nums text-foreground">
+                  <div className="numeral text-sm text-foreground">
                     {formatZecDisplay(pending)}
                   </div>
                 ) : (
                   <Skeleton className="mt-1 h-5 w-24" />
                 )}
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">
+              <div className="space-y-1">
+                <div className="eyebrow text-muted-foreground">
                   Total shielded
                 </div>
                 {balance ? (
-                  <div className="font-medium tabular-nums text-foreground">
+                  <div className="numeral text-sm text-foreground">
                     {formatZecDisplay(balance.totalShielded)}
                   </div>
                 ) : (

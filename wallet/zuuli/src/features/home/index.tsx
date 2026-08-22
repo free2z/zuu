@@ -8,7 +8,8 @@ import { Section } from "./parts";
 /**
  * Discover / Home — the premium landing dashboard mounted at `/`.
  * A hero band, a live-now rail, fresh articles, an AI CTA, and a
- * creators-to-watch row, each loading independently and animating in.
+ * creators-to-watch row, each loading independently and settling in with a
+ * short, small entrance (suppressed entirely under prefers-reduced-motion).
  */
 export default function HomeFeature() {
   return (
@@ -16,16 +17,16 @@ export default function HomeFeature() {
       <Section delay={0}>
         <Hero />
       </Section>
-      <Section delay={80}>
+      <Section delay={40}>
         <LiveRail />
       </Section>
-      <Section delay={160}>
+      <Section delay={80}>
         <ArticlesGrid />
       </Section>
-      <Section delay={240}>
+      <Section delay={120}>
         <AiCta />
       </Section>
-      <Section delay={320}>
+      <Section delay={160}>
         <CreatorsRow />
       </Section>
     </div>

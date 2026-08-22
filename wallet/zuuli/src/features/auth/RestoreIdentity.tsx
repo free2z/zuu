@@ -155,14 +155,14 @@ export function RestoreIdentity({
           <span
             className={cn(
               "shrink-0 tabular-nums",
-              wordCount && supportedWordCount && "text-emerald-400",
+              wordCount && supportedWordCount && "text-success",
             )}
           >
             {wordCount || 0} words
           </span>
         </div>
         {wordCount > 0 && !supportedWordCount && (
-          <p className="text-xs text-amber-300">
+          <p className="text-xs text-warning">
             Supported phrases usually have 12, 15, 18, 21, or 24 words. Native
             validation makes the final check.
           </p>

@@ -172,7 +172,7 @@ export function ActivityTab() {
                   <div
                     className={cn(
                       "font-semibold tabular-nums",
-                      credit ? "text-emerald-400" : "text-muted-foreground",
+                      credit ? "text-success" : "text-muted-foreground",
                     )}
                   >
                     {credit ? "+" : "−"}
@@ -206,7 +206,7 @@ function SummaryChip({
           className={cn(
             "grid h-10 w-10 place-items-center rounded-full",
             tone === "credit"
-              ? "bg-emerald-500/15 text-emerald-400"
+              ? "bg-success/10 text-success"
               : "bg-secondary text-muted-foreground",
           )}
         >

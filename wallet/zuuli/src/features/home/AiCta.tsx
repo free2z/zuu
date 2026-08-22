@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Sparkles, ShieldCheck, Coins, EyeOff, ArrowRight } from "lucide-react";
+import { ShieldCheck, Coins, EyeOff, ArrowRight } from "lucide-react";
 
 const POINTS = [
   {
@@ -21,16 +21,14 @@ const POINTS = [
 
 export function AiCta() {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/10 via-card to-fuchsia-600/10 p-6 md:p-8">
-      <div className="zuuli-hero-glow pointer-events-none absolute inset-0" aria-hidden />
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 md:p-8">
       <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         <div className="max-w-xl space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full bg-primary/15 px-3 py-1 text-xs font-medium text-primary">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          <p className="eyebrow text-muted-foreground">
             Ask any AI, anonymously
-          </div>
-          <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-            Every model, <span className="zuuli-gradient-text">metered in 2Zs</span>
+          </p>
+          <h2 className="text-2xl font-semibold md:text-3xl">
+            Every model, metered in 2Zs
           </h2>
           <p className="text-sm text-muted-foreground md:text-base">
             Prompt frontier and open-source models through the free2z proxy. No
@@ -40,7 +38,7 @@ export function AiCta() {
           <Link
             to="/ai"
             aria-label="Open the AI chat"
-            className="group inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow transition-all hover:bg-primary/90 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="group inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             Start a conversation
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -50,10 +48,10 @@ export function AiCta() {
           {POINTS.map(({ icon: Icon, title, body }) => (
             <li
               key={title}
-              className="flex items-start gap-3 rounded-xl border border-border bg-card/60 p-3.5 backdrop-blur"
+              className="flex items-start gap-3 rounded-xl border border-border bg-background p-3.5"
             >
               <span
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground"
                 aria-hidden
               >
                 <Icon className="h-[18px] w-[18px]" />

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Callout } from "@/components/ui/callout";
 import { Button } from "@/components/ui/button";
 import { truncateAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -31,14 +32,14 @@ import {
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === "done") {
     return (
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/15 text-emerald-400">
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-success/10 text-success">
         <Check className="h-4 w-4" aria-hidden />
       </span>
     );
   }
   if (status === "active") {
     return (
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary shadow-glow">
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
       </span>
     );
@@ -97,7 +98,7 @@ export function ZcashLoginFlow({
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-lg border border-border bg-background/40 p-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
             <Fingerprint aria-hidden />
           </span>
           <p className="text-sm text-muted-foreground">
@@ -123,16 +124,12 @@ export function ZcashLoginFlow({
     const loading = phase === "loadingSeed";
     return (
       <div className="animate-slide-up space-y-5">
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-amber-300">Back up your recovery phrase</p>
-            <p className="text-amber-200/80">
-              This identity was created, but its required backup was not confirmed.
-              Finish that step before logging in.
-            </p>
-          </div>
-        </div>
+        <Callout icon={ShieldAlert} title="Back up your recovery phrase">
+          <p className="text-muted-foreground">
+            This identity was created, but its required backup was not confirmed.
+            Finish that step before logging in.
+          </p>
+        </Callout>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -195,12 +192,12 @@ export function ZcashLoginFlow({
 
         <div className="flex items-center gap-3" aria-hidden>
           <span className="h-px flex-1 bg-border" />
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">or</span>
+          <span className="eyebrow text-muted-foreground">or</span>
           <span className="h-px flex-1 bg-border" />
         </div>
 
-        <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-          <p className="text-sm text-amber-100">
+        <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
+          <p className="text-sm text-warning">
             A new key creates a distinct identity and may open a different account.
           </p>
           <Button
@@ -244,7 +241,7 @@ export function ZcashLoginFlow({
   if (phase === "success") {
     return (
       <div className="animate-fade-in space-y-4 py-6 text-center">
-        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-400 shadow-glow">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success/10 text-success">
           <Check className="h-7 w-7" aria-hidden />
         </span>
         <div>
@@ -262,10 +259,10 @@ export function ZcashLoginFlow({
     <div className="animate-slide-up space-y-5">
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="eyebrow text-muted-foreground">
             Signing as
           </span>
-          <code className="font-mono text-xs text-foreground" title={address}>
+          <code className="mono-id font-mono text-xs text-foreground" title={address}>
             {truncateAddress(address)}
           </code>
         </div>
@@ -282,7 +279,7 @@ export function ZcashLoginFlow({
                 <span
                   className={cn(
                     "absolute left-4 top-9 h-[calc(100%-1.5rem)] w-px -translate-x-1/2 transition-colors",
-                    status === "done" ? "bg-emerald-500/40" : "bg-border",
+                    status === "done" ? "bg-success/40" : "bg-border",
                   )}
                   aria-hidden
                 />

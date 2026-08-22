@@ -224,7 +224,7 @@ export function BuyTab() {
                 className={cn(
                   "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
-                    ? "border-primary bg-primary/10 shadow-glow"
+                    ? "border-primary bg-primary/10"
                     : "border-border bg-card hover:border-primary/40 hover:bg-primary/5",
                 )}
               >
@@ -311,7 +311,7 @@ export function BuyTab() {
             {user ? "Pay with card" : "Log in to buy"}
           </Button>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+            <ShieldCheck className="h-3.5 w-3.5 text-success" />
             Secured by Stripe. We never see your card details.
           </p>
 
@@ -353,7 +353,7 @@ export function BuyTab() {
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span className="flex items-center gap-1">
                     {isEstimate ? "Est. demo cost" : "Demo cost"}
-                    <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
+                    <Badge variant="zec" className="px-1.5 py-0 text-xs">
                       demo only
                     </Badge>
                   </span>
@@ -423,7 +423,7 @@ export function BuyTab() {
                 <span className="flex items-center gap-1.5">
                   {isEstimate ? "Estimated ZEC" : "ZEC to send"}
                   {isEstimate && (
-                    <Badge variant="zec" className="px-1.5 py-0 text-[10px]">
+                    <Badge variant="zec" className="px-1.5 py-0 text-xs">
                       estimated
                     </Badge>
                   )}

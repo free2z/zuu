@@ -261,7 +261,7 @@ function ResultCountBadge({
 }) {
   if (loading || !available) return null;
   return (
-    <span className="ml-2 rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
+    <span className="ml-2 rounded-full bg-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
       {n}
     </span>
   );
@@ -277,7 +277,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
     >
       <Avatar className="h-12 w-12 shrink-0">
         {creator.image ? <AvatarImage src={creator.image} alt={name} /> : null}
-        <AvatarFallback className="bg-primary/15 text-primary">
+        <AvatarFallback className="bg-secondary text-muted-foreground">
           {initials(name)}
         </AvatarFallback>
       </Avatar>
@@ -297,7 +297,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
               on older backends (`undefined`), so the badge just doesn't show. */}
           {creator.is_live ? (
             <span
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#f43f5e]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#f43f5e]"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-live/10 px-1.5 py-0.5 eyebrow text-live"
               aria-label="Live now"
             >
               <Radio className="h-3 w-3" aria-hidden />

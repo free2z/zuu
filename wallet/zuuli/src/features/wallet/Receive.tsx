@@ -21,7 +21,7 @@ export function Receive() {
           </div>
 
           {address ? (
-            <div className="rounded-2xl bg-white p-4 shadow-glow">
+            <div className="rounded-2xl bg-white p-4">
               <QRCodeSVG
                 value={address}
                 size={224}
@@ -37,7 +37,7 @@ export function Receive() {
 
           {address ? (
             <div className="w-full space-y-3">
-              <div className="break-all rounded-lg border border-border bg-background/40 p-3 font-mono text-xs text-foreground">
+              <div className="mono-id break-all rounded-lg border border-border bg-background/40 p-3 font-mono text-xs text-foreground">
                 {address}
               </div>
               <CopyButton
@@ -53,7 +53,7 @@ export function Receive() {
           )}
 
           <p className="flex items-start gap-2 text-left text-xs text-muted-foreground">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#f4b728]" />
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-zec" />
             Unified addresses receive shielded ZEC and support encrypted memos,
             keeping the amount and sender private on-chain.
           </p>

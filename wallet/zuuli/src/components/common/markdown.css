@@ -8,7 +8,9 @@
  *
  * Colors use VSCode-dark token hues (which read well on a dark surface); the
  * code surface itself uses the app's own --background token so it sits a shade
- * below the surrounding card.
+ * below the surrounding card. The syntax hues are deliberately left as the
+ * VSCode Dark+ set: they are a reading convention developers already know, and
+ * they sit near-neutral enough not to fight the graphite ground.
  */
 
 .zuuli-markdown {
@@ -24,11 +26,13 @@
 .zuuli-markdown pre[class*="language-"],
 .zuuli-markdown code[class*="language-"] {
   color: #d4d4d4;
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 0.8125rem;
+  font-weight: 400;
   text-shadow: none;
-  font-family: Menlo, Monaco, Consolas, "Andale Mono", "Ubuntu Mono",
-    "Courier New", monospace;
+  /* The app's bundled mono, so a fenced block is set in the same face as an
+     address or an amount instead of whatever the OS supplies. */
+  font-family: var(--font-mono);
+  font-feature-settings: "zero" 1;
   direction: ltr;
   text-align: left;
   white-space: pre;

@@ -144,12 +144,12 @@ export function GoLiveDialog() {
                     className={cn(
                       "min-tap flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
-                        ? "border-primary/60 bg-primary/10 shadow-glow"
+                        ? "border-primary/60 bg-primary/10"
                         : "border-border bg-background/40 hover:border-primary/30",
                     )}
                   >
                     <span className="text-sm font-medium">{meta.short}</span>
-                    <span className="text-[11px] leading-tight text-muted-foreground">
+                    <span className="text-xs leading-tight text-muted-foreground">
                       {meta.blurb}
                     </span>
                   </button>
@@ -186,7 +186,7 @@ export function GoLiveDialog() {
               />
               <p id="go-live-price-summary" className="text-xs text-muted-foreground">
                 Viewers spend{" "}
-                <span className="font-medium text-amber-400 tabular-nums">
+                <span className="font-medium text-warning tabular-nums">
                   {priceNum !== null && priceNum > 0 ? formatTuzis(priceNum) : "—"}
                 </span>{" "}
                 to join.

@@ -23,6 +23,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Callout } from "@/components/ui/callout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -43,14 +44,14 @@ import { SOCIAL_PROVIDERS, type AuthUser, type SocialProvider } from "@/lib/api/
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === "done") {
     return (
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/15 text-emerald-400">
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-success/10 text-success">
         <Check className="h-4 w-4" aria-hidden />
       </span>
     );
   }
   if (status === "active") {
     return (
-      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary shadow-glow">
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/15 text-primary">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
       </span>
     );
@@ -123,15 +124,11 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     const loading = phase === "loadingSeed";
     return (
       <div className="animate-slide-up space-y-5">
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-amber-300">Back up your recovery phrase</p>
-            <p className="text-amber-200/80">
-              Finish the required backup before linking this identity.
-            </p>
-          </div>
-        </div>
+        <Callout icon={ShieldAlert} title="Back up your recovery phrase">
+          <p className="text-muted-foreground">
+            Finish the required backup before linking this identity.
+          </p>
+        </Callout>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -164,14 +161,14 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
   if (phase === "success") {
     return (
       <div className="animate-fade-in space-y-4 py-6 text-center">
-        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-400 shadow-glow">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success/10 text-success">
           <Check className="h-7 w-7" aria-hidden />
         </span>
         <div>
           <p className="text-lg font-semibold">Zcash key linked</p>
           {address && (
             <code
-              className="mt-1 block break-all font-mono text-xs text-muted-foreground"
+              className="mono-id mt-1 block break-all font-mono text-xs text-muted-foreground"
               title={address}
             >
               {truncateAddress(address)}
@@ -190,10 +187,10 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     <div className="animate-slide-up space-y-5">
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="eyebrow text-muted-foreground">
             Linking
           </span>
-          <code className="font-mono text-xs text-foreground" title={address}>
+          <code className="mono-id font-mono text-xs text-foreground" title={address}>
             {truncateAddress(address)}
           </code>
         </div>
@@ -210,7 +207,7 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
                 <span
                   className={cn(
                     "absolute left-4 top-9 h-[calc(100%-1.5rem)] w-px -translate-x-1/2 transition-colors",
-                    status === "done" ? "bg-emerald-500/40" : "bg-border",
+                    status === "done" ? "bg-success/40" : "bg-border",
                   )}
                   aria-hidden
                 />
@@ -288,7 +285,7 @@ function IdentityRow({ icon, label, detail, action }: IdentityRowProps) {
   return (
     <div className="flex flex-col items-stretch gap-3 rounded-lg border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
           {icon}
         </span>
         <div className="min-w-0">
@@ -329,7 +326,7 @@ export function LinkedAccounts({ user }: { user: AuthUser }) {
           label="Zcash"
           detail={
             did && identity ? (
-              <code className="font-mono" title={did}>
+              <code className="mono-id font-mono" title={did}>
                 did:zcash:{truncateAddress(identity, 6, 6)}
               </code>
             ) : (

@@ -42,7 +42,7 @@ const PROVIDER_NAME: Record<SocialProvider, string> = {
 function Monogram({ children }: { children: ReactNode }) {
   return (
     <span
-      className="grid h-5 w-5 shrink-0 place-items-center rounded bg-muted-foreground/20 text-[11px] font-bold text-muted-foreground"
+      className="grid h-5 w-5 shrink-0 place-items-center rounded bg-muted-foreground/20 text-xs font-bold text-muted-foreground"
       aria-hidden
     >
       {children}

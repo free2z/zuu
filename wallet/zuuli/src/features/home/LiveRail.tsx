@@ -9,7 +9,8 @@ import { live } from "@/lib/api/free2z";
 import { useAsync } from "@/hooks/useAsync";
 import type { Livestream, StreamKind } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { SectionHeader, gradientFor } from "./parts";
+import { coverTone } from "@/lib/cover";
+import { SectionHeader } from "./parts";
 
 const KIND_META: Record<
   StreamKind,
@@ -27,17 +28,17 @@ function StreamCard({ stream }: { stream: Livestream }) {
     <Link
       to={`/live/${stream.username}`}
       aria-label={`${stream.title} — live now, ${stream.participants} watching`}
-      className="group flex w-[280px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all hover:border-primary/40 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
+      className="group flex w-[280px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
     >
       <div
         className="relative aspect-video w-full"
-        style={{ background: gradientFor(stream.username + stream.title) }}
+        style={{ background: coverTone(stream.username + stream.title) }}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
         <div className="absolute left-3 top-3 flex items-center gap-2">
           <Badge variant="live" className="gap-1.5">
             <span
-              className="h-1.5 w-1.5 rounded-full bg-[#fb7185] animate-pulse-live"
+              className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live"
               aria-hidden
             />
             LIVE
@@ -63,11 +64,11 @@ function StreamCard({ stream }: { stream: Livestream }) {
             @{stream.username}
           </span>
           {stream.kind === "ppv" && stream.price_tuzis > 0 ? (
-            <span className="shrink-0 text-xs font-semibold tabular-nums text-amber-400">
+            <span className="shrink-0 text-xs font-semibold tabular-nums text-warning">
               {formatTuzis(stream.price_tuzis)}
             </span>
           ) : (
-            <span className="shrink-0 text-xs font-medium text-emerald-400">
+            <span className="shrink-0 text-xs font-medium text-success">
               Free
             </span>
           )}
@@ -108,7 +109,7 @@ export function LiveRail() {
         title="Live now"
         subtitle="Creators broadcasting this moment"
         to="/live"
-        accent="text-[#fb7185]"
+        accent="text-live"
       />
       {error ? (
         <SectionLoadError

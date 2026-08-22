@@ -1,0 +1,54 @@
+/*
+ * Bundled typefaces — IBM Plex Sans (text) + IBM Plex Mono (numerals and
+ * identifiers).
+ *
+ * These MUST be bundled rather than linked from a CDN: the Tauri CSP in
+ * src-tauri/tauri.conf.json is `default-src 'self'` with no `font-src`, so any
+ * remote font request is blocked outright in the packaged app. Importing the
+ * woff2 files through Vite emits them as same-origin assets.
+ *
+ * Only the latin subset is shipped. The @font-face rules are written out here
+ * instead of importing @fontsource's own stylesheets because those pull in
+ * cyrillic / greek / vietnamese / latin-ext faces as well, and Vite would copy
+ * every one of them into the app bundle even though unicode-range keeps them
+ * from ever being fetched at runtime.
+ */
+
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url("@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2")
+    format("woff2");
+}

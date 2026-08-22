@@ -143,7 +143,7 @@ export function TopBar() {
           className="hidden items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-sm transition-colors hover:bg-secondary sm:flex"
           aria-label="Open wallet"
         >
-          <WalletIcon className="h-4 w-4 text-[#f4b728]" />
+          <WalletIcon className="h-4 w-4 text-zec" />
           <span className="font-medium tabular-nums">
             {balance ? formatZecTrim(balance.spendable) : "—"}
           </span>

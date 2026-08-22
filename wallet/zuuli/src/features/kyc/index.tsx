@@ -142,7 +142,7 @@ function KycApplication() {
         <Card className="space-y-3 rounded-xl border-border/60 bg-card/60 p-5">
           <div className="flex items-center gap-3">
             <CheckCircle2
-              className="h-5 w-5 shrink-0 text-emerald-400"
+              className="h-5 w-5 shrink-0 text-success"
               aria-hidden
             />
             <div className="font-medium">

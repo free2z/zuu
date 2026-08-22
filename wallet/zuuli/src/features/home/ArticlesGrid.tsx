@@ -15,7 +15,7 @@ function AuthorAvatar({ author }: { author: Article["author"] }) {
   return (
     <Avatar className="h-6 w-6">
       {author.image ? <AvatarImage src={author.image} alt={name} /> : null}
-      <AvatarFallback className="bg-primary/15 text-[10px] text-primary">
+      <AvatarFallback className="bg-secondary text-xs text-muted-foreground">
         {initials(name)}
       </AvatarFallback>
     </Avatar>
@@ -29,10 +29,10 @@ function ArticleCard({ article }: { article: Article }) {
     <Link
       to={to}
       aria-label={`Read: ${article.title}`}
-      className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {article.category ? (
-        <span className="text-[11px] font-medium uppercase tracking-wide text-primary">
+        <span className="eyebrow text-link">
           {article.category}
         </span>
       ) : null}
