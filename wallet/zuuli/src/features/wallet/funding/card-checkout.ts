@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ApiError } from "@/lib/api/http";
 import { CheckoutLinkError } from "@/lib/api/checkout";
 import { isTauri } from "@/lib/platform";
+import type { CheckoutReturnMode } from "@/lib/checkout/native-return";
 
 interface CheckoutSession {
   url: string;
@@ -10,7 +11,11 @@ interface CheckoutSession {
 interface StartCardCheckoutOptions {
   authenticated: boolean;
   amount: number;
-  createCheckout: (amount: number) => Promise<CheckoutSession>;
+  returnMode: CheckoutReturnMode;
+  createCheckout: (
+    amount: number,
+    returnMode: CheckoutReturnMode,
+  ) => Promise<CheckoutSession>;
   openCheckout: (url: string) => Promise<void>;
 }
 
@@ -27,17 +32,50 @@ export class CheckoutOpenError extends Error {
 }
 
 /**
+ * free2z refuses `zuuli_mobile` with 503 whenever native return issuance is
+ * gated off (`ZUULI_NATIVE_CHECKOUT_ENABLED=false`, its state in every
+ * environment today) or its dedicated callback host is not yet ready. Without
+ * this exactly-once fallback, shipping the native mode would take card
+ * checkout on mobile from working to permanently unavailable. Falling back to
+ * `web` restores today's behavior — Checkout returns to the Free2Z HTTPS page
+ * instead of into the app — and the native path starts being used on its own
+ * the moment the server gate flips, with no client release.
+ *
+ * Only 503 is retried, and only once: a 4xx is the user's problem to fix and a
+ * repeat 503 (host policy or Stripe identity, which `web` shares) surfaces the
+ * same "temporarily unavailable" message it does today.
+ */
+async function createNativeOrWebCheckout(
+  amount: number,
+  returnMode: CheckoutReturnMode,
+  createCheckout: StartCardCheckoutOptions["createCheckout"],
+): Promise<CheckoutSession> {
+  if (returnMode === "web") return createCheckout(amount, "web");
+  try {
+    return await createCheckout(amount, returnMode);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 503) throw error;
+    return createCheckout(amount, "web");
+  }
+}
+
+/**
  * Keep the authentication boundary outside the protected request. Returning a
  * value instead of navigating here makes the no-request behavior easy to prove.
  */
 export async function startCardCheckout({
   authenticated,
   amount,
+  returnMode,
   createCheckout,
   openCheckout,
 }: StartCardCheckoutOptions): Promise<CardCheckoutResult> {
   if (!authenticated) return "sign-in";
-  const { url } = await createCheckout(amount);
+  const { url } = await createNativeOrWebCheckout(
+    amount,
+    returnMode,
+    createCheckout,
+  );
   try {
     await openCheckout(url);
   } catch (cause) {

@@ -915,15 +915,19 @@ mod tests {
     }
 
     #[test]
-    fn generated_config_names_only_canonical_mobile_redirect() {
+    fn generated_config_names_only_canonical_mobile_redirects() {
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let mobile = &config["plugins"]["deep-link"]["mobile"];
-        assert_eq!(mobile.as_array().unwrap().len(), 1);
+        assert_eq!(mobile.as_array().unwrap().len(), 2);
         assert_eq!(mobile[0]["scheme"][0], MOBILE_SCHEME);
         assert_eq!(mobile[0]["host"], MOBILE_HOST);
         assert_eq!(mobile[0]["path"][0], MOBILE_PATH);
         assert_eq!(mobile[0]["appLink"], false);
+        assert_eq!(mobile[1]["scheme"][0], MOBILE_SCHEME);
+        assert_eq!(mobile[1]["host"], "checkout");
+        assert_eq!(mobile[1]["path"][0], "/return");
+        assert_eq!(mobile[1]["appLink"], false);
     }
 
     #[test]
@@ -933,15 +937,17 @@ mod tests {
             manifest
                 .matches("android:scheme=\"cash.free2z.zuuli\"")
                 .count(),
-            1
+            2
         );
         assert_eq!(manifest.matches("android:host=\"oauth\"").count(), 1);
         assert_eq!(manifest.matches("android:path=\"/callback\"").count(), 1);
+        assert_eq!(manifest.matches("android:host=\"checkout\"").count(), 1);
+        assert_eq!(manifest.matches("android:path=\"/return\"").count(), 1);
         assert_eq!(
             manifest
                 .matches("android.intent.category.BROWSABLE")
                 .count(),
-            1
+            2
         );
     }
 

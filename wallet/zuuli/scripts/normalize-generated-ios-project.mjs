@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const teamId = "F9AV5HKF6N";
@@ -14,9 +15,7 @@ const exemptEncryptionDeclaration = [
   "\t<key>ITSAppUsesNonExemptEncryption</key>",
   "\t<false/>",
 ].join("\n");
-const canonicalUrlType = [
-  "\t<key>CFBundleURLTypes</key>",
-  "\t<array>",
+const canonicalUrlTypeDictionary = [
   "\t\t<dict>",
   "\t\t\t<key>CFBundleURLName</key>",
   "\t\t\t<string>cash.free2z.zuuli</string>",
@@ -25,11 +24,8 @@ const canonicalUrlType = [
   "\t\t\t\t<string>cash.free2z.zuuli</string>",
   "\t\t\t</array>",
   "\t\t</dict>",
-  "\t</array>",
 ].join("\n");
-const reversedUrlType = [
-  "\t<key>CFBundleURLTypes</key>",
-  "\t<array>",
+const reversedUrlTypeDictionary = [
   "\t\t<dict>",
   "\t\t\t<key>CFBundleURLSchemes</key>",
   "\t\t\t<array>",
@@ -38,8 +34,53 @@ const reversedUrlType = [
   "\t\t\t<key>CFBundleURLName</key>",
   "\t\t\t<string>cash.free2z.zuuli</string>",
   "\t\t</dict>",
-  "\t</array>",
 ].join("\n");
+const urlType = (dictionaries) =>
+  [
+    "\t<key>CFBundleURLTypes</key>",
+    "\t<array>",
+    ...dictionaries,
+    "\t</array>",
+  ].join("\n");
+const canonicalUrlType = urlType([canonicalUrlTypeDictionary]);
+const reversedUrlType = urlType([reversedUrlTypeDictionary]);
+// The deep-link plugin generates one iOS URL-type dictionary per mobile route.
+// OAuth and checkout have different Android host/path filters but share the
+// single iOS scheme, so a build deterministically emits two identical entries.
+// Keep one canonical entry in source control and collapse only that exact
+// generated shape after a build. Any extra/different scheme still fails closed.
+const generatedDuplicateCanonicalUrlType = urlType([
+  canonicalUrlTypeDictionary,
+  canonicalUrlTypeDictionary,
+]);
+const generatedDuplicateReversedUrlType = urlType([
+  reversedUrlTypeDictionary,
+  reversedUrlTypeDictionary,
+]);
+const expectedDuplicateGeneratingMobileRoutes = [
+  {
+    scheme: ["cash.free2z.zuuli"],
+    host: "oauth",
+    path: ["/callback"],
+    appLink: false,
+  },
+  {
+    scheme: ["cash.free2z.zuuli"],
+    host: "checkout",
+    path: ["/return"],
+    appLink: false,
+  },
+];
+
+function configuredRoutesGenerateKnownDuplicate() {
+  const config = JSON.parse(
+    readFileSync(resolve(appDir, "src-tauri/tauri.conf.json"), "utf8"),
+  );
+  return isDeepStrictEqual(
+    config?.plugins?.["deep-link"]?.mobile,
+    expectedDuplicateGeneratingMobileRoutes,
+  );
+}
 
 function occurrenceCount(contents, value) {
   return contents.split(value).length - 1;
@@ -264,6 +305,15 @@ function normalizePlist(contents, label) {
 
 function normalizeInfoPlist(contents, label) {
   const normalized = normalizePlist(contents, label);
+  const urlTypeKeyCount = occurrenceCount(
+    normalized,
+    "<key>CFBundleURLTypes</key>",
+  );
+  if (urlTypeKeyCount !== 1) {
+    throw new Error(
+      `refusing to normalize ${label}: expected exactly one CFBundleURLTypes key, found ${urlTypeKeyCount}`,
+    );
+  }
   const encryptionKeyCount = occurrenceCount(
     normalized,
     "<key>ITSAppUsesNonExemptEncryption</key>",
@@ -277,14 +327,22 @@ function normalizeInfoPlist(contents, label) {
       `refusing to normalize ${label}: expected exactly one canonical exempt-encryption declaration, found ${encryptionKeyCount} keys and ${exemptDeclarationCount} false declarations`,
     );
   }
-  const canonicalCount = occurrenceCount(normalized, canonicalUrlType);
-  const reversedCount = occurrenceCount(normalized, reversedUrlType);
-  if (canonicalCount + reversedCount !== 1) {
-    throw new Error(
-      `refusing to normalize ${label}: expected exactly one known ZUULI URL type, found ${canonicalCount + reversedCount}`,
+  const knownUrlTypes = [canonicalUrlType, reversedUrlType];
+  if (configuredRoutesGenerateKnownDuplicate()) {
+    knownUrlTypes.push(
+      generatedDuplicateCanonicalUrlType,
+      generatedDuplicateReversedUrlType,
     );
   }
-  return normalized.replace(reversedUrlType, canonicalUrlType);
+  const matchedUrlTypes = knownUrlTypes.filter(
+    (urlTypeShape) => occurrenceCount(normalized, urlTypeShape) === 1,
+  );
+  if (matchedUrlTypes.length !== 1) {
+    throw new Error(
+      `refusing to normalize ${label}: expected exactly one known ZUULI URL type, found ${matchedUrlTypes.length}`,
+    );
+  }
+  return normalized.replace(matchedUrlTypes[0], canonicalUrlType);
 }
 
 function selfTest() {
@@ -320,13 +378,60 @@ function selfTest() {
   }
   const canonicalFixture = `<plist><dict>\n${canonicalUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
   const reversedFixture = `<plist><dict>\n${reversedUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
+  const generatedDuplicateCanonicalFixture = `<plist><dict>\n${generatedDuplicateCanonicalUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
+  const generatedDuplicateReversedFixture = `<plist><dict>\n${generatedDuplicateReversedUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`;
   if (
     normalizeInfoPlist(canonicalFixture, "canonical fixture") !==
       `${canonicalFixture}\n` ||
     normalizeInfoPlist(reversedFixture, "reversed fixture") !==
-      `${canonicalFixture}\n`
+      `${canonicalFixture}\n` ||
+    normalizeInfoPlist(
+      generatedDuplicateCanonicalFixture,
+      "generated duplicate canonical fixture",
+    ) !== `${canonicalFixture}\n` ||
+    normalizeInfoPlist(
+      generatedDuplicateReversedFixture,
+      "generated duplicate reversed fixture",
+    ) !== `${canonicalFixture}\n`
   ) {
     throw new Error("iOS URL type ordering self-test failed");
+  }
+  for (const [fixtureLabel, unexpectedUrlType] of [
+    [
+      "three duplicate entries",
+      urlType([
+        canonicalUrlTypeDictionary,
+        canonicalUrlTypeDictionary,
+        canonicalUrlTypeDictionary,
+      ]),
+    ],
+    [
+      "mixed scheme names",
+      generatedDuplicateCanonicalUrlType.replace(
+        "<string>cash.free2z.zuuli</string>",
+        "<string>attacker.example</string>",
+      ),
+    ],
+    [
+      "mixed key ordering",
+      urlType([canonicalUrlTypeDictionary, reversedUrlTypeDictionary]),
+    ],
+    ["duplicate URL type keys", `${canonicalUrlType}\n${canonicalUrlType}`],
+  ]) {
+    let rejectedUnexpectedUrlType = false;
+    try {
+      normalizeInfoPlist(
+        `<plist><dict>\n${unexpectedUrlType}\n${exemptEncryptionDeclaration}\n</dict></plist>`,
+        fixtureLabel,
+      );
+    } catch (error) {
+      rejectedUnexpectedUrlType = error instanceof Error;
+    }
+    if (!rejectedUnexpectedUrlType) {
+      throw new Error(
+        `iOS URL type normalization accepted unknown shape: ${fixtureLabel}`,
+      );
+    }
   }
   let rejectedUnknownUrlShape = false;
   try {
@@ -337,7 +442,7 @@ function selfTest() {
   } catch (error) {
     rejectedUnknownUrlShape =
       error instanceof Error &&
-      error.message.includes("expected exactly one known ZUULI URL type");
+      error.message.includes("expected exactly one CFBundleURLTypes key");
   }
   if (!rejectedUnknownUrlShape) {
     throw new Error("iOS URL type normalization accepted an unknown shape");
