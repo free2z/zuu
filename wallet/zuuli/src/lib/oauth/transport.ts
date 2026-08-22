@@ -77,6 +77,15 @@ export async function oauthCallbackTransport(): Promise<OAuthCallbackTransport> 
   return isTauri() ? nativeTransport() : "web";
 }
 
+/**
+ * True only for a Tauri iOS/Android shell, never plain web or desktop.
+ * Derived from `oauthCallbackTransport` so the checkout return bridge and the
+ * OAuth flow can never disagree about what "mobile" means.
+ */
+export async function isMobileTauri(): Promise<boolean> {
+  return (await oauthCallbackTransport()) === "mobile";
+}
+
 async function runDesktopLoopback(
   provider: SocialProvider,
   associate: boolean,

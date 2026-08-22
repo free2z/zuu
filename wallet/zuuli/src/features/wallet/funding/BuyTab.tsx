@@ -56,6 +56,7 @@ import {
   openCardCheckout,
   startCardCheckout,
 } from "./card-checkout";
+import { checkoutReturnMode } from "@/lib/checkout/native-return";
 
 type QuoteState =
   | { status: "idle" }
@@ -145,6 +146,9 @@ export function BuyTab() {
       const result = await startCardCheckout({
         authenticated,
         amount,
+        // Signed-out taps must route directly to login even if native
+        // transport discovery is temporarily unavailable.
+        returnMode: authenticated ? await checkoutReturnMode() : "web",
         createCheckout: tuzi.buyCheckout,
         openCheckout: openCardCheckout,
       });
