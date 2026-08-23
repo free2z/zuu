@@ -2,15 +2,31 @@
 set -euo pipefail
 umask 077
 
-if [[ $# -ne 3 ]]; then
-  echo "usage: scripts/publish-github-release.sh <tag> <identity> <artifact-root>" >&2
+if [[ $# -ne 4 ]]; then
+  echo "usage: scripts/publish-github-release.sh <tag> <identity> <expected-commit> <artifact-root>" >&2
   exit 64
 fi
 
 tag=$1
 identity=$2
-artifact_root=$3
+expected_commit=$3
+artifact_root=$4
 [[ -d "$artifact_root" ]] || { echo "artifact root does not exist: $artifact_root" >&2; exit 66; }
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+tag_identity="$artifact_root/release-index/release-tag-identity.json"
+verification_copy=$(mktemp "${TMPDIR:-/tmp}/zuuli-release-tag-identity.XXXXXX")
+trap 'rm -f "$verification_copy"' EXIT
+
+"$script_dir/verify-release-tag.sh" "$tag" "$expected_commit" "$tag_identity"
+
+reverify_tag_identity() {
+  "$script_dir/verify-release-tag.sh" "$tag" "$expected_commit" "$verification_copy"
+  cmp -s "$tag_identity" "$verification_copy" || {
+    echo "release tag identity changed during publication" >&2
+    exit 75
+  }
+}
 
 if ! gh release view "$tag" >/dev/null 2>&1; then
   gh release create "$tag" --verify-tag --draft \
@@ -20,6 +36,11 @@ elif [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" != true ]]; the
   echo "release $tag is already published; refusing to mutate it" >&2
   exit 73
 fi
+
+# Creating even a draft release is a publication-boundary mutation. Recheck
+# immediately afterward so a tag move during `gh release create` cannot make
+# later asset updates appear bound to a different source.
+reverify_tag_identity
 
 package_dir=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-github-release.XXXXXX")
 for directory in "$artifact_root"/*; do
@@ -38,6 +59,11 @@ for directory in "$artifact_root"/*; do
     fi
     echo "$name.tar.gz already exists with the same checksum; keeping it"
   else
+    # Asset upload updates the GitHub Release, so verify the canonical tag at
+    # the last possible moment before every mutation.
+    reverify_tag_identity
     gh release upload "$tag" "$archive"
   fi
 done
+
+reverify_tag_identity
