@@ -13,7 +13,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "6d8ed19ac60777c842ab06f791f2ac22c734dce248e20451f5bc9f947fb2b1fb";
+  "dca75a990b10d4f9dba2a1c00d6fd1f69bf3182dc72a32aad2556758408d5189";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 
@@ -161,7 +161,7 @@ function check(workflow, toolchainEnv) {
 
   const expectedGateHeader = [
     "  gate:",
-    "    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_plugin, rust_android_32, rust_app, zuuallet_schema]",
+    "    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_plugin, rust_android_32, rust_app, zuuallet_schema]",
     "    if: always()",
     "    runs-on: ubuntu-latest",
     "    timeout-minutes: 5",
