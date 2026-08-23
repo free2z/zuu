@@ -52,25 +52,6 @@ ignore = [
   # reach it from the committed lockfiles.
   # ---------------------------------------------------------------------------
 
-  # aws-lc-sys 0.37.1; reached via rustls 0.23 -> aws-lc-rs -> aws-lc-sys, which
-  # tonic's TLS stack pulls in. Only the plugin and zuuallet lockfiles are
-  # affected: zuuli/src-tauri already resolves aws-lc-rs 1.17.3 -> aws-lc-sys
-  # 0.43.0 and reports none of these five.
-  #
-  # That is the useful signal here. aws-lc-sys 0.38/0.39 is a semver-major bump
-  # for a 0.x crate, so it can only arrive by way of aws-lc-rs — and aws-lc-rs
-  # has since shipped 1.17.x, which requires the fixed line. The blocker named
-  # when these entries were written (aws-lc-rs 1.15.4 pinning 0.37) is therefore
-  # gone; what is left is bumping aws-lc-rs in the two stale lockfiles, which
-  # moves the TLS stack the wallet uses to reach lightwalletd and so belongs in
-  # its own PR with its own build evidence rather than in the tier-1 sweep.
-  # Tracked as tier 2 of #351.
-  { id = "RUSTSEC-2026-0044", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: X.509 name-constraint bypass; needs >= 0.39.0, reachable only by bumping aws-lc-rs 1.15.4 -> 1.17.x. Already clear in zuuli" },
-  { id = "RUSTSEC-2026-0045", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: AES-CCM tag-verification timing side channel; needs >= 0.38.0, same aws-lc-rs bump. Already clear in zuuli" },
-  { id = "RUSTSEC-2026-0046", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: PKCS7_verify chain-validation bypass; needs >= 0.38.0, same aws-lc-rs bump. We do not call PKCS7_verify" },
-  { id = "RUSTSEC-2026-0047", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: PKCS7_verify signature-validation bypass; needs >= 0.38.0, same aws-lc-rs bump. We do not call PKCS7_verify" },
-  { id = "RUSTSEC-2026-0048", reason = "aws-lc-sys 0.37.1 in the plugin and zuuallet lockfiles: CRL distribution-point scope logic error; needs >= 0.39.0, same aws-lc-rs bump. We do not consume CRLs" },
-
   # rustls-webpki 0.101.7, reached through rustls 0.21 — an old transitive TLS
   # stack that is still in all three lockfiles alongside the current rustls 0.23.
   # The 0.103 line was bumped to 0.103.13 in the tier-1 sweep, which cleared the
