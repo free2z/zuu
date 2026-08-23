@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 
 import {
+  androidFinalizerJobDigest,
   credentialJobDigests,
   releaseAuthorityDigests,
   verifyAppleCredentialBoundary,
@@ -147,6 +148,11 @@ jobs:
   android-sign-upload:
     environment: zuuli-app-stores
     steps:
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          java-version: "21.0.12"
+      - name: Verify pinned Android signing JVM
+        run: java -version 2>&1 | grep -F '21.0.12'
       - uses: actions/download-artifact@sha
       - name: Verify source-bound artifact checksum and attestation
         env:
@@ -184,7 +190,17 @@ jobs:
   android-finalize:
     steps:
       - uses: actions/download-artifact@sha
-      - run: echo android-signed-universal-aab
+      - name: Verify signed AAB and prepare shipped artifact
+        env:
+          EXPECTED_IDENTITY: \${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: \${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_SIGNED_SHA256: \${{ needs.android-sign-upload.outputs.artifact_sha256 }}
+        run: |
+          (cd signed-android && sha256sum -c CHECKSUMS.sha256)
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_SIGNED_SHA256" '.kind == "android-signed-universal-aab" and .identity == $identity and .sourceSha == $source and .signedSha256 == $sha' signed-android/signing-record.json
+          test "$(sha256sum "signed-android/ZUULI-\${EXPECTED_IDENTITY}-android.aab" | awk '{print $1}')" = "$EXPECTED_SIGNED_SHA256"
+          mkdir release-artifacts
+          cp "signed-android/ZUULI-\${EXPECTED_IDENTITY}-android.aab" release-artifacts/
       - uses: actions/attest-build-provenance@sha
       - uses: actions/upload-artifact@sha
 ${buildJob("ios-build", "tauri ios build --archive-only")}
@@ -228,9 +244,11 @@ jobs:
 
 const fixtureCredentialJobDigests = credentialJobDigests(validWorkflow);
 const fixtureRootAuthorityDigests = releaseAuthorityDigests(validWorkflow);
+const fixtureAndroidFinalizerJobDigest = androidFinalizerJobDigest(validWorkflow);
 const verifyFixture = (source) => verifyAppleCredentialBoundary(source, {
   credentialJobDigests: fixtureCredentialJobDigests,
   rootAuthorityDigests: fixtureRootAuthorityDigests,
+  expectedAndroidFinalizerDigest: fixtureAndroidFinalizerJobDigest,
 });
 
 test("accepts separated source, credential, and finalization jobs", () => {
@@ -340,6 +358,20 @@ test("an explicit assertion guard aborts before credential work continues", () =
 });
 
 const androidProtectedMutations = [
+  [
+    "unpinned protected signing JVM",
+    (source) => source.replace(
+      "    steps:\n      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5\n",
+      "    steps:\n      - uses: actions/setup-java@main\n",
+    ),
+  ],
+  [
+    "deleted protected signing JVM proof",
+    (source) => source.replace(
+      "      - name: Verify pinned Android signing JVM\n        run: java -version 2>&1 | grep -F '21.0.12'\n",
+      "",
+    ),
+  ],
   [
     "checkout",
     (source) => source.replace(
@@ -482,6 +514,46 @@ const androidProtectedMutations = [
     (source) => source.replace(
       "      needs.android-sign-upload.result == 'success' &&\n",
       "      needs.android-sign-upload.result == 'skipped' &&\n",
+    ),
+  ],
+  [
+    "skipped signed-artifact finalizer verification",
+    (source) => source.replace(
+      "      - name: Verify signed AAB and prepare shipped artifact\n",
+      "      - name: Verify signed AAB and prepare shipped artifact\n        if: false\n",
+    ),
+  ],
+  [
+    "soft-failed signed-artifact finalizer verification",
+    (source) => source.replace(
+      "      - name: Verify signed AAB and prepare shipped artifact\n",
+      "      - name: Verify signed AAB and prepare shipped artifact\n        continue-on-error: true\n",
+    ),
+  ],
+  [
+    "decorative no-op signed-artifact verification",
+    (source) => source
+      .replace(
+        "          (cd signed-android && sha256sum -c CHECKSUMS.sha256)\n",
+        "          : <<'DECORATIVE_VERIFICATION'\n          (cd signed-android && sha256sum -c CHECKSUMS.sha256)\n",
+      )
+      .replace(
+        "          mkdir release-artifacts\n          cp \"signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab\" release-artifacts/\n",
+        "          DECORATIVE_VERIFICATION\n          mkdir release-artifacts\n          cp \"signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab\" release-artifacts/\n",
+      ),
+  ],
+  [
+    "finalizer accepts a stale signed source record",
+    (source) => source.replace(
+      ".identity == $identity and .sourceSha == $source and .signedSha256 == $sha",
+      ".identity == $identity and .signedSha256 == $sha",
+    ),
+  ],
+  [
+    "finalizer omits the expected signed AAB digest check",
+    (source) => source.replace(
+      "          test \"$(sha256sum \"signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab\" | awk '{print $1}')\" = \"$EXPECTED_SIGNED_SHA256\"\n",
+      "          true # signed AAB digest check removed\n",
     ),
   ],
 ];

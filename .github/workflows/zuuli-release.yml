@@ -322,6 +322,12 @@ jobs:
     env:
       ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
     steps:
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21.0.12"
+      - name: Verify pinned Android signing JVM
+        run: java -version 2>&1 | grep -F '21.0.12'
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: unsigned-zuuli-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}

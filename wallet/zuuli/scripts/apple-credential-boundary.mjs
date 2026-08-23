@@ -53,11 +53,13 @@ const ALLOWED_JOB_SECRETS = new Map([
 // semantic checks below explain the major boundaries, while the digest closes
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
-  ["android-sign-upload", "02c435ad36675554b800524daadbe0e6110a3a9e6a67c3222764ef1698d3a290"],
+  ["android-sign-upload", "10c91a090cedd01e24811b083d0987fdfba6e32658ee7c828c84d6cf2a67332d"],
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
   ["macos-sign", "c1e218197291583ef9c021ed9e32506bf6696f0a1566d5dc6e4e954aa2833dbb"],
 ]);
+const ANDROID_FINALIZER_JOB_SHA256 =
+  "9571bb82e1fa0ba6b0749fbbb9487f72e9c495fb0c6877f64747f0c3eff2f794";
 
 // These four inherited/root controls sit outside the protected job nodes but
 // can change when or how they execute. Bind their exact reviewed YAML source so
@@ -215,6 +217,15 @@ export function releaseAuthorityDigests(workflow) {
   }));
 }
 
+export function androidFinalizerJobDigest(workflow) {
+  const failures = [];
+  const parsed = parseWorkflow(workflow, failures);
+  if (!parsed || failures.length > 0) throw new Error(failures.join("\n"));
+  const node = pairFor(parsed.jobs, "android-finalize")?.value;
+  if (!node) throw new Error("workflow is missing android-finalize");
+  return sha256(sourceForNode(workflow, node));
+}
+
 /**
  * Enforce the source-level mobile/desktop release authority boundary.
  *
@@ -229,6 +240,7 @@ export function verifyAppleCredentialBoundary(
   {
     credentialJobDigests = CREDENTIAL_JOB_SHA256,
     rootAuthorityDigests = ROOT_AUTHORITY_SHA256,
+    expectedAndroidFinalizerDigest = ANDROID_FINALIZER_JOB_SHA256,
   } = {},
 ) {
   const failures = [];
@@ -422,6 +434,12 @@ export function verifyAppleCredentialBoundary(
   rejectText(failures, "Android unsigned builder", androidBuilder, "secrets.");
 
   const androidSigner = jobs.get("android-sign-upload");
+  for (const marker of [
+    "actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961",
+    'java-version: "21.0.12"',
+    "Verify pinned Android signing JVM",
+    "java -version 2>&1 | grep -F '21.0.12'",
+  ]) requireText(failures, "Android protected signer/uploader", androidSigner, marker);
   if ([...androidSigner.matchAll(/actions\/download-artifact@/g)].length !== 1) {
     failures.push("Android protected signer/uploader must consume exactly one immutable workflow artifact");
   }
@@ -455,6 +473,9 @@ export function verifyAppleCredentialBoundary(
     "uses: ./.github/actions/",
   ]) rejectText(failures, "Android protected signer/uploader", androidSigner, forbidden);
   const androidVerify = androidSigner.indexOf("Verify source-bound artifact checksum and attestation");
+  const androidJavaSetup = androidSigner.indexOf("actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961");
+  const androidJavaProof = androidSigner.indexOf("Verify pinned Android signing JVM");
+  const androidDownload = androidSigner.indexOf("actions/download-artifact@");
   const androidAttestation = androidSigner.indexOf("gh attestation verify unsigned-android/CHECKSUMS.sha256");
   const androidInspection = androidSigner.indexOf("Inspect attested Android artifact without credentials");
   const androidBundleInspection = androidSigner.indexOf("dump manifest --bundle");
@@ -466,7 +487,7 @@ export function verifyAppleCredentialBoundary(
     androidSigner.slice(0, androidFirstSecret),
     "curl ",
   );
-  if (!(androidVerify >= 0 && androidVerify < androidAttestation && androidAttestation < androidInspection && androidInspection < androidBundleInspection && androidBundleInspection < androidToolRemoval && androidToolRemoval < androidFirstSecret)) {
+  if (!(androidJavaSetup >= 0 && androidJavaSetup < androidJavaProof && androidJavaProof < androidDownload && androidDownload < androidVerify && androidVerify < androidAttestation && androidAttestation < androidInspection && androidInspection < androidBundleInspection && androidBundleInspection < androidToolRemoval && androidToolRemoval < androidFirstSecret)) {
     failures.push("Android protected job must verify checksum, attestation, identity and ABIs, then remove verifier tooling before credentials");
   }
   const androidGithubTokens = [...androidSigner.matchAll(/GH_TOKEN: \$\{\{ github\.token \}\}/g)].map((match) => match.index);
@@ -480,7 +501,38 @@ export function verifyAppleCredentialBoundary(
   if (!(androidCredentialCleanup < androidArtifactUpload && androidArtifactUpload < androidSignedCleanup)) {
     failures.push("Android protected job must destroy credentials, upload the internal artifact, then always destroy signed output");
   }
-  requireText(failures, "Android finalizer", jobs.get("android-finalize"), "android-signed-universal-aab");
+  const androidFinalizer = jobs.get("android-finalize");
+  const actualAndroidFinalizerDigest = sha256(androidFinalizer);
+  if (actualAndroidFinalizerDigest !== expectedAndroidFinalizerDigest) {
+    failures.push(
+      `android-finalize execution program changed: expected ${expectedAndroidFinalizerDigest}, got ${actualAndroidFinalizerDigest}`,
+    );
+  }
+  for (const marker of [
+    "EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}",
+    "EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}",
+    "EXPECTED_SIGNED_SHA256: ${{ needs.android-sign-upload.outputs.artifact_sha256 }}",
+    "(cd signed-android && sha256sum -c CHECKSUMS.sha256)",
+    ".identity == $identity and .sourceSha == $source and .signedSha256 == $sha",
+    'test "$(sha256sum "signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab"',
+    'cp "signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab" release-artifacts/',
+    "android-signed-universal-aab",
+  ]) requireText(failures, "Android finalizer", androidFinalizer, marker);
+  const finalizerChecksum = androidFinalizer.indexOf(
+    "(cd signed-android && sha256sum -c CHECKSUMS.sha256)",
+  );
+  const finalizerRecord = androidFinalizer.indexOf(".identity == $identity and .sourceSha == $source and .signedSha256 == $sha");
+  const finalizerDigest = androidFinalizer.indexOf(
+    'test "$(sha256sum "signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab"',
+  );
+  const finalizerCopy = androidFinalizer.indexOf(
+    'cp "signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab" release-artifacts/',
+  );
+  if (!(finalizerChecksum >= 0 && finalizerChecksum < finalizerRecord && finalizerRecord < finalizerDigest && finalizerDigest < finalizerCopy)) {
+    failures.push(
+      "Android finalizer must verify the signed checksum, exact source/identity/digest record, and AAB digest before copying the shipped artifact",
+    );
+  }
   for (const marker of [
     "needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]",
     "needs.android-build.result == 'success'",
