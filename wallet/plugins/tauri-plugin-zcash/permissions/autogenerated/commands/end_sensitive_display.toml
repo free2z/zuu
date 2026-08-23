@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-end-sensitive-display"
+description = "Enables the end_sensitive_display command without any pre-configured scope."
+commands.allow = ["end_sensitive_display"]
+
+[[permission]]
+identifier = "deny-end-sensitive-display"
+description = "Denies the end_sensitive_display command without any pre-configured scope."
+commands.deny = ["end_sensitive_display"]

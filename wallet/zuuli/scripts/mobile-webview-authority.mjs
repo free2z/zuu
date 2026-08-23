@@ -15,6 +15,8 @@ export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-retry-wallet-cleanup",
   "zcash:allow-get-backup-seed-phrase",
   "zcash:allow-confirm-wallet-backup",
+  "zcash:allow-begin-sensitive-display",
+  "zcash:allow-end-sensitive-display",
   "zcash:allow-list-accounts",
   "zcash:allow-get-account-balance",
   "zcash:allow-get-unified-address",
@@ -109,7 +111,8 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
 
   const httpPermission = mobile.permissions.find(
     (permission) =>
-      typeof permission === "object" && permission?.identifier === "http:default",
+      typeof permission === "object" &&
+      permission?.identifier === "http:default",
   );
   if (!httpPermission || !Array.isArray(httpPermission.allow)) {
     throw new Error(
@@ -137,7 +140,11 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
     throw new Error("packaged Tauri CSP must be a string");
   }
   const frameSources = cspDirective(csp, "frame-src");
-  if (!frameSources || frameSources.length !== 1 || frameSources[0] !== "'none'") {
+  if (
+    !frameSources ||
+    frameSources.length !== 1 ||
+    frameSources[0] !== "'none'"
+  ) {
     throw new Error("privileged native WebViews must declare frame-src 'none'");
   }
 }

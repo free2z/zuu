@@ -15,13 +15,20 @@
 //     signed-in account instead.
 // Both reuse this exact stepper so the crypto is never duplicated.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { wallet } from "@/lib/wallet/bridge";
 import type { SignedChallenge } from "@/lib/wallet/types";
 import { auth } from "@/lib/api/free2z";
 import type { AuthUser } from "@/lib/api/types";
-import { useAttemptLease, type IsCurrentAttempt } from "@/hooks/useAttemptLease";
+import {
+  useAttemptLease,
+  type IsCurrentAttempt,
+} from "@/hooks/useAttemptLease";
 import { useWallet } from "@/store/wallet";
+import {
+  SensitiveSeedSession,
+  walletSensitiveSeedAuthority,
+} from "@/lib/wallet/sensitive-seed";
 
 export type StepKey = "prepare" | "challenge" | "sign" | "verify";
 export type StepStatus = "pending" | "active" | "done" | "error";
@@ -40,12 +47,7 @@ export type Phase =
   | "success"
   | "error";
 
-export const STEP_ORDER: StepKey[] = [
-  "prepare",
-  "challenge",
-  "sign",
-  "verify",
-];
+export const STEP_ORDER: StepKey[] = ["prepare", "challenge", "sign", "verify"];
 
 export interface StepMeta {
   key: StepKey;
@@ -92,6 +94,7 @@ export interface ZcashChallengeFlowState {
   createIdentity: () => Promise<void>;
   revealSeedBackup: () => Promise<void>;
   confirmSeedSaved: () => Promise<void>;
+  hideSeedBackup: () => void;
   retry: () => void;
   reset: () => void;
 }
@@ -157,117 +160,152 @@ export function useZcashChallengeFlow(
   const [seedPhrase, setSeedPhrase] = useState<string | null>(null);
   const [backupWalletId, setBackupWalletId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sensitiveSeed = useRef<SensitiveSeedSession | null>(null);
+  if (!sensitiveSeed.current) {
+    sensitiveSeed.current = new SensitiveSeedSession(
+      walletSensitiveSeedAuthority,
+      setSeedPhrase,
+    );
+  }
 
   // Guards against overlapping runs (e.g. an impatient double-click).
   const runningRef = useRef(false);
   const attempt = useAttemptLease();
+
+  const hideSeedBackup = useCallback(() => {
+    if (!sensitiveSeed.current?.clear()) return;
+    attempt.invalidate();
+    runningRef.current = false;
+    setPhase((current) =>
+      current === "loadingSeed" ||
+      current === "seedReveal" ||
+      current === "confirmingBackup"
+        ? "backupRequired"
+        : current,
+    );
+  }, [attempt]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") hideSeedBackup();
+    };
+    window.addEventListener("blur", hideSeedBackup);
+    window.addEventListener("pagehide", hideSeedBackup);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", hideSeedBackup);
+      window.removeEventListener("pagehide", hideSeedBackup);
+      document.removeEventListener("visibilitychange", onVisibility);
+      sensitiveSeed.current?.clear();
+    };
+  }, [hideSeedBackup]);
 
   const setStep = useCallback((key: StepKey, status: StepStatus) => {
     setSteps((prev) => ({ ...prev, [key]: status }));
   }, []);
 
   // The crypto half of the flow: challenge → sign → verify → done.
-  const runCrypto = useCallback(async (
-    isCurrent: IsCurrentAttempt,
-    expectedWalletId?: string,
-  ) => {
-    // Track which step is in flight so a failure lands on the right row and
-    // gets the right friendly message.
-    let stage: StepKey = "prepare";
-    try {
-      if (expectedWalletId) {
-        const status = await wallet.getWalletStatus();
+  const runCrypto = useCallback(
+    async (isCurrent: IsCurrentAttempt, expectedWalletId?: string) => {
+      // Track which step is in flight so a failure lands on the right row and
+      // gets the right friendly message.
+      let stage: StepKey = "prepare";
+      try {
+        if (expectedWalletId) {
+          const status = await wallet.getWalletStatus();
+          if (!isCurrent()) return;
+          if (
+            !status.initialized ||
+            status.activeWalletId !== expectedWalletId ||
+            status.backupRequired
+          ) {
+            throw new Error(
+              "The selected Zcash identity is no longer active. Try again.",
+            );
+          }
+        }
+
+        // The identity is the wallet's transparent P2PKH t-address — the one
+        // the plugin signs with and the one free2z verifies via zcashd
+        // `verifymessage`. The server challenge MUST be requested for THIS
+        // exact address: the backend keys the one-time nonce by address, so if
+        // we asked for the challenge under a different address (e.g. the
+        // unified u1… address) than the t1… address we sign with, the lookup
+        // misses and fails as "challenge does not match".
+        const addr = await wallet.getLoginAddress(0);
         if (!isCurrent()) return;
-        if (
-          !status.initialized ||
-          status.activeWalletId !== expectedWalletId ||
-          status.backupRequired
-        ) {
+
+        // Restore returns the exact manifest identity committed by native code.
+        // Recheck after deriving the address, immediately before the first
+        // network operation, so a concurrent wallet switch cannot substitute a
+        // different local identity into the original login attempt.
+        if (expectedWalletId) {
+          const status = await wallet.getWalletStatus();
+          if (!isCurrent()) return;
+          if (
+            !status.initialized ||
+            status.activeWalletId !== expectedWalletId ||
+            status.backupRequired
+          ) {
+            throw new Error(
+              "The selected Zcash identity is no longer active. Try again.",
+            );
+          }
+        }
+        setAddress(addr);
+
+        // 2 — Ask the SERVER for the challenge to sign. The one-time,
+        //     timestamped nonce must come from free2z so it can record/expire
+        //     it and reject replays — a client-minted string would carry no
+        //     such binding.
+        stage = "challenge";
+        setStep("challenge", "active");
+        await wait(450);
+        if (!isCurrent()) return;
+        const { challenge } = await auth.zcashChallenge(addr);
+        if (!isCurrent()) return;
+        setStep("challenge", "done");
+
+        // 3 — Sign the server's exact challenge with the wallet key. Send it
+        //     promptly: server nonces expire.
+        stage = "sign";
+        setStep("sign", "active");
+        await wait(500);
+        if (!isCurrent()) return;
+        const signed = await wallet.signChallenge(challenge);
+        if (!isCurrent()) return;
+        if (signed.address !== addr || signed.challenge !== challenge) {
           throw new Error(
-            "The selected Zcash identity is no longer active. Try again.",
+            "The active Zcash identity changed before signing. No login was sent.",
           );
         }
-      }
+        setStep("sign", "done");
 
-      // The identity is the wallet's transparent P2PKH t-address — the one
-      // the plugin signs with and the one free2z verifies via zcashd
-      // `verifymessage`. The server challenge MUST be requested for THIS
-      // exact address: the backend keys the one-time nonce by address, so if
-      // we asked for the challenge under a different address (e.g. the
-      // unified u1… address) than the t1… address we sign with, the lookup
-      // misses and fails as "challenge does not match".
-      const addr = await wallet.getLoginAddress(0);
-      if (!isCurrent()) return;
-
-      // Restore returns the exact manifest identity committed by native code.
-      // Recheck after deriving the address, immediately before the first
-      // network operation, so a concurrent wallet switch cannot substitute a
-      // different local identity into the original login attempt.
-      if (expectedWalletId) {
-        const status = await wallet.getWalletStatus();
+        // 4 — Verify with free2z (login or associate — see `config.verify`).
+        stage = "verify";
+        setStep("verify", "active");
+        await wait(400);
         if (!isCurrent()) return;
-        if (
-          !status.initialized ||
-          status.activeWalletId !== expectedWalletId ||
-          status.backupRequired
-        ) {
-          throw new Error(
-            "The selected Zcash identity is no longer active. Try again.",
-          );
-        }
+        const result = await verify(signed);
+        if (!isCurrent()) return;
+        setStep("verify", "done");
+
+        // 5 — Land the result and let the caller react.
+        onVerified(result, signed.address);
+        if (!isCurrent()) return;
+        setPhase("success");
+        if (afterSuccess) await afterSuccess(result, signed.address, isCurrent);
+      } catch (e) {
+        if (!isCurrent()) return;
+        setStep(stage, "error");
+        setError(friendlyError(stage, e, verifyErrorMessage));
+        setPhase("error");
+      } finally {
+        if (isCurrent()) runningRef.current = false;
       }
-      setAddress(addr);
-
-      // 2 — Ask the SERVER for the challenge to sign. The one-time,
-      //     timestamped nonce must come from free2z so it can record/expire
-      //     it and reject replays — a client-minted string would carry no
-      //     such binding.
-      stage = "challenge";
-      setStep("challenge", "active");
-      await wait(450);
-      if (!isCurrent()) return;
-      const { challenge } = await auth.zcashChallenge(addr);
-      if (!isCurrent()) return;
-      setStep("challenge", "done");
-
-      // 3 — Sign the server's exact challenge with the wallet key. Send it
-      //     promptly: server nonces expire.
-      stage = "sign";
-      setStep("sign", "active");
-      await wait(500);
-      if (!isCurrent()) return;
-      const signed = await wallet.signChallenge(challenge);
-      if (!isCurrent()) return;
-      if (signed.address !== addr || signed.challenge !== challenge) {
-        throw new Error(
-          "The active Zcash identity changed before signing. No login was sent.",
-        );
-      }
-      setStep("sign", "done");
-
-      // 4 — Verify with free2z (login or associate — see `config.verify`).
-      stage = "verify";
-      setStep("verify", "active");
-      await wait(400);
-      if (!isCurrent()) return;
-      const result = await verify(signed);
-      if (!isCurrent()) return;
-      setStep("verify", "done");
-
-      // 5 — Land the result and let the caller react.
-      onVerified(result, signed.address);
-      if (!isCurrent()) return;
-      setPhase("success");
-      if (afterSuccess) await afterSuccess(result, signed.address, isCurrent);
-    } catch (e) {
-      if (!isCurrent()) return;
-      setStep(stage, "error");
-      setError(friendlyError(stage, e, verifyErrorMessage));
-      setPhase("error");
-    } finally {
-      if (isCurrent()) runningRef.current = false;
-    }
-  }, [afterSuccess, onVerified, setStep, verify, verifyErrorMessage]);
+    },
+    [afterSuccess, onVerified, setStep, verify, verifyErrorMessage],
+  );
 
   // Step 1 — ensure a wallet exists, then either pause for creation or run.
   const prepareAndRun = useCallback(async () => {
@@ -327,61 +365,64 @@ export function useZcashChallengeFlow(
     setPhase("needsWallet");
   }, [attempt]);
 
-  const restoreIdentity = useCallback(async (
-    seedPhrase: string,
-    birthdayHeight: number | undefined,
-    clearPhrase: () => void,
-  ) => {
-    if (runningRef.current) return;
-    const isCurrent = attempt.begin();
-    runningRef.current = true;
-    setError(null);
-    setPhase("restoring");
-    try {
-      const restoration = wallet.restoreWallet(
-        seedPhrase,
-        birthdayHeight,
-        "Recovered identity",
-      );
-      // Drop this flow-local binding before waiting on native I/O. JavaScript
-      // strings cannot be zeroized, and the IPC argument object may retain its
-      // immutable copy until serialization; the renderer guarantee is no
-      // persistence, logging, toast, URL, or network transport, plus clearing
-      // the editable state immediately after native custody succeeds.
-      seedPhrase = "";
-      const restored = await restoration;
-      if (!isCurrent()) {
+  const restoreIdentity = useCallback(
+    async (
+      seedPhrase: string,
+      birthdayHeight: number | undefined,
+      clearPhrase: () => void,
+    ) => {
+      if (runningRef.current) return;
+      const isCurrent = attempt.begin();
+      runningRef.current = true;
+      setError(null);
+      setPhase("restoring");
+      try {
+        const restoration = wallet.restoreWallet(
+          seedPhrase,
+          birthdayHeight,
+          "Recovered identity",
+        );
+        // Drop this flow-local binding before waiting on native I/O. JavaScript
+        // strings cannot be zeroized, and the IPC argument object may retain its
+        // immutable copy until serialization; the renderer guarantee is no
+        // persistence, logging, toast, URL, or network transport, plus clearing
+        // the editable state immediately after native custody succeeds.
+        seedPhrase = "";
+        const restored = await restoration;
+        if (!isCurrent()) {
+          clearPhrase();
+          return;
+        }
+        if (!restored.success || !restored.walletId) {
+          throw new Error("The recovery phrase could not be restored.");
+        }
+        // Clear the editable renderer state immediately after successful native
+        // custody, before any identity/network continuation.
         clearPhrase();
-        return;
+        // The app-level bootstrap may already have cached `initialized: false`.
+        // Publish the restored wallet to the shared renderer store before login
+        // continues so Wallet does not show onboarding until the next reload.
+        await useWallet.getState().bootstrap();
+        if (!isCurrent()) return;
+        setPhase("running");
+        setStep("prepare", "done");
+        await runCrypto(isCurrent, restored.walletId);
+      } catch {
+        if (!isCurrent()) return;
+        // Native mnemonic diagnostics are intentionally content-free. Keep the
+        // renderer message fixed as a second defense against phrase leakage,
+        // while acknowledging that words, birthday, network, or native custody
+        // can each prevent restoration.
+        setError(
+          "Couldn't restore this identity. Check the recovery words, birthday, and connection, then try again.",
+        );
+        setPhase("restoreIdentity");
+      } finally {
+        if (isCurrent()) runningRef.current = false;
       }
-      if (!restored.success || !restored.walletId) {
-        throw new Error("The recovery phrase could not be restored.");
-      }
-      // Clear the editable renderer state immediately after successful native
-      // custody, before any identity/network continuation.
-      clearPhrase();
-      // The app-level bootstrap may already have cached `initialized: false`.
-      // Publish the restored wallet to the shared renderer store before login
-      // continues so Wallet does not show onboarding until the next reload.
-      await useWallet.getState().bootstrap();
-      if (!isCurrent()) return;
-      setPhase("running");
-      setStep("prepare", "done");
-      await runCrypto(isCurrent, restored.walletId);
-    } catch {
-      if (!isCurrent()) return;
-      // Native mnemonic diagnostics are intentionally content-free. Keep the
-      // renderer message fixed as a second defense against phrase leakage,
-      // while acknowledging that words, birthday, network, or native custody
-      // can each prevent restoration.
-      setError(
-        "Couldn't restore this identity. Check the recovery words, birthday, and connection, then try again.",
-      );
-      setPhase("restoreIdentity");
-    } finally {
-      if (isCurrent()) runningRef.current = false;
-    }
-  }, [attempt, runCrypto, setStep]);
+    },
+    [attempt, runCrypto, setStep],
+  );
 
   const createIdentity = useCallback(async () => {
     if (runningRef.current) return;
@@ -390,11 +431,13 @@ export function useZcashChallengeFlow(
     setPhase("creating");
     setError(null);
     try {
-      const { walletId, seedPhrase: phrase } = await wallet.createWallet();
+      const { walletId } = await wallet.createWallet();
       if (!isCurrent()) return;
       setBackupWalletId(walletId);
-      setSeedPhrase(phrase);
-      setPhase("seedReveal");
+      // Creation returns no mnemonic to the renderer. The explicit reveal
+      // below first acquires native capture protection, then performs a fresh
+      // user-presence-bound custody read.
+      setPhase("backupRequired");
     } catch (e) {
       if (!isCurrent()) return;
       setError(errMessage(e));
@@ -421,10 +464,11 @@ export function useZcashChallengeFlow(
         await runCrypto(isCurrent, status.activeWalletId);
         return;
       }
-      const phrase = await wallet.getBackupSeedPhrase(status.activeWalletId);
-      if (!isCurrent()) return;
+      const revealed = await sensitiveSeed.current!.reveal((token) =>
+        wallet.getBackupSeedPhrase(status.activeWalletId!, token),
+      );
+      if (!isCurrent() || !revealed) return;
       setBackupWalletId(status.activeWalletId);
-      setSeedPhrase(phrase);
       setPhase("seedReveal");
     } catch (e) {
       if (!isCurrent()) return;
@@ -441,18 +485,21 @@ export function useZcashChallengeFlow(
     runningRef.current = true;
     setError(null);
     setPhase("confirmingBackup");
+    // The acknowledgement does not need the mnemonic. Clear it synchronously
+    // before the durable native operation or any network continuation.
+    sensitiveSeed.current?.clear();
     try {
       await wallet.confirmWalletBackup(backupWalletId);
       if (!isCurrent()) return;
-      // Drop the phrase from memory only after the durable acknowledgement.
-      setSeedPhrase(null);
       setPhase("running");
       setStep("prepare", "done");
       await runCrypto(isCurrent, backupWalletId);
     } catch (e) {
       if (!isCurrent()) return;
       setError(errMessage(e));
-      setPhase("seedReveal");
+      // The phrase was already cleared before acknowledgement. Require a new
+      // protected, presence-bound reveal instead of resurrecting stale state.
+      setPhase("backupRequired");
     } finally {
       if (isCurrent()) runningRef.current = false;
     }
@@ -468,7 +515,7 @@ export function useZcashChallengeFlow(
     setPhase("idle");
     setSteps(freshSteps());
     setAddress(null);
-    setSeedPhrase(null);
+    sensitiveSeed.current?.clear();
     setBackupWalletId(null);
     setError(null);
   }, [attempt]);
@@ -496,6 +543,7 @@ export function useZcashChallengeFlow(
     createIdentity,
     revealSeedBackup,
     confirmSeedSaved,
+    hideSeedBackup,
     retry,
     reset,
   };

@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { SeedPhraseGrid } from "../components/SeedPhraseGrid";
 import { formatHeight } from "../lib/format";
 import * as api from "../lib/tauri";
+import {
+  SensitiveSeedSession,
+  sensitiveSeedAuthority,
+} from "../lib/sensitive-seed";
 
 const SERVERS = [
   { label: "zec.rocks (default)", url: "https://zec.rocks:443" },
@@ -80,8 +84,43 @@ function SeedPhraseSection() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [unlockPhrase, setUnlockPhrase] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const operationInFlight = useRef(false);
+  const sensitiveSession = useRef<SensitiveSeedSession | null>(null);
+  if (!sensitiveSession.current) {
+    sensitiveSession.current = new SensitiveSeedSession(
+      sensitiveSeedAuthority,
+      setPhrase,
+    );
+  }
 
-  const wordCount = unlockPhrase.trim() ? unlockPhrase.trim().split(/\s+/).length : 0;
+  useEffect(() => {
+    const clearSensitiveDisplay = () => {
+      sensitiveSession.current?.clear();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") clearSensitiveDisplay();
+    };
+    window.addEventListener("blur", clearSensitiveDisplay);
+    window.addEventListener("pagehide", clearSensitiveDisplay);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", clearSensitiveDisplay);
+      window.removeEventListener("pagehide", clearSensitiveDisplay);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearSensitiveDisplay();
+    };
+  }, []);
+
+  const readSeedUnderLease = async () => {
+    const revealed = await sensitiveSession.current!.reveal((token) =>
+      api.getSeedPhrase(token),
+    );
+    if (!revealed) throw new Error("Recovery phrase reveal was cancelled.");
+  };
+
+  const wordCount = unlockPhrase.trim()
+    ? unlockPhrase.trim().split(/\s+/).length
+    : 0;
   const badgeClass =
     wordCount < 12
       ? "bg-red-500/10 text-red-400"
@@ -90,36 +129,41 @@ function SeedPhraseSection() {
         : "bg-emerald-500/10 text-emerald-400";
 
   const handleReveal = async () => {
+    if (operationInFlight.current) return;
     if (phrase) {
       setPhrase(null);
+      sensitiveSession.current?.clear();
       return;
     }
+    operationInFlight.current = true;
     setLoading(true);
     setError(null);
     try {
-      const result = await api.getSeedPhrase();
-      setPhrase(result);
+      await readSeedUnderLease();
       setShowUnlock(false);
     } catch {
       setError(null);
       setShowUnlock(true);
     } finally {
+      operationInFlight.current = false;
       setLoading(false);
     }
   };
 
   const handleUnlock = async () => {
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
     setUnlocking(true);
     setError(null);
     try {
       await api.unlockWallet(unlockPhrase.trim());
-      const result = await api.getSeedPhrase();
-      setPhrase(result);
+      await readSeedUnderLease();
       setShowUnlock(false);
       setUnlockPhrase("");
     } catch (e) {
       setError(String(e));
     } finally {
+      operationInFlight.current = false;
       setUnlocking(false);
     }
   };
@@ -146,8 +190,8 @@ function SeedPhraseSection() {
               Seed phrase not found in secure storage
             </p>
             <p className="text-amber-400/70 text-xs mt-1">
-              Enter your recovery phrase to re-link it to this wallet.
-              It will be validated against the wallet's viewing key.
+              Enter your recovery phrase to re-link it to this wallet. It will
+              be validated against the wallet's viewing key.
             </p>
           </div>
           <textarea
@@ -159,7 +203,9 @@ function SeedPhraseSection() {
           />
           <div className="flex items-center gap-2 mt-1 mb-2">
             {wordCount > 0 ? (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${badgeClass}`}>
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${badgeClass}`}
+              >
                 {wordCount} words
               </span>
             ) : (
@@ -179,7 +225,7 @@ function SeedPhraseSection() {
       {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
 
       {phrase && (
-        <div className="mt-3 animate-fade-in">
+        <div className="mt-3 animate-fade-in" aria-hidden="true">
           <SeedPhraseGrid phrase={phrase} />
         </div>
       )}
@@ -230,7 +276,8 @@ export function Settings() {
   const isSelected = (serverUrl: string) => !useCustom && url === serverUrl;
 
   const rawChainTip = syncStatus?.chainTip ?? walletStatus?.chainTip ?? null;
-  const syncedHeight = syncStatus?.syncedHeight ?? walletStatus?.syncedHeight ?? null;
+  const syncedHeight =
+    syncStatus?.syncedHeight ?? walletStatus?.syncedHeight ?? null;
   // If we've scanned past the cached tip, those blocks are real
   const chainTip =
     rawChainTip !== null && syncedHeight !== null
@@ -252,7 +299,9 @@ export function Settings() {
           <div className="bg-zuuallet-surface border border-zinc-800/50 rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wider">Active Wallet</p>
+                <p className="text-xs text-zinc-500 uppercase tracking-wider">
+                  Active Wallet
+                </p>
                 <p className="text-sm font-medium text-white mt-0.5">
                   {walletStatus?.activeWalletName ?? "Unknown"}
                 </p>
@@ -269,13 +318,18 @@ export function Settings() {
 
         {/* Blockchain Stats */}
         <div className="bg-zuuallet-surface border border-zinc-800/50 rounded-xl p-4">
-          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Blockchain</h3>
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">
+            Blockchain
+          </h3>
           <div className="divide-y divide-zinc-800/50">
             {chainTip !== null && (
               <StatRow label="Chain tip" value={formatHeight(chainTip)} />
             )}
             {syncedHeight !== null && (
-              <StatRow label="Wallet synced to" value={formatHeight(syncedHeight)} />
+              <StatRow
+                label="Wallet synced to"
+                value={formatHeight(syncedHeight)}
+              />
             )}
             <StatRow
               label="Status"
@@ -288,14 +342,19 @@ export function Settings() {
               }
             />
             {!synced && blocksBehind !== null && blocksBehind > 0 && (
-              <StatRow label="Blocks behind" value={formatHeight(blocksBehind)} />
+              <StatRow
+                label="Blocks behind"
+                value={formatHeight(blocksBehind)}
+              />
             )}
           </div>
         </div>
 
         {/* Security — Recovery Phrase + Viewing Key */}
         <div>
-          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">Security</h3>
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">
+            Security
+          </h3>
 
           <div className="space-y-6">
             <SeedPhraseSection />
@@ -312,8 +371,14 @@ export function Settings() {
 
         {/* Server Selection */}
         <div>
-          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">Server</h3>
-          <div className="space-y-2" role="radiogroup" aria-label="Lightwalletd server selection">
+          <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">
+            Server
+          </h3>
+          <div
+            className="space-y-2"
+            role="radiogroup"
+            aria-label="Lightwalletd server selection"
+          >
             {SERVERS.map((server) => (
               <button
                 key={server.url}
@@ -397,11 +462,7 @@ export function Settings() {
             onClick={handleSave}
             className="mt-3 px-5 py-2 bg-purple-500 hover:bg-purple-600 text-white text-sm rounded-xl font-semibold transition-colors"
           >
-            {saved ? (
-              <span className="animate-fade-in">Saved!</span>
-            ) : (
-              "Save"
-            )}
+            {saved ? <span className="animate-fade-in">Saved!</span> : "Save"}
           </button>
         </div>
 
