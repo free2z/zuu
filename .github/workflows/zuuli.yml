@@ -60,6 +60,11 @@ jobs:
           scripts/check-public-repo-boundary.sh --self-test
           scripts/check-public-repo-boundary.sh
 
+      - name: Verify Zcash command and permission parity
+        run: |
+          node scripts/check-zcash-permissions.mjs --self-test
+          node scripts/check-zcash-permissions.mjs
+
       - name: Detect release-impacting ZUULI changes
         id: filter
         shell: bash
@@ -86,7 +91,7 @@ jobs:
           zuuli=false
           while IFS= read -r file; do
             case "$file" in
-              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
+              wallet/zuuli/*|wallet/plugins/*|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
                 zuuli=true
                 ;;
             esac
@@ -406,6 +411,11 @@ jobs:
           key: zuuli-app
 
       - name: Build ZUULI Tauri backend
+        env:
+          # The build script watches this value. Changing it on every attempt
+          # forces schema generation even when Cargo artifacts were restored.
+          TAURI_SCHEMA_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
+          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
         run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
 
       # ZUULI intentionally does not commit target-specific Tauri schemas. A
@@ -418,6 +428,14 @@ jobs:
           test -s "$schemas/linux-schema.json"
           test -z "$(git ls-files -- "$schemas")"
           git check-ignore -q "$schemas/linux-schema.json"
+          permissions=wallet/plugins/tauri-plugin-zcash/permissions
+          git diff --exit-code -- "$permissions"
+          untracked=$(git ls-files --others --exclude-standard -- "$permissions")
+          test -z "$untracked" || {
+            echo "Unexpected generated permission files:" >&2
+            echo "$untracked" >&2
+            exit 1
+          }
 
       - name: Test ZUULI Tauri backend
         run: cargo test --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml

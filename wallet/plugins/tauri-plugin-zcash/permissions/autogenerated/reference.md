@@ -753,32 +753,6 @@ Denies the retry_wallet_cleanup command without any pre-configured scope.
 <tr>
 <td>
 
-`zcash:allow-send-transaction`
-
-</td>
-<td>
-
-Enables the send_transaction command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`zcash:deny-send-transaction`
-
-</td>
-<td>
-
-Denies the send_transaction command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `zcash:allow-set-lightwalletd-url`
 
 </td>
