@@ -101,7 +101,7 @@ function containsBareBashDoubleBracket(source) {
   // etc. do not begin at one of these boundaries and remain allowed.
   const shell = source.replace(/\\\r?\n[\t ]*/g, " ");
   const starts =
-    /(?:^|[;\n]|(?<!&)&(?!&)|&&|\|\||\bthen\b|\bdo\b|\belse\b|\btime\b|[({)])[\t ]*\[\[/gm;
+    /(?:^|[;\n]|(?<!&)&(?!&)|&&|\|\||\bthen\b|\bdo\b|\belse\b|\btime\b(?:[\t ]+-p)?|[({)])[\t ]*\[\[/gm;
   for (const match of shell.matchAll(starts)) {
     const open = match.index + match[0].lastIndexOf("[[");
     let quote = null;

@@ -171,6 +171,7 @@ const inertAssertionForms = [
   ["group statement", "{ [[ 1 -eq 2 ]]; echo REACHED; }"],
   ["background-list statement", "sleep 0 & [[ 1 -eq 2 ]]; echo REACHED"],
   ["timed statement", "time [[ 1 -eq 2 ]]; echo REACHED"],
+  ["POSIX timed statement", "time -p [[ 1 -eq 2 ]]; echo REACHED"],
   [
     "do-list statement",
     "for item in one; do [[ 1 -eq 2 ]]; echo REACHED; done",
