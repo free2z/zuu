@@ -23,13 +23,18 @@ test("all creator pages remain loaded and positioned across reader back navigati
   ).toHaveCount(0);
 
   const scroller = viewport(page);
-  const savedOffset = await scroller.evaluate((element) => {
+  await scroller.evaluate((element) => {
     element.scrollTop = element.scrollHeight - element.clientHeight - 120;
-    return element.scrollTop;
   });
+  const lastPageLink = cards.last().getByRole("link");
+  // Capture the position after Playwright has made the destination fully
+  // actionable. Otherwise click() may legitimately nudge a partially visible
+  // link and the router should restore that later departure offset instead.
+  await lastPageLink.scrollIntoViewIfNeeded();
+  const savedOffset = await scroller.evaluate((element) => element.scrollTop);
   expect(savedOffset).toBeGreaterThan(500);
 
-  await cards.last().getByRole("link").click();
+  await lastPageLink.click();
   await expect(page).toHaveURL(/\/articles\//);
   await page.goBack();
   await expect(page).toHaveURL(/\/creator\/zooko$/);
