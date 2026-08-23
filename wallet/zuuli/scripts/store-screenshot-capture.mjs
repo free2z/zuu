@@ -36,21 +36,25 @@ const mimeTypes = new Map([
   [".svg", "image/svg+xml"],
   [".woff2", "font/woff2"],
 ]);
-const expectedExternalRequests = new Map([
-  ["fresh", ["GET https://free2z.cash/api/zpage/?homeSort=popular&page=1&page_size=24"]],
-  ["search-privacy", [
+export const CAPTURE_PUBLIC_REQUESTS = Object.freeze({
+  fresh: Object.freeze(["GET https://free2z.cash/api/zpage/?homeSort=popular&page=1&page_size=24"]),
+  "search-privacy": Object.freeze([
     "GET https://free2z.cash/api/zpage/?homeSort=popular&page=1&page_size=24",
     "GET https://free2z.cash/api/zpage/?homeSort=popular&page=1&page_size=24&search=privacy",
-  ]],
-  ["article-reader", [
+  ]),
+  "article-reader": Object.freeze([
     "GET https://free2z.cash/api/comments/zpage/editorial-shielded-defaults/?page=1&parent__isnull=True",
     "GET https://free2z.cash/api/zpage/why-shielded-defaults-matter/",
-  ]],
-  ["creator-profile", [
+  ]),
+  "creator-profile": Object.freeze([
     "GET https://free2z.cash/api/creator/example_editorial/",
-    "GET https://free2z.cash/api/zpage/?ordering=-created_at&page_size=12&username=example_editorial",
-  ]],
-]);
+    "GET https://free2z.cash/api/zpage/?ordering=-created_at&page=1&page_size=12&username=example_editorial",
+  ]),
+});
+
+export function capturePublicRequestAllowed(action, key) {
+  return CAPTURE_PUBLIC_REQUESTS[action]?.includes(key) ?? false;
+}
 
 function fail(message) {
   throw new Error(message);
@@ -309,7 +313,7 @@ async function preparePage(context, { origin, fixture, target, shot, fixedTime }
       return;
     }
     const key = requestKey(request);
-    if (expectedExternalRequests.get(shot.action)?.includes(key) && url.pathname === "/api/zpage/") {
+    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/zpage/") {
       matchedRequests.push(key);
       if (shot.action === "search-privacy" && !url.searchParams.has("search")) await new Promise((accept) => setTimeout(accept, 1200));
       await route.fulfill({
@@ -320,22 +324,22 @@ async function preparePage(context, { origin, fixture, target, shot, fixedTime }
       });
       return;
     }
-    if (expectedExternalRequests.get(shot.action)?.includes(key) && url.pathname === "/api/creator/") {
+    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/creator/") {
       matchedRequests.push(key);
       await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify({ count: fixture.creators.length, next: null, previous: null, results: fixture.creators }) });
       return;
     }
-    if (expectedExternalRequests.get(shot.action)?.includes(key) && url.pathname === "/api/creator/example_editorial/") {
+    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/creator/example_editorial/") {
       matchedRequests.push(key);
       await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify(fixture.creators[0]) });
       return;
     }
-    if (expectedExternalRequests.get(shot.action)?.includes(key) && url.pathname === "/api/zpage/why-shielded-defaults-matter/") {
+    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/zpage/why-shielded-defaults-matter/") {
       matchedRequests.push(key);
       await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify(fixture.articles[0]) });
       return;
     }
-    if (expectedExternalRequests.get(shot.action)?.includes(key) && url.pathname === "/api/comments/zpage/editorial-shielded-defaults/") {
+    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/comments/zpage/editorial-shielded-defaults/") {
       matchedRequests.push(key);
       await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) });
       return;
@@ -390,8 +394,8 @@ async function preparePage(context, { origin, fixture, target, shot, fixedTime }
   }
 
   await page.waitForTimeout(100);
-  if (externalRequests.length) fail(`capture attempted ${externalRequests.length} unexpected external request(s)`);
-  const expected = [...(expectedExternalRequests.get(shot.action) ?? [])].sort();
+  if (externalRequests.length) fail(`capture ${target.setId}/${shot.id} attempted ${externalRequests.length} request(s) outside its exact ${shot.action} public contract`);
+  const expected = [...(CAPTURE_PUBLIC_REQUESTS[shot.action] ?? [])].sort();
   const actual = [...matchedRequests].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`capture ${target.setId}/${shot.id} did not exercise its exact public request contract (expected ${expected.length}, received ${actual.length}: ${actual.join(", ")})`);
   const evidence = await page.evaluate(() => {
