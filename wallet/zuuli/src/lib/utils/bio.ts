@@ -81,30 +81,10 @@ interface BrandedHostPolicy {
   canonicalHost: string;
   allowedHosts: readonly string[];
   handlePath: (handle: string) => string;
+  /** Only profile namespaces whose prefix is unambiguous may be recovered
+   * from an absolute stored URL. Root-path platforms accept handles only. */
+  absoluteProfile: boolean;
 }
-
-const RESERVED_PROFILE_SEGMENTS = new Set([
-  "account",
-  "accounts",
-  "auth",
-  "authorize",
-  "direct",
-  "explore",
-  "home",
-  "intent",
-  "l.php",
-  "login",
-  "logout",
-  "oauth",
-  "out",
-  "redirect",
-  "search",
-  "settings",
-  "share",
-  "signin",
-  "signup",
-  "url",
-]);
 
 /** Exact reviewed hosts. Entries such as `www` and legacy Twitter/Telegram
  * hosts are aliases, not wildcard subdomain grants. */
@@ -113,51 +93,59 @@ const BRANDED_HOSTS: Record<BrandedKey, BrandedHostPolicy> = {
     canonicalHost: "x.com",
     allowedHosts: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
     handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
   },
   github: {
     canonicalHost: "github.com",
     allowedHosts: ["github.com", "www.github.com"],
     handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
   },
   instagram: {
     canonicalHost: "instagram.com",
     allowedHosts: ["instagram.com", "www.instagram.com"],
     handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
   },
   youtube: {
     canonicalHost: "youtube.com",
     allowedHosts: ["youtube.com", "www.youtube.com"],
     handlePath: (handle) => `/@${handle}`,
+    absoluteProfile: true,
   },
   facebook: {
     canonicalHost: "facebook.com",
     allowedHosts: ["facebook.com", "www.facebook.com"],
     handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
   },
   linkedin: {
     canonicalHost: "linkedin.com",
     allowedHosts: ["linkedin.com", "www.linkedin.com"],
     handlePath: (handle) => `/in/${handle}`,
+    absoluteProfile: true,
   },
   reddit: {
     canonicalHost: "reddit.com",
     allowedHosts: ["reddit.com", "www.reddit.com", "old.reddit.com"],
     handlePath: (handle) => `/u/${handle}`,
+    absoluteProfile: true,
   },
   telegram: {
     canonicalHost: "t.me",
     allowedHosts: ["t.me", "telegram.me", "www.telegram.me"],
     handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
   },
   nostr: {
     canonicalHost: "njump.me",
     allowedHosts: ["njump.me", "www.njump.me"],
     handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
   },
 };
 
 function validPlatformHandle(key: BrandedKey, handle: string): boolean {
-  if (RESERVED_PROFILE_SEGMENTS.has(handle.toLowerCase())) return false;
   switch (key) {
     case "twitter":
       return /^[A-Za-z0-9_]{1,15}$/.test(handle);
@@ -260,6 +248,7 @@ function brandedUrl(key: BrandedKey, rawValue: string): URL | null {
     ) {
       return null;
     }
+    if (!policy.absoluteProfile) return null;
     const handle = profileHandle(key, url);
     return handle
       ? new URL(
