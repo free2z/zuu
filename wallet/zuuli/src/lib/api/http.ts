@@ -16,7 +16,13 @@ import { isTauri } from "../platform";
 const TOKEN_KEY = "zuuli.knox.token";
 
 let inMemoryToken: string | null = null;
+let tokenGeneration = 0;
 const tokenListeners = new Set<(token: string | null) => void>();
+
+export interface TokenSnapshot {
+  token: string | null;
+  generation: number;
+}
 
 export function getToken(): string | null {
   if (inMemoryToken) return inMemoryToken;
@@ -26,6 +32,12 @@ export function getToken(): string | null {
     /* restricted context */
   }
   return inMemoryToken;
+}
+
+/** A process-local generation makes A -> B -> A observable even though the
+ * final token value matches. Security-sensitive async work must compare both. */
+export function getTokenSnapshot(): TokenSnapshot {
+  return { token: getToken(), generation: tokenGeneration };
 }
 
 export function setToken(token: string | null): void {
@@ -38,7 +50,16 @@ export function setToken(token: string | null): void {
     /* ignore */
   }
   if (previous !== token) {
-    for (const listener of tokenListeners) listener(token);
+    tokenGeneration += 1;
+    // A stale or faulty subscriber must never prevent the remaining security
+    // listeners from observing an account transition, nor break logout/login.
+    for (const listener of [...tokenListeners]) {
+      try {
+        listener(token);
+      } catch {
+        /* listeners are isolated; they must handle their own reporting */
+      }
+    }
   }
 }
 

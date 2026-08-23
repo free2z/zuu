@@ -53,11 +53,13 @@ test("every social OAuth transport pins completion to its initiating session", (
 
   assert.match(transport, /sessionBinding: string/);
   assert.match(transport, /transport: OAuthCallbackTransport/);
-  assert.match(transport, /onTokenChange\(\(token\)/);
-  assert.match(transport, /export async function assertOAuthSession/);
+  assert.match(transport, /onTokenChange\(\(\) => controller\.abort\(\)\)/);
+  assert.match(transport, /export async function withOAuthSession/);
   assert.doesNotMatch(transport, /assertMobileOAuthSession/);
-  assert.match(completion, /const initiatingToken = await assertOAuthSession\(capture\)/);
-  assert.match(completion, /authToken: initiatingToken \?\? undefined/);
+  assert.match(completion, /return withOAuthSession<SocialAuthResult>\(capture/);
+  assert.match(completion, /authToken: lease\.initiatingToken \?\? undefined/);
+  assert.match(completion, /auth\.me\(lease\.initiatingToken \?\? undefined, lease\.signal\)/);
+  assert.match(completion, /signal: lease\.signal/);
 
   const logout = between(api, "  async logout():", "  /**\n   * Login with Zcash:");
   assert.match(

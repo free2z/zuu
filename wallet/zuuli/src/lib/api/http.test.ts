@@ -19,4 +19,18 @@ describe("process-local token transitions", () => {
     expect(observed).toEqual(["account-a", "account-b", null]);
     expect(getToken()).toBe("ignored-after-unsubscribe");
   });
+
+  it("isolates listeners so one failure cannot hide a transition", () => {
+    const observed: Array<string | null> = [];
+    const stopThrowing = onTokenChange(() => {
+      throw new Error("stale subscriber");
+    });
+    const stopObserving = onTokenChange((token) => observed.push(token));
+
+    expect(() => setToken("account-a")).not.toThrow();
+    expect(observed).toEqual(["account-a"]);
+
+    stopThrowing();
+    stopObserving();
+  });
 });

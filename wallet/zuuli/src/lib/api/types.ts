@@ -114,8 +114,12 @@ export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
 export type SocialProvidersStatus = Record<SocialProvider, boolean>;
 
 export type SocialAuthResult =
-  | { status: "authenticated"; session: AuthenticatedSession }
-  | { status: "associated"; user: AuthUser };
+  | {
+      status: "authenticated";
+      session: AuthenticatedSession;
+      sessionGeneration: number;
+    }
+  | { status: "associated"; user: AuthUser; sessionGeneration: number };
 
 /**
  * Editable fields for the signed-in user's own profile —
