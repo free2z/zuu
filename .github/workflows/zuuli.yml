@@ -602,6 +602,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Enforce the 32-bit Android result
+        env:
+          ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}
+          RUST_ANDROID_32_RESULT: ${{ needs.rust_android_32.result }}
+        run: |
+          set -euo pipefail
+          case "$ZUULI_CHANGED:$RUST_ANDROID_32_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "32-bit Android result is inconsistent: changed=$ZUULI_CHANGED result=$RUST_ANDROID_32_RESULT"; exit 1 ;;
+          esac
+
       - name: Verify required jobs succeeded or legitimately skipped
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
