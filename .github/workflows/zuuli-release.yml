@@ -1156,25 +1156,35 @@ jobs:
           test -s "$secret_dir/developer-id.p12"
           test -s "$secret_dir/zuuli.provisionprofile"
           security cms -D -i "$secret_dir/zuuli.provisionprofile" > "$secret_dir/profile.plist"
-          profile_json=$(plutil -convert json -o - "$secret_dir/profile.plist")
+          verify_developer_id_profile() {
+            local profile_plist=$1
+            local profile_now=$2
+            local team_count group_count group_index group created expiration created_epoch expiration_epoch
+            team_count=$(plutil -extract TeamIdentifier raw -expect array -o - -- "$profile_plist")
+            [[ "$team_count" == 1 ]] || { echo "Developer ID profile must contain exactly one team identifier" >&2; return 1; }
+            [[ "$(plutil -extract TeamIdentifier.0 raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N ]] || { echo "Developer ID profile team identifier is unauthorized" >&2; return 1; }
+            [[ "$(plutil -extract ProvisionsAllDevices raw -expect bool -o - -- "$profile_plist")" == true ]] || { echo "Developer ID profile is not a distribution profile" >&2; return 1; }
+            [[ "$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N.cash.free2z.zuuli ]] || { echo "Developer ID profile application identifier is unauthorized" >&2; return 1; }
+            group_count=$(plutil -extract Entitlements.keychain-access-groups raw -expect array -o - -- "$profile_plist")
+            [[ "$group_count" =~ ^[0-9]+$ && "$group_count" -gt 0 ]] || { echo "Developer ID profile has no keychain access groups" >&2; return 1; }
+            group_index=0
+            while (( group_index < group_count )); do
+              group=$(plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string -o - -- "$profile_plist")
+              case "$group" in
+                F9AV5HKF6N.cash.free2z.zuuli|F9AV5HKF6N.*) ;;
+                *) echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1 ;;
+              esac
+              (( group_index += 1 ))
+            done
+            created=$(plutil -extract CreationDate raw -expect date -o - -- "$profile_plist")
+            expiration=$(plutil -extract ExpirationDate raw -expect date -o - -- "$profile_plist")
+            created_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$created" "+%s")
+            expiration_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$expiration" "+%s")
+            [[ "$profile_now" =~ ^[0-9]+$ ]] || { echo "current profile verification time is invalid" >&2; return 1; }
+            (( created_epoch <= profile_now && profile_now < expiration_epoch )) || { echo "Developer ID profile is outside its validity window" >&2; return 1; }
+          }
           profile_now=$(date -u +%s)
-          jq -e --argjson now "$profile_now" '
-            (.CreationDate | type == "string") and
-            (.ExpirationDate | type == "string") and
-            (
-              (.CreationDate | fromdateiso8601) as $created |
-              (.ExpirationDate | fromdateiso8601) as $expires |
-              $created <= $now and $now < $expires
-            )
-          ' <<<"$profile_json" >/dev/null
-          test "$(jq -r '.TeamIdentifier[0]' <<<"$profile_json")" = F9AV5HKF6N
-          test "$(jq -r '.ProvisionsAllDevices' <<<"$profile_json")" = true
-          test "$(jq -r '.Entitlements["com.apple.application-identifier"]' <<<"$profile_json")" = F9AV5HKF6N.cash.free2z.zuuli
-          jq -e '
-            .Entitlements["keychain-access-groups"] as $groups |
-            ($groups | type) == "array" and
-            any($groups[]; . == "F9AV5HKF6N.cash.free2z.zuuli" or . == "F9AV5HKF6N.*")
-          ' <<<"$profile_json" >/dev/null
+          verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 1800 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
@@ -1443,25 +1453,35 @@ jobs:
           embedded_profile="${apps[0]}/Contents/embedded.provisionprofile"
           [[ -f "$embedded_profile" && ! -L "$embedded_profile" ]] || { echo "signed app is missing its Developer ID provisioning profile" >&2; exit 1; }
           security cms -D -i "$embedded_profile" > "$inspect/profile.plist"
-          profile_json=$(plutil -convert json -o - "$inspect/profile.plist")
+          verify_developer_id_profile() {
+            local profile_plist=$1
+            local profile_now=$2
+            local team_count group_count group_index group created expiration created_epoch expiration_epoch
+            team_count=$(plutil -extract TeamIdentifier raw -expect array -o - -- "$profile_plist")
+            [[ "$team_count" == 1 ]] || { echo "Developer ID profile must contain exactly one team identifier" >&2; return 1; }
+            [[ "$(plutil -extract TeamIdentifier.0 raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N ]] || { echo "Developer ID profile team identifier is unauthorized" >&2; return 1; }
+            [[ "$(plutil -extract ProvisionsAllDevices raw -expect bool -o - -- "$profile_plist")" == true ]] || { echo "Developer ID profile is not a distribution profile" >&2; return 1; }
+            [[ "$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N.cash.free2z.zuuli ]] || { echo "Developer ID profile application identifier is unauthorized" >&2; return 1; }
+            group_count=$(plutil -extract Entitlements.keychain-access-groups raw -expect array -o - -- "$profile_plist")
+            [[ "$group_count" =~ ^[0-9]+$ && "$group_count" -gt 0 ]] || { echo "Developer ID profile has no keychain access groups" >&2; return 1; }
+            group_index=0
+            while (( group_index < group_count )); do
+              group=$(plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string -o - -- "$profile_plist")
+              case "$group" in
+                F9AV5HKF6N.cash.free2z.zuuli|F9AV5HKF6N.*) ;;
+                *) echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1 ;;
+              esac
+              (( group_index += 1 ))
+            done
+            created=$(plutil -extract CreationDate raw -expect date -o - -- "$profile_plist")
+            expiration=$(plutil -extract ExpirationDate raw -expect date -o - -- "$profile_plist")
+            created_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$created" "+%s")
+            expiration_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$expiration" "+%s")
+            [[ "$profile_now" =~ ^[0-9]+$ ]] || { echo "current profile verification time is invalid" >&2; return 1; }
+            (( created_epoch <= profile_now && profile_now < expiration_epoch )) || { echo "Developer ID profile is outside its validity window" >&2; return 1; }
+          }
           profile_now=$(date -u +%s)
-          jq -e --argjson now "$profile_now" '
-            (.CreationDate | type == "string") and
-            (.ExpirationDate | type == "string") and
-            (
-              (.CreationDate | fromdateiso8601) as $created |
-              (.ExpirationDate | fromdateiso8601) as $expires |
-              $created <= $now and $now < $expires
-            )
-          ' <<<"$profile_json" >/dev/null
-          test "$(jq -r '.TeamIdentifier[0]' <<<"$profile_json")" = F9AV5HKF6N
-          test "$(jq -r '.ProvisionsAllDevices' <<<"$profile_json")" = true
-          test "$(jq -r '.Entitlements["com.apple.application-identifier"]' <<<"$profile_json")" = F9AV5HKF6N.cash.free2z.zuuli
-          jq -e '
-            .Entitlements["keychain-access-groups"] as $groups |
-            ($groups | type) == "array" and
-            any($groups[]; . == "F9AV5HKF6N.cash.free2z.zuuli" or . == "F9AV5HKF6N.*")
-          ' <<<"$profile_json" >/dev/null
+          verify_developer_id_profile "$inspect/profile.plist" "$profile_now"
           signed_entitlements="$inspect/signed-entitlements.plist"
           codesign -d --entitlements :- "${apps[0]}" > "$signed_entitlements" 2>/dev/null
           plutil -lint "$signed_entitlements"

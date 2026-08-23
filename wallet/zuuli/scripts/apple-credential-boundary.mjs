@@ -53,7 +53,7 @@ const ALLOWED_JOB_SECRETS = new Map([
 const CREDENTIAL_JOB_SHA256 = new Map([
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "3754048192eaacb08f92094db3e6540eae6a3107694d78b9c742f0e4aea8d3cb"],
+  ["macos-sign", "d68690c8866f4d5af978f04ffe53b185b9750274dc03d0c958cdacc51e196590"],
 ]);
 
 // These four inherited/root controls sit outside the protected job nodes but
@@ -511,15 +511,33 @@ export function verifyAppleCredentialBoundary(
   );
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "embedded.provisionprofile");
   for (const marker of [
-    '(.CreationDate | type == "string")',
-    '(.ExpirationDate | type == "string")',
-    '(.CreationDate | fromdateiso8601) as $created',
-    '(.ExpirationDate | fromdateiso8601) as $expires',
-    "$created <= $now and $now < $expires",
+    "verify_developer_id_profile()",
+    "plutil -extract TeamIdentifier raw -expect array",
+    "plutil -extract TeamIdentifier.0 raw -expect string",
+    "plutil -extract ProvisionsAllDevices raw -expect bool",
+    "plutil -extract 'Entitlements.com\\.apple\\.application-identifier' raw -expect string",
+    "plutil -extract Entitlements.keychain-access-groups raw -expect array",
+    'plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string',
+    "plutil -extract CreationDate raw -expect date",
+    "plutil -extract ExpirationDate raw -expect date",
+    'date -j -u -f "%Y-%m-%dT%H:%M:%SZ"',
+    "created_epoch <= profile_now && profile_now < expiration_epoch",
   ]) {
     requireText(failures, "macOS signer", jobs.get("macos-sign"), marker);
     requireText(failures, "macOS finalizer", jobs.get("macos-finalize"), marker);
   }
+  requireText(
+    failures,
+    "macOS signer",
+    jobs.get("macos-sign"),
+    'verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"',
+  );
+  requireText(
+    failures,
+    "macOS finalizer",
+    jobs.get("macos-finalize"),
+    'verify_developer_id_profile "$inspect/profile.plist" "$profile_now"',
+  );
   requireText(
     failures,
     "macOS signer",
