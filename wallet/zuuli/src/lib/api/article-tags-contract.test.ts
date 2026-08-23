@@ -1,0 +1,90 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./http", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./http")>();
+  return { ...original, request: vi.fn() };
+});
+
+import { articles } from "./free2z";
+import { request } from "./http";
+
+const requestMock = vi.mocked(request);
+
+describe("article tag HTTP contract", () => {
+  beforeEach(() => requestMock.mockReset());
+
+  it("publishes canonical, deduplicated tags in the zpage body", async () => {
+    requestMock
+      // Documented create response (`zPageUpdate`) has no creator object.
+      .mockResolvedValueOnce({
+        free2zaddr: "article-id",
+        title: "Tagged",
+        content: "Body",
+        tags: ["zero knowledge", "privacy", "c++"],
+      })
+      .mockResolvedValueOnce({
+        free2zaddr: "article-id",
+        title: "Tagged",
+        content: "Body",
+        creator: { username: "alice" },
+        tags: ["Zero Knowledge", "privacy", "C++"],
+      });
+
+    await expect(
+      articles.publish({
+        title: "Tagged",
+        content: "Body",
+        tags: [" Zero Knowledge ", "PRIVACY", "privacy", "C++"],
+      }),
+    ).resolves.toMatchObject({
+      author: { username: "alice" },
+      tags: ["zero knowledge", "privacy", "c++"],
+    });
+
+    expect(requestMock).toHaveBeenCalledWith("/api/zpage/", {
+      method: "POST",
+      body: {
+        title: "Tagged",
+        description: "",
+        content: "Body",
+        category: "",
+        tags: ["zero knowledge", "privacy", "c++"],
+        is_published: true,
+      },
+    });
+    expect(requestMock).toHaveBeenCalledWith("/api/zpage/article-id/", {
+      anonymous: true,
+    });
+  });
+
+  it("uses the public zpage autocomplete contract", async () => {
+    requestMock.mockResolvedValue([
+      { name: "Privacy", count: 12 },
+      { name: "privacy", count: "11" },
+      { name: "C++", count: null },
+      { nope: true },
+      { name: "bad\u0000tag", count: 3 },
+    ]);
+    await expect(articles.suggestTags("pri", ["zcash"])).resolves.toEqual([
+      { name: "privacy", count: 12 },
+      { name: "c++", count: 0 },
+    ]);
+    expect(requestMock).toHaveBeenCalledWith("/api/tagging/autocomplete", {
+      query: {
+        query: "pri",
+        type: "zpage",
+        selected_tags: "zcash",
+        num_results: 10,
+      },
+      anonymous: true,
+    });
+  });
+
+  it("fails soft when optional autocomplete is unavailable or malformed", async () => {
+    requestMock.mockRejectedValueOnce(new Error("offline"));
+    await expect(articles.suggestTags("privacy")).resolves.toEqual([]);
+
+    requestMock.mockResolvedValueOnce({ results: [] });
+    await expect(articles.suggestTags("privacy")).resolves.toEqual([]);
+  });
+});

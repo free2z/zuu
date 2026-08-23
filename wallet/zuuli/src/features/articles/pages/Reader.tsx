@@ -14,6 +14,7 @@ import { RemoteImage } from "@/components/common/RemoteMedia";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { useAsync } from "@/hooks/useAsync";
 import { articles } from "@/lib/api/free2z";
+import { articleTagHref, sanitizeArticleTags } from "@/lib/article-tags";
 import { initials } from "@/lib/format";
 import {
   currentResourceData,
@@ -96,6 +97,7 @@ export function Reader() {
 
   const author = article.author;
   const name = author.display_name || author.username;
+  const tags = sanitizeArticleTags(article.tags ?? []);
 
   return (
     <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
@@ -122,6 +124,19 @@ export function Reader() {
             <p className="break-words text-lg text-muted-foreground">
               {article.subtitle}
             </p>
+          ) : null}
+          {tags.length > 0 ? (
+            <nav className="flex flex-wrap gap-2" aria-label="Article tags">
+              {tags.map((tag) => (
+                <Link
+                  key={tag}
+                  to={articleTagHref(tag)}
+                  className="min-tap inline-flex max-w-full items-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="min-w-0 break-words">#{tag}</span>
+                </Link>
+              ))}
+            </nav>
           ) : null}
 
           <div className="flex items-center gap-3 pt-2">
