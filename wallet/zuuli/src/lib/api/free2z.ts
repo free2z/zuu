@@ -87,6 +87,7 @@ import type {
   PricingSnapshot,
   ProfileUpdateInput,
   PromptResponse,
+  SearchResultPage,
   SimpleCreator,
   SocialProvider,
   SocialAuthResult,
@@ -442,6 +443,123 @@ function mapArticle(z: RawZPage): Article {
     published_at: z.publish_at || z.created_at,
     reading_minutes: readingMinutes(z.content),
     tags: z.tags ?? [],
+  };
+}
+
+function parseSearchCursor(
+  value: unknown,
+  endpoint: "/api/creator/" | "/api/zpage/",
+  query: string,
+  currentPage: number,
+  pageSize: number,
+  ordering?: string,
+): number | null {
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw new Error("Malformed search pagination next link.");
+  }
+
+  const nextUrl = new URL(value, "http://localhost");
+  if (nextUrl.pathname !== endpoint) {
+    throw new Error("Search pagination left its endpoint.");
+  }
+  if (nextUrl.searchParams.get("search") !== query) {
+    throw new Error("Search pagination changed its query.");
+  }
+  if (nextUrl.searchParams.get("page_size") !== String(pageSize)) {
+    throw new Error("Search pagination changed its page size.");
+  }
+  if (ordering && nextUrl.searchParams.get("ordering") !== ordering) {
+    throw new Error("Search pagination changed its ordering.");
+  }
+  const next = Number(nextUrl.searchParams.get("page"));
+  if (!Number.isSafeInteger(next) || next !== currentPage + 1) {
+    throw new Error("Search pagination returned an invalid next page.");
+  }
+  return next;
+}
+
+function parseSearchEnvelope(value: unknown): {
+  count: number;
+  next: unknown;
+  results: unknown[];
+} {
+  if (!isRecord(value) || !Array.isArray(value.results)) {
+    throw new Error("Malformed search pagination response.");
+  }
+  if (!Number.isSafeInteger(value.count) || Number(value.count) < 0) {
+    throw new Error("Malformed search pagination count.");
+  }
+  if (value.previous !== null && typeof value.previous !== "string") {
+    throw new Error("Malformed search pagination previous link.");
+  }
+  return {
+    count: Number(value.count),
+    next: value.next,
+    results: value.results,
+  };
+}
+
+/** Runtime validator for the creator half of global Search. */
+export function parseCreatorSearchPage(
+  value: unknown,
+  query: string,
+  currentPage: number,
+  pageSize: number,
+): SearchResultPage<SimpleCreator> {
+  const envelope = parseSearchEnvelope(value);
+  const items = envelope.results.map((row) => {
+    if (!isRecord(row) || typeof row.username !== "string" || !row.username) {
+      throw new Error("Malformed creator search result identity.");
+    }
+    return mapCreator(row as unknown as RawCreator);
+  });
+  return {
+    count: envelope.count,
+    next: parseSearchCursor(
+      envelope.next,
+      "/api/creator/",
+      query,
+      currentPage,
+      pageSize,
+      "-total",
+    ),
+    items,
+  };
+}
+
+/** Runtime validator for the zpage half of global Search. */
+export function parsePageSearchPage(
+  value: unknown,
+  query: string,
+  currentPage: number,
+  pageSize: number,
+): SearchResultPage<Article> {
+  const envelope = parseSearchEnvelope(value);
+  const items = envelope.results.map((row) => {
+    if (
+      !isRecord(row) ||
+      typeof row.free2zaddr !== "string" ||
+      !row.free2zaddr ||
+      typeof row.title !== "string" ||
+      !isRecord(row.creator) ||
+      typeof row.creator.username !== "string" ||
+      !row.creator.username
+    ) {
+      throw new Error("Malformed page search result identity.");
+    }
+    return mapArticle(row as unknown as RawZPage);
+  });
+  return {
+    count: envelope.count,
+    next: parseSearchCursor(
+      envelope.next,
+      "/api/zpage/",
+      query,
+      currentPage,
+      pageSize,
+    ),
+    items,
   };
 }
 
@@ -1864,6 +1982,54 @@ export const tuzi = {
 };
 
 // ─── Discovery ───────────────────────────────────────────────────────────────
+function mockSearchResultPage<T>(
+  allItems: T[],
+  page: number,
+  pageSize: number,
+  scenarioKey: string,
+): SearchResultPage<T> {
+  const scenario =
+    typeof window === "undefined"
+      ? null
+      : window.sessionStorage.getItem(scenarioKey);
+  if (scenario === "unavailable") {
+    throw new Error("Mock search corpus unavailable");
+  }
+  const effectivePageSize =
+    scenario === "small-pages" ||
+    scenario === "overlap" ||
+    scenario === "count-drift" ||
+    scenario === "skip-row" ||
+    scenario === "duplicate-page"
+      ? 2
+      : pageSize;
+  const nominalStart = (page - 1) * effectivePageSize;
+  if (scenario === "duplicate-page" && page === 2) {
+    return {
+      items: allItems.slice(0, effectivePageSize),
+      next: 3,
+      count: allItems.length,
+    };
+  }
+  const start =
+    scenario === "duplicate-page" && page > 2
+      ? nominalStart - effectivePageSize
+      : scenario === "overlap" && page > 1
+      ? nominalStart - 1
+      : scenario === "skip-row" && page > 1
+        ? nominalStart + 1
+        : nominalStart;
+  const items = allItems.slice(start, start + effectivePageSize);
+  return {
+    items,
+    next: start + effectivePageSize < allItems.length ? page + 1 : null,
+    count:
+      scenario === "count-drift" && page > 1
+        ? allItems.length + 1
+        : allItems.length,
+  };
+}
+
 export const discover = {
   async creators(): Promise<SimpleCreator[]> {
     if (useMock()) {
@@ -1883,6 +2049,30 @@ export const discover = {
    * action) only surfaces creators that have both an avatar and a banner.
    * Public, no auth. Ordered by popularity (`-total`) by default.
    */
+  async searchCreatorPage(
+    query: string,
+    page = 1,
+    pageSize = 24,
+  ): Promise<SearchResultPage<SimpleCreator>> {
+    const q = query.trim();
+    if (useMock()) {
+      await delay(200);
+      return mockSearchResultPage(
+        mockSearchCreators(q),
+        page,
+        pageSize,
+        "zuuli.mock.search-creators",
+      );
+    }
+    if (!q) return { items: [], next: null, count: 0 };
+    const response = await request<unknown>("/api/creator/", {
+      query: { search: q, page, page_size: pageSize, ordering: "-total" },
+      anonymous: true,
+    });
+    return parseCreatorSearchPage(response, q, page, pageSize);
+  },
+
+  /** Legacy one-page creator lookup used by compact recipient suggestions. */
   async searchCreators(query: string): Promise<SimpleCreator[]> {
     const q = query.trim();
     if (useMock()) {
@@ -1960,21 +2150,34 @@ export const discover = {
    * when a key is present, and falls back to Postgres full-text search
    * otherwise. Public, no auth.
    */
-  async searchPages(query: string): Promise<Article[]> {
+  async searchPagePage(
+    query: string,
+    page = 1,
+    pageSize = 24,
+  ): Promise<SearchResultPage<Article>> {
     const q = query.trim();
     if (useMock()) {
       await delay(220);
-      return mockSearchPages(q);
+      return mockSearchResultPage(
+        mockSearchPages(q),
+        page,
+        pageSize,
+        "zuuli.mock.search-pages",
+      );
     }
-    if (!q) return [];
-    const page = await request<Paginated<RawZPage>>("/api/zpage/", {
-      query: { search: q, page_size: 24 },
+    if (!q) return { items: [], next: null, count: 0 };
+    const response = await request<unknown>("/api/zpage/", {
+      query: { search: q, page, page_size: pageSize },
       anonymous: true,
     });
-    return (page.results ?? []).map(mapArticle);
+    return parsePageSearchPage(response, q, page, pageSize);
+  },
+
+  /** Legacy one-page page search; global Search uses `searchPagePage`. */
+  async searchPages(query: string): Promise<Article[]> {
+    return (await discover.searchPagePage(query)).items;
   },
 };
-
 
 // ─── Pricing (live 2Z ↔ ZEC) ──────────────────────────────────────
 // Live price discovery for the "pay with ZEC" buy path. The backend aggregates

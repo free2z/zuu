@@ -335,6 +335,13 @@ export interface ArticleFeedPage {
   count: number;
 }
 
+/** One validated page from either corpus in global Search. */
+export interface SearchResultPage<T> {
+  items: T[];
+  next: number | null;
+  count: number;
+}
+
 /** One validated page of a creator's published catalog. */
 export type CreatorPagesPage = ArticleFeedPage;
 
