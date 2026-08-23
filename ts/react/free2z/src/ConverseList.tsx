@@ -14,6 +14,8 @@ import { QueryFunctionContext, useInfiniteQuery } from 'react-query';
 import { CommentData } from './components/DisplayThreadedComments';
 import { Helmet } from 'react-helmet-async';
 
+import './ConverseList.css';
+
 
 type CommentPageData = {
     count: number;
@@ -289,6 +291,7 @@ export default function ConverseList() {
                     {data && (
                         <Virtuoso
                             ref={virtuosoRef}
+                            className="converse-feed"
                             data={flattenedData}
                             itemContent={(index, item) => <CommentCard comment={item} key={item.uuid} />}
                             endReached={handleEndReached}
