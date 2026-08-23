@@ -392,10 +392,12 @@ jobs:
           ./node_modules/.bin/tauri ios build --ci --no-sign --archive-only -- --locked
           node scripts/normalize-generated-ios-project.mjs
           git diff --exit-code
-          archives=(src-tauri/gen/apple/build/arm64/*.xcarchive)
-          [[ ${#archives[@]} -eq 1 && -d "${archives[0]}" ]]
+          # `test`, not `[[ ]]`: macOS runners execute this step with bash 3.2,
+          # which does not apply `set -e` to a failing bare `[[ ]]`.
+          archive=$(scripts/resolve-ios-xcarchive.sh)
+          test -d "$archive"
           mkdir unsigned-ios
-          ditto -c -k --sequesterRsrc --keepParent "${archives[0]}" unsigned-ios/ZUULI.xcarchive.zip
+          ditto -c -k --sequesterRsrc --keepParent "$archive" unsigned-ios/ZUULI.xcarchive.zip
           cat > unsigned-ios/ExportOptions.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

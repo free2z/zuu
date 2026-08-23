@@ -238,6 +238,11 @@ jobs:
         # A device archive has the same Rust target as TestFlight. It remains
         # unsigned and this job receives no Apple credentials.
         run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64 -- --locked
+      - name: Verify the release archive collection path
+        # The protected release resolves the .xcarchive it ships with this exact
+        # script. Exercising it on every pull request is what keeps a
+        # release-only path from breaking unobserved until a real release.
+        run: scripts/resolve-ios-xcarchive.sh
       - name: Verify unsigned iOS bundle structure
         run: |
           apps=()
