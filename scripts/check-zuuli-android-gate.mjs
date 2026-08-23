@@ -14,6 +14,8 @@ const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
   "6d8ed19ac60777c842ab06f791f2ac22c734dce248e20451f5bc9f947fb2b1fb";
+const toolchainEnvDigest =
+  "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 
 function job(workflow, name) {
   const start = new RegExp(`^  ${name}:\\n`, "m").exec(workflow);
@@ -151,19 +153,9 @@ function check(workflow, toolchainEnv) {
   if (typecheckStep !== expectedTypecheckStep) {
     failures.push("32-bit Android type-check step must execute the exact reviewed command block");
   }
-  const requiredArchiverLines = [
-    'export AR_aarch64_linux_android="$zuuli_ndk_bin/llvm-ar"',
-    'export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"',
-    'export AR_i686_linux_android="$zuuli_ndk_bin/llvm-ar"',
-    'export AR_x86_64_linux_android="$zuuli_ndk_bin/llvm-ar"',
-    '[[ -x "$zuuli_ndk_bin/llvm-ar" ]] || {',
-  ];
-  for (const line of requiredArchiverLines) {
-    requireLine(
-      failures,
-      toolchainEnv,
-      line,
-      `Android toolchain environment must retain pinned NDK archiver contract: ${line}`,
+  if (createHash("sha256").update(toolchainEnv).digest("hex") !== toolchainEnvDigest) {
+    failures.push(
+      "Android toolchain environment differs from the reviewed linker/compiler/archiver contract",
     );
   }
 
@@ -314,8 +306,15 @@ function runSelfTest(workflow, toolchainEnv) {
   if (check(workflow, missingArmv7Archiver).length === 0) {
     throw new Error("mutation escaped policy: armv7 uses an unpinned archiver");
   }
+  const deadPinnedArmv7Archiver = toolchainEnv.replace(
+    'export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"',
+    'export AR_armv7_linux_androideabi="/usr/bin/ar"\nif false; then\n  export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"\nfi',
+  );
+  if (check(workflow, deadPinnedArmv7Archiver).length === 0) {
+    throw new Error("mutation escaped policy: pinned armv7 archiver is dead decoration");
+  }
   console.log(
-    `Android gate policy self-test passed (${mutations.length + 3} mutations).`,
+    `Android gate policy self-test passed (${mutations.length + 4} mutations).`,
   );
 }
 
