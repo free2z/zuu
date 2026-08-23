@@ -4,7 +4,7 @@
   "applicationId": "cash.free2z.zuuli",
   "iosUsesNonExemptEncryption": false,
   "version": "0.1.0",
-  "build": 11,
+  "build": 12,
   "minimums": {
     "ios": "18.0",
     "android": 29
