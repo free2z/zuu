@@ -174,6 +174,13 @@ export function Send() {
   const applyUri = useCallback(
     async (uri: string) => {
       const generation = invalidateReview();
+      // Clear the previous intent before parsing. A rejected multi-payment or
+      // wrong-network request must not leave an older payable form looking as
+      // though the new link was accepted.
+      setTo("");
+      setAmount("");
+      setMemo("");
+      setValidation(null);
       try {
         const req = await wallet.parsePaymentUri(uri);
         if (!mountedRef.current || generation !== generationRef.current) return;

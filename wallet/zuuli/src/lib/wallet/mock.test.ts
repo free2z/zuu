@@ -21,6 +21,26 @@ describe("mockWallet.parsePaymentUri", () => {
       ).toThrow("Invalid ZEC amount");
     },
   );
+
+  it("rejects multiple payments instead of selecting the first", () => {
+    expect(() =>
+      mockWallet.parsePaymentUri(
+        "zcash:?address=u1first&amount=1&address.1=u1second&amount.1=2",
+      ),
+    ).toThrow("exactly one payment; found 2");
+  });
+
+  it("preserves the supported single indexed-payment shape", () => {
+    expect(
+      mockWallet.parsePaymentUri("zcash:?address.7=u1recipient&amount.7=1.25"),
+    ).toMatchObject({ address: "u1recipient", amount: 125_000_000 });
+  });
+
+  it("rejects a recipient outside the mock app's mainnet shape", () => {
+    expect(() => mockWallet.parsePaymentUri("zcash:tmTestRecipient?amount=1")).toThrow(
+      "Invalid Zcash recipient address",
+    );
+  });
 });
 
 describe("mockWallet.restoreWallet", () => {
