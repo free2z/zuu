@@ -399,7 +399,7 @@ check_wasm_target() {
     fail "$TOOLCHAIN_FILE does not carry the canonical WASM target"
     return
   }
-  count=$(grep -cE "^[[:space:]]*targets:[[:space:]]*$target[[:space:]]*$" \
+  count=$(grep -cE "^[[:space:]]*targets:[[:space:]]*${target}[[:space:]]*$" \
     "$root/.github/workflows/zuuli.yml" || true)
   [[ $count == 1 ]] ||
     fail ".github/workflows/zuuli.yml must restate targets: $target exactly once for the frontend compiler; found $count"
