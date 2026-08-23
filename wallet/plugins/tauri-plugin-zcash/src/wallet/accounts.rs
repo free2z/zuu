@@ -1,16 +1,9 @@
-use zcash_client_backend::data_api::{Account, BirthdayError, WalletRead, WalletWrite};
+use zcash_client_backend::data_api::{Account, WalletRead, WalletWrite};
 use zcash_keys::keys::UnifiedAddressRequest;
 
 use crate::error::{Error, Result};
 use crate::models::AccountInfo;
-use crate::wallet::WalletState;
-
-fn format_birthday_error(e: BirthdayError) -> String {
-    match e {
-        BirthdayError::HeightInvalid(e) => format!("invalid height: {e}"),
-        BirthdayError::Decode(e) => format!("decode error: {e}"),
-    }
-}
+use crate::wallet::{WalletState, format_birthday_error};
 
 /// Create a new account in the wallet.
 pub async fn create_account(state: &WalletState) -> Result<AccountInfo> {

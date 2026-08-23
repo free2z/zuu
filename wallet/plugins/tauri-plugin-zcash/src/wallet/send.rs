@@ -13,7 +13,7 @@ use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
 use zcash_client_backend::data_api::WalletRead;
 use zcash_client_backend::data_api::wallet::{
-    ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
+    ConfirmationsPolicy, LockRequest, SpendingKeys, create_proposed_transactions,
     input_selection::{GreedyInputSelector, SpendPolicy},
     propose_transfer,
 };
@@ -22,6 +22,7 @@ use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::proto::service::{RawTransaction, TxFilter};
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_keys::address::Address;
+use zcash_primitives::transaction::TxVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::PoolType;
 use zcash_protocol::memo::{Memo, MemoBytes};
@@ -70,6 +71,19 @@ const SEND_CONFIRMATION_TOKEN_DOMAIN: &[u8] = b"ZUULI_SEND_CONFIRMATION_TOKEN\0"
 const SEND_FEE_POLICY: &str = "zip317-standard";
 const SEND_CHANGE_POLICY: &str = "zip317-shielded-auto";
 const SEND_CONFIRMATION_TTL: Duration = Duration::from_secs(2 * 60);
+
+fn proposal_lock_request() -> Option<LockRequest> {
+    // The process-local send state machine already serializes proposal and
+    // execution. Preserve the pre-locking API behavior until durable owner and
+    // unlock recovery semantics are designed together.
+    None
+}
+
+fn proposed_transaction_version() -> Option<TxVersion> {
+    // Let librustzcash select the consensus transaction version for the target
+    // height, matching the behavior before this argument was introduced.
+    None
+}
 
 #[derive(Clone, Copy)]
 struct ConfirmationClock {
@@ -1409,7 +1423,8 @@ pub async fn propose_send(
             request,
             policy,
             &SpendPolicy::default(),
-            None,
+            proposal_lock_request(),
+            proposed_transaction_version(),
         )
         .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")));
 
@@ -1566,7 +1581,8 @@ pub async fn propose_send_all(
                 request,
                 policy,
                 &SpendPolicy::default(),
-                None,
+                proposal_lock_request(),
+                proposed_transaction_version(),
             );
 
         drop(db_guard);
@@ -2279,6 +2295,12 @@ mod tests {
     const WALLET_ID: &str = "wallet-a";
     const SESSION_ID: [u8; 32] = [0x11; 32];
     const OTHER_SESSION_ID: [u8; 32] = [0x22; 32];
+
+    #[test]
+    fn proposal_defaults_preserve_unlocked_height_selected_transactions() {
+        assert!(proposal_lock_request().is_none());
+        assert!(proposed_transaction_version().is_none());
+    }
 
     fn pending(status: BroadcastStatus) -> PendingBroadcast {
         PendingBroadcast {
