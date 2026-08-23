@@ -475,6 +475,28 @@ export function assertSeedCaptureBoundary(sources) {
     /const \{ walletId \} = await wallet\.createWallet\(\)[\s\S]*setPhase\("backupRequired"\)/,
     "new identity flow must not receive a mnemonic before explicit reveal",
   );
+  requireMatch(
+    onboarding,
+    /const operationInFlight = useRef\(false\)[\s\S]*const reveal = useCallback\(async \(\) => \{\s*if \(operationInFlight\.current\) return;\s*operationInFlight\.current = true;[\s\S]*const finish = useCallback\(async \(\) => \{\s*if \(!confirmed \|\| operationInFlight\.current\) return;\s*operationInFlight\.current = true;/,
+    "seed onboarding must synchronously serialize reveal and acknowledgement",
+  );
+  const onboardingReveal = onboarding.match(
+    /const reveal = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[created\.walletId\]\);/,
+  )?.[1];
+  const onboardingFinish = onboarding.match(
+    /const finish = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[confirmed, created\.walletId, hide, onDone\]\);/,
+  )?.[1];
+  for (const [body, label] of [
+    [onboardingReveal, "reveal"],
+    [onboardingFinish, "acknowledgement"],
+  ]) {
+    const finallyBody = body?.match(/finally \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    if (!finallyBody.includes("operationInFlight.current = false;")) {
+      throw new Error(
+        `seed onboarding ${label} must release its single-flight guard`,
+      );
+    }
+  }
   for (const renderer of [onboarding, reveal]) {
     if (!renderer.includes('aria-hidden="true"')) {
       throw new Error(

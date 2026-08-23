@@ -180,6 +180,12 @@ for (const [name, key, search, replacement] of [
     "// omitted",
   ],
   [
+    "onboarding acknowledgement loses synchronous serialization",
+    "onboarding",
+    "if (!confirmed || operationInFlight.current) return;",
+    "if (!confirmed) return;",
+  ],
+  [
     "native lease bridge bypassed",
     "bridge",
     'return invoke("begin_sensitive_display");',

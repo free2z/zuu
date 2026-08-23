@@ -273,6 +273,10 @@ function SeedReveal({
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // React state is not a synchronous exclusion primitive: two clicks in the
+  // same render can both observe `busy === false`. Keep the native reveal and
+  // acknowledgement ceremonies globally single-flight for this view.
+  const operationInFlight = useRef(false);
   const session = useRef<SensitiveSeedSession | null>(null);
   if (!session.current) {
     session.current = new SensitiveSeedSession(
@@ -303,7 +307,8 @@ function SeedReveal({
   }, [hide]);
 
   const reveal = useCallback(async () => {
-    if (busy) return;
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -317,12 +322,14 @@ function SeedReveal({
           : "Couldn't reveal recovery phrase",
       );
     } finally {
+      operationInFlight.current = false;
       setBusy(false);
     }
-  }, [busy, created.walletId]);
+  }, [created.walletId]);
 
   const finish = useCallback(async () => {
-    if (!confirmed || busy) return;
+    if (!confirmed || operationInFlight.current) return;
+    operationInFlight.current = true;
     hide();
     setBusy(true);
     try {
@@ -335,9 +342,10 @@ function SeedReveal({
           : "Couldn't save backup confirmation",
       );
     } finally {
+      operationInFlight.current = false;
       setBusy(false);
     }
-  }, [busy, confirmed, created.walletId, hide, onDone]);
+  }, [confirmed, created.walletId, hide, onDone]);
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
