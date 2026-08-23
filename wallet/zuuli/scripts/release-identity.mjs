@@ -702,6 +702,29 @@ for (const releaseTagContract of [
   if (!releaseWorkflow.includes(releaseTagContract))
     failures.push(`release tag identity contract is missing: ${releaseTagContract}`);
 }
+const releaseDecision = releaseWorkflow.indexOf("          should_release=true");
+const statusBoundaryCondition = releaseWorkflow.indexOf(
+  '          if [[ "$should_release" == true && "$dry_run" == false ]]; then',
+);
+const statusBoundaryInvocation = releaseWorkflow.indexOf(
+  '            node scripts/status-freshness.mjs "--source-sha=$source_sha"',
+);
+const releaseOutputs = releaseWorkflow.indexOf('            echo "identity=$actual"');
+if (
+  releaseDecision === -1 ||
+  statusBoundaryCondition === -1 ||
+  statusBoundaryInvocation === -1 ||
+  releaseOutputs === -1 ||
+  releaseDecision > statusBoundaryCondition ||
+  statusBoundaryCondition > statusBoundaryInvocation ||
+  statusBoundaryInvocation > releaseOutputs
+) {
+  failures.push(
+    "real promotion must verify STATUS.md after the release decision and before publishing prepare outputs",
+  );
+}
+if (!packageJson.scripts?.test?.includes("scripts/status-freshness.node-test.mjs"))
+  failures.push("the required test suite must exercise the STATUS.md source boundary");
 for (const releasePublishContract of [
   'verify-release-tag.sh" "$tag" "$expected_commit"',
   'release-tag-identity.json',
