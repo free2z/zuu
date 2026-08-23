@@ -13,7 +13,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "6b86910f1fac129fb37dea7390e55395d8110b76ec8ba5f0b445a009c21ea6ea";
+  "0a18f5b385da5ebfee7392fd1f5fc9df137ae0cc02ab4101332066a5ba65b7dc";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const classicSeedBoundaryInputs = [

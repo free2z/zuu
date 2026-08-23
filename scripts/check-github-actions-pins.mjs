@@ -19,6 +19,10 @@ const GATE_CHECKOUT_REFERENCE =
 const GATE_POLICY_SELF_TEST_COMMAND =
   "node scripts/check-github-actions-pins.mjs --self-test";
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
+const LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND =
+  "node scripts/check-librustzcash-compat.mjs --self-test";
+const LIBRUSTZCASH_POLICY_COMMAND =
+  "node scripts/check-librustzcash-compat.mjs";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
 const WASM_POLICY_SELF_TEST_COMMAND =
@@ -1106,9 +1110,11 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
   if (
     !hasExactKeys(policy.properties, ["name", "run"]) ||
     policy.properties.get("run")?.value !== "|" ||
-    commands.length !== 2 ||
+    commands.length !== 4 ||
     commands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
-    commands[1] !== GATE_POLICY_COMMAND
+    commands[1] !== GATE_POLICY_COMMAND ||
+    commands[2] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
+    commands[3] !== LIBRUSTZCASH_POLICY_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: changes policy step must exactly self-test and enforce the current-source policy`,
@@ -1295,6 +1301,7 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
     "wallet/rust-toolchain.toml",
     "scripts/check-rust-toolchain.sh",
     "scripts/check-github-actions-pins.mjs",
+    "scripts/check-librustzcash-compat.mjs",
     ".github/workflows/zuuli.yml",
   ]) {
     if (!zuuliPatterns.has(pattern)) {
@@ -1309,6 +1316,20 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
         `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the seed boundary for classic input ${input}`,
       );
     }
+  }
+  const schemaPatternSets = source
+    .split("\n")
+    .map((line) => line.split("#", 1)[0].trim())
+    .filter((line) => line.endsWith(")"))
+    .map((line) => new Set(line.slice(0, -1).split("|")))
+    .filter((patterns) => patterns.has("wallet/zuuallet/src-tauri/*"));
+  if (
+    schemaPatternSets.length !== 1 ||
+    !schemaPatternSets[0].has("scripts/check-librustzcash-compat.mjs")
+  ) {
+    failures.push(
+      `${relativeFile}:${detectors[0].start + 1}: Zuuallet schema selector must cover scripts/check-librustzcash-compat.mjs`,
+    );
   }
   return failures;
 }
@@ -2333,6 +2354,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           "        run: |",
           `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
           `          ${GATE_POLICY_COMMAND}`,
+          `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
+          `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
         ].join("\n"),
         [
           "      - name: Verify immutable actions and fail-closed required jobs",
@@ -2347,6 +2370,24 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       source: source.replace(
         "      - name: Verify immutable actions and fail-closed required jobs",
         "      - name: Verify immutable actions and fail-closed required jobs\n        if: false",
+      ),
+    },
+    {
+      name: "real workflow rejects a missing librustzcash policy self-test",
+      needle:
+        "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(
+        `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n`,
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a missing librustzcash policy verdict",
+      needle:
+        "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(
+        `          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
+        "",
       ),
     },
     {
@@ -2419,6 +2460,22 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow selector cannot omit the canonical toolchain verifier",
       needle: "ZUULI selector must cover scripts/check-rust-toolchain.sh",
       source: source.replace("|scripts/check-rust-toolchain.sh", ""),
+    },
+    {
+      name: "real workflow selector cannot omit the librustzcash verifier",
+      needle:
+        "ZUULI selector must cover scripts/check-librustzcash-compat.mjs",
+      source: source.replace("|scripts/check-librustzcash-compat.mjs", ""),
+    },
+    {
+      name: "real workflow schema selector cannot omit the librustzcash verifier",
+      needle:
+        "Zuuallet schema selector must cover scripts/check-librustzcash-compat.mjs",
+      source: replaceLast(
+        source,
+        "|scripts/check-librustzcash-compat.mjs",
+        "",
+      ),
     },
     ...REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS.map((input) => ({
       name: `real workflow selects classic seed-boundary input ${input}`,
@@ -2907,6 +2964,8 @@ function runSelfTest(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
+    `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
     "      - name: Verify the required Rust/WASM build boundary",
     "        run: |",
     `          ${WASM_POLICY_SELF_TEST_COMMAND}`,
@@ -3283,7 +3342,7 @@ function runSelfTest(repoRoot) {
         "changes policy step must exactly self-test and enforce the current-source policy",
       files: gateFixture(
         validGateWorkflow.replace(
-          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n`,
+          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
           "        run: true\n",
         ),
       ),
