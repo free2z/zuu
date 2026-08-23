@@ -46,9 +46,12 @@ for command in \
   fakeroot \
   file \
   patchelf \
+  readelf \
+  rpm2archive \
   rpmbuild \
   tar \
   timeout \
+  unsquashfs \
   xz \
   zsync; do
   command -v "$command" >/dev/null 2>&1 || fail "packaging command is missing: $command"
