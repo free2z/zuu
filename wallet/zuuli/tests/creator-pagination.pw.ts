@@ -44,6 +44,21 @@ test("all creator pages remain loaded and positioned across reader back navigati
     .toBeCloseTo(savedOffset, 0);
 });
 
+test("the catalog count overrides a zero creator-summary hint", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("zuuli.mock.creator-pages", "zero-count-hint");
+  });
+  await page.goto("/creator/zooko");
+
+  const cards = page.locator("[data-creator-page-card]");
+  await expect(cards).toHaveCount(12);
+  await expect(page.getByText("12 of 13", { exact: true })).toBeVisible();
+  await expect(page.getByText("13 pages", { exact: true })).toBeVisible();
+  await expect(page.getByText("No pages yet")).toHaveCount(0);
+});
+
 for (const scenario of ["fail-once", "empty-once"] as const) {
   test(`${scenario} creator catalog load is explicit and retryable`, async ({
     page,

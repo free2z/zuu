@@ -150,7 +150,8 @@ function CreatorProfile({
     "creator-subscription",
     "creator-tip",
   ]);
-  const pages = useCreatorCatalog(creator.username, creator.zpages);
+  const pages = useCreatorCatalog(creator.username);
+  const pageCount = pages.count ?? creator.zpages;
   const { body: bio, socials } = useMemo(
     () => parseBioFrontmatter(creator.bio),
     [creator.bio],
@@ -230,9 +231,9 @@ function CreatorProfile({
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <span className="tabular-nums">
                 <span className="font-semibold text-foreground">
-                  {creator.zpages}
+                  {pageCount}
                 </span>{" "}
-                {creator.zpages === 1 ? "page" : "pages"}
+                {pageCount === 1 ? "page" : "pages"}
               </span>
               <span className="tabular-nums">
                 <span className="font-semibold text-foreground">
@@ -292,7 +293,7 @@ function CreatorProfile({
             className="text-sm tabular-nums text-muted-foreground"
             aria-live="polite"
           >
-            {pages.items.length} of {creator.zpages}
+            {pages.items.length} of {pageCount}
           </span>
         </div>
         {pages.error ? (
@@ -319,8 +320,9 @@ function CreatorProfile({
               <PageCardSkeleton key={i} />
             ))}
           </div>
-        ) : pages.error && pages.items.length === 0 ? null : creator.zpages ===
-          0 ? (
+        ) : pages.error &&
+          pages.items.length === 0 ? null : pages.initialized &&
+          pages.count === 0 ? (
           <EmptyState
             icon={FileText}
             title="No pages yet"

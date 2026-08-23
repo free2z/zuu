@@ -948,9 +948,9 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     is_verified: base?.is_verified ?? false,
     can_stream: seed % 2 === 0,
     member_price: base?.member_price ?? null,
-    // Match the production creator detail contract: this is the authoritative
-    // published-catalog count, not a hand-maintained fixture estimate.
-    zpages: pages,
+    // Preserve deliberate fixture drift: the creator payload is only a display
+    // hint, while the independently paginated catalog owns its exact count.
+    zpages: base?.zpages ?? pages,
     total: (seed % 900) + 42,
     p2paddr: `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
   };

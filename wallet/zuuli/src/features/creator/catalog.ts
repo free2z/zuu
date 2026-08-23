@@ -5,7 +5,8 @@ import type { Article, CreatorPagesPage } from "@/lib/api/types";
 export interface CreatorCatalogSnapshot {
   items: Article[];
   next: number | null;
-  count: number;
+  /** Authoritative list count, unknown until page 1 succeeds. */
+  count: number | null;
   initialized: boolean;
 }
 
@@ -30,17 +31,14 @@ function remember(username: string, snapshot: CreatorCatalogSnapshot) {
   }
 }
 
-function initialCatalog(
-  username: string,
-  expectedCount: number,
-): CreatorCatalogSnapshot {
+function initialCatalog(username: string): CreatorCatalogSnapshot {
   const cached = catalogCache.get(cacheKey(username));
-  if (cached?.count === expectedCount) return cached;
+  if (cached) return cached;
   return {
     items: [],
-    next: expectedCount === 0 ? null : 1,
-    count: expectedCount,
-    initialized: expectedCount === 0,
+    next: 1,
+    count: null,
+    initialized: false,
   };
 }
 
@@ -53,12 +51,13 @@ export function mergeCreatorCatalogPage(
   response: CreatorPagesPage,
   requestedPage: number,
 ): CreatorCatalogSnapshot {
-  if (response.count !== current.count) {
+  if (current.count !== null && response.count !== current.count) {
     throw new Error("Creator catalog count changed during the read.");
   }
   if (requestedPage !== current.next) {
     throw new Error("Creator catalog received an unexpected page.");
   }
+  const count = current.count ?? response.count;
 
   const seen = new Set(current.items.map((item) => String(item.id)));
   const items = [...current.items];
@@ -70,16 +69,16 @@ export function mergeCreatorCatalogPage(
     }
   }
 
-  if (items.length > current.count) {
+  if (items.length > count) {
     throw new Error("Creator catalog exceeded its authoritative count.");
   }
-  if (response.next === null && items.length !== current.count) {
+  if (response.next === null && items.length !== count) {
     throw new Error("Creator pagination returned an incomplete catalog.");
   }
   if (response.next !== null && items.length === current.items.length) {
     throw new Error("Creator pagination made no progress.");
   }
-  if (response.next !== null && items.length >= current.count) {
+  if (response.next !== null && items.length >= count) {
     throw new Error(
       "Creator pagination continued past its authoritative count.",
     );
@@ -88,20 +87,20 @@ export function mergeCreatorCatalogPage(
   return {
     items,
     next: response.next,
-    count: current.count,
+    count,
     initialized: true,
   };
 }
 
-export function useCreatorCatalog(username: string, expectedCount: number) {
+export function useCreatorCatalog(username: string) {
   const [state, setState] = useState<CreatorCatalogState>(() => ({
-    ...initialCatalog(username, expectedCount),
+    ...initialCatalog(username),
     error: null,
     loading: false,
   }));
   const stateRef = useRef(state);
   const requestIdRef = useRef(0);
-  const resourceRef = useRef(`${cacheKey(username)}:${expectedCount}`);
+  const resourceRef = useRef(cacheKey(username));
   stateRef.current = state;
 
   const load = useCallback(
@@ -133,11 +132,11 @@ export function useCreatorCatalog(username: string, expectedCount: number) {
   );
 
   useEffect(() => {
-    const resource = `${cacheKey(username)}:${expectedCount}`;
+    const resource = cacheKey(username);
     if (resourceRef.current !== resource) {
       resourceRef.current = resource;
       requestIdRef.current += 1;
-      const initial = initialCatalog(username, expectedCount);
+      const initial = initialCatalog(username);
       setState({ ...initial, error: null, loading: false });
       stateRef.current = { ...initial, error: null, loading: false };
     }
@@ -145,7 +144,7 @@ export function useCreatorCatalog(username: string, expectedCount: number) {
     if (!current.initialized && current.next !== null && !current.loading) {
       void load(current.next);
     }
-  }, [expectedCount, load, username]);
+  }, [load, username]);
 
   const loadMore = useCallback(() => {
     const next = stateRef.current.next;

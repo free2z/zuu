@@ -15,14 +15,14 @@ function article(id: number): Article {
   };
 }
 
-function initial(count: number): CreatorCatalogSnapshot {
-  return { items: [], next: 1, count, initialized: false };
+function initial(): CreatorCatalogSnapshot {
+  return { items: [], next: 1, count: null, initialized: false };
 }
 
 describe("creator catalog pagination", () => {
   it("deduplicates overlapping pages and completes at the authoritative count", () => {
     const first = mergeCreatorCatalogPage(
-      initial(3),
+      initial(),
       { items: [article(1), article(2)], next: 2, count: 3 },
       1,
     );
@@ -35,34 +35,52 @@ describe("creator catalog pagination", () => {
     expect(complete.next).toBeNull();
   });
 
-  it("fails closed on count drift or an incomplete terminal page", () => {
+  it("adopts the first list response count independently of its profile hint", () => {
+    expect(
+      mergeCreatorCatalogPage(
+        initial(),
+        { items: [article(1)], next: null, count: 1 },
+        1,
+      ),
+    ).toMatchObject({ count: 1, initialized: true });
+    expect(
+      mergeCreatorCatalogPage(
+        initial(),
+        { items: [], next: null, count: 0 },
+        1,
+      ),
+    ).toMatchObject({ count: 0, initialized: true });
+  });
+
+  it("fails closed on list count drift or an incomplete terminal page", () => {
     expect(() =>
       mergeCreatorCatalogPage(
-        initial(2),
+        initial(),
         { items: [article(1)], next: null, count: 2 },
         1,
       ),
     ).toThrow("incomplete catalog");
+    const first = mergeCreatorCatalogPage(
+      initial(),
+      { items: [article(1)], next: 2, count: 2 },
+      1,
+    );
     expect(() =>
       mergeCreatorCatalogPage(
-        initial(2),
-        { items: [article(1)], next: null, count: 3 },
-        1,
+        first,
+        { items: [article(2)], next: null, count: 3 },
+        2,
       ),
     ).toThrow("count changed");
   });
 
   it("fails closed when a nonterminal page adds no unique rows", () => {
     expect(() =>
-      mergeCreatorCatalogPage(
-        initial(2),
-        { items: [], next: 2, count: 2 },
-        1,
-      ),
+      mergeCreatorCatalogPage(initial(), { items: [], next: 2, count: 2 }, 1),
     ).toThrow("made no progress");
 
     const first = mergeCreatorCatalogPage(
-      initial(2),
+      initial(),
       { items: [article(1)], next: 2, count: 2 },
       1,
     );

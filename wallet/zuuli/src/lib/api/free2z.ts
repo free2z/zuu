@@ -1880,7 +1880,12 @@ export const discover = {
   async creator(username: string): Promise<CreatorDetail> {
     if (useMock()) {
       await delay(180);
-      return mockCreatorDetail(username);
+      const detail = mockCreatorDetail(username);
+      const scenario =
+        typeof window === "undefined"
+          ? null
+          : window.sessionStorage.getItem("zuuli.mock.creator-pages");
+      return scenario === "zero-count-hint" ? { ...detail, zpages: 0 } : detail;
     }
     const c = await request<RawCreator>(
       `/api/creator/${encodeURIComponent(username)}/`,
