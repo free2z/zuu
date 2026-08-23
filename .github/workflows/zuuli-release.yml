@@ -1157,6 +1157,16 @@ jobs:
           test -s "$secret_dir/zuuli.provisionprofile"
           security cms -D -i "$secret_dir/zuuli.provisionprofile" > "$secret_dir/profile.plist"
           profile_json=$(plutil -convert json -o - "$secret_dir/profile.plist")
+          profile_now=$(date -u +%s)
+          jq -e --argjson now "$profile_now" '
+            (.CreationDate | type == "string") and
+            (.ExpirationDate | type == "string") and
+            (
+              (.CreationDate | fromdateiso8601) as $created |
+              (.ExpirationDate | fromdateiso8601) as $expires |
+              $created <= $now and $now < $expires
+            )
+          ' <<<"$profile_json" >/dev/null
           test "$(jq -r '.TeamIdentifier[0]' <<<"$profile_json")" = F9AV5HKF6N
           test "$(jq -r '.ProvisionsAllDevices' <<<"$profile_json")" = true
           test "$(jq -r '.Entitlements["com.apple.application-identifier"]' <<<"$profile_json")" = F9AV5HKF6N.cash.free2z.zuuli
@@ -1434,6 +1444,16 @@ jobs:
           [[ -f "$embedded_profile" && ! -L "$embedded_profile" ]] || { echo "signed app is missing its Developer ID provisioning profile" >&2; exit 1; }
           security cms -D -i "$embedded_profile" > "$inspect/profile.plist"
           profile_json=$(plutil -convert json -o - "$inspect/profile.plist")
+          profile_now=$(date -u +%s)
+          jq -e --argjson now "$profile_now" '
+            (.CreationDate | type == "string") and
+            (.ExpirationDate | type == "string") and
+            (
+              (.CreationDate | fromdateiso8601) as $created |
+              (.ExpirationDate | fromdateiso8601) as $expires |
+              $created <= $now and $now < $expires
+            )
+          ' <<<"$profile_json" >/dev/null
           test "$(jq -r '.TeamIdentifier[0]' <<<"$profile_json")" = F9AV5HKF6N
           test "$(jq -r '.ProvisionsAllDevices' <<<"$profile_json")" = true
           test "$(jq -r '.Entitlements["com.apple.application-identifier"]' <<<"$profile_json")" = F9AV5HKF6N.cash.free2z.zuuli

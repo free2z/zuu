@@ -387,6 +387,7 @@ mod macos_custody {
         operations.get_ordinary(wallet_id)
     }
 
+    #[cfg(target_os = "macos")]
     pub(super) fn delete_legacy_fallback(
         operations: &impl Operations,
         wallet_id: &str,

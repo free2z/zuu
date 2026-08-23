@@ -12,6 +12,19 @@ import {
   verifyAppleCredentialBoundary,
 } from "./apple-credential-boundary.mjs";
 
+const profileValidityMarkers = `
+          (.CreationDate | type == "string")
+          (.ExpirationDate | type == "string")
+          (.CreationDate | fromdateiso8601) as $created
+          (.ExpirationDate | fromdateiso8601) as $expires
+          $created <= $now and $now < $expires`;
+
+function removeLast(source, needle) {
+  const index = source.lastIndexOf(needle);
+  assert.notEqual(index, -1, `fixture is missing ${needle}`);
+  return source.slice(0, index) + source.slice(index + needle.length);
+}
+
 const buildJob = (name, command) => {
   const checksumMembers = name === "ios-build"
     ? "ZUULI.xcarchive.zip ExportOptions.plist source-record.json"
@@ -42,7 +55,10 @@ const credentialJob = (name, command, secret) => {
     : name === "ios-sign"
       ? "          EXPECTED_PAYLOAD_SHA256=fixture\n          test \"$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')\" = \"$EXPECTED_PAYLOAD_SHA256\"\n          (cd unsigned-ios && shasum -a 256 -c CHECKSUMS.sha256)\n          gh attestation verify unsigned-ios/CHECKSUMS.sha256 --repo repo"
       : name === "macos-sign"
-        ? "          EXPECTED_PAYLOAD_SHA256=fixture\n          test \"$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')\" = \"$EXPECTED_PAYLOAD_SHA256\"\n          (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)\n          gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo repo"
+        ? `          EXPECTED_PAYLOAD_SHA256=fixture
+          test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)
+          gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo repo${profileValidityMarkers}`
         : "          echo verified";
   const cleanupMarkers = name === "ios-sign" || name === "macos-sign"
     ? name === "ios-sign"
@@ -75,7 +91,8 @@ ${cleanupMarkers}
 const finalizeJob = (name) => `  ${name}:
     steps:
       - uses: actions/download-artifact@sha
-      - uses: actions/attest-build-provenance@sha
+${name === "macos-finalize" ? `      - run: |${profileValidityMarkers}
+` : ""}      - uses: actions/attest-build-provenance@sha
       - uses: actions/upload-artifact@sha
 `;
 
@@ -550,6 +567,39 @@ for (const [name, mutate, expected] of [
     "rejects a macOS signer that omits its authorizing profile",
     (source) => source.replace("embedded.provisionprofile ", ""),
     "macOS signer is missing \"embedded.provisionprofile\"",
+  ],
+  [
+    "rejects a macOS signer without a profile CreationDate",
+    (source) => source.replace('(.CreationDate | type == "string")', ""),
+    'macOS signer is missing "(.CreationDate | type == \\"string\\")"',
+  ],
+  [
+    "rejects a macOS signer without a profile ExpirationDate",
+    (source) => source.replace('(.ExpirationDate | fromdateiso8601) as $expires', ""),
+    'macOS signer is missing "(.ExpirationDate | fromdateiso8601) as $expires"',
+  ],
+  [
+    "rejects a macOS signer that permits future-created profiles",
+    (source) => source.replace(
+      "$created <= $now and $now < $expires",
+      "$now < $expires",
+    ),
+    'macOS signer is missing "$created <= $now and $now < $expires"',
+  ],
+  [
+    "rejects a macOS finalizer without a profile CreationDate",
+    (source) => removeLast(source, '(.CreationDate | fromdateiso8601) as $created'),
+    'macOS finalizer is missing "(.CreationDate | fromdateiso8601) as $created"',
+  ],
+  [
+    "rejects a macOS finalizer without a profile ExpirationDate",
+    (source) => removeLast(source, '(.ExpirationDate | type == "string")'),
+    'macOS finalizer is missing "(.ExpirationDate | type == \\"string\\")"',
+  ],
+  [
+    "rejects a macOS finalizer that permits expired profiles",
+    (source) => removeLast(source, "$created <= $now and $now < $expires"),
+    'macOS finalizer is missing "$created <= $now and $now < $expires"',
   ],
   [
     "rejects an iOS signer that does not bind the attested checksum manifest",

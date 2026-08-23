@@ -53,7 +53,7 @@ const ALLOWED_JOB_SECRETS = new Map([
 const CREDENTIAL_JOB_SHA256 = new Map([
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "ec623811504347722ab88c20d8cc62bb8f7413268891d62cc86713758906e143"],
+  ["macos-sign", "3754048192eaacb08f92094db3e6540eae6a3107694d78b9c742f0e4aea8d3cb"],
 ]);
 
 // These four inherited/root controls sit outside the protected job nodes but
@@ -510,6 +510,16 @@ export function verifyAppleCredentialBoundary(
     "APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64",
   );
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "embedded.provisionprofile");
+  for (const marker of [
+    '(.CreationDate | type == "string")',
+    '(.ExpirationDate | type == "string")',
+    '(.CreationDate | fromdateiso8601) as $created',
+    '(.ExpirationDate | fromdateiso8601) as $expires',
+    "$created <= $now and $now < $expires",
+  ]) {
+    requireText(failures, "macOS signer", jobs.get("macos-sign"), marker);
+    requireText(failures, "macOS finalizer", jobs.get("macos-finalize"), marker);
+  }
   requireText(
     failures,
     "macOS signer",
