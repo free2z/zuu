@@ -100,6 +100,12 @@ const history: TransactionEntry[] = [
 
 let proposalCounter = 1;
 let pendingProposal: SendProposal | null = null;
+let pendingConfirmation: {
+  proposalId: number;
+  reviewDigest: string;
+  confirmationToken: string;
+  expiresAt: number;
+} | null = null;
 
 function mockProposalDelay(): number {
   try {
@@ -286,7 +292,7 @@ export const mockWallet = {
     const proposal: SendProposal = {
       proposalId,
       review: {
-        version: 1,
+        version: 2,
         network: "mainnet",
         payments: [{ recipient: to, amount, memo: memo ?? null }],
         feePolicy: "zip317-standard",
@@ -295,40 +301,71 @@ export const mockWallet = {
         changePolicy: "zip317-shielded-auto",
       },
       reviewDigest: proposalCredential(proposalId, "d"),
-      confirmationToken: proposalCredential(proposalId, "c"),
+      proposalToken: proposalCredential(proposalId, "a"),
     };
     pendingProposal = proposal;
+    pendingConfirmation = null;
     return proposal;
   },
   ensureSaplingParams() {
     return { ready: true };
+  },
+  confirmSend(proposalId: number, reviewDigest: string, proposalToken: string) {
+    if (
+      !pendingProposal ||
+      pendingProposal.proposalId !== proposalId ||
+      pendingProposal.reviewDigest !== reviewDigest ||
+      pendingProposal.proposalToken !== proposalToken
+    ) {
+      throw new Error("Send proposal credentials do not match the reviewed payment");
+    }
+    if (globalThis.localStorage?.getItem("zuuli.mock.send-confirmation-result") === "cancel") {
+      throw new Error("Native payment confirmation was cancelled");
+    }
+    const expiresAt = Date.now() + 2 * 60 * 1000;
+    pendingConfirmation = {
+      proposalId,
+      reviewDigest,
+      confirmationToken: proposalCredential(proposalId, "c"),
+      expiresAt,
+    };
+    return {
+      confirmationToken: pendingConfirmation.confirmationToken,
+      expiresAt,
+    };
   },
   executeSend(proposalId: number, reviewDigest: string, confirmationToken: string) {
     if (
       !pendingProposal ||
       pendingProposal.proposalId !== proposalId ||
       pendingProposal.reviewDigest !== reviewDigest ||
-      pendingProposal.confirmationToken !== confirmationToken
+      !pendingConfirmation ||
+      pendingConfirmation.proposalId !== proposalId ||
+      pendingConfirmation.reviewDigest !== reviewDigest ||
+      pendingConfirmation.confirmationToken !== confirmationToken ||
+      Date.now() >= pendingConfirmation.expiresAt
     ) {
-      throw new Error("Send confirmation does not match the reviewed proposal");
+      throw new Error("Native payment confirmation is absent, stale, or mismatched");
     }
     pendingProposal = null;
+    pendingConfirmation = null;
     return {
       txid: "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5",
       status: "accepted" as const,
       message: null,
     };
   },
-  discardSendProposal(proposalId: number, reviewDigest: string, confirmationToken: string) {
+  discardSendProposal(proposalId: number, reviewDigest: string, proposalToken: string) {
     if (
       !pendingProposal ||
       pendingProposal.proposalId !== proposalId ||
       pendingProposal.reviewDigest !== reviewDigest ||
-      pendingProposal.confirmationToken !== confirmationToken
+      pendingProposal.proposalToken !== proposalToken
     ) {
-      throw new Error("Send confirmation does not match the reviewed proposal");
+      throw new Error("Send proposal credentials do not match the reviewed payment");
     }
     pendingProposal = null;
+    pendingConfirmation = null;
   },
   getPendingSend() {
     return null;

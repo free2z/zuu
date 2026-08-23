@@ -2,6 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Runtime, command};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use secrecy::ExposeSecret;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
@@ -1841,6 +1842,54 @@ pub(crate) async fn propose_send_all<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn confirm_send<R: Runtime>(
+    app: AppHandle<R>,
+    args: ConfirmSendArgs,
+) -> Result<SendConfirmation> {
+    let zcash = app.zcash();
+    // Keep both identities fixed while the OS-owned dialog is visible. No
+    // renderer, wallet transition, or competing proposal may swap the payment
+    // between the native review and token issuance.
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let _send_operation = zcash.state.send_operation.lock().await;
+    let review = crate::wallet::send::prepare_send_confirmation(
+        &zcash.state,
+        args.proposal_id,
+        &args.review_digest,
+        &args.proposal_token,
+    )
+    .await?;
+    let message = crate::wallet::send::format_native_send_confirmation(&review)?;
+    let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(message)
+        .title("Authorize Zcash payment")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Authorize payment".to_owned(),
+            "Cancel".to_owned(),
+        ))
+        .show(move |accepted| {
+            let _ = result_sender.send(accepted);
+        });
+    let accepted = result_receiver
+        .await
+        .map_err(|_| Error::SendError("native payment confirmation closed unexpectedly".into()))?;
+    if !accepted {
+        return Err(Error::SendError(
+            "native payment confirmation was cancelled".into(),
+        ));
+    }
+    crate::wallet::send::issue_send_confirmation(
+        &zcash.state,
+        args.proposal_id,
+        &args.review_digest,
+        &args.proposal_token,
+    )
+    .await
+}
+
+#[command]
 pub(crate) async fn execute_send<R: Runtime>(
     app: AppHandle<R>,
     args: ExecuteSendArgs,
@@ -1870,7 +1919,7 @@ pub(crate) async fn discard_send_proposal<R: Runtime>(
         &zcash.state,
         args.proposal_id,
         &args.review_digest,
-        &args.confirmation_token,
+        &args.proposal_token,
     )
     .await
 }

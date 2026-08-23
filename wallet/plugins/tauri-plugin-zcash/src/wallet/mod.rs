@@ -10,6 +10,7 @@ pub mod send;
 pub mod storage;
 pub mod sync;
 
+use rand::{RngCore, rngs::OsRng};
 use secrecy::SecretVec;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -77,6 +78,10 @@ pub struct WalletState {
     /// so an ambiguous/rejected broadcast can only retry the same bytes.
     pub pending_broadcast: Arc<Mutex<Option<send::PendingBroadcast>>>,
     pub proposal_counter: Arc<AtomicU32>,
+    /// Process-local authority boundary for payment confirmations. A token
+    /// issued by an earlier application session cannot authorize this one,
+    /// even if renderer state is restored across a crash or restart.
+    pub(super) send_session_id: [u8; 32],
 }
 
 impl WalletState {
@@ -155,6 +160,8 @@ impl WalletState {
         let next_proposal_id = pending_broadcast
             .as_ref()
             .map_or(0, |pending| pending.proposal_id.saturating_add(1));
+        let mut send_session_id = [0_u8; 32];
+        OsRng.fill_bytes(&mut send_session_id);
 
         Ok(Self {
             network,
@@ -179,6 +186,7 @@ impl WalletState {
             pending_proposal: Arc::new(Mutex::new(None)),
             pending_broadcast: Arc::new(Mutex::new(pending_broadcast)),
             proposal_counter: Arc::new(AtomicU32::new(next_proposal_id)),
+            send_session_id,
         })
     }
 

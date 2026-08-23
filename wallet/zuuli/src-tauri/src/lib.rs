@@ -4,6 +4,9 @@ mod oauth;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Native payment confirmation is intentionally available only to Rust.
+        // No dialog permission is granted to the privileged webview.
+        .plugin(tauri_plugin_dialog::init())
         // Exact private-use redirects for iOS/Android social OAuth and native
         // Checkout recovery. The plugin registers oauth/callback and
         // checkout/return; their Rust/TypeScript consumers independently
