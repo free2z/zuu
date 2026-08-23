@@ -4,6 +4,7 @@ permissions = [
     "allow-create-wallet",
     "allow-restore-wallet",
     "allow-get-wallet-status",
+    "allow-preview-legacy-wallet-import",
     "allow-retry-wallet-cleanup",
     "allow-get-seed-phrase",
     "allow-get-backup-seed-phrase",

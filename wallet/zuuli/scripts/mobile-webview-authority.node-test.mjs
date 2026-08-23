@@ -68,6 +68,24 @@ test("unreviewed named wallet authority and widened windows fail closed", () => 
   );
 });
 
+test("legacy preview authority is exact and cannot be dropped or widened", () => {
+  const missing = fixture();
+  missing.mobile.permissions = missing.mobile.permissions.filter(
+    (permission) => permission !== "zcash:allow-preview-legacy-wallet-import",
+  );
+  assert.throws(
+    () => assertMobileWebviewAuthority(missing.mobile, missing.tauri),
+    /mobile Zcash permissions differs/,
+  );
+
+  const widened = fixture();
+  widened.mobile.permissions.push("zcash:allow-import-legacy-wallet");
+  assert.throws(
+    () => assertMobileWebviewAuthority(widened.mobile, widened.tauri),
+    /mobile Zcash permissions differs/,
+  );
+});
+
 test("remote, wildcard, and implicit frame policies fail closed", () => {
   for (const csp of [
     "default-src 'self'; frame-src https://www.youtube-nocookie.com",

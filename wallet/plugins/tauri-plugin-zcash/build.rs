@@ -2,6 +2,7 @@ const COMMANDS: &[&str] = &[
     "create_wallet",
     "restore_wallet",
     "get_wallet_status",
+    "preview_legacy_wallet_import",
     "retry_wallet_cleanup",
     "get_seed_phrase",
     "get_backup_seed_phrase",

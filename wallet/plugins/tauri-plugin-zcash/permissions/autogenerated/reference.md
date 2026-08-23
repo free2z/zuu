@@ -7,6 +7,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-create-wallet`
 - `allow-restore-wallet`
 - `allow-get-wallet-status`
+- `allow-preview-legacy-wallet-import`
 - `allow-retry-wallet-cleanup`
 - `allow-get-seed-phrase`
 - `allow-get-backup-seed-phrase`
@@ -671,6 +672,32 @@ Enables the parse_payment_uri command without any pre-configured scope.
 <td>
 
 Denies the parse_payment_uri command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-preview-legacy-wallet-import`
+
+</td>
+<td>
+
+Enables the preview_legacy_wallet_import command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-preview-legacy-wallet-import`
+
+</td>
+<td>
+
+Denies the preview_legacy_wallet_import command without any pre-configured scope.
 
 </td>
 </tr>

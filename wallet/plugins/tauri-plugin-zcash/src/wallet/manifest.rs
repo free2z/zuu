@@ -68,7 +68,7 @@ impl WalletManifest {
         })
     }
 
-    fn validate(&self) -> std::io::Result<()> {
+    pub(crate) fn validate(&self) -> std::io::Result<()> {
         let invalid =
             |message: String| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
         let mut ids = std::collections::HashSet::new();

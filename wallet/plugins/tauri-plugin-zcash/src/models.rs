@@ -89,6 +89,49 @@ pub enum LegacyAppDataState {
     ImportPending,
 }
 
+/// A non-authoritative, read-only inventory of the fixed legacy ZUULI sibling.
+///
+/// This intentionally contains no source path, wallet identity, account name,
+/// viewing key, or custody material. It is only enough for a later UI to tell
+/// the user whether a separate, explicit import operation could be offered.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyImportPreview {
+    pub state: LegacyImportPreviewState,
+    pub layout: Option<LegacyWalletLayout>,
+    pub wallets: Vec<LegacyWalletPreview>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LegacyImportPreviewState {
+    Absent,
+    Ready,
+    Blocked,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LegacyWalletLayout {
+    Single,
+    Multi,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyWalletPreview {
+    pub wallet_id: String,
+    pub wallet_name: String,
+    pub db_filename: String,
+    pub account_count: u32,
+    pub ufvk_fingerprints: Vec<String>,
+    pub wal_present: bool,
+    pub shm_present: bool,
+    pub encrypted_custody_present: bool,
+}
+
 impl From<crate::app_data_migration::MigrationOutcome> for LegacyAppDataStatus {
     fn from(outcome: crate::app_data_migration::MigrationOutcome) -> Self {
         if outcome == crate::app_data_migration::MigrationOutcome::LegacyImportPending {

@@ -13,6 +13,7 @@ mod mobile;
 
 mod commands;
 pub mod error;
+mod legacy_import_preview;
 pub mod models;
 pub mod wallet;
 
@@ -44,6 +45,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::create_wallet,
             commands::restore_wallet,
             commands::get_wallet_status,
+            commands::preview_legacy_wallet_import,
             commands::retry_wallet_cleanup,
             commands::get_seed_phrase,
             commands::get_backup_seed_phrase,
