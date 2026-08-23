@@ -371,6 +371,11 @@ export function appImagePayloadOffset(artifact) {
         headerOffset,
         `ELF section ${index} header`,
       );
+      // SHT_NOBITS sections (most commonly .bss) occupy memory but have no
+      // bytes in the ELF file. Their sh_offset + sh_size may extend beyond
+      // the appended AppImage payload and therefore cannot contribute to the
+      // file-backed ELF boundary.
+      if (section.readUInt32LE(4) === 8) continue;
       const sectionOffset =
         header[4] === 2
           ? safeInteger(

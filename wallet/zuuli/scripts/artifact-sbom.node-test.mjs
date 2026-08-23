@@ -139,7 +139,13 @@ function makeAppImageFixture(root, { invalidUtf8Name = false } = {}) {
   );
   const cSource = resolve(root, `runtime${suffix}.c`);
   const runtime = resolve(root, `runtime${suffix}`);
-  writeFileSync(cSource, "int main(void) { return 0; }\n");
+  // AppImage runtimes commonly have a large .bss SHT_NOBITS section. Its
+  // in-memory extent can overlap the appended SquashFS bytes even though it
+  // contributes no bytes to the ELF file.
+  writeFileSync(
+    cSource,
+    "static volatile char memory_only[1024 * 1024];\nint main(void) { return memory_only[0]; }\n",
+  );
   execFileSync("cc", ["-s", "-o", runtime, cSource]);
   const runtimeBytes = readFileSync(runtime);
   runtimeBytes[8] = 0x41;
@@ -452,6 +458,25 @@ test(
         sectionTableOffset + sectionHeaderSize * (sectionCount - 1);
       const earlierSectionHeader =
         sectionTableOffset + sectionHeaderSize * (sectionCount - 2);
+      const noBitsSectionHeader =
+        sectionTableOffset + sectionHeaderSize * (sectionCount - 3);
+      const noBitsArtifact = resolve(
+        temporary,
+        "nobits-extends-past-payload.AppImage",
+      );
+      const noBitsBytes = Buffer.from(original);
+      noBitsBytes.writeUInt32LE(8, noBitsSectionHeader + 4);
+      noBitsBytes.writeBigUInt64LE(
+        BigInt(payloadOffset + original.length),
+        noBitsSectionHeader + 24,
+      );
+      noBitsBytes.writeBigUInt64LE(4096n, noBitsSectionHeader + 32);
+      writeFileSync(noBitsArtifact, noBitsBytes);
+      assert.equal(
+        appImagePayloadOffset(noBitsArtifact),
+        payloadOffset,
+        "SHT_NOBITS memory extents must not move the file-backed ELF boundary",
+      );
       const mutations = [
         {
           name: "truncated-elf",
