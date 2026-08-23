@@ -15,6 +15,7 @@ import type {
   PaymentRequest,
   PendingSendStatus,
   SendProposal,
+  SensitiveDisplayLease,
   SaplingParamsStatus,
   SignedChallenge,
   SyncStatus,
@@ -71,6 +72,16 @@ export const wallet = {
   async getBackupSeedPhrase(walletId: string): Promise<string> {
     if (useMock()) return mockWallet.getBackupSeedPhrase(walletId);
     return invoke("get_backup_seed_phrase", { args: { walletId } });
+  },
+
+  async beginSensitiveDisplay(): Promise<SensitiveDisplayLease> {
+    if (useMock()) return mockWallet.beginSensitiveDisplay();
+    return invoke("begin_sensitive_display");
+  },
+
+  async endSensitiveDisplay(token: string): Promise<void> {
+    if (useMock()) return mockWallet.endSensitiveDisplay(token);
+    return invoke("end_sensitive_display", { args: { token } });
   },
 
   async confirmWalletBackup(walletId: string): Promise<void> {

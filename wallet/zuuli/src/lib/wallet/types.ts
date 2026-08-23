@@ -4,8 +4,11 @@
 
 export interface WalletCreated {
   walletId: string;
-  seedPhrase: string;
   birthdayHeight: number;
+}
+
+export interface SensitiveDisplayLease {
+  token: string;
 }
 
 export interface WalletRestored {

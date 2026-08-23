@@ -10,9 +10,13 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.UserNotAuthenticatedException
 import android.util.Base64
+import android.view.WindowManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -37,6 +41,12 @@ class StoreSeedArgs {
     lateinit var phrase: String
 }
 
+@InvokeArg
+class SensitiveDisplayArgs {
+    var active: Boolean = false
+    lateinit var token: String
+}
+
 data class SeedValue(val phrase: String)
 
 /**
@@ -50,6 +60,60 @@ data class SeedValue(val phrase: String)
 @TauriPlugin
 class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
     private val prefs = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    @Volatile private var sensitiveDisplayToken: String? = null
+    private var secureFlagReleasePending = false
+    private val sensitiveLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onResume(owner: LifecycleOwner) {
+            if (sensitiveDisplayToken == null && secureFlagReleasePending) {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                secureFlagReleasePending = false
+            }
+        }
+    }
+
+    init {
+        (activity as? FragmentActivity)?.lifecycle?.addObserver(sensitiveLifecycleObserver)
+    }
+
+    /**
+     * FLAG_SECURE is owned by an exact reveal lease. It remains set while the
+     * activity is paused/backgrounded so Android cannot put recovery material
+     * in screenshots, screen recordings, or the recents snapshot. A stale
+     * renderer cleanup cannot clear a newer reveal's flag.
+     */
+    @Command
+    fun setSensitiveDisplay(invoke: Invoke) {
+        val args = invoke.parseArgs(SensitiveDisplayArgs::class.java)
+        if (args.token.isBlank()) {
+            return reject(invoke, "unavailable", "sensitive-display token is missing")
+        }
+        activity.runOnUiThread {
+            if (args.active) {
+                sensitiveDisplayToken = args.token
+                secureFlagReleasePending = false
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0) {
+                    sensitiveDisplayToken = null
+                    return@runOnUiThread reject(invoke, "unavailable", "Android FLAG_SECURE did not apply")
+                }
+            } else if (sensitiveDisplayToken == args.token) {
+                sensitiveDisplayToken = null
+                val lifecycle = (activity as? FragmentActivity)?.lifecycle
+                if (lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true) {
+                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+                        sensitiveDisplayToken = args.token
+                        return@runOnUiThread reject(invoke, "unavailable", "Android FLAG_SECURE did not clear")
+                    }
+                } else {
+                    // Keep recents protected until the activity is foregrounded;
+                    // renderer clearing may not have painted before background.
+                    secureFlagReleasePending = true
+                }
+            }
+            invoke.resolve()
+        }
+    }
 
     @Command
     fun storeSeed(invoke: Invoke) {

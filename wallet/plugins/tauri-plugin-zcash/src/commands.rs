@@ -494,7 +494,6 @@ pub(crate) async fn create_wallet<R: Runtime>(
 
     Ok(WalletCreated {
         wallet_id: wallet_entry.id.clone(),
-        seed_phrase: mnemonic.phrase().to_string(),
         birthday_height: tip_height,
     })
     }
@@ -515,6 +514,55 @@ pub(crate) async fn create_wallet<R: Runtime>(
             drop(transition_guard);
             Err(error)
         }
+    }
+}
+
+/// Acquire an exact native capture-protection lease before recovery material
+/// is requested from platform custody. A newer lease supersedes an older one;
+/// its stale release can therefore never uncover a later reveal.
+#[command]
+pub(crate) async fn begin_sensitive_display<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<SensitiveDisplayLease> {
+    let zcash = app.zcash();
+    let mut current = zcash.sensitive_display.lock().await;
+    let token = uuid::Uuid::new_v4().to_string();
+    zcash.set_sensitive_display(true, &token)?;
+    *current = Some(token.clone());
+    Ok(SensitiveDisplayLease { token })
+}
+
+/// Release capture protection only when the caller still owns the current
+/// lease. Late cleanup from an earlier renderer attempt is deliberately inert.
+#[command]
+pub(crate) async fn end_sensitive_display<R: Runtime>(
+    app: AppHandle<R>,
+    args: EndSensitiveDisplayArgs,
+) -> Result<()> {
+    let zcash = app.zcash();
+    let mut current = zcash.sensitive_display.lock().await;
+    if !owns_sensitive_display(&current, &args.token) {
+        return Ok(());
+    }
+    zcash.set_sensitive_display(false, &args.token)?;
+    *current = None;
+    Ok(())
+}
+
+fn owns_sensitive_display(current: &Option<String>, token: &str) -> bool {
+    current.as_deref() == Some(token)
+}
+
+#[cfg(test)]
+mod sensitive_display_tests {
+    use super::owns_sensitive_display;
+
+    #[test]
+    fn stale_release_never_owns_a_newer_sensitive_display() {
+        let current = Some("new-reveal".to_owned());
+        assert!(owns_sensitive_display(&current, "new-reveal"));
+        assert!(!owns_sensitive_display(&current, "old-reveal"));
+        assert!(!owns_sensitive_display(&None, "old-reveal"));
     }
 }
 

@@ -170,8 +170,12 @@ export const mockWallet = {
     created = true;
     globalThis.localStorage?.setItem(MOCK_CREATED_WALLET_KEY, "1");
     globalThis.localStorage?.setItem(MOCK_BACKUP_REQUIRED_KEY, MOCK_WALLET_ID);
-    return { walletId: MOCK_WALLET_ID, seedPhrase: MOCK_SEED, birthdayHeight: tip - 100 };
+    return { walletId: MOCK_WALLET_ID, birthdayHeight: tip - 100 };
   },
+  beginSensitiveDisplay() {
+    return { token: crypto.randomUUID() };
+  },
+  endSensitiveDisplay(_token: string) {},
   restoreWallet(seedPhrase: string): WalletRestored | Promise<WalletRestored> {
     if (mockWalletScenario() === "slow-restore-error") {
       return new Promise((_, reject) =>

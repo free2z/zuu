@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the begin_sensitive_display command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-begin-sensitive-display",
+          "markdownDescription": "Enables the begin_sensitive_display command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the begin_sensitive_display command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-begin-sensitive-display",
+          "markdownDescription": "Denies the begin_sensitive_display command without any pre-configured scope."
+        },
+        {
           "description": "Enables the confirm_wallet_backup command without any pre-configured scope.",
           "type": "string",
           "const": "allow-confirm-wallet-backup",
@@ -365,6 +377,18 @@
           "type": "string",
           "const": "deny-discard-unrecoverable-send",
           "markdownDescription": "Denies the discard_unrecoverable_send command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the end_sensitive_display command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-end-sensitive-display",
+          "markdownDescription": "Enables the end_sensitive_display command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the end_sensitive_display command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-end-sensitive-display",
+          "markdownDescription": "Denies the end_sensitive_display command without any pre-configured scope."
         },
         {
           "description": "Enables the ensure_sapling_params command without any pre-configured scope.",

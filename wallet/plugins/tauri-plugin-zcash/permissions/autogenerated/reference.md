@@ -51,6 +51,32 @@ Default permissions for the Zcash wallet plugin
 <tr>
 <td>
 
+`zcash:allow-begin-sensitive-display`
+
+</td>
+<td>
+
+Enables the begin_sensitive_display command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-begin-sensitive-display`
+
+</td>
+<td>
+
+Denies the begin_sensitive_display command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-confirm-wallet-backup`
 
 </td>
@@ -200,6 +226,32 @@ Enables the discard_unrecoverable_send command without any pre-configured scope.
 <td>
 
 Denies the discard_unrecoverable_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-end-sensitive-display`
+
+</td>
+<td>
+
+Enables the end_sensitive_display command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-end-sensitive-display`
+
+</td>
+<td>
+
+Denies the end_sensitive_display command without any pre-configured scope.
 
 </td>
 </tr>

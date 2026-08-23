@@ -1,0 +1,98 @@
+import { wallet } from "./bridge";
+
+export interface SensitiveSeedAuthority {
+  begin(): Promise<string>;
+  end(token: string): Promise<void>;
+}
+
+type ReleaseScheduler = (release: () => void) => void;
+
+const releaseAfterRendererPaint: ReleaseScheduler = (release) => {
+  if (typeof requestAnimationFrame !== "function") {
+    queueMicrotask(release);
+    return;
+  }
+  // React state updates are not paint acknowledgements. Keep native capture
+  // protection through two animation frames so the cleared view is actually
+  // presented before releasing it. Backgrounded WebViews suspend RAF, which
+  // intentionally keeps native protection fail closed until foreground.
+  requestAnimationFrame(() => requestAnimationFrame(release));
+};
+
+export class SensitiveSeedSession {
+  private generation = 0;
+  private token: string | null = null;
+  private active = false;
+
+  constructor(
+    private readonly authority: SensitiveSeedAuthority,
+    private readonly publish: (phrase: string | null) => void,
+    private readonly scheduleRelease: ReleaseScheduler = releaseAfterRendererPaint,
+  ) {}
+
+  async reveal(readPhrase: () => Promise<string>): Promise<boolean> {
+    this.clear();
+    this.active = true;
+    const generation = ++this.generation;
+    this.publish(null);
+    let token: string;
+    try {
+      token = await this.authority.begin();
+    } catch (error) {
+      if (generation === this.generation) {
+        this.active = false;
+        this.publish(null);
+      }
+      throw error;
+    }
+    if (generation !== this.generation) {
+      await this.release(token);
+      return false;
+    }
+    this.token = token;
+    try {
+      // Native capture protection is active before this biometric/user-
+      // presence-bound custody read can put a mnemonic in the renderer.
+      const phrase = await readPhrase();
+      if (generation !== this.generation || this.token !== token) {
+        await this.release(token);
+        return false;
+      }
+      this.publish(phrase);
+      return true;
+    } catch (error) {
+      if (generation === this.generation && this.token === token) {
+        this.token = null;
+        this.active = false;
+        this.publish(null);
+        await this.release(token);
+      }
+      throw error;
+    }
+  }
+
+  clear(): boolean {
+    if (!this.active) return false;
+    this.active = false;
+    ++this.generation;
+    this.publish(null);
+    const token = this.token;
+    this.token = null;
+    if (token) this.scheduleRelease(() => void this.release(token));
+    return true;
+  }
+
+  private async release(token: string): Promise<void> {
+    try {
+      await this.authority.end(token);
+    } catch {
+      // Native protection is fail closed: a failed release retains the secure
+      // flag/cover. Never restore renderer material to compensate.
+    }
+  }
+}
+
+export const walletSensitiveSeedAuthority: SensitiveSeedAuthority = {
+  begin: () => wallet.beginSensitiveDisplay().then(({ token }) => token),
+  end: (token) => wallet.endSensitiveDisplay(token),
+};

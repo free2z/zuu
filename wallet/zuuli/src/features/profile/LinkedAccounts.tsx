@@ -34,12 +34,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SocialButtons } from "@/components/common/SocialButtons";
-import { LINK_STEP_META, useZcashAssociate } from "@/features/auth/useZcashAssociate";
-import { STEP_ORDER, type StepStatus } from "@/features/auth/useZcashChallengeFlow";
+import {
+  LINK_STEP_META,
+  useZcashAssociate,
+} from "@/features/auth/useZcashAssociate";
+import {
+  STEP_ORDER,
+  type StepStatus,
+} from "@/features/auth/useZcashChallengeFlow";
 import { SeedReveal } from "@/features/auth/SeedReveal";
 import { truncateAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { SOCIAL_PROVIDERS, type AuthUser, type SocialProvider } from "@/lib/api/types";
+import {
+  SOCIAL_PROVIDERS,
+  type AuthUser,
+  type SocialProvider,
+} from "@/lib/api/types";
 
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === "done") {
@@ -83,6 +93,7 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     createIdentity,
     revealSeedBackup,
     confirmSeedSaved,
+    hideSeedBackup,
     retry,
   } = flow;
 
@@ -98,7 +109,9 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     return (
       <div className="animate-slide-up space-y-5">
         <div className="rounded-lg border border-border bg-background/40 p-4">
-          <p className="text-sm font-medium">No Zcash identity on this device</p>
+          <p className="text-sm font-medium">
+            No Zcash identity on this device
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
             Create one now, then it can be linked to your account.
           </p>
@@ -153,6 +166,7 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
         seedPhrase={seedPhrase}
         confirming={phase === "confirmingBackup"}
         error={error}
+        onDismiss={hideSeedBackup}
         onConfirm={confirmSeedSaved}
       />
     );
@@ -187,10 +201,11 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
     <div className="animate-slide-up space-y-5">
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
-          <span className="eyebrow text-muted-foreground">
-            Linking
-          </span>
-          <code className="mono-id font-mono text-xs text-foreground" title={address}>
+          <span className="eyebrow text-muted-foreground">Linking</span>
+          <code
+            className="mono-id font-mono text-xs text-foreground"
+            title={address}
+          >
             {truncateAddress(address)}
           </code>
         </div>
@@ -268,7 +283,9 @@ function ZcashLinkDialog({
           </DialogDescription>
         </DialogHeader>
         {/* Remount on every open so a prior run's state never leaks in. */}
-        {open && <ZcashLinkDialogBody key="link" onDone={() => onOpenChange(false)} />}
+        {open && (
+          <ZcashLinkDialogBody key="link" onDone={() => onOpenChange(false)} />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -290,7 +307,9 @@ function IdentityRow({ icon, label, detail, action }: IdentityRowProps) {
         </span>
         <div className="min-w-0">
           <div className="font-medium">{label}</div>
-          <div className="break-all text-xs text-muted-foreground">{detail}</div>
+          <div className="break-all text-xs text-muted-foreground">
+            {detail}
+          </div>
         </div>
       </div>
       <div className="shrink-0 [&>*]:w-full sm:[&>*]:w-auto">{action}</div>
@@ -307,7 +326,9 @@ const SOCIAL_LABEL: Record<SocialProvider, string> = {
 export function LinkedAccounts({ user }: { user: AuthUser }) {
   const identity = user.zcash_identity;
   const did = identity ? `did:zcash:${identity}` : null;
-  const linkedSocial = SOCIAL_PROVIDERS.filter((p) => user.social_identities?.[p]);
+  const linkedSocial = SOCIAL_PROVIDERS.filter(
+    (p) => user.social_identities?.[p],
+  );
 
   const [dialogOpen, setDialogOpen] = useState(false);
 

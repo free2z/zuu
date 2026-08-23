@@ -6,6 +6,8 @@ const COMMANDS: &[&str] = &[
     "get_seed_phrase",
     "get_backup_seed_phrase",
     "confirm_wallet_backup",
+    "begin_sensitive_display",
+    "end_sensitive_display",
     "get_viewing_key",
     "get_spending_key",
     "list_wallets",

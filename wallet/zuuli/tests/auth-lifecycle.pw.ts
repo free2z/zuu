@@ -29,13 +29,19 @@ async function unmountLoginWithoutReload(page: Page) {
 
 async function expectNoInvisibleLogin(page: Page) {
   await page.waitForTimeout(2_500);
-  expect(await page.evaluate((key) => localStorage.getItem(key), TOKEN_KEY)).toBeNull();
+  expect(
+    await page.evaluate((key) => localStorage.getItem(key), TOKEN_KEY),
+  ).toBeNull();
   await expect(page).toHaveURL(/\/articles$/);
   await expect(page.getByText(/Welcome (?:back|to ZUULI)/)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Account menu" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Account menu" })).toHaveCount(
+    0,
+  );
 }
 
-test("unmounted password and OTP attempts cannot publish a session", async ({ page }) => {
+test("unmounted password and OTP attempts cannot publish a session", async ({
+  page,
+}) => {
   await openLogin(page);
   await page.getByRole("button", { name: "Password", exact: true }).click();
   await page.getByLabel("Email or username").fill("plain-user");
@@ -63,7 +69,9 @@ test("unmounted password and OTP attempts cannot publish a session", async ({ pa
 });
 
 for (const stage of ["prepare", "challenge", "sign", "verify"] as const) {
-  test(`unmounted Zcash ${stage} attempt cannot publish a session`, async ({ page }) => {
+  test(`unmounted Zcash ${stage} attempt cannot publish a session`, async ({
+    page,
+  }) => {
     await openLogin(page);
     await page.getByRole("button", { name: "Zcash", exact: true }).click();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -81,7 +89,9 @@ for (const stage of ["prepare", "challenge", "sign", "verify"] as const) {
   });
 }
 
-test("an unmounted Zcash retry cannot revive the failed attempt", async ({ page }) => {
+test("an unmounted Zcash retry cannot revive the failed attempt", async ({
+  page,
+}) => {
   await openLogin(page, "sign-error");
   await page.getByRole("button", { name: "Zcash", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -99,7 +109,9 @@ test("an unmounted recovery cannot continue into challenge verification", async 
   await page.getByRole("button", { name: "Use existing identity" }).click();
   await page.getByLabel("Recovery phrase").fill(RECOVERY_PHRASE);
   await page.getByRole("button", { name: "Restore and continue" }).click();
-  await expect(page.getByRole("button", { name: "Restoring identity…" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Restoring identity…" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Choose another login method" }),
   ).toBeDisabled();
@@ -108,9 +120,11 @@ test("an unmounted recovery cannot continue into challenge verification", async 
   await expect(page.locator("textarea")).toHaveCount(0);
   await expectNoInvisibleLogin(page);
   expect(
-    await page.evaluate((secret) =>
-      Object.values(localStorage).some((value) => value.includes(secret)),
-    "wisdom shadow"),
+    await page.evaluate(
+      (secret) =>
+        Object.values(localStorage).some((value) => value.includes(secret)),
+      "wisdom shadow",
+    ),
   ).toBe(false);
 });
 
@@ -120,30 +134,44 @@ test("new identity backup resumes after method switch and process-style reload",
   await openLogin(page, "empty");
   await page.getByRole("button", { name: "Zcash", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByText("No Zcash identity on this device")).toBeVisible();
   await expect(
-    page.getByText("A new key creates a distinct identity and may open a different account."),
+    page.getByText("No Zcash identity on this device"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "A new key creates a distinct identity and may open a different account.",
+    ),
   ).toBeVisible();
   await page.getByRole("button", { name: "Create new identity" }).click();
-  await expect(page.getByText("This recovery phrase is your identity.")).toBeVisible();
+  await expect(page.getByText("Back up your recovery phrase")).toBeVisible();
 
-  await page.getByRole("button", { name: "Choose another login method" }).click();
+  await page
+    .getByRole("button", { name: "Choose another login method" })
+    .click();
   await expect(page.getByText("wisdom", { exact: true })).toHaveCount(0);
   expect(
-    await page.evaluate(() => localStorage.getItem("zuuli.mock.backup-required")),
+    await page.evaluate(() =>
+      localStorage.getItem("zuuli.mock.backup-required"),
+    ),
   ).toBe("mock-wallet-0");
   await page.getByRole("button", { name: "Password", exact: true }).click();
-  await page.getByRole("button", { name: "Choose another login method" }).click();
+  await page
+    .getByRole("button", { name: "Choose another login method" })
+    .click();
   await page.getByRole("button", { name: "Zcash", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByText("Back up your recovery phrase")).toBeVisible();
   await page.getByRole("button", { name: "Reveal recovery phrase" }).click();
   await page.getByRole("button", { name: "Reveal recovery phrase" }).click();
   await expect(page.getByText("wisdom", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Choose another login method" }).click();
+  await page
+    .getByRole("button", { name: "Choose another login method" })
+    .click();
   await expect(page.getByText("wisdom", { exact: true })).toHaveCount(0);
   expect(
-    await page.evaluate(() => localStorage.getItem("zuuli.mock.backup-required")),
+    await page.evaluate(() =>
+      localStorage.getItem("zuuli.mock.backup-required"),
+    ),
   ).toBe("mock-wallet-0");
 
   await page.reload();
@@ -167,7 +195,32 @@ test("new identity backup resumes after method switch and process-style reload",
   await confirm.click();
 
   await expect(page).toHaveURL(/\/$/, { timeout: 8_000 });
-  expect(await page.evaluate((key) => localStorage.getItem(key), TOKEN_KEY)).toBe(
-    "mock-knox-token-zcash",
-  );
+  expect(
+    await page.evaluate((key) => localStorage.getItem(key), TOKEN_KEY),
+  ).toBe("mock-knox-token-zcash");
+});
+
+test("backgrounding clears a revealed mnemonic and requires fresh reveal", async ({
+  page,
+}) => {
+  await openLogin(page, "empty");
+  await page.getByRole("button", { name: "Zcash", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Create new identity" }).click();
+
+  await page.getByRole("button", { name: "Reveal recovery phrase" }).click();
+  await page.getByRole("button", { name: "Reveal recovery phrase" }).click();
+  await expect(page.getByText("wisdom", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(page.getByText("wisdom", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Back up your recovery phrase")).toBeVisible();
+
+  await page.getByRole("button", { name: "Reveal recovery phrase" }).click();
+  await expect(
+    page.getByText("This recovery phrase is your identity."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Reveal recovery phrase" }),
+  ).toBeVisible();
 });
