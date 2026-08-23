@@ -6,7 +6,13 @@ title: 'Uploads and file storage'
 To get to your uploads, go to [your profile](https://free2z.com/profile) and click the
 upload icon or go directly to [your uploads page](https://free2z.com/profile/uploads).
 
-Welcome to the sleek and simple uploads feature of Free2Z! This feature allows you to easily and securely store, share, and access files of any type, up to 100 megabytes per upload. With the ability to drag and drop files and upload multiple files at once, you can quickly and easily add your files to your storage.
+Welcome to the sleek and simple uploads feature of Free2Z! This feature allows you to easily and securely store, share, and access files of any type. The maximum size of each file depends on your current 2Z (Tuzi) balance:
+
+- With exactly 0 2Zs, you can upload files up to and including 5 MB.
+- With more than 0 but fewer than 5,000 2Zs, you can upload files up to and including 250 MB.
+- With 5,000 2Zs or more, you can upload files up to and including 5 GB.
+
+You can drag and drop files and upload multiple files at once to quickly add them to your storage.
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/INj_hXrJyPo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
