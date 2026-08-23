@@ -101,11 +101,11 @@ wallet/zuuallet/
 
 ### Create wallet
 
-Welcome -> CreateWallet -> (generates mnemonic, fetches chain tip birthday) -> shows seed phrase -> Home
+Welcome -> CreateWallet -> (native engine generates a fixed 24-word mnemonic and fetches the chain-tip birthday) -> protected seed reveal -> Home
 
 ### Restore wallet
 
-Welcome -> RestoreWallet -> (enter seed phrase + optional birthday height) -> Home
+Welcome -> RestoreWallet -> (enter a supported 12/15/18/21/24-word seed phrase + optional birthday height) -> Home
 
 ### Send
 
