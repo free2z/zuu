@@ -83,6 +83,29 @@ interface BrandedHostPolicy {
   handlePath: (handle: string) => string;
 }
 
+const RESERVED_PROFILE_SEGMENTS = new Set([
+  "account",
+  "accounts",
+  "auth",
+  "authorize",
+  "direct",
+  "explore",
+  "home",
+  "intent",
+  "l.php",
+  "login",
+  "logout",
+  "oauth",
+  "out",
+  "redirect",
+  "search",
+  "settings",
+  "share",
+  "signin",
+  "signup",
+  "url",
+]);
+
 /** Exact reviewed hosts. Entries such as `www` and legacy Twitter/Telegram
  * hosts are aliases, not wildcard subdomain grants. */
 const BRANDED_HOSTS: Record<BrandedKey, BrandedHostPolicy> = {
@@ -133,6 +156,30 @@ const BRANDED_HOSTS: Record<BrandedKey, BrandedHostPolicy> = {
   },
 };
 
+function validPlatformHandle(key: BrandedKey, handle: string): boolean {
+  if (RESERVED_PROFILE_SEGMENTS.has(handle.toLowerCase())) return false;
+  switch (key) {
+    case "twitter":
+      return /^[A-Za-z0-9_]{1,15}$/.test(handle);
+    case "github":
+      return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(handle);
+    case "instagram":
+      return /^[A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?$/.test(handle);
+    case "youtube":
+      return /^[A-Za-z0-9_.-]{3,30}$/.test(handle);
+    case "facebook":
+      return /^[A-Za-z0-9.]{1,50}$/.test(handle);
+    case "linkedin":
+      return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?$/.test(handle);
+    case "reddit":
+      return /^[A-Za-z0-9_-]{3,20}$/.test(handle);
+    case "telegram":
+      return /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(handle);
+    case "nostr":
+      return /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/.test(handle);
+  }
+}
+
 function plainHandle(key: BrandedKey, value: string): string | null {
   let handle = value.trim();
   if (key === "nostr") handle = handle.replace(/^nostr:/i, "");
@@ -142,8 +189,31 @@ function plainHandle(key: BrandedKey, value: string): string | null {
 
   // Handles are path data, never another URL or a query/fragment. Keeping the
   // accepted alphabet deliberately small also prevents invisible lookalikes.
-  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/.test(handle)) return null;
-  return handle;
+  return validPlatformHandle(key, handle) ? handle : null;
+}
+
+/** Extract only the reviewed profile shape for a branded platform. Absolute
+ * input is never returned directly: the identifier is validated and rebuilt
+ * through the canonical handle path below. */
+function profileHandle(key: BrandedKey, url: URL): string | null {
+  if (url.search || url.hash || url.pathname.includes("%")) return null;
+
+  let match: RegExpExecArray | null;
+  switch (key) {
+    case "youtube":
+      match = /^\/@([^/]+)\/?$/.exec(url.pathname);
+      break;
+    case "linkedin":
+      match = /^\/in\/([^/]+)\/?$/i.exec(url.pathname);
+      break;
+    case "reddit":
+      match = /^\/(?:u|user)\/([^/]+)\/?$/i.exec(url.pathname);
+      break;
+    default:
+      match = /^\/([^/]+)\/?$/.exec(url.pathname);
+      break;
+  }
+  return match ? plainHandle(key, match[1]) : null;
 }
 
 function brandedUrl(key: BrandedKey, rawValue: string): URL | null {
@@ -190,8 +260,14 @@ function brandedUrl(key: BrandedKey, rawValue: string): URL | null {
     ) {
       return null;
     }
-    url.hostname = policy.canonicalHost;
-    return url;
+    const handle = profileHandle(key, url);
+    return handle
+      ? new URL(
+          `https://${policy.canonicalHost}${policy.handlePath(
+            encodeURIComponent(handle),
+          )}`,
+        )
+      : null;
   } catch {
     return null;
   }
@@ -208,7 +284,12 @@ function genericHttpsUrl(rawValue: string): URL | null {
 
   try {
     const url = new URL(candidate);
-    if (url.protocol !== "https:" || url.username || url.password || !url.hostname) {
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !url.hostname
+    ) {
       return null;
     }
     return url;
@@ -463,7 +544,9 @@ function buildSocialLinks(map: Record<string, string>): SocialLink[] {
     });
   }
 
-  links.sort((a, b) => RENDER_ORDER.indexOf(a.key) - RENDER_ORDER.indexOf(b.key));
+  links.sort(
+    (a, b) => RENDER_ORDER.indexOf(a.key) - RENDER_ORDER.indexOf(b.key),
+  );
   return links;
 }
 

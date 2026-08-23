@@ -95,6 +95,21 @@ const BRANDED_CASES: readonly BrandedCase[] = [
   },
 ] as const;
 
+const REDIRECT_SURFACES: Readonly<Record<BrandedCase["key"], string>> = {
+  twitter: "https://x.com/intent/post?url=https%3A%2F%2Fattacker.test",
+  github:
+    "https://github.com/login/oauth/authorize?redirect_uri=https%3A%2F%2Fattacker.test",
+  instagram:
+    "https://instagram.com/accounts/login/?next=https%3A%2F%2Fattacker.test",
+  youtube: "https://youtube.com/redirect?q=https%3A%2F%2Fattacker.test",
+  facebook: "https://facebook.com/l.php?u=https%3A%2F%2Fattacker.test",
+  linkedin:
+    "https://linkedin.com/redir/redirect?url=https%3A%2F%2Fattacker.test",
+  reddit: "https://reddit.com/out?url=https%3A%2F%2Fattacker.test",
+  telegram: "https://t.me/share/url?url=https%3A%2F%2Fattacker.test",
+  nostr: "https://njump.me/redirect?url=https%3A%2F%2Fattacker.test",
+};
+
 function oneSocial(key: string, value: string) {
   return parseBioFrontmatter(
     `---\nsocials:\n  ${key}: "${value}"\n---\n\nVisible bio`,
@@ -138,6 +153,28 @@ describe("creator bio branded social links", () => {
     },
   );
 
+  it.each(BRANDED_CASES)(
+    "rejects on-host $key redirect and non-profile surfaces",
+    ({ key }) => {
+      expect(oneSocial(key, REDIRECT_SURFACES[key]).socials).toEqual([]);
+    },
+  );
+
+  it.each(BRANDED_CASES)(
+    "rebuilds an explicit $key profile without arbitrary URL components",
+    ({ key, canonicalUrl }) => {
+      expect(oneSocial(key, `${canonicalUrl}/`).socials[0]?.url).toBe(
+        canonicalUrl,
+      );
+      expect(
+        oneSocial(key, `${canonicalUrl}?next=https://attacker.test`).socials,
+      ).toEqual([]);
+      expect(
+        oneSocial(key, `${canonicalUrl}#https://attacker.test`).socials,
+      ).toEqual([]);
+    },
+  );
+
   for (const { key, canonicalHost } of BRANDED_CASES) {
     const attacks = [
       ["plain HTTP", `http://${canonicalHost}/alice`],
@@ -158,20 +195,24 @@ describe("creator bio branded social links", () => {
   }
 
   it("accepts an explicit default HTTPS port and removes it canonically", () => {
-    expect(oneSocial("github", "https://github.com:443/alice").socials[0]?.url).toBe(
-      "https://github.com/alice",
-    );
+    expect(
+      oneSocial("github", "https://github.com:443/alice").socials[0]?.url,
+    ).toBe("https://github.com/alice");
   });
 
   it("fails closed for a stored branded value while preserving the visible bio", () => {
-    const parsed = oneSocial("github", "https://github.com.attacker.test/phish");
+    const parsed = oneSocial(
+      "github",
+      "https://github.com.attacker.test/phish",
+    );
     expect(parsed).toEqual({ body: "Visible bio", socials: [] });
   });
 });
 
 describe("creator bio generic links", () => {
   it("requires HTTPS and exposes the browser-canonical website host", () => {
-    const social = oneSocial("website", "docs.example:8443/projects").socials[0];
+    const social = oneSocial("website", "docs.example:8443/projects")
+      .socials[0];
     expect(social).toEqual(
       expect.objectContaining({
         url: "https://docs.example:8443/projects",
@@ -180,10 +221,12 @@ describe("creator bio generic links", () => {
         destinationHost: "docs.example:8443",
       }),
     );
-    expect(oneSocial("website", "http://docs.example/projects").socials).toEqual([]);
-    expect(oneSocial("website", "https://reader@docs.example/projects").socials).toEqual(
-      [],
-    );
+    expect(
+      oneSocial("website", "http://docs.example/projects").socials,
+    ).toEqual([]);
+    expect(
+      oneSocial("website", "https://reader@docs.example/projects").socials,
+    ).toEqual([]);
   });
 
   it("canonicalizes a federated Mastodon handle and exposes its instance", () => {
@@ -198,7 +241,9 @@ describe("creator bio generic links", () => {
   });
 
   it("rejects insecure or credential-bearing Mastodon URLs", () => {
-    expect(oneSocial("mastodon", "http://social.example/@alice").socials).toEqual([]);
+    expect(
+      oneSocial("mastodon", "http://social.example/@alice").socials,
+    ).toEqual([]);
     expect(
       oneSocial("mastodon", "https://alice@social.example/@alice").socials,
     ).toEqual([]);
