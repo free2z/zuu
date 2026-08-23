@@ -1,0 +1,4 @@
+.converse-feed {
+  /* Virtuoso remeasures async embeds; native anchoring would move the window too. */
+  overflow-anchor: none;
+}
