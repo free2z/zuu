@@ -39,6 +39,16 @@ function collectConsts(value, output = []) {
   return output;
 }
 
+function assertIdentical(entries, label) {
+  const [first, ...rest] = entries;
+  const different = rest.filter((entry) => !entry.contents.equals(first.contents));
+  if (different.length) {
+    throw new Error(
+      `${label} differ: ${[first, ...different].map((entry) => entry.name).join(", ")}`,
+    );
+  }
+}
+
 function expectFailure(fn, pattern) {
   try {
     fn();
@@ -59,6 +69,17 @@ function selfTest() {
     /missing: two/,
   );
   expectFailure(() => unique(["one", "one"], "commands"), /duplicates: one/);
+  expectFailure(
+    () =>
+      assertIdentical(
+        [
+          { name: "linux", contents: Buffer.from("current") },
+          { name: "macOS", contents: Buffer.from("stale") },
+        ],
+        "target schemas",
+      ),
+    /target schemas differ: linux, macOS/,
+  );
   console.log("Zcash permission parity negative controls passed.");
 }
 
@@ -132,6 +153,26 @@ const referenceIds = unique(
 );
 assertSameSet(permissionIds, referenceIds, "command TOMLs and permission reference");
 
+const appSchemaDir = path.join(root, "wallet/zuuallet/src-tauri/gen/schemas");
+const appSchemaNames = ["linux-schema.json", "macOS-schema.json", "desktop-schema.json"];
+const namespacedPermissionIds = permissionIds.map((identifier) => `zcash:${identifier}`);
+const expectedAppSchemaIds = [...namespacedPermissionIds, "zcash:default"];
+const appSchemas = appSchemaNames.map((name) => {
+  const contents = fs.readFileSync(path.join(appSchemaDir, name));
+  const schema = JSON.parse(contents);
+  const identifiers = unique(
+    collectConsts(schema).filter((value) => value.startsWith("zcash:")),
+    `${name} Zcash permission identifiers`,
+  );
+  assertSameSet(
+    expectedAppSchemaIds,
+    identifiers,
+    `generated permissions and ${name}`,
+  );
+  return { name, contents };
+});
+assertIdentical(appSchemas, "tracked Zuuallet target schemas");
+
 console.log(
-  `Zcash permission generation matches ${commands.length} registered commands and ${permissionIds.length} permission identifiers.`,
+  `Zcash permission generation matches ${commands.length} registered commands and ${permissionIds.length} permission identifiers across ${appSchemas.length} tracked target schemas.`,
 );
