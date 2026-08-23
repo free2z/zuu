@@ -125,6 +125,23 @@ mod legacy_app_data_tests {
     }
 
     #[test]
+    fn wallet_creation_rejects_legacy_word_count_control() {
+        let current: CreateWalletArgs =
+            serde_json::from_value(serde_json::json!({ "name": "New wallet" }))
+                .expect("current creation arguments");
+        assert_eq!(current.name.as_deref(), Some("New wallet"));
+
+        let stale = serde_json::from_value::<CreateWalletArgs>(serde_json::json!({
+            "mnemonicWordCount": 12,
+            "name": "Unsafe legacy caller"
+        }));
+        assert!(
+            stale.is_err(),
+            "caller-controlled word counts must fail closed"
+        );
+    }
+
+    #[test]
     fn spending_key_status_never_serializes_secret_material() {
         let value = serde_json::to_value(SpendingKeyStatus {
             account_index: 0,
@@ -284,9 +301,8 @@ pub struct SpendingKeyStatus {
 // Command argument types
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateWalletArgs {
-    pub mnemonic_word_count: Option<u32>,
     pub name: Option<String>,
 }
 

@@ -27,7 +27,7 @@ export function useWallet() {
   const createWallet = useCallback(
     async (name?: string) => {
       try {
-        const result = await api.createWallet(24, name);
+        const result = await api.createWallet(name);
         createdSeedSession.prepare(result.walletId);
         try {
           await createdSeedSession.reveal(result.walletId, (walletId, token) =>

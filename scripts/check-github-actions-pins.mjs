@@ -154,6 +154,18 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
+const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
+  "wallet/zuuallet/src/hooks/useWallet.ts",
+  "wallet/zuuallet/src/lib/mnemonic.ts",
+  "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
+  "wallet/zuuallet/src/lib/sensitive-seed.ts",
+  "wallet/zuuallet/src/lib/tauri.ts",
+  "wallet/zuuallet/src/pages/CreateWallet.tsx",
+  "wallet/zuuallet/src/pages/RestoreWallet.tsx",
+  "wallet/zuuallet/src/pages/Settings.tsx",
+  "wallet/zuuallet/src/pages/Welcome.tsx",
+  "wallet/zuuallet/src/types/index.ts",
+];
 const REQUIRED_FRONTEND_JOB_LINES = [
   "  frontend:",
   "    needs: changes",
@@ -1291,6 +1303,13 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
       );
     }
   }
+  for (const input of REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS) {
+    if (!zuuliPatterns.has(input)) {
+      failures.push(
+        `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the seed boundary for classic input ${input}`,
+      );
+    }
+  }
   return failures;
 }
 
@@ -2401,6 +2420,11 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle: "ZUULI selector must cover scripts/check-rust-toolchain.sh",
       source: source.replace("|scripts/check-rust-toolchain.sh", ""),
     },
+    ...REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS.map((input) => ({
+      name: `real workflow selects classic seed-boundary input ${input}`,
+      needle: `ZUULI selector must run the seed boundary for classic input ${input}`,
+      source: source.replace(`|${input}`, ""),
+    })),
     {
       name: "real workflow rejects a dynamically dead frontend job",
       needle:

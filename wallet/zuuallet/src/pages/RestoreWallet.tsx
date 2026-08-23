@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { useWallet } from "../hooks/useWallet";
+import { isSupportedBip39WordCount } from "../lib/mnemonic";
 
 export function RestoreWallet() {
   const { setPage, error, walletStatus } = useWalletStore();
@@ -15,20 +16,19 @@ export function RestoreWallet() {
   };
 
   const wordCount = phrase.trim() ? phrase.trim().split(/\s+/).length : 0;
+  const validWordCount = isSupportedBip39WordCount(wordCount);
   const hasWallets = (walletStatus?.walletCount ?? 0) > 0;
 
-  const badgeClass =
-    wordCount < 12
-      ? "bg-red-500/10 text-red-400"
-      : wordCount < 24
-        ? "bg-amber-500/10 text-amber-400"
-        : "bg-emerald-500/10 text-emerald-400";
+  const badgeClass = validWordCount
+    ? "bg-emerald-500/10 text-emerald-400"
+    : "bg-red-500/10 text-red-400";
 
   return (
     <div className="max-w-lg mx-auto p-8 animate-fade-in">
       <h2 className="text-2xl font-bold text-white mb-2">Restore Wallet</h2>
       <p className="text-zinc-400 text-sm mb-6">
-        Enter your 24-word recovery phrase to restore your wallet.
+        Enter a 12, 15, 18, 21, or 24-word recovery phrase to restore your
+        wallet.
       </p>
 
       <div className="mb-4">
@@ -92,7 +92,7 @@ export function RestoreWallet() {
 
       <button
         onClick={handleRestore}
-        disabled={wordCount < 12}
+        disabled={!validWordCount}
         className="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >
         Restore Wallet

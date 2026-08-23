@@ -12,8 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-
-const SUPPORTED_WORD_COUNTS = new Set([12, 15, 18, 21, 24]);
+import { isSupportedBip39WordCount } from "@/lib/wallet/mnemonic";
 
 interface RestoreIdentityProps {
   restoring: boolean;
@@ -44,7 +43,7 @@ export function RestoreIdentity({
     [seedPhrase],
   );
   const wordCount = normalizedPhrase ? normalizedPhrase.split(" ").length : 0;
-  const supportedWordCount = SUPPORTED_WORD_COUNTS.has(wordCount);
+  const supportedWordCount = isSupportedBip39WordCount(wordCount);
 
   useEffect(() => {
     return () => {
@@ -65,6 +64,10 @@ export function RestoreIdentity({
     setLocalError(null);
     if (!normalizedPhrase) {
       setLocalError("Enter your recovery phrase.");
+      return;
+    }
+    if (!supportedWordCount) {
+      setLocalError("A recovery phrase must have 12, 15, 18, 21, or 24 words.");
       return;
     }
 
@@ -190,7 +193,12 @@ export function RestoreIdentity({
         </p>
       )}
 
-      <Button type="submit" size="lg" className="w-full" disabled={restoring}>
+      <Button
+        type="submit"
+        size="lg"
+        className="w-full"
+        disabled={restoring || !supportedWordCount}
+      >
         {restoring ? (
           <Loader2 className="animate-spin" aria-hidden />
         ) : (

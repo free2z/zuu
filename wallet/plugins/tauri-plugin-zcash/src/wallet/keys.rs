@@ -10,21 +10,13 @@ use sha2::{Digest, Sha256, Sha512};
 
 use crate::error::{Error, Result};
 
-/// Generate a new BIP39 mnemonic seed phrase.
-pub fn generate_mnemonic(word_count: u32) -> Result<Mnemonic> {
-    let count = match word_count {
-        12 => Count::Words12,
-        15 => Count::Words15,
-        18 => Count::Words18,
-        21 => Count::Words21,
-        24 => Count::Words24,
-        _ => {
-            return Err(Error::InvalidMnemonic(format!(
-                "unsupported word count: {word_count}; use 12, 15, 18, 21, or 24"
-            )));
-        }
-    };
-    Ok(Mnemonic::generate(count))
+/// Generate the only recovery phrase length permitted for a new wallet.
+///
+/// Restore accepts every BIP39 length supported by [`parse_mnemonic`], but new
+/// entropy is deliberately not caller-configurable: every creation path gets
+/// the full 256-bit, 24-word form.
+pub fn generate_mnemonic() -> Mnemonic {
+    Mnemonic::generate(Count::Words24)
 }
 
 /// Parse an existing mnemonic phrase.
@@ -300,11 +292,23 @@ mod tests {
     use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 
     #[test]
-    fn parses_a_supported_bip39_recovery_phrase() {
-        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let mnemonic = parse_mnemonic(phrase).expect("known BIP39 recovery phrase");
+    fn new_wallet_mnemonic_is_always_24_words() {
+        let mnemonic = generate_mnemonic();
 
-        assert_eq!(mnemonic.phrase(), phrase);
+        assert_eq!(mnemonic.phrase().split_whitespace().count(), 24);
+    }
+
+    #[test]
+    fn parses_every_supported_bip39_recovery_phrase_length() {
+        for (entropy_bytes, expected_words) in [(16, 12), (20, 15), (24, 18), (28, 21), (32, 24)] {
+            let source: Mnemonic =
+                Mnemonic::from_entropy(vec![expected_words as u8; entropy_bytes])
+                    .expect("valid BIP39 entropy length");
+            let parsed = parse_mnemonic(source.phrase()).expect("supported BIP39 recovery phrase");
+
+            assert_eq!(parsed.phrase(), source.phrase());
+            assert_eq!(parsed.phrase().split_whitespace().count(), expected_words);
+        }
     }
 
     #[test]

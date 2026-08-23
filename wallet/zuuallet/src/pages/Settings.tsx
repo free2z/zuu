@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { SeedPhraseGrid } from "../components/SeedPhraseGrid";
 import { formatHeight } from "../lib/format";
+import { isSupportedBip39WordCount } from "../lib/mnemonic";
 import * as api from "../lib/tauri";
 import {
   SensitiveSeedSession,
@@ -121,12 +122,10 @@ function SeedPhraseSection() {
   const wordCount = unlockPhrase.trim()
     ? unlockPhrase.trim().split(/\s+/).length
     : 0;
-  const badgeClass =
-    wordCount < 12
-      ? "bg-red-500/10 text-red-400"
-      : wordCount < 24
-        ? "bg-amber-500/10 text-amber-400"
-        : "bg-emerald-500/10 text-emerald-400";
+  const validWordCount = isSupportedBip39WordCount(wordCount);
+  const badgeClass = validWordCount
+    ? "bg-emerald-500/10 text-emerald-400"
+    : "bg-red-500/10 text-red-400";
 
   const handleReveal = async () => {
     if (operationInFlight.current) return;
@@ -172,7 +171,7 @@ function SeedPhraseSection() {
     <div>
       <h3 className="text-sm font-medium text-white mb-1">Recovery Phrase</h3>
       <p className="text-xs text-zinc-500 mb-3">
-        Your 24-word seed phrase. Device authentication required.
+        Your wallet recovery phrase. Device authentication required.
       </p>
       <button
         onClick={handleReveal}
@@ -214,7 +213,7 @@ function SeedPhraseSection() {
           </div>
           <button
             onClick={handleUnlock}
-            disabled={unlocking || wordCount < 12}
+            disabled={unlocking || !validWordCount}
             className="px-5 py-2 bg-purple-500 hover:bg-purple-600 text-white text-sm rounded-xl font-semibold transition-colors disabled:opacity-50"
           >
             {unlocking ? "Verifying..." : "Unlock"}
