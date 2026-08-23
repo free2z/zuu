@@ -50,9 +50,9 @@ const ALLOWED_JOB_SECRETS = new Map([
 // semantic checks below explain the major boundaries, while the digest closes
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
-  ["ios-sign", "b2143be25eeb91c95c1f5f9b5feb70410fd791ca46ae7fce1e0561f713dbfe29"],
-  ["ios-upload", "d2372e34e07fbf31f64b950484a2168c78bcf35261e1858efd26f477f88c963c"],
-  ["macos-sign", "e177d4b9121dae642dd922bb252220bff43b64dff15981ce36bcd06e65ae0df4"],
+  ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
+  ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
+  ["macos-sign", "7b885b419a443d99acfbb04b1489581feb24050a9bd9c4548b19353c80d89a10"],
 ]);
 
 // These four inherited/root controls sit outside the protected job nodes but
@@ -234,6 +234,12 @@ export function verifyAppleCredentialBoundary(
 
   for (const name of [...BUILD_JOBS, ...CREDENTIAL_JOBS, ...FINALIZE_JOBS]) {
     if (!jobs.has(name)) failures.push(`workflow is missing required job ${name}`);
+  }
+  for (const name of [...BUILD_JOBS, ...CREDENTIAL_JOBS, ...FINALIZE_JOBS]) {
+    const source = jobs.get(name) ?? "";
+    if (/^[\t ]*\[\[[^\n]*\]\](?:[\t ]*#[^\n]*)?[\t ]*$/m.test(source)) {
+      failures.push(`${name} contains a bare Bash [[ ]] assertion that does not fail closed on macOS Bash 3.2`);
+    }
   }
   if (failures.length > 0) return failures;
 
