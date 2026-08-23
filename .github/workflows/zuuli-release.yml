@@ -308,17 +308,32 @@ jobs:
             find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} +
             rmdir "$ZUULI_SECRET_DIR"
           fi
+      - name: Unpack Android AAB for shipped-artifact SBOM
+        run: |
+          artifacts=(release-artifacts/*.aab)
+          [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }
+          artifact=${artifacts[0]}
+          node scripts/artifact-sbom.mjs prepare --artifact="$artifact" --root=artifact-sbom-work/android/root
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
-          path: wallet/zuuli
-          config: wallet/zuuli/syft.yaml
+          path: wallet/zuuli/artifact-sbom-work/android/root
+          config: wallet/zuuli/syft-artifact.yaml
           format: cyclonedx-json
-          output-file: wallet/zuuli/release-artifacts/ZUULI-android.sbom.cdx.json
+          output-file: wallet/zuuli/artifact-sbom-work/android/syft.raw.sbom.cdx.json
           upload-artifact: false
+      - name: Bind Android shipped-artifact SBOM
+        run: |
+          artifacts=(release-artifacts/*.aab)
+          [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }
+          artifact=${artifacts[0]}
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="$artifact" --root=artifact-sbom-work/android/root --raw-sbom=artifact-sbom-work/android/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
       - name: Record checksums and provenance
         run: |
-          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-android.sbom.cdx.json
+          artifacts=(release-artifacts/*.aab)
+          [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }
+          artifact=${artifacts[0]}
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/android/root --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
@@ -806,17 +821,32 @@ jobs:
           mkdir release-artifacts
           cp "uploaded-ios/ZUULI-${EXPECTED_IDENTITY}-ios.ipa" uploaded-ios/signing-record.json release-artifacts/
           [[ ! -f uploaded-ios/testflight.json ]] || cp uploaded-ios/testflight.json release-artifacts/
+      - name: Unpack iOS IPA for shipped-artifact SBOM
+        run: |
+          artifacts=(release-artifacts/*.ipa)
+          [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }
+          artifact=${artifacts[0]}
+          node scripts/artifact-sbom.mjs prepare --artifact="$artifact" --root=artifact-sbom-work/ios/root
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
-          path: wallet/zuuli
-          config: wallet/zuuli/syft.yaml
+          path: wallet/zuuli/artifact-sbom-work/ios/root
+          config: wallet/zuuli/syft-artifact.yaml
           format: cyclonedx-json
-          output-file: wallet/zuuli/release-artifacts/ZUULI-ios.sbom.cdx.json
+          output-file: wallet/zuuli/artifact-sbom-work/ios/syft.raw.sbom.cdx.json
           upload-artifact: false
+      - name: Bind iOS shipped-artifact SBOM
+        run: |
+          artifacts=(release-artifacts/*.ipa)
+          [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }
+          artifact=${artifacts[0]}
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="$artifact" --root=artifact-sbom-work/ios/root --raw-sbom=artifact-sbom-work/ios/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
       - name: Record checksums and provenance
         run: |
-          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-ios.sbom.cdx.json
+          artifacts=(release-artifacts/*.ipa)
+          [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }
+          artifact=${artifacts[0]}
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/ios/root --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
           node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
@@ -901,6 +931,8 @@ jobs:
           for extension in AppImage deb rpm; do
             test -n "$(find release-artifacts -type f -name "*.$extension" -size +0c -print -quit)"
           done
+      - name: Prepare explicitly labeled source inventory
+        run: mkdir -p artifact-sbom-work
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           {
@@ -908,12 +940,14 @@ jobs:
             path: wallet/zuuli,
             config: wallet/zuuli/syft.yaml,
             format: cyclonedx-json,
-            output-file: wallet/zuuli/release-artifacts/ZUULI-linux.sbom.cdx.json,
+            output-file: wallet/zuuli/artifact-sbom-work/ZUULI-linux.source.raw.sbom.cdx.json,
             upload-artifact: false,
           }
+      - name: Label Linux SBOM as source inventory
+        run: node scripts/artifact-sbom.mjs label-source --raw-sbom=artifact-sbom-work/ZUULI-linux.source.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux.source.sbom.cdx.json --source-root=wallet/zuuli
       - name: Record checksums and provenance
         run: |
-          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-linux.sbom.cdx.json
+          jq -e '(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)' release-artifacts/ZUULI-linux.source.sbom.cdx.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with: { subject-path: "wallet/zuuli/release-artifacts/*" }
@@ -1378,6 +1412,8 @@ jobs:
           mkdir release-artifacts
           cp "$dmg" "signed-macos/ZUULI-${EXPECTED_IDENTITY}-macos-universal.zip" \
             signed-macos/signing-record.json release-artifacts/
+      - name: Prepare explicitly labeled source inventory
+        run: mkdir -p artifact-sbom-work
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           {
@@ -1385,12 +1421,14 @@ jobs:
             path: wallet/zuuli,
             config: wallet/zuuli/syft.yaml,
             format: cyclonedx-json,
-            output-file: wallet/zuuli/release-artifacts/ZUULI-macos.sbom.cdx.json,
+            output-file: wallet/zuuli/artifact-sbom-work/ZUULI-macos.source.raw.sbom.cdx.json,
             upload-artifact: false,
           }
+      - name: Label macOS SBOM as source inventory
+        run: node scripts/artifact-sbom.mjs label-source --raw-sbom=artifact-sbom-work/ZUULI-macos.source.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos.source.sbom.cdx.json --source-root=wallet/zuuli
       - name: Record checksums and provenance
         run: |
-          jq -e '(.components // []) | length >= 50' release-artifacts/ZUULI-macos.sbom.cdx.json
+          jq -e '(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)' release-artifacts/ZUULI-macos.source.sbom.cdx.json
           node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with: { subject-path: "wallet/zuuli/release-artifacts/*" }

@@ -13,6 +13,37 @@ The verifier prints the identity only after proving that the marketing version,
 Apple build, Android `versionCode`, application identifier, and every other
 generated representation agree.
 
+## SBOM scope and artifact binding
+
+An SBOM name must state what was actually scanned. `*.artifact.sbom.cdx.json`
+documents an unpacked shipped payload; `*.source.sbom.cdx.json` documents the
+checkout and is not evidence about package contents. Both carry
+`free2z:inventory-scope` metadata so downstream automation need not infer scope
+from a filename.
+
+The packaging smoke workflow scans the unsigned Android AAB and iOS app ZIP.
+The protected release scans the signed Android AAB and iOS IPA. For each of
+these ZIP-family artifacts the release train:
+
+1. validates archive member paths and unpacks the actual package;
+2. runs Syft on that unpacked root;
+3. adds a complete, digest-bearing inventory of every regular file and a
+   target-bearing inventory of every safe relative symlink;
+4. writes a separate binding record containing the exact artifact and SBOM
+   SHA-256 digests and byte counts; and
+5. independently re-inventories the payload before the release manifest and
+   build-provenance attestation are created.
+
+Any omitted, altered, duplicate, escaping, or unsupported payload entry fails
+closed. The release manifest then hashes the artifact, SBOM, and binding record,
+and protected jobs attest every member of `release-artifacts`.
+
+Artifact-level extraction for Linux AppImage, deb, and rpm packages and for the
+macOS DMG and signed app ZIP remains tracked in issue #379. Those jobs retain
+their existing source-tree inventories, now explicitly labeled as such; they
+must not be described as artifact SBOMs until format-specific extraction and
+verification land.
+
 `release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
 byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
 compares the original bytes with the canonical serialization, rejecting invalid
