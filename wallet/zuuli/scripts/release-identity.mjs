@@ -694,6 +694,8 @@ for (const publishContract of [
 for (const releaseTagContract of [
   'RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}',
   'Verify release-index source binding',
+  'pattern: zuuli-{android,ios,linux,macos}-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}',
+  'scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA"',
   'scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" release-downloads',
 ]) {
   if (!releaseWorkflow.includes(releaseTagContract))
