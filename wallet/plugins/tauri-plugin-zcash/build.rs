@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "ensure_sapling_params",
     "propose_send",
     "propose_send_all",
+    "confirm_send",
     "execute_send",
     "discard_send_proposal",
     "get_pending_send",

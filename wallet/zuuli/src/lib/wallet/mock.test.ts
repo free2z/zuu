@@ -59,20 +59,32 @@ describe("mockWallet send confirmation", () => {
         proposal.reviewDigest,
         "wrong-token",
       ),
-    ).toThrow("does not match");
+    ).toThrow("do not match");
+    expect(() =>
+      mockWallet.executeSend(proposal.proposalId, proposal.reviewDigest, "unissued-token"),
+    ).toThrow("absent, stale, or mismatched");
+    expect(() =>
+      mockWallet.confirmSend(proposal.proposalId, proposal.reviewDigest, "wrong-token"),
+    ).toThrow("do not match");
+    const confirmation = mockWallet.confirmSend(
+      proposal.proposalId,
+      proposal.reviewDigest,
+      proposal.proposalToken,
+    );
+    expect(confirmation.expiresAt).toBeGreaterThan(Date.now());
     expect(() =>
       mockWallet.executeSend(
         proposal.proposalId,
         proposal.reviewDigest,
-        proposal.confirmationToken,
+        confirmation.confirmationToken,
       ),
     ).not.toThrow();
     expect(() =>
       mockWallet.executeSend(
         proposal.proposalId,
         proposal.reviewDigest,
-        proposal.confirmationToken,
+        confirmation.confirmationToken,
       ),
-    ).toThrow("does not match");
+    ).toThrow("absent, stale, or mismatched");
   });
 });

@@ -24,6 +24,7 @@ permissions = [
     "allow-ensure-sapling-params",
     "allow-propose-send",
     "allow-propose-send-all",
+    "allow-confirm-send",
     "allow-execute-send",
     "allow-discard-send-proposal",
     "allow-get-pending-send",
