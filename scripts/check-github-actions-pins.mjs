@@ -6,12 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
-const POLICY_REPO_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-);
-const EXTERNAL_USES =
-  /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
+const POLICY_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const EXTERNAL_USES = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
 const REQUIRED_WORKFLOW_PATH = ".github/workflows/zuuli.yml";
 const GATE_CHECKOUT_REFERENCE =
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
@@ -78,7 +74,6 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/src/lib.rs",
   "wallet/future-crate/Cargo.toml",
   "wallet/future-crate/Cargo.lock",
-  "wallet/future-crate/.cargo/config.toml",
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
@@ -92,7 +87,9 @@ const REQUIRED_WORKFLOW_ENVIRONMENT = new Map([
 const REQUIRED_JOB_ENVIRONMENTS = new Map([
   [
     "zuuallet_schema",
-    new Map([["CARGO_TARGET_DIR", "${{ github.workspace }}/target"]]),
+    new Map([
+      ["CARGO_TARGET_DIR", "${{ github.workspace }}/target"],
+    ]),
   ],
 ]);
 const REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES = new Map([
@@ -201,20 +198,17 @@ function usesFromLine(line) {
   // complete YAML resolver.
   if (/^\s*(?:-\s*)?\?\s*/.test(keySearchLine)) {
     return {
-      error:
-        "explicit YAML mapping keys are unsupported; put `uses:` on its own line",
+      error: "explicit YAML mapping keys are unsupported; put `uses:` on its own line",
     };
   }
   if (/^\s*(?:-\s*)?"(?:\\.|[^"])*\\\s*$/.test(line)) {
     return {
-      error:
-        "continued quoted YAML scalars are unsupported because they can construct `uses`",
+      error: "continued quoted YAML scalars are unsupported because they can construct `uses`",
     };
   }
   if (/[\[,{]\s*(?:"(?:\\.|[^"])*"|'(?:''|[^'])*')\s*:/.test(keySearchLine)) {
     return {
-      error:
-        "quoted keys in inline YAML mappings are unsupported because they can encode `uses`",
+      error: "quoted keys in inline YAML mappings are unsupported because they can encode `uses`",
     };
   }
 
@@ -283,8 +277,7 @@ function usesFromLine(line) {
 
   const comment = scalar.search(/\s+#/);
   const ref = (comment < 0 ? scalar : scalar.slice(0, comment)).trim();
-  const provenance =
-    comment < 0 ? "" : scalar.slice(comment).replace(/^\s+#/, "").trim();
+  const provenance = comment < 0 ? "" : scalar.slice(comment).replace(/^\s+#/, "").trim();
   return ref ? { provenance, ref } : { error: "empty `uses:` value" };
 }
 
@@ -647,10 +640,7 @@ function requiredContainerInjectionFailures(relativeFile, lines, job) {
     }
     if (line.indent <= container.indent) break;
     if (line.indent !== container.indent + 2) continue;
-    const entry = mappingEntry(
-      line.text,
-      `required job ${job.id} container property`,
-    );
+    const entry = mappingEntry(line.text, `required job ${job.id} container property`);
     if (entry.error) {
       failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
     } else if (["env", "options"].includes(entry.key)) {
@@ -688,7 +678,7 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
   }
   const jobEnvironment = job.properties.get("env");
   const expectedJobEnvironment = requiredMainWorkflow
-    ? (REQUIRED_JOB_ENVIRONMENTS.get(job.id) ?? new Map())
+    ? REQUIRED_JOB_ENVIRONMENTS.get(job.id) ?? new Map()
     : new Map();
   if (jobEnvironment) {
     const actual = environmentMap(
@@ -713,9 +703,7 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
       `${relativeFile}:${job.start + 1}: required job ${job.id} environment differs from its exact reviewed allowlist`,
     );
   }
-  failures.push(
-    ...requiredContainerInjectionFailures(relativeFile, lines, job),
-  );
+  failures.push(...requiredContainerInjectionFailures(relativeFile, lines, job));
 
   if (!job.properties.has("steps")) return failures;
   const steps = policyJobSteps(
@@ -736,7 +724,7 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
     const stepName = step.properties.get("name")?.value ?? "";
     const stepScope = `${job.id}\0${stepName}`;
     const expectedStepEnvironment = requiredMainWorkflow
-      ? (REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map())
+      ? REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map()
       : new Map();
     if (stepEnvironmentProperty) {
       const actual = environmentMap(
@@ -826,13 +814,7 @@ function stepEnvironment(relativeFile, lines, step, failures) {
   );
 }
 
-function exactEnvironmentFailures(
-  relativeFile,
-  location,
-  actual,
-  expected,
-  owner,
-) {
+function exactEnvironmentFailures(relativeFile, location, actual, expected, owner) {
   const failures = [];
   if (
     actual.size !== expected.size ||
@@ -846,7 +828,10 @@ function exactEnvironmentFailures(
 }
 
 function hasExactKeys(map, keys) {
-  return map.size === keys.length && keys.every((key) => map.has(key));
+  return (
+    map.size === keys.length &&
+    keys.every((key) => map.has(key))
+  );
 }
 
 function requiredGateControlFailures(relativeFile, lines, gate) {
@@ -871,11 +856,7 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
 
   const policyCommands = blockScalarCommands(
     lines,
-    policy.properties.get("run") ?? {
-      index: policy.start,
-      indent: 8,
-      value: "",
-    },
+    policy.properties.get("run") ?? { index: policy.start, indent: 8, value: "" },
     policy.end,
   );
   if (
@@ -901,11 +882,7 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
   );
   const verdictCommands = blockScalarCommands(
     lines,
-    verdict.properties.get("run") ?? {
-      index: verdict.start,
-      indent: 8,
-      value: "",
-    },
+    verdict.properties.get("run") ?? { index: verdict.start, indent: 8, value: "" },
     verdict.end,
   );
   if (
@@ -913,12 +890,8 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
     verdict.properties.get("name")?.value !==
       "Verify required jobs succeeded or legitimately skipped" ||
     verdict.properties.get("run")?.value !== "|" ||
-    !hasExactKeys(verdictEnvironment, [
-      "POLICY_OUTCOME",
-      "REQUIRED_JOBS_JSON",
-    ]) ||
-    verdictEnvironment.get("POLICY_OUTCOME") !==
-      "${{ steps.policy.outcome }}" ||
+    !hasExactKeys(verdictEnvironment, ["POLICY_OUTCOME", "REQUIRED_JOBS_JSON"]) ||
+    verdictEnvironment.get("POLICY_OUTCOME") !== "${{ steps.policy.outcome }}" ||
     verdictEnvironment.get("REQUIRED_JOBS_JSON") !== "${{ toJSON(needs) }}" ||
     verdictCommands.length !== 2 ||
     verdictCommands[0] !== GATE_POLICY_COMMAND ||
@@ -955,11 +928,7 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
   const [policy] = policySteps;
   const commands = blockScalarCommands(
     lines,
-    policy.properties.get("run") ?? {
-      index: policy.start,
-      indent: 8,
-      value: "",
-    },
+    policy.properties.get("run") ?? { index: policy.start, indent: 8, value: "" },
     policy.end,
   );
   if (
@@ -1049,15 +1018,11 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
   }
 
   if (!topLevel.length) {
-    failures.push(
-      `${relativeFile}: required workflow must contain a jobs block mapping`,
-    );
+    failures.push(`${relativeFile}: required workflow must contain a jobs block mapping`);
     return new Map();
   }
   if (topLevel.length !== 1) {
-    failures.push(
-      `${relativeFile}: workflow must contain exactly one jobs mapping`,
-    );
+    failures.push(`${relativeFile}: workflow must contain exactly one jobs mapping`);
     return new Map();
   }
   const jobsEntry = topLevel[0];
@@ -1106,17 +1071,13 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
       continue;
     }
     if (jobs.has(entry.key)) {
-      failures.push(
-        `${relativeFile}:${index + 1}: duplicate job definition: ${entry.key}`,
-      );
+      failures.push(`${relativeFile}:${index + 1}: duplicate job definition: ${entry.key}`);
       continue;
     }
     jobs.set(entry.key, { id: entry.key, start: index, properties: new Map() });
   }
 
-  const orderedJobs = [...jobs.values()].sort(
-    (left, right) => left.start - right.start,
-  );
+  const orderedJobs = [...jobs.values()].sort((left, right) => left.start - right.start);
   for (const [position, job] of orderedJobs.entries()) {
     job.end = orderedJobs[position + 1]?.start ?? jobsEnd;
     const firstProperty = lines
@@ -1174,9 +1135,7 @@ function requiredReusableWorkflowFailures(
   const canonical = fs.realpathSync(targetFile);
   const relativeFile = path.relative(repoRoot, canonical);
   if (active.has(canonical)) {
-    failures.push(
-      `${relativeFile}: required reusable workflow cycle is forbidden`,
-    );
+    failures.push(`${relativeFile}: required reusable workflow cycle is forbidden`);
     return failures;
   }
   if (validated.has(canonical)) return failures;
@@ -1209,12 +1168,7 @@ function requiredReusableWorkflowFailures(
       continue;
     }
     failures.push(
-      ...requiredReusableWorkflowFailures(
-        repoRoot,
-        target.file,
-        validated,
-        active,
-      ),
+      ...requiredReusableWorkflowFailures(repoRoot, target.file, validated, active),
     );
   }
   active.delete(canonical);
@@ -1262,10 +1216,7 @@ function nativeClippySelectorFailures(relativeFile, lines, changes) {
         `${relativeFile}:${detector.start + 1}: release-impacting change detector has duplicate ${output} selector arms`,
       );
     } else {
-      arms.set(
-        output,
-        match[1].split("|").map((pattern) => pattern.trim()),
-      );
+      arms.set(output, match[1].split("|").map((pattern) => pattern.trim()));
     }
   }
   if (!arms.has("zuuli") || !arms.has("zuuallet_schema")) {
@@ -1292,23 +1243,17 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
 
   const gate = jobs.get("gate");
   if (!gate) {
-    failures.push(
-      `${relativeFile}: required workflow must contain the gate job`,
-    );
+    failures.push(`${relativeFile}: required workflow must contain the gate job`);
     return failures;
   }
   const needsProperty = gate.properties.get("needs");
   if (!needsProperty) {
-    failures.push(
-      `${relativeFile}:${gate.start + 1}: required gate must declare needs`,
-    );
+    failures.push(`${relativeFile}:${gate.start + 1}: required gate must declare needs`);
     return failures;
   }
   const parsedNeeds = parseGateNeeds(lines, needsProperty.index, 4);
   if (parsedNeeds.error) {
-    failures.push(
-      `${relativeFile}:${needsProperty.index + 1}: ${parsedNeeds.error}`,
-    );
+    failures.push(`${relativeFile}:${needsProperty.index + 1}: ${parsedNeeds.error}`);
     return failures;
   }
 
@@ -1323,20 +1268,13 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const enforceNativeClippy =
     path.resolve(repoRoot) === POLICY_REPO_ROOT &&
     relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
-  if (
-    enforceNativeClippy &&
-    !parsedNeeds.values.includes("rust_native_clippy")
-  ) {
-    failures.push(
-      `${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`,
-    );
+  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_clippy")) {
+    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`);
   }
 
   const nativeClippy = jobs.get("rust_native_clippy");
   if (enforceNativeClippy && !nativeClippy) {
-    failures.push(
-      `${relativeFile}: required workflow must contain rust_native_clippy`,
-    );
+    failures.push(`${relativeFile}: required workflow must contain rust_native_clippy`);
   } else if (enforceNativeClippy) {
     const actualNativeClippyJobLines = lines
       .slice(nativeClippy.start, nativeClippy.end)
@@ -1377,8 +1315,7 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
       .map((line) => /^\s+- os:\s+(\S+)\s*$/.exec(line)?.[1])
       .filter(Boolean);
     if (
-      JSON.stringify(targetOperatingSystems) !==
-        JSON.stringify(["macos", "windows"]) ||
+      JSON.stringify(targetOperatingSystems) !== JSON.stringify(["macos", "windows"]) ||
       JSON.stringify(runnerOperatingSystems) !==
         JSON.stringify(["macos-latest", "windows-latest"])
     ) {
@@ -1396,28 +1333,20 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     );
     const stepsByName = (name) =>
       nativeSteps.filter((step) => step.properties.get("name")?.value === name);
-    const selfTests = stepsByName(
-      "Prove native target selection and -D warnings",
-    );
+    const selfTests = stepsByName("Prove native target selection and -D warnings");
     const selfTest = selfTests[0];
     if (
       selfTests.length !== 1 ||
-      !hasExactKeys(selfTest?.properties ?? new Map(), [
-        "name",
-        "shell",
-        "run",
-      ]) ||
+      !hasExactKeys(selfTest?.properties ?? new Map(), ["name", "shell", "run"]) ||
       selfTest?.properties.get("shell")?.value !== "bash" ||
       selfTest?.properties.get("run")?.value !==
-        'scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"'
+      'scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"'
     ) {
       failures.push(
         `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must run exactly one unconditional target-bound negative control`,
       );
     }
-    const lints = stepsByName(
-      "Lint every Rust crate under wallet/ at -D warnings",
-    );
+    const lints = stepsByName("Lint every Rust crate under wallet/ at -D warnings");
     const lint = lints[0];
     if (
       lints.length !== 1 ||
@@ -1461,9 +1390,7 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   for (const jobId of [...parsedNeeds.values, "gate"]) {
     const requiredJob = jobs.get(jobId);
     if (requiredJob) {
-      failures.push(
-        ...requiredJobExecutionFailures(relativeFile, lines, requiredJob),
-      );
+      failures.push(...requiredJobExecutionFailures(relativeFile, lines, requiredJob));
     }
     const property = requiredJob?.properties.get("continue-on-error");
     if (property) {
@@ -1480,17 +1407,11 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   }
   const changes = jobs.get("changes");
   if (!changes) {
-    failures.push(
-      `${relativeFile}: required workflow must contain the changes job`,
-    );
+    failures.push(`${relativeFile}: required workflow must contain the changes job`);
   } else {
-    failures.push(
-      ...requiredChangesControlFailures(relativeFile, lines, changes),
-    );
+    failures.push(...requiredChangesControlFailures(relativeFile, lines, changes));
     if (enforceNativeClippy) {
-      failures.push(
-        ...nativeClippySelectorFailures(relativeFile, lines, changes),
-      );
+      failures.push(...nativeClippySelectorFailures(relativeFile, lines, changes));
     }
   }
   failures.push(...requiredGateControlFailures(relativeFile, lines, gate));
@@ -1501,16 +1422,12 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
 function selectorResult(value, name) {
   if (value === "true") return "success";
   if (value === "false") return "skipped";
-  throw new Error(
-    `invalid or missing ${name} change-detector output: ${value}`,
-  );
+  throw new Error(`invalid or missing ${name} change-detector output: ${value}`);
 }
 
 function verifyGateResults(policyOutcome, serializedNeeds) {
   if (policyOutcome !== "success") {
-    throw new Error(
-      `gate-local policy recheck did not pass: ${policyOutcome || "missing"}`,
-    );
+    throw new Error(`gate-local policy recheck did not pass: ${policyOutcome || "missing"}`);
   }
 
   let needs;
@@ -1529,9 +1446,7 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
 
   const changes = needs.changes;
   if (changes.result !== "success") {
-    throw new Error(
-      `change detection did not pass: ${changes.result || "missing"}`,
-    );
+    throw new Error(`change detection did not pass: ${changes.result || "missing"}`);
   }
   if (!changes.outputs || typeof changes.outputs !== "object") {
     throw new Error("change detection outputs are missing");
@@ -1542,17 +1457,11 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
     "Zuuallet schema",
   );
   const nativeClippyExpected =
-    zuuliExpected === "success" || schemaExpected === "success"
-      ? "success"
-      : "skipped";
+    zuuliExpected === "success" || schemaExpected === "success" ? "success" : "skipped";
 
   const verdicts = [];
   for (const [job, state] of entries) {
-    if (
-      !state ||
-      typeof state !== "object" ||
-      typeof state.result !== "string"
-    ) {
+    if (!state || typeof state !== "object" || typeof state.result !== "string") {
       throw new Error(`required job ${job} has no result`);
     }
     const expected =
@@ -1577,10 +1486,7 @@ function localTarget(repoRoot, reference) {
   const relative = reference.slice(2);
   const candidate = path.resolve(repoRoot, relative);
   const relativeCandidate = path.relative(repoRoot, candidate);
-  if (
-    relativeCandidate.startsWith("..") ||
-    path.isAbsolute(relativeCandidate)
-  ) {
+  if (relativeCandidate.startsWith("..") || path.isAbsolute(relativeCandidate)) {
     return { error: `local action escapes the repository: ${reference}` };
   }
   if (!fs.existsSync(candidate)) {
@@ -1588,13 +1494,8 @@ function localTarget(repoRoot, reference) {
   }
   const canonical = fs.realpathSync(candidate);
   const relativeCanonical = path.relative(repoRoot, canonical);
-  if (
-    relativeCanonical.startsWith("..") ||
-    path.isAbsolute(relativeCanonical)
-  ) {
-    return {
-      error: `local action resolves outside the repository: ${reference}`,
-    };
+  if (relativeCanonical.startsWith("..") || path.isAbsolute(relativeCanonical)) {
+    return { error: `local action resolves outside the repository: ${reference}` };
   }
   if (fs.statSync(candidate).isFile()) return { file: candidate };
 
@@ -1650,9 +1551,7 @@ function scanRepository(repoRoot) {
       externalReferences += 1;
       const external = reference.match(EXTERNAL_USES);
       if (!external) {
-        failures.push(
-          `${location}: invalid external \`uses:\` reference: ${reference}`,
-        );
+        failures.push(`${location}: invalid external \`uses:\` reference: ${reference}`);
       } else if (!FULL_COMMIT_SHA.test(external[1])) {
         failures.push(
           `${location}: external \`uses:\` reference must end in a full lowercase 40-character commit SHA: ${reference}`,
@@ -1681,25 +1580,18 @@ function writeFixture(root, relative, contents) {
 function runCurrentWorkflowMutationTests(repoRoot) {
   const relative = path.join(".github", "workflows", "zuuli.yml");
   const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
-  const baseline = gatePolicyFailures(
-    repoRoot,
-    relative,
-    source.split(/\r?\n/),
-  );
+  const baseline = gatePolicyFailures(repoRoot, relative, source.split(/\r?\n/));
   if (baseline.length) {
-    throw new Error(
-      `current required workflow is not a valid mutation base: ${baseline.join("; ")}`,
-    );
+    throw new Error(`current required workflow is not a valid mutation base: ${baseline.join("; ")}`);
   }
   const replaceLast = (value, target, replacement) => {
     const index = value.lastIndexOf(target);
     if (index < 0) return value;
-    return (
-      value.slice(0, index) + replacement + value.slice(index + target.length)
-    );
+    return value.slice(0, index) + replacement + value.slice(index + target.length);
   };
 
-  const checkoutLine = `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n`;
+  const checkoutLine =
+    `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n`;
   const policyName =
     "      - name: Recheck immutable actions and fail-closed required jobs";
   const policyBlock = [
@@ -1737,10 +1629,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     {
       name: "real workflow rejects a non-native target matrix",
       needle: "must use the exact macOS/Windows native matrix",
-      source: source.replace(
-        "            target_os: windows",
-        "            target_os: linux",
-      ),
+      source: source.replace("            target_os: windows", "            target_os: linux"),
     },
     {
       name: "real workflow rejects a weakened native clippy selector",
@@ -1752,32 +1641,27 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selects root Cargo workspace inputs for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: Cargo.toml",
+      needle: "native clippy input must select at least one native lint path: Cargo.toml",
       source: source.replaceAll("Cargo.toml|Cargo.lock|", ""),
     },
     {
       name: "real workflow selects root Cargo configuration for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: .cargo/config.toml",
+      needle: "native clippy input must select at least one native lint path: .cargo/config.toml",
       source: source.replaceAll(".cargo/*|", ""),
     },
     {
       name: "real workflow selects root Clippy configuration for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: clippy.toml",
+      needle: "native clippy input must select at least one native lint path: clippy.toml",
       source: source.replaceAll("clippy.toml|.clippy.toml|", ""),
     },
     {
       name: "real workflow selects wallet parent workspace manifests for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: wallet/Cargo.toml",
+      needle: "native clippy input must select at least one native lint path: wallet/Cargo.toml",
       source: source.replaceAll("wallet/Cargo.toml|wallet/Cargo.lock|", ""),
     },
     {
       name: "real workflow selects wallet parent lint configuration for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: wallet/.cargo/config.toml",
+      needle: "native clippy input must select at least one native lint path: wallet/.cargo/config.toml",
       source: source.replaceAll(
         "wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|",
         "",
@@ -1785,26 +1669,20 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selects future wallet Rust sources for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: wallet/future-crate/src/lib.rs",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/src/lib.rs",
       source: source.replaceAll("wallet/*.rs|", ""),
     },
     {
       name: "real workflow selects future wallet manifests for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: wallet/future-crate/Cargo.toml",
-      source: source.replaceAll("wallet/*/Cargo.toml|wallet/*/Cargo.lock|", ""),
-    },
-    {
-      name: "real workflow selects future wallet Cargo configuration for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: wallet/future-crate/.cargo/config.toml",
-      source: source.replaceAll("wallet/*/.cargo/*|", ""),
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/Cargo.toml",
+      source: source.replaceAll(
+        "wallet/*/Cargo.toml|wallet/*/Cargo.lock|",
+        "",
+      ),
     },
     {
       name: "real workflow selects future wallet Clippy configuration for native clippy",
-      needle:
-        "native clippy input must select at least one native lint path: wallet/future-crate/clippy.toml",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/clippy.toml",
       source: source.replaceAll(
         "wallet/*/clippy.toml|wallet/*/.clippy.toml|",
         "",
@@ -1812,8 +1690,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a decorative native negative control",
-      needle:
-        "must run exactly one unconditional target-bound negative control",
+      needle: "must run exactly one unconditional target-bound negative control",
       source: source.replace(
         '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
         '        run: echo "native clippy self-test"',
@@ -1821,8 +1698,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a skipped native negative control",
-      needle:
-        "must run exactly one unconditional target-bound negative control",
+      needle: "must run exactly one unconditional target-bound negative control",
       source: source.replace(
         '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
         '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"\n        if: false',
@@ -1846,8 +1722,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects log-only needs consumption",
-      needle:
-        "must unconditionally recheck policy and enforce the complete needs context",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
       source: source.replace(
         `          ${GATE_VERDICT_COMMAND}\n`,
         '          echo "$REQUIRED_JOBS_JSON"\n',
@@ -1855,8 +1730,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a dynamically dead verdict",
-      needle:
-        "must unconditionally recheck policy and enforce the complete needs context",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
       source: source.replace(
         verdictName,
         `${verdictName}\n        if: github.event_name == '__never__'`,
@@ -1864,8 +1738,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects deleted gate checkout",
-      needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
       source: replaceLast(source, checkoutLine, ""),
     },
     {
@@ -1879,14 +1752,12 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects deleted policy recheck",
-      needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
       source: source.replace(policyBlock, ""),
     },
     {
       name: "real workflow rejects dynamically dead policy recheck",
-      needle:
-        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
       source: source.replace(
         policyName,
         `${policyName}\n        if: github.event_name == '__never__'`,
@@ -1894,8 +1765,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects soft-failing policy recheck",
-      needle:
-        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
       source: source.replace(
         policyName,
         `${policyName}\n        continue-on-error: true`,
@@ -1903,8 +1773,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a missing gate policy self-test",
-      needle:
-        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
       source: replaceLast(
         source,
         `          ${GATE_POLICY_SELF_TEST_COMMAND}\n`,
@@ -1913,8 +1782,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a replaced changes policy invocation",
-      needle:
-        "changes policy step must exactly self-test and enforce the current-source policy",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
       source: source.replace(
         [
           "      - name: Verify immutable actions and fail-closed required jobs",
@@ -1930,8 +1798,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a dynamically dead changes policy",
-      needle:
-        "changes policy step must exactly self-test and enforce the current-source policy",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
       source: source.replace(
         "      - name: Verify immutable actions and fail-closed required jobs",
         "      - name: Verify immutable actions and fail-closed required jobs\n        if: false",
@@ -1939,8 +1806,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a soft-failing changes policy",
-      needle:
-        "changes policy step must exactly self-test and enforce the current-source policy",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
       source: source.replace(
         "      - name: Verify immutable actions and fail-closed required jobs",
         "      - name: Verify immutable actions and fail-closed required jobs\n        continue-on-error: true",
@@ -1948,8 +1814,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a soft-failing required gate",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job gate",
+      needle: "job-level continue-on-error is forbidden on required-gate job gate",
       source: source.replace(
         "  gate:\n",
         "  gate:\n    continue-on-error: true\n",
@@ -1995,8 +1860,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects workflow-level SHELLOPTS noexec",
-      needle:
-        "required workflow environment differs from its exact reviewed allowlist",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
       source: source.replace(
         "env:\n  CARGO_TERM_COLOR: always\n",
         "env:\n  SHELLOPTS: noexec\n  CARGO_TERM_COLOR: always\n",
@@ -2004,8 +1868,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects gate-level NODE_OPTIONS startup injection",
-      needle:
-        "required job gate environment differs from its exact reviewed allowlist",
+      needle: "required job gate environment differs from its exact reviewed allowlist",
       source: source.replace(
         "  gate:\n",
         '  gate:\n    env:\n      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"\n',
@@ -2031,8 +1894,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow requires its reviewed environment",
-      needle:
-        "required workflow environment differs from its exact reviewed allowlist",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
       source: source.replace(
         "env:\n  CARGO_TERM_COLOR: always\n  RUST_BACKTRACE: 1\n\n",
         "",
@@ -2115,8 +1977,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects required-container environment options",
-      needle:
-        "required job rust_clippy container cannot inject environment or runtime options",
+      needle: "required job rust_clippy container cannot inject environment or runtime options",
       source: source.replace(
         "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      credentials:\n",
         "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
@@ -2207,7 +2068,10 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow requires the reviewed frontend default working directory",
       needle:
         "required job frontend defaults.run.working-directory differs from its exact reviewed value",
-      source: source.replace("        working-directory: wallet/zuuli\n", ""),
+      source: source.replace(
+        "        working-directory: wallet/zuuli\n",
+        "",
+      ),
     },
     {
       name: "real workflow requires reviewed image-verification working directories",
@@ -2220,8 +2084,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a syntax-only dependency default shell",
-      needle:
-        "required job zuuallet_schema defaults.run.shell must be exactly bash",
+      needle: "required job zuuallet_schema defaults.run.shell must be exactly bash",
       source: replaceLast(
         source,
         "        shell: bash\n",
@@ -2230,8 +2093,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects soft-failing required dependency",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job rust_app",
+      needle: "job-level continue-on-error is forbidden on required-gate job rust_app",
       source: source.replace(
         "  rust_app:\n",
         "  rust_app:\n    continue-on-error: true\n",
@@ -2369,8 +2231,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "required reusable workflow rejects workflow-level BASH_ENV",
-      needle:
-        "required workflow environment differs from its exact reviewed allowlist",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
@@ -2381,8 +2242,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "required reusable workflow rejects job-level SHELLOPTS",
-      needle:
-        "required job build environment differs from its exact reviewed allowlist",
+      needle: "required job build environment differs from its exact reviewed allowlist",
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
@@ -2405,8 +2265,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "nested required reusable workflow rejects NODE_OPTIONS",
-      needle:
-        "required job nested environment differs from its exact reviewed allowlist",
+      needle: "required job nested environment differs from its exact reviewed allowlist",
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
@@ -2429,8 +2288,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "quoted BASH_FUNC key cannot hide required-job environment injection",
-      needle:
-        "required job build environment differs from its exact reviewed allowlist",
+      needle: "required job build environment differs from its exact reviewed allowlist",
       files: gateFixture(
         validGateWorkflow.replace(
           "  build:\n",
@@ -2440,8 +2298,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "inline required-job environment maps fail closed",
-      needle:
-        "required job build environment must use a canonical block mapping",
+      needle: "required job build environment must use a canonical block mapping",
       files: gateFixture(
         validGateWorkflow.replace(
           "  build:\n",
@@ -2559,8 +2416,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "reindented required steps cannot hide a shell override",
-      needle:
-        "required job build steps must begin with a canonical block-sequence entry",
+      needle: "required job build steps must begin with a canonical block-sequence entry",
       files: gateFixture(
         validGateWorkflow.replace(
           [
@@ -2580,8 +2436,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "required reusable workflow cannot soft-fail an internal job",
-      needle:
-        "job-level continue-on-error is forbidden in required reusable workflow job build",
+      needle: "job-level continue-on-error is forbidden in required reusable workflow job build",
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
@@ -2592,8 +2447,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "nested required reusable workflow cannot hide a soft-failing job",
-      needle:
-        "job-level continue-on-error is forbidden in required reusable workflow job nested",
+      needle: "job-level continue-on-error is forbidden in required reusable workflow job nested",
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
@@ -2615,8 +2469,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "external reusable workflow is forbidden as a gate dependency",
-      needle:
-        "required-gate job build must call a repository-local reusable workflow",
+      needle: "required-gate job build must call a repository-local reusable workflow",
       files: gateFixture(
         reusableGateWorkflow.replace(
           "./.github/workflows/required-build.yml",
@@ -2626,8 +2479,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "external reusable workflow is forbidden behind a local callee",
-      needle:
-        "required reusable workflow job build must call a repository-local workflow",
+      needle: "required reusable workflow job build must call a repository-local workflow",
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
@@ -2664,8 +2516,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "changes policy invocation cannot be replaced",
-      needle:
-        "changes policy step must exactly self-test and enforce the current-source policy",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
       files: gateFixture(
         validGateWorkflow.replace(
           `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n`,
@@ -2675,8 +2526,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "gate dependency cannot use job-level continue-on-error",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job build",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
       files: gateFixture(
         validGateWorkflow.replace(
           "  build:\n",
@@ -2686,8 +2536,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "false job-level continue-on-error is still forbidden",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job build",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
       files: gateFixture(
         validGateWorkflow.replace(
           "  build:\n",
@@ -2697,8 +2546,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "escaped quoted key cannot hide job-level continue-on-error",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job build",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
       files: gateFixture(
         validGateWorkflow.replace(
           "  build:\n",
@@ -2708,8 +2556,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "single-quoted key cannot hide job-level continue-on-error",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job build",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
       files: gateFixture(
         validGateWorkflow.replace(
           "  build:\n",
@@ -2769,8 +2616,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "required gate itself cannot ignore failures",
-      needle:
-        "job-level continue-on-error is forbidden on required-gate job gate",
+      needle: "job-level continue-on-error is forbidden on required-gate job gate",
       files: gateFixture(
         validGateWorkflow.replace(
           "  gate:\n",
@@ -2805,8 +2651,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "logging the needs context cannot replace the enforcing verdict",
-      needle:
-        "must unconditionally recheck policy and enforce the complete needs context",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
       files: gateFixture(
         validGateWorkflow.replace(
           `          ${GATE_VERDICT_COMMAND}\n`,
@@ -2816,8 +2661,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "dynamically dead verdict use fails closed",
-      needle:
-        "must unconditionally recheck policy and enforce the complete needs context",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
       files: gateFixture(
         validGateWorkflow.replace(
           gateVerdictLines[0],
@@ -2827,8 +2671,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "deleted gate checkout fails closed",
-      needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
       files: gateFixture(
         validGateWorkflow.replace(`${gateCheckoutLines.join("\n")}\n`, ""),
       ),
@@ -2845,16 +2688,14 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "deleted gate policy recheck fails closed",
-      needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
       files: gateFixture(
         validGateWorkflow.replace(`${gatePolicyLines.join("\n")}\n`, ""),
       ),
     },
     {
       name: "dynamically dead gate policy recheck fails closed",
-      needle:
-        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
       files: gateFixture(
         validGateWorkflow.replace(
           gatePolicyLines[0],
@@ -2864,8 +2705,7 @@ function runSelfTest(repoRoot) {
     },
     {
       name: "soft-failing gate policy recheck fails closed",
-      needle:
-        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
       files: gateFixture(
         validGateWorkflow.replace(
           gatePolicyLines[0],
@@ -2876,31 +2716,22 @@ function runSelfTest(repoRoot) {
     {
       name: "tag",
       needle: "owner/action@v1",
-      files: {
-        ".github/workflows/gate.yml": "steps:\n  - uses: owner/action@v1\n",
-      },
+      files: { ".github/workflows/gate.yml": "steps:\n  - uses: owner/action@v1\n" },
     },
     {
       name: "branch",
       needle: "owner/action@main",
-      files: {
-        ".github/workflows/gate.yml": "steps:\n  - uses: owner/action@main\n",
-      },
+      files: { ".github/workflows/gate.yml": "steps:\n  - uses: owner/action@main\n" },
     },
     {
       name: "short SHA",
       needle: "owner/action@0123456",
-      files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - uses: owner/action@0123456\n",
-      },
+      files: { ".github/workflows/gate.yml": "steps:\n  - uses: owner/action@0123456\n" },
     },
     {
       name: "commit pin without readable provenance",
       needle: "version/provenance comment",
-      files: {
-        ".github/workflows/gate.yml": `steps:\n  - uses: owner/action@${fullSha}\n`,
-      },
+      files: { ".github/workflows/gate.yml": `steps:\n  - uses: owner/action@${fullSha}\n` },
     },
     {
       name: "mutable reusable workflow",
@@ -2913,33 +2744,27 @@ function runSelfTest(repoRoot) {
     {
       name: "quoted mutable reference",
       needle: "owner/action@v2",
-      files: {
-        ".github/workflows/gate.yml":
-          'steps:\n  - uses: "owner/action@v2" # mutable\n',
-      },
+      files: { ".github/workflows/gate.yml": 'steps:\n  - uses: "owner/action@v2" # mutable\n' },
     },
     {
       name: "quoted uses key cannot hide a mutable reference",
       needle: "owner/action@v4",
       files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - \"uses\": owner/action@v4\n  - 'uses': owner/other@main\n",
+        ".github/workflows/gate.yml": 'steps:\n  - "uses": owner/action@v4\n  - \'uses\': owner/other@main\n',
       },
     },
     {
       name: "escaped quoted uses key cannot hide a mutable reference",
       needle: "owner/action@main",
       files: {
-        ".github/workflows/gate.yml":
-          'steps:\n  - "\\u0075ses": owner/action@main\n',
+        ".github/workflows/gate.yml": 'steps:\n  - "\\u0075ses": owner/action@main\n',
       },
     },
     {
       name: "nested local action is scanned",
       needle: "owner/nested@nightly",
       files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - uses: ./.github/actions/nested\n",
+        ".github/workflows/gate.yml": "steps:\n  - uses: ./.github/actions/nested\n",
         ".github/actions/nested/action.yml":
           "runs:\n  using: composite\n  steps:\n    - uses: owner/nested@nightly\n",
       },
@@ -2947,18 +2772,12 @@ function runSelfTest(repoRoot) {
     {
       name: "missing local action fails closed",
       needle: "does not exist",
-      files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - uses: ./.github/actions/missing\n",
-      },
+      files: { ".github/workflows/gate.yml": "steps:\n  - uses: ./.github/actions/missing\n" },
     },
     {
       name: "expression reference fails closed",
       needle: "invalid external",
-      files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - uses: owner/action@${{ inputs.ref }}\n",
-      },
+      files: { ".github/workflows/gate.yml": "steps:\n  - uses: owner/action@${{ inputs.ref }}\n" },
     },
     {
       name: "flow-style step reference fails closed",
@@ -2986,40 +2805,35 @@ function runSelfTest(repoRoot) {
       name: "quoted inline key cannot hide a mutable reference",
       needle: "decorated, inline, or explicit",
       files: {
-        ".github/workflows/gate.yml":
-          'steps: [{ "\\u0075ses": owner/action@v2 }]\n',
+        ".github/workflows/gate.yml": 'steps: [{ "\\u0075ses": owner/action@v2 }]\n',
       },
     },
     {
       name: "explicit mapping key cannot hide a mutable reference",
       needle: "explicit YAML mapping keys",
       files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - ? uses\n    : owner/action@v3\n",
+        ".github/workflows/gate.yml": "steps:\n  - ? uses\n    : owner/action@v3\n",
       },
     },
     {
       name: "anchored step cannot hide a mutable reference",
       needle: "decorated, inline, or explicit",
       files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - &shared uses: owner/action@main\n",
+        ".github/workflows/gate.yml": "steps:\n  - &shared uses: owner/action@main\n",
       },
     },
     {
       name: "tagged step cannot hide a mutable reference",
       needle: "decorated, inline, or explicit",
       files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - !!str uses: owner/action@main\n",
+        ".github/workflows/gate.yml": "steps:\n  - !!str uses: owner/action@main\n",
       },
     },
     {
       name: "explicit anchored key cannot hide a mutable reference",
       needle: "explicit YAML mapping keys",
       files: {
-        ".github/workflows/gate.yml":
-          "steps:\n  - ? &action-key uses\n    : owner/action@v3\n",
+        ".github/workflows/gate.yml": "steps:\n  - ? &action-key uses\n    : owner/action@v3\n",
       },
     },
     {
@@ -3058,8 +2872,7 @@ function runSelfTest(repoRoot) {
       name: "YAML-only escape in quoted flow key cannot hide a mutable reference",
       needle: "quoted keys in inline YAML mappings",
       files: {
-        ".github/workflows/gate.yml":
-          'steps: [{ "u\\x73es": owner/action@main }]\n',
+        ".github/workflows/gate.yml": 'steps: [{ "u\\x73es": owner/action@main }]\n',
       },
     },
     {
@@ -3072,24 +2885,17 @@ function runSelfTest(repoRoot) {
     },
   ];
 
-  const temporaryRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "zuu-action-pins-"),
-  );
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zuu-action-pins-"));
   try {
     for (const testCase of cases) {
-      const fixture = path.join(
-        temporaryRoot,
-        testCase.name.replaceAll(/[^a-z0-9]+/gi, "-"),
-      );
+      const fixture = path.join(temporaryRoot, testCase.name.replaceAll(/[^a-z0-9]+/gi, "-"));
       for (const [relative, contents] of Object.entries(testCase.files)) {
         writeFixture(fixture, relative, contents);
       }
       const result = scanRepository(fixture);
       if (testCase.valid) {
         if (result.failures.length) {
-          throw new Error(
-            `${testCase.name}: expected success, got ${result.failures.join("; ")}`,
-          );
+          throw new Error(`${testCase.name}: expected success, got ${result.failures.join("; ")}`);
         }
       } else if (
         result.failures.length === 0 ||
@@ -3201,9 +3007,7 @@ function runSelfTest(repoRoot) {
         );
       }
     } else if (error) {
-      throw new Error(
-        `${testCase.name}: expected success, got ${error.message}`,
-      );
+      throw new Error(`${testCase.name}: expected success, got ${error.message}`);
     }
     console.log(`self-test: gate verdict: ${testCase.name}: passed`);
   }
@@ -3220,8 +3024,7 @@ const args = process.argv.slice(2);
 const mode = args[0];
 if (
   args.length > 1 ||
-  (args.length === 1 &&
-    !["--self-test", "--verify-gate-results"].includes(mode))
+  (args.length === 1 && !["--self-test", "--verify-gate-results"].includes(mode))
 ) {
   console.error(
     "usage: scripts/check-github-actions-pins.mjs [--self-test|--verify-gate-results]",
