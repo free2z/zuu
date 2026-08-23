@@ -23,10 +23,11 @@ const captionStyle = {
 interface LightboxImageProps {
     src?: string
     alt?: string
+    title?: string
     hideCaption?: boolean
 }
 
-function LightboxImage({ src, alt, hideCaption }: LightboxImageProps) {
+function LightboxImage({ src, alt, title, hideCaption }: LightboxImageProps) {
     const [open, setOpen] = useState(false);
     const theme = useTheme();
     const contentElementRef = useRef<HTMLDivElement>(null);
@@ -79,6 +80,7 @@ function LightboxImage({ src, alt, hideCaption }: LightboxImageProps) {
                     <img
                         src={src}
                         alt={alt}
+                        title={title}
                         onClick={handleClickOpen}
                         style={imgStyle}
                     />
@@ -106,6 +108,7 @@ function LightboxImage({ src, alt, hideCaption }: LightboxImageProps) {
                     <img
                         src={src}
                         alt={alt}
+                        title={title}
                         style={lightboxImgStyle}
                     />
                     <Typography variant="caption" style={captionStyle}>{alt}</Typography>
