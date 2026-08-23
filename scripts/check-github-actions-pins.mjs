@@ -74,6 +74,7 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/src/lib.rs",
   "wallet/future-crate/Cargo.toml",
   "wallet/future-crate/Cargo.lock",
+  "wallet/future-crate/.cargo/config.toml",
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
@@ -1679,6 +1680,12 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "wallet/*/Cargo.toml|wallet/*/Cargo.lock|",
         "",
       ),
+    },
+    {
+      name: "real workflow selects future wallet Cargo configuration for native clippy",
+      needle:
+        "native clippy input must select at least one native lint path: wallet/future-crate/.cargo/config.toml",
+      source: source.replaceAll("wallet/*/.cargo/*|", ""),
     },
     {
       name: "real workflow selects future wallet Clippy configuration for native clippy",
