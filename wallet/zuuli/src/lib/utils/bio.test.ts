@@ -10,6 +10,8 @@ type BrandedCase = {
   canonicalUrl: string;
   canonicalHost: string;
   absoluteProfile: boolean;
+  trust: "branded" | "generic";
+  display: string;
 };
 
 const BRANDED_CASES: readonly BrandedCase[] = [
@@ -22,6 +24,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://x.com/_alice2",
     canonicalHost: "x.com",
     absoluteProfile: false,
+    trust: "generic",
+    display: "x.com",
   },
   {
     key: "github",
@@ -32,6 +36,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://github.com/alice-dev",
     canonicalHost: "github.com",
     absoluteProfile: false,
+    trust: "generic",
+    display: "github.com",
   },
   {
     key: "instagram",
@@ -42,6 +48,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://instagram.com/alice.photo",
     canonicalHost: "instagram.com",
     absoluteProfile: false,
+    trust: "generic",
+    display: "instagram.com",
   },
   {
     key: "youtube",
@@ -52,6 +60,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://youtube.com/@alice-video",
     canonicalHost: "youtube.com",
     absoluteProfile: true,
+    trust: "branded",
+    display: "@alice-video",
   },
   {
     key: "facebook",
@@ -62,6 +72,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://facebook.com/alice.page",
     canonicalHost: "facebook.com",
     absoluteProfile: false,
+    trust: "generic",
+    display: "facebook.com",
   },
   {
     key: "linkedin",
@@ -72,6 +84,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://linkedin.com/in/alice-dev",
     canonicalHost: "linkedin.com",
     absoluteProfile: true,
+    trust: "branded",
+    display: "in/alice-dev",
   },
   {
     key: "reddit",
@@ -82,6 +96,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://reddit.com/u/alice_dev",
     canonicalHost: "reddit.com",
     absoluteProfile: true,
+    trust: "branded",
+    display: "u/alice_dev",
   },
   {
     key: "telegram",
@@ -92,6 +108,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://t.me/alice_dev",
     canonicalHost: "t.me",
     absoluteProfile: false,
+    trust: "generic",
+    display: "t.me",
   },
   {
     key: "nostr",
@@ -102,6 +120,8 @@ const BRANDED_CASES: readonly BrandedCase[] = [
     canonicalUrl: "https://njump.me/npub1alice",
     canonicalHost: "njump.me",
     absoluteProfile: false,
+    trust: "generic",
+    display: "njump.me",
   },
 ] as const;
 
@@ -133,19 +153,13 @@ const PLATFORM_ROUTE_NAMESPACES: Readonly<Record<BrandedCase["key"], string>> =
     nostr: "https://njump.me/about",
   };
 
-const RESERVED_PLAIN_HANDLES = [
-  ["twitter", "about"],
-  ["twitter", "intent"],
-  ["github", "features"],
-  ["github", "settings"],
-  ["instagram", "explore"],
-  ["instagram", "direct"],
-  ["facebook", "help"],
-  ["facebook", "marketplace"],
-  ["telegram", "share"],
-  ["telegram", "proxy"],
-  ["nostr", "about"],
-  ["nostr", "redirect"],
+const AMBIGUOUS_ROUTE_LIKE_HANDLES = [
+  ["twitter", "about", "x.com"],
+  ["github", "contact", "github.com"],
+  ["instagram", "rules", "instagram.com"],
+  ["facebook", "help", "facebook.com"],
+  ["telegram", "rules", "t.me"],
+  ["nostr", "contact", "njump.me"],
 ] as const;
 
 function oneSocial(key: string, value: string) {
@@ -159,10 +173,10 @@ function unicodeLookalike(host: string): string {
   return `${host.slice(0, index)}м${host.slice(index + 1)}`;
 }
 
-describe("creator bio branded social links", () => {
+describe("creator bio platform social links", () => {
   it.each(BRANDED_CASES)(
-    "canonicalizes a $key handle onto its reviewed host",
-    ({ key, label, handle, handleUrl, canonicalHost }) => {
+    "canonicalizes a $key handle with the appropriate trust",
+    ({ key, label, handle, handleUrl, canonicalHost, trust, display }) => {
       const parsed = oneSocial(key, handle);
       expect(parsed.body).toBe("Visible bio");
       expect(parsed.socials).toEqual([
@@ -170,7 +184,8 @@ describe("creator bio branded social links", () => {
           key,
           label,
           url: handleUrl,
-          trust: "branded",
+          trust,
+          display,
           destinationHost: canonicalHost,
         }),
       ]);
@@ -212,10 +227,17 @@ describe("creator bio branded social links", () => {
     },
   );
 
-  it.each(RESERVED_PLAIN_HANDLES)(
-    "rejects the reserved %s plain identifier %s",
-    (key, handle) => {
-      expect(oneSocial(key, handle).socials).toEqual([]);
+  it.each(AMBIGUOUS_ROUTE_LIKE_HANDLES)(
+    "renders the ambiguous %s identifier %s as generic host disclosure",
+    (key, handle, host) => {
+      const social = oneSocial(key, handle).socials[0];
+      expect(social).toEqual(
+        expect.objectContaining({
+          trust: "generic",
+          display: host,
+          destinationHost: host,
+        }),
+      );
     },
   );
 

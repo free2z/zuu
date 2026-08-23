@@ -84,9 +84,6 @@ interface BrandedHostPolicy {
   /** Only profile namespaces whose prefix is unambiguous may be recovered
    * from an absolute stored URL. Root-path platforms accept handles only. */
   absoluteProfile: boolean;
-  /** Root service routes that satisfy the platform's handle alphabet but are
-   * not identities. Relevant only where handles occupy the host root. */
-  reservedHandles: readonly string[];
 }
 
 /** Exact reviewed hosts. Entries such as `www` and legacy Twitter/Telegram
@@ -97,185 +94,58 @@ const BRANDED_HOSTS: Record<BrandedKey, BrandedHostPolicy> = {
     allowedHosts: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
     handlePath: (handle) => `/${handle}`,
     absoluteProfile: false,
-    reservedHandles: [
-      "about",
-      "account",
-      "business",
-      "compose",
-      "download",
-      "explore",
-      "home",
-      "i",
-      "intent",
-      "jobs",
-      "login",
-      "logout",
-      "messages",
-      "notifications",
-      "privacy",
-      "search",
-      "settings",
-      "share",
-      "signup",
-      "tos",
-    ],
   },
   github: {
     canonicalHost: "github.com",
     allowedHosts: ["github.com", "www.github.com"],
     handlePath: (handle) => `/${handle}`,
     absoluteProfile: false,
-    reservedHandles: [
-      "about",
-      "account",
-      "apps",
-      "collections",
-      "contact",
-      "enterprise",
-      "events",
-      "explore",
-      "features",
-      "issues",
-      "join",
-      "login",
-      "logout",
-      "marketplace",
-      "new",
-      "notifications",
-      "orgs",
-      "organizations",
-      "pricing",
-      "pulls",
-      "readme",
-      "redirect",
-      "search",
-      "security",
-      "sessions",
-      "settings",
-      "site",
-      "sponsors",
-      "topics",
-      "users",
-    ],
   },
   instagram: {
     canonicalHost: "instagram.com",
     allowedHosts: ["instagram.com", "www.instagram.com"],
     handlePath: (handle) => `/${handle}`,
     absoluteProfile: false,
-    reservedHandles: [
-      "about",
-      "accounts",
-      "challenge",
-      "developer",
-      "direct",
-      "emails",
-      "explore",
-      "legal",
-      "oauth",
-      "p",
-      "privacy",
-      "reels",
-      "stories",
-      "web",
-    ],
   },
   youtube: {
     canonicalHost: "youtube.com",
     allowedHosts: ["youtube.com", "www.youtube.com"],
     handlePath: (handle) => `/@${handle}`,
     absoluteProfile: true,
-    reservedHandles: [],
   },
   facebook: {
     canonicalHost: "facebook.com",
     allowedHosts: ["facebook.com", "www.facebook.com"],
     handlePath: (handle) => `/${handle}`,
     absoluteProfile: false,
-    reservedHandles: [
-      "about",
-      "ads",
-      "business",
-      "dialog",
-      "events",
-      "gaming",
-      "groups",
-      "help",
-      "l.php",
-      "legal",
-      "login",
-      "marketplace",
-      "pages",
-      "policies",
-      "plugins",
-      "privacy",
-      "profile.php",
-      "reels",
-      "share",
-      "sharer",
-      "stories",
-      "watch",
-    ],
   },
   linkedin: {
     canonicalHost: "linkedin.com",
     allowedHosts: ["linkedin.com", "www.linkedin.com"],
     handlePath: (handle) => `/in/${handle}`,
     absoluteProfile: true,
-    reservedHandles: [],
   },
   reddit: {
     canonicalHost: "reddit.com",
     allowedHosts: ["reddit.com", "www.reddit.com", "old.reddit.com"],
     handlePath: (handle) => `/u/${handle}`,
     absoluteProfile: true,
-    reservedHandles: [],
   },
   telegram: {
     canonicalHost: "t.me",
     allowedHosts: ["t.me", "telegram.me", "www.telegram.me"],
     handlePath: (handle) => `/${handle}`,
     absoluteProfile: false,
-    reservedHandles: [
-      "addemoji",
-      "addlist",
-      "addstickers",
-      "auth",
-      "bg",
-      "confirmphone",
-      "iv",
-      "joinchat",
-      "login",
-      "proxy",
-      "setlanguage",
-      "share",
-      "socks",
-    ],
   },
   nostr: {
     canonicalHost: "njump.me",
     allowedHosts: ["njump.me", "www.njump.me"],
     handlePath: (handle) => `/${handle}`,
     absoluteProfile: false,
-    reservedHandles: [
-      "about",
-      "docs",
-      "embed",
-      "faq",
-      "help",
-      "login",
-      "privacy",
-      "redirect",
-      "search",
-      "settings",
-    ],
   },
 };
 
 function validPlatformHandle(key: BrandedKey, handle: string): boolean {
-  if (BRANDED_HOSTS[key].reservedHandles.includes(handle.toLowerCase())) {
-    return false;
-  }
   switch (key) {
     case "twitter":
       return /^[A-Za-z0-9_]{1,15}$/.test(handle);
@@ -431,11 +301,6 @@ function mastodonUrl(value: string): URL | null {
   return genericHttpsUrl(trimmed.replace(/^@/, ""));
 }
 
-function truncateMiddle(v: string): string {
-  if (v.length <= 16) return v;
-  return v.slice(0, 8) + "…" + v.slice(-6);
-}
-
 interface SocialConfig {
   label: string;
   trust: "branded" | "generic";
@@ -455,21 +320,21 @@ function handleDisplay(url: URL): string {
 const SOCIAL_CONFIG: Record<SocialKey, SocialConfig> = {
   twitter: {
     label: "X",
-    trust: "branded",
+    trust: "generic",
     url: (v) => brandedUrl("twitter", v),
-    display: handleDisplay,
+    display: (url) => url.host,
   },
   github: {
     label: "GitHub",
-    trust: "branded",
+    trust: "generic",
     url: (v) => brandedUrl("github", v),
-    display: pathDisplay,
+    display: (url) => url.host,
   },
   instagram: {
     label: "Instagram",
-    trust: "branded",
+    trust: "generic",
     url: (v) => brandedUrl("instagram", v),
-    display: handleDisplay,
+    display: (url) => url.host,
   },
   youtube: {
     label: "YouTube",
@@ -479,9 +344,9 @@ const SOCIAL_CONFIG: Record<SocialKey, SocialConfig> = {
   },
   facebook: {
     label: "Facebook",
-    trust: "branded",
+    trust: "generic",
     url: (v) => brandedUrl("facebook", v),
-    display: pathDisplay,
+    display: (url) => url.host,
   },
   linkedin: {
     label: "LinkedIn",
@@ -497,9 +362,9 @@ const SOCIAL_CONFIG: Record<SocialKey, SocialConfig> = {
   },
   telegram: {
     label: "Telegram",
-    trust: "branded",
+    trust: "generic",
     url: (v) => brandedUrl("telegram", v),
-    display: handleDisplay,
+    display: (url) => url.host,
   },
   mastodon: {
     label: "Mastodon",
@@ -509,9 +374,9 @@ const SOCIAL_CONFIG: Record<SocialKey, SocialConfig> = {
   },
   nostr: {
     label: "Nostr",
-    trust: "branded",
+    trust: "generic",
     url: (v) => brandedUrl("nostr", v),
-    display: (url) => truncateMiddle(pathDisplay(url)),
+    display: (url) => url.host,
   },
   website: {
     label: "Website",

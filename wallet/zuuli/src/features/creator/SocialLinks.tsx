@@ -12,8 +12,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { SocialLink } from "@/lib/utils/bio";
 
-/** Branded icons are used only after the parser validates the destination
- * against that platform's exact host allowlist. */
+/** Branded icons are used only after the parser proves an unambiguous profile
+ * namespace as well as the platform's exact host boundary. */
 const BRANDED_ICONS: Record<SocialLink["key"], LucideIcon> = {
   twitter: Twitter,
   github: Github,
@@ -58,7 +58,9 @@ export function CreatorSocialLinks({
             className="min-tap inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Icon className="h-3.5 w-3.5" aria-hidden />
-            <span className={branded ? undefined : "font-semibold text-foreground"}>
+            <span
+              className={branded ? undefined : "font-semibold text-foreground"}
+            >
               {social.display}
             </span>
           </a>

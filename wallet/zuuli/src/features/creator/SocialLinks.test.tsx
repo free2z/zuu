@@ -3,16 +3,19 @@ import { describe, expect, it } from "vitest";
 import { parseBioFrontmatter } from "@/lib/utils/bio";
 import { CreatorSocialLinks } from "./SocialLinks";
 
+const AMBIGUOUS_CASES = [
+  ["twitter", "alice", "X", "x.com", "lucide-twitter"],
+  ["github", "alice", "GitHub", "github.com", "lucide-github"],
+  ["instagram", "alice", "Instagram", "instagram.com", "lucide-instagram"],
+  ["facebook", "alice", "Facebook", "facebook.com", "lucide-facebook"],
+  ["telegram", "alice", "Telegram", "t.me", "lucide-send"],
+  ["nostr", "npub1alice", "Nostr", "njump.me", "lucide-zap"],
+] as const;
+
 const BRANDED_CASES = [
-  ["twitter", "alice", "X", "x.com"],
-  ["github", "alice", "GitHub", "github.com"],
-  ["instagram", "alice", "Instagram", "instagram.com"],
   ["youtube", "alice", "YouTube", "youtube.com"],
-  ["facebook", "alice", "Facebook", "facebook.com"],
   ["linkedin", "alice", "LinkedIn", "linkedin.com"],
   ["reddit", "alice", "Reddit", "reddit.com"],
-  ["telegram", "alice", "Telegram", "t.me"],
-  ["nostr", "npub1alice", "Nostr", "njump.me"],
 ] as const;
 
 function socials(values: string) {
@@ -26,18 +29,52 @@ function render(values: string): string {
 }
 
 describe("creator social-link UI", () => {
-  it("renders every validated platform with its trusted label", () => {
-    const values = BRANDED_CASES.map(([key, handle]) => `  ${key}: ${handle}`).join(
-      "\n",
-    );
+  it("brands only structurally unambiguous profiles", () => {
+    const values = [...AMBIGUOUS_CASES, ...BRANDED_CASES]
+      .map(([key, handle]) => `  ${key}: ${handle}`)
+      .join("\n");
     const markup = render(values);
 
     expect(markup.match(/data-social-trust="branded"/g)).toHaveLength(
       BRANDED_CASES.length,
     );
+    expect(markup.match(/data-social-trust="generic"/g)).toHaveLength(
+      AMBIGUOUS_CASES.length,
+    );
     for (const [, , label, canonicalHost] of BRANDED_CASES) {
       expect(markup).toContain(`aria-label="Alice on ${label}"`);
       expect(markup).toContain(`data-destination-host="${canonicalHost}"`);
+    }
+    for (const [, , label, canonicalHost, iconClass] of AMBIGUOUS_CASES) {
+      expect(markup).not.toContain(`aria-label="Alice on ${label}"`);
+      expect(markup).toContain(`aria-label="Alice link to ${canonicalHost}"`);
+      expect(markup).toContain(`>${canonicalHost}</span>`);
+      expect(markup).not.toContain(iconClass);
+    }
+  });
+
+  it("never brands route-like plain handles", () => {
+    const markup = render(
+      "  twitter: about\n" +
+        "  github: contact\n" +
+        "  instagram: rules\n" +
+        "  facebook: help\n" +
+        "  telegram: rules\n" +
+        "  nostr: contact",
+    );
+
+    expect(markup.match(/data-social-trust="generic"/g)).toHaveLength(6);
+    expect(markup).not.toContain('data-social-trust="branded"');
+    for (const host of [
+      "x.com",
+      "github.com",
+      "instagram.com",
+      "facebook.com",
+      "t.me",
+      "njump.me",
+    ]) {
+      expect(markup).toContain(`Alice link to ${host}`);
+      expect(markup).toContain(`>${host}</span>`);
     }
   });
 
