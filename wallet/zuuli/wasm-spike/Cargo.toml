@@ -1,0 +1,17 @@
+[package]
+name = "zuu-wasm-spike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+description = "Minimal first-party Rust-to-WASM integration proof for ZUULI"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+panic = "abort"
+strip = true
