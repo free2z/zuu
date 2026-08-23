@@ -91,24 +91,29 @@ describe("global Search pagination API contract", () => {
     [
       "endpoint",
       "/api/zpage/?search=zero+knowledge&page=2&page_size=24&ordering=-total",
+      "left its endpoint",
     ],
     [
       "query",
       "/api/creator/?search=another&page=2&page_size=24&ordering=-total",
+      "changed its query",
     ],
     [
       "page size",
       "/api/creator/?search=zero+knowledge&page=2&page_size=25&ordering=-total",
+      "changed its page size",
     ],
     [
       "ordering",
       "/api/creator/?search=zero+knowledge&page=2&page_size=24&ordering=popular",
+      "changed its ordering",
     ],
     [
       "next page",
       "/api/creator/?search=zero+knowledge&page=3&page_size=24&ordering=-total",
+      "invalid next page",
     ],
-  ])("rejects a creator cursor that changes its %s", (_case, next) => {
+  ])("rejects a creator cursor that changes its %s", (_case, next, error) => {
     expect(() =>
       parseCreatorSearchPage(
         { ...envelope("/api/creator/", []), next },
@@ -116,6 +121,18 @@ describe("global Search pagination API contract", () => {
         1,
         24,
       ),
-    ).toThrow(/endpoint|query|page size|ordering|next page/);
+    ).toThrow(error);
+  });
+
+  it("accepts the absolute cursor shape emitted by production DRF", () => {
+    const relative = envelope("/api/creator/", [creator("alice")]);
+    expect(
+      parseCreatorSearchPage(
+        { ...relative, next: `https://free2z.cash${relative.next}` },
+        query,
+        1,
+        24,
+      ),
+    ).toMatchObject({ next: 2, count: 30 });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchResultPage } from "@/lib/api/types";
 import {
   mergeSearchPage,
@@ -32,6 +32,8 @@ function page(
 }
 
 describe("global Search result pagination", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("deduplicates overlapping pages without changing backend order", () => {
     const first = mergeSearchPage(
       initial(),
@@ -63,19 +65,34 @@ describe("global Search result pagination", () => {
     ).toThrow("made no progress");
   });
 
-  it("fails closed on count drift, early termination, and cursor jumps", () => {
+  it("keeps valid rows when advisory counts drift or a tied row is skipped", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const first = mergeSearchPage(
       initial(),
       page([result("a")], 2, 2),
       1,
       identity,
     );
-    expect(() =>
-      mergeSearchPage(first, page([result("b")], null, 3), 2, identity),
-    ).toThrow("count changed");
-    expect(() =>
-      mergeSearchPage(first, page([], null, 2), 2, identity),
-    ).toThrow("before every result");
+    expect(
+      mergeSearchPage(first, page([result("c")], null, 3), 2, identity),
+    ).toMatchObject({
+      items: [{ id: "a" }, { id: "c" }],
+      next: null,
+      count: 3,
+    });
+    expect(warning).toHaveBeenCalledWith(
+      "Search result count changed during pagination.",
+      expect.objectContaining({ previousCount: 2, responseCount: 3 }),
+    );
+  });
+
+  it("fails closed on cursor jumps", () => {
+    const first = mergeSearchPage(
+      initial(),
+      page([result("a")], 2, 2),
+      1,
+      identity,
+    );
     expect(() =>
       mergeSearchPage(first, page([result("b")], 4, 2), 2, identity),
     ).toThrow("unexpected next page");

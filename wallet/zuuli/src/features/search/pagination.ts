@@ -61,9 +61,6 @@ export function mergeSearchPage<T>(
   if (requestedPage !== current.next) {
     throw new Error("Search received an unexpected page.");
   }
-  if (current.count !== null && response.count !== current.count) {
-    throw new Error("Search result count changed during the read.");
-  }
   if (response.next !== null && response.next !== requestedPage + 1) {
     throw new Error("Search returned an unexpected next page.");
   }
@@ -78,17 +75,27 @@ export function mergeSearchPage<T>(
     }
   }
 
-  if (items.length > response.count) {
-    throw new Error("Search exceeded its authoritative result count.");
-  }
-  if (response.next === null && items.length !== response.count) {
-    throw new Error("Search ended before every result was loaded.");
-  }
   if (response.next !== null && items.length === current.items.length) {
     throw new Error("Search pagination made no progress.");
   }
-  if (response.next !== null && items.length >= response.count) {
-    throw new Error("Search continued past its authoritative result count.");
+
+  // DRF recomputes count for every offset page, while rows can be published or
+  // removed between clicks. Search ordering also contains ties, so deduped row
+  // length cannot be required to equal that moving display hint. The cursor is
+  // the traversal authority; retain strict cursor/progress validation above
+  // and surface count drift diagnostically without discarding valid rows.
+  if (
+    (current.count !== null && response.count !== current.count) ||
+    items.length > response.count ||
+    (response.next === null && items.length !== response.count) ||
+    (response.next !== null && items.length >= response.count)
+  ) {
+    console.warn("Search result count changed during pagination.", {
+      previousCount: current.count,
+      responseCount: response.count,
+      loadedCount: items.length,
+      next: response.next,
+    });
   }
 
   return {
@@ -120,11 +127,12 @@ function usePaginatedSearch<T>(
   stateRef.current = state;
 
   const load = useCallback(
-    async (page: number) => {
+    async (page: number, rebaselineCount = false) => {
       if (stateRef.current.loading || stateRef.current.key !== query) return;
       const requestId = ++requestIdRef.current;
       const loadingState = {
         ...stateRef.current,
+        count: rebaselineCount ? null : stateRef.current.count,
         error: null,
         loading: true,
       };
@@ -174,7 +182,7 @@ function usePaginatedSearch<T>(
 
   const retry = useCallback(() => {
     const next = stateRef.current.next;
-    if (next !== null) void load(next);
+    if (next !== null) void load(next, true);
   }, [load]);
 
   if (state.key !== query) {

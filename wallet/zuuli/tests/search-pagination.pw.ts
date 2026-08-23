@@ -68,7 +68,7 @@ test("every result remains loaded with its tab and scroll position across back n
 test("an empty nonterminal corpus failure is explicit, isolated, and retryable", async ({
   page,
 }) => {
-  await useSearchScenarios(page, "empty-twice", "small-pages");
+  await useSearchScenarios(page, "empty-nonterminal", "small-pages");
   await page.goto("/search?q=a");
 
   await expect(
@@ -81,11 +81,40 @@ test("an empty nonterminal corpus failure is explicit, isolated, and retryable",
   await expect(page.getByRole("tab", { name: /Pages/ })).toContainText("61");
 
   await page.getByRole("tab", { name: /Creators/ }).click();
+  await page.evaluate(() =>
+    sessionStorage.removeItem("zuuli.mock.search-creators"),
+  );
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(page.locator("[data-search-creator-result]")).toHaveCount(4);
   await expect(
     page.getByText("4 of 4 creators", { exact: true }),
   ).toBeVisible();
+});
+
+test("count drift and tied-row skips retain the valid terminal results", async ({
+  page,
+}) => {
+  await useSearchScenarios(page, "count-drift", "skip-row");
+  await page.goto("/search?q=a");
+
+  const creators = page.locator("[data-search-creator-result]");
+  await expect(creators).toHaveCount(2);
+  await page.getByRole("button", { name: "Load more creators" }).click();
+  await expect(creators).toHaveCount(4);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("4 of 5 creators", { exact: true })).toBeVisible();
+
+  await page.getByRole("tab", { name: /Pages/ }).click();
+  const pages = page.locator("[data-search-page-result]");
+  await expect(pages).toHaveCount(2);
+  for (let expected = 4; expected <= 58; expected += 2) {
+    await page.getByRole("button", { name: "Load more pages" }).click();
+    await expect(pages).toHaveCount(expected);
+  }
+  await page.getByRole("button", { name: "Load more pages" }).click();
+  await expect(pages).toHaveCount(60);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("60 of 61 pages", { exact: true })).toBeVisible();
 });
 
 test("overlapping backend pages are deduplicated without losing order", async ({

@@ -1914,35 +1914,35 @@ function mockSearchResultPage<T>(
     typeof window === "undefined"
       ? null
       : window.sessionStorage.getItem(scenarioKey);
-  if (scenario === "fail-once") {
-    window.sessionStorage.removeItem(scenarioKey);
+  if (scenario === "unavailable") {
     throw new Error("Mock search corpus unavailable");
   }
-  if (scenario === "empty-once" || scenario === "empty-twice") {
-    const remainingKey = `${scenarioKey}.remaining`;
-    const remaining =
-      scenario === "empty-twice"
-        ? Number(window.sessionStorage.getItem(remainingKey) ?? "2")
-        : 1;
-    if (remaining <= 1) {
-      window.sessionStorage.removeItem(scenarioKey);
-      window.sessionStorage.removeItem(remainingKey);
-    } else {
-      window.sessionStorage.setItem(remainingKey, String(remaining - 1));
-    }
+  if (scenario === "empty-nonterminal") {
     return { items: [], next: page + 1, count: allItems.length };
   }
 
   const effectivePageSize =
-    scenario === "small-pages" || scenario === "overlap" ? 2 : pageSize;
+    scenario === "small-pages" ||
+    scenario === "overlap" ||
+    scenario === "count-drift" ||
+    scenario === "skip-row"
+      ? 2
+      : pageSize;
   const nominalStart = (page - 1) * effectivePageSize;
   const start =
-    scenario === "overlap" && page > 1 ? nominalStart - 1 : nominalStart;
+    scenario === "overlap" && page > 1
+      ? nominalStart - 1
+      : scenario === "skip-row" && page > 1
+        ? nominalStart + 1
+        : nominalStart;
   const items = allItems.slice(start, start + effectivePageSize);
   return {
     items,
     next: start + effectivePageSize < allItems.length ? page + 1 : null,
-    count: allItems.length,
+    count:
+      scenario === "count-drift" && page > 1
+        ? allItems.length + 1
+        : allItems.length,
   };
 }
 
@@ -1990,7 +1990,17 @@ export const discover = {
 
   /** Legacy one-page creator lookup used by compact recipient suggestions. */
   async searchCreators(query: string): Promise<SimpleCreator[]> {
-    return (await discover.searchCreatorPage(query)).items;
+    const q = query.trim();
+    if (useMock()) {
+      await delay(200);
+      return mockSearchCreators(q);
+    }
+    if (!q) return [];
+    const page = await request<Paginated<RawCreator>>("/api/creator/", {
+      query: { search: q, page_size: 24, ordering: "-total" },
+      anonymous: true,
+    });
+    return (page.results ?? []).map(mapCreator);
   },
 
   /** GET /api/creator/{username}/ → the data-driven public creator profile. */
