@@ -1024,6 +1024,21 @@ pub(crate) async fn get_wallet_status<R: Runtime>(app: AppHandle<R>) -> Result<W
     })
 }
 
+/// Inspect the fixed legacy ZUULI sibling without reading custody or opening
+/// the source SQLite database. This command deliberately has no path argument.
+#[command]
+pub(crate) async fn preview_legacy_wallet_import<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<LegacyImportPreview> {
+    let identifier = app.config().identifier.clone();
+    let data_dir = app.zcash().state.data_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::legacy_import_preview::preview(&data_dir, &identifier)
+    })
+    .await
+    .map_err(|error| Error::Other(format!("legacy preview task failed: {error}")))
+}
+
 /// Explicitly retry every authorized orphan cleanup operation. Stage failures
 /// are returned as diagnostics rather than command errors so callers never
 /// confuse a cleanup backend failure with an ambiguous wallet transition.

@@ -22,8 +22,8 @@ use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
 
-const LEGACY_IDENTIFIER: &str = "com.2zinc.zuuli";
-const CANONICAL_IDENTIFIER: &str = "cash.free2z.zuuli";
+pub(crate) const LEGACY_IDENTIFIER: &str = "com.2zinc.zuuli";
+pub(crate) const CANONICAL_IDENTIFIER: &str = "cash.free2z.zuuli";
 const JOURNAL_FILENAME: &str = ".zuuli-migration-com.2zinc.zuuli-to-cash.free2z.zuuli.json";
 const JOURNAL_TEMP_PREFIX: &str = ".zuuli-migration-prepared-";
 #[cfg(test)]
@@ -691,7 +691,7 @@ fn finish_journal(path: &Path, parent: &Path) -> Result<(), MigrationError> {
 /// Reject links and special files before the directory is accepted as wallet
 /// state.  A directory rename does not traverse links, but accepting one would
 /// allow later manifest/database opens to escape the application sandbox.
-fn validate_tree(root: &Path) -> Result<(), MigrationError> {
+pub(crate) fn validate_tree(root: &Path) -> Result<(), MigrationError> {
     let root_metadata = validate_root(root)?;
 
     let mut pending = vec![root.to_path_buf()];
@@ -796,7 +796,7 @@ fn reject_hard_linked_file(path: &Path, _metadata: &fs::Metadata) -> Result<(), 
 }
 
 #[cfg(windows)]
-fn windows_link_count(path: &Path) -> std::io::Result<u32> {
+pub(crate) fn windows_link_count(path: &Path) -> std::io::Result<u32> {
     Ok(windows_file_information(path, 0, false)?.nNumberOfLinks)
 }
 

@@ -88,3 +88,34 @@ non-recursive deletion. Unix trees that cross onto a different filesystem
 device are also rejected. A same-filesystem bind mount is not distinguishable
 from an ordinary directory through portable file metadata; creating one
 requires OS mount authority and is outside this app-private-state boundary.
+
+## Read-only legacy import preview
+
+The native `preview_legacy_wallet_import` command is the first, deliberately
+non-importing slice of the explicit import flow. It accepts no path or wallet
+argument and inventories only the fixed `com.2zinc.zuuli` sibling of the
+running `cash.free2z.zuuli` application-data directory. Other plugin consumers
+and Android's separately scoped package sandbox return `unsupported`; a missing
+sibling returns `absent`; unsafe, corrupt, changing, or unknown layouts return
+`blocked`; and only validated single- or multi-wallet layouts return `ready`.
+
+The preview never opens source SQLite. It hashes and records the identity of
+each database, WAL, and SHM, copies the triplet into a uniquely named private
+temporary directory, proves the copied bytes match, then proves the source
+identity and hashes still match before querying the private snapshot. It
+accepts WAL and SHM as the only SQLite sidecars; a rollback, super-journal, or
+other transient sidecar blocks preview until the legacy application is closed.
+It validates SQLite integrity, the accounts table, and every mainnet UFVK. Results
+contain exact database filenames, sidecar and encrypted-custody presence,
+account counts, and domain-separated SHA-256 UFVK fingerprints. Wallet IDs,
+wallet names, account names, raw UFVKs, source paths, custody filenames, salts,
+and encrypted custody bytes are never returned.
+
+Encrypted `.seeds` input is inspected as filesystem metadata only. The preview
+does not read custody files, call `SeedStore`, create a manifest, write an import
+journal, mutate either application-data tree, or publish wallets to runtime
+state. A pre-manifest single-wallet layout has no durable wallet ID, so custody
+presence is reported only when its directory has one encrypted entry plus its
+salt; the preview never guesses an identity. Import authorization, custody
+decryption/validation, crash-safe journaling, publication, and UI remain later
+slices of issue #272.
