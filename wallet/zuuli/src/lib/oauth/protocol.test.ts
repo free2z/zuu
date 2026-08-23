@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SocialProvider } from "../api/types";
 import {
   MOBILE_REDIRECT_URI,
+  assertSessionBinding,
   buildSessionBinding,
   canResumeMobileOAuth,
   generatePkcePair,
@@ -110,6 +111,31 @@ describe("buildSessionBinding", () => {
     expect(binding).toMatch(/^associate:[0-9a-f]{64}$/);
     expect(binding).not.toContain("secret-token");
     await expect(buildSessionBinding(true, null)).rejects.toThrow(/expired/);
+  });
+});
+
+describe("assertSessionBinding", () => {
+  it("returns only the exact initiating association token", async () => {
+    const binding = await buildSessionBinding(true, "account-a-token");
+    await expect(
+      assertSessionBinding(binding, true, "account-a-token"),
+    ).resolves.toBe("account-a-token");
+    await expect(
+      assertSessionBinding(binding, true, "account-b-token"),
+    ).rejects.toThrow(/session changed/);
+  });
+
+  it("fails closed across logout, relogin, and authenticated login transitions", async () => {
+    const association = await buildSessionBinding(true, "first-token");
+    await expect(assertSessionBinding(association, true, null)).rejects.toThrow();
+    await expect(
+      assertSessionBinding(association, true, "replacement-token"),
+    ).rejects.toThrow();
+
+    await expect(assertSessionBinding("login:none", false, null)).resolves.toBeNull();
+    await expect(
+      assertSessionBinding("login:none", false, "unexpected-session"),
+    ).rejects.toThrow();
   });
 });
 

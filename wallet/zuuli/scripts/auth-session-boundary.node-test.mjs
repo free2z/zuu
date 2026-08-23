@@ -39,6 +39,33 @@ test("uncommitted profile probes use a private explicit token header", () => {
   assert.match(requestBody, /headers\["Authorization"\] = `Token \$\{token\}`/);
 });
 
+test("every social OAuth transport pins completion to its initiating session", () => {
+  const api = readFileSync(new URL("../src/lib/api/free2z.ts", import.meta.url), "utf8");
+  const transport = readFileSync(
+    new URL("../src/lib/oauth/transport.ts", import.meta.url),
+    "utf8",
+  );
+  const completion = between(
+    api,
+    "  async completeSocialOAuth(",
+    "};\n\n// ─── Profile",
+  );
+
+  assert.match(transport, /sessionBinding: string/);
+  assert.match(transport, /transport: OAuthCallbackTransport/);
+  assert.match(transport, /onTokenChange\(\(token\)/);
+  assert.match(transport, /export async function assertOAuthSession/);
+  assert.doesNotMatch(transport, /assertMobileOAuthSession/);
+  assert.match(completion, /const initiatingToken = await assertOAuthSession\(capture\)/);
+  assert.match(completion, /authToken: initiatingToken \?\? undefined/);
+
+  const logout = between(api, "  async logout():", "  /**\n   * Login with Zcash:");
+  assert.match(
+    logout,
+    /const token = getToken\(\);[\s\S]*?setToken\(null\);[\s\S]*?authToken: token \?\? undefined/,
+  );
+});
+
 test("recovery phrases cannot enter browser persistence, URLs, logs, or toasts", () => {
   const flow = readFileSync(
     new URL("../src/features/auth/useZcashChallengeFlow.ts", import.meta.url),

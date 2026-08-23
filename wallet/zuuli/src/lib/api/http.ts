@@ -16,6 +16,7 @@ import { isTauri } from "../platform";
 const TOKEN_KEY = "zuuli.knox.token";
 
 let inMemoryToken: string | null = null;
+const tokenListeners = new Set<(token: string | null) => void>();
 
 export function getToken(): string | null {
   if (inMemoryToken) return inMemoryToken;
@@ -28,6 +29,7 @@ export function getToken(): string | null {
 }
 
 export function setToken(token: string | null): void {
+  const previous = getToken();
   inMemoryToken = token;
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -35,6 +37,17 @@ export function setToken(token: string | null): void {
   } catch {
     /* ignore */
   }
+  if (previous !== token) {
+    for (const listener of tokenListeners) listener(token);
+  }
+}
+
+/** Observe process-local account transitions without exposing the token to
+ * persistent browser state. OAuth transports use this to cancel a flow as
+ * soon as its initiating session changes. */
+export function onTokenChange(listener: (token: string | null) => void): () => void {
+  tokenListeners.add(listener);
+  return () => tokenListeners.delete(listener);
 }
 
 export function isAuthed(): boolean {

@@ -9,7 +9,7 @@ import { useMock } from "../platform";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
 import {
-  assertMobileOAuthSession,
+  assertOAuthSession,
   cancelMobileOAuth,
   captureOAuthCode,
   finishMobileOAuth,
@@ -17,7 +17,7 @@ import {
   type OAuthCapture,
 } from "../oauth/transport";
 import type { OAuthStartResponse } from "../oauth/protocol";
-import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
+import { ApiError, basicLogin, getToken, mediaUrl, request, setToken } from "./http";
 import {
   DonationContractError,
   IDEMPOTENT_DONATION_ROUTE,
@@ -627,14 +627,22 @@ export const auth = {
   },
 
   async logout(): Promise<void> {
+    // Invalidate the renderer session synchronously so every outstanding OAuth
+    // transport aborts before the revocation request crosses the network.
+    // The request is pinned to the captured token and never re-reads global
+    // state after the account transition.
+    const token = getToken();
+    setToken(null);
     if (!useMock()) {
       try {
-        await request("/api/token/logout/", { method: "POST" });
+        await request("/api/token/logout/", {
+          method: "POST",
+          authToken: token ?? undefined,
+        });
       } catch {
         /* best-effort */
       }
     }
-    setToken(null);
   },
 
   /**
@@ -819,7 +827,7 @@ export const auth = {
    */
   async completeSocialOAuth(capture: OAuthCapture): Promise<SocialAuthResult> {
     const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
-    await assertMobileOAuthSession(capture);
+    const initiatingToken = await assertOAuthSession(capture);
     const body = {
       code,
       state,
@@ -834,6 +842,10 @@ export const auth = {
         await request<unknown>(`/api/auth/social/${provider}/`, {
           method: "POST",
           body,
+          // Pin the exchange to the token whose one-way binding was captured
+          // before provider navigation. Mutable global state is never read a
+          // second time between validation and this request.
+          authToken: initiatingToken ?? undefined,
         });
         // The backend mutation already succeeded. Local scratch-file cleanup
         // must not turn a completed link into a user-visible auth failure.

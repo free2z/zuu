@@ -2,11 +2,12 @@
 // loopback; iOS/Android use the canonical private-use callback registered by
 // tauri-plugin-deep-link; plain web uses a same-origin popup.
 
-import { getToken } from "../api/http";
+import { getToken, onTokenChange } from "../api/http";
 import type { SocialProvider } from "../api/types";
 import { isTauri } from "../platform";
 import {
   MOBILE_REDIRECT_URI,
+  assertSessionBinding,
   buildSessionBinding,
   canResumeMobileOAuth,
   generatePkcePair,
@@ -21,6 +22,9 @@ export interface OAuthCapture {
   state: string;
   redirectUri: string;
   codeVerifier?: string;
+  /** One-way binding to the exact session present before provider navigation. */
+  sessionBinding: string;
+  transport: OAuthCallbackTransport;
 }
 
 interface LoopbackStart {
@@ -40,9 +44,11 @@ interface MobilePendingSummary {
   state: string;
 }
 
+type NativeOAuthCapture = Omit<OAuthCapture, "sessionBinding" | "transport">;
+
 type MobileClaimResult =
   | { status: "ignored" }
-  | { status: "captured"; capture: OAuthCapture }
+  | { status: "captured"; capture: NativeOAuthCapture }
   | { status: "rejected" | "cancelled"; message: string };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -53,6 +59,26 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 const POPUP_POLL_MS = 350;
 const OAUTH_TIMEOUT_MS = 10 * 60 * 1_000;
 const POPUP_FEATURES = "width=480,height=680,noopener=no,noreferrer=no";
+
+const SESSION_CHANGED = "Your account session changed while the provider was open. Start again.";
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error(SESSION_CHANGED));
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new Error(SESSION_CHANGED));
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
 
 let transportKind: Promise<"desktop" | "mobile"> | null = null;
 async function nativeTransport(): Promise<"desktop" | "mobile"> {
@@ -89,19 +115,33 @@ export async function isMobileTauri(): Promise<boolean> {
 async function runDesktopLoopback(
   provider: SocialProvider,
   associate: boolean,
+  sessionBinding: string,
+  signal: AbortSignal,
   buildStart: (redirectUri: string) => Promise<OAuthStartResponse>,
 ): Promise<OAuthCapture> {
-  const loopback = await invoke<LoopbackStart>("oauth_loopback_start");
-  const redirectUri = `http://127.0.0.1:${loopback.port}/${loopback.redirectPath}`;
   try {
-    const start = await buildStart(redirectUri);
+    const loopback = await abortable(
+      invoke<LoopbackStart>("oauth_loopback_start"),
+      signal,
+    );
+    const redirectUri = `http://127.0.0.1:${loopback.port}/${loopback.redirectPath}`;
+    const start = await abortable(buildStart(redirectUri), signal);
     const authorizeUrl = validateAuthorizationStart(provider, start, redirectUri, false);
     const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(authorizeUrl);
-    const result = await invoke<LoopbackResult>("oauth_loopback_wait", {
-      expectedState: start.state,
-    });
-    return { provider, associate, code: result.code, state: result.state, redirectUri };
+    await abortable(openUrl(authorizeUrl), signal);
+    const result = await abortable(
+      invoke<LoopbackResult>("oauth_loopback_wait", { expectedState: start.state }),
+      signal,
+    );
+    return {
+      provider,
+      associate,
+      code: result.code,
+      state: result.state,
+      redirectUri,
+      sessionBinding,
+      transport: "desktop",
+    };
   } catch (error) {
     await invoke<void>("oauth_loopback_cancel").catch(() => undefined);
     throw error;
@@ -110,7 +150,7 @@ async function runDesktopLoopback(
 
 function settleMobileResult(
   result: MobileClaimResult,
-  resolve: (capture: OAuthCapture) => void,
+  resolve: (capture: NativeOAuthCapture) => void,
   reject: (error: Error) => void,
 ): boolean {
   if (result.status === "captured") {
@@ -128,14 +168,14 @@ async function waitForMobileCallback(
   associate: boolean,
   expectedState: string,
   signal?: AbortSignal,
-): Promise<OAuthCapture> {
+): Promise<NativeOAuthCapture> {
   const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
   let finished = false;
   let unlisten: (() => void) | undefined;
   let timer: number | undefined;
 
-  const promise = new Promise<OAuthCapture>((resolve, reject) => {
-    const finishResolve = (capture: OAuthCapture) => {
+  const promise = new Promise<NativeOAuthCapture>((resolve, reject) => {
+    const finishResolve = (capture: NativeOAuthCapture) => {
       if (finished) return;
       finished = true;
       if (timer !== undefined) window.clearTimeout(timer);
@@ -203,14 +243,18 @@ async function waitForMobileCallback(
 async function runMobileDeepLink(
   provider: SocialProvider,
   associate: boolean,
+  sessionBinding: string,
+  outerSignal: AbortSignal,
   buildStart: (
     redirectUri: string,
     codeChallenge?: string,
   ) => Promise<OAuthStartResponse>,
 ): Promise<OAuthCapture> {
-  const sessionBinding = await buildSessionBinding(associate, getToken());
-  const pkce = await generatePkcePair();
-  const start = await buildStart(MOBILE_REDIRECT_URI, pkce.challenge);
+  const pkce = await abortable(generatePkcePair(), outerSignal);
+  const start = await abortable(
+    buildStart(MOBILE_REDIRECT_URI, pkce.challenge),
+    outerSignal,
+  );
   const authorizeUrl = validateAuthorizationStart(
     provider,
     start,
@@ -218,26 +262,36 @@ async function runMobileDeepLink(
     true,
     pkce.challenge,
   );
-  await invoke<void>("oauth_mobile_arm", {
-    args: {
-      provider,
-      state: start.state,
-      associate,
-      sessionBinding,
-      codeVerifier: pkce.verifier,
-    },
-  });
+  await abortable(
+    invoke<void>("oauth_mobile_arm", {
+      args: {
+        provider,
+        state: start.state,
+        associate,
+        sessionBinding,
+        codeVerifier: pkce.verifier,
+      },
+    }),
+    outerSignal,
+  );
   recoveryController?.abort();
   recoveryController = null;
   const controller = new AbortController();
+  const abortFromSessionChange = () => controller.abort();
+  outerSignal.addEventListener("abort", abortFromSessionChange, { once: true });
+  if (outerSignal.aborted) controller.abort();
   const callback = waitForMobileCallback(associate, start.state, controller.signal);
   // Observe listener/setup failures immediately; the original promise is
   // still awaited below so the caller receives the same rejection.
   void callback.catch(() => undefined);
   try {
     const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(authorizeUrl);
-    return await callback;
+    await abortable(openUrl(authorizeUrl), outerSignal);
+    return {
+      ...(await callback),
+      sessionBinding,
+      transport: "mobile",
+    };
   } catch (error) {
     controller.abort();
     await invoke<void>("oauth_mobile_cancel", {
@@ -245,6 +299,8 @@ async function runMobileDeepLink(
     }).catch(() => undefined);
     await callback.catch(() => undefined);
     throw error;
+  } finally {
+    outerSignal.removeEventListener("abort", abortFromSessionChange);
   }
 }
 
@@ -253,6 +309,8 @@ function runWebPopup(
   associate: boolean,
   start: OAuthStartResponse,
   redirectUri: string,
+  sessionBinding: string,
+  signal: AbortSignal,
 ): Promise<OAuthCapture> {
   const authorizeUrl = validateAuthorizationStart(provider, start, redirectUri, false);
   return new Promise((resolve, reject) => {
@@ -262,17 +320,20 @@ function runWebPopup(
       return;
     }
     const expected = new URL(redirectUri);
-    const deadline = window.setTimeout(() => {
-      window.clearInterval(poll);
+    let deadline: number | undefined;
+    let poll: number | undefined;
+    let abort = () => undefined;
+    const finish = () => {
+      if (deadline !== undefined) window.clearTimeout(deadline);
+      if (poll !== undefined) window.clearInterval(poll);
       popup.close();
+      signal.removeEventListener("abort", abort);
+    };
+    deadline = window.setTimeout(() => {
+      finish();
       reject(new Error("Timed out waiting for the OAuth redirect."));
     }, OAUTH_TIMEOUT_MS);
-    const finish = () => {
-      window.clearTimeout(deadline);
-      window.clearInterval(poll);
-      popup.close();
-    };
-    const poll = window.setInterval(() => {
+    poll = window.setInterval(() => {
       if (popup.closed) {
         finish();
         reject(new Error("Sign-in was cancelled."));
@@ -301,7 +362,15 @@ function runWebPopup(
         reject(new Error("The provider callback did not match this sign-in attempt."));
       } else if (codes.length === 1 && errors.length === 0 && codes[0]) {
         finish();
-        resolve({ provider, associate, code: codes[0], state: states[0], redirectUri });
+        resolve({
+          provider,
+          associate,
+          code: codes[0],
+          state: states[0],
+          redirectUri,
+          sessionBinding,
+          transport: "web",
+        });
       } else if (errors.length === 1 && codes.length === 0) {
         finish();
         reject(new Error("Sign-in was cancelled."));
@@ -310,6 +379,12 @@ function runWebPopup(
         reject(new Error("The provider callback was malformed."));
       }
     }, POPUP_POLL_MS);
+    abort = () => {
+      finish();
+      reject(new Error(SESSION_CHANGED));
+    };
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
   });
 }
 
@@ -321,15 +396,44 @@ export async function captureOAuthCode(
     codeChallenge?: string,
   ) => Promise<OAuthStartResponse>,
 ): Promise<OAuthCapture> {
-  const transport = await oauthCallbackTransport();
-  if (transport !== "web") {
-    return transport === "mobile"
-      ? runMobileDeepLink(provider, associate, buildStart)
-      : runDesktopLoopback(provider, associate, buildStart);
+  const initiatingToken = getToken();
+  const sessionBinding = await buildSessionBinding(associate, initiatingToken);
+  const controller = new AbortController();
+  const stopWatching = onTokenChange((token) => {
+    if (token !== initiatingToken) controller.abort();
+  });
+  try {
+    const transport = await abortable(oauthCallbackTransport(), controller.signal);
+    if (transport !== "web") {
+      return transport === "mobile"
+        ? runMobileDeepLink(
+            provider,
+            associate,
+            sessionBinding,
+            controller.signal,
+            buildStart,
+          )
+        : runDesktopLoopback(
+            provider,
+            associate,
+            sessionBinding,
+            controller.signal,
+            buildStart,
+          );
+    }
+    const redirectUri = window.location.origin;
+    const start = await abortable(buildStart(redirectUri), controller.signal);
+    return runWebPopup(
+      provider,
+      associate,
+      start,
+      redirectUri,
+      sessionBinding,
+      controller.signal,
+    );
+  } finally {
+    stopWatching();
   }
-  const redirectUri = window.location.origin;
-  const start = await buildStart(redirectUri);
-  return runWebPopup(provider, associate, start, redirectUri);
 }
 
 let recovery: Promise<OAuthCapture | null> | null = null;
@@ -361,20 +465,27 @@ export function recoverMobileOAuth(): Promise<OAuthCapture | null> {
       // the waiter also closes the cold-start race.
       const controller = new AbortController();
       recoveryController = controller;
+      const stopWatching = onTokenChange((current) => {
+        if (current !== token) controller.abort();
+      });
       try {
-        return await waitForMobileCallback(
+        const capture = await waitForMobileCallback(
           pending.associate,
           pending.state,
           controller.signal,
         );
+        return { ...capture, sessionBinding, transport: "mobile" };
       } catch (error) {
         if (controller.signal.aborted) return null;
         throw error;
       } finally {
+        stopWatching();
         if (recoveryController === controller) recoveryController = null;
       }
     }
-    if (result.status === "captured") return result.capture;
+    if (result.status === "captured") {
+      return { ...result.capture, sessionBinding, transport: "mobile" };
+    }
     if (result.status === "rejected" || result.status === "cancelled") {
       throw new Error(result.message);
     }
@@ -388,12 +499,31 @@ export async function finishMobileOAuth(state: string): Promise<void> {
   await invoke<void>("oauth_mobile_finish", { args: { state } });
 }
 
-/** Revalidate the initiating session immediately before backend exchange. */
-export async function assertMobileOAuthSession(capture: OAuthCapture): Promise<void> {
-  if (!isTauri() || (await nativeTransport()) !== "mobile") return;
-  const sessionBinding = await buildSessionBinding(capture.associate, getToken());
+/** Revalidate every transport's initiating session immediately before backend
+ * exchange and return the exact token that passed the binding check. */
+export async function assertOAuthSession(
+  capture: OAuthCapture,
+): Promise<string | null> {
+  const token = getToken();
+  let verifiedToken: string | null;
+  try {
+    verifiedToken = await assertSessionBinding(
+      capture.sessionBinding,
+      capture.associate,
+      token,
+    );
+  } catch (error) {
+    if (capture.transport === "mobile") {
+      await invoke<void>("oauth_mobile_cancel", {
+        args: { state: capture.state },
+      }).catch(() => undefined);
+    }
+    throw error;
+  }
+  if (capture.transport !== "mobile") return verifiedToken;
+
   const result = await invoke<MobileClaimResult>("oauth_mobile_resume", {
-    args: { sessionBinding, expectedState: capture.state },
+    args: { sessionBinding: capture.sessionBinding, expectedState: capture.state },
   });
   if (
     result.status !== "captured" ||
@@ -410,6 +540,7 @@ export async function assertMobileOAuthSession(capture: OAuthCapture): Promise<v
         : "The mobile sign-in session no longer matches this callback.",
     );
   }
+  return verifiedToken;
 }
 
 export async function cancelMobileOAuth(state: string): Promise<void> {
