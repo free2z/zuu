@@ -406,6 +406,7 @@ ANDROID_KEY_PASSWORD
 PLAY_SERVICE_ACCOUNT_JSON_BASE64
 APPLE_DEVELOPER_ID_CERTIFICATE_BASE64
 APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD
+APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64
 ```
 
 Create the protected environment before installing credentials. Feed the Play
@@ -420,7 +421,12 @@ base64 < "$PLAY_SERVICE_ACCOUNT_JSON" | tr -d '\n' | \
     --repo free2z/zuu --env zuuli-app-stores
 ```
 
-The final two are needed only for direct-download macOS signing/notarization.
+The final three are needed only for direct-download macOS signing/notarization.
+The Developer ID provisioning profile must authorize
+`F9AV5HKF6N.cash.free2z.zuuli` and its Keychain access group; macOS requires a
+profile to authorize that restricted entitlement. The signer embeds the profile
+and rejects a wrong team, application identifier, access-group allowlist, or
+signing certificate before it signs the app.
 Base64 values are decoded only inside the system-tool credential jobs into
 mode-0700 runner-temporary directories and destroyed even when a job fails.
 Dependency-controlled build jobs neither reference the protected environment

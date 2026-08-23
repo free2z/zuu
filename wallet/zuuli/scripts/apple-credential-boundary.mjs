@@ -40,6 +40,7 @@ const ALLOWED_JOB_SECRETS = new Map([
   ["macos-sign", new Set([
     "APPLE_DEVELOPER_ID_CERTIFICATE_BASE64",
     "APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD",
+    "APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64",
     "ASC_KEY_BASE64",
   ])],
 ]);
@@ -52,7 +53,7 @@ const ALLOWED_JOB_SECRETS = new Map([
 const CREDENTIAL_JOB_SHA256 = new Map([
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "7b885b419a443d99acfbb04b1489581feb24050a9bd9c4548b19353c80d89a10"],
+  ["macos-sign", "ec623811504347722ab88c20d8cc62bb8f7413268891d62cc86713758906e143"],
 ]);
 
 // These four inherited/root controls sit outside the protected job nodes but
@@ -465,7 +466,13 @@ export function verifyAppleCredentialBoundary(
     failures,
     "macOS unsigned builder",
     jobs.get("macos-build"),
-    "ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256",
+    "Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256",
+  );
+  requireText(
+    failures,
+    "macOS unsigned builder",
+    jobs.get("macos-build"),
+    "node scripts/macos-keychain-entitlements.mjs",
   );
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "EXPECTED_PAYLOAD_SHA256");
   requireText(
@@ -488,6 +495,21 @@ export function verifyAppleCredentialBoundary(
   );
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "original-keychains.txt");
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "cleanup-failed");
+  requireText(
+    failures,
+    "macOS signer",
+    jobs.get("macos-sign"),
+    "--entitlements unsigned-macos/Entitlements.plist",
+  );
+  requireText(failures, "macOS signer", jobs.get("macos-sign"), "signed-entitlements.plist");
+  requireText(failures, "macOS signer", jobs.get("macos-sign"), '"keychain-access-groups"[0]');
+  requireText(
+    failures,
+    "macOS signer",
+    jobs.get("macos-sign"),
+    "APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64",
+  );
+  requireText(failures, "macOS signer", jobs.get("macos-sign"), "embedded.provisionprofile");
   requireText(
     failures,
     "macOS signer",

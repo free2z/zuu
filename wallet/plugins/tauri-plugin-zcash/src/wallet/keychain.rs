@@ -58,6 +58,26 @@ pub trait SecureStore: Send + Sync {
     fn store(&self, wallet_id: &str, phrase: &str) -> std::result::Result<(), SecureStoreError>;
     fn get(&self, wallet_id: &str) -> std::result::Result<Zeroizing<String>, SecureStoreError>;
     fn delete(&self, wallet_id: &str) -> std::result::Result<(), SecureStoreError>;
+
+    /// Read a weaker platform-native record created by an older implementation.
+    ///
+    /// This is deliberately separate from `get`: callers must validate the
+    /// wallet identity and complete a protected write/readback before deleting
+    /// the weaker source. Platforms without such a record keep the fail-closed
+    /// default.
+    fn get_legacy_fallback(
+        &self,
+        _wallet_id: &str,
+    ) -> std::result::Result<Zeroizing<String>, SecureStoreError> {
+        Err(SecureStoreError::NotFound)
+    }
+
+    fn delete_legacy_fallback(
+        &self,
+        _wallet_id: &str,
+    ) -> std::result::Result<(), SecureStoreError> {
+        Err(SecureStoreError::NotFound)
+    }
 }
 
 #[derive(Clone)]
@@ -112,6 +132,16 @@ impl SeedStore {
                 })?;
                 self.cleanup_legacy_duplicate(wallet_id, phrase.as_str());
                 return Ok(phrase);
+            }
+            Err(SecureStoreError::NotFound) => {}
+            Err(error) => return Err(error.into()),
+        }
+
+        match self.backend.get_legacy_fallback(wallet_id) {
+            Ok(phrase) => {
+                return self.migrate(wallet_id, phrase, &validate, || {
+                    self.backend.delete_legacy_fallback(wallet_id)
+                });
             }
             Err(SecureStoreError::NotFound) => {}
             Err(error) => return Err(error.into()),
@@ -173,6 +203,27 @@ impl SeedStore {
     /// failed deleting its legacy source. This makes retries idempotent without
     /// ever preferring legacy material over a validated native record.
     fn cleanup_legacy_duplicate(&self, wallet_id: &str, native: &str) {
+        match self.backend.get_legacy_fallback(wallet_id) {
+            Ok(legacy) => {
+                if legacy.as_str() != native {
+                    tracing::warn!(
+                        wallet_id,
+                        "protected and ordinary Keychain seed records disagree; preserving both and using validated protected custody"
+                    );
+                } else if let Err(error) = self.backend.delete_legacy_fallback(wallet_id) {
+                    tracing::warn!(
+                        wallet_id,
+                        "could not remove duplicate ordinary Keychain seed: {error}"
+                    );
+                }
+            }
+            Err(SecureStoreError::NotFound) => {}
+            Err(error) => tracing::warn!(
+                wallet_id,
+                "could not inspect duplicate ordinary Keychain seed; validated protected custody remains authoritative: {error}"
+            ),
+        }
+
         match legacy_file::get(&self.data_dir, wallet_id) {
             Ok(legacy) => {
                 if legacy.as_str() != native {
@@ -299,9 +350,220 @@ impl SecureStore for UnavailableStore {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+mod macos_custody {
+    use super::SecureStoreError;
+    use zeroize::Zeroizing;
+
+    pub(super) trait Operations {
+        fn store_protected(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError>;
+        fn get_protected(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError>;
+        fn delete_protected(&self, wallet_id: &str) -> Result<(), SecureStoreError>;
+        fn get_ordinary(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError>;
+        fn delete_ordinary(&self, wallet_id: &str) -> Result<(), SecureStoreError>;
+    }
+
+    pub(super) fn store(
+        operations: &impl Operations,
+        wallet_id: &str,
+        phrase: &str,
+    ) -> Result<(), SecureStoreError> {
+        // There is intentionally no ordinary-store operation in this policy.
+        // A release build can only create or update user-presence custody.
+        operations.store_protected(wallet_id, phrase)
+    }
+
+    pub(super) fn get(
+        operations: &impl Operations,
+        wallet_id: &str,
+    ) -> Result<Zeroizing<String>, SecureStoreError> {
+        operations.get_protected(wallet_id)
+    }
+
+    pub(super) fn get_legacy_fallback(
+        operations: &impl Operations,
+        wallet_id: &str,
+    ) -> Result<Zeroizing<String>, SecureStoreError> {
+        operations.get_ordinary(wallet_id)
+    }
+
+    pub(super) fn delete_legacy_fallback(
+        operations: &impl Operations,
+        wallet_id: &str,
+    ) -> Result<(), SecureStoreError> {
+        operations.delete_ordinary(wallet_id)
+    }
+
+    pub(super) fn delete(
+        operations: &impl Operations,
+        wallet_id: &str,
+    ) -> Result<(), SecureStoreError> {
+        // Remove weaker custody first. An interruption can then leave only the
+        // protected record, never only the ordinary record.
+        match operations.delete_ordinary(wallet_id) {
+            Ok(()) | Err(SecureStoreError::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+        match operations.delete_protected(wallet_id) {
+            Ok(()) | Err(SecureStoreError::NotFound) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::VecDeque;
+        use std::sync::Mutex;
+
+        use super::*;
+
+        const WALLET: &str = "00000000-0000-4000-8000-000000000001";
+        const PHRASE: &str = "protected seed";
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum Call {
+            StoreProtected,
+            GetProtected,
+            DeleteProtected,
+            GetOrdinary,
+            DeleteOrdinary,
+        }
+
+        #[derive(Default)]
+        struct MockOperations {
+            calls: Mutex<Vec<Call>>,
+            protected_gets: Mutex<VecDeque<Result<String, SecureStoreError>>>,
+            ordinary_gets: Mutex<VecDeque<Result<String, SecureStoreError>>>,
+            protected_store_error: Mutex<Option<SecureStoreError>>,
+            protected_delete_error: Mutex<Option<SecureStoreError>>,
+            ordinary_delete_error: Mutex<Option<SecureStoreError>>,
+        }
+
+        impl MockOperations {
+            fn calls(&self) -> Vec<Call> {
+                self.calls.lock().unwrap().clone()
+            }
+        }
+
+        impl Operations for MockOperations {
+            fn store_protected(&self, _: &str, _: &str) -> Result<(), SecureStoreError> {
+                self.calls.lock().unwrap().push(Call::StoreProtected);
+                match self.protected_store_error.lock().unwrap().take() {
+                    Some(error) => Err(error),
+                    None => Ok(()),
+                }
+            }
+
+            fn get_protected(&self, _: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+                self.calls.lock().unwrap().push(Call::GetProtected);
+                self.protected_gets
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or(Err(SecureStoreError::NotFound))
+                    .map(Zeroizing::new)
+            }
+
+            fn delete_protected(&self, _: &str) -> Result<(), SecureStoreError> {
+                self.calls.lock().unwrap().push(Call::DeleteProtected);
+                match self.protected_delete_error.lock().unwrap().take() {
+                    Some(error) => Err(error),
+                    None => Ok(()),
+                }
+            }
+
+            fn get_ordinary(&self, _: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+                self.calls.lock().unwrap().push(Call::GetOrdinary);
+                self.ordinary_gets
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or(Err(SecureStoreError::NotFound))
+                    .map(Zeroizing::new)
+            }
+
+            fn delete_ordinary(&self, _: &str) -> Result<(), SecureStoreError> {
+                self.calls.lock().unwrap().push(Call::DeleteOrdinary);
+                match self.ordinary_delete_error.lock().unwrap().take() {
+                    Some(error) => Err(error),
+                    None => Ok(()),
+                }
+            }
+        }
+
+        #[test]
+        fn unavailable_protected_store_never_attempts_ordinary_storage() {
+            let operations = MockOperations::default();
+            *operations.protected_store_error.lock().unwrap() = Some(SecureStoreError::Unavailable);
+
+            assert_eq!(
+                store(&operations, WALLET, PHRASE).unwrap_err(),
+                SecureStoreError::Unavailable
+            );
+            assert_eq!(operations.calls(), vec![Call::StoreProtected]);
+        }
+
+        #[test]
+        fn unavailable_protected_read_never_probes_ordinary_storage() {
+            let operations = MockOperations::default();
+            operations
+                .protected_gets
+                .lock()
+                .unwrap()
+                .push_back(Err(SecureStoreError::Unavailable));
+
+            assert_eq!(
+                get(&operations, WALLET).unwrap_err(),
+                SecureStoreError::Unavailable
+            );
+            assert_eq!(operations.calls(), vec![Call::GetProtected]);
+        }
+
+        #[test]
+        fn ordinary_record_is_only_accessible_through_explicit_legacy_boundary() {
+            let operations = MockOperations::default();
+            operations
+                .ordinary_gets
+                .lock()
+                .unwrap()
+                .push_back(Ok(PHRASE.into()));
+
+            assert_eq!(
+                get(&operations, WALLET).unwrap_err(),
+                SecureStoreError::NotFound
+            );
+            assert_eq!(operations.calls(), vec![Call::GetProtected]);
+            assert_eq!(
+                get_legacy_fallback(&operations, WALLET).unwrap().as_str(),
+                PHRASE
+            );
+            assert_eq!(
+                operations.calls(),
+                vec![Call::GetProtected, Call::GetOrdinary]
+            );
+        }
+
+        #[test]
+        fn destructive_delete_cannot_leave_only_the_ordinary_record() {
+            let operations = MockOperations::default();
+            *operations.protected_delete_error.lock().unwrap() =
+                Some(SecureStoreError::Unavailable);
+
+            assert_eq!(
+                delete(&operations, WALLET).unwrap_err(),
+                SecureStoreError::Unavailable
+            );
+            assert_eq!(
+                operations.calls(),
+                vec![Call::DeleteOrdinary, Call::DeleteProtected]
+            );
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
-    use super::{SERVICE, SecureStore, SecureStoreError};
+    use super::{SERVICE, SecureStore, SecureStoreError, macos_custody};
     use security_framework::access_control::{ProtectionMode, SecAccessControl};
     use security_framework::passwords::{
         AccessControlOptions, PasswordOptions, delete_generic_password_options, generic_password,
@@ -311,59 +573,67 @@ mod macos {
 
     pub struct MacKeychain;
 
+    struct SystemOperations;
+
     impl SecureStore for MacKeychain {
         fn store(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
-            match store_protected(wallet_id, phrase) {
-                Ok(()) => Ok(()),
-                // Ad-hoc development signatures cannot always use the data-
-                // protection keychain. The login keychain remains OS-native
-                // custody; cancellation/lock never falls through.
-                Err(SecureStoreError::Unavailable) => {
-                    tracing::warn!(
-                        wallet_id,
-                        "data-protection Keychain unavailable; using the native login Keychain"
-                    );
-                    set_generic_password_options(phrase.as_bytes(), options(wallet_id, false))
-                        .map_err(map_error)
-                }
-                Err(error) => Err(error),
-            }
+            macos_custody::store(&SystemOperations, wallet_id, phrase)
         }
 
         fn get(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
-            let data = match generic_password(options(wallet_id, true)).map_err(map_error) {
-                Ok(data) => data,
-                Err(SecureStoreError::NotFound | SecureStoreError::Unavailable) => {
-                    generic_password(options(wallet_id, false)).map_err(map_error)?
-                }
-                Err(error) => return Err(error),
-            };
-            String::from_utf8(data)
-                .map(Zeroizing::new)
-                .map_err(|error| {
-                    let mut bytes = error.into_bytes();
-                    bytes.zeroize();
-                    SecureStoreError::Corrupt
-                })
+            macos_custody::get(&SystemOperations, wallet_id)
         }
 
         fn delete(&self, wallet_id: &str) -> Result<(), SecureStoreError> {
-            let protected =
-                delete_generic_password_options(options(wallet_id, true)).map_err(map_error);
-            if let Err(error) = &protected
-                && !matches!(
-                    error,
-                    SecureStoreError::NotFound | SecureStoreError::Unavailable
-                )
-            {
-                return protected;
-            }
-            match delete_generic_password_options(options(wallet_id, false)).map_err(map_error) {
-                Ok(()) => Ok(()),
-                Err(SecureStoreError::NotFound) if protected.is_ok() => Ok(()),
-                other => other,
-            }
+            macos_custody::delete(&SystemOperations, wallet_id)
         }
+
+        fn get_legacy_fallback(
+            &self,
+            wallet_id: &str,
+        ) -> Result<Zeroizing<String>, SecureStoreError> {
+            macos_custody::get_legacy_fallback(&SystemOperations, wallet_id)
+        }
+
+        fn delete_legacy_fallback(&self, wallet_id: &str) -> Result<(), SecureStoreError> {
+            macos_custody::delete_legacy_fallback(&SystemOperations, wallet_id)
+        }
+    }
+
+    impl macos_custody::Operations for SystemOperations {
+        fn store_protected(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
+            store_protected(wallet_id, phrase)
+        }
+
+        fn get_protected(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+            get_password(wallet_id, true)
+        }
+
+        fn delete_protected(&self, wallet_id: &str) -> Result<(), SecureStoreError> {
+            delete_generic_password_options(options(wallet_id, true)).map_err(map_error)
+        }
+
+        fn get_ordinary(&self, wallet_id: &str) -> Result<Zeroizing<String>, SecureStoreError> {
+            get_password(wallet_id, false)
+        }
+
+        fn delete_ordinary(&self, wallet_id: &str) -> Result<(), SecureStoreError> {
+            delete_generic_password_options(options(wallet_id, false)).map_err(map_error)
+        }
+    }
+
+    fn get_password(
+        wallet_id: &str,
+        protected: bool,
+    ) -> Result<Zeroizing<String>, SecureStoreError> {
+        let data = generic_password(options(wallet_id, protected)).map_err(map_error)?;
+        String::from_utf8(data)
+            .map(Zeroizing::new)
+            .map_err(|error| {
+                let mut bytes = error.into_bytes();
+                bytes.zeroize();
+                SecureStoreError::Corrupt
+            })
     }
 
     fn store_protected(wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
@@ -800,6 +1070,75 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct LegacyFallbackStore {
+        events: Arc<Mutex<Vec<&'static str>>>,
+        protected: Mutex<Option<String>>,
+        ordinary: Mutex<Option<String>>,
+        protected_gets: Mutex<VecDeque<std::result::Result<String, SecureStoreError>>>,
+        store_error: Mutex<Option<SecureStoreError>>,
+        delete_error: Mutex<Option<SecureStoreError>>,
+    }
+
+    impl SecureStore for LegacyFallbackStore {
+        fn store(&self, _: &str, phrase: &str) -> std::result::Result<(), SecureStoreError> {
+            self.events.lock().unwrap().push("protected-store");
+            if let Some(error) = self.store_error.lock().unwrap().take() {
+                return Err(error);
+            }
+            *self.protected.lock().unwrap() = Some(phrase.into());
+            Ok(())
+        }
+
+        fn get(&self, _: &str) -> std::result::Result<Zeroizing<String>, SecureStoreError> {
+            self.events.lock().unwrap().push("protected-get");
+            if let Some(result) = self.protected_gets.lock().unwrap().pop_front() {
+                return result.map(Zeroizing::new);
+            }
+            self.protected
+                .lock()
+                .unwrap()
+                .clone()
+                .map(Zeroizing::new)
+                .ok_or(SecureStoreError::NotFound)
+        }
+
+        fn delete(&self, _: &str) -> std::result::Result<(), SecureStoreError> {
+            self.protected
+                .lock()
+                .unwrap()
+                .take()
+                .map(|_| ())
+                .ok_or(SecureStoreError::NotFound)
+        }
+
+        fn get_legacy_fallback(
+            &self,
+            _: &str,
+        ) -> std::result::Result<Zeroizing<String>, SecureStoreError> {
+            self.events.lock().unwrap().push("ordinary-get");
+            self.ordinary
+                .lock()
+                .unwrap()
+                .clone()
+                .map(Zeroizing::new)
+                .ok_or(SecureStoreError::NotFound)
+        }
+
+        fn delete_legacy_fallback(&self, _: &str) -> std::result::Result<(), SecureStoreError> {
+            self.events.lock().unwrap().push("ordinary-delete");
+            if let Some(error) = self.delete_error.lock().unwrap().take() {
+                return Err(error);
+            }
+            self.ordinary
+                .lock()
+                .unwrap()
+                .take()
+                .map(|_| ())
+                .ok_or(SecureStoreError::NotFound)
+        }
+    }
+
     struct TestDir(PathBuf);
     impl TestDir {
         fn new(name: &str) -> Self {
@@ -874,6 +1213,93 @@ mod tests {
         assert_eq!(backend.records.lock().unwrap().get(WALLET).unwrap(), PHRASE);
         assert!(!dir.0.join(".seeds").join(format!("{WALLET}.enc")).exists());
         assert!(!dir.0.join(".seeds").join("salt").exists());
+    }
+
+    #[test]
+    fn ordinary_keychain_migration_validates_and_verifies_before_deleting() {
+        let dir = TestDir::new("ordinary-keychain-migration");
+        let backend = Arc::new(LegacyFallbackStore::default());
+        *backend.ordinary.lock().unwrap() = Some(PHRASE.into());
+        let events = backend.events.clone();
+        let store = SeedStore::new(dir.0.clone(), backend.clone());
+
+        let phrase = store
+            .get_seed_phrase_validated(WALLET, |candidate| {
+                events.lock().unwrap().push("validate");
+                assert_eq!(candidate, PHRASE);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(phrase.as_str(), PHRASE);
+        assert_eq!(
+            *events.lock().unwrap(),
+            [
+                "protected-get",
+                "ordinary-get",
+                "validate",
+                "protected-store",
+                "protected-get",
+                "ordinary-delete",
+            ]
+        );
+        assert!(backend.ordinary.lock().unwrap().is_none());
+        assert_eq!(backend.protected.lock().unwrap().as_deref(), Some(PHRASE));
+    }
+
+    #[test]
+    fn ordinary_keychain_migration_preserves_weaker_record_on_every_failure_boundary() {
+        #[derive(Clone, Copy)]
+        enum Failure {
+            Validation,
+            Store,
+            Readback,
+            Mismatch,
+            Delete,
+        }
+
+        for failure in [
+            Failure::Validation,
+            Failure::Store,
+            Failure::Readback,
+            Failure::Mismatch,
+            Failure::Delete,
+        ] {
+            let dir = TestDir::new("ordinary-keychain-failure");
+            let backend = Arc::new(LegacyFallbackStore::default());
+            *backend.ordinary.lock().unwrap() = Some(PHRASE.into());
+            match failure {
+                Failure::Store => {
+                    *backend.store_error.lock().unwrap() = Some(SecureStoreError::Unavailable)
+                }
+                Failure::Readback => backend.protected_gets.lock().unwrap().extend([
+                    Err(SecureStoreError::NotFound),
+                    Err(SecureStoreError::AuthCancelled),
+                ]),
+                Failure::Mismatch => backend.protected_gets.lock().unwrap().extend([
+                    Err(SecureStoreError::NotFound),
+                    Ok("different protected phrase".into()),
+                ]),
+                Failure::Delete => {
+                    *backend.delete_error.lock().unwrap() = Some(SecureStoreError::Unavailable)
+                }
+                Failure::Validation => {}
+            }
+            let store = SeedStore::new(dir.0.clone(), backend.clone());
+            let result = store.get_seed_phrase_validated(WALLET, |_| match failure {
+                Failure::Validation => Err(Error::KeyError("foreign UFVK".into())),
+                _ => Ok(()),
+            });
+
+            assert!(result.is_err());
+            assert_eq!(backend.ordinary.lock().unwrap().as_deref(), Some(PHRASE));
+            if matches!(failure, Failure::Validation) {
+                assert!(!backend.events.lock().unwrap().contains(&"protected-store"));
+            }
+            if !matches!(failure, Failure::Delete) {
+                assert!(!backend.events.lock().unwrap().contains(&"ordinary-delete"));
+            }
+        }
     }
 
     #[test]

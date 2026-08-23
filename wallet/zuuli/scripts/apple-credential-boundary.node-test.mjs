@@ -15,13 +15,16 @@ import {
 const buildJob = (name, command) => {
   const checksumMembers = name === "ios-build"
     ? "ZUULI.xcarchive.zip ExportOptions.plist source-record.json"
-    : "ZUULI.app.zip ZUULI-layout.dmg source-record.json";
+    : "Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json";
+  const macosPolicy = name === "macos-build"
+    ? "      - run: node scripts/macos-keychain-entitlements.mjs\n"
+    : "";
   return `  ${name}:
     steps:
       - uses: actions/checkout@sha
       - run: scripts/assert-no-apple-credentials.sh
       - run: npm ci
-      - run: |
+${macosPolicy}      - run: |
           ${command} --no-sign
           shasum -a 256 ${checksumMembers} > CHECKSUMS.sha256
       - run: scripts/assert-no-apple-credentials.sh
@@ -106,7 +109,7 @@ ${finalizeJob("ios-verify")}
 ${credentialJob("ios-upload", "xcrun altool --upload-app", "ASC_KEY_BASE64")}
 ${finalizeJob("ios-finalize")}
 ${buildJob("macos-build", "tauri build")}
-${credentialJob("macos-sign", "codesign app && xcrun notarytool submit app")}
+${credentialJob("macos-sign", "codesign --entitlements unsigned-macos/Entitlements.plist app && echo signed-entitlements.plist embedded.provisionprofile APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 '\"keychain-access-groups\"[0]' && xcrun notarytool submit app")}
 ${finalizeJob("macos-finalize")}
   linux:
     container:
@@ -530,8 +533,23 @@ for (const [name, mutate, expected] of [
   ],
   [
     "rejects an unsigned macOS manifest that omits the shipping layout",
-    (source) => source.replace("ZUULI.app.zip ZUULI-layout.dmg source-record.json", "ZUULI.app.zip source-record.json"),
-    "macOS unsigned builder is missing \"ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
+    (source) => source.replace("Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json", "Entitlements.plist ZUULI.app.zip source-record.json"),
+    "macOS unsigned builder is missing \"Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
+  ],
+  [
+    "rejects a macOS build that skips the entitlement policy",
+    (source) => source.replace("      - run: node scripts/macos-keychain-entitlements.mjs\n", ""),
+    "macOS unsigned builder is missing \"node scripts/macos-keychain-entitlements.mjs\"",
+  ],
+  [
+    "rejects a macOS signer that omits reviewed entitlements",
+    (source) => source.replace("--entitlements unsigned-macos/Entitlements.plist ", ""),
+    "macOS signer is missing \"--entitlements unsigned-macos/Entitlements.plist\"",
+  ],
+  [
+    "rejects a macOS signer that omits its authorizing profile",
+    (source) => source.replace("embedded.provisionprofile ", ""),
+    "macOS signer is missing \"embedded.provisionprofile\"",
   ],
   [
     "rejects an iOS signer that does not bind the attested checksum manifest",

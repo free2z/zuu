@@ -33,6 +33,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "entitlements": "./Entitlements.plist"
+    },
     "iOS": {
       "bundleVersion": "14",
       "developmentTeam": "F9AV5HKF6N",
