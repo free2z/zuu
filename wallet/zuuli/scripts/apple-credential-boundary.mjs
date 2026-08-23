@@ -5,12 +5,14 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml";
 
-const BUILD_JOBS = ["ios-build", "macos-build"];
-const CREDENTIAL_JOBS = ["ios-sign", "ios-upload", "macos-sign"];
-const FINALIZE_JOBS = ["ios-verify", "ios-finalize", "macos-finalize"];
+const BUILD_JOBS = ["android-build", "ios-build", "macos-build"];
+const CREDENTIAL_JOBS = ["android-sign-upload", "ios-sign", "ios-upload", "macos-sign"];
+const FINALIZE_JOBS = ["android-finalize", "ios-verify", "ios-finalize", "macos-finalize"];
 const RELEASE_JOBS = [
   "prepare",
-  "android",
+  "android-build",
+  "android-sign-upload",
+  "android-finalize",
   "ios-build",
   "ios-sign",
   "ios-verify",
@@ -24,7 +26,7 @@ const RELEASE_JOBS = [
 ];
 const ROOT_KEYS = ["name", "on", "permissions", "concurrency", "env", "jobs"];
 const ALLOWED_JOB_SECRETS = new Map([
-  ["android", new Set([
+  ["android-sign-upload", new Set([
     "ANDROID_KEYSTORE_BASE64",
     "PLAY_SERVICE_ACCOUNT_JSON_BASE64",
     "ANDROID_KEYSTORE_PASSWORD",
@@ -51,6 +53,7 @@ const ALLOWED_JOB_SECRETS = new Map([
 // semantic checks below explain the major boundaries, while the digest closes
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
+  ["android-sign-upload", "02c435ad36675554b800524daadbe0e6110a3a9e6a67c3222764ef1698d3a290"],
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
   ["macos-sign", "c1e218197291583ef9c021ed9e32506bf6696f0a1566d5dc6e4e954aa2833dbb"],
@@ -213,7 +216,7 @@ export function releaseAuthorityDigests(workflow) {
 }
 
 /**
- * Enforce the source-level Apple release authority boundary.
+ * Enforce the source-level mobile/desktop release authority boundary.
  *
  * Build jobs may execute repository and dependency code, so they must have no
  * protected environment or secret expressions. Credential jobs may use only
@@ -327,19 +330,30 @@ export function verifyAppleCredentialBoundary(
     const source = jobs.get(name);
     if (pairFor(jobNodes.get(name), "environment")) failures.push(`${name} contains forbidden protected environment`);
     requireText(failures, name, source, "actions/checkout@");
-    requireText(failures, name, source, "--no-sign");
     requireText(failures, name, source, "actions/attest-build-provenance@");
     requireText(failures, name, source, "actions/upload-artifact@");
-    const canary = "scripts/assert-no-apple-credentials.sh";
+    const android = name === "android-build";
+    const canary = android
+      ? "scripts/assert-no-android-credentials.sh"
+      : "scripts/assert-no-apple-credentials.sh";
     const firstCanary = source.indexOf(canary);
     const dependencyInstall = source.indexOf("npm ci");
-    const unsignedBuild = source.indexOf("--no-sign");
+    const unsignedBuild = android
+      ? source.indexOf("tauri android build --ci --aab")
+      : source.indexOf("--no-sign");
+    const inlineCanary = android ? source.indexOf(canary, dependencyInstall) : -1;
     const lastCanary = source.lastIndexOf(canary);
     if (!(firstCanary >= 0 && firstCanary < dependencyInstall)) {
-      failures.push(`${name} must run the Apple credential canary before dependency install`);
+      failures.push(`${name} must run the credential canary before dependency install`);
     }
     if (!(unsignedBuild >= 0 && unsignedBuild < lastCanary)) {
-      failures.push(`${name} must run the Apple credential canary after the unsigned build`);
+      failures.push(`${name} must run the credential canary after the unsigned build`);
+    }
+    if (android && !(
+      source.split(canary).length - 1 === 3 &&
+      dependencyInstall < inlineCanary && inlineCanary < unsignedBuild && unsignedBuild < lastCanary
+    )) {
+      failures.push("android-build must reject step-local Android authority immediately before the AAB build");
     }
   }
 
@@ -383,16 +397,99 @@ export function verifyAppleCredentialBoundary(
     const expressions = secretExpressions(source);
     const lastExpression = expressions.at(-1);
     const lastSecret = lastExpression ? lastExpression.index : -1;
-    const lastDestroy = Math.max(
-      source.lastIndexOf("Destroy ephemeral"),
-      source.lastIndexOf("Destroy all ephemeral"),
-    );
+    const lastDestroy = name === "android-sign-upload"
+      ? source.indexOf("Destroy ephemeral Android credentials")
+      : Math.max(
+        source.lastIndexOf("Destroy ephemeral"),
+        source.lastIndexOf("Destroy all ephemeral"),
+      );
     const upload = source.lastIndexOf("actions/upload-artifact@");
     if (!(lastSecret < lastDestroy && lastDestroy < upload)) {
       failures.push(`${name} must destroy every credential class before artifact upload`);
     }
     requireText(failures, name, source, "if: always()");
   }
+
+  const androidBuilder = jobs.get("android-build");
+  for (const marker of [
+    "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android",
+    "tauri android build --ci --aab -- --locked",
+    "android-release-artifact.sh record",
+    "android-release-artifact.sh seal-verifier",
+    "jarsigner -verify",
+    "unsigned-zuuli-android-",
+  ]) requireText(failures, "Android unsigned builder", androidBuilder, marker);
+  rejectText(failures, "Android unsigned builder", androidBuilder, "secrets.");
+
+  const androidSigner = jobs.get("android-sign-upload");
+  if ([...androidSigner.matchAll(/actions\/download-artifact@/g)].length !== 1) {
+    failures.push("Android protected signer/uploader must consume exactly one immutable workflow artifact");
+  }
+  for (const marker of [
+    "EXPECTED_PAYLOAD_SHA256",
+    "gh attestation verify unsigned-android/CHECKSUMS.sha256",
+    "--source-digest \"$EXPECTED_SOURCE_SHA\"",
+    "--source-ref refs/heads/main",
+    'gh api "repos/$EXPECTED_REPOSITORY/git/commits/$EXPECTED_SOURCE_SHA" --jq .tree.sha',
+    "bundletool-all-1.18.3.jar",
+    "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29",
+    "arm64-v8a,armeabi-v7a,x86,x86_64",
+    "jarsigner -keystore",
+    "keytool -printcert -jarfile",
+    "signed-aab-payload.sha256",
+    "cmp \"$RUNNER_TEMP/unsigned-aab-payload.sha256\"",
+    "androidpublisher.googleapis.com",
+    "--retry 3 --retry-all-errors",
+    "Destroy ephemeral Android credentials",
+    "Destroy signed Android output",
+  ]) requireText(failures, "Android protected signer/uploader", androidSigner, marker);
+  for (const forbidden of [
+    "actions/checkout@",
+    "npm ci",
+    "cargo ",
+    "tauri ",
+    "gradle",
+    "sdkmanager",
+    "rustup",
+    "actions/cache@",
+    "uses: ./.github/actions/",
+  ]) rejectText(failures, "Android protected signer/uploader", androidSigner, forbidden);
+  const androidVerify = androidSigner.indexOf("Verify source-bound artifact checksum and attestation");
+  const androidAttestation = androidSigner.indexOf("gh attestation verify unsigned-android/CHECKSUMS.sha256");
+  const androidInspection = androidSigner.indexOf("Inspect attested Android artifact without credentials");
+  const androidBundleInspection = androidSigner.indexOf("dump manifest --bundle");
+  const androidToolRemoval = androidSigner.indexOf('rm -f -- "$bundletool"');
+  const androidFirstSecret = secretExpressions(androidSigner)[0]?.index ?? -1;
+  rejectText(
+    failures,
+    "Android protected pre-secret verifier",
+    androidSigner.slice(0, androidFirstSecret),
+    "curl ",
+  );
+  if (!(androidVerify >= 0 && androidVerify < androidAttestation && androidAttestation < androidInspection && androidInspection < androidBundleInspection && androidBundleInspection < androidToolRemoval && androidToolRemoval < androidFirstSecret)) {
+    failures.push("Android protected job must verify checksum, attestation, identity and ABIs, then remove verifier tooling before credentials");
+  }
+  const androidGithubTokens = [...androidSigner.matchAll(/GH_TOKEN: \$\{\{ github\.token \}\}/g)].map((match) => match.index);
+  const androidGithubToken = androidGithubTokens[0] ?? -1;
+  if (!(androidGithubTokens.length === 1 && androidVerify < androidGithubToken && androidGithubToken < androidAttestation && androidAttestation < androidInspection)) {
+    failures.push("Android protected job must confine its GitHub token to pre-parser source and attestation verification");
+  }
+  const androidCredentialCleanup = androidSigner.indexOf("Destroy ephemeral Android credentials");
+  const androidArtifactUpload = androidSigner.indexOf("actions/upload-artifact@");
+  const androidSignedCleanup = androidSigner.indexOf("Destroy signed Android output");
+  if (!(androidCredentialCleanup < androidArtifactUpload && androidArtifactUpload < androidSignedCleanup)) {
+    failures.push("Android protected job must destroy credentials, upload the internal artifact, then always destroy signed output");
+  }
+  requireText(failures, "Android finalizer", jobs.get("android-finalize"), "android-signed-universal-aab");
+  for (const marker of [
+    "needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]",
+    "needs.android-build.result == 'success'",
+    "needs.android-sign-upload.result == 'success'",
+    "needs.android-finalize.result == 'success'",
+    "needs.android-build.result == 'skipped'",
+    "needs.android-sign-upload.result == 'skipped'",
+    "needs.android-finalize.result == 'skipped'",
+  ]) requireText(failures, "Release index Android dependency", jobs.get("release-index"), marker);
 
   for (const name of FINALIZE_JOBS) {
     const source = jobs.get(name);
@@ -559,11 +656,11 @@ async function main() {
   const workflowUrl = new URL("../../../.github/workflows/zuuli-release.yml", import.meta.url);
   const failures = verifyAppleCredentialBoundary(await readFile(workflowUrl, "utf8"));
   if (failures.length > 0) {
-    console.error("Apple credential boundary verification failed:");
+    console.error("Store-release credential boundary verification failed:");
     for (const failure of failures) console.error(`- ${failure}`);
     process.exit(1);
   }
-  console.log("Apple release build, credential, and finalization boundaries verified.");
+  console.log("Store-release build, credential, and finalization boundaries verified.");
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();

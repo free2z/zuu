@@ -179,8 +179,8 @@ jobs:
             echo "should_release=$should_release"
           } >> "$GITHUB_OUTPUT"
 
-  android:
-    name: Android / Play internal
+  android-build:
+    name: Android / credential-free unsigned universal AAB
     needs: prepare
     if: >-
       needs.prepare.outputs.should_release == 'true' &&
@@ -189,18 +189,18 @@ jobs:
       needs.prepare.outputs.target == 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    environment: zuuli-app-stores
     permissions:
       contents: read
       id-token: write
       attestations: write
+    outputs:
+      artifact_sha256: ${{ steps.unsigned.outputs.artifact_sha256 }}
+      payload_sha256: ${{ steps.unsigned.outputs.payload_sha256 }}
     defaults:
       run:
         working-directory: wallet/zuuli
     env:
-      ZUULI_CONFIRM_UPLOAD: ${{ needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.identity || '' }}
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
-      ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
       BUNDLE_FROZEN: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -257,57 +257,283 @@ jobs:
         with:
           shared-key: zuuli-release-android-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ndk-${{ env.ZUULI_ANDROID_NDK_VERSION }}-api29-aarch64-armv7-i686-x86_64
           save: "false"
+      - name: Prove Android credentials are absent before dependency code
+        run: scripts/assert-no-android-credentials.sh
       - run: npm ci
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      - name: Reverify exact release source
+        run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main
+      - name: Build source-bound unsigned universal AAB
+        id: unsigned
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          scripts/assert-no-android-credentials.sh
+          ./node_modules/.bin/tauri android build --ci --aab -- --locked
+          node scripts/normalize-generated-android-manifest.mjs
+          git diff --exit-code
+          candidates=(src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
+          [[ ${#candidates[@]} -eq 1 && -f "${candidates[0]}" ]] || { echo "expected exactly one universal release AAB" >&2; exit 1; }
+          unsigned_report=$(jarsigner -verify "${candidates[0]}" 2>&1 || true)
+          if ! grep -Fqi 'jar is unsigned' <<<"$unsigned_report" || grep -Fq 'jar verified.' <<<"$unsigned_report"; then
+            echo "credential-free Android build unexpectedly produced a signed AAB" >&2
+            exit 1
+          fi
+          source_tree=$(git rev-parse "$RELEASE_SOURCE_SHA^{tree}")
+          scripts/android-release-artifact.sh record \
+            "${candidates[0]}" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" "$source_tree" unsigned-android >/dev/null
+          verifier="$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$verifier" \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          payload_sha256=$(scripts/android-release-artifact.sh seal-verifier unsigned-android "$verifier" \
+            a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29)
+          rm -f -- "$verifier"
+          artifact_sha256=$(jq -er .artifact.sha256 unsigned-android/source-record.json)
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+          echo "payload_sha256=$payload_sha256" >> "$GITHUB_OUTPUT"
+      - name: Prove Android credentials remain absent after build
+        run: scripts/assert-no-android-credentials.sh
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
-          ruby-version: "3.4.10"
-          working-directory: wallet/zuuli
-      - name: Install locked Android upload tooling
-        run: bundle install --jobs 4 --retry 3
-      - name: Materialize ephemeral signing files
+          subject-path: wallet/zuuli/unsigned-android/CHECKSUMS.sha256
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: unsigned-zuuli-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/unsigned-android
+          if-no-files-found: error
+          retention-days: 1
+
+  android-sign-upload:
+    name: Android / protected sign and Play upload
+    needs: [prepare, android-build]
+    if: needs.android-build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: zuuli-app-stores
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_sha256: ${{ steps.sign.outputs.artifact_sha256 }}
+    env:
+      ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: unsigned-zuuli-android-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: unsigned-android
+      - name: Verify source-bound artifact checksum and attestation
+        env:
+          EXPECTED_ARTIFACT_SHA256: ${{ needs.android-build.outputs.artifact_sha256 }}
+          EXPECTED_PAYLOAD_SHA256: ${{ needs.android-build.outputs.payload_sha256 }}
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected Android artifact digest" >&2; exit 1; }
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected Android payload digest" >&2; exit 1; }
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid expected Android source SHA" >&2; exit 1; }
+          expected_members=$(printf '%s\n' ./CHECKSUMS.sha256 ./ZUULI-android-unsigned.aab ./aab-members.txt ./bundletool-all-1.18.3.jar ./source-record.json | LC_ALL=C sort)
+          actual_members=$(cd unsigned-android && find . -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned Android artifact inventory" >&2; exit 1; }
+          for member in CHECKSUMS.sha256 ZUULI-android-unsigned.aab aab-members.txt bundletool-all-1.18.3.jar source-record.json; do
+            [[ -f "unsigned-android/$member" && ! -L "unsigned-android/$member" ]] || { echo "unsafe unsigned Android artifact member: $member" >&2; exit 1; }
+          done
+          test "$(sha256sum unsigned-android/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-android && sha256sum -c CHECKSUMS.sha256)
+          test "$(sha256sum unsigned-android/ZUULI-android-unsigned.aab | awk '{print $1}')" = "$EXPECTED_ARTIFACT_SHA256"
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_ARTIFACT_SHA256" \
+            '.schemaVersion == 1 and .kind == "android-unsigned-universal-aab" and .applicationId == "cash.free2z.zuuli" and .identity == $identity and .source.repository == "free2z/zuu" and .source.sha == $source and .artifact.sha256 == $sha and .artifact.name == "ZUULI-android-unsigned.aab" and .abis == ["arm64-v8a","armeabi-v7a","x86","x86_64"] and .verifier == {name:"bundletool-all-1.18.3.jar",version:"1.18.3",sha256:"a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"}' \
+            unsigned-android/source-record.json >/dev/null
+          test "$(jq -er .artifact.bytes unsigned-android/source-record.json)" = "$(wc -c < unsigned-android/ZUULI-android-unsigned.aab | tr -d '[:space:]')"
+          expected_tree=$(gh api "repos/$EXPECTED_REPOSITORY/git/commits/$EXPECTED_SOURCE_SHA" --jq .tree.sha)
+          test "$(jq -er .source.tree unsigned-android/source-record.json)" = "$expected_tree"
+          gh attestation verify unsigned-android/CHECKSUMS.sha256 \
+            --repo "$EXPECTED_REPOSITORY" \
+            --signer-workflow free2z/zuu/.github/workflows/zuuli-release.yml \
+            --source-digest "$EXPECTED_SOURCE_SHA" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners >/dev/null
+      - name: Inspect attested Android artifact without credentials
+        env:
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          set -euo pipefail
+          bundletool=unsigned-android/bundletool-all-1.18.3.jar
+          echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  '"$bundletool" | sha256sum -c -
+          aab=unsigned-android/ZUULI-android-unsigned.aab
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@package)" = cash.free2z.zuuli
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@android:versionName)" = "${EXPECTED_IDENTITY%+*}"
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath=/manifest/@android:versionCode)" = "${EXPECTED_IDENTITY#*+}"
+          actual_abis=$(unzip -Z1 "$aab" | awk -F/ '$2 == "lib" && NF >= 4 && $NF ~ /\.so$/ {print $3}' | LC_ALL=C sort -u | paste -sd, -)
+          test "$actual_abis" = arm64-v8a,armeabi-v7a,x86,x86_64
+          unzip -Z1 "$aab" | LC_ALL=C sort > "$RUNNER_TEMP/current-aab-members.txt"
+          cmp unsigned-android/aab-members.txt "$RUNNER_TEMP/current-aab-members.txt"
+          : > "$RUNNER_TEMP/unsigned-aab-payload.sha256"
+          while IFS= read -r member; do
+            case "$member" in META-INF/*|*/) continue ;; esac
+            printf '%s  %s\n' "$(unzip -p "$aab" "$member" | sha256sum | awk '{print $1}')" "$member" >> "$RUNNER_TEMP/unsigned-aab-payload.sha256"
+          done < "$RUNNER_TEMP/current-aab-members.txt"
+          rm -f -- "$bundletool" "$RUNNER_TEMP/current-aab-members.txt"
+          test ! -e "$bundletool"
+      - name: Materialize, sign, verify, optionally upload, and destroy credentials
+        id: sign
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           SERVICE_ACCOUNT_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           set -euo pipefail
+          umask 077
           : "${KEYSTORE_BASE64:?ANDROID_KEYSTORE_BASE64 is not configured}"
+          : "${KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD is not configured}"
+          : "${KEY_ALIAS:?ANDROID_KEY_ALIAS is not configured}"
+          : "${KEY_PASSWORD:?ANDROID_KEY_PASSWORD is not configured}"
+          : "${ANDROID_UPLOAD_CERT_SHA256:?ANDROID_UPLOAD_CERT_SHA256 is not configured}"
+          secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-android-sign.XXXXXX")
+          cleanup_failed="$RUNNER_TEMP/zuuli-android-sign-cleanup-failed"
+          cleanup() {
+            set +e
+            find "$secret_dir" -depth -delete || : > "$cleanup_failed"
+          }
+          trap cleanup EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$secret_dir/upload.jks"
+          cp unsigned-android/ZUULI-android-unsigned.aab "$secret_dir/ZUULI-signed.aab"
+          [[ "$ANDROID_UPLOAD_CERT_SHA256" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ ]] || { echo "invalid Android upload certificate fingerprint" >&2; exit 1; }
+          expected_cert=$(tr -d ':' <<<"$ANDROID_UPLOAD_CERT_SHA256")
+          test "$expected_cert" = "$(keytool -list -v -keystore "$secret_dir/upload.jks" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print $2; exit}')"
+          jarsigner -keystore "$secret_dir/upload.jks" -storepass:env KEYSTORE_PASSWORD -keypass:env KEY_PASSWORD \
+            -sigalg SHA256withRSA -digestalg SHA-256 "$secret_dir/ZUULI-signed.aab" "$KEY_ALIAS"
+          signature_report=$(jarsigner -verify -certs "$secret_dir/ZUULI-signed.aab" 2>&1)
+          grep -Fq 'jar verified.' <<<"$signature_report"
+          if grep -Fqi 'unsigned' <<<"$signature_report"; then
+            echo "signed Android bundle still contains unsigned entries" >&2
+            exit 1
+          fi
+          test "$expected_cert" = "$(keytool -printcert -jarfile "$secret_dir/ZUULI-signed.aab" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print $2; exit}')"
+          : > "$RUNNER_TEMP/signed-aab-payload.sha256"
+          unzip -Z1 "$secret_dir/ZUULI-signed.aab" | while IFS= read -r member; do
+            case "$member" in META-INF/*|*/) continue ;; esac
+            printf '%s  %s\n' "$(unzip -p "$secret_dir/ZUULI-signed.aab" "$member" | sha256sum | awk '{print $1}')" "$member" >> "$RUNNER_TEMP/signed-aab-payload.sha256"
+          done
+          cmp "$RUNNER_TEMP/unsigned-aab-payload.sha256" "$RUNNER_TEMP/signed-aab-payload.sha256"
+          signed_abis=$(unzip -Z1 "$secret_dir/ZUULI-signed.aab" | awk -F/ '$2 == "lib" && NF >= 4 && $NF ~ /\.so$/ {print $3}' | LC_ALL=C sort -u | paste -sd, -)
+          test "$signed_abis" = arm64-v8a,armeabi-v7a,x86,x86_64
+          mkdir signed-android
+          cp "$secret_dir/ZUULI-signed.aab" "signed-android/ZUULI-${RELEASE_IDENTITY}-android.aab"
+          artifact_sha256=$(sha256sum "signed-android/ZUULI-${RELEASE_IDENTITY}-android.aab" | awk '{print $1}')
+          jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
+            --arg unsignedSha256 "${{ needs.android-build.outputs.artifact_sha256 }}" --arg signedSha256 "$artifact_sha256" --arg certificateSha256 "$expected_cert" \
+            '{schemaVersion:1,kind:"android-signed-universal-aab",identity:$identity,sourceSha:$sourceSha,unsignedSha256:$unsignedSha256,signedSha256:$signedSha256,certificateSha256:$certificateSha256,applicationId:"cash.free2z.zuuli",abis:["arm64-v8a","armeabi-v7a","x86","x86_64"]}' \
+            > signed-android/signing-record.json
+          (cd signed-android && sha256sum ZUULI-*.aab signing-record.json > CHECKSUMS.sha256)
           if [[ "$DRY_RUN" == false ]]; then
             : "${SERVICE_ACCOUNT_BASE64:?PLAY_SERVICE_ACCOUNT_JSON_BASE64 is not configured}"
+            printf '%s' "$SERVICE_ACCOUNT_BASE64" | base64 --decode > "$secret_dir/service-account.json"
+            jq -e '.type == "service_account" and .project_id == "corpora1" and .client_email == "corpan-play-verifier@corpora1.iam.gserviceaccount.com" and (.private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----"))' "$secret_dir/service-account.json" >/dev/null
+            client_email=$(jq -er .client_email "$secret_dir/service-account.json")
+            private_key=$(jq -er .private_key "$secret_dir/service-account.json")
+            test "$(jq -er .token_uri "$secret_dir/service-account.json")" = https://oauth2.googleapis.com/token
+            printf '%s' "$private_key" > "$secret_dir/private-key.pem"
+            now=$(date +%s)
+            b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+            header=$(printf '%s' '{"alg":"RS256","typ":"JWT"}' | b64url)
+            claims=$(jq -cn --arg iss "$client_email" --argjson iat "$now" --argjson exp "$((now + 300))" \
+              '{iss:$iss,scope:"https://www.googleapis.com/auth/androidpublisher",aud:"https://oauth2.googleapis.com/token",iat:$iat,exp:$exp}' | b64url)
+            unsigned_jwt="$header.$claims"
+            signature=$(printf '%s' "$unsigned_jwt" | openssl dgst -sha256 -sign "$secret_dir/private-key.pem" | b64url)
+            token=$(curl --fail --silent --show-error \
+              --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+              --data-urlencode assertion="$unsigned_jwt.$signature" \
+              https://oauth2.googleapis.com/token | jq -er .access_token)
+            api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications/cash.free2z.zuuli
+            edit_id=$(curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{}' "$api/edits" | jq -er .id)
+            version_code=$(curl --fail --silent --show-error --retry 3 --retry-all-errors -X POST \
+              -H "Authorization: Bearer $token" -H 'Content-Type: application/octet-stream' \
+              --data-binary @"signed-android/ZUULI-${RELEASE_IDENTITY}-android.aab" \
+              "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/cash.free2z.zuuli/edits/$edit_id/bundles?uploadType=media" | jq -er .versionCode)
+            test "$version_code" = "${RELEASE_IDENTITY#*+}"
+            jq -n --arg versionCode "$version_code" '{releases:[{status:"completed",versionCodes:[$versionCode]}]}' > "$secret_dir/track.json"
+            curl --fail --silent --show-error -X PUT \
+              -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+              --data-binary @"$secret_dir/track.json" "$api/edits/$edit_id/tracks/internal" >/dev/null
+            curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $token" "$api/edits/$edit_id:commit" >/dev/null
           fi
-          files=$(mktemp -d "$RUNNER_TEMP/zuuli-android.XXXXXX")
-          chmod 700 "$files"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$files/upload.jks"
-          test -s "$files/upload.jks"
-          echo "ANDROID_KEYSTORE_PATH=$files/upload.jks" >> "$GITHUB_ENV"
-          if [[ "$DRY_RUN" == false ]]; then
-            printf '%s' "$SERVICE_ACCOUNT_BASE64" | base64 --decode > "$files/play-service-account.json"
-            test -s "$files/play-service-account.json"
-            echo "PLAY_SERVICE_ACCOUNT_JSON=$files/play-service-account.json" >> "$GITHUB_ENV"
-          fi
-          echo "ZUULI_SECRET_DIR=$files" >> "$GITHUB_ENV"
-      - name: Build, verify, and optionally upload
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
-        run: |
-          set -euo pipefail
-          if [[ "$DRY_RUN" == false ]]; then
-            scripts/mobile-release.sh android --upload
-          else
-            scripts/mobile-release.sh android
-          fi
-      - name: Destroy ephemeral signing files
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+      - name: Destroy ephemeral Android credentials
         if: always()
         run: |
-          if [[ -n "${ZUULI_SECRET_DIR:-}" && -d "$ZUULI_SECRET_DIR" ]]; then
-            find "$ZUULI_SECRET_DIR" -type f -exec rm -f -- {} +
-            rmdir "$ZUULI_SECRET_DIR"
+          set -euo pipefail
+          if find "$RUNNER_TEMP" -maxdepth 1 -name 'zuuli-android-sign.*' -print -quit | grep -q .; then
+            echo "ephemeral Android credential directory survived cleanup" >&2
+            exit 1
           fi
+          if [[ -e "$RUNNER_TEMP/zuuli-android-sign-cleanup-failed" ]]; then
+            echo "Android credential cleanup failed" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: internal-zuuli-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: signed-android
+          if-no-files-found: error
+          retention-days: 1
+      - name: Destroy signed Android output
+        if: always()
+        run: |
+          set -euo pipefail
+          find signed-android -depth -delete 2>/dev/null || true
+          rm -f -- "$RUNNER_TEMP/unsigned-aab-payload.sha256" "$RUNNER_TEMP/signed-aab-payload.sha256"
+          test ! -e signed-android
+
+  android-finalize:
+    name: Android / credential-free shipped-artifact provenance
+    needs: [prepare, android-sign-upload]
+    if: needs.android-sign-upload.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: wallet/zuuli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: internal-zuuli-android-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          path: wallet/zuuli/signed-android
+      - name: Verify signed AAB and prepare shipped artifact
+        env:
+          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          EXPECTED_SIGNED_SHA256: ${{ needs.android-sign-upload.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          (cd signed-android && sha256sum -c CHECKSUMS.sha256)
+          jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" --arg sha "$EXPECTED_SIGNED_SHA256" \
+            '.schemaVersion == 1 and .kind == "android-signed-universal-aab" and .identity == $identity and .sourceSha == $source and .signedSha256 == $sha and .applicationId == "cash.free2z.zuuli" and .abis == ["arm64-v8a","armeabi-v7a","x86","x86_64"]' signed-android/signing-record.json >/dev/null
+          test "$(sha256sum "signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab" | awk '{print $1}')" = "$EXPECTED_SIGNED_SHA256"
+          mkdir release-artifacts
+          cp "signed-android/ZUULI-${EXPECTED_IDENTITY}-android.aab" release-artifacts/
       - name: Unpack Android AAB for shipped-artifact SBOM
         run: |
           artifacts=(release-artifacts/*.aab)
@@ -1572,12 +1798,23 @@ jobs:
 
   release-index:
     name: Immutable GitHub release index
-    needs: [prepare, android, ios-finalize, linux, macos-finalize]
+    needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]
     if: >-
       always() && !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.should_release == 'true' &&
-      (needs.android.result == 'success' || needs.android.result == 'skipped') &&
+      (((needs.prepare.outputs.target == 'mobile' ||
+      needs.prepare.outputs.target == 'android' ||
+      needs.prepare.outputs.target == 'all') &&
+      needs.android-build.result == 'success' &&
+      needs.android-sign-upload.result == 'success' &&
+      needs.android-finalize.result == 'success') ||
+      ((needs.prepare.outputs.target != 'mobile' &&
+      needs.prepare.outputs.target != 'android' &&
+      needs.prepare.outputs.target != 'all') &&
+      needs.android-build.result == 'skipped' &&
+      needs.android-sign-upload.result == 'skipped' &&
+      needs.android-finalize.result == 'skipped')) &&
       (needs.ios-finalize.result == 'success' || needs.ios-finalize.result == 'skipped') &&
       (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
       (needs.macos-finalize.result == 'success' || needs.macos-finalize.result == 'skipped')

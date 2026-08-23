@@ -745,7 +745,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
     ],
     [
       "release android",
-      jobBlock(release, "android"),
+      jobBlock(release, "android-finalize"),
       [
         'node scripts/artifact-sbom.mjs prepare --artifact="$artifact" --root=artifact-sbom-work/android/root',
         "path: wallet/zuuli/artifact-sbom-work/android/root",
@@ -823,7 +823,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
     ],
     [
       "release android",
-      jobBlock(release, "android"),
+      jobBlock(release, "android-finalize"),
       [
         "artifacts=(release-artifacts/*.aab)",
         '[[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }',

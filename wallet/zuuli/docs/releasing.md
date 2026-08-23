@@ -63,9 +63,10 @@ and generated iOS plists to carry the matching Boolean.
 
 The train pins Node `24.18.0`, Rust `1.97.1`, Java `21.0.12`, Xcode `26.6`,
 Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
-`8.14.3` with its distribution checksum, Fastlane `2.237.0` through a
-checksum-bearing Bundler `4.0.3` lockfile, and Syft `1.50.0`. Action dependencies
-are commit-SHA pinned. Upgrade these together in a reviewed dependency PR.
+`8.14.3` with its distribution checksum, Bundletool `1.18.3` by its published
+SHA-256 digest, Fastlane `2.237.0` through a checksum-bearing Bundler `4.0.3`
+lockfile, and Syft `1.50.0`. Action dependencies are commit-SHA pinned. Upgrade
+these together in a reviewed dependency PR.
 
 ## Build cache trust boundary
 
@@ -84,8 +85,9 @@ source.
 Only credential-free `ZUULI / packaging smoke` pushes on `main` may save these
 caches. Pull requests and manual runs restore only, preventing large native PR
 entries from evicting the release families.
-Protected release jobs explicitly restore without saving because their runners
-later materialize signing and store credentials. Never cache `node_modules`,
+Protected source-build jobs explicitly restore without saving. The separate
+credential-bearing Android and Apple jobs do not restore or save any cache and
+never receive a source build tree. Never cache `node_modules`,
 frontend output, Gradle/Xcode native build trees, packages, `release-artifacts`,
 provisioning profiles, Keychains, keystores, API keys, or runner-temporary
 directories. `node scripts/verify-ci-cache-policy.mjs` enforces this topology.
@@ -301,12 +303,14 @@ paths, a partial Android signing setup, and dirty source trees. Python 3 is a
 release prerequisite: the standard-library plist verifier preserves duplicate
 evidence that Apple's semantic plist tools discard.
 
-Apple signing is intentionally not available through a combined local build
-script. The protected workflow first runs every source/dependency-controlled
-step in jobs that cannot access the protected environment: iOS produces a
-`--no-sign --archive-only` archive and macOS produces a `--no-sign` universal
-app plus the Tauri-created DMG layout. Those source-bound artifacts carry
-checksums and attestations before entering a signing job.
+Store signing is intentionally separated from source builds. The protected
+workflow first runs every source/dependency-controlled step in jobs that cannot
+access the protected environment: Android produces one unsigned universal AAB
+containing all four shipped ABIs, iOS produces a `--no-sign --archive-only`
+archive, and macOS produces a `--no-sign` universal app plus the Tauri-created
+DMG layout. Those exact-SHA artifacts carry closed member inventories,
+checksums, source records, and GitHub provenance attestations before entering a
+signing job.
 
 The signing jobs do not check out source and never run npm, Cargo, Tauri,
 CocoaPods, an Xcode build/archive action, or a project build hook. iOS uses only
@@ -316,7 +320,16 @@ layout is preserved. Distribution and App Store Connect credentials are
 materialized as separate classes immediately before their operation and are
 unconditionally destroyed before artifact upload. Separate credential-free
 jobs then verify the shipped packages, generate SBOM/checksum/provenance files,
-and attest the result.
+and attest the result. Android's protected job independently verifies the
+attested checksum manifest, fixed application/version/build identity, member
+inventory, and exact arm64-v8a/armeabi-v7a/x86/x86_64 set with a digest-pinned
+Bundletool carried inside that same attested artifact; the protected job does
+not fetch dependencies and deletes the verifier before materializing
+credentials. It signs the already-built AAB with `jarsigner`, proves that every
+non-signature member is unchanged, rechecks the upload certificate and ABI set,
+and retries only the Play bundle upload—not a build. Credentials are destroyed before the
+one-day internal signed artifact is handed to the credential-free finalizer;
+the protected job always deletes its local signed output afterward.
 
 The iOS generated project is still prepared in its validated manual-signing
 shape before the unsigned archive and restored to the committed
@@ -336,6 +349,13 @@ The implicit-format import regression is reported upstream as
 [`tauri-apps/tauri#15843`](https://github.com/tauri-apps/tauri/issues/15843).
 Remove this workaround only after the fixed Tauri release is upgraded here and
 the protected path has proved the replacement import and cleanup behavior.
+
+Tauri still performs a full optimized build of the first Android target solely
+to initialize plugins before Gradle compiles that target again. The CLI exposes
+no safe plugin-initialization-only contract, so the release split deliberately
+does not patch or skip that internal step. The upstream fix, including the
+required plugin and multi-ABI regression coverage, is tracked in
+[`tauri-apps/tauri#15910`](https://github.com/tauri-apps/tauri/issues/15910).
 
 Android variables:
 
@@ -470,8 +490,9 @@ Dependency-controlled build jobs neither reference the protected environment
 nor contain secret expressions. GitHub never exports store secrets into a PR.
 `scripts/apple-credential-boundary.mjs` parses the workflow as YAML nodes,
 rejects aliases, anchors, tagged/explicit/duplicate keys, and permits only the
-named secret set for each credential job. The three Apple credential jobs are
-also sealed by reviewed whole-job digests: changing a step, action input, shell,
+named secret set for each credential job. The Android and three Apple
+credential jobs are also sealed by reviewed whole-job digests: changing a
+step, action input, shell,
 or command requires reviewing the complete credential execution program and
 updating its digest. The workflow root is a closed authority envelope: its
 trigger, permissions, serialization, inherited environment, and exact job set
