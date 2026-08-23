@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  expectPopulatedCreatorCatalog,
+  POPULATED_CREATOR_ROUTE,
+} from "./helpers/creator-catalog-audit";
 
 const TOUCH_WIDTHS = [320, 360] as const;
 const ROUTES = [
@@ -6,6 +10,7 @@ const ROUTES = [
   "/search",
   "/search?q=zcash",
   "/creator/demo-creator",
+  POPULATED_CREATOR_ROUTE,
   "/profile",
   "/kyc",
   "/wallet",
@@ -233,6 +238,10 @@ for (const signedIn of [false, true]) {
         await page.goto(route);
         await page.locator("[data-app-frame]").waitFor();
         await page.waitForTimeout(500);
+
+        if (route === POPULATED_CREATOR_ROUTE) {
+          await expectPopulatedCreatorCatalog(page);
+        }
 
         const audit = await auditTouchTargets(page);
         expect(audit.targets, `${route} must expose audited controls`).toBeGreaterThan(0);
