@@ -243,7 +243,7 @@ test("recapture revokes prior copy and classification approval", async () => {
   assert.equal(manifest.publicationReady, false);
   assert.equal(manifest.locales.every(({ copyStatus }) => copyStatus === "proposed-owner-legal-review-required"), true);
   assert.equal(manifest.classification.reviewStatus, "proposed-owner-store-review-required");
-  assert.deepEqual(manifest.capturePolicy.blockedByIssues, [371, 373, 1257, 1253, 1260]);
+  assert.deepEqual(manifest.capturePolicy.blockedByIssues, [371, 373]);
 });
 
 test("capture artifact commit rolls every output back when a replacement fails", async (t) => {

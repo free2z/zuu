@@ -17,7 +17,7 @@ This guide quickly takes you through setting up the project locally (backend + f
 
 ## Quick Steps
 
-1. Clone the repo and checkout the `new-ui` branch
+1. Clone the public repo
 2. Start a local Postgres container and restore the `free2z` dump to seed the db
 3. Configure `settings.py` and install Python dependencies
 4. Run Django migrations and start the backend
@@ -26,20 +26,16 @@ This guide quickly takes you through setting up the project locally (backend + f
 
 ---
 
-## 1) Clone the repo and checkout branch
+## 1) Clone the repo
 
 Open a terminal, then:
 
 ```zsh
-git clone git@github.com:free2z/tuzi.git
+git clone https://github.com/free2z/zuu.git
 ```
 
 ```zsh
-cd tuzi
-```
-
-```zsh
-git checkout new-ui
+cd zuu
 ```
 
 ---

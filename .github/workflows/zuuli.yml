@@ -53,6 +53,13 @@ jobs:
           scripts/check-rust-toolchain.sh --self-test
           scripts/check-rust-toolchain.sh
 
+      # Public-repository boundaries should be mechanically enforced rather
+      # than depending on every contributor remembering private repo names.
+      - name: Reject references to the private backend repository
+        run: |
+          scripts/check-public-repo-boundary.sh --self-test
+          scripts/check-public-repo-boundary.sh
+
       - name: Detect release-impacting ZUULI changes
         id: filter
         shell: bash

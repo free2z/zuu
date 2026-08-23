@@ -48,11 +48,11 @@ at the edge.
   exact redirect/state binding, app-generated PKCE S256, and one-way Knox token
   binding. Only the challenge leaves the app before callback; an app that
   intercepts the private-use URI cannot redeem the code without the verifier.
-- The tuzi companion change #1260 exposes transport-specific discovery and the
-  one-destination HTTPS relay,
-  consumes provider callbacks exactly once, binds the returned code, accepts
-  only the canonical app URI for PKCE providers, and preserves the exact
-  desktop loopback shape. It does not enable a capability or provider.
+- The backend contract exposes transport-specific discovery and the
+  one-destination HTTPS relay, consumes provider callbacks exactly once, binds
+  the returned code, accepts only the canonical app URI for PKCE providers,
+  and preserves the exact desktop loopback shape. It does not by itself prove
+  that a capability or provider is enabled in a deployed environment.
 
 ### Read-only production start preflight
 
@@ -77,11 +77,11 @@ policy, or unsafe authorization response makes the command fail. Passing this
 preflight is necessary but does not replace the signed-device callback proof
 below.
 
-The backend rollout in free2z/tuzi#1260 must be deployed before this preflight
-can pass. At the time this client change was prepared, the production mobile
-discovery path still resolved to an authenticated legacy route and returned
-HTTP 403, while the generic endpoint reported desktop X ready. That is an
-external activation blocker, not evidence of live mobile success.
+This preflight depends on an unshipped backend capability tracked internally.
+At the time this client change was prepared, the production mobile discovery
+path still resolved to an authenticated legacy route and returned HTTP 403,
+while the generic endpoint reported desktop X ready. That is an external
+activation blocker, not evidence of live mobile success.
 
 ## Signed-device smoke test
 

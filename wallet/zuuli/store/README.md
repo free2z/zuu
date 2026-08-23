@@ -9,8 +9,8 @@ Phase B is deliberately `publicationReady: false`. The reviewed icons and Play
 feature graphic from the canonical brand generator remain hash-pinned, and each
 required device class now has four deterministic screenshot candidates. They
 are capture evidence—not live store state and not owner-approved publication
-media. Publication remains blocked on upstream free2z/tuzi #1257, #1253, and
-#1260, owner verification of the minimum Apple credential role required by
+media. Publication remains blocked on unshipped backend dependencies tracked
+internally, owner verification of the minimum Apple credential role required by
 #371, the repository Actions policy required by #373, plus owner/legal copy and
 visual approval.
 `store:validate -- --publish` must fail before credentials or network access
