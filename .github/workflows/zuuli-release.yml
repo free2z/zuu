@@ -152,6 +152,13 @@ jobs:
             }
           fi
 
+          # A dry run may exercise packaging while STATUS.md is being
+          # re-derived, but no real store promotion may cross a stale source
+          # boundary. This runs before any protected-environment job starts.
+          if [[ "$should_release" == true && "$dry_run" == false ]]; then
+            node scripts/status-freshness.mjs "--source-sha=$source_sha"
+          fi
+
           tag=$(jq -r .tag <<<"$metadata")
           tag_exists=false
           if [[ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" == tag ]]; then

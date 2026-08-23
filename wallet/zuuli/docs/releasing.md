@@ -445,6 +445,28 @@ allowed to execute in a credential-bearing job.
    upload, and listing evidence cannot satisfy an operation that the matrix
    requires to run. Do not start promotion with a stale commit/date or an
    undispositioned non-ready row.
+
+   The recorded `origin/main` SHA is the exact candidate tree against which the
+   evidence was re-derived, immediately before committing the `STATUS.md`
+   update. It is deliberately not the commit containing that update (a commit
+   cannot honestly name its own SHA) or the later release-identity commit. For
+   a real promotion, the protected workflow reads the marker from the immutable
+   release source and requires all of the following:
+
+   - the recorded SHA is on the release commit parent's first-parent history;
+   - between that SHA and the release parent, the required ZUULI gate's
+     release-impacting surface changed only in `STATUS.md`; and
+   - the release commit itself changes that surface only in `STATUS.md` and the
+     generated files owned by `release:bump`.
+
+   Unrelated trunk merges therefore do not invalidate a completed audit. A
+   merged application, shared-plugin, toolchain, packaging, or protected-release
+   change does: re-run the affected evidence and record the new pre-edit
+   `origin/main` SHA and real date. Never advance either field merely to satisfy
+   the guard. Dry runs remain available for packaging validation, but neither a
+   dry run nor this source-bound check creates production/native evidence. A
+   stale immutable release source also cannot be made eligible for real recovery
+   by editing `STATUS.md` later; re-derive first and advance the release identity.
 2. Merge only with the required `gate` and `ZUULI / packaging smoke` green.
 3. From a clean version worktree run
    `npm run release:bump -- --version=<VERSION> --build=<BUILD>`, review every
