@@ -93,12 +93,43 @@ function sourceForNode(workflow, node) {
 
 function containsBareBashDoubleBracket(source) {
   // Bash treats a failing `[[ ]]` in statement position as exempt from
-  // `errexit` on the macOS runner's Bash 3.2. Join shell continuations first
-  // so splitting the expression across physical lines cannot evade the guard.
-  const logicalLines = source.replace(/\\\r?\n[\t ]*/g, " ");
-  return /^[\t ]*\[\[[^\n]*\]\][\t ]*;?[\t ]*(?:#[^\n]*)?$/m.test(
-    logicalLines,
-  );
+  // `errexit` on the macOS runner's Bash 3.2. Join explicit continuations,
+  // then inspect command boundaries rather than only whole lines: a bare test
+  // after `then`, `do`, a group opener, or an AND/OR list is just as inert.
+  // `[[` can also continue implicitly across a newline while its expression
+  // is incomplete. Deliberate conditions introduced by `if`, `while`, `!`,
+  // etc. do not begin at one of these boundaries and remain allowed.
+  const shell = source.replace(/\\\r?\n[\t ]*/g, " ");
+  const starts =
+    /(?:^|[;\n]|&&|\|\||\bthen\b|\bdo\b|\belse\b|[({)])[\t ]*\[\[/gm;
+  for (const match of shell.matchAll(starts)) {
+    const open = match.index + match[0].lastIndexOf("[[");
+    let quote = null;
+    let close = -1;
+    for (let index = open + 2; index < shell.length; index += 1) {
+      const char = shell[index];
+      if (char === "\\" && quote !== "'") {
+        index += 1;
+        continue;
+      }
+      if (quote) {
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === "'" || char === '"') {
+        quote = char;
+        continue;
+      }
+      if (char === "]" && shell[index + 1] === "]") {
+        close = index;
+        break;
+      }
+    }
+    if (close < 0) return true;
+    const continuation = shell.slice(close + 2).match(/^[\t ]*(\|\||&&)/);
+    if (!continuation) return true;
+  }
+  return false;
 }
 
 function sha256(source) {
