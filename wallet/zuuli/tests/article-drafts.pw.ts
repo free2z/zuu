@@ -14,7 +14,10 @@ async function readVisibleDrafts(page: Page) {
           drafts.set(identity(draft.account, draft.id), draft);
         }
       }
-      const heads = new Map<string, { claimId: string; draft: Record<string, unknown> | null }>();
+      const heads = new Map<
+        string,
+        { claimId: string; deleted: boolean }
+      >();
       const claims: Array<{
         claimId: string;
         account: string;
@@ -36,7 +39,10 @@ async function readVisibleDrafts(page: Page) {
         const account = decodeURIComponent(encodedAndId.slice(0, separator));
         const id = encodedAndId.slice(separator + 1);
         drafts.delete(identity(account, id));
-        if (head.draft) drafts.set(identity(account, id), head.draft);
+        const backing = claims.find((claim) => claim.claimId === head.claimId);
+        if (!head.deleted && backing?.draft) {
+          drafts.set(identity(account, id), backing.draft);
+        }
       }
       for (const claim of claims) {
         if (!claim.draft) continue;
@@ -47,7 +53,11 @@ async function readVisibleDrafts(page: Page) {
           `${prefix}head:${encodeURIComponent(claim.account)}:${claim.claimId}`,
         );
         if (source?.claimId !== claim.claimId && !rescue) {
-          drafts.set(identity(claim.account, claim.claimId), claim.draft);
+          drafts.set(identity(claim.account, claim.claimId), {
+            ...claim.draft,
+            id: claim.claimId,
+            revision: 1,
+          });
         }
       }
       return [...drafts.values()];

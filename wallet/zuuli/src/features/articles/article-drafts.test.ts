@@ -310,6 +310,60 @@ describe("local article drafts", () => {
     });
   });
 
+  it("retains the draft-count and field-size quota boundaries", () => {
+    const storage = new MemoryStorage();
+    for (let index = 0; index < 100; index += 1) {
+      expect(
+        saveArticleDraft(
+          "alice",
+          `draft-limit-${index}`,
+          fields(`Draft ${index}`),
+          0,
+          storage,
+          index,
+          `claim-limit-${index}`,
+        ).status,
+      ).toBe("saved");
+    }
+    expect(() =>
+      saveArticleDraft(
+        "alice",
+        "draft-over-limit",
+        fields("Too many"),
+        0,
+        storage,
+        101,
+        "claim-over-limit",
+      ),
+    ).toThrow("Too many local article drafts");
+    expect(() =>
+      saveArticleDraft(
+        "alice",
+        "draft-too-large",
+        { ...fields("Too large"), content: "x".repeat(2_000_001) },
+        0,
+        new MemoryStorage(),
+        1,
+        "claim-too-large",
+      ),
+    ).toThrow("exceeds its local storage limits");
+  });
+
+  it("stores a successful body once behind its compact head", () => {
+    const storage = new MemoryStorage();
+    saveArticleDraft(
+      "alice",
+      "draft-compact",
+      fields("Unique body marker"),
+      0,
+      storage,
+      10,
+      "claim-compact",
+    );
+    const records = [...storage.values.values()].join("\n");
+    expect(records.match(/Long-form work\./g)).toHaveLength(1);
+  });
+
   it("does not overwrite a newer storage schema", () => {
     const storage = new MemoryStorage();
     const future = JSON.stringify({ version: 2, drafts: [{ private: "future" }] });

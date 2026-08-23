@@ -40,7 +40,7 @@ interface DraftHead {
   claimId: string;
   account: string;
   draftId: string;
-  draft: StoredArticleDraft | null;
+  deleted: boolean;
 }
 
 interface DraftClaim {
@@ -54,7 +54,6 @@ interface DraftClaim {
 }
 
 interface Snapshot {
-  rootRaw: string | null;
   legacy: ArticleDraftStore;
   heads: Map<string, DraftHead>;
   claims: Map<string, DraftClaim>;
@@ -213,12 +212,11 @@ function parseHead(raw: string): DraftHead | null {
       typeof value.account !== "string" ||
       !value.account ||
       typeof value.draftId !== "string" ||
-      !isArticleDraftId(value.draftId)
+      !isArticleDraftId(value.draftId) ||
+      typeof value.deleted !== "boolean"
     ) {
       return null;
     }
-    const draft = value.draft === null ? null : parseDraft(value.draft);
-    if (value.draft !== null && !draft) return null;
     return {
       version: RECORD_VERSION,
       kind: "head",
@@ -226,7 +224,7 @@ function parseHead(raw: string): DraftHead | null {
       claimId: value.claimId,
       account: value.account,
       draftId: value.draftId,
-      draft,
+      deleted: value.deleted,
     };
   } catch {
     return null;
@@ -253,7 +251,7 @@ function parseClaim(raw: string): DraftClaim | null {
     }
     const draft = value.draft === null ? null : parseDraft(value.draft);
     if (value.draft !== null && !draft) return null;
-    if (draft && (draft.account !== value.account || draft.id !== value.claimId)) {
+    if (draft && (draft.account !== value.account || draft.id !== value.draftId)) {
       return null;
     }
     return {
@@ -289,8 +287,8 @@ function claimKey(claimId: string): string {
   return `${ARTICLE_DRAFT_STORAGE_PREFIX}claim:${claimId}`;
 }
 
-function legacyToken(raw: string | null, account: string, id: string): string {
-  return `legacy:${raw ?? "absent"}:${account}:${id}`;
+function legacyToken(account: string, id: string): string {
+  return `legacy:${account}:${id}`;
 }
 
 function headToken(head: DraftHead): string {
@@ -322,11 +320,7 @@ function snapshot(storage: DraftStorage): Snapshot {
     if (key.startsWith(`${ARTICLE_DRAFT_STORAGE_PREFIX}head:`)) {
       const head = parseHead(raw);
       if (!head) throw new CorruptArticleDraftStoreError();
-      const draft = head.draft;
-      if (
-        key !== headKey(head.account, head.draftId) ||
-        (draft && (draft.account !== head.account || draft.id !== head.draftId))
-      ) {
+      if (key !== headKey(head.account, head.draftId)) {
         throw new CorruptArticleDraftStoreError();
       }
       heads.set(key, head);
@@ -340,14 +334,27 @@ function snapshot(storage: DraftStorage): Snapshot {
       throw new CorruptArticleDraftStoreError();
     }
   }
-  return { rootRaw, legacy, heads, claims };
+  for (const head of heads.values()) {
+    const claim = claims.get(head.claimId);
+    if (
+      !claim ||
+      claim.account !== head.account ||
+      claim.draftId !== head.draftId ||
+      (head.deleted ? claim.draft !== null : claim.draft === null)
+    ) {
+      throw new CorruptArticleDraftStoreError();
+    }
+  }
+  return { legacy, heads, claims };
 }
 
 function currentDraft(state: Snapshot, account: string, id: string): CurrentDraft {
   const head = state.heads.get(headKey(account, id));
   if (head) {
+    const backing = state.claims.get(head.claimId);
+    if (!backing) throw new CorruptArticleDraftStoreError();
     return {
-      draft: head.draft,
+      draft: head.deleted ? null : backing.draft,
       token: headToken(head),
       backingClaimId: head.claimId,
     };
@@ -355,7 +362,7 @@ function currentDraft(state: Snapshot, account: string, id: string): CurrentDraf
   const rescue = state.claims.get(id);
   if (rescue && rescue.account === account && rescue.draft && rescue.claimId === id) {
     return {
-      draft: rescue.draft,
+      draft: { ...rescue.draft, id: rescue.claimId, revision: 1 },
       token: claimToken(rescue),
       backingClaimId: rescue.claimId,
     };
@@ -365,7 +372,7 @@ function currentDraft(state: Snapshot, account: string, id: string): CurrentDraf
   ) ?? null;
   return {
     draft: legacy,
-    token: legacyToken(state.rootRaw, account, id),
+    token: legacyToken(account, id),
     backingClaimId: null,
   };
 }
@@ -389,7 +396,11 @@ function visibleDrafts(state: Snapshot): StoredArticleDraft[] {
     const account = decodeURIComponent(encodedAndId.slice(0, separator));
     const id = encodedAndId.slice(separator + 1);
     drafts.delete(draftIdentity(account, id));
-    if (head.draft) drafts.set(draftIdentity(account, id), head.draft);
+    const backing = state.claims.get(head.claimId);
+    if (!backing) throw new CorruptArticleDraftStoreError();
+    if (!head.deleted && backing.draft) {
+      drafts.set(draftIdentity(account, id), backing.draft);
+    }
   }
   for (const claim of state.claims.values()) {
     if (!claim.draft) continue;
@@ -397,7 +408,11 @@ function visibleDrafts(state: Snapshot): StoredArticleDraft[] {
     if (sourceHead?.claimId === claim.claimId) continue;
     const rescueHead = state.heads.get(headKey(claim.account, claim.claimId));
     if (rescueHead) continue;
-    drafts.set(draftIdentity(claim.account, claim.claimId), claim.draft);
+    drafts.set(draftIdentity(claim.account, claim.claimId), {
+      ...claim.draft,
+      id: claim.claimId,
+      revision: 1,
+    });
   }
   return [...drafts.values()];
 }
@@ -428,18 +443,31 @@ function writeClaim(storage: DraftStorage, claim: DraftClaim): void {
   if (storage.getItem(key) !== raw) throw new Error("Article draft could not be saved reliably.");
 }
 
-function parentUnchanged(state: Snapshot, account: string, id: string, parent: string): boolean {
-  return currentDraft(state, account, id).token === parent;
+function sameDraft(
+  left: StoredArticleDraft | null,
+  right: StoredArticleDraft | null,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function parentUnchanged(
+  state: Snapshot,
+  account: string,
+  id: string,
+  expected: CurrentDraft,
+): boolean {
+  const current = currentDraft(state, account, id);
+  return current.token === expected.token && sameDraft(current.draft, expected.draft);
 }
 
 function settleHead(
   storage: DraftStorage,
   claim: DraftClaim,
-  draft: StoredArticleDraft | null,
+  expected: CurrentDraft,
 ): boolean {
   let state = snapshot(storage);
   if (
-    !parentUnchanged(state, claim.account, claim.draftId, claim.parent) ||
+    !parentUnchanged(state, claim.account, claim.draftId, expected) ||
     unresolvedClaims(state, claim.account, claim.draftId, claim.parent).length !== 1
   ) {
     return false;
@@ -451,7 +479,7 @@ function settleHead(
     claimId: claim.claimId,
     account: claim.account,
     draftId: claim.draftId,
-    draft,
+    deleted: claim.draft === null,
   };
   const key = headKey(claim.account, claim.draftId);
   const raw = JSON.stringify(head);
@@ -568,10 +596,10 @@ export function saveArticleDraft(
     account,
     draftId: id,
     parent: existing.token,
-    draft: rescue,
+    draft: saved,
   };
   writeClaim(storage, claim);
-  if (!settleHead(storage, claim, saved)) {
+  if (!settleHead(storage, claim, existing)) {
     return { status: "conflict", draft: currentDraft(snapshot(storage), account, id).draft, rescue };
   }
   // Keep the winning claim until this head is superseded. If two tabs both
@@ -607,7 +635,7 @@ export function discardArticleDraft(
     draft: null,
   };
   writeClaim(storage, claim);
-  if (!settleHead(storage, claim, null)) {
+  if (!settleHead(storage, claim, existing)) {
     removeClaimBestEffort(storage, requestedClaimId);
     return "conflict";
   }
