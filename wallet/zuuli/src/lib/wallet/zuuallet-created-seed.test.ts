@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CreatedSeedSession,
   SensitiveSeedSession,
@@ -40,6 +40,56 @@ function harness() {
 }
 
 describe("Zuuallet created-seed backup transaction", () => {
+  it("serializes forced cross-session reveals without clearing the protected winner", async () => {
+    const begin = deferred<string>();
+    const read = deferred<string>();
+    let protectedDisplay = false;
+    const beginAuthority = vi.fn(async () => {
+      await begin.promise;
+      protectedDisplay = true;
+      return "classic-lease";
+    });
+    const endAuthority = vi.fn(async () => {
+      protectedDisplay = false;
+    });
+    const firstPublished: Array<string | null> = [];
+    const secondPublished: Array<string | null> = [];
+    const firstRead = vi.fn(() => read.promise);
+    const secondRead = vi.fn(async () => "must never read");
+    const first = new SensitiveSeedSession(
+      { begin: beginAuthority, end: endAuthority },
+      (phrase) => {
+        if (phrase) expect(protectedDisplay).toBe(true);
+        firstPublished.push(phrase);
+      },
+      (release) => release(),
+    );
+    const second = new SensitiveSeedSession(
+      { begin: beginAuthority, end: endAuthority },
+      (phrase) => secondPublished.push(phrase),
+      (release) => release(),
+    );
+
+    const firstReveal = first.reveal(firstRead);
+    const overlappingReveal = second.reveal(secondRead);
+
+    await expect(overlappingReveal).resolves.toBe(false);
+    expect(beginAuthority).toHaveBeenCalledTimes(1);
+    expect(firstRead).not.toHaveBeenCalled();
+    expect(secondRead).not.toHaveBeenCalled();
+    expect(secondPublished).toEqual([]);
+
+    begin.resolve("ignored");
+    await vi.waitFor(() => expect(firstRead).toHaveBeenCalledTimes(1));
+    read.resolve("covered classic phrase");
+    await expect(firstReveal).resolves.toBe(true);
+    expect(firstPublished).toEqual([null, "covered classic phrase"]);
+    expect(protectedDisplay).toBe(true);
+
+    first.clear();
+    await vi.waitFor(() => expect(protectedDisplay).toBe(false));
+  });
+
   it("binds the backup read and acknowledgement to the exact created wallet", async () => {
     const state = harness();
     const reads: Array<[string, string]> = [];

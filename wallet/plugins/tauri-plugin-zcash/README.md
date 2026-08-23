@@ -62,8 +62,8 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `retry_wallet_cleanup` | — | `WalletCleanupStatus` | Explicitly retry pending orphan cleanup and return diagnostics |
 | `get_seed_phrase` | `SensitiveSeedArgs { token }` | `String` | Authenticate and retrieve the seed only while the exact display lease is held |
 | `get_backup_seed_phrase` | `SensitiveBackupSeedArgs { walletId, token }` | `String` | Retrieve a pending backup only while the exact display lease is held |
-| `begin_sensitive_display` | — | `SensitiveDisplayLease` | Acquire exact native capture protection before a backup reveal |
-| `end_sensitive_display` | `EndSensitiveDisplayArgs { token }` | `()` | Release only the matching capture-protection lease |
+| `begin_sensitive_display` | — | `SensitiveDisplayLease` | Acquire an exact display lease before a backup reveal; mobile platforms apply their documented capture controls |
+| `end_sensitive_display` | `EndSensitiveDisplayArgs { token }` | `()` | Release only the matching display lease |
 | `get_viewing_key` | `AccountIdArgs { accountIndex }` | `String` | Get encoded UFVK for an account |
 | `get_spending_key` | `AccountIdArgs { accountIndex }` | `SpendingKeyStatus` | Verify spending authority (does NOT expose raw key) |
 | `list_wallets` | — | `Vec<WalletInfo>` | List all wallets in the manifest |

@@ -15,6 +15,92 @@ function deferred<T>() {
 }
 
 describe("SensitiveSeedSession", () => {
+  it("serializes forced cross-session reveals before either lease can be replaced", async () => {
+    const begin = deferred<string>();
+    const read = deferred<string>();
+    const firstPublished: Array<string | null> = [];
+    const secondPublished: Array<string | null> = [];
+    let protectedDisplay = false;
+    let currentToken: string | null = null;
+    let consumed = false;
+    let tokenCounter = 0;
+    const authority: SensitiveSeedAuthority = {
+      begin: vi.fn(async () => {
+        if (consumed) {
+          throw new Error("consumed native lease cannot be replaced");
+        }
+        if (tokenCounter === 0) await begin.promise;
+        protectedDisplay = true;
+        currentToken = `lease-serialized-${++tokenCounter}`;
+        return currentToken;
+      }),
+      end: vi.fn(async (token) => {
+        if (currentToken === token) {
+          currentToken = null;
+          consumed = false;
+          protectedDisplay = false;
+        }
+      }),
+    };
+    const firstRead = vi.fn(() => {
+      consumed = true;
+      return read.promise;
+    });
+    const secondRead = vi.fn(async () => "must never read");
+    const first = new SensitiveSeedSession(
+      authority,
+      (phrase) => {
+        if (phrase) expect(protectedDisplay).toBe(true);
+        firstPublished.push(phrase);
+      },
+      (release) => release(),
+    );
+    const second = new SensitiveSeedSession(
+      authority,
+      (phrase) => secondPublished.push(phrase),
+      (release) => release(),
+    );
+
+    const firstReveal = first.reveal(firstRead);
+    const overlappingReveal = second.reveal(secondRead);
+
+    await expect(overlappingReveal).resolves.toBe(false);
+    expect(authority.begin).toHaveBeenCalledTimes(1);
+    expect(firstRead).not.toHaveBeenCalled();
+    expect(secondRead).not.toHaveBeenCalled();
+    expect(secondPublished).toEqual([]);
+
+    begin.resolve("ignored");
+    await vi.waitFor(() => expect(firstRead).toHaveBeenCalledTimes(1));
+    read.resolve("covered phrase");
+    await expect(firstReveal).resolves.toBe(true);
+    expect(firstPublished).toEqual([null, "covered phrase"]);
+    expect(protectedDisplay).toBe(true);
+
+    await expect(
+      second.reveal(async () => "must not replace published phrase"),
+    ).rejects.toThrow("consumed native lease cannot be replaced");
+    expect(firstPublished[firstPublished.length - 1]).toBe("covered phrase");
+    expect(protectedDisplay).toBe(true);
+    expect(currentToken).toBe("lease-serialized-1");
+
+    first.clear();
+    await vi.waitFor(() => expect(protectedDisplay).toBe(false));
+
+    await expect(
+      second.reveal(async () => {
+        consumed = true;
+        return "new phrase after exact release";
+      }),
+    ).resolves.toBe(true);
+    expect(secondPublished[secondPublished.length - 1]).toBe(
+      "new phrase after exact release",
+    );
+    expect(protectedDisplay).toBe(true);
+    second.clear();
+    await vi.waitFor(() => expect(protectedDisplay).toBe(false));
+  });
+
   it("activates native protection before reading and publishing a phrase", async () => {
     const events: string[] = [];
     const authority: SensitiveSeedAuthority = {

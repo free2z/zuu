@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { SeedPhraseGrid } from "../components/SeedPhraseGrid";
 import { createdSeedSession } from "../lib/sensitive-seed";
@@ -9,6 +9,7 @@ export function CreateWallet() {
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [revealing, setRevealing] = useState(false);
+  const operationInFlight = useRef(false);
 
   useEffect(() => {
     const clearSensitiveSeed = () => {
@@ -29,14 +30,21 @@ export function CreateWallet() {
   }, [setPage]);
 
   const dismissSeed = (page: "home" | "welcome") => {
+    if (operationInFlight.current) return;
     createdSeedSession.cancel();
     setPage(page);
   };
 
   const confirmBackup = async () => {
     const walletId = createdSeedSession.currentWalletId;
-    if (!walletId || confirming || createdSeedSession.confirmationPending)
+    if (
+      !walletId ||
+      operationInFlight.current ||
+      confirming ||
+      createdSeedSession.confirmationPending
+    )
       return;
+    operationInFlight.current = true;
     setConfirming(true);
     setError(null);
     try {
@@ -50,14 +58,21 @@ export function CreateWallet() {
       // native protection so the user can retry this acknowledgement safely.
       setError(String(error));
     } finally {
+      operationInFlight.current = false;
       setConfirming(false);
     }
   };
 
   const revealBackup = async () => {
     const walletId = createdSeedSession.currentWalletId;
-    if (!walletId || revealing || createdSeedSession.confirmationPending)
+    if (
+      !walletId ||
+      operationInFlight.current ||
+      revealing ||
+      createdSeedSession.confirmationPending
+    )
       return;
+    operationInFlight.current = true;
     setRevealing(true);
     setError(null);
     try {
@@ -67,6 +82,7 @@ export function CreateWallet() {
     } catch (error) {
       setError(String(error));
     } finally {
+      operationInFlight.current = false;
       setRevealing(false);
     }
   };

@@ -519,8 +519,9 @@ pub(crate) async fn create_wallet<R: Runtime>(
 }
 
 /// Acquire an exact native capture-protection lease before recovery material
-/// is requested from platform custody. A newer lease supersedes an older one;
-/// its stale release can therefore never uncover a later reveal.
+/// is requested from platform custody. A newer lease may supersede an unused
+/// lease, but never one whose mnemonic is being delivered or displayed; its
+/// stale release can therefore never uncover a later reveal.
 #[command]
 pub(crate) async fn begin_sensitive_display<R: Runtime>(
     app: AppHandle<R>,
@@ -535,6 +536,7 @@ pub(crate) async fn begin_sensitive_display<R: Runtime>(
         .await
         .ok_or(Error::WalletNotInitialized)?;
     let mut current = zcash.sensitive_display.lock().await;
+    ensure_sensitive_display_replaceable(&current)?;
     let token = uuid::Uuid::new_v4().to_string();
     zcash.set_sensitive_display(true, &token)?;
     *current = Some(SensitiveDisplayState {
@@ -566,6 +568,15 @@ fn owns_sensitive_display(current: &Option<SensitiveDisplayState>, token: &str) 
     current.as_ref().is_some_and(|lease| lease.token == token)
 }
 
+fn ensure_sensitive_display_replaceable(current: &Option<SensitiveDisplayState>) -> Result<()> {
+    if current.as_ref().is_some_and(|lease| lease.consumed) {
+        return Err(Error::Other(
+            "sensitive-display lease is already delivering or displaying recovery material".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn consume_sensitive_display<'a>(
     current: &'a tokio::sync::Mutex<Option<SensitiveDisplayState>>,
     token: &str,
@@ -588,7 +599,9 @@ async fn consume_sensitive_display<'a>(
 
 #[cfg(test)]
 mod sensitive_display_tests {
-    use super::{consume_sensitive_display, owns_sensitive_display};
+    use super::{
+        consume_sensitive_display, ensure_sensitive_display_replaceable, owns_sensitive_display,
+    };
     use crate::models::SensitiveDisplayState;
     use std::sync::Arc;
     use tokio::sync::{Mutex, oneshot};
@@ -603,10 +616,45 @@ mod sensitive_display_tests {
 
     #[test]
     fn stale_release_never_owns_a_newer_sensitive_display() {
-        let current = Some(lease("new-reveal", "wallet-a"));
+        let mut current = Some(lease("new-reveal", "wallet-a"));
+        current.as_mut().expect("lease").consumed = true;
         assert!(owns_sensitive_display(&current, "new-reveal"));
         assert!(!owns_sensitive_display(&current, "old-reveal"));
         assert!(!owns_sensitive_display(&None, "old-reveal"));
+    }
+
+    #[test]
+    fn acquisition_replaces_only_an_unconsumed_sensitive_display() {
+        let unused = Some(lease("unused", "wallet-a"));
+        assert!(ensure_sensitive_display_replaceable(&unused).is_ok());
+        assert!(ensure_sensitive_display_replaceable(&None).is_ok());
+
+        let mut consumed = Some(lease("displayed", "wallet-a"));
+        consumed.as_mut().expect("lease").consumed = true;
+        assert!(
+            ensure_sensitive_display_replaceable(&consumed).is_err(),
+            "a delivered mnemonic must retain its authoritative native lease"
+        );
+        assert!(
+            owns_sensitive_display(&consumed, "displayed"),
+            "the exact owner can still release a consumed lease after renderer clear"
+        );
+        assert!(!owns_sensitive_display(&consumed, "stale"));
+
+        if owns_sensitive_display(&consumed, "stale") {
+            consumed = None;
+        }
+        assert!(
+            ensure_sensitive_display_replaceable(&consumed).is_err(),
+            "stale release must retain the consumed lease"
+        );
+        if owns_sensitive_display(&consumed, "displayed") {
+            consumed = None;
+        }
+        assert!(
+            ensure_sensitive_display_replaceable(&consumed).is_ok(),
+            "only exact release makes a new acquisition eligible"
+        );
     }
 
     #[tokio::test]

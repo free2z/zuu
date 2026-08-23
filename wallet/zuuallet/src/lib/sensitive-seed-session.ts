@@ -5,6 +5,13 @@ export interface SensitiveSeedAuthority {
 
 type ReleaseScheduler = (release: () => void) => void;
 
+// Native display acquisition and custody are separate IPC commands. Keep the
+// entire renderer ceremony process-wide single-flight so a second session
+// cannot replace the first lease after custody returns but before its result is
+// delivered and published. This is deliberately module state rather than React
+// state: every SensitiveSeedSession in this renderer shares the native lease.
+let revealInFlight = false;
+
 const releaseAfterRendererPaint: ReleaseScheduler = (release) => {
   if (typeof requestAnimationFrame !== "function") {
     queueMicrotask(release);
@@ -30,41 +37,47 @@ export class SensitiveSeedSession {
   async reveal(
     readPhrase: (token: string) => Promise<string>,
   ): Promise<boolean> {
-    this.clear();
-    this.active = true;
-    const generation = ++this.generation;
-    this.publish(null);
-    let token: string;
+    if (revealInFlight) return false;
+    revealInFlight = true;
     try {
-      token = await this.authority.begin();
-    } catch (error) {
-      if (generation === this.generation) {
-        this.active = false;
-        this.publish(null);
+      this.clear();
+      this.active = true;
+      const generation = ++this.generation;
+      this.publish(null);
+      let token: string;
+      try {
+        token = await this.authority.begin();
+      } catch (error) {
+        if (generation === this.generation) {
+          this.active = false;
+          this.publish(null);
+        }
+        throw error;
       }
-      throw error;
-    }
-    if (generation !== this.generation) {
-      await this.release(token);
-      return false;
-    }
-    this.token = token;
-    try {
-      const phrase = await readPhrase(token);
-      if (generation !== this.generation || this.token !== token) {
+      if (generation !== this.generation) {
         await this.release(token);
         return false;
       }
-      this.publish(phrase);
-      return true;
-    } catch (error) {
-      if (generation === this.generation && this.token === token) {
-        this.token = null;
-        this.active = false;
-        this.publish(null);
-        await this.release(token);
+      this.token = token;
+      try {
+        const phrase = await readPhrase(token);
+        if (generation !== this.generation || this.token !== token) {
+          await this.release(token);
+          return false;
+        }
+        this.publish(phrase);
+        return true;
+      } catch (error) {
+        if (generation === this.generation && this.token === token) {
+          this.token = null;
+          this.active = false;
+          this.publish(null);
+          await this.release(token);
+        }
+        throw error;
       }
-      throw error;
+    } finally {
+      revealInFlight = false;
     }
   }
 

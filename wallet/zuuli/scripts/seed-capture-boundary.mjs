@@ -21,8 +21,10 @@ export function assertSeedCaptureBoundary(sources) {
     desktopBridge,
     desktopSettings,
     desktopCreate,
+    desktopWelcome,
     desktopHook,
     desktopTypes,
+    verificationDocs,
     flow,
     onboarding,
     reveal,
@@ -49,6 +51,38 @@ export function assertSeedCaptureBoundary(sources) {
       /requestAnimationFrame\(\(\) => requestAnimationFrame\(release\)\)/,
       `${label} native release must wait until the cleared renderer has painted`,
     );
+    const moduleGuard = rendererSession.indexOf("let revealInFlight = false;");
+    const sessionClass = rendererSession.indexOf(
+      "export class SensitiveSeedSession",
+    );
+    const guardCheck = rendererSession.indexOf(
+      "if (revealInFlight) return false;",
+      sessionClass,
+    );
+    const guardSet = rendererSession.indexOf(
+      "revealInFlight = true;",
+      guardCheck,
+    );
+    const perInstanceClear = rendererSession.indexOf("this.clear();", guardSet);
+    const guardRelease = rendererSession.indexOf(
+      "revealInFlight = false;",
+      perInstanceClear,
+    );
+    if (
+      moduleGuard < 0 ||
+      moduleGuard > sessionClass ||
+      guardCheck < sessionClass ||
+      guardSet < guardCheck ||
+      perInstanceClear < guardSet ||
+      guardRelease < perInstanceClear ||
+      !rendererSession
+        .slice(perInstanceClear, guardRelease)
+        .includes("} finally {")
+    ) {
+      throw new Error(
+        `${label} reveal must be module-wide single-flight before per-instance clearing`,
+      );
+    }
     const clearBody = rendererSession.match(
       /clear\(\): boolean \{([\s\S]*?)\n  \}\n\n  private async release/,
     )?.[1];
@@ -207,6 +241,7 @@ export function assertSeedCaptureBoundary(sources) {
     "SensitiveDisplayState {",
     "wallet_id,",
     "consumed: false",
+    "ensure_sensitive_display_replaceable(&current)?",
   ]) {
     if (!beginBody.includes(boundary)) {
       throw new Error(
@@ -222,6 +257,29 @@ export function assertSeedCaptureBoundary(sources) {
   ) {
     throw new Error(
       "native display acquisition must bind the active wallet under the transition lock",
+    );
+  }
+  const replaceableStart = rustCommands.indexOf(
+    "fn ensure_sensitive_display_replaceable",
+  );
+  const replaceableEnd = rustCommands.indexOf(
+    "async fn consume_sensitive_display",
+    replaceableStart,
+  );
+  const replaceableBody =
+    replaceableStart >= 0 && replaceableEnd > replaceableStart
+      ? rustCommands.slice(replaceableStart, replaceableEnd)
+      : "";
+  if (
+    !replaceableBody.includes("lease.consumed") ||
+    !replaceableBody.includes("return Err(") ||
+    beginBody.indexOf("ensure_sensitive_display_replaceable(&current)?") <
+      beginBody.indexOf("sensitive_display.lock().await") ||
+    beginBody.indexOf("ensure_sensitive_display_replaceable(&current)?") >
+      beginBody.indexOf("set_sensitive_display(true")
+  ) {
+    throw new Error(
+      "native acquisition must not replace a consumed display lease",
     );
   }
   const consumeStart = rustCommands.indexOf(
@@ -447,6 +505,32 @@ export function assertSeedCaptureBoundary(sources) {
   );
   requireMatch(
     desktopCreate,
+    /const operationInFlight = useRef\(false\)[\s\S]*if \([\s\S]*operationInFlight\.current[\s\S]*operationInFlight\.current = true;[\s\S]*createdSeedSession\.reveal[\s\S]*finally \{[\s\S]*operationInFlight\.current = false;/,
+    "Zuuallet retry reveal must use synchronous operation exclusion",
+  );
+  requireMatch(
+    desktopSettings,
+    /const operationInFlight = useRef\(false\)[\s\S]*const handleReveal = async \(\) => \{\s*if \(operationInFlight\.current\) return;[\s\S]*const handleUnlock = async \(\) => \{\s*if \(operationInFlight\.current\) return;/,
+    "Zuuallet Settings reveal and re-link must share synchronous operation exclusion",
+  );
+  requireMatch(
+    desktopWelcome,
+    /const createInFlight = useRef\(false\)[\s\S]*const handleCreate = async \(\) => \{\s*if \(createInFlight\.current\) return;\s*createInFlight\.current = true;[\s\S]*await createWallet\(\)[\s\S]*finally \{\s*createInFlight\.current = false;/,
+    "Zuuallet wallet creation must reject same-render duplicate starts",
+  );
+  for (const statement of [
+    "iOS does not expose an application API that can prevent an ordinary still",
+    "active iOS still-screenshot protection is a known residual",
+    "Desktop still/recording protection",
+  ]) {
+    if (!verificationDocs.includes(statement)) {
+      throw new Error(
+        `device verification must state the capture boundary: ${statement}`,
+      );
+    }
+  }
+  requireMatch(
+    desktopCreate,
     /createdSeedSession\.hide\(\)[\s\S]*createdSeedSession\.reveal\([\s\S]*walletId,[\s\S]*api\.getBackupSeedPhrase\(exactWalletId, token\)/,
     "Zuuallet background clearing must preserve an exact re-authenticatable backup gate",
   );
@@ -522,8 +606,10 @@ export async function main() {
     desktopBridge,
     desktopSettings,
     desktopCreate,
+    desktopWelcome,
     desktopHook,
     desktopTypes,
+    verificationDocs,
     flow,
     onboarding,
     reveal,
@@ -540,8 +626,10 @@ export async function main() {
     read("../zuuallet/src/lib/tauri.ts"),
     read("../zuuallet/src/pages/Settings.tsx"),
     read("../zuuallet/src/pages/CreateWallet.tsx"),
+    read("../zuuallet/src/pages/Welcome.tsx"),
     read("../zuuallet/src/hooks/useWallet.ts"),
     read("../zuuallet/src/types/index.ts"),
+    read("docs/seed-capture-device-verification.md"),
     read("src/features/auth/useZcashChallengeFlow.ts"),
     read("src/features/wallet/Onboarding.tsx"),
     read("src/features/auth/SeedReveal.tsx"),
@@ -559,8 +647,10 @@ export async function main() {
     desktopBridge,
     desktopSettings,
     desktopCreate,
+    desktopWelcome,
     desktopHook,
     desktopTypes,
+    verificationDocs,
     flow,
     onboarding,
     reveal,

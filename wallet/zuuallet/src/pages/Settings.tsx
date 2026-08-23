@@ -84,6 +84,7 @@ function SeedPhraseSection() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [unlockPhrase, setUnlockPhrase] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const operationInFlight = useRef(false);
   const sensitiveSession = useRef<SensitiveSeedSession | null>(null);
   if (!sensitiveSession.current) {
     sensitiveSession.current = new SensitiveSeedSession(
@@ -128,11 +129,13 @@ function SeedPhraseSection() {
         : "bg-emerald-500/10 text-emerald-400";
 
   const handleReveal = async () => {
+    if (operationInFlight.current) return;
     if (phrase) {
       setPhrase(null);
       sensitiveSession.current?.clear();
       return;
     }
+    operationInFlight.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -142,11 +145,14 @@ function SeedPhraseSection() {
       setError(null);
       setShowUnlock(true);
     } finally {
+      operationInFlight.current = false;
       setLoading(false);
     }
   };
 
   const handleUnlock = async () => {
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
     setUnlocking(true);
     setError(null);
     try {
@@ -157,6 +163,7 @@ function SeedPhraseSection() {
     } catch (e) {
       setError(String(e));
     } finally {
+      operationInFlight.current = false;
       setUnlocking(false);
     }
   };

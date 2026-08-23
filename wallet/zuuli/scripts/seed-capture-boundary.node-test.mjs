@@ -21,8 +21,10 @@ const sources = Object.fromEntries(
       desktopBridge: "../zuuallet/src/lib/tauri.ts",
       desktopSettings: "../zuuallet/src/pages/Settings.tsx",
       desktopCreate: "../zuuallet/src/pages/CreateWallet.tsx",
+      desktopWelcome: "../zuuallet/src/pages/Welcome.tsx",
       desktopHook: "../zuuallet/src/hooks/useWallet.ts",
       desktopTypes: "../zuuallet/src/types/index.ts",
+      verificationDocs: "docs/seed-capture-device-verification.md",
       flow: "src/features/auth/useZcashChallengeFlow.ts",
       onboarding: "src/features/wallet/Onboarding.tsx",
       reveal: "src/features/auth/SeedReveal.tsx",
@@ -156,6 +158,18 @@ for (const [name, key, search, replacement] of [
     "++this.generation;\n    // omitted\n    const token",
   ],
   [
+    "renderer reveal loses module-wide arbitration",
+    "session",
+    "if (revealInFlight) return false;",
+    "// overlapping reveal accepted",
+  ],
+  [
+    "Zuuallet reveal loses module-wide arbitration",
+    "desktopSessionCore",
+    "if (revealInFlight) return false;",
+    "// overlapping reveal accepted",
+  ],
+  [
     "native release runs before renderer paint",
     "session",
     "requestAnimationFrame(() => requestAnimationFrame(release));",
@@ -222,6 +236,12 @@ for (const [name, key, search, replacement] of [
     '        wallet_id: "decorative".to_owned(),\n        consumed: false,',
   ],
   [
+    "native display acquisition replaces a consumed lease",
+    "rustCommands",
+    "    ensure_sensitive_display_replaceable(&current)?;",
+    "    // consumed lease replacement accepted",
+  ],
+  [
     "native custody drops consumed lease before read",
     "rustCommands",
     "    zcash\n        .state\n        .get_seed_phrase(&transition_guard, &wallet_id)",
@@ -256,6 +276,12 @@ for (const [name, key, search, replacement] of [
     "desktopHook",
     "const result = await api.createWallet(24, name);",
     "const result = await api.createWallet(24, name);\n        setSeedPhrase(result.seedPhrase);",
+  ],
+  [
+    "Zuuallet permits same-render duplicate wallet creation",
+    "desktopWelcome",
+    "if (createInFlight.current) return;",
+    "// duplicate create accepted",
   ],
   [
     "Zuuallet creation reads custody without its lease",
@@ -376,6 +402,12 @@ for (const [name, key, search, replacement] of [
     "reveal",
     'aria-hidden="true"',
     "aria-hidden={revealed}",
+  ],
+  [
+    "device guide claims active iOS still-screenshot protection",
+    "verificationDocs",
+    "active iOS still-screenshot protection is a known residual",
+    "active iOS still-screenshot protection is verified",
   ],
 ]) {
   test(`rejects mutation: ${name}`, () => {
