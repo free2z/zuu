@@ -26,7 +26,7 @@
 #
 # Usage:
 #   scripts/check-rust-clippy.sh          fail on any clippy warning
-#   scripts/check-rust-clippy.sh --self-test
+#   scripts/check-rust-clippy.sh --self-test <target-os>
 #   scripts/check-rust-clippy.sh --fix    apply clippy's machine-applicable fixes
 #
 # After --fix, read every edit before committing it and run
@@ -46,9 +46,20 @@ TOOLCHAIN_FILE=$RUST_ROOT/rust-toolchain.toml
 SUBMODULE=$REPO_ROOT/z/zcash/librustzcash
 
 mode=check
+expected_target_os=
 case "${1-}" in
   "") ;;
-  --self-test) mode=self-test ;;
+  --self-test)
+    mode=self-test
+    expected_target_os=${2-}
+    case "$expected_target_os" in
+      linux | macos | windows) ;;
+      *)
+        printf '%s\n' 'Usage: scripts/check-rust-clippy.sh --self-test <linux|macos|windows>' >&2
+        exit 2
+        ;;
+    esac
+    ;;
   --fix) mode=fix ;;
   -h | --help)
     awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
@@ -100,12 +111,22 @@ edition = "2024"
 
 [workspace]
 EOF
+  cat > "$fixture/build.rs" <<'EOF'
+fn main() {
+    let expected = std::env::var("ZUU_CLIPPY_EXPECT_TARGET_OS")
+        .expect("self-test expected target OS is missing");
+    let actual = std::env::var("CARGO_CFG_TARGET_OS")
+        .expect("Cargo did not report the selected target OS");
+    assert_eq!(actual, expected, "clippy selected the wrong target OS");
+}
+EOF
   cat > "$fixture/src/lib.rs" <<'EOF'
 pub fn target_native_warning(value: bool) -> bool {
     if value { true } else { false }
 }
 EOF
-  if CARGO_TARGET_DIR="$fixture/target" cargo clippy \
+  if ZUU_CLIPPY_EXPECT_TARGET_OS="$expected_target_os" \
+    CARGO_TARGET_DIR="$fixture/target" cargo clippy \
     --manifest-path "$fixture/Cargo.toml" -- -D warnings \
     > "$fixture/clippy.log" 2>&1; then
     printf 'clippy negative control unexpectedly accepted a known warning on %s.\n' \
@@ -117,8 +138,8 @@ EOF
     cat "$fixture/clippy.log" >&2
     exit 1
   fi
-  printf 'Clippy -D warnings rejected the target-native negative control on %s.\n' \
-    "$(rustc -vV | awk -F': ' '/^host:/ { print $2 }')"
+  printf 'Clippy -D warnings rejected the target-native negative control for %s on %s.\n' \
+    "$expected_target_os" "$(rustc -vV | awk -F': ' '/^host:/ { print $2 }')"
   exit 0
 fi
 

@@ -10,16 +10,14 @@ name: wallet/zuuallet
 #   - frontend: tsc typecheck + vite build
 #   - rust:     cargo build of the Tauri lib (pulls the plugin + librustzcash)
 #
-# It runs on PRs/pushes that touch the app, its dependency inputs, or ZUULI's
-# Rust backend (whose macOS/Windows branches share the native clippy matrix),
-# and a weekly `upstream-canary` job proactively rebuilds against the *latest*
+# It runs on PRs/pushes that touch the app or its dependency inputs, and a
+# weekly `upstream-canary` job proactively rebuilds against the *latest*
 # librustzcash + refreshed crates to catch upstream drift before we bump.
 
 on:
   pull_request:
     paths:
       - 'wallet/zuuallet/**'
-      - 'wallet/zuuli/src-tauri/**'
       - 'wallet/plugins/tauri-plugin-zcash/**'
       - 'z/zcash/librustzcash'
       - '.gitmodules'
@@ -33,7 +31,6 @@ on:
     branches: [main]
     paths:
       - 'wallet/zuuallet/**'
-      - 'wallet/zuuli/src-tauri/**'
       - 'wallet/plugins/tauri-plugin-zcash/**'
       - 'z/zcash/librustzcash'
       - '.gitmodules'
@@ -305,14 +302,11 @@ jobs:
           cargo test --locked
           --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
-  # Compile and lint every wallet crate on the native macOS and Windows hosts.
-  # Linux clippy cannot see target-specific Keychain, Credential Manager, or
-  # OAuth code. The negative control proves `-D warnings` is live on each host
-  # before the repository receives a clean verdict.
+  # Compile the target-specific Keychain and Credential Manager adapters on
+  # their native hosts. Linux Secret Service is covered by the `rust` job.
   custody-platforms:
     if: github.event_name != 'schedule'
     name: custody / ${{ matrix.os }}
-    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -328,24 +322,10 @@ jobs:
       # restates wallet/rust-toolchain.toml; scripts/check-rust-toolchain.sh
       # holds it to the source of truth.
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
-        with:
-          components: clippy
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: |
-            wallet/plugins/tauri-plugin-zcash
-            wallet/zuuli/src-tauri
-            wallet/zuuallet/src-tauri
-          key: custody-platform-clippy-${{ matrix.os }}
-
-      - name: Prove target-native clippy rejects warnings
-        shell: bash
-        run: scripts/check-rust-clippy.sh --self-test
-
-      - name: Lint every Rust crate under wallet/ at -D warnings
-        shell: bash
-        run: scripts/check-rust-clippy.sh
+          workspaces: wallet/plugins/tauri-plugin-zcash
 
       - name: Test native plugin
         run: >-
