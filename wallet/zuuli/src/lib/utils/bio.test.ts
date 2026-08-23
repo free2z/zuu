@@ -133,6 +133,21 @@ const PLATFORM_ROUTE_NAMESPACES: Readonly<Record<BrandedCase["key"], string>> =
     nostr: "https://njump.me/about",
   };
 
+const RESERVED_PLAIN_HANDLES = [
+  ["twitter", "about"],
+  ["twitter", "intent"],
+  ["github", "features"],
+  ["github", "settings"],
+  ["instagram", "explore"],
+  ["instagram", "direct"],
+  ["facebook", "help"],
+  ["facebook", "marketplace"],
+  ["telegram", "share"],
+  ["telegram", "proxy"],
+  ["nostr", "about"],
+  ["nostr", "redirect"],
+] as const;
+
 function oneSocial(key: string, value: string) {
   return parseBioFrontmatter(
     `---\nsocials:\n  ${key}: "${value}"\n---\n\nVisible bio`,
@@ -194,6 +209,13 @@ describe("creator bio branded social links", () => {
       expect(oneSocial(key, PLATFORM_ROUTE_NAMESPACES[key]).socials).toEqual(
         [],
       );
+    },
+  );
+
+  it.each(RESERVED_PLAIN_HANDLES)(
+    "rejects the reserved %s plain identifier %s",
+    (key, handle) => {
+      expect(oneSocial(key, handle).socials).toEqual([]);
     },
   );
 
