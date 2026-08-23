@@ -619,18 +619,6 @@
           "markdownDescription": "Denies the retry_wallet_cleanup command without any pre-configured scope."
         },
         {
-          "description": "Enables the send_transaction command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-send-transaction",
-          "markdownDescription": "Enables the send_transaction command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the send_transaction command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-send-transaction",
-          "markdownDescription": "Denies the send_transaction command without any pre-configured scope."
-        },
-        {
           "description": "Enables the set_lightwalletd_url command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-lightwalletd-url",

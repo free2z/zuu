@@ -36,6 +36,9 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    // CI changes this value for every attempt so a restored Cargo target cache
+    // cannot skip permission and schema generation side effects.
+    println!("cargo:rerun-if-env-changed=TAURI_PERMISSION_GENERATION_NONCE");
     tauri_plugin::Builder::new(COMMANDS)
         .android_path("android")
         .ios_path("ios")
