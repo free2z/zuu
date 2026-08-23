@@ -19,6 +19,121 @@ const productionSources = import.meta.glob(
   { eager: true, import: "default", query: "?raw" },
 ) as Record<string, string>;
 
+const EN_LOADER =
+  'en: () => import("./locales/en.json").then((module) => module.default),';
+
+function replaceExact(
+  source: string,
+  needle: string,
+  replacement: string,
+): string {
+  expect(source.split(needle)).toHaveLength(2);
+  return source.replace(needle, replacement);
+}
+
+function replaceLoaderRegistryInitializer(replacement: string): string {
+  const declaration = runtimeSource.indexOf("export const CATALOG_LOADERS:");
+  const objectStart = runtimeSource.indexOf("> = {", declaration) + 4;
+  const objectEnd = runtimeSource.indexOf("\n};", objectStart) + 2;
+  expect(declaration).toBeGreaterThanOrEqual(0);
+  expect(objectStart).toBeGreaterThan(3);
+  expect(objectEnd).toBeGreaterThan(objectStart);
+  return `${runtimeSource.slice(0, objectStart)}${replacement}${runtimeSource.slice(objectEnd)}`;
+}
+
+function expectCatalogPolicyFailure(source: string, diagnostic: string): void {
+  let failure: Error | null = null;
+  try {
+    assertCatalogLoaders(source, SUPPORTED_LOCALES);
+  } catch (error) {
+    failure = error as Error;
+  }
+  expect(failure?.message).toBe(diagnostic);
+}
+
+const catalogStructureMutants = [
+  {
+    name: "missing CATALOG_LOADERS declaration",
+    mutate: () =>
+      replaceExact(
+        runtimeSource,
+        "export const CATALOG_LOADERS:",
+        "export const RENAMED_CATALOG_LOADERS:",
+      ),
+    diagnostic: "source must declare exactly one CATALOG_LOADERS registry",
+  },
+  {
+    name: "duplicate CATALOG_LOADERS declaration",
+    mutate: () => `const CATALOG_LOADERS = {};\n${runtimeSource}`,
+    diagnostic: "source must declare exactly one CATALOG_LOADERS registry",
+  },
+  {
+    name: "non-object CATALOG_LOADERS initializer",
+    mutate: () => replaceLoaderRegistryInitializer("createLoaders()"),
+    diagnostic: "CATALOG_LOADERS must be an object literal",
+  },
+  {
+    name: "spread entry",
+    mutate: () =>
+      replaceExact(
+        runtimeSource,
+        "= {\n  en:",
+        "= {\n  ...extraLoaders,\n  en:",
+      ),
+    diagnostic: "CATALOG_LOADERS entries must be property assignments",
+  },
+  {
+    name: "method entry",
+    mutate: () =>
+      replaceExact(
+        runtimeSource,
+        EN_LOADER,
+        'en() { return import("./locales/en.json").then((module) => module.default); },',
+      ),
+    diagnostic: "CATALOG_LOADERS entries must be property assignments",
+  },
+  {
+    name: "duplicate locale entry",
+    mutate: () =>
+      replaceExact(runtimeSource, EN_LOADER, `${EN_LOADER}\n  ${EN_LOADER}`),
+    diagnostic: "invalid or duplicate catalog loader: en",
+  },
+  {
+    name: "unsupported locale entry",
+    mutate: () =>
+      replaceExact(
+        runtimeSource,
+        EN_LOADER,
+        `${EN_LOADER}\n  de: () => import("./locales/de.json").then((module) => module.default),`,
+      ),
+    diagnostic: "unsupported catalog loader: de",
+  },
+  {
+    name: "wrong locale-to-catalog mapping",
+    mutate: () =>
+      replaceExact(
+        runtimeSource,
+        EN_LOADER,
+        'en: () => import("./locales/es.json").then((module) => module.default),',
+      ),
+    diagnostic:
+      "catalog loader en must return the dynamic import ./locales/en.json",
+  },
+  {
+    name: "duplicate catalog import inside one loader",
+    mutate: () =>
+      replaceExact(
+        runtimeSource,
+        EN_LOADER,
+        `en: () => import("./locales/en.json").then((module) => {
+    void import("./locales/fr.json");
+    return module.default;
+  }),`,
+      ),
+    diagnostic: "catalog loader en must import only ./locales/en.json",
+  },
+] as const;
+
 describe("locale build boundary", () => {
   it("keeps every production catalog behind an explicit dynamic import", () => {
     expect(() =>
@@ -92,6 +207,13 @@ describe("locale build boundary", () => {
     );
   });
 
+  it.each(catalogStructureMutants)(
+    "kills the $name mutant with its exact diagnostic",
+    ({ mutate, diagnostic }) => {
+      expectCatalogPolicyFailure(mutate(), diagnostic);
+    },
+  );
+
   it("kills comment-only consumer mutants for every declared key", () => {
     const mutationCounts = new Map<string, number>();
     const mutantSources = Object.fromEntries(
@@ -148,5 +270,19 @@ describe("locale build boundary", () => {
         ["commonLoading"],
       ),
     ).toThrow(/commonLoading/);
+  });
+
+  it("kills parse-invalid production source instead of scanning partial syntax", () => {
+    let failure: Error | null = null;
+    try {
+      assertMessageKeyConsumers({ "parse-invalid.ts": "const = ;" }, [
+        "commonLoading",
+      ]);
+    } catch (error) {
+      failure = error as Error;
+    }
+    expect(failure?.message).toBe(
+      "i18n source policy cannot parse parse-invalid.ts",
+    );
   });
 });
