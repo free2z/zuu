@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workflowPath = ".github/workflows/zuuli.yml";
 const policyPath = "scripts/check-zuuli-android-gate.mjs";
+const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
@@ -45,7 +46,7 @@ function requireLine(failures, contents, expected, message) {
   if (!lines.includes(expected)) failures.push(message);
 }
 
-function check(workflow) {
+function check(workflow, toolchainEnv) {
   const failures = [];
   const changes = job(workflow, "changes");
   const android = job(workflow, "rust_android_32");
@@ -150,6 +151,21 @@ function check(workflow) {
   if (typecheckStep !== expectedTypecheckStep) {
     failures.push("32-bit Android type-check step must execute the exact reviewed command block");
   }
+  const requiredArchiverLines = [
+    'export AR_aarch64_linux_android="$zuuli_ndk_bin/llvm-ar"',
+    'export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"',
+    'export AR_i686_linux_android="$zuuli_ndk_bin/llvm-ar"',
+    'export AR_x86_64_linux_android="$zuuli_ndk_bin/llvm-ar"',
+    '[[ -x "$zuuli_ndk_bin/llvm-ar" ]] || {',
+  ];
+  for (const line of requiredArchiverLines) {
+    requireLine(
+      failures,
+      toolchainEnv,
+      line,
+      `Android toolchain environment must retain pinned NDK archiver contract: ${line}`,
+    );
+  }
 
   const expectedGateHeader = [
     "  gate:",
@@ -201,7 +217,7 @@ function check(workflow) {
   return failures;
 }
 
-function runSelfTest(workflow) {
+function runSelfTest(workflow, toolchainEnv) {
   const mutations = [
     ["the armv7 target is replaced", `targets: ${target}`, "targets: aarch64-linux-android"],
     ["the target check is replaced", `--target ${target}`, "--target aarch64-linux-android"],
@@ -261,13 +277,13 @@ function runSelfTest(workflow) {
     ],
   ];
 
-  const baseline = check(workflow);
+  const baseline = check(workflow, toolchainEnv);
   if (baseline.length > 0) {
     throw new Error(`cannot self-test an invalid baseline:\n${baseline.join("\n")}`);
   }
   for (const [name, from, to] of mutations) {
     if (!workflow.includes(from)) throw new Error(`self-test fixture missing: ${name}`);
-    const failures = check(workflow.replace(from, to));
+    const failures = check(workflow.replace(from, to), toolchainEnv);
     if (failures.length === 0) throw new Error(`mutation escaped policy: ${name}`);
   }
   const decoratedSelector = workflow
@@ -276,7 +292,7 @@ function runSelfTest(workflow) {
       "  frontend:\n",
       `  # Dead decoration must not satisfy the real selector.\n  # if false; then : '|${policyPath}|'; fi\n  frontend:\n`,
     );
-  if (check(decoratedSelector).length === 0) {
+  if (check(decoratedSelector, toolchainEnv).length === 0) {
     throw new Error("mutation escaped policy: dead text replaces the real change selector");
   }
   const deadZuuliCase = workflow
@@ -288,19 +304,27 @@ function runSelfTest(workflow) {
       '            esac\n            case "$file" in',
       '            esac\n            fi\n            case "$file" in',
     );
-  if (check(deadZuuliCase).length === 0) {
+  if (check(deadZuuliCase, toolchainEnv).length === 0) {
     throw new Error("mutation escaped policy: real ZUULI selector case is dead code");
   }
+  const missingArmv7Archiver = toolchainEnv.replace(
+    'export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"',
+    'export AR_armv7_linux_androideabi="arm-linux-androideabi-ar"',
+  );
+  if (check(workflow, missingArmv7Archiver).length === 0) {
+    throw new Error("mutation escaped policy: armv7 uses an unpinned archiver");
+  }
   console.log(
-    `Android gate policy self-test passed (${mutations.length + 2} mutations).`,
+    `Android gate policy self-test passed (${mutations.length + 3} mutations).`,
   );
 }
 
 const workflow = readFileSync(resolve(repoRoot, workflowPath), "utf8");
+const toolchainEnv = readFileSync(resolve(repoRoot, toolchainEnvPath), "utf8");
 if (process.argv.includes("--self-test")) {
-  runSelfTest(workflow);
+  runSelfTest(workflow, toolchainEnv);
 } else {
-  const failures = check(workflow);
+  const failures = check(workflow, toolchainEnv);
   if (failures.length > 0) {
     console.error(failures.map((failure) => `- ${failure}`).join("\n"));
     process.exit(1);

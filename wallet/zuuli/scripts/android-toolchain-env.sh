@@ -24,6 +24,10 @@ export CXX_aarch64_linux_android="${CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER}++
 export CXX_armv7_linux_androideabi="${CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER}++"
 export CXX_i686_linux_android="${CARGO_TARGET_I686_LINUX_ANDROID_LINKER}++"
 export CXX_x86_64_linux_android="${CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER}++"
+export AR_aarch64_linux_android="$zuuli_ndk_bin/llvm-ar"
+export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"
+export AR_i686_linux_android="$zuuli_ndk_bin/llvm-ar"
+export AR_x86_64_linux_android="$zuuli_ndk_bin/llvm-ar"
 
 for zuuli_compiler in \
   "$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER" \
@@ -32,4 +36,8 @@ for zuuli_compiler in \
   "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER"; do
   [[ -x "$zuuli_compiler" ]] || { echo "missing pinned NDK compiler: $zuuli_compiler" >&2; return 1; }
 done
+[[ -x "$zuuli_ndk_bin/llvm-ar" ]] || {
+  echo "missing pinned NDK archiver: $zuuli_ndk_bin/llvm-ar" >&2
+  return 1
+}
 unset zuuli_compiler zuuli_ndk_bin zuuli_ndk_host
