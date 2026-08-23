@@ -721,12 +721,12 @@ function mockFan(): SimpleCreator {
 /**
  * The mock signed-in user's active memberships — mirrors GET
  * /api/tuzis/my-subscriptions (`fan=request.user`, `expires__gt=now`).
- * Mutated in place (via `push`/field writes, never reassigned) by
- * `mockSubscribe`/`mockUnsubscribe`, same pattern as `mockUser` above, so a
- * subscribe in one screen is reflected everywhere that refetches this list.
+ * Mutated in place (via `push`/field writes, never reassigned) by the paid
+ * membership and free-follow helpers below, same pattern as `mockUser` above,
+ * so a relationship change is reflected everywhere that refetches this list.
  *
- * Seeded with one already-active membership (mining_maya) so BOTH the
- * "Member" and "Subscribe" states are demoable without doing anything first.
+ * Seeded with one already-active paid membership (mining_maya) and one free
+ * follow (f2z) so both relationship contracts are demoable after a reload.
  */
 export const mockSubscriptions: Subscription[] = [
   {
@@ -735,7 +735,52 @@ export const mockSubscriptions: Subscription[] = [
     expires: new Date(Date.now() + 18 * 86400000).toISOString(),
     max_price: String(mockCreators[1].member_price ?? 0),
   },
+  {
+    fan: mockFan(),
+    star: mockCreators[2], // f2z, no paid membership tier
+    expires: new Date(Date.now() + 18 * 86400000).toISOString(),
+    max_price: "0",
+  },
 ];
+
+/**
+ * Mock a free creator follow. Its product contract has no price, charge,
+ * subscriber entitlement, or renewal.
+ */
+export function mockFollow(username: string): void {
+  const star = mockCreators.find(
+    (candidate) =>
+      candidate.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (!star) throw new Error("Creator not found");
+  if (Number(star.member_price ?? 0) > 0) {
+    throw new Error("Creator has a paid membership tier");
+  }
+  const existing = mockSubscriptions.find(
+    (subscription) =>
+      subscription.star.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (existing) return;
+  mockSubscriptions.push({
+    fan: mockFan(),
+    star,
+    expires: new Date(Date.now() + 30 * 86400000).toISOString(),
+    max_price: "0",
+  });
+}
+
+/** Remove a free creator follow rather than changing paid renewal state. */
+export function mockUnfollow(username: string): void {
+  const index = mockSubscriptions.findIndex(
+    (subscription) =>
+      subscription.star.username.toLowerCase() === username.toLowerCase(),
+  );
+  if (index < 0) return;
+  if (Number(mockSubscriptions[index].star.member_price ?? 0) > 0) {
+    throw new Error("Creator has a paid membership tier");
+  }
+  mockSubscriptions.splice(index, 1);
+}
 
 /**
  * Mock `tuzi.subscribe(username)`. Mirrors `CreatorSubscribeView.post`:

@@ -485,6 +485,35 @@ function SubscribeButton({
   const renewing =
     renewOverride ?? (sub ? Number(sub.max_price ?? 0) > 0 : true);
 
+  async function follow() {
+    const currentUser = useSession.getState().user;
+    if (!currentUser || gate === "sign-in") {
+      signInToSubscribe();
+      return;
+    }
+    if (gate !== "ready") return;
+    setBusy(true);
+    try {
+      await tuzi.follow(creator.username);
+      setUnfollowed(false);
+      setJustSubscribed({
+        fan: {
+          username: currentUser.username,
+          free2zaddr: currentUser.free2zaddr ?? currentUser.username,
+        },
+        star: { username: creator.username, free2zaddr: creator.free2zaddr },
+        expires: new Date(Date.now() + 30 * 86400000).toISOString(),
+        max_price: "0",
+      });
+      toast.success(`Followed ${name}`);
+      void reloadSubscriptions();
+    } catch {
+      toast.error("Couldn't follow. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // A fresh subscribe and a resume-renewal are the same backend call — POST
   // /api/tuzis/subscribe/{username} get-or-creates the membership and (re)sets
   // renewal at the current price — so they share one runner and differ only in
@@ -580,7 +609,7 @@ function SubscribeButton({
     }
     setBusy(true);
     try {
-      await tuzi.unsubscribe(creator.username);
+      await tuzi.unfollow(creator.username);
       setUnfollowed(true);
       setJustSubscribed(null);
       toast.success(`Unfollowed ${name}`);
@@ -597,16 +626,18 @@ function SubscribeButton({
     return (
       <Button
         variant={subscribed ? "secondary" : "default"}
-        onClick={subscribed ? unfollow : subscribe}
+        onClick={subscribed ? unfollow : follow}
         disabled={busy || gate === "loading"}
-        aria-label={subscribed ? `Unfollow ${name}` : `Follow ${name}`}
+        aria-label={
+          subscribed ? `Following ${name} · Unfollow` : `Follow ${name}`
+        }
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         ) : subscribed ? (
           <Check className="h-4 w-4" aria-hidden />
         ) : null}
-        {subscribed ? "Following" : "Subscribe"}
+        {subscribed ? "Following" : "Follow"}
       </Button>
     );
   }

@@ -40,6 +40,7 @@ import {
   mockCreatorDetail,
   mockCreators,
   mockDeletePersonality,
+  mockFollow,
   mockKycIdentityDocuments,
   mockKycProfile,
   mockKycTaxForm,
@@ -52,6 +53,7 @@ import {
   mockSubscriptions,
   mockTransactions,
   mockUnsubscribe,
+  mockUnfollow,
   mockUpdatePersonality,
   mockUser,
 } from "./mock-data";
@@ -1654,6 +1656,30 @@ export const tuzi = {
       },
     );
     return normalizeDonationResult(response, tuzis);
+  },
+
+  /**
+   * Create a free creator relationship. The API currently transports this
+   * over its legacy subscribe route; a separate client method keeps free
+   * follow behavior and messages independent from paid memberships.
+   */
+  async follow(username: string): Promise<void> {
+    if (useMock()) {
+      await delay(400);
+      mockFollow(username);
+      return;
+    }
+    await request(`/api/tuzis/subscribe/${username}`, { method: "POST" });
+  },
+
+  /** Remove a free creator relationship. */
+  async unfollow(username: string): Promise<void> {
+    if (useMock()) {
+      await delay(300);
+      mockUnfollow(username);
+      return;
+    }
+    await request(`/api/tuzis/subscribe/${username}`, { method: "DELETE" });
   },
 
   async subscribe(
