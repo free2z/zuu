@@ -57,6 +57,7 @@ describe("article tag contract", () => {
         null,
         42,
         "bad\u0000tag",
+        "\ud800",
         "x".repeat(MAX_STORED_ARTICLE_TAG_LENGTH + 1),
       ]),
     ).toEqual([
@@ -92,5 +93,6 @@ describe("article tag contract", () => {
       `/articles?tags=${encodeURIComponent("🏳️‍🌈 pride")}`,
     );
     expect(articleTagHref("machine learning, deep learning")).toBeNull();
+    expect(articleTagHref("\ud800")).toBeNull();
   });
 });

@@ -4,6 +4,9 @@ export const MAX_STORED_ARTICLE_TAG_LENGTH = 100;
 
 const AUTHORING_TAG_CONTROL_PATTERN = /[\p{Cc}\p{Cf}]/u;
 const STORED_TAG_CONTROL_PATTERN = /\p{Cc}/u;
+// With Unicode matching enabled, valid surrogate pairs are one code point;
+// this range therefore catches only ill-formed, unpaired UTF-16 surrogates.
+const UNPAIRED_SURROGATE_PATTERN = /[\uD800-\uDFFF]/u;
 
 export interface ArticleTagValidation {
   tag: string | null;
@@ -76,7 +79,8 @@ export function sanitizeArticleTags(values: readonly unknown[]): string[] {
     if (
       !tag ||
       Array.from(tag).length > MAX_STORED_ARTICLE_TAG_LENGTH ||
-      STORED_TAG_CONTROL_PATTERN.test(tag)
+      STORED_TAG_CONTROL_PATTERN.test(tag) ||
+      UNPAIRED_SURROGATE_PATTERN.test(tag)
     ) {
       continue;
     }
