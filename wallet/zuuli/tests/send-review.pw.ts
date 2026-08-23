@@ -63,6 +63,23 @@ test("an input race invalidates a proposal even when UI disabling is bypassed", 
   await expect(page.getByRole("button", { name: "Review payment" })).toBeEnabled();
 });
 
+test("a multi-payment URI never selects its first payment or preserves stale intent", async ({
+  page,
+}) => {
+  await openSend(page);
+  await fillPayment(page, "stale memo");
+
+  await page
+    .getByLabel("Recipient address")
+    .fill("zcash:?address=u1first&amount=1&address.1=u1second&amount.1=2");
+
+  await expect(page.getByText("Couldn't read that payment link")).toBeVisible();
+  await expect(page.getByLabel("Recipient address")).toHaveValue("");
+  await expect(page.getByLabel("Amount")).toHaveValue("");
+  await expect(page.getByLabel(/^Memo/)).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Review payment" })).toBeDisabled();
+});
+
 test("the 320px dialog renders only the immutable native review and locks editing", async ({
   page,
 }) => {

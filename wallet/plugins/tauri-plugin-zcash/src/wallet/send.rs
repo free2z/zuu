@@ -30,8 +30,8 @@ use zcash_protocol::{ShieldedPool, TxId};
 
 use crate::error::{Error, Result};
 use crate::models::{
-    AddressValidation, BroadcastStatus, ExecuteSendResult, PendingSendStatus, SaplingParamsStatus,
-    SendConfirmation, SendPaymentReview, SendProposal, SendReview,
+    AddressValidation, BroadcastStatus, ExecuteSendResult, PaymentRequest, PendingSendStatus,
+    SaplingParamsStatus, SendConfirmation, SendPaymentReview, SendProposal, SendReview,
 };
 use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::keys;
@@ -1039,12 +1039,10 @@ fn invalid_recipient(error: impl Into<String>) -> AddressValidation {
     }
 }
 
-fn parse_recipient(
+fn validate_parsed_recipient(
     network: &zcash_protocol::consensus::Network,
-    encoded: &str,
+    parsed: zcash_address::ZcashAddress,
 ) -> Result<(zcash_address::ZcashAddress, AddressValidation)> {
-    let parsed = zcash_address::ZcashAddress::try_from_encoded(encoded)
-        .map_err(|_| Error::AddressError("invalid Zcash address".into()))?;
     let typed = Address::try_from_zcash_address(network, parsed.clone()).map_err(|error| {
         let message = match error {
             zcash_address::ConversionError::IncorrectNetwork { .. } => {
@@ -1057,12 +1055,17 @@ fn parse_recipient(
 
     let (address_type, can_receive_memo) = match &typed {
         Address::Sapling(_) => ("sapling", true),
-        Address::Unified(_) => (
-            "unified",
-            typed.can_receive_as(PoolType::Shielded(ShieldedPool::Sapling))
+        Address::Unified(_) => {
+            let can_receive_memo = typed.can_receive_as(PoolType::Shielded(ShieldedPool::Sapling))
                 || typed.can_receive_as(PoolType::Shielded(ShieldedPool::Orchard))
-                || typed.can_receive_as(PoolType::Shielded(ShieldedPool::Ironwood)),
-        ),
+                || typed.can_receive_as(PoolType::Shielded(ShieldedPool::Ironwood));
+            if !can_receive_memo && !typed.can_receive_as(PoolType::Transparent) {
+                return Err(Error::AddressError(
+                    "Unified address contains no receiver supported by this wallet".into(),
+                ));
+            }
+            ("unified", can_receive_memo)
+        }
         Address::Transparent(_) => ("transparent", false),
         // ZIP 320 TEX payments are two-transaction proposals when funded from
         // shielded value. This plugin does not yet have a durable ordered-batch
@@ -1086,6 +1089,15 @@ fn parse_recipient(
     ))
 }
 
+fn parse_recipient(
+    network: &zcash_protocol::consensus::Network,
+    encoded: &str,
+) -> Result<(zcash_address::ZcashAddress, AddressValidation)> {
+    let parsed = zcash_address::ZcashAddress::try_from_encoded(encoded)
+        .map_err(|_| Error::AddressError("invalid Zcash address".into()))?;
+    validate_parsed_recipient(network, parsed)
+}
+
 /// Validate both the address encoding and the wallet's configured network.
 /// A syntactically valid testnet address must never be presented as valid by a
 /// mainnet wallet (or vice versa).
@@ -1098,6 +1110,51 @@ pub fn validate_recipient_address(
         Err(Error::AddressError(message)) => invalid_recipient(message),
         Err(_) => invalid_recipient("invalid Zcash address"),
     }
+}
+
+/// Parse the subset of ZIP 321 that the current single-payment send UI can
+/// execute without dropping payment intent or selecting a receiver for the
+/// wrong network. The proposal boundary independently repeats recipient
+/// validation so this parser is never the sole authority.
+pub fn parse_payment_uri(
+    network: &zcash_protocol::consensus::Network,
+    uri: &str,
+) -> Result<PaymentRequest> {
+    let request = zip321::TransactionRequest::from_uri(uri)
+        .map_err(|error| Error::Other(format!("invalid payment URI: {error:?}")))?;
+    if request.payments().len() != 1 {
+        return Err(Error::Other(format!(
+            "payment URI must contain exactly one payment; found {}",
+            request.payments().len()
+        )));
+    }
+
+    let payment = request
+        .payments()
+        .values()
+        .next()
+        .ok_or_else(|| Error::Other("payment URI contains no payments".into()))?;
+    let (recipient, _) = validate_parsed_recipient(network, payment.recipient_address().clone())?;
+    let memo = payment
+        .memo()
+        .map(|bytes| match Memo::try_from(bytes) {
+            Ok(Memo::Text(text)) => Ok(text.to_string()),
+            Ok(Memo::Empty) => Ok(String::new()),
+            Ok(Memo::Future(_) | Memo::Arbitrary(_)) => Err(Error::Other(
+                "payment URI contains a non-text memo unsupported by this app".into(),
+            )),
+            Err(error) => Err(Error::Other(format!(
+                "payment URI contains an invalid memo: {error}"
+            ))),
+        })
+        .transpose()?;
+
+    Ok(PaymentRequest {
+        address: recipient.encode(),
+        amount: payment.amount().map(u64::from),
+        memo,
+        label: payment.label().cloned(),
+    })
 }
 
 fn require_prover(prover: Option<&LocalTxProver>) -> Result<&LocalTxProver> {
@@ -2211,10 +2268,13 @@ async fn broadcast_record(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zcash_protocol::consensus::Network;
+    use zcash_address::unified::{Address as UnifiedAddress, Encoding, Receiver};
+    use zcash_protocol::consensus::{Network, NetworkType};
 
     const MAINNET_TADDR: &str = "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs";
     const TESTNET_TADDR: &str = "tm9iMLAuYMzJ6jtFLcA7rzUmfreGuKvr7Ma";
+    const MAINNET_SAPLING: &str =
+        "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
     const MAINNET_TEX: &str = "tex1s2rt77ggv6q989lr49rkgzmh5slsksa9khdgte";
     const WALLET_ID: &str = "wallet-a";
     const SESSION_ID: [u8; 32] = [0x11; 32];
@@ -2643,6 +2703,113 @@ mod tests {
         let mainnet = validate_recipient_address(&Network::MainNetwork, MAINNET_TADDR);
         assert!(mainnet.valid);
         assert_eq!(mainnet.address_type.as_deref(), Some("transparent"));
+    }
+
+    #[test]
+    fn zip321_requires_exactly_one_payment() {
+        let uri =
+            format!("zcash:?address={MAINNET_TADDR}&amount=1&address.1={MAINNET_TADDR}&amount.1=2");
+        let error = parse_payment_uri(&Network::MainNetwork, &uri).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "payment URI must contain exactly one payment; found 2"
+        );
+
+        let empty = parse_payment_uri(&Network::MainNetwork, "zcash:").unwrap_err();
+        assert_eq!(
+            empty.to_string(),
+            "payment URI must contain exactly one payment; found 0"
+        );
+    }
+
+    #[test]
+    fn zip321_recipient_is_bound_to_the_active_network() {
+        let wrong_network = format!("zcash:{TESTNET_TADDR}?amount=1");
+        let error = parse_payment_uri(&Network::MainNetwork, &wrong_network).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "address error: address belongs to a different Zcash network"
+        );
+
+        let mainnet = format!("zcash:{MAINNET_TADDR}?amount=1");
+        let request = parse_payment_uri(&Network::MainNetwork, &mainnet).unwrap();
+        assert_eq!(request.address, MAINNET_TADDR);
+        assert_eq!(request.amount, Some(100_000_000));
+    }
+
+    #[test]
+    fn zip321_text_memo_is_returned_as_text_not_debug_bytes() {
+        let uri = format!("zcash:{MAINNET_SAPLING}?amount=1&memo=aGVsbG8");
+        let request = parse_payment_uri(&Network::MainNetwork, &uri).unwrap();
+        assert_eq!(request.memo.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn zip321_opaque_or_invalid_memo_is_rejected_instead_of_rewritten() {
+        let future = MemoBytes::from_bytes(&[0xf5]).unwrap();
+        let future_uri = format!(
+            "zcash:{MAINNET_SAPLING}?amount=1&memo={}",
+            zip321::memo_to_base64(&future)
+        );
+        assert_eq!(
+            parse_payment_uri(&Network::MainNetwork, &future_uri)
+                .unwrap_err()
+                .to_string(),
+            "payment URI contains a non-text memo unsupported by this app"
+        );
+
+        let invalid_utf8 = MemoBytes::from_bytes(&[0xc3, 0x28]).unwrap();
+        let invalid_uri = format!(
+            "zcash:{MAINNET_SAPLING}?amount=1&memo={}",
+            zip321::memo_to_base64(&invalid_utf8)
+        );
+        assert!(
+            parse_payment_uri(&Network::MainNetwork, &invalid_uri)
+                .unwrap_err()
+                .to_string()
+                .contains("payment URI contains an invalid memo")
+        );
+    }
+
+    #[test]
+    fn unified_address_requires_a_receiver_this_wallet_can_pay() {
+        let unknown_only = UnifiedAddress::try_from_items(vec![Receiver::Unknown {
+            typecode: 0x04,
+            data: vec![0x42; 32],
+        }])
+        .unwrap()
+        .encode(&NetworkType::Main);
+        let validation = validate_recipient_address(&Network::MainNetwork, &unknown_only);
+        assert!(!validation.valid);
+        assert_eq!(
+            validation.error.as_deref(),
+            Some("Unified address contains no receiver supported by this wallet")
+        );
+
+        let uri = format!("zcash:{unknown_only}?amount=1");
+        assert_eq!(
+            parse_payment_uri(&Network::MainNetwork, &uri)
+                .unwrap_err()
+                .to_string(),
+            "address error: Unified address contains no receiver supported by this wallet"
+        );
+    }
+
+    #[test]
+    fn unified_address_with_a_supported_receiver_remains_valid() {
+        let supported = UnifiedAddress::try_from_items(vec![
+            Receiver::P2pkh([0x24; 20]),
+            Receiver::Unknown {
+                typecode: 0x04,
+                data: vec![0x42; 32],
+            },
+        ])
+        .unwrap()
+        .encode(&NetworkType::Main);
+        let validation = validate_recipient_address(&Network::MainNetwork, &supported);
+        assert!(validation.valid);
+        assert_eq!(validation.address_type.as_deref(), Some("unified"));
+        assert!(!validation.can_receive_memo);
     }
 
     #[test]

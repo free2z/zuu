@@ -302,18 +302,39 @@ export const mockWallet = {
     };
   },
   parsePaymentUri(uri: string): PaymentRequest {
-    const [addr, qs = ""] = uri.replace(/^zcash:/, "").split("?");
+    if (!uri.startsWith("zcash:")) {
+      throw new Error("Invalid Zcash payment URI");
+    }
+    const [leadAddress, qs = ""] = uri.slice("zcash:".length).split("?", 2);
     const params = new URLSearchParams(qs);
-    const rawAmount = params.get("amount");
+    const payments: Array<{ index: number; address: string }> = [];
+    if (leadAddress) payments.push({ index: 0, address: leadAddress });
+    for (const [name, address] of params) {
+      const match = /^address(?:\.(\d+))?$/.exec(name);
+      if (!match) continue;
+      payments.push({ index: match[1] === undefined ? 0 : Number(match[1]), address });
+    }
+    if (payments.length !== 1) {
+      throw new Error(
+        `Payment URI must contain exactly one payment; found ${payments.length}`,
+      );
+    }
+    const [{ index, address }] = payments;
+    const validation = mockWallet.validateAddress(address);
+    if (!validation.valid) {
+      throw new Error(validation.error ?? "Invalid Zcash recipient address");
+    }
+    const suffix = index === 0 ? "" : `.${index}`;
+    const rawAmount = params.get(`amount${suffix}`);
     const amount = rawAmount === null ? null : parseZecToZatoshis(rawAmount);
     if (rawAmount !== null && amount === null) {
       throw new Error("Invalid ZEC amount in payment URI");
     }
     return {
-      address: addr,
+      address,
       amount,
-      memo: params.get("memo"),
-      label: params.get("label"),
+      memo: params.get(`memo${suffix}`),
+      label: params.get(`label${suffix}`),
     };
   },
   async proposeSend(

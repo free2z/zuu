@@ -88,8 +88,8 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `discard_unrecoverable_send` | `DiscardUnrecoverableSendArgs { proposalId, confirmation }` | `()` | After explicit wallet-history review, discard only a valid interrupted-creation intent with no transaction bytes |
 | `get_transaction_history` | `TransactionHistoryArgs { accountIndex, offset?, limit? }` | `Vec<TransactionEntry>` | Query transaction history with pagination |
 | `set_lightwalletd_url` | `SetLightwalletdUrlArgs { url }` | `()` | Change the lightwalletd endpoint |
-| `parse_payment_uri` | `ParsePaymentUriArgs { uri }` | `PaymentRequest` | Parse a ZIP-321 payment URI |
-| `validate_address` | `ValidateAddressArgs { address }` | `AddressValidation` | Validate a Zcash address (unified, sapling, transparent, tex) |
+| `parse_payment_uri` | `ParsePaymentUriArgs { uri }` | `PaymentRequest` | Parse one ZIP-321 payment and validate its recipient against the active network |
+| `validate_address` | `ValidateAddressArgs { address }` | `AddressValidation` | Validate the active network and a receiver this wallet can pay |
 
 ## Send flow
 
@@ -106,6 +106,8 @@ The `propose_send_all` command uses an iterative approach (up to 3 retries) to c
 Sapling parameter verification/download runs on the blocking pool and is serialized so concurrent UI requests cannot race the same files. lightwalletd connection and RPC operations have bounded timeouts.
 
 TEX recipients are rejected for now because ZIP 320 can produce an ordered two-transaction proposal. Supporting TEX safely requires durable ordered-batch recovery; accepting it through the single-transaction broadcaster could submit only half of the proposal.
+
+The current send UI supports exactly one ZIP-321 payment. Native parsing rejects empty or multi-payment requests instead of selecting one payment, rejects recipients for another configured network, and rejects Unified Addresses that contain no Orchard-family, Sapling, or transparent receiver understood by this build. ZIP-321 text and empty memos are supported; opaque memo formats are rejected rather than rewritten. The proposal boundary repeats recipient validation before building a native proposal, so renderer or IPC callers cannot bypass these checks.
 
 ## Security model
 

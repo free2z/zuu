@@ -2215,29 +2215,11 @@ pub(crate) async fn validate_address<R: Runtime>(
 
 #[command]
 pub(crate) async fn parse_payment_uri<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     args: ParsePaymentUriArgs,
 ) -> Result<PaymentRequest> {
-    let request = zip321::TransactionRequest::from_uri(&args.uri)
-        .map_err(|e| Error::Other(format!("invalid payment URI: {e:?}")))?;
-
-    let payments = request.payments();
-    if payments.is_empty() {
-        return Err(Error::Other("payment URI contains no payments".into()));
-    }
-
-    let (_, payment) = payments.iter().next().unwrap();
-    let address = payment.recipient_address().encode();
-    let amount = payment.amount().map(u64::from);
-    let memo = payment.memo().map(|m| format!("{:?}", m));
-    let label = payment.label().map(|s| s.to_string());
-
-    Ok(PaymentRequest {
-        address,
-        amount,
-        memo,
-        label,
-    })
+    let zcash = app.zcash();
+    crate::wallet::send::parse_payment_uri(&zcash.state.network, &args.uri)
 }
 
 /// Sign a "Login with Zcash" challenge for a given account.
