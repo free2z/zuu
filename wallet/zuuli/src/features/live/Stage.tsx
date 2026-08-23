@@ -89,8 +89,8 @@ export function Stage({ ticket }: { ticket: DyteJoinTicket }) {
     return (
       <div className="absolute inset-0 grid place-items-center px-6">
         <div className="flex flex-col items-center gap-3 text-center">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-red-500/20 ring-2 ring-red-400/40">
-            <AlertCircle className="h-7 w-7 text-red-300" aria-hidden />
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-destructive/20 ring-2 ring-destructive/40">
+            <AlertCircle className="h-7 w-7 text-destructive-foreground" aria-hidden />
           </div>
           <p className="max-w-xs text-sm text-white/80">{error}</p>
           <Button

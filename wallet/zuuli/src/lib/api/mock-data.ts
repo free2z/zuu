@@ -32,7 +32,7 @@ export const mockUser: AuthUser = {
   username: "skyl",
   email: "skylar.saveland@gmail.com",
   free2zaddr: "skyl",
-  display_name: "Skylar",
+  display_name: "Skylar Saveland-Okonkwo Þórsdóttir",
   image: null,
   banner: null,
   bio: "Building on Zcash. Shielded by default.",
@@ -88,7 +88,7 @@ export const mockCreators: SimpleCreator[] = [
   creator(
     "zooko",
     "Zooko",
-    "---\nsocials:\n  twitter: zooko\n  github: zooko\n  website: electriccoin.co\n---\n\nFounder-ish energy. Shielded by default.",
+    "---\nsocials:\n  twitter: zooko\n  github: zooko\n  website: electriccoin.co\n---\n\nFounder-ish energy, shielded by default — writing at unreasonable length about note commitments, viewing keys, and why financial privacy is a public good rather than a premium feature.",
     {
       is_verified: true,
       zpages: 12,
@@ -97,31 +97,45 @@ export const mockCreators: SimpleCreator[] = [
       is_live: true,
     },
   ),
-  creator("mining_maya", "Maya ⛏️", "Halo2 circuits & late-night proofs.", {
-    is_verified: true,
-    zpages: 7,
-    member_price: 250,
-    is_live: true, // PPV stream live now.
-  }),
-  creator("f2z", "Free2Z", "The zero-knowledge creator platform.", {
+  creator(
+    "mining_maya",
+    "Maya Andonovska-Rasmussen ⛏️",
+    "Halo2 circuits, late-night proofs, and unreasonably long commit messages about constraint systems.",
+    {
+      is_verified: true,
+      zpages: 7,
+      member_price: 250,
+      is_live: true, // PPV stream live now.
+    },
+  ),
+  creator("f2z", "Free2Z", "The zero-knowledge creator platform, metered end to end in 2Zs.", {
     is_verified: true,
     zpages: 24,
     member_price: null,
     is_live: false, // Offline — demos is_live:false (button hidden).
   }),
-  creator("nine", "Nine", "Privacy maximalist. Streams from the void.", {
-    zpages: 5,
-    member_price: 100,
-    is_live: true, // Broadcast live now.
-  }),
-  creator("halo_hana", "Hana", "Recursive proofs & zk-SNARK explainers.", {
-    zpages: 9,
-    member_price: 300,
-  }),
-  creator("shielded_sam", "Sam", "On-chain privacy, off-chain vibes.", {
-    zpages: 3,
-    member_price: null,
-  }),
+  creator(
+    "nine",
+    "Nine Anonymous-Broadcaster",
+    "Privacy maximalist. Streams from the void, on a schedule known only to the void.",
+    {
+      zpages: 5,
+      member_price: 100,
+      is_live: true, // Broadcast live now.
+    },
+  ),
+  creator(
+    "halo_hana",
+    "Hana Recursive-Proofs Nakamura",
+    "Recursive proofs & zk-SNARK explainers, from the polynomial up.",
+    { zpages: 9, member_price: 300 },
+  ),
+  creator(
+    "shielded_sam",
+    "Antidisestablishmentarianismsam",
+    "On-chain privacy, off-chain vibes.",
+    { zpages: 3, member_price: null },
+  ),
 ];
 
 export const mockModels: AIModel[] = [
@@ -283,7 +297,7 @@ export const mockModels: AIModel[] = [
   {
     id: "m-local-llama",
     model: "llama-3.3-70b",
-    display_name: "Llama 3.3 70B (on our hardware)",
+    display_name: "Llama 3.3 70B Instruct — running on our own hardware",
     system_message: "You are a private, open-source assistant.",
     max_tokens: 8192,
     is_ga: true,
@@ -317,7 +331,7 @@ export const mockPersonalities: Personality[] = [
   },
   {
     id: "pers-first-mate",
-    display_name: "Salty First Mate",
+    display_name: "Salty First Mate of the Privacy-Loving Pirate Ship",
     system_message:
       "You are a gruff but good-hearted ship's first mate. Answer every " +
       "question helpfully and accurately, but narrate it like you're on the " +
@@ -362,7 +376,8 @@ export const mockLivestreams: Livestream[] = [
     id: "ls-1",
     username: "nine",
     creator: mockCreators[3],
-    title: "Shielded & Chill — building a Zcash light client live",
+    title:
+      "Shielded & Chill — building a Zcash light client live, from block scan to spendable note",
     kind: "broadcast",
     live: true,
     participants: 214,
@@ -375,7 +390,8 @@ export const mockLivestreams: Livestream[] = [
     id: "ls-2",
     username: "mining_maya",
     creator: mockCreators[1],
-    title: "PPV: Deep dive — writing a Halo2 circuit from scratch",
+    title:
+      "PPV: Deep dive — writing a Halo2 circuit from scratch without copying anybody's gadgets",
     kind: "ppv",
     live: true,
     participants: 38,
@@ -388,7 +404,8 @@ export const mockLivestreams: Livestream[] = [
     id: "ls-3",
     username: "zooko",
     creator: mockCreators[0],
-    title: "Subscribers only: the next 12 months of Zcash",
+    title:
+      "Subscribers only: the next twelve months of Zcash, protocol upgrades and all",
     kind: "subscriber",
     live: true,
     participants: 91,
@@ -401,7 +418,8 @@ export const mockLivestreams: Livestream[] = [
     id: "ls-4",
     username: "f2z",
     creator: mockCreators[2],
-    title: "Community town hall — roadmap Q&A",
+    title:
+      "Community town hall — roadmap Q&A, governance funding, and the incomprehensiblylongagendaitem",
     kind: "broadcast",
     live: false,
     participants: 0,
@@ -417,7 +435,8 @@ const featuredArticles: Article[] = [
     slug: "why-shielded-by-default",
     free2zaddr: "zooko",
     title: "Why Shielded-by-Default Matters",
-    subtitle: "Privacy is a public good, not a premium feature.",
+    subtitle:
+      "Privacy is a public good, not a premium feature — and defaults are the only policy most people ever experience.",
     content:
       "# Why Shielded-by-Default Matters\n\nFinancial privacy isn't about hiding — it's about **choosing** who sees what. When every transaction is public by default, surveillance becomes the path of least resistance...\n\n## The asymmetry problem\n\nTransparency for the powerful, privacy for everyone else. Zcash inverts that.\n\n> The right to be let alone is the most comprehensive of rights.\n\nShielded pools make privacy the default, and the default is what most people get.",
     image: null,
@@ -432,8 +451,9 @@ const featuredArticles: Article[] = [
     id: 2,
     slug: "2z-micrometering-ai",
     free2zaddr: "f2z",
-    title: "Micrometering AI with 2Zs",
-    subtitle: "Pay for exactly the tokens you use — anonymously.",
+    title: "Micrometering AI with 2Zs, one cent-denominated token at a time",
+    subtitle:
+      "Pay for exactly the tokens you use, anonymously, with no account, no card, and no minimum top-up.",
     content:
       "# Micrometering AI with 2Zs\n\nEvery prompt has a real cost. Instead of a monthly subscription, ZUULI charges you the *actual* cost plus a thin margin, rounded up to the nearest 2Z...\n\nBecause you pay through the free2z API, the upstream provider never sees **you** — only us.",
     image: null,
@@ -448,8 +468,10 @@ const featuredArticles: Article[] = [
     id: 3,
     slug: "login-with-zcash",
     free2zaddr: "nine",
-    title: "Login With Zcash: No Password, No KYC",
-    subtitle: "Your key is your identity.",
+    title:
+      "Login With Zcash: no password, no KYC, no recoverable identity to leak",
+    subtitle:
+      "Your key is your identity — which means nobody, including us, can hand it to anyone else.",
     content:
       "# Login With Zcash\n\nSign a challenge with your wallet and you're in. No email, no third party, no password to leak. Your Zcash address becomes a W3C DID; a ZIP-304 signature proves you hold the key.",
     image: null,
@@ -468,7 +490,8 @@ const featuredArticles: Article[] = [
     slug: "remote-media-consent-audit",
     free2zaddr: "remote-media-consent-audit",
     title: "Remote Media Consent Audit",
-    subtitle: "Deterministic privacy fixtures for article media.",
+    subtitle:
+      "Deterministic privacy fixtures for article media, including the unbrokenidentifiertokenthatcannotwrap case.",
     content: [
       "# Remote Media Consent Audit",
       "",
@@ -522,29 +545,33 @@ const GEN_TAG_POOL = [
   "nym",
   "defi",
 ];
+// Deliberately long. Issue #382: the upstream Playwright suite passed while
+// production overflowed by 415px, because its fixture titles were 21
+// characters. Combined, these halves produce 60–90 character titles, and one
+// half carries an unbroken token with nowhere to wrap.
 const GEN_TITLE_A = [
-  "Building",
-  "Understanding",
-  "A Field Guide to",
-  "Notes on",
-  "Rethinking",
-  "The Case for",
-  "Deep Dive:",
-  "Practical",
-  "Inside",
-  "The Future of",
+  "Building, benchmarking and shipping",
+  "Understanding the moving parts behind",
+  "A field guide, for the impatient, to",
+  "Notes from six months of production",
+  "Rethinking every assumption we had about",
+  "The unreasonably detailed case for",
+  "Deep dive, no hand-waving, into",
+  "Practical, boring, dependable",
+  "Inside the implementation of",
+  "The uncomfortably near future of",
 ];
 const GEN_TITLE_B = [
-  "Halo2 Circuits",
-  "Shielded Pools",
-  "Note Commitments",
-  "the 2Z Economy",
-  "Viewing Keys",
-  "Trusted Setup",
-  "Light Clients",
-  "Unified Addresses",
-  "Zero-Knowledge Proofs",
-  "Private Payments",
+  "Halo2 circuits and their constraint systems",
+  "shielded pools and the anonymity they buy",
+  "note commitments, nullifiers and witnesses",
+  "the 2Z economy and its cent-denominated unit",
+  "viewing keys and selective disclosure",
+  "trusted setup and why we no longer need one",
+  "light clients on genuinely bad networks",
+  "unifiedaddressesandtheirreceivertypologies",
+  "zero-knowledge proofs for ordinary payments",
+  "private payments at ordinary-person scale",
   "Wallet Sync",
   "Recursive SNARKs",
 ];
@@ -566,7 +593,7 @@ function genArticles(n: number): Article[] {
       free2zaddr: c.username,
       title,
       subtitle:
-        "A worked example from the Zcash community, written for ZUULI's mock corpus.",
+        "A worked example from the Zcash community, written for ZUULI's mock corpus at the length real articles actually run to.",
       content: `# ${title}\n\nThis is placeholder long-form content for the mock feed so ZUULI is fully explorable offline. It covers ${t1} and ${t2} in enough depth to demo the reader.`,
       image: null,
       category: cat,
@@ -670,6 +697,14 @@ export const mockTransactions: TuziTransaction[] = [
     timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
     kind: "donate",
     counterparty: "zooko",
+  },
+  {
+    id: 5,
+    amount: 12,
+    tuzis_credited: -12,
+    timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
+    kind: "ai",
+    counterparty: "Llama 3.3 70B Instruct — running on our own hardware",
   },
 ];
 

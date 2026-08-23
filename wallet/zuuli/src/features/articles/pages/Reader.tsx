@@ -24,7 +24,8 @@ import type { Article } from "@/lib/api/types";
 import { TipDialog } from "../components/TipDialog";
 import { CommentsSection } from "../components/Comments";
 import { ArticleScore } from "../components/ArticleScore";
-import { coverGradient, formatPublished } from "../lib";
+import { coverTone } from "@/lib/cover";
+import { formatPublished } from "../lib";
 
 export function Reader() {
   const { slug } = useParams<{ slug: string }>();
@@ -167,7 +168,7 @@ export function Reader() {
           style={
             article.image
               ? undefined
-              : { backgroundImage: coverGradient(article.title) }
+              : { backgroundImage: coverTone(article.title) }
           }
         >
           {article.image ? (

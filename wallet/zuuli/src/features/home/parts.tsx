@@ -34,12 +34,12 @@ export function SectionHeader({
           >
             <Icon className="h-[18px] w-[18px]" />
           </span>
-          <h2 className="truncate text-lg font-semibold tracking-tight md:text-xl">
+          <h2 className="text-lg font-semibold tracking-tight md:text-xl">
             {title}
           </h2>
         </div>
         {subtitle ? (
-          <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
+          <p className="text-sm text-muted-foreground">{subtitle}</p>
         ) : null}
       </div>
       {to ? (
@@ -74,16 +74,4 @@ export function Section({
       {children}
     </section>
   );
-}
-
-/**
- * Deterministic violet→fuchsia→gold gradient derived from a seed string, so
- * every thumbnail/avatar backdrop looks intentional yet varied.
- */
-export function gradientFor(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h << 5) - h + seed.charCodeAt(i);
-  const a = Math.abs(h) % 360;
-  const b = (a + 48) % 360;
-  return `linear-gradient(135deg, hsl(${a} 70% 42% / 0.55), hsl(${b} 75% 50% / 0.35))`;
 }

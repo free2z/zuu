@@ -12,7 +12,8 @@ import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { initials, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Article } from "@/lib/api/types";
-import { articleHref, coverGradient } from "../lib";
+import { coverTone } from "@/lib/cover";
+import { articleHref } from "../lib";
 
 export function ArticleCard({
   article,
@@ -39,7 +40,7 @@ export function ArticleCard({
         style={
           article.image
             ? undefined
-            : { backgroundImage: coverGradient(article.title) }
+            : { backgroundImage: coverTone(article.title) }
         }
       >
         {article.image ? (
@@ -84,7 +85,10 @@ export function ArticleCard({
             {article.title}
           </h3>
           {article.subtitle ? (
-            <p className="line-clamp-2 text-sm text-muted-foreground">
+            <p
+              className="line-clamp-2 text-sm text-muted-foreground"
+              data-user-content
+            >
               {article.subtitle}
             </p>
           ) : null}
@@ -106,7 +110,7 @@ export function ArticleCard({
           <AvatarFallback className="text-xs">{initials(name)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-foreground transition-colors hover:text-primary hover:underline">
+          <div className="break-words text-sm font-medium text-foreground transition-colors hover:text-primary hover:underline">
             {name}
           </div>
           <div className="text-xs text-muted-foreground">

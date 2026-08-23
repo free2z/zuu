@@ -364,12 +364,12 @@ export default function AiFeature() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Identity — subtitle folds away on narrow widths */}
           <div className="flex min-w-0 shrink-0 items-center gap-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
               <Sparkles className="h-[18px] w-[18px]" aria-hidden />
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold leading-tight">AI Studio</h1>
-              <p className="hidden truncate text-[11px] leading-tight text-muted-foreground sm:block">
+              <p className="hidden text-xs leading-tight text-muted-foreground sm:block">
                 Anonymous, multi-provider — metered in 2Zs
               </p>
             </div>
@@ -424,7 +424,7 @@ export default function AiFeature() {
                   className="h-3.5 w-3.5 shrink-0 text-primary"
                   aria-hidden
                 />
-                <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                <span className="hidden text-xs text-muted-foreground sm:inline">
                   This session
                 </span>
                 <span className="text-xs font-semibold tabular-nums text-primary">
@@ -505,7 +505,7 @@ export default function AiFeature() {
       {/* ── Composer ────────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-border/60 bg-background/85 px-4 pb-3 pt-3 backdrop-blur md:px-8">
         <div className="mx-auto max-w-3xl">
-          <div className="relative rounded-xl border border-border bg-card/60 shadow-sm focus-within:border-primary/60 focus-within:shadow-glow">
+          <div className="relative rounded-xl border border-border bg-card/60 shadow-sm focus-within:border-primary/60">
             <Textarea
               ref={inputRef}
               value={input}
@@ -521,7 +521,7 @@ export default function AiFeature() {
                     ? "Buy 2Zs to start chatting…"
                     : `Message ${selected?.display_name ?? "the model"}…`
               }
-              className="max-h-[40vh] min-h-[52px] resize-none overflow-y-auto border-0 bg-transparent py-3.5 pl-4 pr-14 text-[15px] focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="max-h-[40vh] min-h-[52px] resize-none overflow-y-auto border-0 bg-transparent py-3.5 pl-4 pr-14 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <div className="absolute bottom-2.5 right-2.5">
               {isSending ? (
@@ -553,7 +553,7 @@ export default function AiFeature() {
               )}
             </div>
           </div>
-          <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-muted-foreground">
+          <div className="mt-1.5 flex items-center justify-between px-1 text-xs text-muted-foreground">
             <span className="hidden sm:inline">
               Enter to send · Shift+Enter for a new line
             </span>
@@ -613,7 +613,7 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="flex animate-slide-up justify-end gap-3">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-[15px] leading-relaxed text-foreground">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-base leading-relaxed text-foreground">
           <span className="whitespace-pre-wrap break-words">
             {message.content}
           </span>
@@ -635,13 +635,13 @@ function MessageRow({
           {message.pending ? (
             <ThinkingDots />
           ) : (
-            <Markdown className="space-y-3 break-words text-[15px]">
+            <Markdown className="space-y-3 break-words text-base">
               {message.content}
             </Markdown>
           )}
         </div>
         {!message.pending && !message.aborted && !message.error ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[11px] tabular-nums text-muted-foreground">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs tabular-nums text-muted-foreground">
             {message.modelName ? (
               <span className="text-foreground/70">{message.modelName}</span>
             ) : null}
@@ -719,7 +719,7 @@ function EmptyHero({
 
   return (
     <div className="mx-auto flex max-w-2xl animate-slide-up flex-col items-center gap-6 py-6 text-center">
-      <div className="zuuli-hero-glow grid h-16 w-16 place-items-center rounded-2xl border border-border bg-card">
+      <div className="grid h-16 w-16 place-items-center rounded-2xl border border-border bg-card">
         <Sparkles className="h-7 w-7 text-primary" aria-hidden />
       </div>
 
@@ -736,7 +736,7 @@ function EmptyHero({
       {/* Local / open-source anonymity callout */}
       {localModel ? (
         <div className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/[0.06] px-4 py-3 text-left">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
             <LocalIcon className="h-5 w-5" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
@@ -746,7 +746,7 @@ function EmptyHero({
               </span>
               <Badge
                 variant="default"
-                className="gap-1 px-1.5 py-0 text-[10px]"
+                className="gap-1 px-1.5 py-0 text-xs"
               >
                 <ShieldCheck className="h-3 w-3" aria-hidden />
                 private

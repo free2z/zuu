@@ -213,15 +213,39 @@ async function auditHorizontalLayout(page: Page): Promise<HorizontalAudit> {
         );
       }
 
+      // UI copy never truncates. The ONLY text a clip may touch is
+      // user-authored body content, and the markup has to say so out loud with
+      // `data-user-content`. Opaque identifiers do not qualify: they are
+      // shortened in the middle by `truncateAddress()`/`truncateMiddle()` and
+      // rendered with no CSS clip on top, so a second ellipsis can never eat
+      // the trailing checksum characters a human actually verifies.
+      //
+      // This is asserted on the COMPUTED STYLE, not on whether the element
+      // happens to overflow with today's fixtures — a clip that is one
+      // character away from firing is already the defect.
+      const annotatedUserContent = element.hasAttribute("data-user-content");
+      const clipsWithEllipsis = style.textOverflow === "ellipsis";
+      const clamped = Number.parseInt(style.webkitLineClamp, 10) > 0;
+      if (
+        (clipsWithEllipsis || clamped) &&
+        !annotatedUserContent &&
+        (element.textContent ?? "").trim().length > 0
+      ) {
+        failures.push(
+          `${label(element)} ellipsizes UI copy (text-overflow: ${style.textOverflow}, line-clamp: ${style.webkitLineClamp}) — UI copy must never truncate`,
+        );
+      }
+
       const scrollsHorizontally =
         element.clientWidth > 0 &&
         element.scrollWidth > element.clientWidth + tolerance;
       const isLocalOwner =
         style.overflowX === "auto" || style.overflowX === "scroll";
+      // Only ANNOTATED user content earns the overflow exemption; an
+      // unannotated clip was already reported above and must not also be
+      // whitelisted out of the horizontal-overflow audit.
       const deliberatelyEllipsized =
-        style.textOverflow === "ellipsis" ||
-        element.classList.contains("truncate") ||
-        Number.parseInt(style.webkitLineClamp, 10) > 0;
+        annotatedUserContent && (clipsWithEllipsis || clamped);
       const formControl = element.matches("input, textarea, select");
       if (
         scrollsHorizontally &&

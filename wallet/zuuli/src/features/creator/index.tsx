@@ -52,6 +52,7 @@ import {
   tuziInputMaxLength,
   validateTuzis,
 } from "@/lib/format";
+import { coverTone } from "@/lib/cover";
 import { cn } from "@/lib/utils";
 import { parseBioFrontmatter, type SocialLink } from "@/lib/utils/bio";
 import {
@@ -80,15 +81,6 @@ const SOCIAL_ICONS: Record<SocialLink["key"], LucideIcon> = {
   nostr: Zap,
   website: Globe,
 };
-
-/** Deterministic violet→fuchsia banner gradient from the username. */
-function bannerGradient(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h << 5) - h + seed.charCodeAt(i);
-  const a = Math.abs(h) % 360;
-  const b = (a + 42) % 360;
-  return `linear-gradient(120deg, hsl(${a} 65% 40% / 0.85), hsl(${b} 70% 30% / 0.85))`;
-}
 
 export default function CreatorFeature() {
   const { username = "" } = useParams<{ username: string }>();
@@ -229,7 +221,7 @@ function CreatorProfile({
         style={
           creator.banner
             ? undefined
-            : { backgroundImage: bannerGradient(creator.username) }
+            : { backgroundImage: coverTone(creator.username) }
         }
       >
         {creator.banner ? (
@@ -252,13 +244,13 @@ function CreatorProfile({
             {creator.image ? (
               <AvatarImage src={creator.image} alt={name} />
             ) : null}
-            <AvatarFallback className="bg-primary/15 text-2xl text-primary">
+            <AvatarFallback className="bg-secondary text-2xl text-muted-foreground">
               {initials(name)}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 pb-1">
             <div className="flex items-center gap-2">
-              <h1 className="creator-profile-name truncate text-2xl font-bold tracking-tight">
+              <h1 className="creator-profile-name min-w-0 break-words text-2xl font-bold tracking-tight">
                 {name}
               </h1>
               {creator.is_verified ? (
@@ -1067,11 +1059,14 @@ function PageCard({ article }: { article: Article }) {
         aria-label={`Read “${article.title}”`}
         className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <h3 className="line-clamp-2 font-semibold leading-snug group-hover:text-primary">
+        <h3
+          className="line-clamp-2 font-semibold leading-snug group-hover:text-primary"
+          data-user-content
+        >
           {article.title}
         </h3>
         {article.subtitle ? (
-          <p className="line-clamp-2 text-sm text-muted-foreground">
+          <p className="line-clamp-2 text-sm text-muted-foreground" data-user-content>
             {article.subtitle}
           </p>
         ) : null}

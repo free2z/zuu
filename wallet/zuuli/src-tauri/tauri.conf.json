@@ -52,6 +52,12 @@
           "host": "oauth",
           "path": ["/callback"],
           "appLink": false
+        },
+        {
+          "scheme": ["cash.free2z.zuuli"],
+          "host": "checkout",
+          "path": ["/return"],
+          "appLink": false
         }
       ]
     }

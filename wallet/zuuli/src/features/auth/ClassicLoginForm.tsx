@@ -186,7 +186,7 @@ function OtpStep({
   return (
     <form onSubmit={onSubmit} className="animate-slide-up space-y-4">
       <div className="flex items-start gap-3 rounded-lg border border-border bg-background/40 p-4">
-        <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+        <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
           <ShieldCheck className="h-5 w-5" aria-hidden />
         </span>
         <div className="space-y-0.5">

@@ -6,7 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { Livestream } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { KIND_META, gradientFor } from "./lib";
+import { coverTone } from "@/lib/cover";
+import { KIND_META } from "./lib";
 
 export function StreamCard({ stream }: { stream: Livestream }) {
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
@@ -24,13 +25,13 @@ export function StreamCard({ stream }: { stream: Livestream }) {
       className={cn(
         "group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         stream.live
-          ? "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-glow"
+          ? "hover:-translate-y-0.5 hover:border-primary/40"
           : "opacity-70 hover:opacity-100",
       )}
     >
       <div
         className="relative aspect-video w-full"
-        style={{ background: gradientFor(stream.username + stream.title) }}
+        style={{ background: coverTone(stream.username + stream.title) }}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/10" />
         {/* faint grid texture */}
@@ -48,7 +49,7 @@ export function StreamCard({ stream }: { stream: Livestream }) {
           {stream.live ? (
             <Badge variant="live" className="gap-1.5 shadow-sm">
               <span
-                className="h-1.5 w-1.5 rounded-full bg-[#fb7185] animate-pulse-live"
+                className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live"
                 aria-hidden
               />
               LIVE
@@ -91,7 +92,10 @@ export function StreamCard({ stream }: { stream: Livestream }) {
       </div>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug">
+        <h3
+          className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug"
+          data-user-content
+        >
           {stream.title}
         </h3>
 
@@ -100,13 +104,13 @@ export function StreamCard({ stream }: { stream: Livestream }) {
             {stream.creator.image ? (
               <AvatarImage src={stream.creator.image} alt="" />
             ) : null}
-            <AvatarFallback className="text-[10px]">
+            <AvatarFallback className="text-xs">
               {initials(creatorName)}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-medium">{creatorName}</div>
-            <div className="truncate text-[11px] text-muted-foreground">
+            <div className="break-words text-xs font-medium">{creatorName}</div>
+            <div className="break-words text-xs text-muted-foreground">
               {stream.live
                 ? stream.started_at
                   ? `Started ${timeAgo(stream.started_at)}`
@@ -115,11 +119,11 @@ export function StreamCard({ stream }: { stream: Livestream }) {
             </div>
           </div>
           {isPaid ? (
-            <span className="shrink-0 text-xs font-semibold tabular-nums text-amber-400">
+            <span className="shrink-0 text-xs font-semibold tabular-nums text-warning">
               {formatTuzis(stream.price_tuzis)}
             </span>
           ) : stream.kind === "broadcast" ? (
-            <span className="shrink-0 text-xs font-medium text-emerald-400">
+            <span className="shrink-0 text-xs font-medium text-success">
               Free
             </span>
           ) : null}

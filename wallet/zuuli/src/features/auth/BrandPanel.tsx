@@ -30,36 +30,23 @@ const VALUES = [
 
 export function BrandPanel() {
   return (
-    <aside className="zuuli-hero-glow relative hidden flex-col justify-between border-r border-border bg-background p-10 lg:flex xl:p-14">
-      {/* Ambient glow accents */}
-      <div
-        className="pointer-events-none absolute -left-24 top-1/3 h-72 w-72 rounded-full bg-primary/20 blur-3xl"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute -right-16 bottom-10 h-64 w-64 rounded-full bg-fuchsia-600/10 blur-3xl"
-        aria-hidden
-      />
-
+    <aside className="relative hidden flex-col justify-between border-r border-border bg-background p-10 lg:flex xl:p-14">
       <Wordmark />
 
       <div className="relative max-w-md space-y-10">
         <div className="space-y-3">
-          <h1 className="text-balance text-4xl font-bold leading-[1.1] tracking-tight xl:text-5xl">
-            Log in your way — including with{" "}
-            <span className="zuuli-gradient-text">just your key</span>.
+          <h1 className="text-balance text-4xl font-semibold leading-[1.1] xl:text-5xl">
+            Log in your way — including with just your key.
           </h1>
           <p className="text-lg text-muted-foreground">{APP_TAGLINE}</p>
         </div>
 
         <div className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Why Zcash
-          </p>
+          <p className="eyebrow text-muted-foreground">Why Zcash</p>
           <ul className="space-y-5">
             {VALUES.map(({ icon: Icon, title, body }) => (
               <li key={title} className="flex gap-3.5">
-                <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+                <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
                   <Icon className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="space-y-0.5">

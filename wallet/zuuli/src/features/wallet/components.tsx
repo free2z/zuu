@@ -42,13 +42,13 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
       <div className="flex items-center gap-2 text-sm font-medium">
         {caughtUp ? (
           <>
-            <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
+            <span className="h-2 w-2 rounded-full bg-success" aria-hidden />
             <span>Synced</span>
           </>
         ) : hasError ? (
           <>
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" aria-hidden />
-            <span className="text-amber-400">Sync trouble — retrying</span>
+            <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden />
+            <span className="text-warning">Sync trouble — retrying</span>
           </>
         ) : connecting ? (
           <>
@@ -68,8 +68,8 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
 
       <p
         className={cn(
-          "mt-0.5 truncate text-xs tabular-nums text-muted-foreground",
-          hasError && "text-amber-400/80",
+          "mt-0.5 text-xs tabular-nums text-muted-foreground",
+          hasError && "text-warning/80",
         )}
         title={hasError ? errorMsg : undefined}
       >
@@ -85,7 +85,7 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
           <div
             className={cn(
               "h-full rounded-full transition-[width] duration-500 ease-out",
-              hasError ? "bg-amber-400" : "bg-primary",
+              hasError ? "bg-warning" : "bg-primary",
             )}
             style={{ width: `${hasError ? Math.max(pct, 4) : pct}%` }}
             role="progressbar"
@@ -121,10 +121,10 @@ export function AddressCard({
         />
       </div>
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="eyebrow text-muted-foreground">
           Your unified address
         </div>
-        <div className="break-all font-mono text-sm text-foreground">
+        <div className="mono-id break-all font-mono text-sm text-foreground">
           {truncateAddress(address)}
         </div>
         <div className="pt-1">
@@ -149,7 +149,7 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
         className={cn(
           "grid h-9 w-9 shrink-0 place-items-center rounded-full",
           incoming
-            ? "bg-emerald-500/15 text-emerald-400"
+            ? "bg-success/10 text-success"
             : "bg-secondary text-muted-foreground",
         )}
         aria-hidden
@@ -167,17 +167,17 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
             {incoming ? "Received" : "Sent"}
           </span>
           {tx.blockHeight === null ? (
-            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
               Pending
             </span>
           ) : null}
         </div>
         {tx.memo ? (
-          <p className="truncate text-xs text-muted-foreground" title={tx.memo}>
+          <p className="text-xs text-muted-foreground" title={tx.memo}>
             {tx.memo}
           </p>
         ) : (
-          <p className="break-all font-mono text-xs text-muted-foreground/70">
+          <p className="mono-id break-all font-mono text-xs text-muted-foreground/70">
             {truncateAddress(tx.txid)}
           </p>
         )}
@@ -187,7 +187,7 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
         <div
           className={cn(
             "text-sm font-semibold tabular-nums",
-            incoming ? "text-emerald-400" : "text-foreground",
+            incoming ? "text-success" : "text-foreground",
           )}
         >
           {incoming ? "+" : "−"}

@@ -120,12 +120,38 @@ result as proof of a product operation.
 
 ## Design rules
 
-- Dark-first. Semantic tokens only: `bg-background`, `bg-card`, `text-muted-foreground`,
-  `border-border`, `bg-primary`/`text-primary` (violet), plus `#f4b728` for ZEC and
-  `#f43f5e` for LIVE. Radius `rounded-xl`.
-- `tabular-nums` for all money. `min-tap` (44px) on icon buttons. `aria-label` on
-  interactive elements. No emojis in UI chrome. Entrances via `animate-slide-up`.
-- Toasts via `import { toast } from "sonner"`. Loading via `<Skeleton>`. Empty via `<EmptyState>`.
+- Dark-only, on a true neutral graphite ground. Semantic tokens only — never a
+  raw palette step (`emerald-400`, `amber-500`) and never a hex literal:
+  `bg-background`, `bg-card`, `text-muted-foreground`, `border-border`,
+  `text-success`/`text-warning`/`text-info`, plus `zec` (Zcash gold), `live`
+  and `tuzi`. Radius `rounded-xl`.
+- Violet is **interaction only** — focus ring, the primary action, links
+  (`text-link`). Never decoration. Surfaces separate with a 1px `border-border`
+  hairline and one step of lift: no glow, no gradient text, no decorative blur.
+- Type is IBM Plex Sans + IBM Plex Mono, bundled in `src/fonts.css` (the Tauri
+  CSP has no `font-src`, so a CDN webfont silently falls back to system UI).
+  Nothing readable goes below 12px, and every uppercase micro-label is the one
+  `eyebrow` class.
+- Money is the signature: amounts use `.numeral` (Plex Mono, tabular figures,
+  tight tracking) and identifiers use `.mono-id` (slashed zero). Digits are
+  `text-foreground`; the unit beside them carries the currency colour.
+- `min-tap` (44px) on icon buttons. `aria-label` on interactive elements. No
+  emojis in UI chrome. Entrances via `animate-slide-up` — a short 4px settle,
+  and every animation is suppressed under `prefers-reduced-motion`.
+- Toasts via `import { toast } from "sonner"`. Loading via `<Skeleton>`. Empty via
+  `<EmptyState>`. Status notes via `<Callout>`.
+- **UI copy never truncates.** Design the layout so the words fit — wrap, reflow,
+  or shorten the string; never clip it. `truncate`/`text-ellipsis` are banned
+  outright (`scripts/ui-copy-truncation.node-test.mjs` fails the build).
+  **Opaque identifiers** (Zcash addresses, txids, DIDs, meeting IDs) are the one
+  exception: shorten them in the **middle, tail-weighted**, with
+  `truncateAddress()` (`src/lib/format.ts`) or `truncateMiddle()`
+  (`src/lib/utils/bio.ts`) — and render the result with **no CSS clip on top**,
+  because a second ellipsis eats the trailing checksum a human verifies (use
+  `break-all`). **User-authored body content** (article excerpts, bios, system
+  messages) may wrap and `line-clamp` — and the element must say so with
+  `data-user-content`, which is also what exempts it from the audit in
+  `tests/viewport.pw.ts`.
 
 ## Backend follow-ups (see repo STATUS / the free2z backend)
 

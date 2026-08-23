@@ -48,12 +48,12 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
-            className="h-10 min-w-0 max-w-full justify-start gap-2.5 pr-2"
+            className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pr-2 text-left"
             disabled={disabled || !value}
             aria-label="Select AI model"
           >
             {value ? <ModelGlyph model={value} /> : null}
-            <span className="min-w-0 flex-1 truncate text-left font-medium">
+            <span className="min-w-0 flex-1 break-words text-left font-medium">
               {value?.display_name ?? "Select a model"}
             </span>
             <ChevronsUpDown className="ml-auto text-muted-foreground" aria-hidden />
@@ -70,7 +70,7 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
                   <Icon className={cn("h-3.5 w-3.5", meta.color)} aria-hidden />
                   {meta.label}
                   {provider === "local" ? (
-                    <span className="ml-auto text-[10px] font-normal text-primary">
+                    <span className="ml-auto text-xs font-normal text-primary">
                       anonymous · open source
                     </span>
                   ) : null}
@@ -89,11 +89,11 @@ export function ModelPicker({ models, value, onChange, disabled }: ModelPickerPr
                       <ModelGlyph model={model} className="mt-0.5" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="truncate font-medium">
+                          <span className="min-w-0 break-words font-medium">
                             {model.display_name}
                           </span>
                           {model.is_ga ? (
-                            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                            <Badge variant="secondary" className="px-1.5 py-0 text-xs">
                               GA
                             </Badge>
                           ) : null}
@@ -161,7 +161,7 @@ function ModelInfo({ model }: { model: AIModel }) {
         <p className="text-xs italic leading-relaxed text-muted-foreground">
           &ldquo;{model.system_message}&rdquo;
         </p>
-        <div className="grid grid-cols-2 gap-1 text-[11px] tabular-nums text-muted-foreground">
+        <div className="grid grid-cols-2 gap-1 text-xs tabular-nums text-muted-foreground">
           <span>Max output</span>
           <span className="text-right text-foreground">
             {model.max_tokens.toLocaleString()} tok
@@ -179,7 +179,7 @@ function ModelInfo({ model }: { model: AIModel }) {
             {Number(model.markup).toFixed(2)}&times;
           </span>
         </div>
-        <p className="border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="border-t border-border pt-2 text-xs leading-relaxed text-muted-foreground">
           Cost-plus billing: upstream cost &times; markup, rounded up to whole
           2Zs. The provider never sees you — only free2z.
         </p>

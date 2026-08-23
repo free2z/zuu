@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Callout } from "@/components/ui/callout";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
@@ -80,14 +81,14 @@ function CleanupNotice() {
   }
 
   return (
-    <section
-      className="mb-6 rounded-lg border border-amber-500/35 bg-amber-500/10 p-4"
+    <Callout
+      className="mb-6"
+      icon={TriangleAlert}
       aria-label="Wallet cleanup status"
     >
-      <div className="flex items-start gap-3">
-        <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden />
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          <p className="font-medium">
+          <p className="font-semibold text-warning">
             {cleanup.blockedOperations > 0
               ? "Wallet maintenance needs attention"
               : cleanup.pendingOperations > 0
@@ -126,7 +127,7 @@ function CleanupNotice() {
           </Button>
         )}
       </div>
-    </section>
+    </Callout>
   );
 }
 

@@ -22,14 +22,14 @@ export function SectionLoadError({
     <div
       role={stale ? "status" : "alert"}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-xl border border-amber-500/35 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between",
+        "flex min-w-0 flex-col gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between",
         !stale && "py-6",
         className,
       )}
     >
       <div className="flex min-w-0 items-start gap-3">
         <TriangleAlert
-          className="mt-0.5 h-5 w-5 shrink-0 text-amber-400"
+          className="mt-0.5 h-5 w-5 shrink-0 text-warning"
           aria-hidden
         />
         <div className="min-w-0 break-words">

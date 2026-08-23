@@ -495,8 +495,8 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   >
                     <CreatorAvatar creator={creator} className="h-9 w-9" />
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block break-words font-medium">{name}</span>
+                      <span className="block break-words text-xs text-muted-foreground">
                         @{creator.username}
                       </span>
                     </span>
@@ -515,12 +515,12 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 font-medium">
                   <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden />
-                  <span className="truncate">
+                  <span className="min-w-0 break-words">
                     {recipientState.selected.display_name ||
                       recipientState.selected.username}
                   </span>
                 </div>
-                <div className="truncate text-sm text-muted-foreground">
+                <div className="break-words text-sm text-muted-foreground">
                   @{recipientState.selected.username}
                 </div>
               </div>
@@ -574,14 +574,14 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   className={cn(
                     "min-tap rounded-xl border p-3 text-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
                     active
-                      ? "border-primary bg-primary/10 shadow-glow"
+                      ? "border-primary bg-primary/10"
                       : "border-border hover:border-primary/40 hover:bg-primary/5",
                   )}
                 >
                   <div className="text-base font-bold tabular-nums">
                     {preset.toLocaleString()}
                   </div>
-                  <div className="text-[10px] font-medium text-primary">2Z</div>
+                  <div className="text-xs font-medium text-primary">2Z</div>
                 </button>
               );
             })}
@@ -630,11 +630,11 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             <span className="text-sm text-muted-foreground">Recipient</span>
             {recipientState.selected ? (
               <span className="min-w-0 text-right">
-                <span className="block truncate font-medium">
+                <span className="block break-words font-medium">
                   {recipientState.selected.display_name ||
                     recipientState.selected.username}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
+                <span className="block break-words text-xs text-muted-foreground">
                   @{recipientState.selected.username}
                 </span>
               </span>
@@ -678,8 +678,8 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           ) : null}
 
           {completedTransfer ? (
-            <div className="space-y-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3">
-              <div className="flex items-center gap-2 font-medium text-emerald-400">
+            <div className="space-y-3 rounded-xl border border-success/40 bg-success/10 p-3">
+              <div className="flex items-center gap-2 font-medium text-success">
                 <CheckCircle2 className="h-4 w-4" aria-hidden />
                 Transfer confirmed
               </div>

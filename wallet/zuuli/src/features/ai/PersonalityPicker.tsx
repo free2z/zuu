@@ -47,12 +47,12 @@ export function PersonalityPicker({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="h-10 min-w-0 max-w-full justify-start gap-2.5 pr-2"
+          className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pr-2 text-left"
           disabled={disabled}
           aria-label="Select AI personality"
         >
           <UserRound className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-left font-medium">
+          <span className="min-w-0 flex-1 break-words text-left font-medium">
             {value?.display_name ?? "Default persona"}
           </span>
           <ChevronsUpDown className="ml-auto text-muted-foreground" aria-hidden />
@@ -133,16 +133,19 @@ function PersonalityItem({
     <DropdownMenuItem onSelect={onSelect} className="items-start gap-2.5 py-2">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate font-medium">{personality.display_name}</span>
+          <span className="min-w-0 break-words font-medium">{personality.display_name}</span>
           {personality.is_public ? (
-            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+            <Badge variant="secondary" className="px-1.5 py-0 text-xs">
               public
             </Badge>
           ) : null}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
-            <p className="mt-0.5 line-clamp-1 text-left text-xs text-muted-foreground">
+            <p
+              className="mt-0.5 line-clamp-1 text-left text-xs text-muted-foreground"
+              data-user-content
+            >
               {personality.system_message}
             </p>
           </TooltipTrigger>

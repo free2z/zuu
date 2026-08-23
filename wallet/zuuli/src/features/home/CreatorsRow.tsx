@@ -9,7 +9,8 @@ import { discover } from "@/lib/api/free2z";
 import { parseBioFrontmatter } from "@/lib/utils/bio";
 import { useAsync } from "@/hooks/useAsync";
 import type { SimpleCreator } from "@/lib/api/types";
-import { SectionHeader, gradientFor } from "./parts";
+import { coverTone } from "@/lib/cover";
+import { SectionHeader } from "./parts";
 
 function CreatorCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
@@ -24,18 +25,18 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
     >
       <div
         className="h-16 w-full"
-        style={{ background: gradientFor(creator.username) }}
+        style={{ background: coverTone(creator.username, "surface") }}
         aria-hidden
       />
       <div className="flex flex-1 flex-col items-center px-4 pb-4 text-center">
         <Avatar className="-mt-8 h-16 w-16 border-4 border-card">
           {creator.image ? <AvatarImage src={creator.image} alt={name} /> : null}
-          <AvatarFallback className="bg-primary/15 text-base text-primary">
+          <AvatarFallback className="bg-secondary text-base text-muted-foreground">
             {initials(name)}
           </AvatarFallback>
         </Avatar>
-        <div className="mt-2 flex items-center gap-1 truncate text-sm font-semibold">
-          {name}
+        <div className="mt-2 flex w-full min-w-0 items-center justify-center gap-1 text-sm font-semibold">
+          <span className="min-w-0 break-words">{name}</span>
           {creator.is_verified ? (
             <BadgeCheck
               className="h-4 w-4 shrink-0 text-primary"
@@ -44,7 +45,10 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
           ) : null}
         </div>
         {bio ? (
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <p
+            className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground"
+            data-user-content
+          >
             {bio}
           </p>
         ) : null}

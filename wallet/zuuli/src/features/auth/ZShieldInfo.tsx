@@ -48,7 +48,7 @@ export function ZShieldInfo({ children }: { children: React.ReactNode }) {
         <ul className="space-y-4">
           {POINTS.map(({ icon: Icon, title, body }) => (
             <li key={title} className="flex gap-3">
-              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
                 <Icon className="h-5 w-5" aria-hidden />
               </span>
               <div className="space-y-0.5">

@@ -15,7 +15,7 @@ function AuthorAvatar({ author }: { author: Article["author"] }) {
   return (
     <Avatar className="h-6 w-6">
       {author.image ? <AvatarImage src={author.image} alt={name} /> : null}
-      <AvatarFallback className="bg-primary/15 text-[10px] text-primary">
+      <AvatarFallback className="bg-secondary text-xs text-muted-foreground">
         {initials(name)}
       </AvatarFallback>
     </Avatar>
@@ -29,24 +29,27 @@ function ArticleCard({ article }: { article: Article }) {
     <Link
       to={to}
       aria-label={`Read: ${article.title}`}
-      className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col gap-3 rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {article.category ? (
-        <span className="text-[11px] font-medium uppercase tracking-wide text-primary">
+        <span className="eyebrow text-link">
           {article.category}
         </span>
       ) : null}
-      <h3 className="line-clamp-2 text-base font-semibold leading-snug transition-colors group-hover:text-primary">
+      <h3
+        className="line-clamp-2 text-base font-semibold leading-snug transition-colors group-hover:text-primary"
+        data-user-content
+      >
         {article.title}
       </h3>
       {article.subtitle ? (
-        <p className="line-clamp-2 text-sm text-muted-foreground">
+        <p className="line-clamp-2 text-sm text-muted-foreground" data-user-content>
           {article.subtitle}
         </p>
       ) : null}
       <div className="mt-auto flex items-center gap-2 pt-2 text-xs text-muted-foreground">
         <AuthorAvatar author={article.author} />
-        <span className="truncate font-medium text-foreground/90">{name}</span>
+        <span className="min-w-0 break-words font-medium text-foreground/90">{name}</span>
         {article.published_at ? (
           <>
             <span aria-hidden>·</span>
