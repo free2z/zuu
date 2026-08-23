@@ -15,6 +15,65 @@ const GATE_POLICY_SELF_TEST_COMMAND =
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
+// Environment inheritance can alter Bash and Node before an exact `run:` block
+// begins. Required jobs therefore accept only these reviewed data inputs; every
+// other workflow/job/step environment entry fails closed.
+const REQUIRED_WORKFLOW_ENVIRONMENT = new Map([
+  ["CARGO_TERM_COLOR", "always"],
+  ["RUST_BACKTRACE", "1"],
+]);
+const REQUIRED_JOB_ENVIRONMENTS = new Map([
+  [
+    "zuuallet_schema",
+    new Map([
+      ["CARGO_TARGET_DIR", "${{ github.workspace }}/target"],
+    ]),
+  ],
+]);
+const REQUIRED_STEP_ENVIRONMENTS = new Map([
+  [
+    "changes\0Detect release-impacting ZUULI changes",
+    new Map([
+      [
+        "BASE_SHA",
+        "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}",
+      ],
+    ]),
+  ],
+  [
+    "rust_app\0Build ZUULI Tauri backend",
+    new Map([
+      [
+        "TAURI_SCHEMA_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+      [
+        "TAURI_PERMISSION_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+    ]),
+  ],
+  [
+    "zuuallet_schema\0Regenerate Zuuallet permissions and target schema",
+    new Map([
+      [
+        "TAURI_SCHEMA_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+      [
+        "TAURI_PERMISSION_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+    ]),
+  ],
+  [
+    "gate\0Verify required jobs succeeded or legitimately skipped",
+    new Map([
+      ["POLICY_OUTCOME", "${{ steps.policy.outcome }}"],
+      ["REQUIRED_JOBS_JSON", "${{ toJSON(needs) }}"],
+    ]),
+  ],
+]);
 
 // Required-gate policy deliberately accepts a small, canonical YAML subset.
 // Alternate keys, inline job maps, aliases, and decorators fail closed instead
@@ -469,8 +528,42 @@ function policyJobSteps(relativeFile, lines, job, failures, label) {
   return steps;
 }
 
-function requiredJobShellFailures(relativeFile, lines, job) {
+function requiredContainerInjectionFailures(relativeFile, lines, job) {
   const failures = [];
+  const container = job.properties.get("container");
+  if (!container) return failures;
+  if (container.value) {
+    failures.push(
+      `${relativeFile}:${container.index + 1}: required job ${job.id} container must use a canonical block mapping`,
+    );
+    return failures;
+  }
+
+  for (let index = container.index + 1; index < job.end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= container.indent) break;
+    if (line.indent !== container.indent + 2) continue;
+    const entry = mappingEntry(line.text, `required job ${job.id} container property`);
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+    } else if (["env", "options"].includes(entry.key)) {
+      failures.push(
+        `${relativeFile}:${index + 1}: required job ${job.id} container cannot inject environment or runtime options`,
+      );
+    }
+  }
+  return failures;
+}
+
+function requiredJobExecutionFailures(relativeFile, lines, job) {
+  const failures = [];
+  const requiredMainWorkflow =
+    relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
   const defaults = job.properties.get("defaults");
   if (defaults) {
     failures.push(
@@ -483,6 +576,30 @@ function requiredJobShellFailures(relativeFile, lines, job) {
       ),
     );
   }
+  const jobEnvironment = job.properties.get("env");
+  if (jobEnvironment) {
+    const actual = environmentMap(
+      relativeFile,
+      lines,
+      jobEnvironment,
+      job.end,
+      failures,
+      `required job ${job.id}`,
+    );
+    const expected = requiredMainWorkflow
+      ? REQUIRED_JOB_ENVIRONMENTS.get(job.id) ?? new Map()
+      : new Map();
+    failures.push(
+      ...exactEnvironmentFailures(
+        relativeFile,
+        jobEnvironment.index,
+        actual,
+        expected,
+        `required job ${job.id}`,
+      ),
+    );
+  }
+  failures.push(...requiredContainerInjectionFailures(relativeFile, lines, job));
 
   if (!job.properties.has("steps")) return failures;
   const steps = policyJobSteps(
@@ -499,39 +616,96 @@ function requiredJobShellFailures(relativeFile, lines, job) {
         `${relativeFile}:${shell.index + 1}: required job ${job.id} step shell must be exactly bash`,
       );
     }
+    const stepEnvironmentProperty = step.properties.get("env");
+    if (!stepEnvironmentProperty) continue;
+    const actual = environmentMap(
+      relativeFile,
+      lines,
+      stepEnvironmentProperty,
+      step.end,
+      failures,
+      `required job ${job.id} step`,
+    );
+    const stepName = step.properties.get("name")?.value ?? "";
+    const expected = requiredMainWorkflow
+      ? REQUIRED_STEP_ENVIRONMENTS.get(`${job.id}\0${stepName}`) ?? new Map()
+      : new Map();
+    failures.push(
+      ...exactEnvironmentFailures(
+        relativeFile,
+        stepEnvironmentProperty.index,
+        actual,
+        expected,
+        `required job ${job.id} step ${stepName || "<unnamed>"}`,
+      ),
+    );
   }
   return failures;
 }
 
-function stepEnvironment(relativeFile, lines, step, failures) {
+function environmentMap(relativeFile, lines, property, end, failures, owner) {
   const environment = new Map();
-  const property = step.properties.get("env");
-  if (!property || property.value) return environment;
+  if (property.value) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: ${owner} environment must use a canonical block mapping`,
+    );
+    return environment;
+  }
 
-  for (let index = property.index + 1; index < step.end; index += 1) {
+  for (let index = property.index + 1; index < end; index += 1) {
     const line = workflowLine(lines[index]);
     if (!line) continue;
-    if (line.error || line.indent <= property.indent) break;
-    if (line.indent !== 10) {
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= property.indent) break;
+    if (line.indent !== property.indent + 2) {
       failures.push(
-        `${relativeFile}:${index + 1}: gate verdict environment must use canonical indentation`,
+        `${relativeFile}:${index + 1}: ${owner} environment must use canonical indentation`,
       );
       continue;
     }
-    const entry = mappingEntry(line.text, "gate verdict environment");
+    const entry = mappingEntry(line.text, `${owner} environment`);
     if (entry.error) {
       failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
       continue;
     }
     if (environment.has(entry.key)) {
       failures.push(
-        `${relativeFile}:${index + 1}: duplicate gate verdict environment key ${entry.key}`,
+        `${relativeFile}:${index + 1}: duplicate ${owner} environment key ${entry.key}`,
       );
     } else {
       environment.set(entry.key, entry.value);
     }
   }
   return environment;
+}
+
+function stepEnvironment(relativeFile, lines, step, failures) {
+  const property = step.properties.get("env");
+  if (!property) return new Map();
+  return environmentMap(
+    relativeFile,
+    lines,
+    property,
+    step.end,
+    failures,
+    "gate verdict",
+  );
+}
+
+function exactEnvironmentFailures(relativeFile, location, actual, expected, owner) {
+  const failures = [];
+  if (
+    actual.size !== expected.size ||
+    [...expected].some(([key, value]) => actual.get(key) !== value)
+  ) {
+    failures.push(
+      `${relativeFile}:${location + 1}: ${owner} environment differs from its exact reviewed allowlist`,
+    );
+  }
+  return failures;
 }
 
 function hasExactKeys(map, keys) {
@@ -655,6 +829,7 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
 function policyWorkflowJobs(relativeFile, lines, failures) {
   const topLevel = [];
   const workflowDefaults = [];
+  const workflowEnvironments = [];
 
   for (const [index, rawLine] of lines.entries()) {
     const line = workflowLine(rawLine);
@@ -671,6 +846,8 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
       topLevel.push({ index, value: entry.value });
     } else if (entry.key === "defaults") {
       workflowDefaults.push({ index, indent: 0, value: entry.value });
+    } else if (entry.key === "env") {
+      workflowEnvironments.push({ index, indent: 0, value: entry.value });
     }
   }
 
@@ -684,6 +861,32 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
         lines,
         defaults,
         lines.length,
+        "required workflow",
+      ),
+    );
+  }
+  if (workflowEnvironments.length > 1) {
+    failures.push(`${relativeFile}: required workflow cannot repeat env`);
+  }
+  for (const environment of workflowEnvironments) {
+    const actual = environmentMap(
+      relativeFile,
+      lines,
+      environment,
+      lines.length,
+      failures,
+      "required workflow",
+    );
+    const expected =
+      relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH
+        ? REQUIRED_WORKFLOW_ENVIRONMENT
+        : new Map();
+    failures.push(
+      ...exactEnvironmentFailures(
+        relativeFile,
+        environment.index,
+        actual,
+        expected,
         "required workflow",
       ),
     );
@@ -816,7 +1019,7 @@ function requiredReusableWorkflowFailures(
   const lines = fs.readFileSync(canonical, "utf8").split(/\r?\n/);
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
   for (const job of jobs.values()) {
-    failures.push(...requiredJobShellFailures(relativeFile, lines, job));
+    failures.push(...requiredJobExecutionFailures(relativeFile, lines, job));
     const softFail = job.properties.get("continue-on-error");
     if (softFail) {
       failures.push(
@@ -906,7 +1109,7 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   for (const jobId of [...parsedNeeds.values, "gate"]) {
     const requiredJob = jobs.get(jobId);
     if (requiredJob) {
-      failures.push(...requiredJobShellFailures(relativeFile, lines, requiredJob));
+      failures.push(...requiredJobExecutionFailures(relativeFile, lines, requiredJob));
     }
     const property = requiredJob?.properties.get("continue-on-error");
     if (property) {
@@ -1253,6 +1456,66 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       ),
     },
     {
+      name: "real workflow rejects workflow-level SHELLOPTS noexec",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "env:\n  CARGO_TERM_COLOR: always\n",
+        "env:\n  SHELLOPTS: noexec\n  CARGO_TERM_COLOR: always\n",
+      ),
+    },
+    {
+      name: "real workflow rejects gate-level NODE_OPTIONS startup injection",
+      needle: "required job gate environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "  gate:\n",
+        '  gate:\n    env:\n      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"\n',
+      ),
+    },
+    {
+      name: "real workflow rejects gate-step imported node function",
+      needle:
+        "required job gate step Verify required jobs succeeded or legitimately skipped environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          POLICY_OUTCOME: ${{ steps.policy.outcome }}\n",
+        "        env:\n          'BASH_FUNC_node%%': '() { return 0; }'\n          POLICY_OUTCOME: ${{ steps.policy.outcome }}\n",
+      ),
+    },
+    {
+      name: "real workflow rejects PATH injection on a required step",
+      needle:
+        "required job changes step Detect release-impacting ZUULI changes environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}\n",
+        "        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}\n          PATH: ./ci-shims\n",
+      ),
+    },
+    {
+      name: "real workflow rejects Android job-level SHELLOPTS noexec",
+      needle:
+        "required job rust_android_32 environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "  rust_android_32:\n",
+        "  rust_android_32:\n    env:\n      SHELLOPTS: noexec\n",
+      ),
+    },
+    {
+      name: "real workflow rejects Android typecheck-step SHELLOPTS noexec",
+      needle:
+        "required job rust_android_32 step Type-check the shared plugin on 32-bit Android environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "      - name: Type-check the shared plugin on 32-bit Android\n        run: |\n",
+        "      - name: Type-check the shared plugin on 32-bit Android\n        env:\n          SHELLOPTS: noexec\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects required-container environment options",
+      needle: "required job rust_clippy container cannot inject environment or runtime options",
+      source: source.replace(
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      credentials:\n",
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
+      ),
+    },
+    {
       name: "real workflow rejects a syntax-only dependency default shell",
       needle: "required job zuuallet_schema defaults.run.shell must be exactly bash",
       source: replaceLast(
@@ -1395,6 +1658,93 @@ function runSelfTest(repoRoot) {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow,
       },
+    },
+    {
+      name: "required reusable workflow rejects workflow-level BASH_ENV",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "jobs:\n",
+          "env:\n  BASH_ENV: bypass-gate.sh\njobs:\n",
+        ),
+      },
+    },
+    {
+      name: "required reusable workflow rejects job-level SHELLOPTS",
+      needle: "required job build environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "  build:\n",
+          "  build:\n    env:\n      SHELLOPTS: noexec\n",
+        ),
+      },
+    },
+    {
+      name: "required reusable workflow rejects step-level PATH replacement",
+      needle:
+        "required job build step <unnamed> environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "      - run: npm test\n",
+          "      - env:\n          PATH: ./ci-shims\n        run: npm test\n",
+        ),
+      },
+    },
+    {
+      name: "nested required reusable workflow rejects NODE_OPTIONS",
+      needle: "required job nested environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          "    uses: ./.github/workflows/nested-build.yml",
+        ),
+        ".github/workflows/nested-build.yml": [
+          "on:",
+          "  workflow_call:",
+          "jobs:",
+          "  nested:",
+          "    env:",
+          '      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"',
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: cargo test",
+          "",
+        ].join("\n"),
+      },
+    },
+    {
+      name: "quoted BASH_FUNC key cannot hide required-job environment injection",
+      needle: "required job build environment differs from its exact reviewed allowlist",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    env:\n      'BASH_FUNC_node%%': '() { return 0; }'\n",
+        ),
+      ),
+    },
+    {
+      name: "inline required-job environment maps fail closed",
+      needle: "required job build environment must use a canonical block mapping",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    env: { SHELLOPTS: noexec }\n",
+        ),
+      ),
+    },
+    {
+      name: "required-step environment merge aliases fail closed",
+      needle: "cannot use YAML merge keys or aliases",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "      - name: a legitimate best-effort step\n",
+          "      - name: a legitimate best-effort step\n        env:\n          <<: *execution-environment\n",
+        ),
+      ),
     },
     {
       name: "required reusable workflow cannot inherit a syntax-only shell",
