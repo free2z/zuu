@@ -7,6 +7,7 @@ import { TextDecoder } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { verifyAppleCredentialBoundary } from "./apple-credential-boundary.mjs";
+import { artifactSbomWorkflowFailures } from "./artifact-sbom.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
@@ -212,6 +213,13 @@ const testFlightBootstrapWorkflow = read(
 const storeAuditWorkflow = read("../../.github/workflows/zuuli-store-audit.yml");
 const storePublishWorkflow = read("../../.github/workflows/zuuli-store-publish.yml");
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
+
+for (const failure of artifactSbomWorkflowFailures(
+  packagingWorkflow,
+  releaseWorkflow,
+)) {
+  failures.push(`artifact SBOM workflow: ${failure}`);
+}
 
 expect("package.json version", packageJson.version, release.version);
 expect("package-lock.json version", packageLock.version, release.version);
