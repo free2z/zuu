@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { auth } from "@/lib/api/free2z";
 import type { AuthUser } from "@/lib/api/types";
 import { useSession } from "./session";
 
@@ -9,6 +10,7 @@ const user: AuthUser = {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   useSession.setState({ user: null, tuzis: 0, loading: true });
 });
 
@@ -19,5 +21,23 @@ describe("authoritative session balance", () => {
 
     expect(useSession.getState().tuzis).toBe(875.5);
     expect(useSession.getState().user?.tuzis).toBe(875.5);
+  });
+
+  it("clears private renderer state before remote revocation settles", async () => {
+    let finishRevocation!: () => void;
+    vi.spyOn(auth, "logout").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRevocation = resolve;
+        }),
+    );
+    useSession.setState({ user, tuzis: user.tuzis, loading: false });
+
+    const logout = useSession.getState().logout();
+
+    expect(useSession.getState().user).toBeNull();
+    expect(useSession.getState().tuzis).toBe(0);
+    finishRevocation();
+    await logout;
   });
 });

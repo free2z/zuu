@@ -18,7 +18,10 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -32,13 +35,26 @@ const MOBILE_HOST: &str = "oauth";
 const MOBILE_PATH: &str = "/callback";
 const OAUTH_TTL: Duration = Duration::from_secs(10 * 60);
 const LOOPBACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const LOOPBACK_CANCEL_POLL: Duration = Duration::from_millis(50);
 const MAX_CALLBACK_URL_BYTES: usize = 8 * 1024;
 const MAX_CODE_BYTES: usize = 4 * 1024;
 const MAX_STATE_BYTES: usize = 512;
 const PENDING_VERSION: u8 = 1;
 
+enum LoopbackFlow {
+    Ready {
+        server: Server,
+        nonce: String,
+    },
+    Waiting {
+        server: Arc<Server>,
+        nonce: String,
+        cancelled: Arc<AtomicBool>,
+    },
+}
+
 #[derive(Default)]
-pub struct OauthLoopbackState(Mutex<Option<(Server, String)>>);
+pub struct OauthLoopbackState(Arc<Mutex<Option<LoopbackFlow>>>);
 
 /// Serializes every read/transition/write of the crash-safe mobile record.
 #[derive(Default)]
@@ -446,6 +462,93 @@ pub fn oauth_callback_transport() -> &'static str {
     }
 }
 
+fn wait_for_loopback(
+    server: &Server,
+    nonce: &str,
+    expected_state: &str,
+    cancelled: &AtomicBool,
+    timeout: Duration,
+) -> Result<OauthCapture, String> {
+    let deadline = Instant::now() + timeout;
+    let expected_path = format!("/{nonce}");
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Sign-in was cancelled.".to_string());
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("timed out waiting for the OAuth redirect".to_string());
+        }
+        let request = match server.recv_timeout(remaining.min(LOOPBACK_CANCEL_POLL)) {
+            Ok(Some(request)) => request,
+            Ok(None) => continue,
+            Err(error) => return Err(format!("OAuth loopback listener error: {error}")),
+        };
+        if request.method() != &Method::Get {
+            let _ = request.respond(
+                Response::from_string("Method not allowed").with_status_code(StatusCode(405)),
+            );
+            continue;
+        }
+        let target = request.url();
+        if target.len() > MAX_CALLBACK_URL_BYTES {
+            let _ = request.respond(
+                Response::from_string("Request too large").with_status_code(StatusCode(414)),
+            );
+            continue;
+        }
+        let url = match Url::parse(&format!("http://127.0.0.1{target}")) {
+            Ok(url) if url.path() == expected_path && url.fragment().is_none() => url,
+            _ => {
+                let _ = request
+                    .respond(Response::from_string("Not found").with_status_code(StatusCode(404)));
+                continue;
+            }
+        };
+        let parsed = match parse_callback(&url) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                let _ = request.respond(html_response(INCOMPLETE_HTML));
+                continue;
+            }
+        };
+        match parsed {
+            ParsedCallback::Code { code, state } if state == expected_state => {
+                let _ = request.respond(html_response(SUCCESS_HTML));
+                return Ok(OauthCapture { code, state });
+            }
+            ParsedCallback::Error { state } if state == expected_state => {
+                let _ = request.respond(html_response(INCOMPLETE_HTML));
+                return Err("Sign-in was cancelled.".to_string());
+            }
+            _ => {
+                // A local process that did not know the backend-minted state
+                // cannot consume the listener. Keep waiting.
+                let _ = request.respond(html_response(INCOMPLETE_HTML));
+            }
+        }
+    }
+}
+
+fn cancel_loopback(flow: &mut Option<LoopbackFlow>, redirect_path: &str) -> bool {
+    match flow {
+        Some(LoopbackFlow::Ready { nonce, .. }) if nonce == redirect_path => {
+            flow.take();
+            true
+        }
+        Some(LoopbackFlow::Waiting {
+            server,
+            nonce,
+            cancelled,
+        }) if nonce == redirect_path => {
+            cancelled.store(true, Ordering::Release);
+            server.unblock();
+            true
+        }
+        _ => false,
+    }
+}
+
 #[tauri::command]
 pub async fn oauth_loopback_start(
     state: State<'_, OauthLoopbackState>,
@@ -464,11 +567,19 @@ pub async fn oauth_loopback_start(
         .to_ip()
         .map(|addr| addr.port())
         .ok_or_else(|| "loopback listener bound to a non-IP address".to_string())?;
-    *state
+    let mut flow = state
         .0
         .lock()
-        .map_err(|_| "OAuth loopback state lock poisoned".to_string())? =
-        Some((server, nonce.clone()));
+        .map_err(|_| "OAuth loopback state lock poisoned".to_string())?;
+    match flow.as_ref() {
+        Some(LoopbackFlow::Waiting { cancelled, .. }) if cancelled.load(Ordering::Acquire) => {}
+        Some(_) => return Err("an OAuth loopback listener is already active".to_string()),
+        None => {}
+    }
+    *flow = Some(LoopbackFlow::Ready {
+        server,
+        nonce: nonce.clone(),
+    });
     Ok(LoopbackStart {
         port,
         redirect_path: nonce,
@@ -479,87 +590,72 @@ pub async fn oauth_loopback_start(
 pub async fn oauth_loopback_wait(
     state: State<'_, OauthLoopbackState>,
     expected_state: String,
+    redirect_path: String,
 ) -> Result<OauthCapture, String> {
-    if !valid_state(&expected_state) {
+    if !valid_state(&expected_state)
+        || redirect_path.len() != 32
+        || !redirect_path.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
         return Err("free2z returned an invalid OAuth state".to_string());
     }
-    let (server, nonce) = state
-        .0
-        .lock()
-        .map_err(|_| "OAuth loopback state lock poisoned".to_string())?
-        .take()
-        .ok_or_else(|| "no OAuth loopback listener is active".to_string())?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let deadline = Instant::now() + LOOPBACK_TIMEOUT;
-        let expected_path = format!("/{nonce}");
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err("timed out waiting for the OAuth redirect".to_string());
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let server = {
+        let mut flow = state
+            .0
+            .lock()
+            .map_err(|_| "OAuth loopback state lock poisoned".to_string())?;
+        match flow.take() {
+            Some(LoopbackFlow::Ready { server, nonce }) if nonce == redirect_path => {
+                let server = Arc::new(server);
+                *flow = Some(LoopbackFlow::Waiting {
+                    server: Arc::clone(&server),
+                    nonce,
+                    cancelled: Arc::clone(&cancelled),
+                });
+                server
             }
-            let request = match server.recv_timeout(remaining) {
-                Ok(Some(request)) => request,
-                Ok(None) => continue,
-                Err(error) => return Err(format!("OAuth loopback listener error: {error}")),
-            };
-            if request.method() != &Method::Get {
-                let _ = request.respond(
-                    Response::from_string("Method not allowed").with_status_code(StatusCode(405)),
-                );
-                continue;
+            Some(other) => {
+                *flow = Some(other);
+                return Err("OAuth loopback listener does not match this flow".to_string());
             }
-            let target = request.url();
-            if target.len() > MAX_CALLBACK_URL_BYTES {
-                let _ = request.respond(
-                    Response::from_string("Request too large").with_status_code(StatusCode(414)),
-                );
-                continue;
-            }
-            let url = match Url::parse(&format!("http://127.0.0.1{target}")) {
-                Ok(url) if url.path() == expected_path && url.fragment().is_none() => url,
-                _ => {
-                    let _ = request.respond(
-                        Response::from_string("Not found").with_status_code(StatusCode(404)),
-                    );
-                    continue;
-                }
-            };
-            let parsed = match parse_callback(&url) {
-                Ok(parsed) => parsed,
-                Err(_) => {
-                    let _ = request.respond(html_response(INCOMPLETE_HTML));
-                    continue;
-                }
-            };
-            match parsed {
-                ParsedCallback::Code { code, state } if state == expected_state => {
-                    let _ = request.respond(html_response(SUCCESS_HTML));
-                    return Ok(OauthCapture { code, state });
-                }
-                ParsedCallback::Error { state } if state == expected_state => {
-                    let _ = request.respond(html_response(INCOMPLETE_HTML));
-                    return Err("Sign-in was cancelled.".to_string());
-                }
-                _ => {
-                    // A local process that did not know the backend-minted
-                    // state cannot consume the listener. Keep waiting.
-                    let _ = request.respond(html_response(INCOMPLETE_HTML));
-                }
-            }
+            None => return Err("no OAuth loopback listener is active".to_string()),
         }
+    };
+    let shared = Arc::clone(&state.0);
+    let completed_path = redirect_path.clone();
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        wait_for_loopback(
+            server.as_ref(),
+            &redirect_path,
+            &expected_state,
+            &cancelled,
+            LOOPBACK_TIMEOUT,
+        )
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await;
+
+    let mut flow = shared
+        .lock()
+        .map_err(|_| "OAuth loopback state lock poisoned".to_string())?;
+    if matches!(
+        flow.as_ref(),
+        Some(LoopbackFlow::Waiting { nonce, .. }) if nonce == &completed_path
+    ) {
+        flow.take();
+    }
+    joined.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn oauth_loopback_cancel(state: State<'_, OauthLoopbackState>) -> Result<(), String> {
-    state
+pub fn oauth_loopback_cancel(
+    state: State<'_, OauthLoopbackState>,
+    redirect_path: String,
+) -> Result<(), String> {
+    let mut flow = state
         .0
         .lock()
-        .map_err(|_| "OAuth loopback state lock poisoned".to_string())?
-        .take();
+        .map_err(|_| "OAuth loopback state lock poisoned".to_string())?;
+    cancel_loopback(&mut flow, &redirect_path);
     Ok(())
 }
 
@@ -755,6 +851,62 @@ pub fn oauth_mobile_cancel<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn in_flight_loopback_wait_stops_promptly_when_cancelled() {
+        let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_server = Arc::clone(&server);
+        let worker_cancelled = Arc::clone(&cancelled);
+        let mut flow = Some(LoopbackFlow::Waiting {
+            server,
+            nonce: "0123456789abcdef0123456789abcdef".to_string(),
+            cancelled,
+        });
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            wait_for_loopback(
+                worker_server.as_ref(),
+                "0123456789abcdef0123456789abcdef",
+                "abcdefghijklmnopqrstuvwxyz012345",
+                &worker_cancelled,
+                Duration::from_secs(5),
+            )
+        });
+
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(cancel_loopback(
+            &mut flow,
+            "0123456789abcdef0123456789abcdef"
+        ));
+        let result = worker.join().unwrap();
+        assert!(matches!(result, Err(message) if message.contains("cancelled")));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn loopback_cancel_is_scoped_to_the_exact_flow() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut flow = Some(LoopbackFlow::Waiting {
+            server: Arc::new(Server::http("127.0.0.1:0").unwrap()),
+            nonce: "current-flow".to_string(),
+            cancelled: Arc::clone(&cancelled),
+        });
+
+        assert!(!cancel_loopback(&mut flow, "stale-flow"));
+        assert!(!cancelled.load(Ordering::Acquire));
+        assert!(cancel_loopback(&mut flow, "current-flow"));
+        assert!(cancelled.load(Ordering::Acquire));
+
+        let mut ready = Some(LoopbackFlow::Ready {
+            server: Server::http("127.0.0.1:0").unwrap(),
+            nonce: "new-flow".to_string(),
+        });
+        assert!(!cancel_loopback(&mut ready, "current-flow"));
+        assert!(matches!(ready, Some(LoopbackFlow::Ready { .. })));
+        assert!(cancel_loopback(&mut ready, "new-flow"));
+        assert!(ready.is_none());
+    }
 
     fn pending() -> PendingMobileOauth {
         PendingMobileOauth {

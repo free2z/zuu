@@ -19,7 +19,10 @@ import { auth, tuzi } from "@/lib/api/free2z";
 import { setToken } from "@/lib/api/http";
 import { APP_ROUTES } from "@/lib/routes";
 import { useAttemptLease } from "@/hooks/useAttemptLease";
-import { recoverMobileOAuth } from "@/lib/oauth/transport";
+import {
+  assertOAuthResultCurrent,
+  recoverMobileOAuth,
+} from "@/lib/oauth/transport";
 import {
   clearPendingSocialLoginDestination,
   consumePendingSocialLoginDestination,
@@ -86,6 +89,7 @@ function MobileOAuthRecovery() {
         if (!isCurrent() || !capture) return;
         const result = await auth.completeSocialOAuth(capture);
         if (!isCurrent()) return;
+        assertOAuthResultCurrent(result.sessionGeneration);
         if (result.status === "authenticated") {
           setToken(result.session.token);
           setUser(result.session.user);

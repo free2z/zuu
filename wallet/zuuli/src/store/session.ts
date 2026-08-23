@@ -87,8 +87,8 @@ export const useSession = create<SessionState>((set, get) => ({
     // Clear private pending input before awaiting a network logout. Even if
     // that request fails, the draft must not survive for another account.
     discardPaidIntent();
-    await auth.logout();
     set({ user: null, tuzis: 0 });
+    await auth.logout();
   },
 
   adjustTuzis(delta) {

@@ -35,11 +35,12 @@ const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
 const lockedImageDigest = "sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1";
 const lockedImageSourceHash = "6801078c61b2de196e642a8d57402949c3ff94b74a10be9df133f4400d2c4475";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
-const expectedConsumerCount = 6;
+const expectedConsumerCount = 7;
 const requiredConsumerJobs = new Set([
   ".github/workflows/zuuli.yml:rust_clippy",
   ".github/workflows/zuuli.yml:rust_plugin",
   ".github/workflows/zuuli.yml:rust_app",
+  ".github/workflows/zuuli.yml:zuuallet_schema",
   ".github/workflows/zuuli-packaging.yml:desktop",
   ".github/workflows/zuuli-release.yml:linux",
   ".github/workflows/zuuallet.yml:rust",
@@ -56,6 +57,20 @@ const phaseASamplePaths = [
   ".github/workflows/zuuli-linux-image.yml",
   "docs/ZUULI-LINUX-BUILD-IMAGE.md",
   "scripts/check-zuuli-linux-image.mjs",
+];
+const schemaGateSamplePaths = [
+  "wallet/zuuallet/src-tauri/Cargo.toml",
+  "wallet/plugins/tauri-plugin-zcash/build.rs",
+  "wallet/rust-toolchain.toml",
+  "scripts/check-rust-toolchain.sh",
+  "scripts/check-zcash-permissions.mjs",
+  "scripts/check-zuuli-linux-image.mjs",
+  "z/zcash/librustzcash",
+  ".gitmodules",
+  ".github/containers/zuuli-linux/Dockerfile",
+  ".github/workflows/zuuli.yml",
+  ".github/workflows/zuuli-linux-image.yml",
+  ".github/actions/zuuli-rust-cache/action.yml",
 ];
 const pinnedActions = [
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
@@ -213,6 +228,21 @@ function validateConsumerJob(job, failures) {
     ]) {
       if (countOccurrences(job.contents, expected) !== 1) {
         failures.push(`${job.name}: locked build/test contract is missing ${expected}`);
+      }
+    }
+  }
+  if (job.name === ".github/workflows/zuuli.yml:zuuallet_schema") {
+    for (const expected of [
+      "persist-credentials: false",
+      pinnedZuualletToolchain,
+      pinnedRustCache,
+      "cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml",
+      "TAURI_SCHEMA_GENERATION_NONCE",
+      "git diff --exit-code",
+      "git ls-files --others --exclude-standard",
+    ]) {
+      if (countOccurrences(job.contents, expected) !== 1) {
+        failures.push(`${job.name}: required schema regeneration contract is missing ${expected}`);
       }
     }
   }
@@ -378,6 +408,62 @@ function validate(root) {
   const fullGateFallbacks = requiredGate.match(/echo "zuuli=true" >> "\$GITHUB_OUTPUT"/g) ?? [];
   if (!requiredGate.includes("set -euo pipefail") || fullGateFallbacks.length < 2) {
     failures.push("required gate: base/diff failures must select the full suite fail-closed");
+  }
+  const requiredGateJobs = workflowJobs(requiredGate, consumerWorkflows[0]);
+  const changesJob = requiredGateJobs.find(
+    (job) => job.name === ".github/workflows/zuuli.yml:changes",
+  );
+  const schemaJob = requiredGateJobs.find(
+    (job) => job.name === ".github/workflows/zuuli.yml:zuuallet_schema",
+  );
+  const gateJob = requiredGateJobs.find(
+    (job) => job.name === ".github/workflows/zuuli.yml:gate",
+  );
+  for (const expected of [
+    "node scripts/check-zuuli-linux-image.mjs --self-test",
+    "node scripts/check-zuuli-linux-image.mjs",
+  ]) {
+    const exactLines = (changesJob?.contents ?? "")
+      .split("\n")
+      .filter((line) => line.trim() === expected);
+    if (exactLines.length !== 1) {
+      failures.push(`required gate: changes job does not run image/schema policy: ${expected}`);
+    }
+  }
+  const schemaPatternMatch = requiredGate.match(
+    /case "\$file" in\s*\n\s*([^\n]+)\)\s*\n\s*zuuallet_schema=true/,
+  );
+  if (!schemaPatternMatch) {
+    failures.push("required gate: cannot parse the Zuuallet schema change-detector patterns");
+  } else {
+    const schemaPatterns = schemaPatternMatch[1]
+      .split("|")
+      .map((pattern) => pattern.trim());
+    for (const schemaInput of schemaGateSamplePaths) {
+      if (!schemaPatterns.some((pattern) => shellPatternMatches(pattern, schemaInput))) {
+        failures.push(`required gate: schema input must select regeneration: ${schemaInput}`);
+      }
+    }
+  }
+  if (!schemaJob?.contents.includes("if: needs.changes.outputs.zuuallet_schema == 'true'")) {
+    failures.push("required gate: Zuuallet schema job is not selected by its change output");
+  }
+  if (!gateJob?.contents.match(/^\s+needs: \[[^\n]*\bzuuallet_schema\b[^\n]*\]$/m)) {
+    failures.push("required gate: gate does not await the Zuuallet schema job");
+  }
+  for (const expected of [
+    "ZUUALLET_SCHEMA_CHANGED: ${{ needs.changes.outputs.zuuallet_schema }}",
+    "ZUUALLET_SCHEMA_RESULT: ${{ needs.zuuallet_schema.result }}",
+    '[ "$ZUUALLET_SCHEMA_RESULT" = "$schema_expected" ]',
+  ]) {
+    if (!gateJob?.contents.includes(expected)) {
+      failures.push(`required gate: gate does not enforce Zuuallet schema result: ${expected}`);
+    }
+  }
+  const schemaGateFallbacks =
+    requiredGate.match(/echo "zuuallet_schema=true" >> "\$GITHUB_OUTPUT"/g) ?? [];
+  if (schemaGateFallbacks.length < 2) {
+    failures.push("required gate: base/diff failures must select schema regeneration fail-closed");
   }
   for (const phaseAPath of phaseATriggerPaths) {
     if (!workflow.includes(phaseAPath)) {
@@ -586,6 +672,57 @@ function runSelfTest() {
           'echo "zuuli=false" >> "$GITHUB_OUTPUT"',
         ),
         expected: "select the full suite fail-closed",
+      },
+      {
+        name: "schema regeneration detached from required gate",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(", zuuallet_schema]", "]"),
+        expected: "gate does not await the Zuuallet schema job",
+      },
+      {
+        name: "schema policy removed from always-required changes job",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          "          node scripts/check-zuuli-linux-image.mjs --self-test\n",
+          "",
+        ),
+        expected: "changes job does not run image/schema policy",
+      },
+      {
+        name: "Zuuallet source stops selecting schema regeneration",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+          "wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+        ),
+        expected: "schema input must select regeneration: wallet/zuuallet/src-tauri/Cargo.toml",
+      },
+      {
+        name: "plugin source stops selecting schema regeneration",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+          "wallet/zuuallet/src-tauri/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+        ),
+        expected: "schema input must select regeneration: wallet/plugins/tauri-plugin-zcash/build.rs",
+      },
+      {
+        name: "schema policy changes stop selecting regeneration",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          "scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash",
+          "scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash",
+        ),
+        expected: "schema input must select regeneration: scripts/check-zuuli-linux-image.mjs",
+      },
+      {
+        name: "fail-open schema regeneration fallback",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          'echo "zuuallet_schema=true" >> "$GITHUB_OUTPUT"',
+          'echo "zuuallet_schema=false" >> "$GITHUB_OUTPUT"',
+        ),
+        expected: "select schema regeneration fail-closed",
       },
       {
         name: "mismatched attestation digest",
