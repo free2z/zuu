@@ -1412,17 +1412,28 @@ jobs:
         run: |
           node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root
           node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root
-      - name: Download Syft for macOS shipped artifacts
-        id: macos_artifact_syft
-        uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+      - name: Scan macOS DMG shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
-          syft-version: v1.50.0
-      - name: Scan macOS shipped artifacts
-        env:
-          SYFT: ${{ steps.macos_artifact_syft.outputs.cmd }}
-        run: |
-          "$SYFT" scan dir:artifact-sbom-work/macos-dmg/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json
-          "$SYFT" scan dir:artifact-sbom-work/macos-zip/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json
+          {
+            syft-version: v1.50.0,
+            path: wallet/zuuli/artifact-sbom-work/macos-dmg/root,
+            config: wallet/zuuli/syft-artifact.yaml,
+            format: cyclonedx-json,
+            output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json,
+            upload-artifact: false,
+          }
+      - name: Scan macOS app ZIP shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          {
+            syft-version: v1.50.0,
+            path: wallet/zuuli/artifact-sbom-work/macos-zip/root,
+            config: wallet/zuuli/syft-artifact.yaml,
+            format: cyclonedx-json,
+            output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json,
+            upload-artifact: false,
+          }
       - name: Bind macOS shipped-artifact SBOMs
         env:
           RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}

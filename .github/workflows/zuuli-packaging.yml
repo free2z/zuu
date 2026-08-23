@@ -427,19 +427,26 @@ jobs:
           [[ ${#zips[@]} -eq 1 && -f "${zips[0]}" ]] || { echo "expected exactly one macOS app ZIP" >&2; exit 1; }
           node scripts/artifact-sbom.mjs prepare --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root
           node scripts/artifact-sbom.mjs prepare --artifact="${zips[0]}" --root=artifact-sbom-work/macos-zip/root
-      - name: Download Syft for macOS shipped artifacts
+      - name: Scan macOS DMG shipped artifact
         if: runner.os == 'macOS'
-        id: desktop_artifact_syft
-        uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
-      - name: Scan macOS shipped artifacts
+          path: wallet/zuuli/artifact-sbom-work/macos-dmg/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Scan macOS app ZIP shipped artifact
         if: runner.os == 'macOS'
-        env:
-          SYFT: ${{ steps.desktop_artifact_syft.outputs.cmd }}
-        run: |
-          "$SYFT" scan dir:artifact-sbom-work/macos-dmg/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json
-          "$SYFT" scan dir:artifact-sbom-work/macos-zip/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/macos-zip/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json
+          upload-artifact: false
       - name: Bind macOS shipped-artifact SBOMs
         if: runner.os == 'macOS'
         run: |

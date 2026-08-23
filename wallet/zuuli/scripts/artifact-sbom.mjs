@@ -768,9 +768,8 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       [
         'node scripts/artifact-sbom.mjs prepare --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root',
         'node scripts/artifact-sbom.mjs prepare --artifact="${zips[0]}" --root=artifact-sbom-work/macos-zip/root',
-        "uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d",
-        '"$SYFT" scan dir:artifact-sbom-work/macos-dmg/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json',
-        '"$SYFT" scan dir:artifact-sbom-work/macos-zip/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json',
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json",
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json",
         'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root --raw-sbom=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
         'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${zips[0]}" --root=artifact-sbom-work/macos-zip/root --raw-sbom=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
         'node scripts/artifact-sbom.mjs verify-artifact --artifact="${dmgs[0]}" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
@@ -785,9 +784,8 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       [
         'node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root',
         'node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root',
-        "uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d",
-        '"$SYFT" scan dir:artifact-sbom-work/macos-dmg/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json',
-        '"$SYFT" scan dir:artifact-sbom-work/macos-zip/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json',
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json",
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json",
         'node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root --raw-sbom=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
         'node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root --raw-sbom=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
         'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
