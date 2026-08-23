@@ -48,37 +48,43 @@ function check(workflow) {
   const android = job(workflow, "rust_android_32");
   const gate = job(workflow, "gate");
 
-  const changeLines = changes.split("\n").map((line) => line.trim());
-  if (!changeLines.includes(`node ${policyPath} --self-test`)) {
-    failures.push("changes job must run the Android gate policy self-test");
+  const expectedPolicyStep = [
+    "      - name: Verify the required 32-bit Android type-check policy",
+    "        run: |",
+    `          node ${policyPath} --self-test`,
+    `          node ${policyPath}`,
+  ].join("\n");
+  if (
+    namedStep(changes, "Verify the required 32-bit Android type-check policy") !==
+    expectedPolicyStep
+  ) {
+    failures.push("changes job must execute the exact Android gate policy step");
   }
-  if (!changeLines.includes(`node ${policyPath}`)) {
-    failures.push("changes job must enforce the Android gate policy");
-  }
-  const escapedPolicyPath = policyPath.replaceAll(".", "\\.");
-  if (!new RegExp(`^\\s+[^#\\n]*\\|${escapedPolicyPath}\\|`, "m").test(workflow)) {
+  const detector = namedStep(changes, "Detect release-impacting ZUULI changes");
+  const zuuliCase = detector.match(
+    /case "\$file" in\n\s+([^\n]+)\)\n\s+zuuli=true/,
+  );
+  const selectedPatterns = zuuliCase?.[1].split("|").map((entry) => entry.trim()) ?? [];
+  if (!selectedPatterns.includes(policyPath)) {
     failures.push("Android gate policy changes must select the full ZUULI suite");
   }
 
   if (!android) failures.push("required rust_android_32 job is missing");
-  requireLine(
-    failures,
-    android,
-    "name: Rust / Android 32-bit",
-    "32-bit Android job must retain its stable check name",
-  );
-  requireLine(
-    failures,
-    android,
-    "needs: changes",
-    "32-bit Android job must depend on change detection",
-  );
-  requireLine(
-    failures,
-    android,
-    "if: needs.changes.outputs.zuuli == 'true'",
-    "32-bit Android job must run for every ZUULI-impacting change",
-  );
+  const expectedAndroidHeader = [
+    "  rust_android_32:",
+    "    name: Rust / Android 32-bit",
+    "    needs: changes",
+    "    if: needs.changes.outputs.zuuli == 'true'",
+    "    runs-on: ubuntu-latest",
+    "    timeout-minutes: 35",
+    "    steps:",
+  ].join("\n");
+  if (!android.startsWith(expectedAndroidHeader)) {
+    failures.push("32-bit Android job must retain its exact required-job header");
+  }
+  if (/^\s+continue-on-error:/m.test(android)) {
+    failures.push("32-bit Android job and steps must fail closed");
+  }
   requireLine(
     failures,
     android,
@@ -136,8 +142,19 @@ function check(workflow) {
     failures.push("32-bit Android type-check step must execute the exact reviewed command block");
   }
 
-  if (!/^\s+needs: \[[^\n]*\brust_android_32\b[^\n]*\]$/m.test(gate)) {
+  const expectedGateHeader = [
+    "  gate:",
+    "    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_plugin, rust_android_32, rust_app, zuuallet_schema]",
+    "    if: always()",
+    "    runs-on: ubuntu-latest",
+    "    timeout-minutes: 5",
+    "    steps:",
+  ].join("\n");
+  if (!gate.startsWith(expectedGateHeader)) {
     failures.push("gate must await rust_android_32");
+  }
+  if (/^\s+continue-on-error:/m.test(gate)) {
+    failures.push("required gate and its steps must fail closed");
   }
   requireLine(
     failures,
@@ -228,6 +245,11 @@ function runSelfTest(workflow) {
       `          node ${policyPath}\n`,
       "",
     ],
+    [
+      "the policy invocation is hidden behind a false condition",
+      `          node ${policyPath} --self-test\n          node ${policyPath}`,
+      `          if false; then\n            node ${policyPath} --self-test\n            node ${policyPath}\n          fi`,
+    ],
   ];
 
   const baseline = check(workflow);
@@ -239,7 +261,18 @@ function runSelfTest(workflow) {
     const failures = check(workflow.replace(from, to));
     if (failures.length === 0) throw new Error(`mutation escaped policy: ${name}`);
   }
-  console.log(`Android gate policy self-test passed (${mutations.length} mutations).`);
+  const decoratedSelector = workflow
+    .replace(`|${policyPath}|`, "|")
+    .replace(
+      "  frontend:\n",
+      `  # Dead decoration must not satisfy the real selector.\n  # if false; then : '|${policyPath}|'; fi\n  frontend:\n`,
+    );
+  if (check(decoratedSelector).length === 0) {
+    throw new Error("mutation escaped policy: dead text replaces the real change selector");
+  }
+  console.log(
+    `Android gate policy self-test passed (${mutations.length + 1} mutations).`,
+  );
 }
 
 const workflow = readFileSync(resolve(repoRoot, workflowPath), "utf8");
