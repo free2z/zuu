@@ -9,7 +9,9 @@ import test from "node:test";
 const scripts = dirname(fileURLToPath(import.meta.url));
 const verify = resolve(scripts, "verify-release-tag.sh");
 const publish = resolve(scripts, "publish-github-release.sh");
+const verifyIndex = resolve(scripts, "verify-release-index.sh");
 const tag = "zuuli-v9.8.7+654";
+const identity = "9.8.7+654";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -96,4 +98,48 @@ test("a retarget during release creation leaves the release draft and stops uplo
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /not prepared commit|identity changed/);
   assert.equal((await readFile(state, "utf8")).trim(), "draft");
+});
+
+test("release index accepts only source-bound platform artifacts", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
+  const sha = "a".repeat(40);
+  for (const platform of ["android", "linux"]) {
+    const directory = resolve(root, `zuuli-${platform}-${identity}-${sha}`);
+    await mkdir(directory);
+    await writeFile(resolve(directory, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
+  }
+
+  execFileSync(verifyIndex, [root, identity, sha]);
+});
+
+test("release index rejects a recursively downloaded prior index", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
+  const sha = "b".repeat(40);
+  const platform = resolve(root, `zuuli-android-${identity}-${sha}`);
+  const priorIndex = resolve(root, `zuuli-release-index-${identity}-${sha}`);
+  await mkdir(platform);
+  await mkdir(priorIndex);
+  await writeFile(resolve(platform, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
+  await writeFile(resolve(priorIndex, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
+
+  const result = spawnSync(verifyIndex, [root, identity, sha], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unexpected release-index entry/);
+});
+
+test("every platform artifact needs exactly one top-level matching provenance", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-release-index-test-"));
+  const sha = "c".repeat(40);
+  const platform = resolve(root, `zuuli-ios-${identity}-${sha}`);
+  await mkdir(resolve(platform, "nested"), { recursive: true });
+  await writeFile(resolve(platform, "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
+  await writeFile(resolve(platform, "nested", "provenance.json"), `${JSON.stringify({ source: { commit: sha } })}\n`);
+
+  const duplicate = spawnSync(verifyIndex, [root, identity, sha], { encoding: "utf8" });
+  assert.notEqual(duplicate.status, 0);
+  assert.match(duplicate.stderr, /exactly one provenance/);
+
+  await writeFile(resolve(platform, "nested", "provenance.json"), `${JSON.stringify({ source: { commit: "d".repeat(40) } })}\n`);
+  const mismatch = spawnSync(verifyIndex, [root, identity, sha], { encoding: "utf8" });
+  assert.notEqual(mismatch.status, 0);
 });
