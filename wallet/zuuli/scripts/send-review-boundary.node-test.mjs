@@ -145,8 +145,17 @@ test("native proposal state owns review, wallet session, expiry, and separate to
   assert.match(nativeSend, /session_id:\s*\[u8;\s*32\]/);
   assert.match(nativeSend, /proposal_token_hash:\s*\[u8;\s*32\]/);
   assert.match(nativeSend, /confirmation_token_hash:\s*\[u8;\s*32\]/);
-  assert.match(nativeSend, /expires_at:\s*Instant/);
+  assert.match(nativeSend, /issued_at_wall:\s*SystemTime/);
+  assert.match(nativeSend, /expires_at_monotonic:\s*Instant/);
+  assert.match(nativeSend, /expires_at_wall:\s*SystemTime/);
+  assert.match(nativeSend, /now\.monotonic\s*>=\s*execution\.expires_at_monotonic/);
+  assert.match(nativeSend, /now\.wall\s*>=\s*execution\.expires_at_wall/);
+  assert.match(nativeSend, /now\.wall\s*<\s*execution\.issued_at_wall/);
   assert.match(nativeSend, /SEND_CONFIRMATION_TTL/);
+  assert.match(nativeSend, /confirmation_rejects_either_expiry_clock_and_wall_rollback/);
+  assert.match(nativeSend, /is_unicode_format_control/);
+  assert.match(nativeSend, /matches!\(character, '\\u\{2028\}' \| '\\u\{2029\}'\)/);
+  assert.match(nativeSend, /native_memo_renderer_escapes_every_reviewed_format_control_class/);
   assert.match(nativeSend, /review_from_native_proposal/);
   assert.match(
     nativeSend,

@@ -71,6 +71,21 @@ const SEND_FEE_POLICY: &str = "zip317-standard";
 const SEND_CHANGE_POLICY: &str = "zip317-shielded-auto";
 const SEND_CONFIRMATION_TTL: Duration = Duration::from_secs(2 * 60);
 
+#[derive(Clone, Copy)]
+struct ConfirmationClock {
+    monotonic: Instant,
+    wall: SystemTime,
+}
+
+impl ConfirmationClock {
+    fn now() -> Self {
+        Self {
+            monotonic: Instant::now(),
+            wall: SystemTime::now(),
+        }
+    }
+}
+
 struct ExecutionAuthorization {
     confirmation_token_hash: [u8; 32],
     issued_at_wall: SystemTime,
@@ -166,8 +181,7 @@ impl ProposalAuthorization {
         confirmation_token: &str,
         wallet_id: &str,
         session_id: &[u8; 32],
-        now_monotonic: Instant,
-        now_wall: SystemTime,
+        now: ConfirmationClock,
     ) -> Result<()> {
         self.verify_context(wallet_id, session_id)?;
         if self.proposal_id != proposal_id
@@ -184,9 +198,9 @@ impl ProposalAuthorization {
         // suspend, while wall clocks can be adjusted backwards. Require both
         // independent deadlines and reject rollback from issuance so neither
         // clock behavior can extend this short-lived authority.
-        if now_monotonic >= execution.expires_at_monotonic
-            || now_wall >= execution.expires_at_wall
-            || now_wall < execution.issued_at_wall
+        if now.monotonic >= execution.expires_at_monotonic
+            || now.wall >= execution.expires_at_wall
+            || now.wall < execution.issued_at_wall
         {
             return Err(Error::SendError(
                 "native payment confirmation expired; review the payment again".into(),
@@ -258,8 +272,7 @@ impl PendingProposal {
         confirmation_token: &str,
         wallet_id: &str,
         session_id: &[u8; 32],
-        now_monotonic: Instant,
-        now_wall: SystemTime,
+        now: ConfirmationClock,
     ) -> Result<()> {
         self.verify_native_review()?;
         self.authorization.verify_execution(
@@ -268,8 +281,7 @@ impl PendingProposal {
             confirmation_token,
             wallet_id,
             session_id,
-            now_monotonic,
-            now_wall,
+            now,
         )
     }
 
@@ -280,8 +292,7 @@ impl PendingProposal {
         proposal_token: &str,
         wallet_id: &str,
         session_id: &[u8; 32],
-        now_monotonic: Instant,
-        now_wall: SystemTime,
+        now: ConfirmationClock,
     ) -> Result<SendConfirmation> {
         self.verify_proposal(
             proposal_id,
@@ -293,10 +304,12 @@ impl PendingProposal {
         let mut token_bytes = [0_u8; 32];
         OsRng.fill_bytes(&mut token_bytes);
         let confirmation_token = encode_hex(&token_bytes);
-        let expires_at_monotonic = now_monotonic
+        let expires_at_monotonic = now
+            .monotonic
             .checked_add(SEND_CONFIRMATION_TTL)
             .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?;
-        let expires_at_wall = now_wall
+        let expires_at_wall = now
+            .wall
             .checked_add(SEND_CONFIRMATION_TTL)
             .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?;
         let expires_at_millis = expires_at_wall
@@ -311,7 +324,7 @@ impl PendingProposal {
                 &confirmation_token,
                 review_digest,
             ),
-            issued_at_wall: now_wall,
+            issued_at_wall: now.wall,
             expires_at_monotonic,
             expires_at_wall,
         });
@@ -1613,8 +1626,7 @@ pub async fn issue_send_confirmation(
         proposal_token,
         &wallet_id,
         &state.send_session_id,
-        Instant::now(),
-        SystemTime::now(),
+        ConfirmationClock::now(),
     )
 }
 
@@ -1640,8 +1652,7 @@ pub async fn take_send_proposal(
             confirmation_token,
             &wallet_id,
             &state.send_session_id,
-            Instant::now(),
-            SystemTime::now(),
+            ConfirmationClock::now(),
         )
     })
 }
@@ -2363,6 +2374,10 @@ mod tests {
         let review_digest = digest(&review());
         let now = Instant::now();
         let wall_now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let clock = ConfirmationClock {
+            monotonic: now,
+            wall: wall_now,
+        };
         let mut pending = authorization(proposal_token);
 
         assert!(
@@ -2373,8 +2388,7 @@ mod tests {
                     confirmation_token,
                     WALLET_ID,
                     &SESSION_ID,
-                    now,
-                    wall_now,
+                    clock,
                 )
                 .unwrap_err()
                 .to_string()
@@ -2391,8 +2405,7 @@ mod tests {
                     confirmation_token,
                     WALLET_ID,
                     &SESSION_ID,
-                    now,
-                    wall_now,
+                    clock,
                 )
             })
             .is_ok()
@@ -2407,6 +2420,10 @@ mod tests {
         let review_digest = digest(&review());
         let now = Instant::now();
         let wall_now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let clock = ConfirmationClock {
+            monotonic: now,
+            wall: wall_now,
+        };
         for (wallet_id, session_id, supplied_digest, supplied_token) in [
             (
                 "wallet-b",
@@ -2439,8 +2456,7 @@ mod tests {
                         supplied_token,
                         wallet_id,
                         session_id,
-                        now,
-                        wall_now,
+                        clock,
                     )
                 })
                 .is_err()
@@ -2456,13 +2472,22 @@ mod tests {
         let issued_monotonic = Instant::now();
         let issued_wall = UNIX_EPOCH + Duration::from_secs(1_000_000);
 
-        for (now_monotonic, now_wall) in [
+        for now in [
             // Monotonic expiry remains authoritative if the wall clock pauses.
-            (issued_monotonic + SEND_CONFIRMATION_TTL, issued_wall),
+            ConfirmationClock {
+                monotonic: issued_monotonic + SEND_CONFIRMATION_TTL,
+                wall: issued_wall,
+            },
             // Wall expiry catches device suspend while monotonic time pauses.
-            (issued_monotonic, issued_wall + SEND_CONFIRMATION_TTL),
+            ConfirmationClock {
+                monotonic: issued_monotonic,
+                wall: issued_wall + SEND_CONFIRMATION_TTL,
+            },
             // A backwards wall adjustment cannot extend the credential.
-            (issued_monotonic, issued_wall - Duration::from_secs(1)),
+            ConfirmationClock {
+                monotonic: issued_monotonic,
+                wall: issued_wall - Duration::from_secs(1),
+            },
         ] {
             let mut pending = authorization("proposal-token");
             authorize_execution(
@@ -2479,8 +2504,7 @@ mod tests {
                     confirmation_token,
                     WALLET_ID,
                     &SESSION_ID,
-                    now_monotonic,
-                    now_wall,
+                    now,
                 )
             }) {
                 Ok(_) => panic!("expired confirmation must not be consumed"),
