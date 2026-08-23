@@ -728,19 +728,23 @@ function runSelfTest() {
       {
         name: "Zuuallet source stops selecting schema regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace(
-          "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-          "wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-        ),
+        mutate: (value) => value
+          .replace(
+            "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+            "wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+          )
+          .replaceAll("wallet/*/Cargo.toml|", ""),
         expected: "schema input must select regeneration: wallet/zuuallet/src-tauri/Cargo.toml",
       },
       {
         name: "plugin source stops selecting schema regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace(
-          "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-          "wallet/zuuallet/src-tauri/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-        ),
+        mutate: (value) => value
+          .replace(
+            "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+            "wallet/zuuallet/src-tauri/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+          )
+          .replaceAll("wallet/*.rs|", ""),
         expected: "schema input must select regeneration: wallet/plugins/tauri-plugin-zcash/build.rs",
       },
       {

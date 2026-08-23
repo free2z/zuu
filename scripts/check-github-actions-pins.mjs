@@ -60,6 +60,23 @@ const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   "        shell: bash",
   "        run: scripts/check-rust-clippy.sh",
 ];
+const REQUIRED_NATIVE_CLIPPY_INPUTS = [
+  "Cargo.toml",
+  "Cargo.lock",
+  ".cargo/config.toml",
+  "clippy.toml",
+  ".clippy.toml",
+  "wallet/Cargo.toml",
+  "wallet/Cargo.lock",
+  "wallet/.cargo/config.toml",
+  "wallet/clippy.toml",
+  "wallet/.clippy.toml",
+  "wallet/future-crate/src/lib.rs",
+  "wallet/future-crate/Cargo.toml",
+  "wallet/future-crate/Cargo.lock",
+  "wallet/future-crate/clippy.toml",
+  "wallet/future-crate/.clippy.toml",
+];
 // Environment inheritance can alter Bash and Node before an exact `run:` block
 // begins. Required jobs therefore accept only these reviewed data inputs; every
 // other workflow/job/step environment entry fails closed.
@@ -262,6 +279,14 @@ function usesFromLine(line) {
   const ref = (comment < 0 ? scalar : scalar.slice(0, comment)).trim();
   const provenance = comment < 0 ? "" : scalar.slice(comment).replace(/^\s+#/, "").trim();
   return ref ? { provenance, ref } : { error: "empty `uses:` value" };
+}
+
+function shellCasePatternMatches(pattern, value) {
+  const regex = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replaceAll("*", ".*")
+    .replaceAll("?", ".");
+  return new RegExp(`^${regex}$`).test(value);
 }
 
 function stripYamlComment(line) {
@@ -1151,6 +1176,67 @@ function requiredReusableWorkflowFailures(
   return failures;
 }
 
+function nativeClippySelectorFailures(relativeFile, lines, changes) {
+  const failures = [];
+  const steps = policyJobSteps(
+    relativeFile,
+    lines,
+    changes,
+    failures,
+    "changes",
+  );
+  const detectors = steps.filter(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Detect release-impacting ZUULI changes",
+  );
+  if (detectors.length !== 1) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: changes must contain exactly one release-impacting change detector`,
+    );
+    return failures;
+  }
+
+  const detector = detectors[0];
+  const run = detector.properties.get("run");
+  if (run?.value !== "|") {
+    failures.push(
+      `${relativeFile}:${detector.start + 1}: release-impacting change detector must use a block run script`,
+    );
+    return failures;
+  }
+  const body = lines.slice(run.index + 1, detector.end).join("\n");
+  const arms = new Map();
+  for (const match of body.matchAll(
+    /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*(zuuli|zuuallet_schema)=true\s*\n\s*;;\s*\n\s*esac\s*$/gm,
+  )) {
+    const output = match[2];
+    if (arms.has(output)) {
+      failures.push(
+        `${relativeFile}:${detector.start + 1}: release-impacting change detector has duplicate ${output} selector arms`,
+      );
+    } else {
+      arms.set(output, match[1].split("|").map((pattern) => pattern.trim()));
+    }
+  }
+  if (!arms.has("zuuli") || !arms.has("zuuallet_schema")) {
+    failures.push(
+      `${relativeFile}:${detector.start + 1}: release-impacting change detector must retain both native lint selector arms`,
+    );
+    return failures;
+  }
+
+  const patterns = [...arms.values()].flat();
+  for (const input of REQUIRED_NATIVE_CLIPPY_INPUTS) {
+    if (!patterns.some((pattern) => shellCasePatternMatches(pattern, input))) {
+      failures.push(
+        `${relativeFile}:${detector.start + 1}: native clippy input must select at least one native lint path: ${input}`,
+      );
+    }
+  }
+  return failures;
+}
+
 function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const failures = [];
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
@@ -1324,6 +1410,9 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     failures.push(`${relativeFile}: required workflow must contain the changes job`);
   } else {
     failures.push(...requiredChangesControlFailures(relativeFile, lines, changes));
+    if (enforceNativeClippy) {
+      failures.push(...nativeClippySelectorFailures(relativeFile, lines, changes));
+    }
   }
   failures.push(...requiredGateControlFailures(relativeFile, lines, gate));
 
@@ -1548,6 +1637,55 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       source: source.replace(
         "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
         "    if: needs.changes.outputs.zuuli == 'true'",
+      ),
+    },
+    {
+      name: "real workflow selects root Cargo workspace inputs for native clippy",
+      needle: "native clippy input must select at least one native lint path: Cargo.toml",
+      source: source.replaceAll("Cargo.toml|Cargo.lock|", ""),
+    },
+    {
+      name: "real workflow selects root Cargo configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: .cargo/config.toml",
+      source: source.replaceAll(".cargo/*|", ""),
+    },
+    {
+      name: "real workflow selects root Clippy configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: clippy.toml",
+      source: source.replaceAll("clippy.toml|.clippy.toml|", ""),
+    },
+    {
+      name: "real workflow selects wallet parent workspace manifests for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/Cargo.toml",
+      source: source.replaceAll("wallet/Cargo.toml|wallet/Cargo.lock|", ""),
+    },
+    {
+      name: "real workflow selects wallet parent lint configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/.cargo/config.toml",
+      source: source.replaceAll(
+        "wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|",
+        "",
+      ),
+    },
+    {
+      name: "real workflow selects future wallet Rust sources for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/src/lib.rs",
+      source: source.replaceAll("wallet/*.rs|", ""),
+    },
+    {
+      name: "real workflow selects future wallet manifests for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/Cargo.toml",
+      source: source.replaceAll(
+        "wallet/*/Cargo.toml|wallet/*/Cargo.lock|",
+        "",
+      ),
+    },
+    {
+      name: "real workflow selects future wallet Clippy configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/clippy.toml",
+      source: source.replaceAll(
+        "wallet/*/clippy.toml|wallet/*/.clippy.toml|",
+        "",
       ),
     },
     {
