@@ -58,6 +58,11 @@ const CREDENTIAL_JOB_SHA256 = new Map([
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
   ["macos-sign", "c1e218197291583ef9c021ed9e32506bf6696f0a1566d5dc6e4e954aa2833dbb"],
 ]);
+// The credential-free builder is also exact: its source-identity check and
+// compile happen in separate steps, so an unreviewed command between them
+// could otherwise build stale bytes while attesting the requested source SHA.
+const ANDROID_BUILD_JOB_SHA256 =
+  "0f26565c53eb7d7756757b391dfaee19d3b794392c8f0fec49e15f161aded398";
 const ANDROID_FINALIZER_JOB_SHA256 =
   "9571bb82e1fa0ba6b0749fbbb9487f72e9c495fb0c6877f64747f0c3eff2f794";
 
@@ -226,6 +231,15 @@ export function androidFinalizerJobDigest(workflow) {
   return sha256(sourceForNode(workflow, node));
 }
 
+export function androidBuildJobDigest(workflow) {
+  const failures = [];
+  const parsed = parseWorkflow(workflow, failures);
+  if (!parsed || failures.length > 0) throw new Error(failures.join("\n"));
+  const node = pairFor(parsed.jobs, "android-build")?.value;
+  if (!node) throw new Error("workflow is missing android-build");
+  return sha256(sourceForNode(workflow, node));
+}
+
 /**
  * Enforce the source-level mobile/desktop release authority boundary.
  *
@@ -240,6 +254,7 @@ export function verifyAppleCredentialBoundary(
   {
     credentialJobDigests = CREDENTIAL_JOB_SHA256,
     rootAuthorityDigests = ROOT_AUTHORITY_SHA256,
+    expectedAndroidBuildDigest = ANDROID_BUILD_JOB_SHA256,
     expectedAndroidFinalizerDigest = ANDROID_FINALIZER_JOB_SHA256,
   } = {},
 ) {
@@ -423,6 +438,12 @@ export function verifyAppleCredentialBoundary(
   }
 
   const androidBuilder = jobs.get("android-build");
+  const actualAndroidBuildDigest = sha256(androidBuilder);
+  if (actualAndroidBuildDigest !== expectedAndroidBuildDigest) {
+    failures.push(
+      `android-build execution program changed: expected ${expectedAndroidBuildDigest}, got ${actualAndroidBuildDigest}`,
+    );
+  }
   for (const marker of [
     "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android",
     "tauri android build --ci --aab -- --locked",

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 
 import {
+  androidBuildJobDigest,
   androidFinalizerJobDigest,
   credentialJobDigests,
   releaseAuthorityDigests,
@@ -244,10 +245,12 @@ jobs:
 
 const fixtureCredentialJobDigests = credentialJobDigests(validWorkflow);
 const fixtureRootAuthorityDigests = releaseAuthorityDigests(validWorkflow);
+const fixtureAndroidBuildJobDigest = androidBuildJobDigest(validWorkflow);
 const fixtureAndroidFinalizerJobDigest = androidFinalizerJobDigest(validWorkflow);
 const verifyFixture = (source) => verifyAppleCredentialBoundary(source, {
   credentialJobDigests: fixtureCredentialJobDigests,
   rootAuthorityDigests: fixtureRootAuthorityDigests,
+  expectedAndroidBuildDigest: fixtureAndroidBuildJobDigest,
   expectedAndroidFinalizerDigest: fixtureAndroidFinalizerJobDigest,
 });
 
@@ -358,6 +361,20 @@ test("an explicit assertion guard aborts before credential work continues", () =
 });
 
 const androidProtectedMutations = [
+  [
+    "stale source reset after Android identity verification",
+    (source) => source.replace(
+      "      - name: Build source-bound unsigned universal AAB\n",
+      "      - name: Substitute stale Android source after identity verification\n        run: cd ../.. && git reset --hard HEAD~1\n      - name: Build source-bound unsigned universal AAB\n",
+    ),
+  ],
+  [
+    "stale source reset hidden in the Android build step",
+    (source) => source.replace(
+      "          set -euo pipefail\n          scripts/assert-no-android-credentials.sh\n",
+      "          set -euo pipefail\n          cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli\n          scripts/assert-no-android-credentials.sh\n",
+    ),
+  ],
   [
     "unpinned protected signing JVM",
     (source) => source.replace(
