@@ -5,6 +5,7 @@ import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "./TopBar";
+import { TestI18nProvider } from "@/i18n/test-provider";
 
 function renderTopBar({
   pushed = false,
@@ -19,9 +20,11 @@ function renderTopBar({
 
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[route]}>
-      <TooltipProvider>
-        <TopBar />
-      </TooltipProvider>
+      <TestI18nProvider>
+        <TooltipProvider>
+          <TopBar />
+        </TooltipProvider>
+      </TestI18nProvider>
     </MemoryRouter>,
   );
 }

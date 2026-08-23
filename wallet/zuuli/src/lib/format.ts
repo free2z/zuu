@@ -33,6 +33,31 @@ export const MAX_ZEC_INPUT_LENGTH = "90071992.54740991".length;
 const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const MAX_SAFE_INTEGER_DIGITS = String(Number.MAX_SAFE_INTEGER).length;
 
+const DATE_TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
+const CALENDAR_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+};
+
+let formattingLocale: string | undefined;
+let pendingDateLabel: string | undefined;
+
+/** Bind human date/time output to the locale selected during app bootstrap. */
+export function configureFormattingLocale(
+  locale: string,
+  pendingLabel: string,
+): void {
+  formattingLocale = locale;
+  pendingDateLabel = pendingLabel;
+}
+
 export type TuziInputError = "invalid" | "tooSmall" | "tooLarge";
 
 export interface TuziInputResult {
@@ -226,29 +251,38 @@ export function truncateAddress(value: string, head = 8, tail = 10): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
-export function formatDate(timestamp: number | null): string {
-  if (!timestamp) return "Pending";
-  return new Date(timestamp * 1000).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+export function formatDate(
+  timestamp: number | null,
+  locale = formattingLocale,
+): string {
+  if (!timestamp) {
+    if (!pendingDateLabel) {
+      throw new Error("date formatting used before locale bootstrap");
+    }
+    return pendingDateLabel;
+  }
+  return new Intl.DateTimeFormat(locale, DATE_TIME_FORMAT_OPTIONS).format(
+    timestamp * 1000,
+  );
 }
 
-/** Relative "3m ago" style time from an ISO string or epoch-seconds. */
-export function timeAgo(input: string | number): string {
+/** Locale-aware relative time from an ISO string or epoch-seconds. */
+export function timeAgo(
+  input: string | number,
+  locale = formattingLocale,
+): string {
   const ms = typeof input === "number" ? input * 1000 : Date.parse(input);
   const diff = Date.now() - ms;
+  const absolute = Math.abs(diff);
   const mins = Math.round(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (absolute < 60000) return relative.format(0, "second");
+  if (absolute < 60 * 60000) return relative.format(-mins, "minute");
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (absolute < 24 * 60 * 60000) return relative.format(-hrs, "hour");
   const days = Math.round(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(ms).toLocaleDateString();
+  if (absolute < 30 * 24 * 60 * 60000) return relative.format(-days, "day");
+  return new Intl.DateTimeFormat(locale, CALENDAR_DATE_FORMAT_OPTIONS).format(ms);
 }
 
 export function formatHeight(height: number): string {

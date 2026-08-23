@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   createBrowserRouter,
   Navigate,
@@ -32,6 +33,7 @@ import {
   listenForCheckoutReturns,
   recoverCheckoutReturn,
 } from "@/lib/checkout/native-return";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 import AuthFeature from "@/features/auth";
 
@@ -51,11 +53,12 @@ const ProfileFeature = lazy(() => import("@/features/profile"));
 const KycFeature = lazy(() => import("@/features/kyc"));
 
 function RouteFallback() {
+  const { t } = useTranslation();
   return (
     <div
       className="flex min-h-[40vh] w-full items-center justify-center"
       role="status"
-      aria-label="Loading"
+      aria-label={t(MESSAGE_KEYS.commonLoading)}
     >
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
     </div>

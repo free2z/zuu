@@ -1,19 +1,23 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { I18nextProvider, useTranslation } from "react-i18next";
 import App from "./App";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { runWasmSpike } from "./lib/wasm-spike";
+import { initializeAppI18n } from "./i18n";
+import { MESSAGE_KEYS } from "./i18n/messages";
 import "./index.css";
 
 /**
- * Minimal, dependency-free fallback shown only if the ENTIRE app throws during
- * render. Styled with plain inline styles (no Tailwind/shadcn) because a crash
- * here means we can't trust any higher-level component to be mountable. Its job
- * is purely to keep the webview from going permanently blank and to let the
- * user recover with a reload — so a stored malicious comment can no longer
+ * Minimal root fallback shown only if the ENTIRE app throws during render.
+ * Styled with plain inline styles (no Tailwind/shadcn) because a crash here
+ * means we can't trust higher-level UI components to be mountable. Its job is
+ * purely to keep the webview from going permanently blank and let the user
+ * recover with a reload — so a stored malicious comment can no longer
  * white-screen the whole zpage for every viewer.
  */
 function RootFallback() {
+  const { t } = useTranslation();
   return (
     <div
       className="app-crash-frame"
@@ -35,10 +39,10 @@ function RootFallback() {
       }}
     >
       <h1 style={{ fontSize: "1.25rem", fontWeight: 600 }}>
-        Something went wrong
+        {t(MESSAGE_KEYS.errorRootTitle)}
       </h1>
       <p style={{ maxWidth: "28rem", color: "#a3a3a3" }}>
-        ZUULI hit an unexpected error. Reloading usually fixes it.
+        {t(MESSAGE_KEYS.errorRootDescription)}
       </p>
       <button
         type="button"
@@ -55,20 +59,32 @@ function RootFallback() {
           cursor: "pointer",
         }}
       >
-        Reload
+        {t(MESSAGE_KEYS.commonReload)}
       </button>
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    {/* Top-level boundary: no subtree can ever unmount the root. */}
-    <ErrorBoundary fallback={<RootFallback />}>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>,
-);
+async function mountApplication() {
+  const i18n = await initializeAppI18n();
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <I18nextProvider i18n={i18n}>
+        {/* Top-level boundary: no subtree can ever unmount the root. */}
+        <ErrorBoundary fallback={<RootFallback />}>
+          <App />
+        </ErrorBoundary>
+      </I18nextProvider>
+    </React.StrictMode>,
+  );
+}
+
+void mountApplication().catch((error: unknown) => {
+  // A missing/malformed catalog is an integrity failure, not permission to
+  // render untranslated keys. Keep the failure observable without echoing
+  // potentially hostile catalog content.
+  console.error("ZUULI locale bootstrap failed", error);
+});
 
 // This is a build/runtime integration proof, not a user-facing feature. The
 // browser test observes the marker, which means a stale or merely emitted WASM

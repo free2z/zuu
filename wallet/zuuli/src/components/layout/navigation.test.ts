@@ -6,6 +6,7 @@ import {
   mobilePrimaryNavigation,
   NAVIGATION,
 } from "./navigation";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 describe("app navigation information architecture", () => {
   it("keeps exactly five stable mobile destinations", () => {
@@ -17,7 +18,9 @@ describe("app navigation information architecture", () => {
   });
 
   it("keeps search in TopBar and funding inside Wallet", () => {
-    expect(NAVIGATION.some((item) => item.label === "Search")).toBe(false);
+    expect(
+      NAVIGATION.some((item) => item.labelKey === MESSAGE_KEYS.navSearch),
+    ).toBe(false);
     expect(NAVIGATION.some((item) => item.id === "buy")).toBe(false);
     const wallet = NAVIGATION.find((item) => item.id === "wallet");
     expect(wallet?.kind).toBe("route");
@@ -35,8 +38,10 @@ describe("app navigation information architecture", () => {
       "revenue-share",
     ]);
     const revenueShare = NAVIGATION.find((item) => item.id === "revenue-share");
-    expect(revenueShare?.label).toBe("Revenue share");
-    expect(revenueShare?.accessibleLabel).toBe("Revenue share");
+    expect(revenueShare?.labelKey).toBe(MESSAGE_KEYS.navRevenueShare);
+    expect(revenueShare?.accessibleLabelKey).toBe(
+      MESSAGE_KEYS.navRevenueShare,
+    );
   });
 
   it("drives grouped desktop routes from the same config", () => {
