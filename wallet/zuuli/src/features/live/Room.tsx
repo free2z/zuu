@@ -11,6 +11,7 @@ import {
   LogOut,
   ShieldCheck,
   KeyRound,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials, truncateAddress } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { coverTone } from "@/lib/cover";
+import { parsePrivateInviteHash, privateInviteUrl } from "@/lib/private-live";
 import { KIND_META } from "./lib";
 import {
   enterSubscriberStream,
@@ -51,6 +53,7 @@ import { Stage } from "./Stage";
 
 interface JustStarted {
   ticket: DyteJoinTicket;
+  inviteSecret?: string;
   kind: StreamKind;
   title: string;
   price_tuzis: number;
@@ -62,6 +65,8 @@ export function Room() {
   const location = useLocation();
   const justStarted = (location.state as { justStarted?: JustStarted } | null)
     ?.justStarted;
+  const inviteSecret = parsePrivateInviteHash(location.hash);
+  const privateInviteAttempt = location.hash.startsWith("#private=");
 
   const tuzis = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
@@ -72,18 +77,41 @@ export function Room() {
   // fetch entirely — keeping the heavy request off the "Go live" entrance frame
   // so the transition stays smooth. Only a cold visitor (deep link) needs the
   // listing to resolve which stream this is.
-  const { data, loading, error, reload } = useAsync(
-    () => (justStarted ? Promise.resolve<Livestream[]>([]) : live.listPublic()),
-    [justStarted],
-  );
+  const { data, loading, error, reload } = useAsync(async () => {
+    if (justStarted) return { streams: [] as Livestream[], inviteTicket: null };
+    if (privateInviteAttempt && !inviteSecret) {
+      throw new Error("Invalid private invite");
+    }
+    if (inviteSecret) {
+      const isHost =
+        useSession.getState().user?.username.toLowerCase() ===
+        username.toLowerCase();
+      return {
+        streams: [] as Livestream[],
+        inviteTicket: await live.join(
+          username,
+          "private",
+          inviteSecret,
+          isHost ? "host" : "participant",
+        ),
+      };
+    }
+    return { streams: await live.listPublic(), inviteTicket: null };
+  }, [justStarted, inviteSecret, privateInviteAttempt, username]);
 
   // Resolve the stream: prefer the public listing; otherwise synthesize one
   // from the just-started host session (creator's own stream isn't public
   // until it's discoverable).
   const stream = useMemo<Livestream | null>(() => {
-    const found = (data ?? []).find((s) => s.username === username);
+    const found = (data?.streams ?? []).find((s) => s.username === username);
     if (found) return found;
-    if (justStarted && (user?.username === username || username === "you")) {
+    if (justStarted || data?.inviteTicket) {
+      const resolved = justStarted ?? {
+        ticket: data!.inviteTicket!,
+        kind: "private" as const,
+        title: "Private call",
+        price_tuzis: 0,
+      };
       return {
         id: `local-${username}`,
         username,
@@ -93,11 +121,11 @@ export function Room() {
           display_name: user?.display_name ?? username,
           image: user?.image ?? null,
         },
-        title: justStarted.title,
-        kind: justStarted.kind,
+        title: resolved.title,
+        kind: resolved.kind,
         live: true,
         participants: 1,
-        price_tuzis: justStarted.price_tuzis,
+        price_tuzis: resolved.price_tuzis,
         thumbnail: null,
         started_at: new Date().toISOString(),
       };
@@ -110,11 +138,38 @@ export function Room() {
     justStarted?.ticket ?? null,
   );
 
+  useEffect(() => {
+    if (!data?.inviteTicket) return;
+    const isHost = user?.username.toLowerCase() === username.toLowerCase();
+    setTicket(
+      isHost && data.inviteTicket.as !== "host"
+        ? { ...data.inviteTicket, as: "host" }
+        : data.inviteTicket,
+    );
+  }, [data?.inviteTicket, user?.username, username]);
+
   if (loading && !stream && !error) {
     return <RoomSkeleton />;
   }
 
   if (error && !stream) {
+    if (privateInviteAttempt) {
+      return (
+        <div className="space-y-6">
+          <BackLink />
+          <EmptyState
+            icon={Lock}
+            title="Private room unavailable"
+            description="This invite is wrong, expired, or the room has ended. No room details were disclosed."
+            action={
+              <Button variant="outline" onClick={reload} disabled={loading}>
+                Try invite again
+              </Button>
+            }
+          />
+        </div>
+      );
+    }
     return (
       <div className="space-y-6">
         <BackLink />
@@ -266,6 +321,9 @@ export function Room() {
             ticket.as === "host" ? (
               <HostControls
                 stream={stream}
+                inviteSecret={
+                  justStarted?.inviteSecret ?? inviteSecret ?? undefined
+                }
                 onEnd={() => {
                   toast.success("Stream ended");
                   navigate("/live");
@@ -972,11 +1030,32 @@ function ConnectedDetails({
 
 function HostControls({
   stream,
+  inviteSecret,
   onEnd,
 }: {
   stream: Livestream;
+  inviteSecret?: string;
   onEnd: () => void;
 }) {
+  const inviteInput = useRef<HTMLInputElement>(null);
+  const inviteUrl =
+    inviteSecret && typeof window !== "undefined"
+      ? privateInviteUrl(window.location.origin, stream.username, inviteSecret)
+      : null;
+
+  async function copyInvite() {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      toast.success("Private invite copied", {
+        description: "Share it only with people you want in this room.",
+      });
+    } catch {
+      inviteInput.current?.select();
+      toast("Select and copy the private invite shown below.");
+    }
+  }
+
   return (
     <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-4">
       <div className="flex items-center justify-between">
@@ -1001,6 +1080,31 @@ function HostControls({
         Manage your broadcast below.
       </p>
       <Separator className="my-3" />
+      {inviteUrl ? (
+        <div className="mb-3 space-y-2">
+          <Label htmlFor="private-invite-url">Private invite</Label>
+          <Input
+            ref={inviteInput}
+            id="private-invite-url"
+            value={inviteUrl}
+            readOnly
+            autoComplete="off"
+            spellCheck={false}
+            className="font-mono text-xs"
+          />
+          <Button
+            variant="secondary"
+            className="w-full gap-2"
+            onClick={copyInvite}
+          >
+            <Copy className="h-4 w-4" aria-hidden />
+            Copy private invite
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Anyone with this opaque link can enter while the room is active.
+          </p>
+        </div>
+      ) : null}
       <ParticipantStrip count={stream.participants + 1} />
       <Button
         variant="destructive"
