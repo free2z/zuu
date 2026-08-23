@@ -69,28 +69,17 @@ test("every result remains loaded with its tab and scroll position across back n
   await expect(page.getByRole("searchbox")).toHaveValue("a");
 });
 
-test("an empty nonterminal corpus failure is explicit, isolated, and retryable", async ({
+test("a fully duplicated page advances to later unique results", async ({
   page,
 }) => {
-  await useSearchScenarios(page, "empty-nonterminal", "small-pages");
+  await useSearchScenarios(page, "duplicate-page", "small-pages");
   await page.goto("/search?q=a");
 
-  await expect(
-    page.getByRole("alert").getByText("Creator search is unavailable"),
-  ).toBeVisible();
-  await expect(page.getByText("No creators found")).toHaveCount(0);
-
-  await page.getByRole("tab", { name: /Pages/ }).click();
-  await expect(page.locator("[data-search-page-result]")).toHaveCount(2);
-  await expect(
-    page.getByRole("tab", { name: /Pages/ }).locator("span").last(),
-  ).not.toHaveText("0");
-
-  await page.getByRole("tab", { name: /Creators/ }).click();
-  await page.evaluate(() =>
-    sessionStorage.removeItem("zuuli.mock.search-creators"),
-  );
-  await page.getByRole("button", { name: "Retry" }).click();
+  const creators = page.locator("[data-search-creator-result]");
+  await expect(creators).toHaveCount(2);
+  await page.getByRole("button", { name: "Load more creators" }).click();
+  await expect(creators).toHaveCount(2);
+  await page.getByRole("button", { name: "Load more creators" }).click();
   await expect(page.locator("[data-search-creator-result]")).toHaveCount(4);
   await expect(
     page.getByText("4 of 4 creators", { exact: true }),

@@ -76,13 +76,20 @@ export function mergeSearchPage<T>(
   }
 
   if (response.next !== null && items.length === current.items.length) {
-    throw new Error("Search pagination made no progress.");
+    // Offset pagination over tied, mutable rows can return a page made wholly
+    // of records already seen. The backend cursor still advanced, so retaining
+    // it is the only way to reach later unique rows; retrying the old cursor
+    // would loop forever.
+    console.warn("Search page contained no new rows; advancing its cursor.", {
+      requestedPage,
+      next: response.next,
+    });
   }
 
   // DRF recomputes count for every offset page, while rows can be published or
   // removed between clicks. Search ordering also contains ties, so deduped row
   // length cannot be required to equal that moving display hint. The cursor is
-  // the traversal authority; retain strict cursor/progress validation above
+  // the traversal authority; retain strict cursor validation above
   // and surface count drift diagnostically without discarding valid rows.
   if (
     (current.count !== null && response.count !== current.count) ||

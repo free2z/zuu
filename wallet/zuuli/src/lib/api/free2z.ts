@@ -1974,20 +1974,26 @@ function mockSearchResultPage<T>(
   if (scenario === "unavailable") {
     throw new Error("Mock search corpus unavailable");
   }
-  if (scenario === "empty-nonterminal") {
-    return { items: [], next: page + 1, count: allItems.length };
-  }
-
   const effectivePageSize =
     scenario === "small-pages" ||
     scenario === "overlap" ||
     scenario === "count-drift" ||
-    scenario === "skip-row"
+    scenario === "skip-row" ||
+    scenario === "duplicate-page"
       ? 2
       : pageSize;
   const nominalStart = (page - 1) * effectivePageSize;
+  if (scenario === "duplicate-page" && page === 2) {
+    return {
+      items: allItems.slice(0, effectivePageSize),
+      next: 3,
+      count: allItems.length,
+    };
+  }
   const start =
-    scenario === "overlap" && page > 1
+    scenario === "duplicate-page" && page > 2
+      ? nominalStart - effectivePageSize
+      : scenario === "overlap" && page > 1
       ? nominalStart - 1
       : scenario === "skip-row" && page > 1
         ? nominalStart + 1

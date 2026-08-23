@@ -52,7 +52,7 @@ describe("global Search result pagination", () => {
     expect(complete.count).toBe(3);
   });
 
-  it("accepts an empty terminal corpus but rejects empty nonterminal progress", () => {
+  it("accepts an empty terminal corpus", () => {
     expect(mergeSearchPage(initial(), page([], null, 0), 1, identity)).toEqual({
       key: "privacy",
       items: [],
@@ -60,9 +60,39 @@ describe("global Search result pagination", () => {
       count: 0,
       initialized: true,
     });
-    expect(() =>
-      mergeSearchPage(initial(), page([], 2, 3), 1, identity),
-    ).toThrow("made no progress");
+  });
+
+  it("advances past a fully duplicated nonterminal page to later rows", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const first = mergeSearchPage(
+      initial(),
+      page([result("a"), result("b")], 2, 3),
+      1,
+      identity,
+    );
+    const duplicate = mergeSearchPage(
+      first,
+      page([result("a"), result("b")], 3, 3),
+      2,
+      identity,
+    );
+    expect(duplicate).toMatchObject({
+      items: [{ id: "a" }, { id: "b" }],
+      next: 3,
+    });
+    expect(warning).toHaveBeenCalledWith(
+      "Search page contained no new rows; advancing its cursor.",
+      { requestedPage: 2, next: 3 },
+    );
+
+    const complete = mergeSearchPage(
+      duplicate,
+      page([result("c")], null, 3),
+      3,
+      identity,
+    );
+    expect(complete.items.map(identity)).toEqual(["a", "b", "c"]);
+    expect(complete.next).toBeNull();
   });
 
   it("keeps valid rows when advisory counts drift or a tied row is skipped", () => {
