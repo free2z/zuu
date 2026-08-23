@@ -86,6 +86,61 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
+const REQUIRED_FRONTEND_JOB_LINES = [
+  "  frontend:",
+  "    needs: changes",
+  "    if: needs.changes.outputs.zuuli == 'true'",
+  "    runs-on: ubuntu-latest",
+  "    timeout-minutes: 35",
+  "    defaults:",
+  "      run:",
+  "        working-directory: wallet/zuuli",
+  "    steps:",
+  `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+  "        with:",
+  "          node-version: '24'",
+  "          cache: npm",
+  "          cache-dependency-path: wallet/zuuli/package-lock.json",
+  "      - name: Resolve the pinned frontend Rust toolchain",
+  "        id: frontend_rust_toolchain",
+  "        run: |",
+  "          set -euo pipefail",
+  "          version=$(../../scripts/check-rust-toolchain.sh --print-channel)",
+  '          echo "version=$version" >> "$GITHUB_OUTPUT"',
+  "      - name: Install the pinned Rust/WASM compiler",
+  "        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+  "        with:",
+  "          toolchain: ${{ steps.frontend_rust_toolchain.outputs.version }}",
+  "          targets: wasm32-unknown-unknown",
+  "      - name: Install locked dependencies",
+  "        run: npm ci",
+  "      - name: Verify release cache security policy",
+  "        run: node scripts/verify-ci-cache-policy.mjs",
+  "      - name: Verify generated app and store icons",
+  "        run: npm run icons:check",
+  "      - name: Test store listing contract and read-only audit",
+  "        run: npm run test:store-listing",
+  "      - name: Validate canonical store manifest and media",
+  "        run: npm run store:validate",
+  "      - name: Test App Store Connect state machine",
+  "        run: npm run test:asc-testflight",
+  "      - name: Audit dependencies (high and critical)",
+  "        run: |",
+  "          for attempt in 1 2 3; do",
+  "            npm audit --audit-level=high && exit 0",
+  '            [ "$attempt" -eq 3 ] && exit 1',
+  "            sleep $((attempt * 5))",
+  "          done",
+  "      - name: Typecheck",
+  "        run: npm run typecheck",
+  "      - name: Verify the viewport-test browser",
+  "        run: google-chrome --version",
+  "      - name: Test frontend contracts",
+  "        run: npm run test",
+  "      - name: Build production frontend",
+  "        run: npm run build",
+];
 // Environment inheritance can alter Bash and Node before an exact `run:` block
 // begins. Required jobs therefore accept only these reviewed data inputs; every
 // other workflow/job/step environment entry fails closed.
@@ -1026,6 +1081,18 @@ function exactStepSource(lines, step) {
 
 function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   const failures = [];
+  const actualFrontendJobLines = lines
+    .slice(frontend.start, frontend.end)
+    .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+    .map((line) => line.trimEnd());
+  if (
+    JSON.stringify(actualFrontendJobLines) !==
+    JSON.stringify(REQUIRED_FRONTEND_JOB_LINES)
+  ) {
+    failures.push(
+      `${relativeFile}:${frontend.start + 1}: frontend must match the complete exact current-source execution program`,
+    );
+  }
   if (
     frontend.properties.get("if")?.value !==
     "needs.changes.outputs.zuuli == 'true'"
@@ -2194,6 +2261,54 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       source: replaceFrontend(
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n        with:\n          ref: stale-release`,
+      ),
+    },
+    {
+      name: "real workflow rejects a stale-source reset after frontend checkout",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend(
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Substitute stale frontend source after checkout\n        run: cd ../.. && git reset --hard HEAD~1`,
+      ),
+    },
+    {
+      name: "real workflow rejects a stale-source checkout after frontend checkout",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend(
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Check out stale frontend source\n        run: cd ../.. && git checkout HEAD~1`,
+      ),
+    },
+    {
+      name: "real workflow rejects frontend source overwrite after checkout",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend(
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Overwrite checked-out frontend source\n        run: printf stale > src/main.tsx`,
+      ),
+    },
+    {
+      name: "real workflow rejects frontend build-script substitution after checkout",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend(
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Substitute the WASM build script\n        run: cp package.json scripts/wasm-build.mjs`,
+      ),
+    },
+    {
+      name: "real workflow rejects an extra unnamed frontend step",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend(
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - run: true`,
+      ),
+    },
+    {
+      name: "real workflow rejects stale-source substitution inside dependency install",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend(
+        "      - name: Install locked dependencies\n        run: npm ci",
+        "      - name: Install locked dependencies\n        run: cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli && npm ci",
       ),
     },
     {
