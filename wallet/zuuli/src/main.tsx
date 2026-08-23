@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { runWasmSpike } from "./lib/wasm-spike";
 import "./index.css";
 
 /**
@@ -68,3 +69,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </ErrorBoundary>
   </React.StrictMode>,
 );
+
+// This is a build/runtime integration proof, not a user-facing feature. The
+// browser test observes the marker, which means a stale or merely emitted WASM
+// file cannot satisfy the contract without being instantiated and called.
+void runWasmSpike()
+  .then((value) => {
+    if (value !== 42) throw new Error(`unexpected WASM spike result: ${value}`);
+    document.documentElement.dataset.wasmSpike = String(value);
+  })
+  .catch((error: unknown) => {
+    console.error("The ZUU WASM integration proof failed", error);
+  });

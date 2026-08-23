@@ -4,7 +4,7 @@
 
 **by 2Z Inc**
 
-*Your Z. Your keys. Your universe.*
+_Your Z. Your keys. Your universe._
 
 A Zcash-native app for desktop and mobile: a wallet fused with the free2z
 platform's AI, livestreaming, articles, and **2Z** credit economy.
@@ -83,6 +83,8 @@ the two identities.
 ## How it's built
 
 React 18 · TypeScript · Vite · Tailwind · shadcn/ui · Tauri v2 · Zustand.
+The first-party Rust-to-browser build proof, measurements, generated-artifact
+contract, and recommendation are documented in [the WASM spike](docs/wasm-spike.md).
 See [CLAUDE.md](./CLAUDE.md) for architecture and the shared `src/lib/` contract.
 
 Part of [the ZUU](../../README.md) — the Zcash User Universe.
