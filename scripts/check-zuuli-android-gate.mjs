@@ -13,9 +13,21 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "dca75a990b10d4f9dba2a1c00d6fd1f69bf3182dc72a32aad2556758408d5189";
+  "6b86910f1fac129fb37dea7390e55395d8110b76ec8ba5f0b445a009c21ea6ea";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
+const classicSeedBoundaryInputs = [
+  "wallet/zuuallet/src/hooks/useWallet.ts",
+  "wallet/zuuallet/src/lib/mnemonic.ts",
+  "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
+  "wallet/zuuallet/src/lib/sensitive-seed.ts",
+  "wallet/zuuallet/src/lib/tauri.ts",
+  "wallet/zuuallet/src/pages/CreateWallet.tsx",
+  "wallet/zuuallet/src/pages/RestoreWallet.tsx",
+  "wallet/zuuallet/src/pages/Settings.tsx",
+  "wallet/zuuallet/src/pages/Welcome.tsx",
+  "wallet/zuuallet/src/types/index.ts",
+];
 
 function job(workflow, name) {
   const start = new RegExp(`^  ${name}:\\n`, "m").exec(workflow);
@@ -79,6 +91,11 @@ function check(workflow, toolchainEnv) {
   const selectedPatterns = zuuliCase?.[1].split("|").map((entry) => entry.trim()) ?? [];
   if (!selectedPatterns.includes(policyPath)) {
     failures.push("Android gate policy changes must select the full ZUULI suite");
+  }
+  for (const input of classicSeedBoundaryInputs) {
+    if (!selectedPatterns.includes(input)) {
+      failures.push(`classic seed-boundary input must select ZUULI: ${input}`);
+    }
   }
 
   if (!android) failures.push("required rust_android_32 job is missing");
@@ -262,6 +279,11 @@ function runSelfTest(workflow, toolchainEnv) {
       "      - name: Verify required jobs succeeded or legitimately skipped\n        if: false\n        env:",
     ],
     ["the policy no longer selects itself", `|${policyPath}|`, "|"],
+    ...classicSeedBoundaryInputs.map((input) => [
+      `classic seed-boundary input no longer selects ZUULI: ${input}`,
+      `|${input}|`,
+      "|",
+    ]),
     [
       "the live policy invocation is removed",
       `          node ${policyPath}\n`,
