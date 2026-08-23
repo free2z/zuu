@@ -3,7 +3,9 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
   closeSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -16,6 +18,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -147,7 +150,10 @@ function zipMembers(artifact) {
   return members;
 }
 
-export function inventoryRoot(rootPath) {
+export function inventoryRoot(
+  rootPath,
+  { allowExternalSymlinks = false } = {},
+) {
   const root = realpathSync(rootPath);
   const entries = [];
   let regularBytes = 0;
@@ -178,7 +184,7 @@ export function inventoryRoot(rootPath) {
         });
       } else if (info.isSymbolicLink()) {
         const target = readlinkSync(absolute);
-        if (isAbsolute(target)) {
+        if (isAbsolute(target) && !allowExternalSymlinks) {
           throw new Error(
             `artifact symlink must be relative: ${path} -> ${target}`,
           );
@@ -186,11 +192,13 @@ export function inventoryRoot(rootPath) {
         if (/[\u0000-\u001f\u007f]/.test(target)) {
           throw new Error(`artifact symlink target has control bytes: ${path}`);
         }
-        const resolvedTarget = realpathSync(absolute);
-        if (!isInside(root, resolvedTarget)) {
-          throw new Error(
-            `artifact symlink escapes payload: ${path} -> ${target}`,
-          );
+        if (!allowExternalSymlinks) {
+          const resolvedTarget = realpathSync(absolute);
+          if (!isInside(root, resolvedTarget)) {
+            throw new Error(
+              `artifact symlink escapes payload: ${path} -> ${target}`,
+            );
+          }
         }
         entries.push({ path, kind: "symlink", target });
       } else {
@@ -205,6 +213,120 @@ export function inventoryRoot(rootPath) {
   return entries;
 }
 
+function artifactFormat(artifact) {
+  const lower = artifact.toLowerCase();
+  if (lower.endsWith(".dmg")) return "dmg";
+  const extension = lower.split(".").at(-1);
+  if (["aab", "ipa", "zip"].includes(extension)) return "zip";
+  throw new Error(`unsupported artifact format .${extension}`);
+}
+
+function cloneMountedTree(sourcePath, destinationPath) {
+  const source = realpathSync(sourcePath);
+  let entries = 0;
+  let regularBytes = 0;
+  mkdirSync(destinationPath);
+  const visit = (sourceDirectory, destinationDirectory) => {
+    for (const entry of readdirSync(sourceDirectory, { withFileTypes: true })) {
+      entries += 1;
+      if (entries > MAX_ARCHIVE_ENTRIES) {
+        throw new Error(
+          `artifact has too many entries: ${entries} > ${MAX_ARCHIVE_ENTRIES}`,
+        );
+      }
+      const sourceEntry = resolve(sourceDirectory, entry.name);
+      const relativePath = relative(source, sourceEntry).split(sep).join("/");
+      if (!safeArchiveMember(relativePath)) {
+        throw new Error(
+          `unsafe mounted artifact path: ${JSON.stringify(relativePath)}`,
+        );
+      }
+      const destinationEntry = resolve(destinationDirectory, entry.name);
+      const info = lstatSync(sourceEntry);
+      if (info.isDirectory()) {
+        mkdirSync(destinationEntry);
+        chmodSync(destinationEntry, info.mode & 0o777);
+        visit(sourceEntry, destinationEntry);
+      } else if (info.isFile()) {
+        regularBytes += info.size;
+        if (regularBytes > MAX_UNPACKED_BYTES) {
+          throw new Error(
+            `artifact expands beyond the ${MAX_UNPACKED_BYTES}-byte safety limit`,
+          );
+        }
+        copyFileSync(sourceEntry, destinationEntry);
+        chmodSync(destinationEntry, info.mode & 0o777);
+      } else if (info.isSymbolicLink()) {
+        const target = readlinkSync(sourceEntry);
+        if (/[\u0000-\u001f\u007f]/.test(target)) {
+          throw new Error(
+            `artifact symlink target has control bytes: ${relativePath}`,
+          );
+        }
+        // A read-only DMG commonly ships an absolute /Applications link. Copy
+        // the link bytes without dereferencing them; no destination write can
+        // escape through it because this walker never descends into symlinks.
+        symlinkSync(target, destinationEntry);
+      } else {
+        throw new Error(
+          `unsupported mounted artifact member type: ${relativePath}`,
+        );
+      }
+    }
+  };
+  visit(source, destinationPath);
+}
+
+export function extractDmg(
+  artifact,
+  root,
+  { execute = execFileSync } = {},
+) {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-dmg-mount-"));
+  const mountpoint = resolve(temporary, "mount");
+  mkdirSync(mountpoint);
+  let attachAttempted = false;
+  try {
+    // Treat the mount as live from the instant attach starts. `hdiutil` can
+    // time out or return non-zero after DiskImages has already mounted the
+    // filesystem, so a successful process exit is not a safe cleanup signal.
+    attachAttempted = true;
+    execute(
+      "hdiutil",
+      ["attach", artifact, "-readonly", "-nobrowse", "-mountpoint", mountpoint],
+      { stdio: ["ignore", "ignore", "pipe"], timeout: 120_000 },
+    );
+    cloneMountedTree(mountpoint, root);
+  } finally {
+    let detached = !attachAttempted;
+    if (attachAttempted) {
+      try {
+        execute("hdiutil", ["detach", mountpoint], {
+          stdio: ["ignore", "ignore", "pipe"],
+          timeout: 120_000,
+        });
+        detached = true;
+      } catch {
+        try {
+          // Spotlight or Finder can briefly hold a newly mounted image. This
+          // mount is private and read-only, so a bounded forced detach is the
+          // safe fallback used by the release verifier too.
+          execute("hdiutil", ["detach", mountpoint, "-force"], {
+            stdio: ["ignore", "ignore", "pipe"],
+            timeout: 120_000,
+          });
+          detached = true;
+        } catch {
+          // Never recursively remove a live mount. Leave the private path in
+          // place for the runner cleanup and fail the artifact boundary.
+        }
+      }
+    }
+    if (!detached) throw new Error("failed to detach artifact DMG safely");
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
 export function prepareArtifact({ artifact, root }) {
   const artifactInfo = requireRegularFile(artifact, "artifact");
   if (artifactInfo.size > MAX_ARCHIVE_BYTES) {
@@ -212,16 +334,19 @@ export function prepareArtifact({ artifact, root }) {
       `artifact exceeds the ${MAX_ARCHIVE_BYTES}-byte safety limit`,
     );
   }
-  const extension = artifact.toLowerCase().split(".").at(-1);
-  if (!["aab", "ipa", "zip"].includes(extension)) {
-    throw new Error(`unsupported artifact format .${extension}`);
-  }
-  zipMembers(artifact);
+  const format = artifactFormat(artifact);
+  if (format === "zip") zipMembers(artifact);
   if (existsSync(root)) throw new Error(`scan root already exists: ${root}`);
   mkdirSync(dirname(root), { recursive: true });
-  mkdirSync(root);
-  execFileSync("unzip", ["-qq", artifact, "-d", root]);
-  const inventory = inventoryRoot(root);
+  if (format === "zip") {
+    mkdirSync(root);
+    execFileSync("unzip", ["-qq", artifact, "-d", root]);
+  } else {
+    extractDmg(artifact, root);
+  }
+  const inventory = inventoryRoot(root, {
+    allowExternalSymlinks: format === "dmg",
+  });
   console.log(
     `unpacked ${basename(artifact)} into ${inventory.length} shipped payload entries`,
   );
@@ -466,7 +591,9 @@ export function finalizeArtifactSbom({
   const document = parseJson(rawSbom, "raw Syft SBOM");
   requireCycloneDx(document, "raw Syft SBOM");
   const artifactInfo = artifactMetadata(artifact);
-  const inventory = inventoryRoot(root);
+  const inventory = inventoryRoot(root, {
+    allowExternalSymlinks: artifactFormat(artifact) === "dmg",
+  });
   const packageComponents = (document.components ?? []).filter((component) => {
     if (component?.type !== "file") return true;
     const properties = propertyMap(component.properties);
@@ -642,6 +769,38 @@ export function artifactSbomWorkflowFailures(packaging, release) {
         "actions/attest-build-provenance@",
       ],
     ],
+    [
+      "packaging macos",
+      jobBlock(packaging, "desktop"),
+      [
+        'node scripts/artifact-sbom.mjs prepare --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root',
+        'node scripts/artifact-sbom.mjs prepare --artifact="${zips[0]}" --root=artifact-sbom-work/macos-zip/root',
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json",
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json",
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root --raw-sbom=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${zips[0]}" --root=artifact-sbom-work/macos-zip/root --raw-sbom=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${dmgs[0]}" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${zips[0]}" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
+        "npm run release:manifest -- --artifacts=release-artifacts",
+        "actions/upload-artifact@",
+      ],
+    ],
+    [
+      "release macos artifacts",
+      jobBlock(release, "macos-finalize"),
+      [
+        'node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root',
+        'node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root',
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json",
+        "output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json",
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root --raw-sbom=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root --raw-sbom=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
+        "node scripts/release-manifest.mjs --artifacts=release-artifacts",
+        "actions/attest-build-provenance@",
+      ],
+    ],
   ]) {
     requireOrdered(label, block, markers, failures);
   }
@@ -681,6 +840,31 @@ export function artifactSbomWorkflowFailures(packaging, release) {
         '[[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }',
         "artifact=${artifacts[0]}",
         'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json',
+        "node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+    [
+      "packaging macos",
+      jobBlock(packaging, "desktop"),
+      [
+        'if [[ "${{ runner.os }}" == macOS ]]; then',
+        "dmgs=(release-artifacts/*.dmg)",
+        "zips=(release-artifacts/*-macos-universal-unsigned.zip)",
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${dmgs[0]}" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${zips[0]}" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
+        "fi",
+        'jq -e \'(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)\' release-artifacts/ZUULI-desktop.source.sbom.cdx.json',
+        "npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+    [
+      "release macos artifacts",
+      jobBlock(release, "macos-finalize"),
+      [
+        "RELEASE_IDENTITY=${{ needs.prepare.outputs.identity }}",
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
+        'jq -e \'(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)\' release-artifacts/ZUULI-macos.source.sbom.cdx.json',
         "node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
       ],
     ],

@@ -903,10 +903,7 @@ jobs:
         run: git submodule update --init z/zcash/librustzcash
         working-directory: .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          {
-            node-version: "24.18.0",
-          }
+        with: { node-version: "24.18.0" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with: { toolchain: "${{ env.ZUULI_RUST_VERSION }}" }
       - name: Restore reviewed Linux Rust dependencies
@@ -999,10 +996,7 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           xcodebuild -version | grep -Fx 'Xcode 26.6'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          {
-            node-version: "24.18.0",
-          }
+        with: { node-version: "24.18.0" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
           {
@@ -1510,6 +1504,40 @@ jobs:
           mkdir release-artifacts
           cp "$dmg" "signed-macos/ZUULI-${EXPECTED_IDENTITY}-macos-universal.zip" \
             signed-macos/signing-record.json release-artifacts/
+      - name: Prepare macOS shipped-artifact inventories
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root
+          node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root
+      - name: Scan macOS DMG shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          {
+            syft-version: v1.50.0,
+            path: wallet/zuuli/artifact-sbom-work/macos-dmg/root,
+            config: wallet/zuuli/syft-artifact.yaml,
+            format: cyclonedx-json,
+            output-file: wallet/zuuli/artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json,
+            upload-artifact: false,
+          }
+      - name: Scan macOS app ZIP shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          {
+            syft-version: v1.50.0,
+            path: wallet/zuuli/artifact-sbom-work/macos-zip/root,
+            config: wallet/zuuli/syft-artifact.yaml,
+            format: cyclonedx-json,
+            output-file: wallet/zuuli/artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json,
+            upload-artifact: false,
+          }
+      - name: Bind macOS shipped-artifact SBOMs
+        env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
+        run: |
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root --raw-sbom=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root --raw-sbom=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json
       - name: Prepare explicitly labeled source inventory
         run: mkdir -p artifact-sbom-work
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
@@ -1526,6 +1554,9 @@ jobs:
         run: node scripts/artifact-sbom.mjs label-source --raw-sbom=artifact-sbom-work/ZUULI-macos.source.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos.source.sbom.cdx.json --source-root=wallet/zuuli
       - name: Record checksums and provenance
         run: |
+          RELEASE_IDENTITY=${{ needs.prepare.outputs.identity }}
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json
           jq -e '(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)' release-artifacts/ZUULI-macos.source.sbom.cdx.json
           node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3

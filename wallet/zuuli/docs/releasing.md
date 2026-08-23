@@ -21,14 +21,15 @@ checkout and is not evidence about package contents. Both carry
 `free2z:inventory-scope` metadata so downstream automation need not infer scope
 from a filename.
 
-The packaging smoke workflow scans the unsigned Android AAB and iOS app ZIP.
-The protected release scans the signed Android AAB and iOS IPA. For each of
-these ZIP-family artifacts the release train:
+The packaging smoke workflow scans the unsigned Android AAB, iOS app ZIP,
+macOS app ZIP, and macOS layout DMG. The protected release scans the signed
+Android AAB, iOS IPA, notarized macOS app ZIP, and notarized macOS DMG. For each
+artifact the release train:
 
 1. validates archive member paths and unpacks the actual package;
 2. runs Syft on that unpacked root;
 3. adds a complete, digest-bearing inventory of every regular file and a
-   target-bearing inventory of every safe relative symlink;
+   target-bearing inventory of every safe symlink;
 4. writes a separate binding record containing the exact artifact and SBOM
    SHA-256 digests and byte counts; and
 5. independently re-extracts the exact digest-bound archive into a fresh
@@ -36,16 +37,18 @@ these ZIP-family artifacts the release train:
    manifest and build-provenance attestation are created. Verification never
    accepts the mutable root that Syft scanned as evidence of shipped bytes.
 
+ZIP extraction rejects escaping symlinks. DMGs are mounted read-only at a
+private mountpoint, copied with a walker that never follows symlinks (including
+the canonical absolute `/Applications` link), and detached before Syft runs.
 Any omitted, altered, duplicate, escaping, or unsupported payload entry fails
 closed. Archive size, entry-count, and expanded-byte ceilings bound extraction
 resource use. The release manifest then hashes the artifact, SBOM, and binding
 record, and protected jobs attest every member of `release-artifacts`.
 
-Artifact-level extraction for Linux AppImage, deb, and rpm packages and for the
-macOS DMG and signed app ZIP remains tracked in issue #379. Those jobs retain
-their existing source-tree inventories, now explicitly labeled as such; they
-must not be described as artifact SBOMs until format-specific extraction and
-verification land.
+Artifact-level extraction for Linux AppImage, deb, and rpm packages remains
+tracked in issue #379. Linux retains its explicitly labeled source-tree
+inventory and must not describe it as an artifact SBOM until format-specific
+extraction and verification land.
 
 `release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
 byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
@@ -492,7 +495,6 @@ allowed to execute in a credential-bearing job.
    cannot honestly name its own SHA) or the later release-identity commit. For
    a real promotion, the protected workflow reads the marker from the immutable
    release source and requires all of the following:
-
    - the recorded SHA is on the release commit parent's first-parent history;
    - between that SHA and the release parent, the required ZUULI gate's
      release-impacting surface changed only in `STATUS.md`; and
@@ -507,6 +509,7 @@ allowed to execute in a credential-bearing job.
    dry run nor this source-bound check creates production/native evidence. A
    stale immutable release source also cannot be made eligible for real recovery
    by editing `STATUS.md` later; re-derive first and advance the release identity.
+
 2. Merge only with the required `gate` and `ZUULI / packaging smoke` green.
 3. From a clean version worktree run
    `npm run release:bump -- --version=<VERSION> --build=<BUILD>`, review every
@@ -522,17 +525,17 @@ allowed to execute in a credential-bearing job.
    release, read `release.json`, inspect that identity's exact protected run,
    and confirm both stores directly.
 
-   | Identity | Durable protected-run evidence | Historical result |
-   |---|---|---|
-   | `0.1.0+2` | [run 31245152190](https://github.com/free2z/zuu/actions/runs/31245152190) | Play internal succeeded; iOS exposed the PKCS#12 import failure. |
-   | `0.1.0+3` | [run 31248731230](https://github.com/free2z/zuu/actions/runs/31248731230) | Play internal succeeded; iOS again stopped before upload. |
-   | `0.1.0+4` | [run 31253299730](https://github.com/free2z/zuu/actions/runs/31253299730) | Play internal succeeded; iOS signing/export passed, then generated-plist ordering failed. |
-   | `0.1.0+5` | [run 31254971614](https://github.com/free2z/zuu/actions/runs/31254971614) | Play internal succeeded; Apple rejected a bundled static archive with error 90171. |
-   | `0.1.0+6` | [run 31257912883](https://github.com/free2z/zuu/actions/runs/31257912883) | Both protected jobs succeeded after the static archive became link-only; App Store Connect required the build-specific exempt-encryption answer before beta testing. |
-   | `0.1.0+7` | [run 31270095364](https://github.com/free2z/zuu/actions/runs/31270095364) | iOS upload succeeded with the declaration packaged; Android exposed the 32-bit app-data-migration compile error. |
-   | `0.1.0+8` | [run 31293265075](https://github.com/free2z/zuu/actions/runs/31293265075) | Play internal succeeded and Apple accepted the iOS upload after the cross-ABI fix; the historical workflow did not prove TestFlight group availability. |
-   | `0.1.0+9` | [run 31301302280](https://github.com/free2z/zuu/actions/runs/31301302280) | Play internal succeeded and Apple accepted the iOS upload; the historical workflow did not prove TestFlight group availability. |
-   | `0.1.0+10` | [run 31323759501](https://github.com/free2z/zuu/actions/runs/31323759501) | Play internal succeeded and Apple accepted the iOS upload; use the protected read-only recovery below for current processing/group evidence. |
+   | Identity   | Durable protected-run evidence                                            | Historical result                                                                                                                                                    |
+   | ---------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `0.1.0+2`  | [run 31245152190](https://github.com/free2z/zuu/actions/runs/31245152190) | Play internal succeeded; iOS exposed the PKCS#12 import failure.                                                                                                     |
+   | `0.1.0+3`  | [run 31248731230](https://github.com/free2z/zuu/actions/runs/31248731230) | Play internal succeeded; iOS again stopped before upload.                                                                                                            |
+   | `0.1.0+4`  | [run 31253299730](https://github.com/free2z/zuu/actions/runs/31253299730) | Play internal succeeded; iOS signing/export passed, then generated-plist ordering failed.                                                                            |
+   | `0.1.0+5`  | [run 31254971614](https://github.com/free2z/zuu/actions/runs/31254971614) | Play internal succeeded; Apple rejected a bundled static archive with error 90171.                                                                                   |
+   | `0.1.0+6`  | [run 31257912883](https://github.com/free2z/zuu/actions/runs/31257912883) | Both protected jobs succeeded after the static archive became link-only; App Store Connect required the build-specific exempt-encryption answer before beta testing. |
+   | `0.1.0+7`  | [run 31270095364](https://github.com/free2z/zuu/actions/runs/31270095364) | iOS upload succeeded with the declaration packaged; Android exposed the 32-bit app-data-migration compile error.                                                     |
+   | `0.1.0+8`  | [run 31293265075](https://github.com/free2z/zuu/actions/runs/31293265075) | Play internal succeeded and Apple accepted the iOS upload after the cross-ABI fix; the historical workflow did not prove TestFlight group availability.              |
+   | `0.1.0+9`  | [run 31301302280](https://github.com/free2z/zuu/actions/runs/31301302280) | Play internal succeeded and Apple accepted the iOS upload; the historical workflow did not prove TestFlight group availability.                                      |
+   | `0.1.0+10` | [run 31323759501](https://github.com/free2z/zuu/actions/runs/31323759501) | Play internal succeeded and Apple accepted the iOS upload; use the protected read-only recovery below for current processing/group evidence.                         |
 
    Packaging is a separate credential-free signal. Query the
    [scheduled packaging runs](https://github.com/free2z/zuu/actions/workflows/zuuli-packaging.yml?query=event%3Aschedule)
@@ -540,6 +543,7 @@ allowed to execute in a credential-bearing job.
    [run 32006817573](https://github.com/free2z/zuu/actions/runs/32006817573)
    is the cache-free, all-target success recorded for the commit audited by
    issue #389.
+
 5. Inspect the signed packages, SBOMs, checksum manifests, and GitHub
    attestations. For a dry run or partial-failure recovery, dispatch **ZUULI /
    protected release** with the exact full SHA, identity, missing target, and
@@ -661,7 +665,7 @@ that ZUULI's non-OS cryptography uses published, non-proprietary algorithms and
 is limited to its Zcash wallet and financial-transaction functionality. Build 6
 proved this answer through App Store Connect, and Build 7 makes it package data.
 
-Apple directs apps that use no encryption *or only exempt encryption* to set the
+Apple directs apps that use no encryption _or only exempt encryption_ to set the
 Boolean to `NO`; omitting the key causes the export-compliance questions to recur
 for each upload. Apple also says the developer remains responsible for the
 classification and may have separate reporting obligations. See Apple's
