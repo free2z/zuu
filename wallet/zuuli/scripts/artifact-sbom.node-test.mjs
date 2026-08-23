@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   artifactSbomWorkflowFailures,
+  extractDmg,
   finalizeArtifactSbom,
   inventoryRoot,
   labelSourceSbom,
@@ -279,6 +280,76 @@ test(
     }
   },
 );
+
+test("a failed DMG attach is detached before its temporary tree is removed", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-dmg-attach-failure-"));
+  let mountpoint;
+  const calls = [];
+  try {
+    assert.throws(
+      () =>
+        extractDmg(resolve(temporary, "broken.dmg"), resolve(temporary, "root"), {
+          execute(command, args) {
+            assert.equal(command, "hdiutil");
+            calls.push(args);
+            if (args[0] === "attach") {
+              mountpoint = args.at(-1);
+              throw new Error("attach failed after a partial mount");
+            }
+            return Buffer.alloc(0);
+          },
+        }),
+      /attach failed after a partial mount/,
+    );
+    assert.deepEqual(calls.map((args) => args[0]), ["attach", "detach"]);
+    assert.equal(
+      lstatSync(dirname(mountpoint), { throwIfNoEntry: false }),
+      undefined,
+      "the private tree is removable only after detach succeeds",
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("a failed DMG detach leaves the potentially live mount tree intact", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-dmg-detach-failure-"));
+  let mountpoint;
+  const calls = [];
+  try {
+    assert.throws(
+      () =>
+        extractDmg(resolve(temporary, "broken.dmg"), resolve(temporary, "root"), {
+          execute(command, args) {
+            assert.equal(command, "hdiutil");
+            calls.push(args);
+            if (args[0] === "attach") {
+              mountpoint = args.at(-1);
+              throw new Error("attach timed out after a partial mount");
+            }
+            throw new Error("detach failed");
+          },
+        }),
+      /failed to detach artifact DMG safely/,
+    );
+    assert.deepEqual(calls.map((args) => args.join(" ")), [
+      calls[0].join(" "),
+      `detach ${mountpoint}`,
+      `detach ${mountpoint} -force`,
+    ]);
+    assert.equal(
+      lstatSync(dirname(mountpoint)).isDirectory(),
+      true,
+      "a possibly mounted tree must be left for runner cleanup",
+    );
+  } finally {
+    if (mountpoint) {
+      // The injected command never created a real mount.
+      rmSync(dirname(mountpoint), { recursive: true, force: true });
+    }
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
 
 test("source inventory is labeled without pretending to describe an artifact", () => {
   const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-source-sbom-"));

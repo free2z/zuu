@@ -277,24 +277,31 @@ function cloneMountedTree(sourcePath, destinationPath) {
   visit(source, destinationPath);
 }
 
-function extractDmg(artifact, root) {
+export function extractDmg(
+  artifact,
+  root,
+  { execute = execFileSync } = {},
+) {
   const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-dmg-mount-"));
   const mountpoint = resolve(temporary, "mount");
   mkdirSync(mountpoint);
-  let mounted = false;
+  let attachAttempted = false;
   try {
-    execFileSync(
+    // Treat the mount as live from the instant attach starts. `hdiutil` can
+    // time out or return non-zero after DiskImages has already mounted the
+    // filesystem, so a successful process exit is not a safe cleanup signal.
+    attachAttempted = true;
+    execute(
       "hdiutil",
       ["attach", artifact, "-readonly", "-nobrowse", "-mountpoint", mountpoint],
       { stdio: ["ignore", "ignore", "pipe"], timeout: 120_000 },
     );
-    mounted = true;
     cloneMountedTree(mountpoint, root);
   } finally {
-    let detached = !mounted;
-    if (mounted) {
+    let detached = !attachAttempted;
+    if (attachAttempted) {
       try {
-        execFileSync("hdiutil", ["detach", mountpoint], {
+        execute("hdiutil", ["detach", mountpoint], {
           stdio: ["ignore", "ignore", "pipe"],
           timeout: 120_000,
         });
@@ -304,7 +311,7 @@ function extractDmg(artifact, root) {
           // Spotlight or Finder can briefly hold a newly mounted image. This
           // mount is private and read-only, so a bounded forced detach is the
           // safe fallback used by the release verifier too.
-          execFileSync("hdiutil", ["detach", mountpoint, "-force"], {
+          execute("hdiutil", ["detach", mountpoint, "-force"], {
             stdio: ["ignore", "ignore", "pipe"],
             timeout: 120_000,
           });
