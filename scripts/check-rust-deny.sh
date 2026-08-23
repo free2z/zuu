@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Run cargo-deny's supply-chain checks over every Rust crate under wallet/.
+# Run cargo-deny's supply-chain checks over every Rust crate under a Rust tree.
 #
 # The three wallet crates have independent lockfiles that resolve the Zcash and
 # Tauri graphs differently, so each is checked separately — against one shared
 # policy, wallet/deny.toml, so they cannot drift into disagreeing about what is
-# acceptable. Crates are discovered rather than listed, so a new crate under
-# wallet/ is gated from its first commit.
+# acceptable. Crates are discovered rather than listed, so a new crate under the
+# tree is gated from its first commit.
+#
+# The tree defaults to wallet/ and the policy to <tree>/deny.toml. A second
+# top-level Rust namespace is gated by pointing --root at it; --config gives it
+# its own policy, because "which advisories we accept" is a judgement about a
+# particular dependency graph and a server graph is not the wallet's.
 #
 # cargo-deny is fetched as a checksum-verified release binary rather than built
 # from source or installed by a third-party action. A tool whose job is to
@@ -14,19 +19,28 @@
 # they are in the repository where they can be reviewed and bumped deliberately.
 #
 # Unlike scripts/check-rust-fmt.sh this needs the dependency graph resolved, so
-# z/zcash/librustzcash must be checked out — the wallet crates reach the Zcash
-# crates through path dependencies into it.
+# z/zcash/librustzcash must be checked out for any tree whose crates reach the
+# Zcash crates through path dependencies into it.
 #
 # Usage:
 #   scripts/check-rust-deny.sh                  advisories, bans, licences, sources
 #   scripts/check-rust-deny.sh advisories       one check only (any cargo-deny check)
+#   scripts/check-rust-deny.sh --root DIR       judge a different Rust tree (default: wallet)
+#   scripts/check-rust-deny.sh --config PATH    policy to enforce (default: <root>/deny.toml)
 #   scripts/check-rust-deny.sh --print-version  print the pinned cargo-deny version
+#   scripts/check-rust-deny.sh --self-test      prove the policy still decides the verdict
 
 set -euo pipefail
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-RUST_ROOT=$REPO_ROOT/wallet
-CONFIG=$RUST_ROOT/deny.toml
+# Absolute, because the self-test re-invokes this script after cd'ing into the
+# tree under test, and because a relative --config is resolved against the
+# directory the caller typed it in.
+SELF=$REPO_ROOT/scripts/$(basename -- "${BASH_SOURCE[0]}")
+INVOCATION_DIR=$PWD
+
+# The Rust tree to judge, relative to the repository root.
+DEFAULT_ROOT=wallet
 
 # Bumping: change the version, then replace all four digests with the contents
 # of the matching .sha256 files from the release. Never bump the version alone.
@@ -36,22 +50,72 @@ CARGO_DENY_SHA256_aarch64_unknown_linux_musl=995c82be0defc7a025cae49a2aa2644ce82
 CARGO_DENY_SHA256_x86_64_apple_darwin=248da7f581724e470071990c088ffc55c811981715f4cbdb258621fb79f8b7a6
 CARGO_DENY_SHA256_aarch64_apple_darwin=fe67d82a10d8597a3549364cb733a3f9cc1bfff9031b7ae46384a9f2a72090c3
 
-if [[ ${1-} == --print-version ]]; then
-  printf '%s\n' "$CARGO_DENY_VERSION"
-  exit 0
-fi
+mode=check
+root=$DEFAULT_ROOT
+config=
+check=
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --print-version)
+      printf '%s\n' "$CARGO_DENY_VERSION"
+      exit 0
+      ;;
+    --self-test) mode=self-test ;;
+    --root)
+      root=${2-}
+      if [[ -z $root ]]; then
+        printf -- '--root needs a directory.\n' >&2
+        exit 2
+      fi
+      shift
+      ;;
+    --config)
+      config=${2-}
+      if [[ -z $config ]]; then
+        printf -- '--config needs a path to a deny.toml.\n' >&2
+        exit 2
+      fi
+      shift
+      ;;
+    -h | --help)
+      awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+      exit 0
+      ;;
+    -*)
+      printf 'unknown argument: %s\n' "$1" >&2
+      exit 2
+      ;;
+    *)
+      if [[ -n $check ]]; then
+        printf 'unknown argument: %s\n' "$1" >&2
+        exit 2
+      fi
+      check=$1
+      ;;
+  esac
+  shift
+done
+check=${check:-all}
 
-if [[ ${1-} == -h || ${1-} == --help ]]; then
-  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
-  exit 0
-fi
+# An absolute --root is accepted so the self-test can point this at a scratch
+# tree; a relative one is a path from the repository root.
+case "$root" in
+  /*) RUST_ROOT=$root ;;
+  *) RUST_ROOT=$REPO_ROOT/$root ;;
+esac
+LABEL=${root%/}
 
-check=${1-all}
-
-if [[ ! -f $CONFIG ]]; then
-  printf 'wallet/deny.toml is missing; it is the supply-chain policy this check enforces.\n' >&2
-  exit 1
+# --config is resolved before the cd below, against the directory the caller was
+# standing in, so a relative path means what it looks like it means.
+if [[ -z $config ]]; then
+  CONFIG=$RUST_ROOT/deny.toml
+else
+  case "$config" in
+    /*) CONFIG=$config ;;
+    *) CONFIG=$INVOCATION_DIR/$config ;;
+  esac
 fi
+CONFIG_LABEL=${CONFIG#"$REPO_ROOT"/}
 
 host_target() {
   local os arch
@@ -126,6 +190,66 @@ install_cargo_deny() {
   printf '%s' "$dest"
 }
 
+# --- self-test ---------------------------------------------------------------
+#
+# Builds a scratch crate with a known licence and judges it twice under two
+# policies that disagree about that licence. Passing both ways would mean
+# --config is decorative; failing both ways would mean the tree is unreachable.
+# A check nobody has watched fail is not a check.
+if [[ $mode == self-test ]]; then
+  fixture=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-deny-self-test.XXXXXX")
+  trap 'rm -rf -- "$fixture"' EXIT
+
+  if "$SELF" --root "$fixture" >/dev/null 2>&1; then
+    printf 'self-test FAILED: --root accepted a tree with no policy to enforce.\n' >&2
+    exit 1
+  fi
+  printf 'self-test: --root refuses a tree whose deny.toml is missing.\n'
+
+  mkdir -p "$fixture/relay/src"
+  cat > "$fixture/relay/Cargo.toml" <<'EOF'
+[package]
+name = "zuuli-deny-self-test"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0"
+
+[workspace]
+EOF
+  printf 'pub fn negate(value: bool) -> bool {\n    !value\n}\n' > "$fixture/relay/src/lib.rs"
+  # cargo-deny judges --locked, so the fixture needs the lockfile it judges.
+  cargo generate-lockfile --manifest-path "$fixture/relay/Cargo.toml"
+
+  printf '[licenses]\nallow = ["GPL-3.0"]\n' > "$fixture/deny.toml"
+  if ! "$SELF" --root "$fixture" licenses >/dev/null 2>&1; then
+    printf 'self-test FAILED: a permitted licence was rejected under <root>/deny.toml.\n' >&2
+    exit 1
+  fi
+  printf 'self-test: --root enforces <root>/deny.toml.\n'
+
+  # Negative control: same tree, same crate, a policy that forbids its licence.
+  printf '[licenses]\nallow = ["MIT"]\n' > "$fixture/strict.toml"
+  if "$SELF" --root "$fixture" --config "$fixture/strict.toml" licenses >/dev/null 2>&1; then
+    printf 'self-test FAILED: --config did not decide the verdict; a forbidden licence passed.\n' >&2
+    exit 1
+  fi
+  printf 'self-test: --config decides the verdict (a forbidden licence fails).\n'
+
+  if "$SELF" --root "$fixture" --config "$fixture/absent.toml" licenses >/dev/null 2>&1; then
+    printf 'self-test FAILED: --config accepted a policy file that does not exist.\n' >&2
+    exit 1
+  fi
+  printf 'self-test: --config refuses a policy file that is not there.\n'
+
+  printf 'self-test: 4 case(s) passed; cargo-deny %s.\n' "$CARGO_DENY_VERSION"
+  exit 0
+fi
+
+if [[ ! -f $CONFIG ]]; then
+  printf '%s is missing; it is the supply-chain policy this check enforces.\n' "$CONFIG_LABEL" >&2
+  exit 1
+fi
+
 CARGO_DENY=$(install_cargo_deny)
 
 cd "$RUST_ROOT"
@@ -142,14 +266,14 @@ done < <(
 )
 
 if [[ ${#manifests[@]} -eq 0 ]]; then
-  printf 'no Cargo manifests found under wallet/; this check has gone blind.\n' >&2
+  printf 'no Cargo manifests found under %s/; this check has gone blind.\n' "$LABEL" >&2
   exit 1
 fi
 
 failed=()
 for manifest in "${manifests[@]}"; do
   crate=$(dirname "$manifest")
-  printf '\n==> cargo-deny check %s -- wallet/%s\n' "$check" "$crate"
+  printf '\n==> cargo-deny check %s -- %s/%s\n' "$check" "$LABEL" "$crate"
   # One shared policy across three lockfiles means some ignore entries apply to
   # a different lockfile than the one being checked; cargo-deny reports those as
   # `advisory-not-detected` warnings. They are expected and are not failures.
@@ -159,14 +283,14 @@ for manifest in "${manifests[@]}"; do
   if "$CARGO_DENY" --manifest-path "$manifest" --config "$CONFIG" --locked check "$check"; then
     continue
   fi
-  failed+=("wallet/$crate")
+  failed+=("$LABEL/$crate")
 done
 
 if [[ ${#failed[@]} -gt 0 ]]; then
   printf '\n%d crate(s) failed the supply-chain policy: %s\n' "${#failed[@]}" "${failed[*]}" >&2
-  printf 'Fix the dependency, or add a specific, reasoned entry to wallet/deny.toml.\n' >&2
+  printf 'Fix the dependency, or add a specific, reasoned entry to %s.\n' "$CONFIG_LABEL" >&2
   printf 'Do not broaden a category to make this pass.\n' >&2
   exit 1
 fi
 
-printf '\nAll %d Rust crate(s) under wallet/ satisfy wallet/deny.toml.\n' "${#manifests[@]}"
+printf '\nAll %d Rust crate(s) under %s/ satisfy %s.\n' "${#manifests[@]}" "$LABEL" "$CONFIG_LABEL"

@@ -239,6 +239,12 @@ jobs:
           toolchain: ${{ steps.rust_toolchain.outputs.version }}
           components: rustfmt
 
+      # A check nobody has watched fail is not a check: this builds a scratch
+      # tree under --root and proves the verdict tracks it, unformatted case
+      # included. Seconds, and it is what keeps --root honest for a second tree.
+      - name: Prove the formatting gate still fails
+        run: scripts/check-rust-fmt.sh --self-test
+
       - name: Check formatting of every Rust crate under wallet/
         run: scripts/check-rust-fmt.sh
 
@@ -278,6 +284,12 @@ jobs:
       # the version and digests are pinned in the script. Deliberately not a
       # third-party installer action — the tool that polices our supply chain
       # should not arrive through an unpinned one.
+      # Judges one scratch crate under two policies that disagree about its
+      # licence. Passing both ways would mean --config is decorative, which is
+      # the whole mechanism a second tree's own policy rests on.
+      - name: Prove the policy still decides the verdict
+        run: scripts/check-rust-deny.sh --self-test
+
       - name: Check advisories, licences and sources
         run: scripts/check-rust-deny.sh
 
