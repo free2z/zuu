@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +11,8 @@ const policyPath = "scripts/check-zuuli-android-gate.mjs";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
+const changeDetectorDigest =
+  "6d8ed19ac60777c842ab06f791f2ac22c734dce248e20451f5bc9f947fb2b1fb";
 
 function job(workflow, name) {
   const start = new RegExp(`^  ${name}:\\n`, "m").exec(workflow);
@@ -61,6 +64,12 @@ function check(workflow) {
     failures.push("changes job must execute the exact Android gate policy step");
   }
   const detector = namedStep(changes, "Detect release-impacting ZUULI changes");
+  const detectorDigest = createHash("sha256").update(detector).digest("hex");
+  if (detectorDigest !== changeDetectorDigest) {
+    failures.push(
+      "change detector differs from the reviewed fail-open/fail-closed selector step",
+    );
+  }
   const zuuliCase = detector.match(
     /case "\$file" in\n\s+([^\n]+)\)\n\s+zuuli=true/,
   );
@@ -270,8 +279,20 @@ function runSelfTest(workflow) {
   if (check(decoratedSelector).length === 0) {
     throw new Error("mutation escaped policy: dead text replaces the real change selector");
   }
+  const deadZuuliCase = workflow
+    .replace(
+      '          while IFS= read -r file; do\n            case "$file" in',
+      '          while IFS= read -r file; do\n            if false; then\n            case "$file" in',
+    )
+    .replace(
+      '            esac\n            case "$file" in',
+      '            esac\n            fi\n            case "$file" in',
+    );
+  if (check(deadZuuliCase).length === 0) {
+    throw new Error("mutation escaped policy: real ZUULI selector case is dead code");
+  }
   console.log(
-    `Android gate policy self-test passed (${mutations.length + 1} mutations).`,
+    `Android gate policy self-test passed (${mutations.length + 2} mutations).`,
   );
 }
 
