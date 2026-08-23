@@ -82,27 +82,48 @@ function check(workflow) {
   requireLine(
     failures,
     android,
-    `targets: ${target}`,
-    `32-bit Android job must install ${target}`,
-  );
-  requireLine(
-    failures,
-    android,
     "run: git submodule update --init z/zcash/librustzcash",
     "32-bit Android job must fetch the in-source Zcash dependency",
   );
-  requireLine(
-    failures,
-    android,
-    `'ndk;${ndk}' >/dev/null`,
-    `32-bit Android job must install NDK ${ndk}`,
-  );
-  requireLine(
-    failures,
-    android,
-    `key: ${cacheKey}`,
-    "32-bit Android cache must bind the target, NDK, and API level",
-  );
+  const expectedTargetStep = [
+    "      - name: Install the pinned 32-bit Android Rust target",
+    "        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+    "        with:",
+    "          toolchain: ${{ steps.rust_toolchain.outputs.version }}",
+    `          targets: ${target}`,
+  ].join("\n");
+  if (
+    namedStep(android, "Install the pinned 32-bit Android Rust target") !==
+    expectedTargetStep
+  ) {
+    failures.push(`32-bit Android job must install ${target} with the pinned action`);
+  }
+  const expectedNdkStep = [
+    "      - name: Install the pinned Android NDK",
+    "        run: |",
+    "          set -euo pipefail",
+    "          set +e",
+    '          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \\',
+    `            'ndk;${ndk}' >/dev/null`,
+    "          sdk_status=${PIPESTATUS[1]}",
+    "          set -e",
+    '          [[ "$sdk_status" -eq 0 ]] || { echo "sdkmanager failed ($sdk_status)" >&2; exit 1; }',
+  ].join("\n");
+  if (namedStep(android, "Install the pinned Android NDK") !== expectedNdkStep) {
+    failures.push(`32-bit Android job must install the exact NDK ${ndk}`);
+  }
+  const expectedCacheStep = [
+    "      - name: Restore the 32-bit Android Rust cache",
+    "        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+    "        with:",
+    "          workspaces: wallet/plugins/tauri-plugin-zcash",
+    `          key: ${cacheKey}`,
+  ].join("\n");
+  if (
+    namedStep(android, "Restore the 32-bit Android Rust cache") !== expectedCacheStep
+  ) {
+    failures.push("32-bit Android cache must bind its pinned action, target, NDK, and API level");
+  }
   const expectedTypecheckStep = [
     "      - name: Type-check the shared plugin on 32-bit Android",
     "        run: |",
@@ -160,6 +181,21 @@ function runSelfTest(workflow) {
     ["the target check is replaced", `--target ${target}`, "--target aarch64-linux-android"],
     ["the pinned NDK is changed", `'ndk;${ndk}'`, "'ndk;latest'"],
     ["the cache drops its NDK boundary", `key: ${cacheKey}`, "key: zuuli-plugin-android-armv7"],
+    [
+      "the target action is replaced by decorative text",
+      "      - name: Install the pinned 32-bit Android Rust target\n        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+      `      - name: Install the pinned 32-bit Android Rust target\n        run: echo 'targets: ${target}'`,
+    ],
+    [
+      "the NDK install is replaced by decorative text",
+      "      - name: Install the pinned Android NDK\n        run: |\n          set -euo pipefail",
+      `      - name: Install the pinned Android NDK\n        run: echo "'ndk;${ndk}' >/dev/null"`,
+    ],
+    [
+      "the cache action is replaced by decorative text",
+      "      - name: Restore the 32-bit Android Rust cache\n        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+      `      - name: Restore the 32-bit Android Rust cache\n        run: echo 'key: ${cacheKey}'`,
+    ],
     [
       "the job is detached from change detection",
       "  rust_android_32:\n    name: Rust / Android 32-bit\n    needs: changes",
