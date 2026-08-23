@@ -199,6 +199,87 @@ test("verification re-extracts the artifact instead of trusting a mutated scan r
   }
 });
 
+test(
+  "macOS DMG inventory is copied without following its Applications link",
+  { skip: process.platform !== "darwin" },
+  () => {
+    const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-artifact-dmg-"));
+    try {
+      const source = resolve(temporary, "source");
+      const executable = resolve(source, "ZUULI.app/Contents/MacOS/ZUULI");
+      mkdirSync(dirname(executable), { recursive: true });
+      writeFileSync(executable, "signed macOS executable fixture\n");
+      symlinkSync("/Applications", resolve(source, "Applications"));
+      const artifact = resolve(temporary, "ZUULI-test.dmg");
+      execFileSync(
+        "hdiutil",
+        [
+          "create",
+          "-quiet",
+          "-ov",
+          "-format",
+          "UDZO",
+          "-volname",
+          "ZUULI test",
+          "-srcfolder",
+          source,
+          artifact,
+        ],
+        { timeout: 120_000 },
+      );
+      const root = resolve(temporary, "unpacked");
+      const rawSbom = resolve(temporary, "raw.cdx.json");
+      const sbom = resolve(temporary, "artifact.sbom.cdx.json");
+      const binding = resolve(temporary, "artifact.sbom-binding.json");
+      writeJson(rawSbom, minimalCycloneDx());
+
+      const inventory = prepareArtifact({ artifact, root });
+      assert.ok(
+        inventory.some(
+          (entry) =>
+            entry.path === "Applications" &&
+            entry.kind === "symlink" &&
+            entry.target === "/Applications",
+        ),
+      );
+      assert.ok(
+        inventory.some(
+          (entry) => entry.path === "ZUULI.app/Contents/MacOS/ZUULI",
+        ),
+      );
+      finalizeArtifactSbom({ artifact, root, rawSbom, sbom, binding });
+      assert.doesNotThrow(() =>
+        verifyArtifactSbom({ artifact, sbom, binding }),
+      );
+
+      writeFileSync(
+        resolve(root, "ZUULI.app/Contents/MacOS/not-shipped.dylib"),
+        "scan-root injection\n",
+      );
+      const poisonedSbom = resolve(temporary, "poisoned.sbom.cdx.json");
+      const poisonedBinding = resolve(temporary, "poisoned.binding.json");
+      finalizeArtifactSbom({
+        artifact,
+        root,
+        rawSbom,
+        sbom: poisonedSbom,
+        binding: poisonedBinding,
+      });
+      assert.throws(
+        () =>
+          verifyArtifactSbom({
+            artifact,
+            sbom: poisonedSbom,
+            binding: poisonedBinding,
+          }),
+        /artifact file inventory count mismatch|omits shipped artifact entry/,
+      );
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
 test("source inventory is labeled without pretending to describe an artifact", () => {
   const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-source-sbom-"));
   try {
@@ -275,7 +356,7 @@ test("payload inventory rejects a relative symlink that resolves outside the roo
   }
 });
 
-test("workflow contract catches removal of a mobile artifact scan", () => {
+test("workflow contract catches removal or weakening of artifact scans", () => {
   const packaging = readFileSync(
     resolve(repoRoot, ".github/workflows/zuuli-packaging.yml"),
     "utf8",
@@ -321,5 +402,24 @@ test("workflow contract catches removal of a mobile artifact scan", () => {
       (failure) => failure.includes("packaging ios"),
     ),
     "the policy must reject replacing fresh artifact verification with the mutable Syft root",
+  );
+  const skippedMacDmg = packaging.replace(
+    'node scripts/artifact-sbom.mjs prepare --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root',
+    'node scripts/artifact-sbom.mjs prepare-disabled --artifact="${dmgs[0]}" --root=artifact-sbom-work/macos-dmg/root',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(skippedMacDmg, release).some((failure) =>
+      failure.includes("packaging macos"),
+    ),
+  );
+  const mutableMacRoot = release.replace(
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json',
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, mutableMacRoot).some((failure) =>
+      failure.includes("release macos artifacts"),
+    ),
+    "the policy must reject reusing the mutable macOS Syft root for release verification",
   );
 });
