@@ -1466,7 +1466,7 @@ if (mode === "--self-test") {
   }
   console.log(
     "GitHub Actions policy passed: every external action/reusable workflow is immutably pinned, " +
-      `and every required-gate dependency is fail-closed and consumed (${result.externalReferences} ` +
+      `and every required-gate dependency is bound to the enforcing verdict (${result.externalReferences} ` +
       `external reference(s), ${result.scannedFiles} file(s)).`,
   );
 }
