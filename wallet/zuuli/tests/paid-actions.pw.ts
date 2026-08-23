@@ -99,7 +99,7 @@ test("send restores its bounded draft only after login and never diagnoses a gue
   await page
     .getByRole("combobox", { name: "Search for a 2Z recipient" })
     .fill("maya");
-  await page.getByLabel("Custom tip amount in 2Z").fill("5000");
+  await page.getByLabel("Custom tip amount in 2Z").fill("3,000");
   await expectNoAnonymousBalanceDiagnosis(page);
   await page.getByRole("button", { name: "Sign in to send 2Z" }).click();
 
@@ -108,8 +108,36 @@ test("send restores its bounded draft only after login and never diagnoses a gue
     .poll(() => storedIntent(page))
     .toMatchObject({
       returnTo: "/wallet/fund/send",
-      intent: { kind: "send", query: "maya", amount: "5000" },
+      intent: { kind: "send", query: "maya", amount: 3000 },
     });
+});
+
+test.describe("locale-invariant Send drafts", () => {
+  test.use({ locale: "de-DE" });
+
+  test("formats a canonical amount in the locale active after login", async ({
+    page,
+  }) => {
+    await page.setViewportSize(PHONE);
+    await page.addInitScript(() => {
+      localStorage.setItem("zuuli.knox.token", "mock-knox-token");
+      sessionStorage.setItem(
+        "zuuli.auth.pending-paid-intent",
+        JSON.stringify({
+          returnTo: "/wallet/fund/send",
+          createdAt: Date.now(),
+          intent: { kind: "send", query: "maya", amount: 3000 },
+        }),
+      );
+    });
+
+    await page.goto("/wallet/fund/send");
+    await page.locator("[data-app-frame]").waitFor();
+
+    await expect(page.getByLabel("Custom tip amount in 2Z")).toHaveValue(
+      "3.000",
+    );
+  });
 });
 
 test("send keeps malformed restored money text invalid instead of coercing it to a preset", async ({
