@@ -1,3 +1,5 @@
+# Source-tree inventory only. Shipped packages must use syft-artifact.yaml
+# against an unpacked artifact payload and then bind the result to its digest.
 exclude:
   - "**/node_modules/**"
   - "**/target/**"
