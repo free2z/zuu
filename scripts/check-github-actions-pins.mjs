@@ -16,6 +16,50 @@ const GATE_POLICY_SELF_TEST_COMMAND =
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
+const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
+  "  rust_native_clippy:",
+  "    name: Rust / native lints (${{ matrix.target_os }})",
+  "    needs: changes",
+  "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+  "    timeout-minutes: 90",
+  "    strategy:",
+  "      fail-fast: false",
+  "      matrix:",
+  "        include:",
+  "          - os: macos-latest",
+  "            target_os: macos",
+  "          - os: windows-latest",
+  "            target_os: windows",
+  "    runs-on: ${{ matrix.os }}",
+  "    steps:",
+  `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - name: Fetch librustzcash submodule",
+  "        run: git submodule update --init z/zcash/librustzcash",
+  "      - name: Resolve the pinned Rust toolchain",
+  "        id: rust_toolchain",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  "          version=$(scripts/check-rust-toolchain.sh --print-channel)",
+  '          echo "version=$version" >> "$GITHUB_OUTPUT"',
+  "      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+  "        with:",
+  "          toolchain: ${{ steps.rust_toolchain.outputs.version }}",
+  "          components: clippy",
+  "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+  "        with:",
+  "          workspaces: |",
+  "            wallet/plugins/tauri-plugin-zcash",
+  "            wallet/zuuli/src-tauri",
+  "            wallet/zuuallet/src-tauri",
+  "          key: zuuli-native-clippy-${{ matrix.target_os }}",
+  "      - name: Prove native target selection and -D warnings",
+  "        shell: bash",
+  '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
+  "      - name: Lint every Rust crate under wallet/ at -D warnings",
+  "        shell: bash",
+  "        run: scripts/check-rust-clippy.sh",
+];
 // Environment inheritance can alter Bash and Node before an exact `run:` block
 // begins. Required jobs therefore accept only these reviewed data inputs; every
 // other workflow/job/step environment entry fails closed.
@@ -1146,6 +1190,19 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   if (enforceNativeClippy && !nativeClippy) {
     failures.push(`${relativeFile}: required workflow must contain rust_native_clippy`);
   } else if (enforceNativeClippy) {
+    const actualNativeClippyJobLines = lines
+      .slice(nativeClippy.start, nativeClippy.end)
+      .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+      .map((line) => line.trimEnd());
+    if (
+      JSON.stringify(actualNativeClippyJobLines) !==
+      JSON.stringify(REQUIRED_NATIVE_CLIPPY_JOB_LINES)
+    ) {
+      failures.push(
+        `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must match the exact current-source native job contract`,
+      );
+    }
+
     const expectedProperties = new Map([
       ["name", "Rust / native lints (${{ matrix.target_os }})"],
       ["needs", "changes"],
@@ -1463,6 +1520,22 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects native clippy detached from gate",
       needle: "gate must await rust_native_clippy",
       source: source.replace(", rust_native_clippy", ""),
+    },
+    {
+      name: "real workflow rejects a stale native checkout",
+      needle: "must match the exact current-source native job contract",
+      source: source.replace(
+        `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n\n      - name: Fetch librustzcash submodule`,
+        `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n        with:\n          ref: 0123456789abcdef0123456789abcdef01234567\n\n      - name: Fetch librustzcash submodule`,
+      ),
+    },
+    {
+      name: "real workflow rejects a native source reset step",
+      needle: "must match the exact current-source native job contract",
+      source: source.replace(
+        "      - name: Prove native target selection and -D warnings",
+        "      - name: Reset to an earlier clean source\n        run: git checkout 0123456789abcdef0123456789abcdef01234567\n\n      - name: Prove native target selection and -D warnings",
+      ),
     },
     {
       name: "real workflow rejects a non-native target matrix",
