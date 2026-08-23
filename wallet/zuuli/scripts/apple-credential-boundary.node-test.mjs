@@ -21,6 +21,7 @@ const profileValidityMarkers = `
           plutil -extract 'Entitlements.com\\.apple\\.application-identifier' raw -expect string
           plutil -extract Entitlements.keychain-access-groups raw -expect array
           plutil -extract "Entitlements.keychain-access-groups.\${group_index}" raw -expect string
+          [[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == 'F9AV5HKF6N.*' ]] || return 1
           plutil -extract CreationDate raw -expect date
           plutil -extract ExpirationDate raw -expect date
           date -j -u -f "%Y-%m-%dT%H:%M:%SZ"
@@ -386,6 +387,14 @@ test(
         ),
       ],
       [
+        "same-team unrelated keychain access group only",
+        replaceFixture(
+          fixture,
+          "\t\t<array>\n\t\t\t<string>F9AV5HKF6N.cash.free2z.zuuli</string>\n\t\t\t<string>F9AV5HKF6N.*</string>\n\t\t</array>",
+          "\t\t<array>\n\t\t\t<string>F9AV5HKF6N.cash.unrelated</string>\n\t\t</array>",
+        ),
+      ],
+      [
         "non-array keychain access groups",
         replaceFixture(
           fixture,
@@ -734,6 +743,14 @@ for (const [name, mutate, expected] of [
     'macOS signer is missing "created_epoch <= profile_now && profile_now < expiration_epoch"',
   ],
   [
+    "rejects a macOS signer without literal keychain-group authorization",
+    (source) => source.replace(
+      '[[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == \'F9AV5HKF6N.*\' ]]',
+      'case "$group" in F9AV5HKF6N.*) true;; esac',
+    ),
+    'macOS signer is missing "[[ \\"$group\\" == F9AV5HKF6N.cash.free2z.zuuli || \\"$group\\" == \'F9AV5HKF6N.*\' ]]"',
+  ],
+  [
     "rejects a macOS finalizer without typed team-array extraction",
     (source) => removeLast(source, "plutil -extract TeamIdentifier raw -expect array"),
     'macOS finalizer is missing "plutil -extract TeamIdentifier raw -expect array"',
@@ -747,6 +764,14 @@ for (const [name, mutate, expected] of [
     "rejects a macOS finalizer that permits expired profiles",
     (source) => removeLast(source, "created_epoch <= profile_now && profile_now < expiration_epoch"),
     'macOS finalizer is missing "created_epoch <= profile_now && profile_now < expiration_epoch"',
+  ],
+  [
+    "rejects a macOS finalizer without literal keychain-group authorization",
+    (source) => removeLast(
+      source,
+      '[[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == \'F9AV5HKF6N.*\' ]]',
+    ),
+    'macOS finalizer is missing "[[ \\"$group\\" == F9AV5HKF6N.cash.free2z.zuuli || \\"$group\\" == \'F9AV5HKF6N.*\' ]]"',
   ],
   [
     "rejects an iOS signer that does not bind the attested checksum manifest",

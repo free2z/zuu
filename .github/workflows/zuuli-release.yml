@@ -1170,10 +1170,7 @@ jobs:
             group_index=0
             while (( group_index < group_count )); do
               group=$(plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string -o - -- "$profile_plist")
-              case "$group" in
-                F9AV5HKF6N.cash.free2z.zuuli|F9AV5HKF6N.*) ;;
-                *) echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1 ;;
-              esac
+              [[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == 'F9AV5HKF6N.*' ]] || { echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1; }
               (( group_index += 1 ))
             done
             created=$(plutil -extract CreationDate raw -expect date -o - -- "$profile_plist")
@@ -1467,10 +1464,7 @@ jobs:
             group_index=0
             while (( group_index < group_count )); do
               group=$(plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string -o - -- "$profile_plist")
-              case "$group" in
-                F9AV5HKF6N.cash.free2z.zuuli|F9AV5HKF6N.*) ;;
-                *) echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1 ;;
-              esac
+              [[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == 'F9AV5HKF6N.*' ]] || { echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1; }
               (( group_index += 1 ))
             done
             created=$(plutil -extract CreationDate raw -expect date -o - -- "$profile_plist")
