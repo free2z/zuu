@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LOCALE, normalizeLocale, resolveLocale } from "./locale";
+import { normalizeLocale, resolveLocale } from "./locale";
 
 describe("locale resolution", () => {
   it.each([
@@ -25,7 +25,7 @@ describe("locale resolution", () => {
       "es",
     );
     expect(resolveLocale({ savedLocale: "de", browserLocale: "ja" })).toBe(
-      DEFAULT_LOCALE,
+      "en",
     );
   });
 });

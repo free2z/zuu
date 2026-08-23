@@ -40,19 +40,23 @@ describe("catalog policy", () => {
     );
   });
 
-  it("rejects invalid keys and malformed leaf values", () => {
+  it("kills an invalid catalog-key mutant", () => {
     const invalidKey = cloneCatalog();
     (invalidKey.common as Record<string, unknown>)["bad-key"] = "bad";
     expect(() =>
       validateCatalog("en", invalidKey, DECLARED_MESSAGE_KEYS),
     ).toThrow(/invalid message-key segment/);
+  });
 
+  it("kills an empty catalog-leaf mutant", () => {
     const invalidValue = cloneCatalog();
     (invalidValue.common as Record<string, unknown>).loading = "";
     expect(() =>
       validateCatalog("en", invalidValue, DECLARED_MESSAGE_KEYS),
     ).toThrow(/message must not be empty/);
+  });
 
+  it("kills an invalid ICU-message mutant", () => {
     const invalidIcu = cloneCatalog();
     (invalidIcu.navigation as Record<string, unknown>).moreDescription =
       "{count, plural, one {one}";
