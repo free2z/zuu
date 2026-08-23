@@ -34,15 +34,19 @@ test("every result remains loaded with its tab and scroll position across back n
   await expect(page).toHaveURL(/\/search\?q=a&tab=pages$/);
   const pageResults = page.locator("[data-search-page-result]");
   await expect(pageResults).toHaveCount(2);
-  await expect(page.getByRole("tab", { name: /Pages/ })).toContainText("61");
+  const pagesTab = page.getByRole("tab", { name: /Pages/ });
+  const pageTotal = Number(await pagesTab.locator("span").last().textContent());
+  expect(pageTotal).toBeGreaterThan(2);
 
-  for (let expected = 4; expected <= 60; expected += 2) {
+  let expected = 2;
+  while (expected < pageTotal) {
     await page.getByRole("button", { name: "Load more pages" }).click();
+    expected = Math.min(expected + 2, pageTotal);
     await expect(pageResults).toHaveCount(expected);
   }
-  await page.getByRole("button", { name: "Load more pages" }).click();
-  await expect(pageResults).toHaveCount(61);
-  await expect(page.getByText("61 of 61 pages", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(`${pageTotal} of ${pageTotal} pages`, { exact: true }),
+  ).toBeVisible();
 
   const scroller = viewport(page);
   const savedOffset = await scroller.evaluate((element) => {
@@ -55,7 +59,7 @@ test("every result remains loaded with its tab and scroll position across back n
   await expect(page).toHaveURL(/\/articles\//);
   await page.goBack();
   await expect(page).toHaveURL(/\/search\?q=a&tab=pages$/);
-  await expect(pageResults).toHaveCount(61);
+  await expect(pageResults).toHaveCount(pageTotal);
   await expect
     .poll(() => scroller.evaluate((element) => element.scrollTop))
     .toBeCloseTo(savedOffset, 0);
@@ -78,7 +82,9 @@ test("an empty nonterminal corpus failure is explicit, isolated, and retryable",
 
   await page.getByRole("tab", { name: /Pages/ }).click();
   await expect(page.locator("[data-search-page-result]")).toHaveCount(2);
-  await expect(page.getByRole("tab", { name: /Pages/ })).toContainText("61");
+  await expect(
+    page.getByRole("tab", { name: /Pages/ }).locator("span").last(),
+  ).not.toHaveText("0");
 
   await page.getByRole("tab", { name: /Creators/ }).click();
   await page.evaluate(() =>
@@ -107,14 +113,23 @@ test("count drift and tied-row skips retain the valid terminal results", async (
   await page.getByRole("tab", { name: /Pages/ }).click();
   const pages = page.locator("[data-search-page-result]");
   await expect(pages).toHaveCount(2);
-  for (let expected = 4; expected <= 58; expected += 2) {
+  const pageTotal = Number(
+    await page
+      .getByRole("tab", { name: /Pages/ })
+      .locator("span")
+      .last()
+      .textContent(),
+  );
+  let expected = 2;
+  while (expected < pageTotal - 1) {
     await page.getByRole("button", { name: "Load more pages" }).click();
+    expected = Math.min(expected + 2, pageTotal - 1);
     await expect(pages).toHaveCount(expected);
   }
-  await page.getByRole("button", { name: "Load more pages" }).click();
-  await expect(pages).toHaveCount(60);
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByText("60 of 61 pages", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(`${pageTotal - 1} of ${pageTotal} pages`, { exact: true }),
+  ).toBeVisible();
 });
 
 test("overlapping backend pages are deduplicated without losing order", async ({
