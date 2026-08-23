@@ -22,9 +22,10 @@ checkout and is not evidence about package contents. Both carry
 from a filename.
 
 The packaging smoke workflow scans the unsigned Android AAB, iOS app ZIP,
-macOS app ZIP, and macOS layout DMG. The protected release scans the signed
-Android AAB, iOS IPA, notarized macOS app ZIP, and notarized macOS DMG. For each
-artifact the release train:
+Linux AppImage/deb/rpm packages, macOS app ZIP, and macOS layout DMG. The
+protected release scans the signed Android AAB, iOS IPA, Linux
+AppImage/deb/rpm packages, notarized macOS app ZIP, and notarized macOS DMG.
+For each artifact the release train:
 
 1. validates archive member paths and unpacks the actual package;
 2. runs Syft on that unpacked root;
@@ -40,15 +41,24 @@ artifact the release train:
 ZIP extraction rejects escaping symlinks. DMGs are mounted read-only at a
 private mountpoint, copied with a walker that never follows symlinks (including
 the canonical absolute `/Applications` link), and detached before Syft runs.
+AppImages are parsed as ELF without invoking their runtime; checked arithmetic
+over every section extent locates the Type 2 payload, and the SquashFS v4
+boundary and UTF-8 member listing are validated before extraction. `dpkg-deb`
+and `rpm2archive` emit data archives without running package scripts. Normalized
+DEB control fields and RPM header-query fields are captured in the Syft scan
+root and bound as package components, while the release verifier parses and
+materializes tar members itself rather than invoking package installers.
 Any omitted, altered, duplicate, escaping, or unsupported payload entry fails
 closed. Archive size, entry-count, and expanded-byte ceilings bound extraction
 resource use. The release manifest then hashes the artifact, SBOM, and binding
 record, and protected jobs attest every member of `release-artifacts`.
 
-Artifact-level extraction for Linux AppImage, deb, and rpm packages remains
-tracked in issue #379. Linux retains its explicitly labeled source-tree
-inventory and must not describe it as an artifact SBOM until format-specific
-extraction and verification land.
+One #379 acceptance item remains separate from artifact fidelity: the release
+train does not yet reconcile each source-declared dependency set with the
+components discovered in every Android, iOS, Linux, and macOS artifact SBOM.
+Until a fail-closed cross-inventory policy and positive/negative fixtures cover
+every platform boundary, the exact artifact inventories must not be described
+as declared-dependency reconciliation.
 
 `release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
 byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
