@@ -30,6 +30,9 @@ const REQUIRED_JOB_ENVIRONMENTS = new Map([
     ]),
   ],
 ]);
+const REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES = new Map([
+  ["frontend", "wallet/zuuli"],
+]);
 const REQUIRED_STEP_ENVIRONMENTS = new Map([
   [
     "changes\0Detect release-impacting ZUULI changes",
@@ -73,6 +76,12 @@ const REQUIRED_STEP_ENVIRONMENTS = new Map([
       ["REQUIRED_JOBS_JSON", "${{ toJSON(needs) }}"],
     ]),
   ],
+]);
+const REQUIRED_STEP_WORKING_DIRECTORIES = new Map([
+  ["rust_clippy\0Verify pinned Linux build image", "/"],
+  ["rust_plugin\0Verify pinned Linux build image", "/"],
+  ["rust_app\0Verify pinned Linux build image", "/"],
+  ["zuuallet_schema\0Verify pinned Linux build image", "/"],
 ]);
 
 // Required-gate policy deliberately accepts a small, canonical YAML subset.
@@ -311,7 +320,14 @@ function mappingEntry(source, kind) {
   return { key: decoded.value, value: match[2].trim() };
 }
 
-function defaultRunShellFailures(relativeFile, lines, property, end, owner) {
+function defaultRunExecutionFailures(
+  relativeFile,
+  lines,
+  property,
+  end,
+  owner,
+  expectedWorkingDirectory,
+) {
   const failures = [];
   if (property.value) {
     failures.push(
@@ -384,6 +400,12 @@ function defaultRunShellFailures(relativeFile, lines, property, end, owner) {
   if (shell && shell.value !== "bash") {
     failures.push(
       `${relativeFile}:${shell.index + 1}: ${owner} defaults.run.shell must be exactly bash`,
+    );
+  }
+  const workingDirectory = runProperties.get("working-directory");
+  if ((workingDirectory?.value ?? undefined) !== expectedWorkingDirectory) {
+    failures.push(
+      `${relativeFile}:${(workingDirectory?.index ?? property.index) + 1}: ${owner} defaults.run.working-directory differs from its exact reviewed value`,
     );
   }
   return failures;
@@ -565,15 +587,23 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
   const requiredMainWorkflow =
     relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
   const defaults = job.properties.get("defaults");
+  const expectedDefaultWorkingDirectory = requiredMainWorkflow
+    ? REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES.get(job.id)
+    : undefined;
   if (defaults) {
     failures.push(
-      ...defaultRunShellFailures(
+      ...defaultRunExecutionFailures(
         relativeFile,
         lines,
         defaults,
         job.end,
         `required job ${job.id}`,
+        expectedDefaultWorkingDirectory,
       ),
+    );
+  } else if (expectedDefaultWorkingDirectory !== undefined) {
+    failures.push(
+      `${relativeFile}:${job.start + 1}: required job ${job.id} defaults.run.working-directory differs from its exact reviewed value`,
     );
   }
   const jobEnvironment = job.properties.get("env");
@@ -617,28 +647,39 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
       );
     }
     const stepEnvironmentProperty = step.properties.get("env");
-    if (!stepEnvironmentProperty) continue;
-    const actual = environmentMap(
-      relativeFile,
-      lines,
-      stepEnvironmentProperty,
-      step.end,
-      failures,
-      `required job ${job.id} step`,
-    );
     const stepName = step.properties.get("name")?.value ?? "";
-    const expected = requiredMainWorkflow
-      ? REQUIRED_STEP_ENVIRONMENTS.get(`${job.id}\0${stepName}`) ?? new Map()
-      : new Map();
-    failures.push(
-      ...exactEnvironmentFailures(
+    const stepScope = `${job.id}\0${stepName}`;
+    if (stepEnvironmentProperty) {
+      const actual = environmentMap(
         relativeFile,
-        stepEnvironmentProperty.index,
-        actual,
-        expected,
-        `required job ${job.id} step ${stepName || "<unnamed>"}`,
-      ),
-    );
+        lines,
+        stepEnvironmentProperty,
+        step.end,
+        failures,
+        `required job ${job.id} step`,
+      );
+      const expected = requiredMainWorkflow
+        ? REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map()
+        : new Map();
+      failures.push(
+        ...exactEnvironmentFailures(
+          relativeFile,
+          stepEnvironmentProperty.index,
+          actual,
+          expected,
+          `required job ${job.id} step ${stepName || "<unnamed>"}`,
+        ),
+      );
+    }
+    const workingDirectory = step.properties.get("working-directory");
+    const expectedWorkingDirectory = requiredMainWorkflow
+      ? REQUIRED_STEP_WORKING_DIRECTORIES.get(stepScope)
+      : undefined;
+    if ((workingDirectory?.value ?? undefined) !== expectedWorkingDirectory) {
+      failures.push(
+        `${relativeFile}:${(workingDirectory?.index ?? step.start) + 1}: required job ${job.id} step ${stepName || "<unnamed>"} working-directory differs from its exact reviewed value`,
+      );
+    }
   }
   return failures;
 }
@@ -856,12 +897,13 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
   }
   for (const defaults of workflowDefaults) {
     failures.push(
-      ...defaultRunShellFailures(
+      ...defaultRunExecutionFailures(
         relativeFile,
         lines,
         defaults,
         lines.length,
         "required workflow",
+        undefined,
       ),
     );
   }
@@ -1516,6 +1558,105 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       ),
     },
     {
+      name: "real workflow rejects redirected Rust plugin tests",
+      needle:
+        "required job rust_plugin step Build and test shared Zcash plugin working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Build and test shared Zcash plugin\n        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
+        "      - name: Build and test shared Zcash plugin\n        working-directory: bypass\n        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a changes-job default working directory",
+      needle:
+        "required job changes defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "    timeout-minutes: 5\n    outputs:\n",
+        "    timeout-minutes: 5\n    defaults:\n      run:\n        working-directory: bypass\n    outputs:\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected changes policy step",
+      needle:
+        "required job changes step Verify immutable actions and fail-closed required jobs working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Verify immutable actions and fail-closed required jobs\n        run: |\n",
+        "      - name: Verify immutable actions and fail-closed required jobs\n        working-directory: bypass\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a gate-job default working directory",
+      needle:
+        "required job gate defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "    timeout-minutes: 5\n    steps:\n      # Re-run the workflow policy here",
+        "    timeout-minutes: 5\n    defaults:\n      run:\n        working-directory: bypass\n    steps:\n      # Re-run the workflow policy here",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected gate policy step",
+      needle:
+        "required job gate step Recheck immutable actions and fail-closed required jobs working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Recheck immutable actions and fail-closed required jobs\n        id: policy\n",
+        "      - name: Recheck immutable actions and fail-closed required jobs\n        id: policy\n        working-directory: bypass\n",
+      ),
+    },
+    {
+      name: "real workflow rejects an Android-job default working directory",
+      needle:
+        "required job rust_android_32 defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "  rust_android_32:\n    name: Rust / Android 32-bit\n",
+        "  rust_android_32:\n    name: Rust / Android 32-bit\n    defaults:\n      run:\n        working-directory: bypass\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected Android policy-control step",
+      needle:
+        "required job changes step Verify the required 32-bit Android type-check policy working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Verify the required 32-bit Android type-check policy\n        run: |\n",
+        "      - name: Verify the required 32-bit Android type-check policy\n        working-directory: bypass\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected Android typecheck step",
+      needle:
+        "required job rust_android_32 step Type-check the shared plugin on 32-bit Android working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Type-check the shared plugin on 32-bit Android\n        run: |\n",
+        "      - name: Type-check the shared plugin on 32-bit Android\n        working-directory: bypass\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a workflow default working directory",
+      needle:
+        "required workflow defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "permissions:\n  contents: read",
+        "defaults:\n  run:\n    working-directory: bypass\n\npermissions:\n  contents: read",
+      ),
+    },
+    {
+      name: "real workflow requires the reviewed frontend default working directory",
+      needle:
+        "required job frontend defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "        working-directory: wallet/zuuli\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires reviewed image-verification working directories",
+      needle:
+        "required job rust_clippy step Verify pinned Linux build image working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Verify pinned Linux build image\n        working-directory: /\n",
+        "      - name: Verify pinned Linux build image\n",
+      ),
+    },
+    {
       name: "real workflow rejects a syntax-only dependency default shell",
       needle: "required job zuuallet_schema defaults.run.shell must be exactly bash",
       source: replaceLast(
@@ -1743,6 +1884,61 @@ function runSelfTest(repoRoot) {
         validGateWorkflow.replace(
           "      - name: a legitimate best-effort step\n",
           "      - name: a legitimate best-effort step\n        env:\n          <<: *execution-environment\n",
+        ),
+      ),
+    },
+    {
+      name: "required reusable workflow rejects a default working directory",
+      needle:
+        "required job build defaults.run.working-directory differs from its exact reviewed value",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n",
+          "    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: bypass\n",
+        ),
+      },
+    },
+    {
+      name: "required reusable workflow rejects a step working directory",
+      needle:
+        "required job build step <unnamed> working-directory differs from its exact reviewed value",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "      - run: npm test\n",
+          "      - working-directory: bypass\n        run: npm test\n",
+        ),
+      },
+    },
+    {
+      name: "quoted working-directory keys remain policy-visible",
+      needle:
+        "required job build step a legitimate best-effort step working-directory differs from its exact reviewed value",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "      - name: a legitimate best-effort step\n",
+          "      - name: a legitimate best-effort step\n        'working-directory': bypass\n",
+        ),
+      ),
+    },
+    {
+      name: "inline required-job defaults fail closed",
+      needle: "required job build defaults must use a canonical block mapping",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n",
+          "    runs-on: ubuntu-latest\n    defaults: { run: { working-directory: bypass } }\n    steps:\n      - name: a legitimate best-effort step\n",
+        ),
+      ),
+    },
+    {
+      name: "required-job default working-directory merge aliases fail closed",
+      needle: "defaults.run contains an unsupported or duplicate property",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n",
+          "    runs-on: ubuntu-latest\n    defaults:\n      run:\n        <<: *redirected-defaults\n    steps:\n      - name: a legitimate best-effort step\n",
         ),
       ),
     },
