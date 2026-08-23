@@ -2,6 +2,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{
+    fmt::Write as _,
     fs::{File, Metadata, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -72,7 +73,9 @@ const SEND_CONFIRMATION_TTL: Duration = Duration::from_secs(2 * 60);
 
 struct ExecutionAuthorization {
     confirmation_token_hash: [u8; 32],
-    expires_at: Instant,
+    issued_at_wall: SystemTime,
+    expires_at_monotonic: Instant,
+    expires_at_wall: SystemTime,
 }
 
 struct ProposalAuthorization {
@@ -163,7 +166,8 @@ impl ProposalAuthorization {
         confirmation_token: &str,
         wallet_id: &str,
         session_id: &[u8; 32],
-        now: Instant,
+        now_monotonic: Instant,
+        now_wall: SystemTime,
     ) -> Result<()> {
         self.verify_context(wallet_id, session_id)?;
         if self.proposal_id != proposal_id
@@ -176,7 +180,14 @@ impl ProposalAuthorization {
         let execution = self.execution.as_ref().ok_or_else(|| {
             Error::SendError("native payment confirmation is required before execution".into())
         })?;
-        if now >= execution.expires_at {
+        // Android/Linux monotonic clocks do not necessarily advance during
+        // suspend, while wall clocks can be adjusted backwards. Require both
+        // independent deadlines and reject rollback from issuance so neither
+        // clock behavior can extend this short-lived authority.
+        if now_monotonic >= execution.expires_at_monotonic
+            || now_wall >= execution.expires_at_wall
+            || now_wall < execution.issued_at_wall
+        {
             return Err(Error::SendError(
                 "native payment confirmation expired; review the payment again".into(),
             ));
@@ -247,7 +258,8 @@ impl PendingProposal {
         confirmation_token: &str,
         wallet_id: &str,
         session_id: &[u8; 32],
-        now: Instant,
+        now_monotonic: Instant,
+        now_wall: SystemTime,
     ) -> Result<()> {
         self.verify_native_review()?;
         self.authorization.verify_execution(
@@ -256,7 +268,8 @@ impl PendingProposal {
             confirmation_token,
             wallet_id,
             session_id,
-            now,
+            now_monotonic,
+            now_wall,
         )
     }
 
@@ -267,7 +280,8 @@ impl PendingProposal {
         proposal_token: &str,
         wallet_id: &str,
         session_id: &[u8; 32],
-        now: Instant,
+        now_monotonic: Instant,
+        now_wall: SystemTime,
     ) -> Result<SendConfirmation> {
         self.verify_proposal(
             proposal_id,
@@ -279,12 +293,13 @@ impl PendingProposal {
         let mut token_bytes = [0_u8; 32];
         OsRng.fill_bytes(&mut token_bytes);
         let confirmation_token = encode_hex(&token_bytes);
-        let expires_at = now
+        let expires_at_monotonic = now_monotonic
             .checked_add(SEND_CONFIRMATION_TTL)
             .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?;
-        let expires_at_millis = SystemTime::now()
+        let expires_at_wall = now_wall
             .checked_add(SEND_CONFIRMATION_TTL)
-            .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?
+            .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?;
+        let expires_at_millis = expires_at_wall
             .duration_since(UNIX_EPOCH)
             .map_err(|_| Error::SendError("system clock predates the Unix epoch".into()))?
             .as_millis()
@@ -296,7 +311,9 @@ impl PendingProposal {
                 &confirmation_token,
                 review_digest,
             ),
-            expires_at,
+            issued_at_wall: now_wall,
+            expires_at_monotonic,
+            expires_at_wall,
         });
         Ok(SendConfirmation {
             confirmation_token,
@@ -402,8 +419,64 @@ fn format_zec_amount(zatoshis: u64) -> String {
     )
 }
 
-/// Exact native confirmation copy. Newlines and control characters in memos
-/// remain JSON-quoted so user content cannot visually impersonate a field.
+fn is_unicode_format_control(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
+}
+
+/// Quote an exact memo without allowing Unicode layout controls to alter the
+/// native dialog's field structure. Ordinary Unicode stays readable; every
+/// character that can add a line, hide text, or reorder fields is visible.
+fn quote_native_memo(memo: &str) -> String {
+    let mut quoted = String::with_capacity(memo.len() + 2);
+    quoted.push('"');
+    for character in memo.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            '\u{08}' => quoted.push_str("\\b"),
+            '\u{0C}' => quoted.push_str("\\f"),
+            _ if character.is_control()
+                || matches!(character, '\u{2028}' | '\u{2029}')
+                || is_unicode_format_control(character) =>
+            {
+                write!(quoted, "\\u{{{:X}}}", character as u32)
+                    .expect("writing to a String cannot fail");
+            }
+            _ => quoted.push(character),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// Exact native confirmation copy. Memo layout controls are visibly escaped
+/// so untrusted content cannot visually impersonate or reorder a field.
 pub(crate) fn format_native_send_confirmation(review: &SendReview) -> Result<String> {
     let mut lines = vec![
         "A web page requested this Zcash payment. Verify every field in this native dialog."
@@ -417,8 +490,7 @@ pub(crate) fn format_native_send_confirmation(review: &SendReview) -> Result<Str
         lines.push(format!("To: {}", payment.recipient));
         lines.push(format!("Amount: {}", format_zec_amount(payment.amount)));
         let memo = match &payment.memo {
-            Some(memo) => serde_json::to_string(memo)
-                .map_err(|error| Error::SendError(format!("failed to render memo: {error}")))?,
+            Some(memo) => quote_native_memo(memo),
             None => "(none)".to_owned(),
         };
         lines.push(format!("Memo (quoted): {memo}"));
@@ -1542,6 +1614,7 @@ pub async fn issue_send_confirmation(
         &wallet_id,
         &state.send_session_id,
         Instant::now(),
+        SystemTime::now(),
     )
 }
 
@@ -1568,6 +1641,7 @@ pub async fn take_send_proposal(
             &wallet_id,
             &state.send_session_id,
             Instant::now(),
+            SystemTime::now(),
         )
     })
 }
@@ -2189,7 +2263,8 @@ mod tests {
     fn authorize_execution(
         authorization: &mut ProposalAuthorization,
         confirmation_token: &str,
-        expires_at: Instant,
+        issued_at_monotonic: Instant,
+        issued_at_wall: SystemTime,
     ) {
         authorization.execution = Some(ExecutionAuthorization {
             confirmation_token_hash: bound_token_hash(
@@ -2197,7 +2272,9 @@ mod tests {
                 confirmation_token,
                 &authorization.review_digest,
             ),
-            expires_at,
+            issued_at_wall,
+            expires_at_monotonic: issued_at_monotonic + SEND_CONFIRMATION_TTL,
+            expires_at_wall: issued_at_wall + SEND_CONFIRMATION_TTL,
         });
     }
 
@@ -2285,6 +2362,7 @@ mod tests {
         let confirmation_token = "opaque-confirmation-token";
         let review_digest = digest(&review());
         let now = Instant::now();
+        let wall_now = UNIX_EPOCH + Duration::from_secs(1_000_000);
         let mut pending = authorization(proposal_token);
 
         assert!(
@@ -2296,16 +2374,13 @@ mod tests {
                     WALLET_ID,
                     &SESSION_ID,
                     now,
+                    wall_now,
                 )
                 .unwrap_err()
                 .to_string()
                 .contains("native payment confirmation is required")
         );
-        authorize_execution(
-            &mut pending,
-            confirmation_token,
-            now + SEND_CONFIRMATION_TTL,
-        );
+        authorize_execution(&mut pending, confirmation_token, now, wall_now);
         let mut slot = Some(pending);
 
         assert!(
@@ -2317,6 +2392,7 @@ mod tests {
                     WALLET_ID,
                     &SESSION_ID,
                     now,
+                    wall_now,
                 )
             })
             .is_ok()
@@ -2330,45 +2406,30 @@ mod tests {
         let confirmation_token = "opaque-confirmation-token";
         let review_digest = digest(&review());
         let now = Instant::now();
-        for (wallet_id, session_id, supplied_digest, supplied_token, expires_at) in [
+        let wall_now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        for (wallet_id, session_id, supplied_digest, supplied_token) in [
             (
                 "wallet-b",
                 &SESSION_ID,
                 review_digest.as_str(),
                 confirmation_token,
-                now + SEND_CONFIRMATION_TTL,
             ),
             (
                 WALLET_ID,
                 &OTHER_SESSION_ID,
                 review_digest.as_str(),
                 confirmation_token,
-                now + SEND_CONFIRMATION_TTL,
             ),
-            (
-                WALLET_ID,
-                &SESSION_ID,
-                "wrong-digest",
-                confirmation_token,
-                now + SEND_CONFIRMATION_TTL,
-            ),
+            (WALLET_ID, &SESSION_ID, "wrong-digest", confirmation_token),
             (
                 WALLET_ID,
                 &SESSION_ID,
                 review_digest.as_str(),
                 "wrong-token",
-                now + SEND_CONFIRMATION_TTL,
-            ),
-            (
-                WALLET_ID,
-                &SESSION_ID,
-                review_digest.as_str(),
-                confirmation_token,
-                now,
             ),
         ] {
             let mut pending = authorization("proposal-token");
-            authorize_execution(&mut pending, confirmation_token, expires_at);
+            authorize_execution(&mut pending, confirmation_token, now, wall_now);
             let mut slot = Some(pending);
             assert!(
                 take_authorized(&mut slot, |pending| {
@@ -2379,10 +2440,53 @@ mod tests {
                         wallet_id,
                         session_id,
                         now,
+                        wall_now,
                     )
                 })
                 .is_err()
             );
+            assert!(slot.is_some());
+        }
+    }
+
+    #[test]
+    fn confirmation_rejects_either_expiry_clock_and_wall_rollback() {
+        let confirmation_token = "opaque-confirmation-token";
+        let review_digest = digest(&review());
+        let issued_monotonic = Instant::now();
+        let issued_wall = UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        for (now_monotonic, now_wall) in [
+            // Monotonic expiry remains authoritative if the wall clock pauses.
+            (issued_monotonic + SEND_CONFIRMATION_TTL, issued_wall),
+            // Wall expiry catches device suspend while monotonic time pauses.
+            (issued_monotonic, issued_wall + SEND_CONFIRMATION_TTL),
+            // A backwards wall adjustment cannot extend the credential.
+            (issued_monotonic, issued_wall - Duration::from_secs(1)),
+        ] {
+            let mut pending = authorization("proposal-token");
+            authorize_execution(
+                &mut pending,
+                confirmation_token,
+                issued_monotonic,
+                issued_wall,
+            );
+            let mut slot = Some(pending);
+            let error = match take_authorized(&mut slot, |pending| {
+                pending.verify_execution(
+                    17,
+                    &review_digest,
+                    confirmation_token,
+                    WALLET_ID,
+                    &SESSION_ID,
+                    now_monotonic,
+                    now_wall,
+                )
+            }) {
+                Ok(_) => panic!("expired confirmation must not be consumed"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("confirmation expired"));
             assert!(slot.is_some());
         }
     }
@@ -2417,14 +2521,77 @@ mod tests {
     #[test]
     fn native_confirmation_copy_quotes_untrusted_memo_controls() {
         let mut reviewed = review();
-        reviewed.payments[0].memo = Some("hello\nTotal: 999 ZEC".into());
+        reviewed.payments[0].memo = Some(
+            "ordinary Unicode 🦄\nTotal: 999 ZEC\u{2028}Fee: 0 ZEC\u{2029}\u{202e}desrever\u{2066}isolated\u{2069}\u{200b}hidden"
+                .into(),
+        );
         let message = format_native_send_confirmation(&reviewed).expect("render native review");
         assert!(message.contains(MAINNET_TADDR));
         assert!(message.contains("Amount: 0.00050000 ZEC"));
         assert!(message.contains("Network fee: 0.00010000 ZEC"));
         assert!(message.contains("Total: 0.00060000 ZEC"));
-        assert!(message.contains("Memo (quoted): \"hello\\nTotal: 999 ZEC\""));
-        assert!(!message.contains("hello\nTotal: 999 ZEC"));
+        assert!(message.contains("Memo (quoted): \"ordinary Unicode 🦄\\nTotal: 999 ZEC"));
+        for escaped in [
+            "\\u{2028}",
+            "\\u{2029}",
+            "\\u{202E}",
+            "\\u{2066}",
+            "\\u{2069}",
+            "\\u{200B}",
+        ] {
+            assert!(
+                message.contains(escaped),
+                "missing visible escape {escaped}"
+            );
+        }
+        for hostile in [
+            '\u{2028}', '\u{2029}', '\u{202e}', '\u{2066}', '\u{2069}', '\u{200b}',
+        ] {
+            assert!(
+                !message.contains(hostile),
+                "layout control must never remain literal: U+{:04X}",
+                hostile as u32
+            );
+        }
+        assert_eq!(message.matches("\nTotal:").count(), 1);
+    }
+
+    #[test]
+    fn native_memo_renderer_escapes_every_reviewed_format_control_class() {
+        let hostile = [
+            '\u{0085}',
+            '\u{00ad}',
+            '\u{0600}',
+            '\u{061c}',
+            '\u{06dd}',
+            '\u{070f}',
+            '\u{0890}',
+            '\u{08e2}',
+            '\u{180e}',
+            '\u{200e}',
+            '\u{202a}',
+            '\u{2060}',
+            '\u{2064}',
+            '\u{2066}',
+            '\u{206f}',
+            '\u{feff}',
+            '\u{fff9}',
+            '\u{110bd}',
+            '\u{110cd}',
+            '\u{13430}',
+            '\u{1bca0}',
+            '\u{1d173}',
+            '\u{e0001}',
+            '\u{e0020}',
+            '\u{e007f}',
+        ];
+        let memo: String = hostile.into_iter().collect();
+        let quoted = quote_native_memo(&memo);
+
+        for character in hostile {
+            assert!(!quoted.contains(character));
+            assert!(quoted.contains(&format!("\\u{{{:X}}}", character as u32)));
+        }
     }
 
     #[test]
