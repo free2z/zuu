@@ -304,7 +304,6 @@ pub(crate) async fn create_wallet<R: Runtime>(
         .lock_owned()
         .await;
     let _send_guard = Arc::clone(&zcash.state.send_operation).lock_owned().await;
-    let word_count = args.mnemonic_word_count.unwrap_or(24);
     let wallet_name = args.name.unwrap_or_else(|| "Default".to_string());
 
     // Stop any running sync and retain an identity-bound recovery obligation
@@ -312,7 +311,7 @@ pub(crate) async fn create_wallet<R: Runtime>(
     let mut sync_recovery = StoppedSyncRecovery::stop(app.clone()).await;
 
     let result = async {
-    let mnemonic = keys::generate_mnemonic(word_count)?;
+    let mnemonic = keys::generate_mnemonic();
     let seed = keys::mnemonic_to_seed(&mnemonic);
 
     // Connect to lightwalletd and get current chain tip

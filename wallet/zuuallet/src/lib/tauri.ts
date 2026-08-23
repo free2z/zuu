@@ -18,12 +18,9 @@ import type {
   SpendingKeyStatus,
 } from "../types";
 
-export async function createWallet(
-  mnemonicWordCount?: number,
-  name?: string,
-): Promise<WalletCreated> {
+export async function createWallet(name?: string): Promise<WalletCreated> {
   return invoke("plugin:zcash|create_wallet", {
-    args: { mnemonicWordCount: mnemonicWordCount ?? 24, name },
+    args: { name },
   });
 }
 

@@ -376,7 +376,7 @@ test("an asynchronous invalid restore releases the method fence only after failu
   await page.getByRole("button", { name: "Use existing identity" }).click();
   await page
     .getByLabel("Recovery phrase")
-    .fill("private invalid recovery material");
+    .fill(Array.from({ length: 12 }, (_, index) => `invalid${index}`).join(" "));
   await page.getByRole("button", { name: "Restore and continue" }).click();
 
   const switchMethod = page.getByRole("button", {

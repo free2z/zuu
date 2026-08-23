@@ -38,12 +38,9 @@ async function invoke<T>(
 }
 
 export const wallet = {
-  async createWallet(
-    mnemonicWordCount = 24,
-    name?: string,
-  ): Promise<WalletCreated> {
+  async createWallet(name?: string): Promise<WalletCreated> {
     if (useMock()) return mockWallet.createWallet();
-    return invoke("create_wallet", { args: { mnemonicWordCount, name } });
+    return invoke("create_wallet", { args: { name } });
   },
 
   restoreWallet(
