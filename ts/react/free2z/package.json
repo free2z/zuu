@@ -91,9 +91,10 @@
   "proxy": "https://test.free2z.com",
   "scripts": {
     "start": "react-app-rewired start --host 0.0.0.0",
-    "prebuild": "node scripts/ios15-regex-compat.test.js",
+    "prebuild": "npm run test:ios15-regex-compat",
     "build": "react-app-rewired build && node scripts/check-ios15-bundle.js",
-    "test": "react-app-rewired test",
+    "test": "npm run test:ios15-regex-compat && react-app-rewired test",
+    "test:ios15-regex-compat": "node scripts/ios15-regex-compat.test.js",
     "eject": "react-scripts eject",
     "prettier": "prettier -c './**/*.{tsx,js,jsx,ts,json}'",
     "prettier:format": "prettier --write -c './**/*.{tsx, js, jsx, ts, json}'"
