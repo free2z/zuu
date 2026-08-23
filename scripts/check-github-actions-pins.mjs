@@ -2047,8 +2047,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "required job rust_clippy container cannot inject environment or runtime options",
       source: source.replace(
-        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      credentials:\n",
-        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406\n      credentials:\n",
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
       ),
     },
     {

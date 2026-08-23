@@ -302,7 +302,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -359,7 +359,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -471,7 +471,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -551,7 +551,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
