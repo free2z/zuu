@@ -37,10 +37,11 @@ import {
 } from "@/lib/unsaved-transition";
 import { articleHref, readingMinutes, wordCount } from "../lib";
 import {
-  ARTICLE_DRAFT_STORAGE_KEY,
   articleDraftLabel,
   discardArticleDraft,
+  hasArticleDraftConflict,
   isArticleDraftId,
+  isArticleDraftStorageKey,
   listArticleDrafts,
   loadArticleDraft,
   newArticleDraftId,
@@ -152,6 +153,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
   const dirtyRef = useRef(false);
   const firstDirtyAtRef = useRef<number | null>(null);
   const saveFailureRef = useRef<"error" | "conflict" | null>(null);
+  const conflictRescueRef = useRef<string | null>(null);
   const publishingRef = useRef(false);
   const mountedRef = useRef(true);
   const persistRef = useRef<() => boolean>(() => true);
@@ -181,13 +183,22 @@ function AuthenticatedAuthor({ username }: { username: string }) {
       );
       if (result.status === "conflict") {
         saveFailureRef.current = "conflict";
-        if (mountedRef.current) setSaveStatus("conflict");
+        conflictRescueRef.current = result.rescue?.id ?? null;
+        if (result.rescue) {
+          dirtyRef.current = false;
+          firstDirtyAtRef.current = null;
+        }
+        if (mountedRef.current) {
+          setSaveStatus("conflict");
+          setDrafts(listArticleDrafts(username));
+        }
         return false;
       }
       revisionRef.current = result.draft.revision;
       dirtyRef.current = false;
       firstDirtyAtRef.current = null;
       saveFailureRef.current = null;
+      conflictRescueRef.current = null;
       if (mountedRef.current) {
         setSaveStatus("saved");
         setSavedAt(result.draft.updatedAt);
@@ -262,11 +273,13 @@ function AuthenticatedAuthor({ username }: { username: string }) {
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== ARTICLE_DRAFT_STORAGE_KEY) return;
+      if (!isArticleDraftStorageKey(event.key)) return;
+      setDrafts(listArticleDrafts(username));
       const current = loadArticleDraft(username, draftId);
       if (
         (current && current.revision !== revisionRef.current) ||
-        (!current && revisionRef.current !== 0)
+        (!current && revisionRef.current !== 0) ||
+        hasArticleDraftConflict(username, draftId)
       ) {
         saveFailureRef.current = "conflict";
         setSaveStatus("conflict");
@@ -282,6 +295,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
     fieldsRef.current = next;
     if (!dirtyRef.current) firstDirtyAtRef.current = Date.now();
     dirtyRef.current = true;
+    conflictRescueRef.current = null;
     if (saveFailureRef.current !== "conflict") {
       saveFailureRef.current = null;
     }
@@ -357,18 +371,27 @@ function AuthenticatedAuthor({ username }: { username: string }) {
   function startNewDraft() {
     if (publishingRef.current) return;
     const saved = persist();
-    if (!saved && saveFailureRef.current === "conflict") {
+    if (
+      saveFailureRef.current === "conflict" &&
+      dirtyRef.current &&
+      !conflictRescueRef.current
+    ) {
       const rescuedId = newArticleDraftId();
       try {
-        saveArticleDraft(username, rescuedId, fieldsRef.current, 0);
+        const rescue = saveArticleDraft(username, rescuedId, fieldsRef.current, 0);
+        if (rescue.status !== "saved") throw new Error("rescue conflict");
+        dirtyRef.current = false;
+        firstDirtyAtRef.current = null;
         toast.info("Your version was preserved as a separate local draft.");
       } catch {
         toast.error("This draft could not be preserved locally.");
         return;
       }
-    } else if (!saved) {
+    } else if (!saved && saveFailureRef.current !== "conflict") {
       toast.error("This draft could not be saved locally.");
       return;
+    } else if (conflictRescueRef.current) {
+      toast.info("Your version was preserved as a separate local draft.");
     }
     navigate(`/articles/new?draft=${encodeURIComponent(newArticleDraftId())}`);
   }

@@ -1,6 +1,60 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const STORAGE_KEY = "zuuli.article-drafts.v1";
+const STORAGE_PREFIX = "zuuli.article-drafts.v2.";
+
+async function readVisibleDrafts(page: Page) {
+  return page.evaluate(
+    ({ rootKey, prefix }) => {
+      const drafts = new Map<string, Record<string, unknown>>();
+      const identity = (account: string, id: string) => `${account}\u0000${id}`;
+      const rawRoot = localStorage.getItem(rootKey);
+      if (rawRoot) {
+        for (const draft of JSON.parse(rawRoot).drafts ?? []) {
+          drafts.set(identity(draft.account, draft.id), draft);
+        }
+      }
+      const heads = new Map<string, { claimId: string; draft: Record<string, unknown> | null }>();
+      const claims: Array<{
+        claimId: string;
+        account: string;
+        draftId: string;
+        draft: Record<string, unknown> | null;
+      }> = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith(prefix)) continue;
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const record = JSON.parse(raw);
+        if (record.kind === "head") heads.set(key, record);
+        if (record.kind === "claim") claims.push(record);
+      }
+      for (const [key, head] of heads) {
+        const encodedAndId = key.slice(`${prefix}head:`.length);
+        const separator = encodedAndId.lastIndexOf(":");
+        const account = decodeURIComponent(encodedAndId.slice(0, separator));
+        const id = encodedAndId.slice(separator + 1);
+        drafts.delete(identity(account, id));
+        if (head.draft) drafts.set(identity(account, id), head.draft);
+      }
+      for (const claim of claims) {
+        if (!claim.draft) continue;
+        const source = heads.get(
+          `${prefix}head:${encodeURIComponent(claim.account)}:${claim.draftId}`,
+        );
+        const rescue = heads.get(
+          `${prefix}head:${encodeURIComponent(claim.account)}:${claim.claimId}`,
+        );
+        if (source?.claimId !== claim.claimId && !rescue) {
+          drafts.set(identity(claim.account, claim.claimId), claim.draft);
+        }
+      }
+      return [...drafts.values()];
+    },
+    { rootKey: STORAGE_KEY, prefix: STORAGE_PREFIX },
+  );
+}
 
 async function useSignedInSession(page: Page) {
   await page.addInitScript(() => {
@@ -72,10 +126,7 @@ test("publishing clears only that draft and leaves another account-scoped id", a
   await expect(page).toHaveURL(/\/articles\/(?!new(?:\?|$))[^/?]+$/);
   await expect(page.getByRole("heading", { name: "Publish me" })).toBeVisible();
 
-  const remaining = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw).drafts : [];
-  }, STORAGE_KEY);
+  const remaining = await readVisibleDrafts(page);
   expect(remaining).toHaveLength(1);
   expect(remaining[0].title).toBe("Keep me");
 
@@ -97,10 +148,7 @@ test("discard explicitly removes the current local draft", async ({ page }) => {
   await page.getByRole("button", { name: "Discard this draft" }).click();
   await expect(page).toHaveURL(/\/articles$/);
 
-  const ids = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw).drafts.map((draft: { id: string }) => draft.id) : [];
-  }, STORAGE_KEY);
+  const ids = (await readVisibleDrafts(page)).map((draft) => draft.id);
   expect(ids).not.toContain(draftId);
 });
 
@@ -165,10 +213,7 @@ test("publish success preserves a newer revision saved by another tab", async ({
   await expect(newerTab).toHaveURL(/\/$/);
 
   await expect(page).toHaveURL(/\/articles\/(?!new(?:\?|$))[^/?]+$/);
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw).drafts : [];
-  }, STORAGE_KEY);
+  const stored = await readVisibleDrafts(page);
   expect(stored).toHaveLength(1);
   expect(stored[0]).toMatchObject({
     revision: 2,
@@ -184,7 +229,7 @@ test("publish success preserves a newer revision saved by another tab", async ({
 });
 
 test("failed persistence blocks draft switching and browser back", async ({ page }) => {
-  await page.addInitScript((storageKey) => {
+  await page.addInitScript(({ storageKey, storagePrefix }) => {
     localStorage.setItem("zuuli.knox.token", "mock-knox-token");
     localStorage.setItem(
       storageKey,
@@ -218,10 +263,12 @@ test("failed persistence blocks draft switching and browser back", async ({ page
     );
     const original = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (key === storageKey) throw new DOMException("Draft writes blocked", "QuotaExceededError");
+      if (key === storageKey || key.startsWith(storagePrefix)) {
+        throw new DOMException("Draft writes blocked", "QuotaExceededError");
+      }
       return original.call(this, key, value);
     };
-  }, STORAGE_KEY);
+  }, { storageKey: STORAGE_KEY, storagePrefix: STORAGE_PREFIX });
   await page.goto("/articles");
   await page.getByRole("link", { name: "Write a new article" }).click();
   await expect(page.getByText("Local draft restored")).toBeVisible();
@@ -253,13 +300,15 @@ test("failed persistence requires confirmation before explicit sign out", async 
   await page.getByLabel("Content (Markdown)").fill("Revision one is durable.");
   await expect(page.getByRole("status")).toContainText("Saved locally");
 
-  await page.evaluate((storageKey) => {
+  await page.evaluate(({ storageKey, storagePrefix }) => {
     const original = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (key === storageKey) throw new DOMException("Draft writes blocked", "QuotaExceededError");
+      if (key === storageKey || key.startsWith(storagePrefix)) {
+        throw new DOMException("Draft writes blocked", "QuotaExceededError");
+      }
       return original.call(this, key, value);
     };
-  }, STORAGE_KEY);
+  }, { storageKey: STORAGE_KEY, storagePrefix: STORAGE_PREFIX });
   await title.fill("Unsaved update before sign out");
   await expect(page.getByRole("status")).toContainText("Autosave unavailable");
 
@@ -280,10 +329,7 @@ test("failed persistence requires confirmation before explicit sign out", async 
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page.getByText("Log in to publish", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBeNull();
-  const stored = await page.evaluate((key) => {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw).drafts : [];
-  }, STORAGE_KEY);
+  const stored = await readVisibleDrafts(page);
   expect(stored).toHaveLength(1);
   expect(stored[0]).toMatchObject({ revision: 1, title: "Stored revision" });
 });
@@ -303,4 +349,10 @@ test("corrupt current-version storage remains byte-for-byte untouched", async ({
   expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBe(
     malformed,
   );
+  expect(
+    await page.evaluate(
+      (prefix) => Object.keys(localStorage).filter((key) => key.startsWith(prefix)),
+      STORAGE_PREFIX,
+    ),
+  ).toEqual([]);
 });
