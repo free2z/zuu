@@ -6,9 +6,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use secrecy::ExposeSecret;
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
-use zcash_client_backend::data_api::{
-    Account, AccountBirthday, BirthdayError, WalletRead, WalletWrite,
-};
+use zcash_client_backend::data_api::{Account, AccountBirthday, WalletRead, WalletWrite};
 use zcash_client_backend::proto::service::BlockId;
 use zcash_keys::keys::UnifiedAddressRequest;
 use zeroize::Zeroizing;
@@ -18,13 +16,6 @@ use crate::models::*;
 use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::{keys, send, storage};
 use crate::{Result, ZcashExt};
-
-fn format_birthday_error(e: BirthdayError) -> String {
-    match e {
-        BirthdayError::HeightInvalid(e) => format!("invalid height: {e}"),
-        BirthdayError::Decode(e) => format!("decode error: {e}"),
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PreviousSyncContext {
@@ -336,7 +327,12 @@ pub(crate) async fn create_wallet<R: Runtime>(
         .into_inner();
 
     let birthday = AccountBirthday::from_treestate(tree_state, None)
-        .map_err(|e| Error::DatabaseError(format!("failed to create birthday: {}", format_birthday_error(e))))?;
+        .map_err(|e| {
+            Error::DatabaseError(format!(
+                "failed to create birthday: {}",
+                crate::wallet::format_birthday_error(e),
+            ))
+        })?;
 
     // Allocate an identity, but keep it out of the durable manifest until its
     // database and native seed custody have both committed.
@@ -790,7 +786,12 @@ pub(crate) async fn restore_wallet<R: Runtime>(
 
     let recover_until = zcash_protocol::consensus::BlockHeight::from_u32(chain_tip as u32);
     let birthday = AccountBirthday::from_treestate(tree_state, Some(recover_until))
-        .map_err(|e| Error::DatabaseError(format!("failed to create birthday: {}", format_birthday_error(e))))?;
+        .map_err(|e| {
+            Error::DatabaseError(format!(
+                "failed to create birthday: {}",
+                crate::wallet::format_birthday_error(e),
+            ))
+        })?;
 
     // Allocate an identity, but keep it out of the durable manifest until its
     // database and native seed custody have both committed. Unlike a newly

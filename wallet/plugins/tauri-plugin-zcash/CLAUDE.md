@@ -31,12 +31,21 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
 
 ## librustzcash API gotchas
 
-- **`BirthdayError`** — has NO `Debug` or `Display` impl. Must pattern-match variants: `BirthdayError::HeightInvalid(e)` and `BirthdayError::Decode(e)`.
+- **`BirthdayError`** — is `#[non_exhaustive]`. Preserve actionable messages
+  for `HeightInvalid` and `Decode`, and retain a wildcard arm for future
+  upstream variants.
 - **`ConfirmationsPolicy`** — at `zcash_client_backend::data_api::wallet::ConfirmationsPolicy`, use `::default()`.
 - **`OvkPolicy`** — at `zcash_client_backend::wallet::OvkPolicy` (NOT `data_api::wallet`).
 - **`SingleOutputChangeStrategy::new`** — 4 args: `(FeeRule, Option<MemoBytes>, ShieldedProtocol, DustOutputPolicy)`.
 - **`Payment::new`** — returns `Result<Self, zip321::PaymentError>` (changed from `Option`), takes `Option<Zatoshis>` for amount. Six args: `(recipient, amount, memo, label, message, other_params)`. Use `.map_err(...)?`, not `.ok_or(...)?`.
-- **`propose_transfer`** — takes **9** args and has phantom `CommitmentTreeErrT`. Use turbofish: `propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(...)`. The last two args are `spend_policy: &input_selection::SpendPolicy` (use `SpendPolicy::default()` to preserve fully-shielded behavior) and `proposed_version: Option<TxVersion>` (use `None` to let target height decide).
+- **`propose_transfer`** — takes **10** args and has phantom
+  `CommitmentTreeErrT`. Use turbofish:
+  `propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(...)`.
+  The last three args are `spend_policy: &input_selection::SpendPolicy` (use
+  `SpendPolicy::default()` to preserve fully-shielded behavior),
+  `lock_inputs: Option<LockRequest>` (currently `None`; durable lock ownership
+  and unlock recovery must be designed together), and
+  `proposed_version: Option<TxVersion>` (`None` lets target height decide).
 - **`create_proposed_transactions`** — takes **8** args and has phantom `InputsErrT` + `ChangeErrT`. Use `std::convert::Infallible` for both. The 8th arg is `expiry_height: Option<BlockHeight>` (use `None` to keep the builder-derived expiry). The transaction version is now carried on the proposal itself (`proposal.proposed_version()`), not passed here.
 - **Ironwood (NU6.3) is a third shielded pool, not a cargo feature.** There is no `ironwood` feature flag; the pool is unconditional in `zcash_protocol` (`ShieldedPool::Ironwood`) and its sync/tree/note plumbing in `zcash_client_backend`/`zcash_client_sqlite` is gated behind the existing **`orchard`** feature (Ironwood reuses `MerkleHashOrchard`). Because we enable `orchard`, we get Ironwood.
 - **`AccountBalance` has THREE shielded pools** — `sapling_balance()`, `orchard_balance()`, `ironwood_balance()`. Any code summing shielded value MUST include Ironwood; after NU6.3 activation Orchard becomes spend-only and new shielded value accrues to Ironwood.

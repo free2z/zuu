@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use tokio::sync::{Mutex, MutexGuard, RwLock};
-use zcash_client_backend::data_api::{Account, WalletRead};
+use zcash_client_backend::data_api::{Account, BirthdayError, WalletRead};
 use zcash_protocol::consensus::Network;
 use zeroize::Zeroizing;
 
@@ -33,6 +33,14 @@ pub type WalletDatabase = zcash_client_sqlite::WalletDb<
     zcash_client_sqlite::util::SystemClock,
     rand::rngs::OsRng,
 >;
+
+pub(crate) fn format_birthday_error(error: BirthdayError) -> String {
+    match error {
+        BirthdayError::HeightInvalid(error) => format!("invalid height: {error}"),
+        BirthdayError::Decode(error) => format!("decode error: {error}"),
+        other => other.to_string(),
+    }
+}
 
 /// Proof that an identity-sensitive operation owns the wallet transition.
 /// Custody retrieval requires this token so a future caller cannot accidentally
@@ -316,5 +324,26 @@ impl WalletState {
             .map_err(|error| {
                 crate::error::Error::KeyError(format!("secure-storage task panicked: {error}"))
             })?
+    }
+}
+
+#[cfg(test)]
+mod birthday_error_tests {
+    use super::format_birthday_error;
+    use std::io;
+    use zcash_client_backend::data_api::BirthdayError;
+
+    #[test]
+    fn known_birthday_errors_keep_actionable_context() {
+        let height_error = u32::try_from(u64::MAX).expect_err("height is out of range");
+        let formatted = format_birthday_error(BirthdayError::HeightInvalid(height_error));
+        assert!(formatted.starts_with("invalid height: "));
+        assert!(formatted.len() > "invalid height: ".len());
+
+        let decode_error = io::Error::new(io::ErrorKind::InvalidData, "bad frontier");
+        assert_eq!(
+            format_birthday_error(BirthdayError::Decode(decode_error)),
+            "decode error: bad frontier",
+        );
     }
 }
