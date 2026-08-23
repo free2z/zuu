@@ -1055,22 +1055,26 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
     return failures;
   }
   const source = exactStepSource(lines, detectors[0]);
-  const zuuliPatternLine = source
+  const zuuliPatternSets = source
     .split("\n")
-    .find((line) => line.includes("wallet/zuuli/*"));
-  if (!zuuliPatternLine) {
+    .map((line) => line.split("#", 1)[0].trim())
+    .filter((line) => line.endsWith(")"))
+    .map((line) => new Set(line.slice(0, -1).split("|")))
+    .filter((patterns) => patterns.has("wallet/zuuli/*"));
+  if (zuuliPatternSets.length !== 1) {
     failures.push(
-      `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must cover wallet/zuuli/*`,
+      `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must contain one active wallet/zuuli/* case pattern`,
     );
     return failures;
   }
+  const [zuuliPatterns] = zuuliPatternSets;
   for (const pattern of [
     "wallet/rust-toolchain.toml",
     "scripts/check-rust-toolchain.sh",
     "scripts/check-github-actions-pins.mjs",
     ".github/workflows/zuuli.yml",
   ]) {
-    if (!zuuliPatternLine.includes(pattern)) {
+    if (!zuuliPatterns.has(pattern)) {
       failures.push(
         `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must cover ${pattern}`,
       );
@@ -1792,10 +1796,18 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selector cannot narrow away future nested WASM Rust source",
-      needle: "ZUULI selector must cover wallet/zuuli/*",
+      needle: "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
         "wallet/zuuli/*|wallet/plugins/*",
         "wallet/zuuli/src/*|wallet/plugins/*",
+      ),
+    },
+    {
+      name: "real workflow selector cannot launder nested WASM coverage through a comment",
+      needle: "ZUULI selector must contain one active wallet/zuuli/* case pattern",
+      source: source.replace(
+        "wallet/zuuli/*|wallet/plugins/*",
+        "wallet/zuuli/src/*|wallet/plugins/* # wallet/zuuli/*|",
       ),
     },
     {
