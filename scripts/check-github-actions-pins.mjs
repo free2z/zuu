@@ -252,6 +252,84 @@ function mappingEntry(source, kind) {
   return { key: decoded.value, value: match[2].trim() };
 }
 
+function defaultRunShellFailures(relativeFile, lines, property, end, owner) {
+  const failures = [];
+  if (property.value) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: ${owner} defaults must use a canonical block mapping`,
+    );
+    return failures;
+  }
+
+  let run = null;
+  for (let index = property.index + 1; index < end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= property.indent) break;
+    if (line.indent !== property.indent + 2) continue;
+    const entry = mappingEntry(line.text, `${owner} defaults property`);
+    if (entry.error || entry.key !== "run" || run) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} defaults may contain exactly one canonical run mapping`,
+      );
+      continue;
+    }
+    run = {
+      index,
+      indent: line.indent,
+      value: entry.value,
+    };
+  }
+
+  if (!run || run.value) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: ${owner} defaults.run must use a canonical block mapping`,
+    );
+    return failures;
+  }
+
+  const runProperties = new Map();
+  for (let index = run.index + 1; index < end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= run.indent) break;
+    if (line.indent !== run.indent + 2) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} defaults.run must use canonical indentation`,
+      );
+      continue;
+    }
+    const entry = mappingEntry(line.text, `${owner} defaults.run property`);
+    if (
+      entry.error ||
+      !["shell", "working-directory"].includes(entry.key) ||
+      runProperties.has(entry.key)
+    ) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} defaults.run contains an unsupported or duplicate property`,
+      );
+      continue;
+    }
+    runProperties.set(entry.key, { index, value: entry.value });
+  }
+
+  const shell = runProperties.get("shell");
+  if (shell && shell.value !== "bash") {
+    failures.push(
+      `${relativeFile}:${shell.index + 1}: ${owner} defaults.run.shell must be exactly bash`,
+    );
+  }
+  return failures;
+}
+
 function parseGateNeeds(lines, needsIndex, needsIndent) {
   const source = workflowLine(lines[needsIndex]);
   const entry = mappingEntry(source.text, "gate needs");
@@ -323,6 +401,24 @@ function policyJobSteps(relativeFile, lines, job, failures, label) {
     return [];
   }
 
+  const firstStepLine = lines
+    .slice(stepsProperty.index + 1, job.end)
+    .map((line, offset) => ({
+      index: stepsProperty.index + 1 + offset,
+      line: workflowLine(line),
+    }))
+    .find(({ line }) => line && !line.error);
+  if (
+    !firstStepLine ||
+    firstStepLine.line.indent !== 6 ||
+    !firstStepLine.line.text.startsWith("- ")
+  ) {
+    failures.push(
+      `${relativeFile}:${stepsProperty.index + 1}: ${label} steps must begin with a canonical block-sequence entry`,
+    );
+    return [];
+  }
+
   const steps = [];
   for (let index = stepsProperty.index + 1; index < job.end; index += 1) {
     const line = workflowLine(lines[index]);
@@ -371,6 +467,40 @@ function policyJobSteps(relativeFile, lines, job, failures, label) {
     }
   }
   return steps;
+}
+
+function requiredJobShellFailures(relativeFile, lines, job) {
+  const failures = [];
+  const defaults = job.properties.get("defaults");
+  if (defaults) {
+    failures.push(
+      ...defaultRunShellFailures(
+        relativeFile,
+        lines,
+        defaults,
+        job.end,
+        `required job ${job.id}`,
+      ),
+    );
+  }
+
+  if (!job.properties.has("steps")) return failures;
+  const steps = policyJobSteps(
+    relativeFile,
+    lines,
+    job,
+    failures,
+    `required job ${job.id}`,
+  );
+  for (const step of steps) {
+    const shell = step.properties.get("shell");
+    if (shell && shell.value !== "bash") {
+      failures.push(
+        `${relativeFile}:${shell.index + 1}: required job ${job.id} step shell must be exactly bash`,
+      );
+    }
+  }
+  return failures;
 }
 
 function stepEnvironment(relativeFile, lines, step, failures) {
@@ -524,6 +654,7 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
 
 function policyWorkflowJobs(relativeFile, lines, failures) {
   const topLevel = [];
+  const workflowDefaults = [];
 
   for (const [index, rawLine] of lines.entries()) {
     const line = workflowLine(rawLine);
@@ -538,7 +669,24 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
       failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
     } else if (entry.key === "jobs") {
       topLevel.push({ index, value: entry.value });
+    } else if (entry.key === "defaults") {
+      workflowDefaults.push({ index, indent: 0, value: entry.value });
     }
+  }
+
+  if (workflowDefaults.length > 1) {
+    failures.push(`${relativeFile}: required workflow cannot repeat defaults`);
+  }
+  for (const defaults of workflowDefaults) {
+    failures.push(
+      ...defaultRunShellFailures(
+        relativeFile,
+        lines,
+        defaults,
+        lines.length,
+        "required workflow",
+      ),
+    );
   }
 
   if (!topLevel.length) {
@@ -627,7 +775,11 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
         );
         continue;
       }
-      job.properties.set(entry.key, { index, value: entry.value });
+      job.properties.set(entry.key, {
+        index,
+        indent: 4,
+        value: entry.value,
+      });
     }
   }
 
@@ -664,6 +816,7 @@ function requiredReusableWorkflowFailures(
   const lines = fs.readFileSync(canonical, "utf8").split(/\r?\n/);
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
   for (const job of jobs.values()) {
+    failures.push(...requiredJobShellFailures(relativeFile, lines, job));
     const softFail = job.properties.get("continue-on-error");
     if (softFail) {
       failures.push(
@@ -751,7 +904,11 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   }
 
   for (const jobId of [...parsedNeeds.values, "gate"]) {
-    const property = jobs.get(jobId)?.properties.get("continue-on-error");
+    const requiredJob = jobs.get(jobId);
+    if (requiredJob) {
+      failures.push(...requiredJobShellFailures(relativeFile, lines, requiredJob));
+    }
+    const property = requiredJob?.properties.get("continue-on-error");
     if (property) {
       failures.push(
         `${relativeFile}:${property.index + 1}: job-level continue-on-error is forbidden on required-gate job ${jobId}`,
@@ -1058,6 +1215,53 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       ),
     },
     {
+      name: "real workflow rejects a syntax-only gate default shell",
+      needle: "required job gate defaults.run.shell must be exactly bash",
+      source: source.replace(
+        "    timeout-minutes: 5\n    steps:\n      # Re-run the workflow policy here",
+        [
+          "    timeout-minutes: 5",
+          "    defaults:",
+          "      run:",
+          "        shell: bash -n {0}",
+          "    steps:",
+          "      # Re-run the workflow policy here",
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only workflow default shell",
+      needle: "required workflow defaults.run.shell must be exactly bash",
+      source: source.replace(
+        "permissions:\n  contents: read",
+        [
+          "defaults:",
+          "  run:",
+          "    shell: sh -n {0}",
+          "",
+          "permissions:",
+          "  contents: read",
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only required step shell",
+      needle: "required job changes step shell must be exactly bash",
+      source: source.replace(
+        "        shell: bash\n",
+        "        shell: bash -n {0}\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only dependency default shell",
+      needle: "required job zuuallet_schema defaults.run.shell must be exactly bash",
+      source: replaceLast(
+        source,
+        "        shell: bash\n",
+        "        shell: bash -n {0}\n",
+      ),
+    },
+    {
       name: "real workflow rejects soft-failing required dependency",
       needle: "job-level continue-on-error is forbidden on required-gate job rust_app",
       source: source.replace(
@@ -1191,6 +1395,69 @@ function runSelfTest(repoRoot) {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow,
       },
+    },
+    {
+      name: "required reusable workflow cannot inherit a syntax-only shell",
+      needle: "required job build defaults.run.shell must be exactly bash",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n",
+          [
+            "    runs-on: ubuntu-latest",
+            "    defaults:",
+            "      run:",
+            "        shell: bash -n {0}",
+            "",
+          ].join("\n"),
+        ),
+      },
+    },
+    {
+      name: "required workflow cannot select a dynamic default shell",
+      needle: "required workflow defaults.run.shell must be exactly bash",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "on: pull_request\n",
+          [
+            "on: pull_request",
+            "defaults:",
+            "  run:",
+            "    shell: ${{ inputs.shell }}",
+            "",
+          ].join("\n"),
+        ),
+      ),
+    },
+    {
+      name: "required dependency cannot override a step with a non-bash shell",
+      needle: "required job build step shell must be exactly bash",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "      - name: a legitimate best-effort step\n",
+          "      - name: a legitimate best-effort step\n        shell: python {0}\n",
+        ),
+      ),
+    },
+    {
+      name: "reindented required steps cannot hide a shell override",
+      needle: "required job build steps must begin with a canonical block-sequence entry",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          [
+            "    steps:",
+            "      - name: a legitimate best-effort step",
+            "        continue-on-error: true",
+            "        run: echo 'step-level continue-on-error: true is allowed'",
+          ].join("\n"),
+          [
+            "    steps:",
+            "        - name: a legitimate best-effort step",
+            "          shell: bash -n {0}",
+            "          run: echo hidden",
+          ].join("\n"),
+        ),
+      ),
     },
     {
       name: "required reusable workflow cannot soft-fail an internal job",
