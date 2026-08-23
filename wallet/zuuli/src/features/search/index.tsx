@@ -5,6 +5,7 @@ import {
   BookOpen,
   Clock,
   FileText,
+  Loader2,
   Radio,
   Search as SearchIcon,
   Users,
@@ -16,6 +17,7 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,15 +25,10 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { RemoteMedia } from "@/components/common/RemoteMedia";
-import { useAsync } from "@/hooks/useAsync";
-import { discover } from "@/lib/api/free2z";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
-import {
-  currentResourceData,
-  type KeyedRemoteData,
-} from "@/lib/remote-data";
 import type { Article, SimpleCreator } from "@/lib/api/types";
 import { SEARCH_INPUT_LABEL, withSearchQuery } from "@/lib/search-route";
+import { useCreatorSearch, usePageSearch } from "./pagination";
 
 const DEBOUNCE_MS = 300;
 
@@ -50,32 +47,8 @@ export default function SearchFeature() {
   const debounced = useDebounced(query, DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchKey = debounced.trim();
-  const {
-    data: creatorData,
-    loading: creatorsLoading,
-    error: creatorsError,
-    reload: reloadCreators,
-  } = useAsync<KeyedRemoteData<string, SimpleCreator[]>>(
-    async () => ({
-      key: searchKey,
-      value: searchKey ? await discover.searchCreators(searchKey) : [],
-    }),
-    [searchKey],
-  );
-  const {
-    data: pageData,
-    loading: pagesLoading,
-    error: pagesError,
-    reload: reloadPages,
-  } = useAsync<KeyedRemoteData<string, Article[]>>(
-    async () => ({
-      key: searchKey,
-      value: searchKey ? await discover.searchPages(searchKey) : [],
-    }),
-    [searchKey],
-  );
-  const creators = currentResourceData(creatorData, searchKey);
-  const pages = currentResourceData(pageData, searchKey);
+  const creators = useCreatorSearch(searchKey);
+  const pages = usePageSearch(searchKey);
 
   // Focus the box on mount for a keyboard-first feel.
   useEffect(() => {
@@ -85,16 +58,25 @@ export default function SearchFeature() {
   // The route, not the debounce timer, owns visible empty-vs-results state.
   // Clearing `?q=` must clear the screen in the same render.
   const hasQuery = query.trim().length > 0;
-  const creatorCount = creators?.length ?? 0;
-  const pageCount = pages?.length ?? 0;
+  const creatorCount = creators.count ?? 0;
+  const pageCount = pages.count ?? 0;
 
-  const defaultTab = useMemo(
-    () =>
-      !creatorsLoading && !pagesLoading && creatorCount === 0 && pageCount > 0
-        ? "pages"
-        : "creators",
-    [creatorCount, creatorsLoading, pageCount, pagesLoading],
-  );
+  const selectedTab = useMemo(() => {
+    const requested = params.get("tab");
+    if (requested === "creators" || requested === "pages") return requested;
+    return creators.initialized &&
+      pages.initialized &&
+      creatorCount === 0 &&
+      pageCount > 0
+      ? "pages"
+      : "creators";
+  }, [
+    creatorCount,
+    creators.initialized,
+    pageCount,
+    pages.initialized,
+    params,
+  ]);
 
   return (
     <div className="animate-slide-up">
@@ -151,15 +133,27 @@ export default function SearchFeature() {
           description="Start typing to find creators by name and pages by meaning — results update as you go."
         />
       ) : (
-        <Tabs defaultValue={defaultTab} key={defaultTab}>
+        <Tabs
+          value={selectedTab}
+          onValueChange={(tab) => {
+            setParams(
+              (current) => {
+                const next = new URLSearchParams(current);
+                next.set("tab", tab);
+                return next;
+              },
+              { replace: true },
+            );
+          }}
+        >
           <TabsList>
             <TabsTrigger value="creators">
               <Users className="mr-1.5 h-4 w-4" aria-hidden />
               Creators
               <ResultCountBadge
                 n={creatorCount}
-                loading={creatorsLoading && creators === null}
-                available={creators !== null}
+                loading={creators.loading && creators.count === null}
+                available={creators.count !== null}
               />
             </TabsTrigger>
             <TabsTrigger value="pages">
@@ -167,81 +161,107 @@ export default function SearchFeature() {
               Pages
               <ResultCountBadge
                 n={pageCount}
-                loading={pagesLoading && pages === null}
-                available={pages !== null}
+                loading={pages.loading && pages.count === null}
+                available={pages.count !== null}
               />
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="creators">
-            {creatorsError ? (
+            {creators.error ? (
               <SectionLoadError
                 className="mb-4"
                 title={
-                  creators === null
+                  creators.items.length === 0
                     ? "Creator search is unavailable"
-                    : "Couldn't refresh creator results"
+                    : "Couldn't load more creator results"
                 }
                 description={
-                  creators === null
+                  creators.items.length === 0
                     ? "Pages may still be available in the other tab."
                     : "Showing the last creator results loaded on this device."
                 }
-                retry={reloadCreators}
-                retrying={creatorsLoading}
-                stale={creators !== null}
+                retry={creators.retry}
+                retrying={creators.loading}
+                stale={creators.items.length > 0}
               />
             ) : null}
-            {creatorsLoading && creators === null ? (
+            {creators.loading && !creators.initialized ? (
               <CreatorGridSkeleton />
-            ) : creatorsError && creators === null ? null : creators?.length === 0 ? (
+            ) : creators.error &&
+              creators.items.length === 0 ? null : creators.initialized &&
+              creatorCount === 0 ? (
               <EmptyState
                 icon={Users}
                 title="No creators found"
                 description={`No creators match “${debounced.trim()}”. Creators are matched by username and name.`}
               />
-            ) : creators ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {creators.map((c) => (
-                  <CreatorResultCard key={c.username} creator={c} />
-                ))}
-              </div>
+            ) : creators.items.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {creators.items.map((c) => (
+                    <CreatorResultCard key={c.username} creator={c} />
+                  ))}
+                </div>
+                <SearchLoadMore
+                  corpus="creators"
+                  loaded={creators.items.length}
+                  total={creatorCount}
+                  next={creators.next}
+                  loading={creators.loading}
+                  blocked={Boolean(creators.error)}
+                  loadMore={creators.loadMore}
+                />
+              </>
             ) : null}
           </TabsContent>
 
           <TabsContent value="pages">
-            {pagesError ? (
+            {pages.error ? (
               <SectionLoadError
                 className="mb-4"
                 title={
-                  pages === null
+                  pages.items.length === 0
                     ? "Page search is unavailable"
-                    : "Couldn't refresh page results"
+                    : "Couldn't load more page results"
                 }
                 description={
-                  pages === null
+                  pages.items.length === 0
                     ? "Creators may still be available in the other tab."
                     : "Showing the last page results loaded on this device."
                 }
-                retry={reloadPages}
-                retrying={pagesLoading}
-                stale={pages !== null}
+                retry={pages.retry}
+                retrying={pages.loading}
+                stale={pages.items.length > 0}
               />
             ) : null}
-            {pagesLoading && pages === null ? (
+            {pages.loading && !pages.initialized ? (
               <PageListSkeleton />
-            ) : pagesError && pages === null ? null : pages?.length === 0 ? (
+            ) : pages.error &&
+              pages.items.length === 0 ? null : pages.initialized &&
+              pageCount === 0 ? (
               <EmptyState
                 icon={BookOpen}
                 title="No pages found"
                 description={`No pages match “${debounced.trim()}”. Try different or broader terms.`}
               />
-            ) : pages ? (
-              <div className="flex flex-col gap-3">
-                {pages.map((p) => (
-                  <PageResultRow key={String(p.id)} article={p} />
-                ))}
-              </div>
+            ) : pages.items.length > 0 ? (
+              <>
+                <div className="flex flex-col gap-3">
+                  {pages.items.map((p) => (
+                    <PageResultRow key={String(p.id)} article={p} />
+                  ))}
+                </div>
+                <SearchLoadMore
+                  corpus="pages"
+                  loaded={pages.items.length}
+                  total={pageCount}
+                  next={pages.next}
+                  loading={pages.loading}
+                  blocked={Boolean(pages.error)}
+                  loadMore={pages.loadMore}
+                />
+              </>
             ) : null}
           </TabsContent>
         </Tabs>
@@ -267,12 +287,55 @@ function ResultCountBadge({
   );
 }
 
+function SearchLoadMore({
+  corpus,
+  loaded,
+  total,
+  next,
+  loading,
+  blocked,
+  loadMore,
+}: {
+  corpus: "creators" | "pages";
+  loaded: number;
+  total: number;
+  next: number | null;
+  loading: boolean;
+  blocked: boolean;
+  loadMore: () => void;
+}) {
+  return (
+    <div className="mt-5 flex flex-col items-center gap-2">
+      <span
+        className="text-sm tabular-nums text-muted-foreground"
+        aria-live="polite"
+      >
+        {loaded} of {total} {corpus}
+      </span>
+      {next !== null && !blocked ? (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={loadMore}
+          disabled={loading}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : null}
+          {loading ? `Loading ${corpus}` : `Load more ${corpus}`}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
   return (
     <Link
       to={`/creator/${creator.username}`}
       aria-label={`View ${name}'s profile`}
+      data-search-creator-result
       className="group flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Avatar className="h-12 w-12 shrink-0">
@@ -335,7 +398,10 @@ function PageResultRow({ article }: { article: Article }) {
   const name = author.display_name || author.username;
   const body = article.subtitle || excerpt(article.content);
   return (
-    <div className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40">
+    <div
+      className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40"
+      data-search-page-result
+    >
       <div className="hidden h-28 w-32 shrink-0 overflow-hidden rounded-lg bg-secondary sm:block">
         {article.image ? (
           <RemoteMedia
