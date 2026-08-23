@@ -34,14 +34,14 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "bundleVersion": "10",
+      "bundleVersion": "11",
       "developmentTeam": "F9AV5HKF6N",
       "minimumSystemVersion": "18.0",
       "infoPlist": "Info.ios.plist"
     },
     "android": {
       "minSdkVersion": 29,
-      "versionCode": 10
+      "versionCode": 11
     }
   },
   "plugins": {
