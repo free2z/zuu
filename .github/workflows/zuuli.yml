@@ -408,6 +408,17 @@ jobs:
       - name: Build ZUULI Tauri backend
         run: cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
 
+      # ZUULI intentionally does not commit target-specific Tauri schemas. A
+      # fresh build must generate them, and keeping the directory ignored means
+      # it cannot acquire the stale committed state that affected Zuuallet.
+      - name: Verify generated Tauri schema policy
+        run: |
+          set -euo pipefail
+          schemas=wallet/zuuli/src-tauri/gen/schemas
+          test -s "$schemas/linux-schema.json"
+          test -z "$(git ls-files -- "$schemas")"
+          git check-ignore -q "$schemas/linux-schema.json"
+
       - name: Test ZUULI Tauri backend
         run: cargo test --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml
 

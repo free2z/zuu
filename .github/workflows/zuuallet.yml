@@ -257,6 +257,21 @@ jobs:
       - name: Build Tauri backend (plugin + librustzcash path deps)
         run: cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
 
+      # Tauri's build script refreshes only the schema for the current target.
+      # Linux CI therefore owns the committed Linux schema and catches stale
+      # plugin permissions without paying for a second generation pass.
+      - name: Verify committed Tauri schemas are current
+        run: |
+          set -euo pipefail
+          schemas=wallet/zuuallet/src-tauri/gen/schemas
+          git diff --exit-code -- "$schemas"
+          untracked=$(git ls-files --others --exclude-standard -- "$schemas")
+          test -z "$untracked" || {
+            echo "Unexpected generated schema files:" >&2
+            echo "$untracked" >&2
+            exit 1
+          }
+
       - name: Test wallet plugin
         run: >-
           cargo test --locked
