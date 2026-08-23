@@ -5,7 +5,7 @@ const ROUTES = [
   "/",
   "/search",
   "/search?q=zcash",
-  "/creator/skyl",
+  "/creator/demo-creator",
   "/profile",
   "/kyc",
   "/wallet",
