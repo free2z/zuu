@@ -17,6 +17,7 @@ import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { auth, tuzi } from "@/lib/api/free2z";
 import { setToken } from "@/lib/api/http";
+import { APP_ROUTES } from "@/lib/routes";
 import { useAttemptLease } from "@/hooks/useAttemptLease";
 import { recoverMobileOAuth } from "@/lib/oauth/transport";
 import {
@@ -205,7 +206,7 @@ export default function App() {
           {/* Every route lives inside the viewport-bound shell. A single Suspense boundary
               per route keeps the AppShell mounted while the lazy chunk loads. */}
           <Route element={<AppShell />}>
-            <Route path="/login" element={<AuthFeature />} />
+            <Route path={APP_ROUTES.login} element={<AuthFeature />} />
             <Route
               index
               element={
@@ -215,7 +216,7 @@ export default function App() {
               }
             />
             <Route
-              path="/search/*"
+              path={APP_ROUTES.search}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <SearchFeature />
@@ -223,7 +224,7 @@ export default function App() {
               }
             />
             <Route
-              path="/creator/:username/*"
+              path={APP_ROUTES.creator}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <CreatorFeature />
@@ -231,7 +232,7 @@ export default function App() {
               }
             />
             <Route
-              path="/profile"
+              path={APP_ROUTES.profile}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <ProfileFeature />
@@ -239,7 +240,7 @@ export default function App() {
               }
             />
             <Route
-              path="/kyc/*"
+              path={APP_ROUTES.kyc}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <KycFeature />
@@ -247,7 +248,7 @@ export default function App() {
               }
             />
             <Route
-              path="/wallet/*"
+              path={APP_ROUTES.wallet}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <WalletFeature />
@@ -255,7 +256,7 @@ export default function App() {
               }
             />
             <Route
-              path="/ai/*"
+              path={APP_ROUTES.ai}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <AiFeature />
@@ -263,7 +264,7 @@ export default function App() {
               }
             />
             <Route
-              path="/live/*"
+              path={APP_ROUTES.live}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <LiveFeature />
@@ -271,7 +272,7 @@ export default function App() {
               }
             />
             <Route
-              path="/articles/*"
+              path={APP_ROUTES.articles}
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <ArticlesFeature />
@@ -279,7 +280,7 @@ export default function App() {
               }
             />
             <Route
-              path="/buy/*"
+              path={APP_ROUTES.buy}
               element={<LegacyBuyRedirect />}
             />
 

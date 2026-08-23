@@ -86,10 +86,27 @@ describe("Markdown links", () => {
     expect(markup).toContain('href="/articles/7th-meetup-zcash-club-queretaro"');
   });
 
+  it("preserves query strings and hashes when mapping a free2z content link", () => {
+    const markup = render(
+      "[section](/palmar/7th-meetup?ref=feed#schedule)",
+      "article",
+    );
+
+    expect(markup).toContain(
+      'href="/articles/7th-meetup?ref=feed#schedule"',
+    );
+  });
+
   it("maps a free2z {username} link onto the in-app creator route", () => {
     const markup = render("[palmar](/palmar)", "article");
 
     expect(markup).toContain('href="/creator/palmar"');
+  });
+
+  it("preserves query strings and hashes when mapping a creator link", () => {
+    const markup = render("[posts](/palmar?tab=posts#featured)", "article");
+
+    expect(markup).toContain('href="/creator/palmar?tab=posts#featured"');
   });
 
   it("routes an /uploadz link as out-of-app media instead of the SPA router", () => {

@@ -22,6 +22,7 @@ import rehypeSlug from "rehype-slug";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { isTauri } from "@/lib/platform";
 import { mediaUrl } from "@/lib/api/http";
+import { APP_ROUTE_SEGMENTS } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
 import remarkOembed from "@/lib/markdown/remark-oembed";
@@ -82,25 +83,6 @@ async function openExternal(url: string) {
 }
 
 /**
- * Path segments ZUULI itself routes (`src/App.tsx`). A relative href whose
- * first segment matches one of these is a genuine in-app path and must keep
- * navigating through the router exactly as before. `""` covers `/` (index).
- */
-const APP_ROUTE_SEGMENTS = new Set([
-  "",
-  "login",
-  "search",
-  "creator",
-  "profile",
-  "kyc",
-  "wallet",
-  "ai",
-  "live",
-  "articles",
-  "buy",
-]);
-
-/**
  * Article bodies are authored on free2z.cash, where relative hrefs mean
  * free2z routes — which mostly don't exist in ZUULI (issue #337). Classify a
  * non-anchor, non-external href so `MarkdownLink` can send it somewhere that
@@ -118,7 +100,9 @@ const APP_ROUTE_SEGMENTS = new Set([
 function classifyInternalHref(
   href: string,
 ): { kind: "app"; to: string } | { kind: "media"; url: string } {
-  const path = href.split(/[?#]/)[0] ?? "";
+  const suffixIndex = href.search(/[?#]/);
+  const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : href.slice(suffixIndex);
   const segments = path.replace(/^\/+/, "").split("/").filter(Boolean);
   const first = segments[0] ?? "";
 
@@ -129,9 +113,9 @@ function classifyInternalHref(
     return { kind: "app", to: href };
   }
   if (segments.length >= 2) {
-    return { kind: "app", to: `/articles/${segments[1]}` };
+    return { kind: "app", to: `/articles/${segments[1]}${suffix}` };
   }
-  return { kind: "app", to: `/creator/${segments[0]}` };
+  return { kind: "app", to: `/creator/${segments[0]}${suffix}` };
 }
 
 /**
