@@ -51,4 +51,27 @@ describe("creator catalog pagination", () => {
       ),
     ).toThrow("count changed");
   });
+
+  it("fails closed when a nonterminal page adds no unique rows", () => {
+    expect(() =>
+      mergeCreatorCatalogPage(
+        initial(2),
+        { items: [], next: 2, count: 2 },
+        1,
+      ),
+    ).toThrow("made no progress");
+
+    const first = mergeCreatorCatalogPage(
+      initial(2),
+      { items: [article(1)], next: 2, count: 2 },
+      1,
+    );
+    expect(() =>
+      mergeCreatorCatalogPage(
+        first,
+        { items: [article(1)], next: 3, count: 2 },
+        2,
+      ),
+    ).toThrow("made no progress");
+  });
 });

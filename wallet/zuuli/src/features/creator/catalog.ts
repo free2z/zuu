@@ -76,6 +76,9 @@ export function mergeCreatorCatalogPage(
   if (response.next === null && items.length !== current.count) {
     throw new Error("Creator pagination returned an incomplete catalog.");
   }
+  if (response.next !== null && items.length === current.items.length) {
+    throw new Error("Creator pagination made no progress.");
+  }
   if (response.next !== null && items.length >= current.count) {
     throw new Error(
       "Creator pagination continued past its authoritative count.",

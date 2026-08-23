@@ -489,7 +489,7 @@ export function parseCreatorPagesPage(
       throw new Error("Creator pagination changed its creator filter.");
     }
     next = Number(nextUrl.searchParams.get("page"));
-    if (!Number.isSafeInteger(next) || next <= currentPage) {
+    if (!Number.isSafeInteger(next) || next !== currentPage + 1) {
       throw new Error("Creator pagination returned an invalid next page.");
     }
   }
@@ -1910,6 +1910,10 @@ export const discover = {
       const items = mockArticles.filter(
         (a) => a.author.username.toLowerCase() === username.toLowerCase(),
       );
+      if (scenario === "empty-once") {
+        window.sessionStorage.removeItem("zuuli.mock.creator-pages");
+        return { items: [], next: page + 1, count: items.length };
+      }
       const start = (page - 1) * pageSize;
       return {
         items: items.slice(start, start + pageSize),

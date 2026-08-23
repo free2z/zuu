@@ -50,5 +50,12 @@ describe("creator pagination API contract", () => {
         1,
       ),
     ).toThrow("left its endpoint");
+    expect(() =>
+      parseCreatorPagesPage(
+        page({ next: "/api/zpage/?username=zooko&page=3" }),
+        "zooko",
+        1,
+      ),
+    ).toThrow("invalid next page");
   });
 });

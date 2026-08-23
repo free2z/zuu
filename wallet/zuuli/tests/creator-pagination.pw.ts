@@ -39,19 +39,21 @@ test("all creator pages remain loaded and positioned across reader back navigati
     .toBeCloseTo(savedOffset, 0);
 });
 
-test("a failed creator catalog load is explicit and retryable", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    sessionStorage.setItem("zuuli.mock.creator-pages", "fail-once");
-  });
-  await page.goto("/creator/zooko");
+for (const scenario of ["fail-once", "empty-once"] as const) {
+  test(`${scenario} creator catalog load is explicit and retryable`, async ({
+    page,
+  }) => {
+    await page.addInitScript((mockScenario) => {
+      sessionStorage.setItem("zuuli.mock.creator-pages", mockScenario);
+    }, scenario);
+    await page.goto("/creator/zooko");
 
-  await expect(
-    page.getByRole("alert").getByText("Couldn't load this creator's pages"),
-  ).toBeVisible();
-  await expect(page.getByText("No pages yet")).toHaveCount(0);
-  await page.getByRole("button", { name: "Retry" }).click();
-  await expect(page.locator("[data-creator-page-card]")).toHaveCount(12);
-  await expect(page.getByText("12 of 13", { exact: true })).toBeVisible();
-});
+    await expect(
+      page.getByRole("alert").getByText("Couldn't load this creator's pages"),
+    ).toBeVisible();
+    await expect(page.getByText("No pages yet")).toHaveCount(0);
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.locator("[data-creator-page-card]")).toHaveCount(12);
+    await expect(page.getByText("12 of 13", { exact: true })).toBeVisible();
+  });
+}
