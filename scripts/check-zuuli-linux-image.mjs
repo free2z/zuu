@@ -747,8 +747,8 @@ function runSelfTest() {
         name: "schema policy changes stop selecting regeneration",
         path: consumerWorkflows[0],
         mutate: (value) => value.replace(
-          "scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash",
-          "scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash",
+          "scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash",
+          "scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash",
         ),
         expected: "schema input must select regeneration: scripts/check-zuuli-linux-image.mjs",
       },
