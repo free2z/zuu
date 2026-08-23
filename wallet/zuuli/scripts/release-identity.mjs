@@ -202,6 +202,7 @@ const ascTestFlight = read("scripts/asc-testflight.mjs");
 const gateWorkflow = read("../../.github/workflows/zuuli.yml");
 const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
 const githubReleasePublisher = read("scripts/publish-github-release.sh");
+const releaseIndexVerifier = read("scripts/verify-release-index.sh");
 const testFlightRecoveryWorkflow = read(
   "../../.github/workflows/zuuli-testflight-recovery.yml",
 );
@@ -708,6 +709,23 @@ for (const releasePublishContract of [
 ]) {
   if (!githubReleasePublisher.includes(releasePublishContract))
     failures.push(`GitHub release publication identity contract is missing: ${releasePublishContract}`);
+}
+for (const releaseIndexContract of [
+  '[[ -d "$artifact_root" ]]',
+  '[[ "$identity" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\+(0|[1-9][0-9]*)$ ]]',
+  '[[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]]',
+  '"zuuli-android-$identity-$expected_commit"',
+  '"zuuli-ios-$identity-$expected_commit"',
+  '"zuuli-linux-$identity-$expected_commit"',
+  '"zuuli-macos-$identity-$expected_commit"',
+  '[[ -d "$directory" ]]',
+  '[[ -f "$directory/provenance.json" ]]',
+  "'.source.commit == $sha'",
+  '[[ "$provenance_count" -eq 1 ]]',
+  '[[ "$artifact_count" -gt 0 ]]',
+]) {
+  if (!releaseIndexVerifier.includes(releaseIndexContract))
+    failures.push(`release-index verifier contract is missing: ${releaseIndexContract}`);
 }
 if (/gh release edit[^\n]*(?:--draft(?:=|\s+)false|--draft=false)/.test(githubReleasePublisher))
   failures.push("GitHub release publication must not make a draft public without a final tag identity gate");
