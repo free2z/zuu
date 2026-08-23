@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
 import {
+  isArticleTagFilterable,
   MAX_ARTICLE_TAGS,
   parseArticleTagsParam,
   sanitizeArticleTags,
@@ -187,6 +188,17 @@ export function Feed() {
         <div className="mb-6 flex flex-wrap items-center gap-2" aria-label="Filter by tag">
           {knownTags.map((tag) => {
             const on = selectedTags.includes(tag);
+            if (!isArticleTagFilterable(tag)) {
+              return (
+                <span
+                  key={tag}
+                  className="min-tap inline-flex max-w-full items-center rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground"
+                  title="This stored tag cannot be represented by the server's comma-delimited filter."
+                >
+                  <span className="min-w-0 break-words">{tag}</span>
+                </span>
+              );
+            }
             return (
               <button
                 key={tag}
@@ -194,7 +206,7 @@ export function Feed() {
                 aria-pressed={on}
                 onClick={() => toggleTag(tag)}
                 className={cn(
-                  "min-tap rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "min-tap max-w-full break-words rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   on
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground",

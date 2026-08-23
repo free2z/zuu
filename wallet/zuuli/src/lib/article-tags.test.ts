@@ -3,6 +3,7 @@ import {
   articleTagHref,
   MAX_ARTICLE_TAG_LENGTH,
   MAX_ARTICLE_TAGS,
+  MAX_STORED_ARTICLE_TAG_LENGTH,
   normalizeArticleTags,
   parseArticleTagsParam,
   sanitizeArticleTags,
@@ -43,15 +44,53 @@ describe("article tag contract", () => {
     ).toThrow(/at most/);
   });
 
-  it("fails soft for malformed share URLs and emits canonical links", () => {
+  it("preserves legal stored tags without reapplying authoring rules", () => {
+    const rtl = "مرحبا\u200f";
+    const long = "L".repeat(MAX_STORED_ARTICLE_TAG_LENGTH);
+    expect(
+      sanitizeArticleTags([
+        "ART",
+        "🏳️‍🌈 pride",
+        rtl,
+        "machine learning, deep learning",
+        long,
+        null,
+        42,
+        "bad\u0000tag",
+        "x".repeat(MAX_STORED_ARTICLE_TAG_LENGTH + 1),
+      ]),
+    ).toEqual([
+      "ART",
+      "🏳️‍🌈 pride",
+      rtl,
+      "machine learning, deep learning",
+      long,
+    ]);
+  });
+
+  it("fails soft and bounds malformed share URLs", () => {
     expect(
       parseArticleTagsParam(" Privacy,bad\u0000tag,privacy,zero knowledge "),
-    ).toEqual(["privacy", "zero knowledge"]);
-    expect(sanitizeArticleTags(["Privacy", null, 42, "bad\u0000tag"])).toEqual([
-      "privacy",
-    ]);
-    expect(articleTagHref("Zero Knowledge")).toBe(
-      "/articles?tags=zero%20knowledge",
+    ).toEqual(["Privacy", "zero knowledge"]);
+    expect(
+      parseArticleTagsParam(
+        Array.from(
+          { length: MAX_ARTICLE_TAGS + 20 },
+          (_, index) => `tag-${index}`,
+        ).join(","),
+      ),
+    ).toEqual(
+      Array.from({ length: MAX_ARTICLE_TAGS }, (_, index) => `tag-${index}`),
     );
+  });
+
+  it("links filterable stored tags without rewriting them", () => {
+    expect(articleTagHref("Zero Knowledge")).toBe(
+      "/articles?tags=Zero%20Knowledge",
+    );
+    expect(articleTagHref("🏳️‍🌈 pride")).toBe(
+      `/articles?tags=${encodeURIComponent("🏳️‍🌈 pride")}`,
+    );
+    expect(articleTagHref("machine learning, deep learning")).toBeNull();
   });
 });

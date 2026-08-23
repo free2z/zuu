@@ -38,7 +38,7 @@ describe("article tag HTTP contract", () => {
       }),
     ).resolves.toMatchObject({
       author: { username: "alice" },
-      tags: ["zero knowledge", "privacy", "c++"],
+      tags: ["Zero Knowledge", "privacy", "C++"],
     });
 
     expect(requestMock).toHaveBeenCalledWith("/api/zpage/", {
@@ -57,6 +57,22 @@ describe("article tag HTTP contract", () => {
     });
   });
 
+  it("preserves the backend's legal stored tag vocabulary on read", async () => {
+    const rtl = "مرحبا\u200f";
+    const long = "L".repeat(100);
+    requestMock.mockResolvedValue({
+      free2zaddr: "article-id",
+      title: "Stored tags",
+      content: "Body",
+      creator: { username: "alice" },
+      tags: ["ART", "🏳️‍🌈 pride", rtl, "machine learning, deep learning", long],
+    });
+
+    await expect(articles.get("article-id")).resolves.toMatchObject({
+      tags: ["ART", "🏳️‍🌈 pride", rtl, "machine learning, deep learning", long],
+    });
+  });
+
   it("uses the public zpage autocomplete contract", async () => {
     requestMock.mockResolvedValue([
       { name: "Privacy", count: 12 },
@@ -66,8 +82,9 @@ describe("article tag HTTP contract", () => {
       { name: "bad\u0000tag", count: 3 },
     ]);
     await expect(articles.suggestTags("pri", ["zcash"])).resolves.toEqual([
-      { name: "privacy", count: 12 },
-      { name: "c++", count: 0 },
+      { name: "Privacy", count: 12 },
+      { name: "privacy", count: 11 },
+      { name: "C++", count: 0 },
     ]);
     expect(requestMock).toHaveBeenCalledWith("/api/tagging/autocomplete", {
       query: {

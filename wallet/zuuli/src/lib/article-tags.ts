@@ -1,7 +1,9 @@
 export const MAX_ARTICLE_TAGS = 8;
 export const MAX_ARTICLE_TAG_LENGTH = 32;
+export const MAX_STORED_ARTICLE_TAG_LENGTH = 100;
 
-const TAG_CONTROL_PATTERN = /[\p{Cc}\p{Cf}]/u;
+const AUTHORING_TAG_CONTROL_PATTERN = /[\p{Cc}\p{Cf}]/u;
+const STORED_TAG_CONTROL_PATTERN = /\p{Cc}/u;
 
 export interface ArticleTagValidation {
   tag: string | null;
@@ -32,7 +34,7 @@ export function validateArticleTag(raw: string): ArticleTagValidation {
       error: `Tags must be ${MAX_ARTICLE_TAG_LENGTH} characters or fewer.`,
     };
   }
-  if (tag.includes(",") || TAG_CONTROL_PATTERN.test(tag)) {
+  if (tag.includes(",") || AUTHORING_TAG_CONTROL_PATTERN.test(tag)) {
     return {
       tag: null,
       error: "Tags cannot contain commas or invisible control characters.",
@@ -58,15 +60,31 @@ export function normalizeArticleTags(values: string[]): string[] {
 }
 
 /**
- * Normalize untrusted tags for display/filtering without letting one legacy
- * or malformed backend value break an otherwise valid article.
+ * Preserve server-owned tags for display/filtering without applying this
+ * client's stricter authoring policy to already-published data.
+ *
+ * Django-taggit's stored vocabulary permits 100 characters. Format code
+ * points are meaningful in emoji and bidirectional scripts, so only empty,
+ * over-server-limit, or actual control-character values are discarded here.
  */
 export function sanitizeArticleTags(values: readonly unknown[]): string[] {
   const tags: string[] = [];
+  const seen = new Set<string>();
   for (const value of values) {
     if (typeof value !== "string") continue;
-    const { tag, error } = validateArticleTag(value);
-    if (tag && !error && !tags.includes(tag)) tags.push(tag);
+    const tag = value.trim();
+    if (
+      !tag ||
+      Array.from(tag).length > MAX_STORED_ARTICLE_TAG_LENGTH ||
+      STORED_TAG_CONTROL_PATTERN.test(tag)
+    ) {
+      continue;
+    }
+    const comparisonKey = tag.toLocaleLowerCase("en-US");
+    if (!seen.has(comparisonKey)) {
+      seen.add(comparisonKey);
+      tags.push(tag);
+    }
   }
   return tags;
 }
@@ -77,7 +95,14 @@ export function parseArticleTagsParam(value: string | null): string[] {
   return sanitizeArticleTags(value.split(",")).slice(0, MAX_ARTICLE_TAGS);
 }
 
-export function articleTagHref(tag: string): string {
-  const [normalized] = normalizeArticleTags([tag]);
-  return `/articles?tags=${encodeURIComponent(normalized)}`;
+/** The backend's comma-delimited filter has no escaping for comma-bearing tags. */
+export function isArticleTagFilterable(tag: string): boolean {
+  const [stored] = sanitizeArticleTags([tag]);
+  return Boolean(stored && !stored.includes(","));
+}
+
+export function articleTagHref(tag: string): string | null {
+  const [stored] = sanitizeArticleTags([tag]);
+  if (!stored || !isArticleTagFilterable(stored)) return null;
+  return `/articles?tags=${encodeURIComponent(stored)}`;
 }
