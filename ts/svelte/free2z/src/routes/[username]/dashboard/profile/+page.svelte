@@ -286,19 +286,21 @@
     <section class="grid grid-cols-2 gap-4 sm:grid-cols-4">
       <a href={allPagesUrl} class={STAT_CARD_LINK} data-testid="stat-published">
         <Card class={STAT_CARD}>
-          <CardContent class="flex items-center gap-3 p-4">
+          <CardContent
+            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
+          >
             <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
               <FileText class="size-5 text-primary" />
             </div>
             <div class="min-w-0">
               <p
-                class="truncate text-2xl font-bold tabular-nums"
+                class="text-xl font-bold tabular-nums sm:text-2xl"
                 title={formatCount(publishedCount)}
               >
                 {formatCount(publishedCount)}
               </p>
               <p
-                class="truncate text-xs font-medium tracking-wider text-muted-foreground uppercase"
+                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
               >
                 Published
               </p>
@@ -309,19 +311,21 @@
 
       <a href="#drafts" class={STAT_CARD_LINK} data-testid="stat-drafts">
         <Card class={STAT_CARD}>
-          <CardContent class="flex items-center gap-3 p-4">
+          <CardContent
+            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
+          >
             <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
               <Edit3 class="size-5 text-primary" />
             </div>
             <div class="min-w-0">
               <p
-                class="truncate text-2xl font-bold tabular-nums"
+                class="text-xl font-bold tabular-nums sm:text-2xl"
                 title={formatCount(draftCount)}
               >
                 {formatCount(draftCount)}
               </p>
               <p
-                class="truncate text-xs font-medium tracking-wider text-muted-foreground uppercase"
+                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
               >
                 Drafts
               </p>
@@ -338,23 +342,25 @@
       -->
       <a
         href={`/${creator.username}/dashboard/billing`}
-        class={STAT_CARD_LINK}
+        class={`${STAT_CARD_LINK} col-span-2 sm:col-span-1`}
         data-testid="stat-balance"
       >
         <Card class={STAT_CARD}>
-          <CardContent class="flex items-center gap-3 p-4">
+          <CardContent
+            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
+          >
             <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
               <Sparkles class="size-5 text-primary" />
             </div>
             <div class="min-w-0">
               <p
-                class="truncate text-2xl font-bold tabular-nums"
+                class="text-xl font-bold tabular-nums sm:text-2xl"
                 title={formatTuzis(creator.tuzis)}
               >
                 {formatTuzis(creator.tuzis)}
               </p>
               <p
-                class="truncate text-xs font-medium tracking-wider text-muted-foreground uppercase"
+                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
               >
                 2Z Balance
               </p>
@@ -367,23 +373,25 @@
            reads `?section=subscribers` off the URL and selects that tab. -->
       <a
         href={`/${creator.username}/dashboard/billing?section=subscribers`}
-        class={STAT_CARD_LINK}
+        class={`${STAT_CARD_LINK} col-span-2 sm:col-span-1`}
         data-testid="stat-fans"
       >
         <Card class={STAT_CARD}>
-          <CardContent class="flex items-center gap-3 p-4">
+          <CardContent
+            class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"
+          >
             <div class="shrink-0 rounded-full bg-primary/10 p-2.5">
               <Users class="size-5 text-primary" />
             </div>
             <div class="min-w-0">
               <p
-                class="truncate text-2xl font-bold tabular-nums"
+                class="text-xl font-bold tabular-nums sm:text-2xl"
                 title={formatCount(creator.fans?.length || 0)}
               >
                 {formatCount(creator.fans?.length || 0)}
               </p>
               <p
-                class="truncate text-xs font-medium tracking-wider text-muted-foreground uppercase"
+                class="text-xs font-medium tracking-wider text-muted-foreground uppercase"
               >
                 Fans
               </p>
@@ -444,7 +452,7 @@
                   class="group space-y-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/50"
                 >
                   <div
-                    class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"
+                    class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
                   >
                     <div class="min-w-0 flex-1 space-y-1">
                       <div class="flex items-center gap-2">
@@ -458,7 +466,7 @@
                         >
                       </div>
                       <h3
-                        class="truncate pr-4 text-base font-semibold text-foreground"
+                        class="line-clamp-2 pr-4 text-base font-semibold break-words text-foreground"
                       >
                         {draft.title || "Untitled"}
                       </h3>
@@ -545,7 +553,7 @@
                   class="group space-y-2 rounded-xl border bg-card p-4 transition-colors hover:border-primary/50"
                 >
                   <div
-                    class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"
+                    class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
                   >
                     <div class="min-w-0 flex-1 space-y-1">
                       <div class="flex items-center gap-2">
@@ -559,7 +567,7 @@
                         >
                       </div>
                       <h3
-                        class="truncate pr-4 text-base font-semibold text-foreground"
+                        class="line-clamp-2 pr-4 text-base font-semibold break-words text-foreground"
                       >
                         <a
                           href={pageUrl(page)}
