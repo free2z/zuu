@@ -323,7 +323,7 @@ jobs:
           - name: Linux packages
             os: ubuntu-24.04
             bundles: appimage,deb,rpm
-            container: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
+            container: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
           - name: macOS universal app
             os: macos-26
             bundles: app,dmg
@@ -387,6 +387,9 @@ jobs:
           shared-key: zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64
           save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: npm ci
+      - name: Test Linux artifact inspectors against real packages
+        if: runner.os == 'Linux'
+        run: node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|real deb with an escaping' scripts/artifact-sbom.node-test.mjs
       - run: npm run release:verify
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
@@ -418,6 +421,57 @@ jobs:
           else
             test -n "$(find release-artifacts -type f -print -quit)"
           fi
+      - name: Prepare Linux shipped-artifact inventories
+        if: runner.os == 'Linux'
+        run: |
+          appimages=(release-artifacts/*.AppImage)
+          debs=(release-artifacts/*.deb)
+          rpms=(release-artifacts/*.rpm)
+          [[ ${#appimages[@]} -eq 1 && -f "${appimages[0]}" ]] || { echo "expected exactly one Linux AppImage" >&2; exit 1; }
+          [[ ${#debs[@]} -eq 1 && -f "${debs[0]}" ]] || { echo "expected exactly one Linux deb" >&2; exit 1; }
+          [[ ${#rpms[@]} -eq 1 && -f "${rpms[0]}" ]] || { echo "expected exactly one Linux rpm" >&2; exit 1; }
+          node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root
+          node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root
+          node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root
+      - name: Scan Linux AppImage shipped artifact
+        if: runner.os == 'Linux'
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/linux-appimage/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Scan Linux deb shipped artifact
+        if: runner.os == 'Linux'
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/linux-deb/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Scan Linux rpm shipped artifact
+        if: runner.os == 'Linux'
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/linux-rpm/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Bind Linux shipped-artifact SBOMs
+        if: runner.os == 'Linux'
+        run: |
+          appimages=(release-artifacts/*.AppImage)
+          debs=(release-artifacts/*.deb)
+          rpms=(release-artifacts/*.rpm)
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json
       - name: Prepare macOS shipped-artifact inventories
         if: runner.os == 'macOS'
         run: |
@@ -468,7 +522,14 @@ jobs:
         run: node scripts/artifact-sbom.mjs label-source --raw-sbom=artifact-sbom-work/ZUULI-desktop.source.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-desktop.source.sbom.cdx.json --source-root=wallet/zuuli
       - name: Record checksums and provenance
         run: |
-          if [[ "${{ runner.os }}" == macOS ]]; then
+          if [[ "${{ runner.os }}" == Linux ]]; then
+            appimages=(release-artifacts/*.AppImage)
+            debs=(release-artifacts/*.deb)
+            rpms=(release-artifacts/*.rpm)
+            node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json
+            node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json
+            node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json
+          else
             dmgs=(release-artifacts/*.dmg)
             zips=(release-artifacts/*-macos-universal-unsigned.zip)
             node scripts/artifact-sbom.mjs verify-artifact --artifact="${dmgs[0]}" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json

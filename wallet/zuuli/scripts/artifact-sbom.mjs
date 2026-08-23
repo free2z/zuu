@@ -7,7 +7,9 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  fstatSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -19,6 +21,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  writeSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +32,7 @@ import {
   relative,
   resolve,
   sep,
+  posix,
 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -156,11 +160,18 @@ export function inventoryRoot(
 ) {
   const root = realpathSync(rootPath);
   const entries = [];
+  let memberCount = 0;
   let regularBytes = 0;
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = resolve(directory, entry.name);
       const path = relative(root, absolute).split(sep).join("/");
+      memberCount += 1;
+      if (memberCount > MAX_ARCHIVE_ENTRIES) {
+        throw new Error(
+          `artifact has too many entries: more than ${MAX_ARCHIVE_ENTRIES}`,
+        );
+      }
       if (!safeArchiveMember(path)) {
         throw new Error(
           `unsafe unpacked artifact path: ${JSON.stringify(path)}`,
@@ -216,9 +227,580 @@ export function inventoryRoot(
 function artifactFormat(artifact) {
   const lower = artifact.toLowerCase();
   if (lower.endsWith(".dmg")) return "dmg";
+  if (lower.endsWith(".appimage")) return "appimage";
+  if (lower.endsWith(".deb")) return "deb";
+  if (lower.endsWith(".rpm")) return "rpm";
   const extension = lower.split(".").at(-1);
   if (["aab", "ipa", "zip"].includes(extension)) return "zip";
   throw new Error(`unsupported artifact format .${extension}`);
+}
+
+function readExactly(descriptor, length, position, label) {
+  const buffer = Buffer.alloc(length);
+  let read = 0;
+  while (read < length) {
+    const count = readSync(
+      descriptor,
+      buffer,
+      read,
+      length - read,
+      position + read,
+    );
+    if (count === 0) throw new Error(`${label} is truncated`);
+    read += count;
+  }
+  return buffer;
+}
+
+function safeInteger(value, label) {
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`${label} exceeds the safe integer range`);
+    }
+    value = Number(value);
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a nonnegative safe integer`);
+  }
+  return value;
+}
+
+export function appImagePayloadOffset(artifact) {
+  const descriptor = openSync(artifact, "r");
+  try {
+    const header = readExactly(descriptor, 64, 0, "AppImage ELF header");
+    if (!header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) {
+      throw new Error("AppImage must start with an ELF header");
+    }
+    if (header[5] !== 1 || header[6] !== 1) {
+      throw new Error("AppImage ELF must use current little-endian encoding");
+    }
+    if (header[8] !== 0x41 || header[9] !== 0x49 || header[10] !== 0x02) {
+      throw new Error("AppImage ELF is missing the Type 2 AI magic");
+    }
+
+    let sectionTableOffset;
+    let sectionHeaderSize;
+    let sectionCount;
+    let sectionOffsetField;
+    let sectionSizeField;
+    if (header[4] === 2) {
+      sectionTableOffset = safeInteger(
+        header.readBigUInt64LE(40),
+        "ELF section table offset",
+      );
+      sectionHeaderSize = header.readUInt16LE(58);
+      sectionCount = header.readUInt16LE(60);
+      sectionOffsetField = 24;
+      sectionSizeField = 32;
+      if (header.readUInt16LE(52) !== 64 || sectionHeaderSize < 64) {
+        throw new Error("AppImage has an invalid ELF64 header layout");
+      }
+    } else if (header[4] === 1) {
+      sectionTableOffset = header.readUInt32LE(32);
+      sectionHeaderSize = header.readUInt16LE(46);
+      sectionCount = header.readUInt16LE(48);
+      sectionOffsetField = 16;
+      sectionSizeField = 20;
+      if (header.readUInt16LE(40) !== 52 || sectionHeaderSize < 40) {
+        throw new Error("AppImage has an invalid ELF32 header layout");
+      }
+    } else {
+      throw new Error("AppImage has an unsupported ELF class");
+    }
+    if (sectionTableOffset === 0 || sectionCount === 0) {
+      throw new Error("AppImage ELF must retain its section table");
+    }
+    const lastHeaderOffset = safeInteger(
+      sectionTableOffset + sectionHeaderSize * (sectionCount - 1),
+      "last ELF section header offset",
+    );
+    const section = readExactly(
+      descriptor,
+      sectionHeaderSize,
+      lastHeaderOffset,
+      "last ELF section header",
+    );
+    const lastSectionOffset =
+      header[4] === 2
+        ? safeInteger(
+            section.readBigUInt64LE(sectionOffsetField),
+            "last ELF section offset",
+          )
+        : section.readUInt32LE(sectionOffsetField);
+    const lastSectionSize =
+      header[4] === 2
+        ? safeInteger(
+            section.readBigUInt64LE(sectionSizeField),
+            "last ELF section size",
+          )
+        : section.readUInt32LE(sectionSizeField);
+    const offset = Math.max(
+      sectionTableOffset + sectionHeaderSize * sectionCount,
+      lastSectionOffset + lastSectionSize,
+    );
+    const superblock = readExactly(
+      descriptor,
+      96,
+      offset,
+      "AppImage SquashFS superblock",
+    );
+    if (superblock.readUInt32LE(0) !== 0x73717368) {
+      throw new Error("AppImage payload does not begin with SquashFS magic");
+    }
+    if (superblock.readUInt16LE(28) !== 4) {
+      throw new Error("AppImage must contain a SquashFS v4 payload");
+    }
+    const bytesUsed = safeInteger(
+      superblock.readBigUInt64LE(40),
+      "SquashFS bytes-used field",
+    );
+    if (bytesUsed < 96 || offset + bytesUsed > fstatSync(descriptor).size) {
+      throw new Error(
+        "AppImage SquashFS payload exceeds the artifact boundary",
+      );
+    }
+    return offset;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function logicalLinkTarget(path, target) {
+  if (
+    target.length === 0 ||
+    target.includes("\\") ||
+    target.startsWith("/") ||
+    /[\u0000-\u001f\u007f]/.test(target)
+  ) {
+    throw new Error(
+      `artifact symlink must have a safe relative target: ${path}`,
+    );
+  }
+  const resolved = posix.normalize(posix.join(posix.dirname(path), target));
+  if (
+    resolved === ".." ||
+    resolved.startsWith("../") ||
+    resolved.startsWith("/")
+  ) {
+    throw new Error(`artifact symlink escapes payload: ${path} -> ${target}`);
+  }
+}
+
+export function validateLogicalEntries(entries) {
+  if (entries.length === 0) throw new Error("artifact payload is empty");
+  if (entries.length > MAX_ARCHIVE_ENTRIES) {
+    throw new Error(`artifact has too many entries: ${entries.length}`);
+  }
+  const kinds = new Map();
+  let regularBytes = 0;
+  for (const entry of entries) {
+    if (!safeArchiveMember(entry.path)) {
+      throw new Error(`unsafe artifact member ${JSON.stringify(entry.path)}`);
+    }
+    if (kinds.has(entry.path)) {
+      throw new Error(
+        `duplicate artifact member ${JSON.stringify(entry.path)}`,
+      );
+    }
+    kinds.set(entry.path, entry.kind);
+    if (entry.kind === "regular") {
+      regularBytes += entry.size;
+      if (regularBytes > MAX_UNPACKED_BYTES) {
+        throw new Error(
+          `artifact expands beyond the ${MAX_UNPACKED_BYTES}-byte safety limit`,
+        );
+      }
+    } else if (entry.kind === "symlink") {
+      logicalLinkTarget(entry.path, entry.target);
+    }
+  }
+  for (const entry of entries) {
+    let parent = posix.dirname(entry.path);
+    while (parent !== ".") {
+      const parentKind = kinds.get(parent);
+      if (parentKind && parentKind !== "directory") {
+        throw new Error(
+          `artifact member descends through non-directory ${parent}`,
+        );
+      }
+      parent = posix.dirname(parent);
+    }
+  }
+}
+
+function listAppImagePayload(artifact, offset) {
+  const output = execFileSync(
+    "unsquashfs",
+    ["-lln", "-full-precision", "-UTC", "-quiet", "-o", `${offset}`, artifact],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 120_000 },
+  );
+  const entries = [];
+  for (const line of output.trimEnd().split("\n")) {
+    const match =
+      /^([dl-])\S*\s+\d+\/\d+\s+(\d+)\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} squashfs-root(?:\/(.*))?$/.exec(
+        line,
+      );
+    if (!match)
+      throw new Error(
+        `unparseable SquashFS member listing: ${JSON.stringify(line)}`,
+      );
+    if (match[3] === undefined) continue;
+    let path = match[3];
+    const kind =
+      match[1] === "d" ? "directory" : match[1] === "l" ? "symlink" : "regular";
+    let target;
+    if (kind === "symlink") {
+      const delimiter = path.lastIndexOf(" -> ");
+      if (delimiter < 1 || path.indexOf(" -> ") !== delimiter) {
+        throw new Error(
+          `ambiguous SquashFS symlink listing: ${JSON.stringify(path)}`,
+        );
+      }
+      target = path.slice(delimiter + 4);
+      path = path.slice(0, delimiter);
+    }
+    entries.push({ path, kind, size: Number(match[2]), target });
+  }
+  validateLogicalEntries(entries);
+  return entries;
+}
+
+function extractAppImage(artifact, root) {
+  const offset = appImagePayloadOffset(artifact);
+  const readelf = execFileSync("readelf", ["-hW", artifact], {
+    encoding: "utf8",
+    timeout: 120_000,
+    env: { ...process.env, LC_ALL: "C" },
+  });
+  if (!/^\s*Class:\s+ELF(?:32|64)$/m.test(readelf)) {
+    throw new Error("readelf did not confirm the AppImage ELF class");
+  }
+  const listed = listAppImagePayload(artifact, offset);
+  execFileSync(
+    "unsquashfs",
+    [
+      "-strict-errors",
+      "-no-xattrs",
+      "-no-progress",
+      "-d",
+      root,
+      "-o",
+      `${offset}`,
+      artifact,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"], timeout: 120_000 },
+  );
+  const actual = new Map(
+    inventoryRoot(root).map((entry) => [entry.path, entry]),
+  );
+  const expected = listed.filter((entry) => entry.kind !== "directory");
+  if (actual.size !== expected.length) {
+    throw new Error(
+      "SquashFS extraction does not match its reviewed member listing",
+    );
+  }
+  for (const entry of expected) {
+    const unpacked = actual.get(entry.path);
+    if (
+      !unpacked ||
+      unpacked.kind !== entry.kind ||
+      (entry.kind === "regular" && unpacked.bytes !== entry.size) ||
+      (entry.kind === "symlink" && unpacked.target !== entry.target)
+    ) {
+      throw new Error(
+        `SquashFS extraction changed reviewed member ${entry.path}`,
+      );
+    }
+  }
+}
+
+function tarText(buffer) {
+  const nul = buffer.indexOf(0);
+  return buffer.subarray(0, nul < 0 ? buffer.length : nul).toString("utf8");
+}
+
+function tarNumber(buffer, label) {
+  if ((buffer[0] & 0x80) !== 0) {
+    throw new Error(`${label} uses unsupported base-256 tar encoding`);
+  }
+  const text = tarText(buffer).trim();
+  if (text === "") return 0;
+  if (!/^[0-7]+$/.test(text))
+    throw new Error(`${label} is not a valid tar octal number`);
+  return safeInteger(Number.parseInt(text, 8), label);
+}
+
+function tarChecksum(header) {
+  let sum = 0;
+  for (let index = 0; index < header.length; index += 1) {
+    sum += index >= 148 && index < 156 ? 0x20 : header[index];
+  }
+  return sum;
+}
+
+function normalizeTarPath(value) {
+  while (value.startsWith("./")) value = value.slice(2);
+  if (value.endsWith("/")) value = value.slice(0, -1);
+  if (value === "" || value === ".") return ".";
+  if (!safeArchiveMember(value)) {
+    throw new Error(`unsafe tar member ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+function parsePax(buffer) {
+  const fields = new Map();
+  let offset = 0;
+  while (offset < buffer.length) {
+    const space = buffer.indexOf(0x20, offset);
+    if (space < 0) throw new Error("invalid PAX record length");
+    const lengthText = buffer.subarray(offset, space).toString("ascii");
+    if (!/^[1-9][0-9]*$/.test(lengthText))
+      throw new Error("invalid PAX record length");
+    const length = Number(lengthText);
+    const end = offset + length;
+    if (
+      !Number.isSafeInteger(length) ||
+      end > buffer.length ||
+      buffer[end - 1] !== 0x0a
+    ) {
+      throw new Error("truncated PAX record");
+    }
+    const record = buffer.subarray(space + 1, end - 1).toString("utf8");
+    const equals = record.indexOf("=");
+    if (equals < 1) throw new Error("invalid PAX record");
+    fields.set(record.slice(0, equals), record.slice(equals + 1));
+    offset = end;
+  }
+  return fields;
+}
+
+function parseTarArchive(archive) {
+  const descriptor = openSync(archive, "r");
+  const entries = [];
+  let position = 0;
+  let zeroBlocks = 0;
+  let nextPax = new Map();
+  const globalPax = new Map();
+  let longName;
+  let longLink;
+  try {
+    const archiveSize = fstatSync(descriptor).size;
+    while (position < archiveSize) {
+      const header = readExactly(descriptor, 512, position, "tar header");
+      if (header.every((byte) => byte === 0)) {
+        zeroBlocks += 1;
+        position += 512;
+        continue;
+      }
+      if (zeroBlocks > 0)
+        throw new Error("tar archive has data after its end marker");
+      const expectedChecksum = tarNumber(
+        header.subarray(148, 156),
+        "tar checksum",
+      );
+      if (tarChecksum(header) !== expectedChecksum)
+        throw new Error("tar header checksum mismatch");
+      const type = String.fromCharCode(header[156] || 0x30);
+      const headerSize = tarNumber(
+        header.subarray(124, 136),
+        "tar member size",
+      );
+      const dataOffset = position + 512;
+      const nextPosition = dataOffset + Math.ceil(headerSize / 512) * 512;
+      if (nextPosition > archiveSize)
+        throw new Error("tar member exceeds archive boundary");
+      const rawName = tarText(header.subarray(0, 100));
+      const prefix = tarText(header.subarray(345, 500));
+      const headerName = prefix ? `${prefix}/${rawName}` : rawName;
+      if (["x", "g", "L", "K"].includes(type)) {
+        if (headerSize > 1024 * 1024)
+          throw new Error("tar metadata record is too large");
+        const data = readExactly(
+          descriptor,
+          headerSize,
+          dataOffset,
+          "tar metadata record",
+        );
+        if (type === "x") nextPax = parsePax(data);
+        else if (type === "g") {
+          for (const [key, value] of parsePax(data)) globalPax.set(key, value);
+        } else if (type === "L") longName = tarText(data);
+        else longLink = tarText(data);
+        position = nextPosition;
+        continue;
+      }
+      const pax = new Map([...globalPax, ...nextPax]);
+      const paxSize = pax.get("size");
+      const size =
+        paxSize === undefined
+          ? headerSize
+          : safeInteger(Number(paxSize), "PAX member size");
+      if (size !== headerSize)
+        throw new Error("PAX size does not match the tar data boundary");
+      const name = normalizeTarPath(pax.get("path") ?? longName ?? headerName);
+      const linkTarget =
+        pax.get("linkpath") ?? longLink ?? tarText(header.subarray(157, 257));
+      nextPax = new Map();
+      longName = undefined;
+      longLink = undefined;
+      const kind = ["0", "7"].includes(type)
+        ? "regular"
+        : type === "5"
+          ? "directory"
+          : type === "2"
+            ? "symlink"
+            : type === "1"
+              ? "hardlink"
+              : undefined;
+      if (!kind)
+        throw new Error(
+          `unsupported tar member type ${JSON.stringify(type)}: ${name}`,
+        );
+      if (kind !== "regular" && size !== 0)
+        throw new Error(`non-file tar member has data: ${name}`);
+      if (name === ".") {
+        if (kind !== "directory")
+          throw new Error("tar root entry must be a directory");
+        position = nextPosition;
+        continue;
+      }
+      entries.push({
+        path: name,
+        kind,
+        size,
+        mode: tarNumber(header.subarray(100, 108), "tar member mode") & 0o777,
+        target: linkTarget,
+        dataOffset,
+      });
+      position = nextPosition;
+    }
+    if (zeroBlocks < 2)
+      throw new Error("tar archive is missing its two-block end marker");
+    if (nextPax.size > 0 || longName !== undefined || longLink !== undefined) {
+      throw new Error("tar archive ends with unconsumed metadata");
+    }
+    validateLogicalEntries(entries);
+    return { descriptor, entries };
+  } catch (error) {
+    closeSync(descriptor);
+    throw error;
+  }
+}
+
+export function extractTarArchive(archive, root) {
+  const parsed = parseTarArchive(archive);
+  try {
+    mkdirSync(root);
+    for (const entry of parsed.entries.filter(
+      (entry) => entry.kind === "directory",
+    )) {
+      const destination = resolve(root, ...entry.path.split("/"));
+      // Keep directories writable while descendants are materialized. Their
+      // shipped modes are restored deepest-first after files and links exist.
+      mkdirSync(destination, { recursive: true, mode: 0o755 });
+    }
+    for (const entry of parsed.entries.filter(
+      (entry) => entry.kind === "regular",
+    )) {
+      const destination = resolve(root, ...entry.path.split("/"));
+      mkdirSync(dirname(destination), { recursive: true });
+      const output = openSync(destination, "wx", entry.mode);
+      try {
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        let copied = 0;
+        while (copied < entry.size) {
+          const count = Math.min(buffer.length, entry.size - copied);
+          const chunk = readExactly(
+            parsed.descriptor,
+            count,
+            entry.dataOffset + copied,
+            "tar member data",
+          );
+          let written = 0;
+          while (written < chunk.length) {
+            written += writeSync(
+              output,
+              chunk,
+              written,
+              chunk.length - written,
+            );
+          }
+          copied += count;
+        }
+      } finally {
+        closeSync(output);
+      }
+      chmodSync(destination, entry.mode);
+    }
+    const hardlinks = parsed.entries.filter(
+      (entry) => entry.kind === "hardlink",
+    );
+    for (const entry of hardlinks) {
+      const target = normalizeTarPath(entry.target);
+      const targetEntry = parsed.entries.find(
+        (candidate) => candidate.path === target,
+      );
+      if (!targetEntry || targetEntry.kind !== "regular") {
+        throw new Error(
+          `tar hardlink target is not a shipped regular file: ${entry.path}`,
+        );
+      }
+      const destination = resolve(root, ...entry.path.split("/"));
+      mkdirSync(dirname(destination), { recursive: true });
+      linkSync(resolve(root, ...target.split("/")), destination);
+    }
+    for (const entry of parsed.entries.filter(
+      (entry) => entry.kind === "symlink",
+    )) {
+      const destination = resolve(root, ...entry.path.split("/"));
+      mkdirSync(dirname(destination), { recursive: true });
+      symlinkSync(entry.target, destination);
+    }
+    for (const entry of parsed.entries
+      .filter((candidate) => candidate.kind === "directory")
+      .sort((left, right) => right.path.length - left.path.length)) {
+      chmodSync(resolve(root, ...entry.path.split("/")), entry.mode);
+    }
+  } finally {
+    closeSync(parsed.descriptor);
+  }
+}
+
+function extractLinuxPackage(artifact, root, format) {
+  const temporary = mkdtempSync(resolve(tmpdir(), `zuuli-${format}-payload-`));
+  const archive = resolve(temporary, "payload.tar");
+  const output = openSync(archive, "wx", 0o600);
+  try {
+    try {
+      if (format === "deb") {
+        execFileSync("dpkg-deb", ["--info", artifact], {
+          stdio: ["ignore", "ignore", "pipe"],
+          timeout: 120_000,
+        });
+        execFileSync("dpkg-deb", ["--fsys-tarfile", artifact], {
+          stdio: ["ignore", output, "pipe"],
+          timeout: 120_000,
+        });
+      } else {
+        execFileSync("rpm2archive", ["-n", artifact], {
+          stdio: ["ignore", output, "pipe"],
+          timeout: 120_000,
+        });
+      }
+    } finally {
+      closeSync(output);
+    }
+    if (lstatSync(archive).size > MAX_UNPACKED_BYTES) {
+      throw new Error(
+        `package payload archive exceeds the ${MAX_UNPACKED_BYTES}-byte safety limit`,
+      );
+    }
+    extractTarArchive(archive, root);
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 function cloneMountedTree(sourcePath, destinationPath) {
@@ -277,11 +859,7 @@ function cloneMountedTree(sourcePath, destinationPath) {
   visit(source, destinationPath);
 }
 
-export function extractDmg(
-  artifact,
-  root,
-  { execute = execFileSync } = {},
-) {
+export function extractDmg(artifact, root, { execute = execFileSync } = {}) {
   const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-dmg-mount-"));
   const mountpoint = resolve(temporary, "mount");
   mkdirSync(mountpoint);
@@ -341,8 +919,12 @@ export function prepareArtifact({ artifact, root }) {
   if (format === "zip") {
     mkdirSync(root);
     execFileSync("unzip", ["-qq", artifact, "-d", root]);
-  } else {
+  } else if (format === "dmg") {
     extractDmg(artifact, root);
+  } else if (format === "appimage") {
+    extractAppImage(artifact, root);
+  } else {
+    extractLinuxPackage(artifact, root, format);
   }
   const inventory = inventoryRoot(root, {
     allowExternalSymlinks: format === "dmg",
@@ -770,6 +1352,53 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       ],
     ],
     [
+      "packaging linux",
+      jobBlock(packaging, "desktop"),
+      [
+        "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
+        'node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
+        'node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root',
+        'node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',
+        "path: wallet/zuuli/artifact-sbom-work/linux-appimage/root",
+        "output-file: wallet/zuuli/artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json",
+        "path: wallet/zuuli/artifact-sbom-work/linux-deb/root",
+        "output-file: wallet/zuuli/artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json",
+        "path: wallet/zuuli/artifact-sbom-work/linux-rpm/root",
+        "output-file: wallet/zuuli/artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json",
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+        "npm run release:manifest -- --artifacts=release-artifacts",
+        "actions/upload-artifact@",
+      ],
+    ],
+    [
+      "release linux artifacts",
+      jobBlock(release, "linux"),
+      [
+        'node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
+        'node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root',
+        'node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',
+        "path: wallet/zuuli/artifact-sbom-work/linux-appimage/root",
+        "output-file: wallet/zuuli/artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json",
+        "path: wallet/zuuli/artifact-sbom-work/linux-deb/root",
+        "output-file: wallet/zuuli/artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json",
+        "path: wallet/zuuli/artifact-sbom-work/linux-rpm/root",
+        "output-file: wallet/zuuli/artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json",
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+        "npm run release:manifest -- --artifacts=release-artifacts",
+        "actions/attest-build-provenance@",
+      ],
+    ],
+    [
       "packaging macos",
       jobBlock(packaging, "desktop"),
       [
@@ -844,16 +1473,37 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       ],
     ],
     [
-      "packaging macos",
+      "packaging desktop",
       jobBlock(packaging, "desktop"),
       [
-        'if [[ "${{ runner.os }}" == macOS ]]; then',
+        'if [[ "${{ runner.os }}" == Linux ]]; then',
+        "appimages=(release-artifacts/*.AppImage)",
+        "debs=(release-artifacts/*.deb)",
+        "rpms=(release-artifacts/*.rpm)",
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+        "else",
         "dmgs=(release-artifacts/*.dmg)",
         "zips=(release-artifacts/*-macos-universal-unsigned.zip)",
         'node scripts/artifact-sbom.mjs verify-artifact --artifact="${dmgs[0]}" --sbom=release-artifacts/ZUULI-macos-dmg.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-dmg.artifact.sbom-binding.json',
         'node scripts/artifact-sbom.mjs verify-artifact --artifact="${zips[0]}" --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json',
         "fi",
         'jq -e \'(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)\' release-artifacts/ZUULI-desktop.source.sbom.cdx.json',
+        "npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+    [
+      "release linux artifacts",
+      jobBlock(release, "linux"),
+      [
+        "appimages=(release-artifacts/*.AppImage)",
+        "debs=(release-artifacts/*.deb)",
+        "rpms=(release-artifacts/*.rpm)",
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+        'jq -e \'(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)\' release-artifacts/ZUULI-linux.source.sbom.cdx.json',
         "npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
       ],
     ],

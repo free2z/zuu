@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
+  copyFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -16,7 +18,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  appImagePayloadOffset,
   artifactSbomWorkflowFailures,
+  extractTarArchive,
   extractDmg,
   finalizeArtifactSbom,
   inventoryRoot,
@@ -24,6 +28,7 @@ import {
   prepareArtifact,
   sha256File,
   validateArchiveMembers,
+  validateLogicalEntries,
   verifyArtifactSbom,
 } from "./artifact-sbom.mjs";
 
@@ -82,6 +87,453 @@ function makeZipFixture(root) {
   };
 }
 
+const linuxFixtureTools = [
+  "cc",
+  "dpkg-deb",
+  "mksquashfs",
+  "readelf",
+  "rpm2archive",
+  "rpmbuild",
+  "unsquashfs",
+];
+
+function commandExists(command) {
+  return (process.env.PATH ?? "")
+    .split(":")
+    .some((directory) => existsSync(resolve(directory, command)));
+}
+
+const canBuildLinuxFixtures =
+  process.platform === "linux" && linuxFixtureTools.every(commandExists);
+
+function writeCanaryPayload(root) {
+  const canary = resolve(root, "usr/lib/zuuli/libundeclared-canary.so");
+  const executable = resolve(root, "usr/bin/zuuli");
+  mkdirSync(dirname(canary), { recursive: true });
+  mkdirSync(dirname(executable), { recursive: true });
+  writeFileSync(canary, "undeclared native Linux library bytes\n");
+  writeFileSync(executable, "native Linux executable bytes\n");
+  symlinkSync("../../bin/zuuli", resolve(root, "usr/lib/zuuli/current"));
+}
+
+function makeAppImageFixture(root) {
+  const source = resolve(root, "appimage-root");
+  writeCanaryPayload(source);
+  const squashfs = resolve(root, "payload.squashfs");
+  execFileSync(
+    "mksquashfs",
+    [source, squashfs, "-noappend", "-quiet", "-all-root"],
+    {
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  const cSource = resolve(root, "runtime.c");
+  const runtime = resolve(root, "runtime");
+  writeFileSync(cSource, "int main(void) { return 0; }\n");
+  execFileSync("cc", ["-s", "-o", runtime, cSource]);
+  const runtimeBytes = readFileSync(runtime);
+  runtimeBytes[8] = 0x41;
+  runtimeBytes[9] = 0x49;
+  runtimeBytes[10] = 0x02;
+  const artifact = resolve(root, "ZUULI-test.AppImage");
+  writeFileSync(
+    artifact,
+    Buffer.concat([runtimeBytes, readFileSync(squashfs)]),
+  );
+  return artifact;
+}
+
+function makeDebFixture(root, { escapingSymlink = false } = {}) {
+  const source = resolve(root, "deb-root");
+  writeCanaryPayload(source);
+  if (escapingSymlink) {
+    const link = resolve(source, "usr/lib/zuuli/current");
+    rmSync(link);
+    symlinkSync("../../../../outside-payload", link);
+  }
+  const control = resolve(source, "DEBIAN/control");
+  mkdirSync(dirname(control), { recursive: true });
+  writeFileSync(
+    control,
+    "Package: zuuli-fixture\nVersion: 1.0.0\nArchitecture: amd64\nMaintainer: test <test@example.invalid>\nDescription: artifact SBOM fixture\n",
+  );
+  const artifact = resolve(root, "ZUULI-test.deb");
+  execFileSync(
+    "dpkg-deb",
+    ["--build", "--root-owner-group", source, artifact],
+    {
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  return artifact;
+}
+
+function makeRpmFixture(root) {
+  const top = resolve(root, "rpm-top");
+  for (const directory of [
+    "BUILD",
+    "BUILDROOT",
+    "RPMS",
+    "SOURCES",
+    "SPECS",
+    "SRPMS",
+  ]) {
+    mkdirSync(resolve(top, directory), { recursive: true });
+  }
+  const spec = resolve(top, "SPECS/zuuli-fixture.spec");
+  writeFileSync(
+    spec,
+    [
+      "Name: zuuli-fixture",
+      "Version: 1.0.0",
+      "Release: 1",
+      "Summary: artifact SBOM fixture",
+      "License: MIT",
+      "BuildArch: noarch",
+      "%description",
+      "artifact SBOM fixture",
+      "%install",
+      "mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/lib/zuuli",
+      "printf 'native Linux executable bytes\\n' > %{buildroot}/usr/bin/zuuli",
+      "printf 'undeclared native Linux library bytes\\n' > %{buildroot}/usr/lib/zuuli/libundeclared-canary.so",
+      "ln -s ../../bin/zuuli %{buildroot}/usr/lib/zuuli/current",
+      "%files",
+      "/usr/bin/zuuli",
+      "/usr/lib/zuuli/current",
+      "/usr/lib/zuuli/libundeclared-canary.so",
+      "",
+    ].join("\n"),
+  );
+  execFileSync("rpmbuild", ["--define", `_topdir ${top}`, "-bb", spec], {
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const artifact = resolve(root, "ZUULI-test.rpm");
+  copyFileSync(
+    resolve(top, "RPMS/noarch/zuuli-fixture-1.0.0-1.noarch.rpm"),
+    artifact,
+  );
+  return artifact;
+}
+
+function writeTarField(header, offset, length, value) {
+  Buffer.from(value).copy(header, offset, 0, length);
+}
+
+function tarHeader({ name, type = "0", data = Buffer.alloc(0), target = "" }) {
+  const header = Buffer.alloc(512);
+  writeTarField(header, 0, 100, name);
+  writeTarField(header, 100, 8, "0000644\0");
+  writeTarField(header, 108, 8, "0000000\0");
+  writeTarField(header, 116, 8, "0000000\0");
+  writeTarField(
+    header,
+    124,
+    12,
+    `${data.length.toString(8).padStart(11, "0")}\0`,
+  );
+  writeTarField(header, 136, 12, "00000000000\0");
+  header.fill(0x20, 148, 156);
+  writeTarField(header, 156, 1, type);
+  writeTarField(header, 157, 100, target);
+  writeTarField(header, 257, 6, "ustar\0");
+  writeTarField(header, 263, 2, "00");
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  writeTarField(header, 148, 8, `${checksum.toString(8).padStart(6, "0")}\0 `);
+  return header;
+}
+
+function writeTarFixture(path, entries) {
+  const chunks = [];
+  for (const entry of entries) {
+    const data = Buffer.from(entry.data ?? "");
+    chunks.push(tarHeader({ ...entry, data }), data);
+    const remainder = data.length % 512;
+    if (remainder > 0) chunks.push(Buffer.alloc(512 - remainder));
+  }
+  chunks.push(Buffer.alloc(1024));
+  writeFileSync(path, Buffer.concat(chunks));
+}
+
+function assertRealLinuxArtifactBoundary(temporary, label, artifact) {
+  const root = resolve(temporary, `${label}-unpacked`);
+  const rawSbom = resolve(temporary, `${label}.raw.cdx.json`);
+  const sbom = resolve(temporary, `${label}.artifact.sbom.cdx.json`);
+  const binding = resolve(temporary, `${label}.artifact.sbom-binding.json`);
+  writeJson(rawSbom, minimalCycloneDx());
+  const inventory = prepareArtifact({ artifact, root });
+  const canaryPath = "usr/lib/zuuli/libundeclared-canary.so";
+  assert.ok(inventory.some((entry) => entry.path === canaryPath));
+  finalizeArtifactSbom({ artifact, root, rawSbom, sbom, binding });
+  assert.doesNotThrow(() => verifyArtifactSbom({ artifact, sbom, binding }));
+
+  const document = JSON.parse(readFileSync(sbom, "utf8"));
+  document.components = document.components.filter(
+    (component) =>
+      property(component.properties ?? [], "free2z:artifact:path") !==
+      canaryPath,
+  );
+  const omitted = resolve(temporary, `${label}.omitted.sbom.cdx.json`);
+  writeJson(omitted, document);
+  const omittedBinding = resolve(
+    temporary,
+    `${label}.omitted.sbom-binding.json`,
+  );
+  const record = JSON.parse(readFileSync(binding, "utf8"));
+  record.sbom = {
+    path: basename(omitted),
+    bytes: lstatSync(omitted).size,
+    sha256: sha256File(omitted),
+  };
+  writeJson(omittedBinding, record);
+  assert.throws(
+    () =>
+      verifyArtifactSbom({ artifact, sbom: omitted, binding: omittedBinding }),
+    /inventory count mismatch|omits shipped artifact entry/,
+  );
+}
+
+test(
+  "real AppImage, deb, and rpm fixtures expose undeclared shipped canaries",
+  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
+  () => {
+    const temporary = mkdtempSync(
+      resolve(tmpdir(), "zuuli-linux-artifact-sbom-"),
+    );
+    try {
+      assertRealLinuxArtifactBoundary(
+        temporary,
+        "appimage",
+        makeAppImageFixture(temporary),
+      );
+      assertRealLinuxArtifactBoundary(
+        temporary,
+        "deb",
+        makeDebFixture(temporary),
+      );
+      assertRealLinuxArtifactBoundary(
+        temporary,
+        "rpm",
+        makeRpmFixture(temporary),
+      );
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations",
+  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
+  () => {
+    const temporary = mkdtempSync(
+      resolve(tmpdir(), "zuuli-appimage-mutation-"),
+    );
+    try {
+      const artifact = makeAppImageFixture(temporary);
+      const original = readFileSync(artifact);
+      assert.equal(
+        original[4],
+        2,
+        "the fixture must exercise ELF64 arithmetic",
+      );
+      const payloadOffset = appImagePayloadOffset(artifact);
+      const sectionTableOffset = Number(original.readBigUInt64LE(40));
+      const sectionHeaderSize = original.readUInt16LE(58);
+      const sectionCount = original.readUInt16LE(60);
+      const lastSectionHeader =
+        sectionTableOffset + sectionHeaderSize * (sectionCount - 1);
+      const mutations = [
+        {
+          name: "truncated-elf",
+          bytes: original.subarray(0, 32),
+          expected: /ELF header is truncated/,
+        },
+        {
+          name: "overflowed-section-table",
+          mutate(bytes) {
+            bytes.writeBigUInt64LE(BigInt(Number.MAX_SAFE_INTEGER) + 1n, 40);
+          },
+          expected: /exceeds the safe integer range/,
+        },
+        {
+          name: "truncated-section-table",
+          mutate(bytes) {
+            bytes.writeUInt16LE(0xffff, 60);
+          },
+          expected: /last ELF section header is truncated/,
+        },
+        {
+          name: "shifted-squashfs-offset",
+          mutate(bytes) {
+            bytes.writeBigUInt64LE(
+              BigInt(payloadOffset + 1),
+              lastSectionHeader + 24,
+            );
+            bytes.writeBigUInt64LE(0n, lastSectionHeader + 32);
+          },
+          expected: /does not begin with SquashFS magic/,
+        },
+        {
+          name: "missing-squashfs-magic",
+          mutate(bytes) {
+            bytes[payloadOffset] = 0;
+          },
+          expected: /does not begin with SquashFS magic/,
+        },
+        {
+          name: "wrong-squashfs-version",
+          mutate(bytes) {
+            bytes.writeUInt16LE(3, payloadOffset + 28);
+          },
+          expected: /SquashFS v4/,
+        },
+        {
+          name: "overflowed-squashfs-boundary",
+          mutate(bytes) {
+            bytes.writeBigUInt64LE(
+              BigInt(bytes.length - payloadOffset + 1),
+              payloadOffset + 40,
+            );
+          },
+          expected: /exceeds the artifact boundary/,
+        },
+        {
+          name: "missing-type-2-magic",
+          mutate(bytes) {
+            bytes[8] = 0;
+          },
+          expected: /missing the Type 2 AI magic/,
+        },
+      ];
+      for (const mutation of mutations) {
+        const path = resolve(temporary, `${mutation.name}.AppImage`);
+        const bytes = mutation.bytes ?? Buffer.from(original);
+        mutation.mutate?.(bytes);
+        writeFileSync(path, bytes);
+        assert.throws(
+          () => appImagePayloadOffset(path),
+          mutation.expected,
+          mutation.name,
+        );
+      }
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a real deb with an escaping payload symlink fails before extraction",
+  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
+  () => {
+    const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-deb-mutation-"));
+    try {
+      const artifact = makeDebFixture(temporary, { escapingSymlink: true });
+      assert.throws(
+        () =>
+          prepareArtifact({
+            artifact,
+            root: resolve(temporary, "unpacked"),
+          }),
+        /symlink escapes payload/,
+      );
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test("tar payload parser rejects traversal, links, special files, and duplicates", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-tar-mutations-"));
+  try {
+    const cases = [
+      {
+        name: "traversal",
+        entries: [{ name: "../escape", data: "x" }],
+        expected: /unsafe tar member/,
+      },
+      {
+        name: "absolute",
+        entries: [{ name: "/absolute", data: "x" }],
+        expected: /unsafe tar member/,
+      },
+      {
+        name: "escaping-symlink",
+        entries: [{ name: "usr/link", type: "2", target: "../../../outside" }],
+        expected: /symlink escapes payload/,
+      },
+      {
+        name: "escaping-hardlink",
+        entries: [
+          { name: "usr/file", data: "x" },
+          { name: "usr/hard", type: "1", target: "../outside" },
+        ],
+        expected: /unsafe tar member/,
+      },
+      {
+        name: "absolute-hardlink",
+        entries: [
+          { name: "usr/file", data: "x" },
+          { name: "usr/hard", type: "1", target: "/outside" },
+        ],
+        expected: /unsafe tar member/,
+      },
+      {
+        name: "special-file",
+        entries: [{ name: "dev/device", type: "3" }],
+        expected: /unsupported tar member type/,
+      },
+      {
+        name: "duplicate",
+        entries: [
+          { name: "usr/file", data: "first" },
+          { name: "usr/file", data: "second" },
+        ],
+        expected: /duplicate artifact member/,
+      },
+    ];
+    for (const fixture of cases) {
+      const archive = resolve(temporary, `${fixture.name}.tar`);
+      const root = resolve(temporary, `${fixture.name}-root`);
+      writeTarFixture(archive, fixture.entries);
+      assert.throws(
+        () => extractTarArchive(archive, root),
+        fixture.expected,
+        fixture.name,
+      );
+      rmSync(root, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("artifact logical inventory enforces count and expanded-byte ceilings", () => {
+  assert.throws(
+    () =>
+      validateLogicalEntries(
+        Array.from({ length: 100_001 }, (_, index) => ({
+          path: `entry-${index}`,
+          kind: "directory",
+          size: 0,
+        })),
+      ),
+    /too many entries/,
+  );
+  assert.throws(
+    () =>
+      validateLogicalEntries([
+        {
+          path: "oversized-file",
+          kind: "regular",
+          size: 4 * 1024 * 1024 * 1024 + 1,
+        },
+      ]),
+    /expands beyond/,
+  );
+});
+
 test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", () => {
   const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-artifact-sbom-"));
   try {
@@ -127,6 +579,39 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
     assert.doesNotThrow(
       () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
       "verification must remain independent after the mutable scan root is removed",
+    );
+
+    const originalSbomBytes = readFileSync(sbom);
+    appendFileSync(sbom, "replaced SBOM bytes");
+    assert.throws(
+      () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
+      /binding does not match exact artifact and SBOM bytes/,
+    );
+    writeFileSync(sbom, originalSbomBytes);
+
+    const duplicatedSbom = resolve(temporary, "duplicated.sbom.cdx.json");
+    const duplicatedDocument = JSON.parse(JSON.stringify(document));
+    duplicatedDocument.components.push(JSON.parse(JSON.stringify(canary)));
+    writeJson(duplicatedSbom, duplicatedDocument);
+    const duplicatedBinding = resolve(
+      temporary,
+      "duplicated.sbom-binding.json",
+    );
+    const duplicatedRecord = JSON.parse(readFileSync(binding, "utf8"));
+    duplicatedRecord.sbom = {
+      path: basename(duplicatedSbom),
+      bytes: lstatSync(duplicatedSbom).size,
+      sha256: sha256File(duplicatedSbom),
+    };
+    writeJson(duplicatedBinding, duplicatedRecord);
+    assert.throws(
+      () =>
+        verifyArtifactSbom({
+          artifact: archive,
+          sbom: duplicatedSbom,
+          binding: duplicatedBinding,
+        }),
+      /duplicate artifact file component/,
     );
 
     const mutatedSbom = resolve(temporary, "mutated.sbom.cdx.json");
@@ -288,20 +773,27 @@ test("a failed DMG attach is detached before its temporary tree is removed", () 
   try {
     assert.throws(
       () =>
-        extractDmg(resolve(temporary, "broken.dmg"), resolve(temporary, "root"), {
-          execute(command, args) {
-            assert.equal(command, "hdiutil");
-            calls.push(args);
-            if (args[0] === "attach") {
-              mountpoint = args.at(-1);
-              throw new Error("attach failed after a partial mount");
-            }
-            return Buffer.alloc(0);
+        extractDmg(
+          resolve(temporary, "broken.dmg"),
+          resolve(temporary, "root"),
+          {
+            execute(command, args) {
+              assert.equal(command, "hdiutil");
+              calls.push(args);
+              if (args[0] === "attach") {
+                mountpoint = args.at(-1);
+                throw new Error("attach failed after a partial mount");
+              }
+              return Buffer.alloc(0);
+            },
           },
-        }),
+        ),
       /attach failed after a partial mount/,
     );
-    assert.deepEqual(calls.map((args) => args[0]), ["attach", "detach"]);
+    assert.deepEqual(
+      calls.map((args) => args[0]),
+      ["attach", "detach"],
+    );
     assert.equal(
       lstatSync(dirname(mountpoint), { throwIfNoEntry: false }),
       undefined,
@@ -319,24 +811,31 @@ test("a failed DMG detach leaves the potentially live mount tree intact", () => 
   try {
     assert.throws(
       () =>
-        extractDmg(resolve(temporary, "broken.dmg"), resolve(temporary, "root"), {
-          execute(command, args) {
-            assert.equal(command, "hdiutil");
-            calls.push(args);
-            if (args[0] === "attach") {
-              mountpoint = args.at(-1);
-              throw new Error("attach timed out after a partial mount");
-            }
-            throw new Error("detach failed");
+        extractDmg(
+          resolve(temporary, "broken.dmg"),
+          resolve(temporary, "root"),
+          {
+            execute(command, args) {
+              assert.equal(command, "hdiutil");
+              calls.push(args);
+              if (args[0] === "attach") {
+                mountpoint = args.at(-1);
+                throw new Error("attach timed out after a partial mount");
+              }
+              throw new Error("detach failed");
+            },
           },
-        }),
+        ),
       /failed to detach artifact DMG safely/,
     );
-    assert.deepEqual(calls.map((args) => args.join(" ")), [
-      calls[0].join(" "),
-      `detach ${mountpoint}`,
-      `detach ${mountpoint} -force`,
-    ]);
+    assert.deepEqual(
+      calls.map((args) => args.join(" ")),
+      [
+        calls[0].join(" "),
+        `detach ${mountpoint}`,
+        `detach ${mountpoint} -force`,
+      ],
+    );
     assert.equal(
       lstatSync(dirname(mountpoint)).isDirectory(),
       true,
@@ -492,5 +991,53 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
       failure.includes("release macos artifacts"),
     ),
     "the policy must reject reusing the mutable macOS Syft root for release verification",
+  );
+  const skippedLinuxRpm = packaging.replace(
+    'node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',
+    'node scripts/artifact-sbom.mjs prepare-disabled --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(skippedLinuxRpm, release).some((failure) =>
+      failure.includes("packaging linux"),
+    ),
+  );
+  const earlyLinuxManifest = packaging.replace(
+    'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
+    'npm run release:manifest -- --artifacts=release-artifacts\n          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(earlyLinuxManifest, release).some((failure) =>
+      failure.includes("packaging linux"),
+    ),
+    "the policy must keep all Linux scans and bindings before manifest/upload",
+  );
+  const skippedRealFixtures = packaging.replace(
+    "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
+    "node --test --test-name-pattern='nonexistent' scripts/artifact-sbom.node-test.mjs",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(skippedRealFixtures, release).some((failure) =>
+      failure.includes("packaging linux"),
+    ),
+  );
+  const sourceScanSubstitution = release.replace(
+    "path: wallet/zuuli/artifact-sbom-work/linux-deb/root",
+    "path: wallet/zuuli",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, sourceScanSubstitution).some(
+      (failure) => failure.includes("release linux artifacts"),
+    ),
+    "the policy must reject substituting a source scan for the deb artifact payload",
+  );
+  const mutableLinuxRoot = release.replace(
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json',
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, mutableLinuxRoot).some((failure) =>
+      failure.includes("release linux artifacts"),
+    ),
+    "the policy must require exact AppImage re-extraction before release provenance",
   );
 });

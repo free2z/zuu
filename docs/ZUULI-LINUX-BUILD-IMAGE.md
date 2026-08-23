@@ -37,7 +37,7 @@ The current promoted image was built from
 `d946765402106cfd231c2d50f619738bdf6537f0`. [GitHub attestation
 41745676](https://github.com/free2z/zuu/attestations/41745676) binds the subject
 `ghcr.io/free2z/zuuli-linux-ci` to digest
-`sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1`.
+`sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406`.
 The same main-branch job pulled that exact digest and passed its embedded
 inventory before promotion.
 
