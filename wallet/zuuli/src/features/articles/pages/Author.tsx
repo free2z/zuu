@@ -31,6 +31,10 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { ArticlePublishedHydrationError, articles } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
 import { cn } from "@/lib/utils";
+import {
+  confirmUnsavedTransition,
+  registerUnsavedTransitionGuard,
+} from "@/lib/unsaved-transition";
 import { articleHref, readingMinutes, wordCount } from "../lib";
 import {
   ARTICLE_DRAFT_STORAGE_KEY,
@@ -202,12 +206,17 @@ function AuthenticatedAuthor({ username }: { username: string }) {
 
   useEffect(() => {
     if (blocker.state !== "blocked") return;
-    if (window.confirm("This draft could not be saved locally. Leave anyway?")) {
+    if (confirmUnsavedTransition()) {
       blocker.proceed();
     } else {
       blocker.reset();
     }
   }, [blocker]);
+
+  useEffect(
+    () => registerUnsavedTransitionGuard(() => persistRef.current()),
+    [],
+  );
 
   useEffect(() => {
     if (!dirtyRef.current) return;

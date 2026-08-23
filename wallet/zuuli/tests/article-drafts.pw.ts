@@ -245,6 +245,49 @@ test("failed persistence blocks draft switching and browser back", async ({ page
   await expect(title).toHaveValue("Unsaved edit retained in memory");
 });
 
+test("failed persistence requires confirmation before explicit sign out", async ({ page }) => {
+  await openComposer(page);
+  const draftUrl = page.url();
+  const title = page.getByRole("textbox", { name: "Title", exact: true });
+  await title.fill("Stored revision");
+  await page.getByLabel("Content (Markdown)").fill("Revision one is durable.");
+  await expect(page.getByRole("status")).toContainText("Saved locally");
+
+  await page.evaluate((storageKey) => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === storageKey) throw new DOMException("Draft writes blocked", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  }, STORAGE_KEY);
+  await title.fill("Unsaved update before sign out");
+  await expect(page.getByRole("status")).toContainText("Autosave unavailable");
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(draftUrl);
+  await expect(title).toHaveValue("Unsaved update before sign out");
+  await expect(page.getByRole("button", { name: "Account menu" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBe(
+    "mock-knox-token",
+  );
+
+  // Accepting the same explicit warning authorizes the otherwise lossy account
+  // transition and preserves the older durable revision for later recovery.
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(page.getByText("Log in to publish", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("zuuli.knox.token"))).toBeNull();
+  const stored = await page.evaluate((key) => {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw).drafts : [];
+  }, STORAGE_KEY);
+  expect(stored).toHaveLength(1);
+  expect(stored[0]).toMatchObject({ revision: 1, title: "Stored revision" });
+});
+
 test("corrupt current-version storage remains byte-for-byte untouched", async ({ page }) => {
   const malformed = '{"version":1,"drafts":[';
   await page.addInitScript(
