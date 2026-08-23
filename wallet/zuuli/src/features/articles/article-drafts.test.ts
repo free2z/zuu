@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ARTICLE_DRAFT_STORAGE_KEY,
+  CorruptArticleDraftStoreError,
   UnsupportedArticleDraftStoreError,
   discardArticleDraft,
   listArticleDrafts,
@@ -79,7 +80,9 @@ describe("local article drafts", () => {
     ]);
     expect(loadArticleDraft("bob", "draft-alice-b", storage)?.title).toBe("Bob");
 
-    discardArticleDraft("alice", "draft-alice-b", storage);
+    expect(discardArticleDraft("alice", "draft-alice-b", 1, storage)).toBe(
+      "discarded",
+    );
     expect(listArticleDrafts("alice", storage).map((draft) => draft.title)).toEqual([
       "Alice A",
     ]);
@@ -105,6 +108,22 @@ describe("local article drafts", () => {
     });
     expect(loadArticleDraft("alice", "draft-shared", storage)?.title).toBe(
       "Newer tab",
+    );
+  });
+
+  it("refuses to discard a revision replaced by a newer tab", () => {
+    const storage = new MemoryStorage();
+    saveArticleDraft("alice", "draft-shared", fields("Published"), 0, storage, 10);
+    saveArticleDraft("alice", "draft-shared", fields("Newer tab"), 1, storage, 20);
+
+    expect(discardArticleDraft("alice", "draft-shared", 1, storage)).toBe(
+      "conflict",
+    );
+    expect(loadArticleDraft("alice", "draft-shared", storage)?.title).toBe(
+      "Newer tab",
+    );
+    expect(discardArticleDraft("alice", "draft-shared", 2, storage)).toBe(
+      "discarded",
     );
   });
 
@@ -138,10 +157,21 @@ describe("local article drafts", () => {
     expect(storage.getItem(ARTICLE_DRAFT_STORAGE_KEY)).toBe(future);
   });
 
-  it("treats corrupt reads as empty but surfaces an unavailable writer", () => {
+  it("reads corrupt storage as empty but never overwrites its original bytes", () => {
     const corrupt = new MemoryStorage();
-    corrupt.setItem(ARTICLE_DRAFT_STORAGE_KEY, "not-json");
+    const malformed = '{"version":1,"drafts":[';
+    corrupt.setItem(ARTICLE_DRAFT_STORAGE_KEY, malformed);
     expect(listArticleDrafts("alice", corrupt)).toEqual([]);
+    expect(() =>
+      saveArticleDraft("alice", "draft-corrupt", fields("No overwrite"), 0, corrupt),
+    ).toThrow(CorruptArticleDraftStoreError);
+    expect(() =>
+      discardArticleDraft("alice", "draft-corrupt", 0, corrupt),
+    ).toThrow(CorruptArticleDraftStoreError);
+    expect(corrupt.getItem(ARTICLE_DRAFT_STORAGE_KEY)).toBe(malformed);
+  });
+
+  it("surfaces an unavailable writer", () => {
 
     const unavailable: DraftStorage = {
       getItem: () => {

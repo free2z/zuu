@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useBlocker, useLocation, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   Check,
@@ -148,6 +148,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
   const dirtyRef = useRef(false);
   const firstDirtyAtRef = useRef<number | null>(null);
   const saveFailureRef = useRef<"error" | "conflict" | null>(null);
+  const publishingRef = useRef(false);
   const mountedRef = useRef(true);
   const persistRef = useRef<() => boolean>(() => true);
 
@@ -197,6 +198,17 @@ function AuthenticatedAuthor({ username }: { username: string }) {
   }, [draftId, username]);
   persistRef.current = persist;
 
+  const blocker = useBlocker(useCallback(() => !persistRef.current(), []));
+
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (window.confirm("This draft could not be saved locally. Leave anyway?")) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
+
   useEffect(() => {
     if (!dirtyRef.current) return;
     const now = Date.now();
@@ -227,38 +239,15 @@ function AuthenticatedAuthor({ username }: { username: string }) {
     const visibility = () => {
       if (document.visibilityState === "hidden") flush();
     };
-    const internalLink = (event: MouseEvent) => {
-      if (!dirtyRef.current || event.defaultPrevented || event.button !== 0) return;
-      const target = event.target;
-      const link = target instanceof Element ? target.closest("a[href]") : null;
-      if (!(link instanceof HTMLAnchorElement)) return;
-      if (
-        link.target === "_blank" ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey ||
-        new URL(link.href, window.location.href).origin !== window.location.origin
-      ) {
-        return;
-      }
-      if (flush()) return;
-      if (!window.confirm("This draft could not be saved locally. Leave anyway?")) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
     window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener("pagehide", pageHide);
     document.addEventListener("visibilitychange", visibility);
-    document.addEventListener("click", internalLink, true);
     return () => {
       mountedRef.current = false;
       persistRef.current();
       window.removeEventListener("beforeunload", beforeUnload);
       window.removeEventListener("pagehide", pageHide);
       document.removeEventListener("visibilitychange", visibility);
-      document.removeEventListener("click", internalLink, true);
     };
   }, []);
 
@@ -279,6 +268,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
   }, [draftId, username]);
 
   function updateFields(patch: Partial<ArticleDraftFields>) {
+    if (publishingRef.current) return;
     const next = { ...fieldsRef.current, ...patch };
     fieldsRef.current = next;
     if (!dirtyRef.current) firstDirtyAtRef.current = Date.now();
@@ -290,16 +280,25 @@ function AuthenticatedAuthor({ username }: { username: string }) {
     setSaveStatus(saveFailureRef.current === "conflict" ? "conflict" : "pending");
   }
 
-  function clearPublishedDraft() {
+  function clearPublishedDraft(expectedRevision: number | null) {
     dirtyRef.current = false;
+    firstDirtyAtRef.current = null;
+    if (expectedRevision === null) {
+      toast.warning("Published, but the local draft could not be verified or cleared.");
+      return;
+    }
     try {
-      discardArticleDraft(username, draftId);
+      const result = discardArticleDraft(username, draftId, expectedRevision);
+      if (result === "conflict") {
+        toast.warning("Published. A newer local draft revision was preserved.");
+      }
     } catch {
       toast.warning("Published, but the local draft could not be cleared.");
     }
   }
 
   async function publish() {
+    if (publishingRef.current) return;
     if (!canPublish) {
       toast.error(
         saveStatus === "conflict"
@@ -308,38 +307,46 @@ function AuthenticatedAuthor({ username }: { username: string }) {
       );
       return;
     }
-    persist();
+    const saved = persist();
     if (saveFailureRef.current === "conflict") {
       toast.error(
         "This draft changed in another window. Start a new draft or reload before publishing.",
       );
       return;
     }
+    const submitted: ArticleDraftFields = {
+      ...fieldsRef.current,
+      tags: [...fieldsRef.current.tags],
+    };
+    const submittedRevision = saved ? revisionRef.current : null;
+    publishingRef.current = true;
     setPublishing(true);
     try {
       const created = await articles.publish({
-        title: title.trim(),
-        subtitle: subtitle.trim() || undefined,
-        content: content.trim(),
-        category: category || undefined,
-        tags,
+        title: submitted.title.trim(),
+        subtitle: submitted.subtitle.trim() || undefined,
+        content: submitted.content.trim(),
+        category: submitted.category || undefined,
+        tags: submitted.tags,
       });
-      clearPublishedDraft();
+      clearPublishedDraft(submittedRevision);
       toast.success("Published");
       navigate(articleHref(created));
     } catch (error) {
       if (error instanceof ArticlePublishedHydrationError) {
-        clearPublishedDraft();
+        clearPublishedDraft(submittedRevision);
         toast.success("Published");
         navigate(articleHref({ id: error.articleId, slug: undefined }));
         return;
       }
       toast.error("Couldn't publish. Please try again.");
+      publishingRef.current = false;
       setPublishing(false);
     }
   }
 
   function startNewDraft() {
+    if (publishingRef.current) return;
     const saved = persist();
     if (!saved && saveFailureRef.current === "conflict") {
       const rescuedId = newArticleDraftId();
@@ -358,9 +365,20 @@ function AuthenticatedAuthor({ username }: { username: string }) {
   }
 
   function discardCurrentDraft() {
+    if (publishingRef.current) return;
     if (!window.confirm("Discard this local draft? This cannot be undone.")) return;
     try {
-      discardArticleDraft(username, draftId);
+      const result = discardArticleDraft(
+        username,
+        draftId,
+        revisionRef.current,
+      );
+      if (result === "conflict") {
+        saveFailureRef.current = "conflict";
+        setSaveStatus("conflict");
+        toast.error("A newer draft revision was preserved. Reload before discarding.");
+        return;
+      }
       dirtyRef.current = false;
       navigate("/articles", { replace: true });
     } catch {
@@ -378,7 +396,11 @@ function AuthenticatedAuthor({ username }: { username: string }) {
             {drafts.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" aria-label="Choose a local draft">
+                  <Button
+                    variant="outline"
+                    aria-label="Choose a local draft"
+                    disabled={publishing}
+                  >
                     <FileClock className="h-4 w-4" aria-hidden />
                     <span className="hidden sm:inline">Drafts</span>
                     <span className="tabular-nums">{drafts.length}</span>
@@ -411,6 +433,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
               size="icon"
               onClick={startNewDraft}
               aria-label="Start a new draft"
+              disabled={publishing}
             >
               <Plus className="h-4 w-4" aria-hidden />
             </Button>
@@ -419,6 +442,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
               size="icon"
               onClick={discardCurrentDraft}
               aria-label="Discard this draft"
+              disabled={publishing}
             >
               <Trash2 className="h-4 w-4" aria-hidden />
             </Button>
@@ -504,6 +528,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
               id="art-title"
               value={title}
               onChange={(e) => updateFields({ title: e.target.value })}
+              disabled={publishing}
               placeholder="A clear, compelling headline"
               className="text-base"
             />
@@ -515,6 +540,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
               id="art-subtitle"
               value={subtitle}
               onChange={(e) => updateFields({ subtitle: e.target.value })}
+              disabled={publishing}
               placeholder="An optional one-line hook"
             />
           </div>
@@ -527,6 +553,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
                   variant="outline"
                   className="w-full justify-between font-normal"
                   aria-label="Choose a category"
+                  disabled={publishing}
                 >
                   <span className={cn(!category && "text-muted-foreground")}>
                     {category || "Select a category"}
@@ -563,6 +590,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
               id="art-content"
               value={content}
               onChange={(e) => updateFields({ content: e.target.value })}
+              disabled={publishing}
               placeholder={PLACEHOLDER}
               className="min-h-[420px] resize-y font-mono text-sm leading-relaxed"
             />

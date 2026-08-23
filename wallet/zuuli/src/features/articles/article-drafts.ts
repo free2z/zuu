@@ -40,10 +40,19 @@ export type SaveArticleDraftResult =
   | { status: "saved"; draft: StoredArticleDraft }
   | { status: "conflict"; draft: StoredArticleDraft | null };
 
+export type DiscardArticleDraftResult = "discarded" | "missing" | "conflict";
+
 export class UnsupportedArticleDraftStoreError extends Error {
   constructor() {
     super("A newer article-draft format is already stored on this device.");
     this.name = "UnsupportedArticleDraftStoreError";
+  }
+}
+
+export class CorruptArticleDraftStoreError extends Error {
+  constructor() {
+    super("The local article-draft store is corrupt and cannot be changed safely.");
+    this.name = "CorruptArticleDraftStoreError";
   }
 }
 
@@ -110,30 +119,39 @@ function parseDraft(value: unknown): StoredArticleDraft | null {
 
 function parseStore(raw: string | null):
   | { status: "current"; store: ArticleDraftStore }
+  | { status: "corrupt" }
   | { status: "unsupported" } {
   if (raw === null) {
     return { status: "current", store: { version: STORE_VERSION, drafts: [] } };
   }
   try {
     const value = JSON.parse(raw) as Record<string, unknown>;
-    if (!value || typeof value !== "object" || value.version !== STORE_VERSION) {
+    if (!value || typeof value !== "object") {
+      return { status: "corrupt" };
+    }
+    if (value.version !== STORE_VERSION) {
       return { status: "unsupported" };
     }
     if (!Array.isArray(value.drafts)) {
-      return { status: "current", store: { version: STORE_VERSION, drafts: [] } };
+      return { status: "corrupt" };
+    }
+    const drafts = value.drafts.map(parseDraft);
+    if (drafts.some((draft) => draft === null)) return { status: "corrupt" };
+    const identities = new Set<string>();
+    for (const draft of drafts as StoredArticleDraft[]) {
+      const identity = `${draft.account}\u0000${draft.id}`;
+      if (identities.has(identity)) return { status: "corrupt" };
+      identities.add(identity);
     }
     return {
       status: "current",
       store: {
         version: STORE_VERSION,
-        drafts: value.drafts.flatMap((draft) => {
-          const parsed = parseDraft(draft);
-          return parsed ? [parsed] : [];
-        }),
+        drafts: drafts as StoredArticleDraft[],
       },
     };
   } catch {
-    return { status: "current", store: { version: STORE_VERSION, drafts: [] } };
+    return { status: "corrupt" };
   }
 }
 
@@ -141,6 +159,9 @@ function currentStore(storage: DraftStorage): ArticleDraftStore {
   const parsed = parseStore(storage.getItem(ARTICLE_DRAFT_STORAGE_KEY));
   if (parsed.status === "unsupported") {
     throw new UnsupportedArticleDraftStoreError();
+  }
+  if (parsed.status === "corrupt") {
+    throw new CorruptArticleDraftStoreError();
   }
   return parsed.store;
 }
@@ -174,7 +195,7 @@ export function listArticleDrafts(
     return [];
   }
   const parsed = parseStore(raw);
-  if (parsed.status === "unsupported") return [];
+  if (parsed.status !== "current") return [];
   const account = accountKey(username);
   return parsed.store.drafts
     .filter((draft) => draft.account === account)
@@ -235,23 +256,27 @@ export function saveArticleDraft(
 export function discardArticleDraft(
   username: string,
   id: string,
+  expectedRevision: number,
   storage: DraftStorage = window.localStorage,
-): void {
-  if (!isArticleDraftId(id)) return;
+): DiscardArticleDraftResult {
+  if (!isArticleDraftId(id)) return "missing";
   const account = accountKey(username);
   const store = currentStore(storage);
-  const drafts = store.drafts.filter(
-    (draft) => !(draft.account === account && draft.id === id),
+  const index = store.drafts.findIndex(
+    (draft) => draft.account === account && draft.id === id,
   );
-  if (drafts.length === store.drafts.length) return;
+  if (index < 0) return expectedRevision === 0 ? "missing" : "conflict";
+  if (store.drafts[index].revision !== expectedRevision) return "conflict";
+  const drafts = store.drafts.filter((_, candidate) => candidate !== index);
   if (drafts.length === 0) {
     storage.removeItem(ARTICLE_DRAFT_STORAGE_KEY);
-    return;
+    return "discarded";
   }
   storage.setItem(
     ARTICLE_DRAFT_STORAGE_KEY,
     JSON.stringify({ version: STORE_VERSION, drafts } satisfies ArticleDraftStore),
   );
+  return "discarded";
 }
 
 export function articleDraftLabel(draft: StoredArticleDraft): string {
