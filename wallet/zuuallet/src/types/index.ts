@@ -95,7 +95,12 @@ export interface SendProposal {
   proposalId: number;
   review: SendReview;
   reviewDigest: string;
+  proposalToken: string;
+}
+
+export interface SendConfirmation {
   confirmationToken: string;
+  expiresAt: number;
 }
 
 export interface SendPaymentReview {

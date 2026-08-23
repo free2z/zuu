@@ -14,6 +14,7 @@ import type {
   ExecuteSendResult,
   PaymentRequest,
   PendingSendStatus,
+  SendConfirmation,
   SendProposal,
   SensitiveDisplayLease,
   SaplingParamsStatus,
@@ -162,6 +163,17 @@ export const wallet = {
     return invoke("ensure_sapling_params");
   },
 
+  async confirmSend(
+    proposalId: number,
+    reviewDigest: string,
+    proposalToken: string,
+  ): Promise<SendConfirmation> {
+    if (useMock()) return mockWallet.confirmSend(proposalId, reviewDigest, proposalToken);
+    return invoke("confirm_send", {
+      args: { proposalId, reviewDigest, proposalToken },
+    });
+  },
+
   async executeSend(
     proposalId: number,
     reviewDigest: string,
@@ -181,17 +193,17 @@ export const wallet = {
   async discardSendProposal(
     proposalId: number,
     reviewDigest: string,
-    confirmationToken: string,
+    proposalToken: string,
   ): Promise<void> {
     if (useMock()) {
       return mockWallet.discardSendProposal(
         proposalId,
         reviewDigest,
-        confirmationToken,
+        proposalToken,
       );
     }
     return invoke("discard_send_proposal", {
-      args: { proposalId, reviewDigest, confirmationToken },
+      args: { proposalId, reviewDigest, proposalToken },
     });
   },
 

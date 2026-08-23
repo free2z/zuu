@@ -1,9 +1,24 @@
-import type { SendProposal } from "./types";
+import type { SendConfirmation, SendProposal } from "./types";
 
 interface ExpectedPayment {
   recipient: string;
   amount: number;
   memo?: string;
+}
+
+/** Renderer defense in depth; native monotonic expiry remains authoritative. */
+export function assertFreshSendConfirmation(
+  confirmation: SendConfirmation,
+  now = Date.now(),
+): void {
+  if (
+    !/^[a-f0-9]{64}$/.test(confirmation.confirmationToken) ||
+    !Number.isSafeInteger(confirmation.expiresAt) ||
+    confirmation.expiresAt <= now ||
+    confirmation.expiresAt > now + 5 * 60 * 1000
+  ) {
+    throw new Error("Wallet returned an invalid native payment confirmation");
+  }
 }
 
 /** Reject a proposal that changes the requested payment or carries lossy totals. */
@@ -13,7 +28,7 @@ export function assertExactSendProposal(
 ): void {
   const payment = proposal.review.payments[0];
   if (
-    proposal.review.version !== 1 ||
+    proposal.review.version !== 2 ||
     proposal.review.payments.length !== 1 ||
     !payment ||
     payment.recipient !== expected.recipient ||
@@ -36,7 +51,7 @@ export function assertExactSendProposal(
     proposal.review.changePolicy !== "zip317-shielded-auto" ||
     !["mainnet", "testnet"].includes(proposal.review.network) ||
     !/^[a-f0-9]{64}$/.test(proposal.reviewDigest) ||
-    !/^[a-f0-9]{64}$/.test(proposal.confirmationToken)
+    !/^[a-f0-9]{64}$/.test(proposal.proposalToken)
   ) {
     throw new Error("Wallet proposal returned unsupported review authorization");
   }

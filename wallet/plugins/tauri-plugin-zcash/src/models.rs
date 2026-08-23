@@ -357,7 +357,7 @@ pub struct SendReview {
     pub change_policy: String,
 }
 
-// Deliberately omit `Debug`: the opaque confirmation token must never reach a
+// Deliberately omit `Debug`: the opaque proposal credential must never reach a
 // log through routine value formatting.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -365,7 +365,30 @@ pub struct SendProposal {
     pub proposal_id: u32,
     pub review: SendReview,
     pub review_digest: String,
+    /// Opaque credential for opening or discarding this exact native proposal.
+    /// It cannot execute a payment; only an accepted native confirmation can
+    /// mint the separate, short-lived execution token.
+    pub proposal_token: String,
+}
+
+// Deliberately omit `Debug`: neither credential may become convenient log
+// material. Invoking this command only opens the native confirmation surface.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmSendArgs {
+    pub proposal_id: u32,
+    pub review_digest: String,
+    pub proposal_token: String,
+}
+
+// Deliberately omit `Debug`: this is the one-use execution credential.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendConfirmation {
     pub confirmation_token: String,
+    /// Informational renderer deadline in Unix milliseconds. Native monotonic
+    /// time is the security boundary and independently rejects stale tokens.
+    pub expires_at: u64,
 }
 
 /// Result of broadcasting a locally-created transaction.
@@ -430,7 +453,7 @@ pub struct ExecuteSendArgs {
 pub struct DiscardSendProposalArgs {
     pub proposal_id: u32,
     pub review_digest: String,
-    pub confirmation_token: String,
+    pub proposal_token: String,
 }
 
 #[derive(Debug, Deserialize)]

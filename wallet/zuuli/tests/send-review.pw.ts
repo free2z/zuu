@@ -112,6 +112,21 @@ test("the 320px dialog renders only the immutable native review and locks editin
   expect(leaked).toEqual([]);
 });
 
+test("renderer approval cannot send when native confirmation is cancelled", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("zuuli.mock.send-confirmation-result", "cancel");
+  });
+  await openSend(page);
+  await fillPayment(page);
+  await page.getByRole("button", { name: "Review payment" }).click();
+  await page.getByRole("button", { name: "Confirm & send" }).click();
+
+  await expect(page).toHaveURL(/\/wallet\/send$/);
+  await expect(page.getByText("Native payment confirmation was cancelled")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Confirm payment" })).toHaveCount(0);
+  await expect(page.getByLabel("Amount")).toBeEnabled();
+});
+
 test("long canonical review fields remain fully inspectable on a short phone", async ({ page }) => {
   const longMemo = "private review words ".repeat(18).trim();
   await openSend(page);

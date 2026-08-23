@@ -1,7 +1,8 @@
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{
+    fmt::Write as _,
     fs::{File, Metadata, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -30,7 +31,7 @@ use zcash_protocol::{ShieldedPool, TxId};
 use crate::error::{Error, Result};
 use crate::models::{
     AddressValidation, BroadcastStatus, ExecuteSendResult, PendingSendStatus, SaplingParamsStatus,
-    SendPaymentReview, SendProposal, SendReview,
+    SendConfirmation, SendPaymentReview, SendProposal, SendReview,
 };
 use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::keys;
@@ -62,15 +63,43 @@ const INTERRUPTED_CREATION_RECOVERY_ERROR: &str = "Transaction creation was inte
 // integer-array expansion. Bound both allocation and streaming reads so a
 // local malformed journal cannot exhaust process memory during startup.
 const MAX_PENDING_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
-const SEND_REVIEW_VERSION: u32 = 1;
+const SEND_REVIEW_VERSION: u32 = 2;
 const SEND_REVIEW_DOMAIN: &[u8] = b"ZUULI_SEND_REVIEW\0";
+const SEND_PROPOSAL_TOKEN_DOMAIN: &[u8] = b"ZUULI_SEND_PROPOSAL_TOKEN\0";
+const SEND_CONFIRMATION_TOKEN_DOMAIN: &[u8] = b"ZUULI_SEND_CONFIRMATION_TOKEN\0";
 const SEND_FEE_POLICY: &str = "zip317-standard";
 const SEND_CHANGE_POLICY: &str = "zip317-shielded-auto";
+const SEND_CONFIRMATION_TTL: Duration = Duration::from_secs(2 * 60);
+
+#[derive(Clone, Copy)]
+struct ConfirmationClock {
+    monotonic: Instant,
+    wall: SystemTime,
+}
+
+impl ConfirmationClock {
+    fn now() -> Self {
+        Self {
+            monotonic: Instant::now(),
+            wall: SystemTime::now(),
+        }
+    }
+}
+
+struct ExecutionAuthorization {
+    confirmation_token_hash: [u8; 32],
+    issued_at_wall: SystemTime,
+    expires_at_monotonic: Instant,
+    expires_at_wall: SystemTime,
+}
 
 struct ProposalAuthorization {
     proposal_id: u32,
+    wallet_id: String,
+    session_id: [u8; 32],
     review_digest: String,
-    confirmation_token_hash: [u8; 32],
+    proposal_token_hash: [u8; 32],
+    execution: Option<ExecutionAuthorization>,
 }
 
 /// Native-only proposal state. The executable proposal and its reviewed
@@ -91,8 +120,12 @@ fn encode_hex(bytes: &[u8]) -> String {
     encoded
 }
 
-fn token_hash(token: &str) -> [u8; 32] {
-    Sha256::digest(token.as_bytes()).into()
+fn bound_token_hash(domain: &[u8], token: &str, review_digest: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    push_digest_field(&mut hasher, review_digest.as_bytes());
+    push_digest_field(&mut hasher, token.as_bytes());
+    hasher.finalize().into()
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
@@ -108,22 +141,81 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 
 impl ProposalAuthorization {
-    fn verify_confirmation(
+    fn verify_context(&self, wallet_id: &str, session_id: &[u8; 32]) -> Result<()> {
+        if self.wallet_id != wallet_id || !constant_time_eq(&self.session_id, session_id) {
+            return Err(Error::SendError(
+                "send proposal belongs to a different wallet session".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_proposal(
         &self,
         proposal_id: u32,
         review_digest: &str,
-        confirmation_token: &str,
+        proposal_token: &str,
+        wallet_id: &str,
+        session_id: &[u8; 32],
     ) -> Result<()> {
+        self.verify_context(wallet_id, session_id)?;
         let token_matches = constant_time_eq(
-            &self.confirmation_token_hash,
-            &token_hash(confirmation_token),
+            &self.proposal_token_hash,
+            &bound_token_hash(SEND_PROPOSAL_TOKEN_DOMAIN, proposal_token, review_digest),
         );
         if self.proposal_id != proposal_id
             || !constant_time_eq(self.review_digest.as_bytes(), review_digest.as_bytes())
             || !token_matches
         {
             return Err(Error::SendError(
-                "send confirmation does not match the reviewed proposal".into(),
+                "send proposal credentials do not match the reviewed payment".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_execution(
+        &self,
+        proposal_id: u32,
+        review_digest: &str,
+        confirmation_token: &str,
+        wallet_id: &str,
+        session_id: &[u8; 32],
+        now: ConfirmationClock,
+    ) -> Result<()> {
+        self.verify_context(wallet_id, session_id)?;
+        if self.proposal_id != proposal_id
+            || !constant_time_eq(self.review_digest.as_bytes(), review_digest.as_bytes())
+        {
+            return Err(Error::SendError(
+                "send confirmation does not match the reviewed payment".into(),
+            ));
+        }
+        let execution = self.execution.as_ref().ok_or_else(|| {
+            Error::SendError("native payment confirmation is required before execution".into())
+        })?;
+        // Android/Linux monotonic clocks do not necessarily advance during
+        // suspend, while wall clocks can be adjusted backwards. Require both
+        // independent deadlines and reject rollback from issuance so neither
+        // clock behavior can extend this short-lived authority.
+        if now.monotonic >= execution.expires_at_monotonic
+            || now.wall >= execution.expires_at_wall
+            || now.wall < execution.issued_at_wall
+        {
+            return Err(Error::SendError(
+                "native payment confirmation expired; review the payment again".into(),
+            ));
+        }
+        if !constant_time_eq(
+            &execution.confirmation_token_hash,
+            &bound_token_hash(
+                SEND_CONFIRMATION_TOKEN_DOMAIN,
+                confirmation_token,
+                review_digest,
+            ),
+        ) {
+            return Err(Error::SendError(
+                "send confirmation does not match the reviewed payment".into(),
             ));
         }
         Ok(())
@@ -131,22 +223,115 @@ impl ProposalAuthorization {
 }
 
 impl PendingProposal {
-    fn verify_confirmation(
-        &self,
-        proposal_id: u32,
-        review_digest: &str,
-        confirmation_token: &str,
-    ) -> Result<()> {
+    fn verify_native_review(&self) -> Result<()> {
+        let expected_digest = send_review_digest(
+            &self.review,
+            self.authorization.proposal_id,
+            &self.authorization.wallet_id,
+            &self.authorization.session_id,
+        );
         if !constant_time_eq(
-            send_review_digest(&self.review).as_bytes(),
+            expected_digest.as_bytes(),
             self.authorization.review_digest.as_bytes(),
         ) {
             return Err(Error::SendError(
                 "native send review no longer matches its proposal".into(),
             ));
         }
-        self.authorization
-            .verify_confirmation(proposal_id, review_digest, confirmation_token)
+        let proposal_review = review_from_native_proposal(&self.review.network, &self.proposal)?;
+        if proposal_review != self.review {
+            return Err(Error::SendError(
+                "reviewed payment no longer matches native proposal semantics".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_proposal(
+        &self,
+        proposal_id: u32,
+        review_digest: &str,
+        proposal_token: &str,
+        wallet_id: &str,
+        session_id: &[u8; 32],
+    ) -> Result<()> {
+        self.verify_native_review()?;
+        self.authorization.verify_proposal(
+            proposal_id,
+            review_digest,
+            proposal_token,
+            wallet_id,
+            session_id,
+        )
+    }
+
+    fn verify_execution(
+        &self,
+        proposal_id: u32,
+        review_digest: &str,
+        confirmation_token: &str,
+        wallet_id: &str,
+        session_id: &[u8; 32],
+        now: ConfirmationClock,
+    ) -> Result<()> {
+        self.verify_native_review()?;
+        self.authorization.verify_execution(
+            proposal_id,
+            review_digest,
+            confirmation_token,
+            wallet_id,
+            session_id,
+            now,
+        )
+    }
+
+    fn issue_confirmation(
+        &mut self,
+        proposal_id: u32,
+        review_digest: &str,
+        proposal_token: &str,
+        wallet_id: &str,
+        session_id: &[u8; 32],
+        now: ConfirmationClock,
+    ) -> Result<SendConfirmation> {
+        self.verify_proposal(
+            proposal_id,
+            review_digest,
+            proposal_token,
+            wallet_id,
+            session_id,
+        )?;
+        let mut token_bytes = [0_u8; 32];
+        OsRng.fill_bytes(&mut token_bytes);
+        let confirmation_token = encode_hex(&token_bytes);
+        let expires_at_monotonic = now
+            .monotonic
+            .checked_add(SEND_CONFIRMATION_TTL)
+            .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?;
+        let expires_at_wall = now
+            .wall
+            .checked_add(SEND_CONFIRMATION_TTL)
+            .ok_or_else(|| Error::SendError("confirmation deadline overflowed".into()))?;
+        let expires_at_millis = expires_at_wall
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| Error::SendError("system clock predates the Unix epoch".into()))?
+            .as_millis()
+            .try_into()
+            .map_err(|_| Error::SendError("confirmation deadline overflowed".into()))?;
+        self.authorization.execution = Some(ExecutionAuthorization {
+            confirmation_token_hash: bound_token_hash(
+                SEND_CONFIRMATION_TOKEN_DOMAIN,
+                &confirmation_token,
+                review_digest,
+            ),
+            issued_at_wall: now.wall,
+            expires_at_monotonic,
+            expires_at_wall,
+        });
+        Ok(SendConfirmation {
+            confirmation_token,
+            expires_at: expires_at_millis,
+        })
     }
 }
 
@@ -164,9 +349,17 @@ fn push_digest_field(hasher: &mut Sha256, value: &[u8]) {
     hasher.update(value);
 }
 
-fn send_review_digest(review: &SendReview) -> String {
+fn send_review_digest(
+    review: &SendReview,
+    proposal_id: u32,
+    wallet_id: &str,
+    session_id: &[u8; 32],
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(SEND_REVIEW_DOMAIN);
+    hasher.update(proposal_id.to_be_bytes());
+    push_digest_field(&mut hasher, wallet_id.as_bytes());
+    hasher.update(session_id);
     hasher.update(review.version.to_be_bytes());
     push_digest_field(&mut hasher, review.network.as_bytes());
     hasher.update((review.payments.len() as u64).to_be_bytes());
@@ -199,16 +392,25 @@ fn create_pending_proposal(
     proposal_id: u32,
     proposal: WalletProposal,
     review: SendReview,
+    wallet_id: String,
+    session_id: [u8; 32],
 ) -> (PendingProposal, SendProposal) {
-    let review_digest = send_review_digest(&review);
+    let review_digest = send_review_digest(&review, proposal_id, &wallet_id, &session_id);
     let mut token_bytes = [0_u8; 32];
     OsRng.fill_bytes(&mut token_bytes);
-    let confirmation_token = encode_hex(&token_bytes);
+    let proposal_token = encode_hex(&token_bytes);
     let pending = PendingProposal {
         authorization: ProposalAuthorization {
             proposal_id,
+            wallet_id,
+            session_id,
             review_digest: review_digest.clone(),
-            confirmation_token_hash: token_hash(&confirmation_token),
+            proposal_token_hash: bound_token_hash(
+                SEND_PROPOSAL_TOKEN_DOMAIN,
+                &proposal_token,
+                &review_digest,
+            ),
+            execution: None,
         },
         review: review.clone(),
         proposal,
@@ -217,29 +419,197 @@ fn create_pending_proposal(
         proposal_id,
         review,
         review_digest,
-        confirmation_token,
+        proposal_token,
     };
     (pending, public)
 }
 
-fn single_payment_review(
-    network: &zcash_protocol::consensus::Network,
-    recipient: &zcash_address::ZcashAddress,
-    amount: u64,
-    memo: Option<&str>,
-    fee: u64,
-) -> Result<SendReview> {
-    let total = amount
-        .checked_add(fee)
-        .ok_or_else(|| Error::SendError("send total overflowed".into()))?;
+fn format_zec_amount(zatoshis: u64) -> String {
+    format!(
+        "{}.{:08} ZEC",
+        zatoshis / 100_000_000,
+        zatoshis % 100_000_000
+    )
+}
+
+fn is_unicode_format_control(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
+}
+
+/// Quote an exact memo without allowing Unicode layout controls to alter the
+/// native dialog's field structure. Ordinary Unicode stays readable; every
+/// character that can add a line, hide text, or reorder fields is visible.
+fn quote_native_memo(memo: &str) -> String {
+    let mut quoted = String::with_capacity(memo.len() + 2);
+    quoted.push('"');
+    for character in memo.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            '\u{08}' => quoted.push_str("\\b"),
+            '\u{0C}' => quoted.push_str("\\f"),
+            _ if character.is_control()
+                || matches!(character, '\u{2028}' | '\u{2029}')
+                || is_unicode_format_control(character) =>
+            {
+                write!(quoted, "\\u{{{:X}}}", character as u32)
+                    .expect("writing to a String cannot fail");
+            }
+            _ => quoted.push(character),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// Exact native confirmation copy. Memo layout controls are visibly escaped
+/// so untrusted content cannot visually impersonate or reorder a field.
+pub(crate) fn format_native_send_confirmation(review: &SendReview) -> Result<String> {
+    let mut lines = vec![
+        "A web page requested this Zcash payment. Verify every field in this native dialog."
+            .to_owned(),
+        String::new(),
+    ];
+    for (index, payment) in review.payments.iter().enumerate() {
+        if review.payments.len() > 1 {
+            lines.push(format!("Payment {}", index + 1));
+        }
+        lines.push(format!("To: {}", payment.recipient));
+        lines.push(format!("Amount: {}", format_zec_amount(payment.amount)));
+        let memo = match &payment.memo {
+            Some(memo) => quote_native_memo(memo),
+            None => "(none)".to_owned(),
+        };
+        lines.push(format!("Memo (quoted): {memo}"));
+    }
+    lines.extend([
+        format!("Network fee: {}", format_zec_amount(review.fee)),
+        format!("Total: {}", format_zec_amount(review.total)),
+        format!("Network: {}", review.network),
+        "Change: shielded automatically".to_owned(),
+        String::new(),
+        "Authorize only if these are the payment details you intend to send.".to_owned(),
+    ]);
+    Ok(lines.join("\n"))
+}
+
+fn review_from_native_proposal(network: &str, proposal: &WalletProposal) -> Result<SendReview> {
+    if proposal.steps().len() != 1 {
+        return Err(Error::SendError(
+            "multi-transaction send proposals are not supported safely".into(),
+        ));
+    }
+    let fee_rule = proposal.fee_rule();
+    if fee_rule.marginal_fee() != zcash_primitives::transaction::fees::zip317::MARGINAL_FEE
+        || fee_rule.grace_actions() != zcash_primitives::transaction::fees::zip317::GRACE_ACTIONS
+        || fee_rule.p2pkh_standard_input_size()
+            != zcash_primitives::transaction::fees::zip317::P2PKH_STANDARD_INPUT_SIZE
+        || fee_rule.p2pkh_standard_output_size()
+            != zcash_primitives::transaction::fees::zip317::P2PKH_STANDARD_OUTPUT_SIZE
+    {
+        return Err(Error::SendError(
+            "native proposal uses an unreviewed fee policy".into(),
+        ));
+    }
+    let step = proposal.steps().first();
+    if step.is_shielding() {
+        return Err(Error::SendError(
+            "shielding proposals cannot enter the payment confirmation flow".into(),
+        ));
+    }
+    if step
+        .balance()
+        .proposed_change()
+        .iter()
+        .any(|change| !matches!(change.output_pool(), PoolType::Shielded(_)))
+    {
+        return Err(Error::SendError(
+            "native proposal uses an unreviewed change policy".into(),
+        ));
+    }
+    let request_payments = step.transaction_request().payments();
+    if request_payments.is_empty()
+        || request_payments.len() != step.payment_pools().len()
+        || request_payments
+            .keys()
+            .enumerate()
+            .any(|(expected, actual)| expected != *actual)
+    {
+        return Err(Error::SendError(
+            "native proposal payment structure is not reviewable".into(),
+        ));
+    }
+    let payments = request_payments
+        .values()
+        .map(|payment| {
+            if payment.label().is_some()
+                || payment.message().is_some()
+                || !payment.other_params().is_empty()
+            {
+                return Err(Error::SendError(
+                    "native proposal contains unreviewed payment metadata".into(),
+                ));
+            }
+            let amount = payment
+                .amount()
+                .map(u64::from)
+                .ok_or_else(|| Error::SendError("native proposal payment has no amount".into()))?;
+            let memo = payment
+                .memo()
+                .map(|bytes| match Memo::try_from(bytes) {
+                    Ok(Memo::Text(text)) => Ok(text.to_string()),
+                    Ok(Memo::Empty) => Ok(String::new()),
+                    Ok(Memo::Future(_) | Memo::Arbitrary(_)) => Err(Error::SendError(
+                        "native proposal contains a non-text memo".into(),
+                    )),
+                    Err(error) => Err(Error::SendError(format!(
+                        "native proposal memo is invalid: {error}"
+                    ))),
+                })
+                .transpose()?;
+            Ok(SendPaymentReview {
+                recipient: payment.recipient_address().encode(),
+                amount,
+                memo,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let fee = u64::from(step.balance().fee_required());
+    let total = payments.iter().try_fold(fee, |total, payment| {
+        total
+            .checked_add(payment.amount)
+            .ok_or_else(|| Error::SendError("send total overflowed".into()))
+    })?;
     Ok(SendReview {
         version: SEND_REVIEW_VERSION,
-        network: network_label(network).to_owned(),
-        payments: vec![SendPaymentReview {
-            recipient: recipient.encode(),
-            amount,
-            memo: memo.map(ToOwned::to_owned),
-        }],
+        network: network.to_owned(),
+        payments,
         fee_policy: SEND_FEE_POLICY.to_owned(),
         fee,
         total,
@@ -911,6 +1281,10 @@ pub async fn propose_send(
     if !state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
     }
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
     {
         let pending = state.pending_broadcast.lock().await;
         ensure_no_unresolved_broadcast(pending.as_ref())?;
@@ -985,19 +1359,17 @@ pub async fn propose_send(
     drop(db_guard);
 
     let candidate = proposal.and_then(|proposal| {
-        if proposal.steps().len() != 1 {
-            return Err(Error::SendError(
-                "multi-transaction send proposals are not supported safely".into(),
-            ));
-        }
-        let fee: u64 = proposal
-            .steps()
-            .iter()
-            .map(|s| u64::from(s.balance().fee_required()))
-            .sum();
         let id = state.proposal_counter.fetch_add(1, Ordering::Relaxed);
-        let review = single_payment_review(&state.network, &recipient, amount, memo, fee)?;
-        Ok(create_pending_proposal(id, proposal, review))
+        // Derive the displayed and authorized details back from the executable
+        // native proposal, never from the renderer request kept above.
+        let review = review_from_native_proposal(network_label(&state.network), &proposal)?;
+        Ok(create_pending_proposal(
+            id,
+            proposal,
+            review,
+            wallet_id.clone(),
+            state.send_session_id,
+        ))
     });
     let mut pending_broadcast = state.pending_broadcast.lock().await;
     ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;
@@ -1028,6 +1400,10 @@ pub async fn propose_send_all(
     if !state.is_initialized().await {
         return Err(Error::WalletNotInitialized);
     }
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
     {
         let pending = state.pending_broadcast.lock().await;
         ensure_no_unresolved_broadcast(pending.as_ref())?;
@@ -1159,14 +1535,15 @@ pub async fn propose_send_all(
                     if let Some(record) = pending_broadcast.as_ref() {
                         clear_pending_broadcast(&state.data_dir, &record.wallet_id)?;
                     }
-                    let review = single_payment_review(
-                        &state.network,
-                        &recipient,
-                        amount,
-                        memo,
-                        actual_fee,
-                    )?;
-                    let (pending, public) = create_pending_proposal(id, proposal, review);
+                    let review =
+                        review_from_native_proposal(network_label(&state.network), &proposal)?;
+                    let (pending, public) = create_pending_proposal(
+                        id,
+                        proposal,
+                        review,
+                        wallet_id.clone(),
+                        state.send_session_id,
+                    );
                     *state.pending_proposal.lock().await = Some(pending);
                     *pending_broadcast = None;
                     return Ok(public);
@@ -1200,6 +1577,59 @@ pub async fn propose_send_all(
     ))
 }
 
+/// Validate the renderer's exact proposal credential and return the immutable
+/// native review to display. The caller holds both transition and send locks
+/// across this lookup, native user interaction, and token issuance.
+pub async fn prepare_send_confirmation(
+    state: &WalletState,
+    proposal_id: u32,
+    review_digest: &str,
+    proposal_token: &str,
+) -> Result<SendReview> {
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
+    let proposal_guard = state.pending_proposal.lock().await;
+    let pending = proposal_guard.as_ref().ok_or_else(|| {
+        Error::SendError("no pending proposal — create and review a new proposal".into())
+    })?;
+    pending.verify_proposal(
+        proposal_id,
+        review_digest,
+        proposal_token,
+        &wallet_id,
+        &state.send_session_id,
+    )?;
+    Ok(pending.review.clone())
+}
+
+/// Mint a short-lived execution credential only after the exact native review
+/// was accepted. A second confirmation replaces the first token atomically.
+pub async fn issue_send_confirmation(
+    state: &WalletState,
+    proposal_id: u32,
+    review_digest: &str,
+    proposal_token: &str,
+) -> Result<SendConfirmation> {
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
+    let mut proposal_guard = state.pending_proposal.lock().await;
+    let pending = proposal_guard.as_mut().ok_or_else(|| {
+        Error::SendError("no pending proposal — create and review a new proposal".into())
+    })?;
+    pending.issue_confirmation(
+        proposal_id,
+        review_digest,
+        proposal_token,
+        &wallet_id,
+        &state.send_session_id,
+        ConfirmationClock::now(),
+    )
+}
+
 /// Atomically validate and consume a reviewed proposal. The caller must hold
 /// `send_operation` across this call and `execute_send`, so no replacement can
 /// interleave after authorization. Consumption is deliberately before custody
@@ -1210,9 +1640,20 @@ pub async fn take_send_proposal(
     review_digest: &str,
     confirmation_token: &str,
 ) -> Result<PendingProposal> {
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
     let mut proposal_guard = state.pending_proposal.lock().await;
     take_authorized(&mut *proposal_guard, |pending| {
-        pending.verify_confirmation(proposal_id, review_digest, confirmation_token)
+        pending.verify_execution(
+            proposal_id,
+            review_digest,
+            confirmation_token,
+            &wallet_id,
+            &state.send_session_id,
+            ConfirmationClock::now(),
+        )
     })
 }
 
@@ -1387,12 +1828,22 @@ pub async fn discard_send_proposal(
     state: &WalletState,
     proposal_id: u32,
     review_digest: &str,
-    confirmation_token: &str,
+    proposal_token: &str,
 ) -> Result<()> {
     let _send_operation = state.send_operation.lock().await;
+    let wallet_id = state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
     let mut proposal_guard = state.pending_proposal.lock().await;
     let discarded = take_authorized(&mut *proposal_guard, |pending| {
-        pending.verify_confirmation(proposal_id, review_digest, confirmation_token)
+        pending.verify_proposal(
+            proposal_id,
+            review_digest,
+            proposal_token,
+            &wallet_id,
+            &state.send_session_id,
+        )
     })?;
     drop(discarded);
     Ok(())
@@ -1765,6 +2216,9 @@ mod tests {
     const MAINNET_TADDR: &str = "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs";
     const TESTNET_TADDR: &str = "tm9iMLAuYMzJ6jtFLcA7rzUmfreGuKvr7Ma";
     const MAINNET_TEX: &str = "tex1s2rt77ggv6q989lr49rkgzmh5slsksa9khdgte";
+    const WALLET_ID: &str = "wallet-a";
+    const SESSION_ID: [u8; 32] = [0x11; 32];
+    const OTHER_SESSION_ID: [u8; 32] = [0x22; 32];
 
     fn pending(status: BroadcastStatus) -> PendingBroadcast {
         PendingBroadcast {
@@ -1797,18 +2251,48 @@ mod tests {
         }
     }
 
-    fn authorization(token: &str) -> ProposalAuthorization {
+    fn digest(review: &SendReview) -> String {
+        send_review_digest(review, 17, WALLET_ID, &SESSION_ID)
+    }
+
+    fn authorization(proposal_token: &str) -> ProposalAuthorization {
+        let review_digest = digest(&review());
         ProposalAuthorization {
             proposal_id: 17,
-            review_digest: send_review_digest(&review()),
-            confirmation_token_hash: token_hash(token),
+            wallet_id: WALLET_ID.into(),
+            session_id: SESSION_ID,
+            proposal_token_hash: bound_token_hash(
+                SEND_PROPOSAL_TOKEN_DOMAIN,
+                proposal_token,
+                &review_digest,
+            ),
+            review_digest,
+            execution: None,
         }
+    }
+
+    fn authorize_execution(
+        authorization: &mut ProposalAuthorization,
+        confirmation_token: &str,
+        issued_at_monotonic: Instant,
+        issued_at_wall: SystemTime,
+    ) {
+        authorization.execution = Some(ExecutionAuthorization {
+            confirmation_token_hash: bound_token_hash(
+                SEND_CONFIRMATION_TOKEN_DOMAIN,
+                confirmation_token,
+                &authorization.review_digest,
+            ),
+            issued_at_wall,
+            expires_at_monotonic: issued_at_monotonic + SEND_CONFIRMATION_TTL,
+            expires_at_wall: issued_at_wall + SEND_CONFIRMATION_TTL,
+        });
     }
 
     #[test]
     fn review_digest_binds_every_ordered_review_field() {
         let original = review();
-        let original_digest = send_review_digest(&original);
+        let original_digest = digest(&original);
         let mut ordered = original.clone();
         ordered.payments.push(SendPaymentReview {
             recipient: "second-recipient".into(),
@@ -1817,10 +2301,10 @@ mod tests {
         });
         let mut reordered = ordered.clone();
         reordered.payments.reverse();
-        assert_ne!(send_review_digest(&ordered), send_review_digest(&reordered));
+        assert_ne!(digest(&ordered), digest(&reordered));
         let mutations = [
             SendReview {
-                version: 2,
+                version: SEND_REVIEW_VERSION + 1,
                 ..original.clone()
             },
             SendReview {
@@ -1867,19 +2351,62 @@ mod tests {
         ];
 
         for mutation in mutations {
-            assert_ne!(send_review_digest(&mutation), original_digest);
+            assert_ne!(digest(&mutation), original_digest);
         }
+        assert_ne!(
+            send_review_digest(&original, 18, WALLET_ID, &SESSION_ID),
+            original_digest
+        );
+        assert_ne!(
+            send_review_digest(&original, 17, "wallet-b", &SESSION_ID),
+            original_digest
+        );
+        assert_ne!(
+            send_review_digest(&original, 17, WALLET_ID, &OTHER_SESSION_ID),
+            original_digest
+        );
     }
 
     #[test]
-    fn confirmation_is_exact_and_one_use() {
-        let token = "opaque-confirmation-token";
-        let digest = send_review_digest(&review());
-        let mut slot = Some(authorization(token));
+    fn native_confirmation_is_required_exact_expiring_and_one_use() {
+        let proposal_token = "opaque-proposal-token";
+        let confirmation_token = "opaque-confirmation-token";
+        let review_digest = digest(&review());
+        let now = Instant::now();
+        let wall_now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let clock = ConfirmationClock {
+            monotonic: now,
+            wall: wall_now,
+        };
+        let mut pending = authorization(proposal_token);
+
+        assert!(
+            pending
+                .verify_execution(
+                    17,
+                    &review_digest,
+                    confirmation_token,
+                    WALLET_ID,
+                    &SESSION_ID,
+                    clock,
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("native payment confirmation is required")
+        );
+        authorize_execution(&mut pending, confirmation_token, now, wall_now);
+        let mut slot = Some(pending);
 
         assert!(
             take_authorized(&mut slot, |pending| {
-                pending.verify_confirmation(17, &digest, token)
+                pending.verify_execution(
+                    17,
+                    &review_digest,
+                    confirmation_token,
+                    WALLET_ID,
+                    &SESSION_ID,
+                    clock,
+                )
             })
             .is_ok()
         );
@@ -1888,23 +2415,206 @@ mod tests {
     }
 
     #[test]
-    fn wrong_confirmation_cannot_discard_the_current_proposal() {
-        let token = "opaque-confirmation-token";
-        let digest = send_review_digest(&review());
-        let mut slot = Some(authorization(token));
-
-        for (proposal_id, supplied_digest, supplied_token) in [
-            (18, digest.as_str(), token),
-            (17, "wrong-digest", token),
-            (17, digest.as_str(), "wrong-token"),
+    fn stale_or_context_mismatched_confirmation_cannot_consume_the_proposal() {
+        let confirmation_token = "opaque-confirmation-token";
+        let review_digest = digest(&review());
+        let now = Instant::now();
+        let wall_now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let clock = ConfirmationClock {
+            monotonic: now,
+            wall: wall_now,
+        };
+        for (wallet_id, session_id, supplied_digest, supplied_token) in [
+            (
+                "wallet-b",
+                &SESSION_ID,
+                review_digest.as_str(),
+                confirmation_token,
+            ),
+            (
+                WALLET_ID,
+                &OTHER_SESSION_ID,
+                review_digest.as_str(),
+                confirmation_token,
+            ),
+            (WALLET_ID, &SESSION_ID, "wrong-digest", confirmation_token),
+            (
+                WALLET_ID,
+                &SESSION_ID,
+                review_digest.as_str(),
+                "wrong-token",
+            ),
         ] {
+            let mut pending = authorization("proposal-token");
+            authorize_execution(&mut pending, confirmation_token, now, wall_now);
+            let mut slot = Some(pending);
             assert!(
                 take_authorized(&mut slot, |pending| {
-                    pending.verify_confirmation(proposal_id, supplied_digest, supplied_token)
+                    pending.verify_execution(
+                        17,
+                        supplied_digest,
+                        supplied_token,
+                        wallet_id,
+                        session_id,
+                        clock,
+                    )
                 })
                 .is_err()
             );
             assert!(slot.is_some());
+        }
+    }
+
+    #[test]
+    fn confirmation_rejects_either_expiry_clock_and_wall_rollback() {
+        let confirmation_token = "opaque-confirmation-token";
+        let review_digest = digest(&review());
+        let issued_monotonic = Instant::now();
+        let issued_wall = UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        for now in [
+            // Monotonic expiry remains authoritative if the wall clock pauses.
+            ConfirmationClock {
+                monotonic: issued_monotonic + SEND_CONFIRMATION_TTL,
+                wall: issued_wall,
+            },
+            // Wall expiry catches device suspend while monotonic time pauses.
+            ConfirmationClock {
+                monotonic: issued_monotonic,
+                wall: issued_wall + SEND_CONFIRMATION_TTL,
+            },
+            // A backwards wall adjustment cannot extend the credential.
+            ConfirmationClock {
+                monotonic: issued_monotonic,
+                wall: issued_wall - Duration::from_secs(1),
+            },
+        ] {
+            let mut pending = authorization("proposal-token");
+            authorize_execution(
+                &mut pending,
+                confirmation_token,
+                issued_monotonic,
+                issued_wall,
+            );
+            let mut slot = Some(pending);
+            let error = match take_authorized(&mut slot, |pending| {
+                pending.verify_execution(
+                    17,
+                    &review_digest,
+                    confirmation_token,
+                    WALLET_ID,
+                    &SESSION_ID,
+                    now,
+                )
+            }) {
+                Ok(_) => panic!("expired confirmation must not be consumed"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("confirmation expired"));
+            assert!(slot.is_some());
+        }
+    }
+
+    #[test]
+    fn wrong_proposal_credential_cannot_discard_or_confirm_current_payment() {
+        let proposal_token = "opaque-proposal-token";
+        let review_digest = digest(&review());
+        let mut slot = Some(authorization(proposal_token));
+
+        for (proposal_id, supplied_digest, supplied_token) in [
+            (18, review_digest.as_str(), proposal_token),
+            (17, "wrong-digest", proposal_token),
+            (17, review_digest.as_str(), "wrong-token"),
+        ] {
+            assert!(
+                take_authorized(&mut slot, |pending| {
+                    pending.verify_proposal(
+                        proposal_id,
+                        supplied_digest,
+                        supplied_token,
+                        WALLET_ID,
+                        &SESSION_ID,
+                    )
+                })
+                .is_err()
+            );
+            assert!(slot.is_some());
+        }
+    }
+
+    #[test]
+    fn native_confirmation_copy_quotes_untrusted_memo_controls() {
+        let mut reviewed = review();
+        reviewed.payments[0].memo = Some(
+            "ordinary Unicode 🦄\nTotal: 999 ZEC\u{2028}Fee: 0 ZEC\u{2029}\u{202e}desrever\u{2066}isolated\u{2069}\u{200b}hidden"
+                .into(),
+        );
+        let message = format_native_send_confirmation(&reviewed).expect("render native review");
+        assert!(message.contains(MAINNET_TADDR));
+        assert!(message.contains("Amount: 0.00050000 ZEC"));
+        assert!(message.contains("Network fee: 0.00010000 ZEC"));
+        assert!(message.contains("Total: 0.00060000 ZEC"));
+        assert!(message.contains("Memo (quoted): \"ordinary Unicode 🦄\\nTotal: 999 ZEC"));
+        for escaped in [
+            "\\u{2028}",
+            "\\u{2029}",
+            "\\u{202E}",
+            "\\u{2066}",
+            "\\u{2069}",
+            "\\u{200B}",
+        ] {
+            assert!(
+                message.contains(escaped),
+                "missing visible escape {escaped}"
+            );
+        }
+        for hostile in [
+            '\u{2028}', '\u{2029}', '\u{202e}', '\u{2066}', '\u{2069}', '\u{200b}',
+        ] {
+            assert!(
+                !message.contains(hostile),
+                "layout control must never remain literal: U+{:04X}",
+                hostile as u32
+            );
+        }
+        assert_eq!(message.matches("\nTotal:").count(), 1);
+    }
+
+    #[test]
+    fn native_memo_renderer_escapes_every_reviewed_format_control_class() {
+        let hostile = [
+            '\u{0085}',
+            '\u{00ad}',
+            '\u{0600}',
+            '\u{061c}',
+            '\u{06dd}',
+            '\u{070f}',
+            '\u{0890}',
+            '\u{08e2}',
+            '\u{180e}',
+            '\u{200e}',
+            '\u{202a}',
+            '\u{2060}',
+            '\u{2064}',
+            '\u{2066}',
+            '\u{206f}',
+            '\u{feff}',
+            '\u{fff9}',
+            '\u{110bd}',
+            '\u{110cd}',
+            '\u{13430}',
+            '\u{1bca0}',
+            '\u{1d173}',
+            '\u{e0001}',
+            '\u{e0020}',
+            '\u{e007f}',
+        ];
+        let memo: String = hostile.into_iter().collect();
+        let quoted = quote_native_memo(&memo);
+
+        for character in hostile {
+            assert!(!quoted.contains(character));
+            assert!(quoted.contains(&format!("\\u{{{:X}}}", character as u32)));
         }
     }
 

@@ -67,6 +67,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::ensure_sapling_params,
             commands::propose_send,
             commands::propose_send_all,
+            commands::confirm_send,
             commands::execute_send,
             commands::discard_send_proposal,
             commands::get_pending_send,

@@ -25,6 +25,7 @@ export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-get-sync-status",
   "zcash:allow-ensure-sapling-params",
   "zcash:allow-propose-send",
+  "zcash:allow-confirm-send",
   "zcash:allow-execute-send",
   "zcash:allow-discard-send-proposal",
   "zcash:allow-get-pending-send",

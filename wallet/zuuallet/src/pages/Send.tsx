@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletStore } from "../store/wallet";
 import * as api from "../lib/tauri";
 import { formatZecDisplay, formatZec } from "../lib/format";
-import { assertExactSendProposal } from "../lib/send-review";
+import {
+  assertExactSendProposal,
+  assertFreshSendConfirmation,
+} from "../lib/send-review";
 import type {
   AddressValidation,
   BroadcastStatus,
@@ -63,7 +66,7 @@ export function Send() {
       await api.discardSendProposal(
         stale.proposalId,
         stale.reviewDigest,
-        stale.confirmationToken,
+        stale.proposalToken,
       );
     } catch {
       // Exact discard deliberately preserves any newer native proposal.
@@ -273,11 +276,18 @@ export function Send() {
         setParamsReady(true);
       }
 
+      const confirmation = await api.confirmSend(
+        confirmedProposal.proposalId,
+        confirmedProposal.reviewDigest,
+        confirmedProposal.proposalToken,
+      );
+      assertFreshSendConfirmation(confirmation);
+      if (!mountedRef.current || generation !== generationRef.current) return;
       executionStarted = true;
       const result = await api.executeSend(
         confirmedProposal.proposalId,
         confirmedProposal.reviewDigest,
-        confirmedProposal.confirmationToken,
+        confirmation.confirmationToken,
       );
       if (!mountedRef.current || generation !== generationRef.current) return;
       proposalRef.current = null;
@@ -307,6 +317,10 @@ export function Send() {
       const recovered = await api.getPendingSend().catch(() => null);
       if (!mountedRef.current || generation !== generationRef.current) return;
       if (executionStarted) {
+        proposalRef.current = null;
+        setProposal(null);
+      } else {
+        void discardNativeProposal(confirmedProposal);
         proposalRef.current = null;
         setProposal(null);
       }

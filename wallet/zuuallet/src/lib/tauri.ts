@@ -11,6 +11,7 @@ import type {
   PaymentRequest,
   AddressValidation,
   SaplingParamsStatus,
+  SendConfirmation,
   SendProposal,
   ExecuteSendResult,
   PendingSendStatus,
@@ -152,6 +153,16 @@ export async function proposeSendAll(
   });
 }
 
+export async function confirmSend(
+  proposalId: number,
+  reviewDigest: string,
+  proposalToken: string,
+): Promise<SendConfirmation> {
+  return invoke("plugin:zcash|confirm_send", {
+    args: { proposalId, reviewDigest, proposalToken },
+  });
+}
+
 export async function executeSend(
   proposalId: number,
   reviewDigest: string,
@@ -165,10 +176,10 @@ export async function executeSend(
 export async function discardSendProposal(
   proposalId: number,
   reviewDigest: string,
-  confirmationToken: string,
+  proposalToken: string,
 ): Promise<void> {
   return invoke("plugin:zcash|discard_send_proposal", {
-    args: { proposalId, reviewDigest, confirmationToken },
+    args: { proposalId, reviewDigest, proposalToken },
   });
 }
 
