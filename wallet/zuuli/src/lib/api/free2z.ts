@@ -9,6 +9,7 @@ import { useMock } from "../platform";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
 import { normalizeArticleTags, sanitizeArticleTags } from "../article-tags";
+import { normalizePrivateSecret } from "../private-live";
 import {
   cancelMobileOAuth,
   captureOAuthCode,
@@ -79,6 +80,7 @@ import type {
   KycTaxFormSignature,
   KycTaxFormUploadResult,
   Livestream,
+  LiveStartResult,
   LoginResult,
   AuthenticatedSession,
   OtpStatus,
@@ -1749,7 +1751,10 @@ export const live = {
       );
       const streams = (page.results ?? [])
         .map(mapLivestream)
-        .filter((stream) => stream.live);
+        // The backend contract excludes private rooms. Keep the client cache
+        // fail-closed too so a server regression cannot publish an invite-only
+        // room through Discovery or the home rail.
+        .filter((stream) => stream.live && stream.kind !== "private");
       listingCache = { at: Date.now(), data: streams };
       return streams;
     })();
@@ -1792,21 +1797,49 @@ export const live = {
     }
   },
 
-  /** Creator starts/ensures their stream; returns the Dyte host join ticket. */
-  async start(kind: StreamKind): Promise<DyteJoinTicket> {
+  /** Creator starts/ensures their stream and receives its host ticket. */
+  async start(kind: StreamKind): Promise<LiveStartResult> {
     if (useMock()) {
       await delay(500);
-      return { authToken: "mock-host", meetingId: "mock", roomName: "zuuli-live", as: "host" };
+      return {
+        ticket: {
+          authToken: "mock-host",
+          meetingId: "mock",
+          roomName: "zuuli-live",
+          as: "host",
+        },
+        ...(kind === "private" ? { inviteSecret: MOCK_ROOM_SECRET } : {}),
+      };
     }
     const me = await auth.me();
+    if (kind === "private") {
+      const created = await request<unknown>(
+        `/api/dyte/${encodeURIComponent(me.username)}/private`,
+        { method: "POST" },
+      );
+      const secret = normalizePrivateSecret(
+        created && typeof created === "object"
+          ? String((created as Record<string, unknown>).secret ?? "")
+          : "",
+      );
+      if (!secret)
+        throw new Error("Private room creation returned no safe invite");
+      const ticket = await live.join(me.username, "private", secret, "host");
+      return { ticket, inviteSecret: secret };
+    }
     const r = await request<{ meeting_id: string; auth_token: string }>(
       `/api/dyte/${me.username}/${TYPE_FROM_KIND[kind]}`,
       { method: "POST" },
     );
-    // A new live meeting just changed the availability set; drop the cached
-    // listing so the next Discovery/LiveRail read reflects it.
+    // A new public meeting changed discovery; private rooms never touch it.
     listingCache = null;
-    return { authToken: r.auth_token, meetingId: r.meeting_id, as: "host" };
+    return {
+      ticket: {
+        authToken: r.auth_token,
+        meetingId: r.meeting_id,
+        as: "host",
+      },
+    };
   },
 
   /**
@@ -1823,32 +1856,62 @@ export const live = {
     username: string,
     kind: StreamKind,
     secret?: string,
+    as: "host" | "participant" = "participant",
   ): Promise<DyteJoinTicket> {
     if (useMock()) {
       await delay(600);
       if (kind === "private" && !mockSecretUnlocks(secret)) {
-        throw new Error(
-          `That secret didn't unlock the room. (Mock mode expects "${MOCK_ROOM_SECRET}".)`,
-        );
+        throw new PrivateRoomUnavailableError();
       }
-      return { authToken: "mock-part", meetingId: "mock", roomName: "zuuli-live", as: "participant" };
+      return {
+        authToken: as === "host" ? "mock-host" : "mock-part",
+        meetingId: "mock",
+        roomName: "zuuli-live",
+        as,
+      };
+    }
+    const privateSecret =
+      kind === "private" ? normalizePrivateSecret(secret ?? "") : null;
+    if (kind === "private" && !privateSecret) {
+      throw new PrivateRoomUnavailableError();
     }
     const path =
       kind === "private"
-        ? `/api/dyte/${username}/private/${encodeURIComponent((secret ?? "").trim())}`
-        : `/api/dyte/${username}/${TYPE_FROM_KIND[kind]}`;
+        ? `/api/dyte/${encodeURIComponent(username)}/private/${encodeURIComponent(privateSecret!)}`
+        : `/api/dyte/${encodeURIComponent(username)}/${TYPE_FROM_KIND[kind]}`;
     // The private-join response omits meeting_id (returns { e2ee, auth_token }).
-    const r = await request<{ meeting_id?: string; auth_token: string }>(path, {
-      method: "POST",
-    });
-    return { authToken: r.auth_token, meetingId: r.meeting_id ?? "", as: "participant" };
+    try {
+      const r = await request<{ meeting_id?: string; auth_token: string }>(path, {
+        method: "POST",
+      });
+      if (!r || typeof r.auth_token !== "string" || !r.auth_token) {
+        throw new Error("Livestream join returned no authentication ticket");
+      }
+      return { authToken: r.auth_token, meetingId: r.meeting_id ?? "", as };
+    } catch (error) {
+      if (
+        kind === "private" &&
+        error instanceof ApiError &&
+        [400, 403, 404, 410, 412].includes(error.status)
+      ) {
+        throw new PrivateRoomUnavailableError();
+      }
+      throw error;
+    }
   },
 };
 
 /** Mock private-room secret so the private-join gate is demoable offline. */
-const MOCK_ROOM_SECRET = "let-me-in";
+const MOCK_ROOM_SECRET = "123e4567-e89b-42d3-a456-426614174000";
 function mockSecretUnlocks(secret?: string): boolean {
-  return (secret ?? "").trim().toLowerCase() === MOCK_ROOM_SECRET;
+  return normalizePrivateSecret(secret ?? "") === MOCK_ROOM_SECRET;
+}
+
+export class PrivateRoomUnavailableError extends Error {
+  constructor() {
+    super("This private room is unavailable. The invite may be wrong or expired.");
+    this.name = "PrivateRoomUnavailableError";
+  }
 }
 
 // ─── Tuzi (2Z) economy ───────────────────────────────────────────────────────

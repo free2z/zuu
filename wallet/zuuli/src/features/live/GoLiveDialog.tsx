@@ -26,6 +26,7 @@ import {
 } from "@/lib/format";
 import type { StreamKind } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
+import { privateInvitePath } from "@/lib/private-live";
 import { KIND_META, KIND_ORDER } from "./lib";
 
 export function GoLiveDialog() {
@@ -52,7 +53,7 @@ export function GoLiveDialog() {
     if (!canStart || (kind === "ppv" && priceNum === null)) return;
     setStarting(true);
     try {
-      const ticket = await live.start(kind);
+      const { ticket, inviteSecret } = await live.start(kind);
       const username = user?.username || "you";
       toast.success("You're live", {
         description: title.trim(),
@@ -60,16 +61,22 @@ export function GoLiveDialog() {
       setOpen(false);
       // Hand the host ticket + stream metadata to the room so the creator
       // lands already connected as host.
-      navigate(`/live/${username}`, {
-        state: {
-          justStarted: {
-            ticket,
-            kind,
-            title: title.trim(),
-            price_tuzis: kind === "ppv" ? priceNum : 0,
+      navigate(
+        kind === "private" && inviteSecret
+          ? privateInvitePath(username, inviteSecret)
+          : `/live/${encodeURIComponent(username)}`,
+        {
+          state: {
+            justStarted: {
+              ticket,
+              inviteSecret,
+              kind,
+              title: title.trim(),
+              price_tuzis: kind === "ppv" ? priceNum : 0,
+            },
           },
         },
-      });
+      );
     } catch (e) {
       // Defense-in-depth: even though the control is auth-gated below, a session
       // can expire between load and submit. Intercept the auth failure with a
