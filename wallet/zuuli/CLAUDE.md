@@ -21,6 +21,7 @@ cd wallet/zuuli
 npm install
 npm run typecheck          # tsc --noEmit
 npm run build              # tsc && vite build
+ZUULI_PW_PORT=1433 npm run test # use a distinct Playwright port in parallel worktrees (default: 1432)
 VITE_MOCK=1 npm run dev    # browser fixtures on :1423 (UI/demo only)
 npm run dev                # real staging API on :1423; no native wallet
 npm run tauri dev          # native wallet + staging API by default

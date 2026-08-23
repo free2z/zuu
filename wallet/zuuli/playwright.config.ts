@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-const port = 1432;
+const port = Number(process.env.ZUULI_PW_PORT ?? 1432);
 
 export default defineConfig({
   testDir: "./tests",
