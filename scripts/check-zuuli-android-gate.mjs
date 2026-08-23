@@ -13,7 +13,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "01610f30f9c6fed00a3dc0ef0042ff134e348e6c4ded5252f577150820028c7c";
+  "dca75a990b10d4f9dba2a1c00d6fd1f69bf3182dc72a32aad2556758408d5189";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 
@@ -29,9 +29,10 @@ function job(workflow, name) {
 }
 
 function namedStep(jobContents, name) {
-  const start = new RegExp(`^      - name: ${name.replaceAll("/", "\\/")}\\n`, "m").exec(
-    jobContents,
-  );
+  const start = new RegExp(
+    `^      - name: ${name.replaceAll("/", "\\/")}\\n`,
+    "m",
+  ).exec(jobContents);
   if (!start) return "";
   const tail = jobContents.slice(start.index + start[0].length);
   const next = /^(?:      - (?:name|uses):|  (?=\S))/m.exec(tail);
@@ -61,10 +62,14 @@ function check(workflow, toolchainEnv) {
     `          node ${policyPath}`,
   ].join("\n");
   if (
-    namedStep(changes, "Verify the required 32-bit Android type-check policy") !==
-    expectedPolicyStep
+    namedStep(
+      changes,
+      "Verify the required 32-bit Android type-check policy",
+    ) !== expectedPolicyStep
   ) {
-    failures.push("changes job must execute the exact Android gate policy step");
+    failures.push(
+      "changes job must execute the exact Android gate policy step",
+    );
   }
   const detector = namedStep(changes, "Detect release-impacting ZUULI changes");
   const detectorDigest = createHash("sha256").update(detector).digest("hex");
@@ -76,9 +81,12 @@ function check(workflow, toolchainEnv) {
   const zuuliCase = detector.match(
     /case "\$file" in\n\s+([^\n]+)\)\n\s+zuuli=true/,
   );
-  const selectedPatterns = zuuliCase?.[1].split("|").map((entry) => entry.trim()) ?? [];
+  const selectedPatterns =
+    zuuliCase?.[1].split("|").map((entry) => entry.trim()) ?? [];
   if (!selectedPatterns.includes(policyPath)) {
-    failures.push("Android gate policy changes must select the full ZUULI suite");
+    failures.push(
+      "Android gate policy changes must select the full ZUULI suite",
+    );
   }
 
   if (!android) failures.push("required rust_android_32 job is missing");
@@ -92,7 +100,9 @@ function check(workflow, toolchainEnv) {
     "    steps:",
   ].join("\n");
   if (!android.startsWith(expectedAndroidHeader)) {
-    failures.push("32-bit Android job must retain its exact required-job header");
+    failures.push(
+      "32-bit Android job must retain its exact required-job header",
+    );
   }
   if (/^\s+continue-on-error:/m.test(android)) {
     failures.push("32-bit Android job and steps must fail closed");
@@ -114,7 +124,9 @@ function check(workflow, toolchainEnv) {
     namedStep(android, "Install the pinned 32-bit Android Rust target") !==
     expectedTargetStep
   ) {
-    failures.push(`32-bit Android job must install ${target} with the pinned action`);
+    failures.push(
+      `32-bit Android job must install ${target} with the pinned action`,
+    );
   }
   const expectedNdkStep = [
     "      - name: Install the pinned Android NDK",
@@ -127,7 +139,9 @@ function check(workflow, toolchainEnv) {
     "          set -e",
     '          [[ "$sdk_status" -eq 0 ]] || { echo "sdkmanager failed ($sdk_status)" >&2; exit 1; }',
   ].join("\n");
-  if (namedStep(android, "Install the pinned Android NDK") !== expectedNdkStep) {
+  if (
+    namedStep(android, "Install the pinned Android NDK") !== expectedNdkStep
+  ) {
     failures.push(`32-bit Android job must install the exact NDK ${ndk}`);
   }
   const expectedCacheStep = [
@@ -138,9 +152,12 @@ function check(workflow, toolchainEnv) {
     `          key: ${cacheKey}`,
   ].join("\n");
   if (
-    namedStep(android, "Restore the 32-bit Android Rust cache") !== expectedCacheStep
+    namedStep(android, "Restore the 32-bit Android Rust cache") !==
+    expectedCacheStep
   ) {
-    failures.push("32-bit Android cache must bind its pinned action, target, NDK, and API level");
+    failures.push(
+      "32-bit Android cache must bind its pinned action, target, NDK, and API level",
+    );
   }
   const expectedTypecheckStep = [
     "      - name: Type-check the shared plugin on 32-bit Android",
@@ -149,11 +166,19 @@ function check(workflow, toolchainEnv) {
     "          source wallet/zuuli/scripts/android-toolchain-env.sh",
     `          cargo check --locked --target ${target} --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml`,
   ].join("\n");
-  const typecheckStep = namedStep(android, "Type-check the shared plugin on 32-bit Android");
+  const typecheckStep = namedStep(
+    android,
+    "Type-check the shared plugin on 32-bit Android",
+  );
   if (typecheckStep !== expectedTypecheckStep) {
-    failures.push("32-bit Android type-check step must execute the exact reviewed command block");
+    failures.push(
+      "32-bit Android type-check step must execute the exact reviewed command block",
+    );
   }
-  if (createHash("sha256").update(toolchainEnv).digest("hex") !== toolchainEnvDigest) {
+  if (
+    createHash("sha256").update(toolchainEnv).digest("hex") !==
+    toolchainEnvDigest
+  ) {
     failures.push(
       "Android toolchain environment differs from the reviewed linker/compiler/archiver contract",
     );
@@ -197,10 +222,22 @@ function check(workflow, toolchainEnv) {
 
 function runSelfTest(workflow, toolchainEnv) {
   const mutations = [
-    ["the armv7 target is replaced", `targets: ${target}`, "targets: aarch64-linux-android"],
-    ["the target check is replaced", `--target ${target}`, "--target aarch64-linux-android"],
+    [
+      "the armv7 target is replaced",
+      `targets: ${target}`,
+      "targets: aarch64-linux-android",
+    ],
+    [
+      "the target check is replaced",
+      `--target ${target}`,
+      "--target aarch64-linux-android",
+    ],
     ["the pinned NDK is changed", `'ndk;${ndk}'`, "'ndk;latest'"],
-    ["the cache drops its NDK boundary", `key: ${cacheKey}`, "key: zuuli-plugin-android-armv7"],
+    [
+      "the cache drops its NDK boundary",
+      `key: ${cacheKey}`,
+      "key: zuuli-plugin-android-armv7",
+    ],
     [
       "the target action is replaced by decorative text",
       "      - name: Install the pinned 32-bit Android Rust target\n        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
@@ -257,12 +294,16 @@ function runSelfTest(workflow, toolchainEnv) {
 
   const baseline = check(workflow, toolchainEnv);
   if (baseline.length > 0) {
-    throw new Error(`cannot self-test an invalid baseline:\n${baseline.join("\n")}`);
+    throw new Error(
+      `cannot self-test an invalid baseline:\n${baseline.join("\n")}`,
+    );
   }
   for (const [name, from, to] of mutations) {
-    if (!workflow.includes(from)) throw new Error(`self-test fixture missing: ${name}`);
+    if (!workflow.includes(from))
+      throw new Error(`self-test fixture missing: ${name}`);
     const failures = check(workflow.replace(from, to), toolchainEnv);
-    if (failures.length === 0) throw new Error(`mutation escaped policy: ${name}`);
+    if (failures.length === 0)
+      throw new Error(`mutation escaped policy: ${name}`);
   }
   const decoratedSelector = workflow
     .replace(`|${policyPath}|`, "|")
@@ -271,7 +312,9 @@ function runSelfTest(workflow, toolchainEnv) {
       `  # Dead decoration must not satisfy the real selector.\n  # if false; then : '|${policyPath}|'; fi\n  frontend:\n`,
     );
   if (check(decoratedSelector, toolchainEnv).length === 0) {
-    throw new Error("mutation escaped policy: dead text replaces the real change selector");
+    throw new Error(
+      "mutation escaped policy: dead text replaces the real change selector",
+    );
   }
   const deadZuuliCase = workflow
     .replace(
@@ -283,7 +326,9 @@ function runSelfTest(workflow, toolchainEnv) {
       '            esac\n            fi\n            case "$file" in',
     );
   if (check(deadZuuliCase, toolchainEnv).length === 0) {
-    throw new Error("mutation escaped policy: real ZUULI selector case is dead code");
+    throw new Error(
+      "mutation escaped policy: real ZUULI selector case is dead code",
+    );
   }
   const missingArmv7Archiver = toolchainEnv.replace(
     'export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"',
@@ -297,7 +342,9 @@ function runSelfTest(workflow, toolchainEnv) {
     'export AR_armv7_linux_androideabi="/usr/bin/ar"\nif false; then\n  export AR_armv7_linux_androideabi="$zuuli_ndk_bin/llvm-ar"\nfi',
   );
   if (check(workflow, deadPinnedArmv7Archiver).length === 0) {
-    throw new Error("mutation escaped policy: pinned armv7 archiver is dead decoration");
+    throw new Error(
+      "mutation escaped policy: pinned armv7 archiver is dead decoration",
+    );
   }
   console.log(
     `Android gate policy self-test passed (${mutations.length + 4} mutations).`,
