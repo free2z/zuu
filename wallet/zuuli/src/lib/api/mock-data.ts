@@ -607,7 +607,9 @@ function genArticles(n: number): Article[] {
   return out;
 }
 
-export const mockArticles: Article[] = [...featuredArticles, ...genArticles(57)];
+// Keep at least one creator above the production-shaped 12-row catalog page so
+// the creator screen's pagination path is exercised in local/demo mode.
+export const mockArticles: Article[] = [...featuredArticles, ...genArticles(63)];
 
 function articleTime(a: Article): number {
   const t = a.published_at ? new Date(a.published_at).getTime() : 0;
@@ -946,6 +948,8 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     is_verified: base?.is_verified ?? false,
     can_stream: seed % 2 === 0,
     member_price: base?.member_price ?? null,
+    // Preserve deliberate fixture drift: the creator payload is only a display
+    // hint, while the independently paginated catalog owns its exact count.
     zpages: base?.zpages ?? pages,
     total: (seed % 900) + 42,
     p2paddr: `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
