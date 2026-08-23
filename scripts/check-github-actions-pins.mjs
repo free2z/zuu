@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const EXTERNAL_USES = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
 
+// Required-gate policy deliberately accepts a small, canonical YAML subset.
+// Alternate keys, inline job maps, aliases, and decorators fail closed instead
+// of giving a second spelling to controls this checker must recognize.
+
 function yamlFilesBelow(directory) {
   if (!fs.existsSync(directory)) return [];
 
@@ -139,6 +143,375 @@ function usesFromLine(line) {
   return ref ? { provenance, ref } : { error: "empty `uses:` value" };
 }
 
+function stripYamlComment(line) {
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  let escaped = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (doubleQuoted) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        doubleQuoted = false;
+      }
+      continue;
+    }
+    if (singleQuoted) {
+      if (character === "'" && line[index + 1] === "'") {
+        index += 1;
+      } else if (character === "'") {
+        singleQuoted = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      doubleQuoted = true;
+    } else if (character === "'") {
+      singleQuoted = true;
+    } else if (
+      character === "#" &&
+      (index === 0 || /\s/.test(line[index - 1]))
+    ) {
+      return line.slice(0, index).trimEnd();
+    }
+  }
+  return line.trimEnd();
+}
+
+function workflowLine(line) {
+  const withoutComment = stripYamlComment(line);
+  if (!withoutComment.trim()) return null;
+
+  const prefix = withoutComment.match(/^[ \t]*/)?.[0] ?? "";
+  if (prefix.includes("\t")) {
+    return { error: "tabs are unsupported in YAML indentation" };
+  }
+  return {
+    indent: prefix.length,
+    text: withoutComment.slice(prefix.length),
+  };
+}
+
+function decodeRestrictedYamlScalar(raw, kind) {
+  const scalar = raw.trim();
+  if (!scalar) return { error: `empty ${kind}` };
+
+  if (scalar[0] === '"') {
+    try {
+      const decoded = JSON.parse(scalar);
+      if (typeof decoded !== "string") throw new Error("not a string");
+      return { value: decoded };
+    } catch {
+      return {
+        error: `${kind} uses unsupported double-quoted YAML escaping`,
+      };
+    }
+  }
+  if (scalar[0] === "'") {
+    if (scalar.at(-1) !== "'" || scalar.length < 2) {
+      return { error: `unterminated single-quoted ${kind}` };
+    }
+    return { value: scalar.slice(1, -1).replaceAll("''", "'") };
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(scalar)) {
+    return {
+      error: `${kind} must use a plain or quoted scalar without YAML decorators`,
+    };
+  }
+  return { value: scalar };
+}
+
+function mappingEntry(source, kind) {
+  const match = source.match(
+    /^((?:"(?:\\.|[^"\\])*")|(?:'(?:''|[^'])*')|(?:[A-Za-z_][A-Za-z0-9_-]*)|<<)\s*:\s*(.*)$/,
+  );
+  if (!match) {
+    return {
+      error: `${kind} must use an undecorated block mapping key`,
+    };
+  }
+  if (match[1] === "<<") {
+    return {
+      error: `${kind} cannot use YAML merge keys or aliases`,
+    };
+  }
+  const decoded = decodeRestrictedYamlScalar(match[1], `${kind} key`);
+  if (decoded.error) return decoded;
+  return { key: decoded.value, value: match[2].trim() };
+}
+
+function parseGateNeeds(lines, needsIndex, needsIndent) {
+  const source = workflowLine(lines[needsIndex]);
+  const entry = mappingEntry(source.text, "gate needs");
+  const raw = entry.value;
+  const values = [];
+
+  if (raw) {
+    let scalars;
+    if (raw.startsWith("[") && raw.endsWith("]")) {
+      const inside = raw.slice(1, -1).trim();
+      scalars = inside ? inside.split(",") : [];
+    } else {
+      scalars = [raw];
+    }
+    for (const scalar of scalars) {
+      const decoded = decodeRestrictedYamlScalar(scalar, "gate dependency");
+      if (decoded.error) return { error: decoded.error };
+      values.push(decoded.value);
+    }
+  } else {
+    let itemIndent = null;
+    for (let index = needsIndex + 1; index < lines.length; index += 1) {
+      const line = workflowLine(lines[index]);
+      if (!line) continue;
+      if (line.error) return { error: line.error };
+      if (line.indent <= needsIndent) break;
+      if (itemIndent === null) itemIndent = line.indent;
+      if (line.indent !== itemIndent || !line.text.startsWith("- ")) {
+        return {
+          error: "gate needs must be a scalar list without YAML decorators",
+        };
+      }
+      const decoded = decodeRestrictedYamlScalar(
+        line.text.slice(2),
+        "gate dependency",
+      );
+      if (decoded.error) return { error: decoded.error };
+      values.push(decoded.value);
+    }
+  }
+
+  if (!values.length) return { error: "gate needs must not be empty" };
+  if (new Set(values).size !== values.length) {
+    return { error: "gate needs contains duplicate dependencies" };
+  }
+  return { values };
+}
+
+function gateResultInputs(lines, gateStart, gateEnd) {
+  const resultInputs = new Map();
+  const runBlocks = [];
+
+  for (let index = gateStart + 1; index < gateEnd; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line || line.error) continue;
+    const entry = mappingEntry(line.text, "gate property");
+    if (entry.error) continue;
+
+    if (entry.key === "env" && !entry.value) {
+      const envIndent = line.indent;
+      for (let childIndex = index + 1; childIndex < gateEnd; childIndex += 1) {
+        const child = workflowLine(lines[childIndex]);
+        if (!child) continue;
+        if (child.error || child.indent <= envIndent) break;
+        const envEntry = mappingEntry(child.text, "gate environment");
+        if (envEntry.error) continue;
+        const expression = envEntry.value.match(
+          /^\$\{\{\s*needs\.([A-Za-z_][A-Za-z0-9_-]*)\.result\s*\}\}$/,
+        );
+        if (!expression) continue;
+        if (!resultInputs.has(expression[1])) resultInputs.set(expression[1], new Set());
+        resultInputs.get(expression[1]).add(envEntry.key);
+      }
+    }
+
+    if (entry.key === "run") {
+      const block = [];
+      if (entry.value && !/^[|>][+-]?[1-9]?$/.test(entry.value)) {
+        block.push(entry.value);
+      } else {
+        for (let childIndex = index + 1; childIndex < gateEnd; childIndex += 1) {
+          const child = workflowLine(lines[childIndex]);
+          if (!child) continue;
+          if (child.error || child.indent <= line.indent) break;
+          if (!child.text.trimStart().startsWith("#")) block.push(child.text);
+        }
+      }
+      runBlocks.push(block.join("\n"));
+    }
+  }
+  return { resultInputs, runText: runBlocks.join("\n") };
+}
+
+function gatePolicyFailures(relativeFile, lines) {
+  const failures = [];
+  const topLevel = [];
+  const requiredGateWorkflow =
+    relativeFile.split(path.sep).join("/") === ".github/workflows/zuuli.yml";
+
+  for (const [index, rawLine] of lines.entries()) {
+    const line = workflowLine(rawLine);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent !== 0 || line.text === "---") continue;
+    const entry = mappingEntry(line.text, "top-level workflow property");
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+    } else if (entry.key === "jobs") {
+      topLevel.push({ index, value: entry.value });
+    }
+  }
+
+  if (!topLevel.length) {
+    if (requiredGateWorkflow) {
+      failures.push(`${relativeFile}: required workflow must contain a jobs block mapping`);
+    }
+    return failures;
+  }
+  if (topLevel.length !== 1) {
+    failures.push(`${relativeFile}: workflow must contain exactly one jobs mapping`);
+    return failures;
+  }
+  const jobsEntry = topLevel[0];
+  if (jobsEntry.value) {
+    failures.push(
+      `${relativeFile}:${jobsEntry.index + 1}: jobs must use a block mapping so required-gate policy can inspect it`,
+    );
+    return failures;
+  }
+
+  let jobsEnd = lines.length;
+  for (let index = jobsEntry.index + 1; index < lines.length; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) continue;
+    if (line.indent === 0) {
+      jobsEnd = index;
+      break;
+    }
+  }
+
+  const firstJobLine = lines
+    .slice(jobsEntry.index + 1, jobsEnd)
+    .map((line) => workflowLine(line))
+    .find((line) => line && !line.error);
+  if (!firstJobLine || firstJobLine.indent !== 2) {
+    failures.push(
+      `${relativeFile}:${jobsEntry.index + 1}: jobs must use canonical two-space block indentation`,
+    );
+  }
+
+  const jobs = new Map();
+  for (let index = jobsEntry.index + 1; index < jobsEnd; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line || line.error || line.indent !== 2) continue;
+    const entry = mappingEntry(line.text, "job definition");
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+      continue;
+    }
+    if (entry.value) {
+      failures.push(
+        `${relativeFile}:${index + 1}: job ${entry.key} must use a block mapping; ` +
+          "inline maps, aliases, and decorated job values are unsupported",
+      );
+      continue;
+    }
+    if (jobs.has(entry.key)) {
+      failures.push(`${relativeFile}:${index + 1}: duplicate job definition: ${entry.key}`);
+      continue;
+    }
+    jobs.set(entry.key, { id: entry.key, start: index, properties: new Map() });
+  }
+
+  const orderedJobs = [...jobs.values()].sort((left, right) => left.start - right.start);
+  for (const [position, job] of orderedJobs.entries()) {
+    job.end = orderedJobs[position + 1]?.start ?? jobsEnd;
+    const firstProperty = lines
+      .slice(job.start + 1, job.end)
+      .map((line) => workflowLine(line))
+      .find((line) => line && !line.error);
+    if (!firstProperty || firstProperty.indent !== 4) {
+      failures.push(
+        `${relativeFile}:${job.start + 1}: job ${job.id} must use canonical four-space property indentation`,
+      );
+    }
+    for (let index = job.start + 1; index < job.end; index += 1) {
+      const line = workflowLine(lines[index]);
+      if (!line || line.error || line.indent !== 4) continue;
+      const entry = mappingEntry(line.text, `job ${job.id} property`);
+      if (entry.error) {
+        failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+        continue;
+      }
+      if (job.properties.has(entry.key)) {
+        failures.push(
+          `${relativeFile}:${index + 1}: duplicate ${entry.key} property on job ${job.id}`,
+        );
+        continue;
+      }
+      job.properties.set(entry.key, { index, value: entry.value });
+    }
+  }
+
+  const gate = jobs.get("gate");
+  if (!gate) {
+    if (requiredGateWorkflow) {
+      failures.push(`${relativeFile}: required workflow must contain the gate job`);
+    }
+    return failures;
+  }
+  const needsProperty = gate.properties.get("needs");
+  if (!needsProperty) {
+    failures.push(`${relativeFile}:${gate.start + 1}: required gate must declare needs`);
+    return failures;
+  }
+  const parsedNeeds = parseGateNeeds(lines, needsProperty.index, 4);
+  if (parsedNeeds.error) {
+    failures.push(`${relativeFile}:${needsProperty.index + 1}: ${parsedNeeds.error}`);
+    return failures;
+  }
+
+  for (const dependency of parsedNeeds.values) {
+    if (!jobs.has(dependency)) {
+      failures.push(
+        `${relativeFile}:${needsProperty.index + 1}: gate depends on undefined job ${dependency}`,
+      );
+    }
+  }
+
+  for (const jobId of [...parsedNeeds.values, "gate"]) {
+    const property = jobs.get(jobId)?.properties.get("continue-on-error");
+    if (property) {
+      failures.push(
+        `${relativeFile}:${property.index + 1}: job-level continue-on-error is forbidden on required-gate job ${jobId}`,
+      );
+    }
+  }
+
+  const inspection = gateResultInputs(lines, gate.start, gate.end);
+  for (const dependency of parsedNeeds.values) {
+    const variables = inspection.resultInputs.get(dependency);
+    if (!variables?.size) {
+      failures.push(
+        `${relativeFile}:${gate.start + 1}: gate dependency ${dependency} must expose ` +
+          `needs.${dependency}.result through a gate-step environment variable`,
+      );
+      continue;
+    }
+    const consumed = [...variables].some((variable) => {
+      const escaped = variable.replaceAll(/[$()*+.?[\]^{|}]/g, "\\$&");
+      return new RegExp(`\\$(?:\\{${escaped}\\}|${escaped}(?![A-Za-z0-9_]))`).test(
+        inspection.runText,
+      );
+    });
+    if (!consumed) {
+      failures.push(
+        `${relativeFile}:${gate.start + 1}: gate result for ${dependency} is not consumed by a gate run step`,
+      );
+    }
+  }
+
+  return failures;
+}
+
 function localTarget(repoRoot, reference) {
   const relative = reference.slice(2);
   const candidate = path.resolve(repoRoot, relative);
@@ -185,6 +558,9 @@ function scanRepository(repoRoot) {
 
     const relativeFile = path.relative(repoRoot, file);
     const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+    if (relativeFile.startsWith(path.join(".github", "workflows") + path.sep)) {
+      failures.push(...gatePolicyFailures(relativeFile, lines));
+    }
     for (const [index, line] of lines.entries()) {
       const parsed = usesFromLine(line);
       if (!parsed) continue;
@@ -233,6 +609,36 @@ function writeFixture(root, relative, contents) {
 
 function runSelfTest() {
   const fullSha = "0123456789abcdef0123456789abcdef01234567";
+  const gateFixture = (contents) => ({
+    ".github/workflows/zuuli.yml": contents,
+  });
+  const validGateWorkflow = [
+    "name: required gate fixture",
+    "on: pull_request",
+    "jobs:",
+    "  advisory:",
+    "    continue-on-error: true",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: exit 1",
+    "  build:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: a legitimate best-effort step",
+    "        continue-on-error: true",
+    "        run: echo 'step-level continue-on-error: true is allowed'",
+    "  gate:",
+    "    needs: [build]",
+    "    if: always()",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: inspect every dependency",
+    "        env:",
+    "          BUILD_RESULT: ${{ needs.build.result }}",
+    "        run: |",
+    '          [ "$BUILD_RESULT" = "success" ]',
+    "",
+  ].join("\n");
   const cases = [
     {
       name: "valid pinned, quoted, reusable, and nested-local references",
@@ -243,6 +649,143 @@ function runSelfTest() {
           "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/inner\n",
         ".github/actions/inner/action.yaml": `runs:\n  using: composite\n  steps:\n    - uses: 'owner/nested@${fullSha}' # v2\n`,
       },
+    },
+    {
+      name: "valid required gate permits advisory jobs and best-effort steps",
+      valid: true,
+      files: gateFixture(validGateWorkflow),
+    },
+    {
+      name: "gate dependency cannot use job-level continue-on-error",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    continue-on-error: true\n",
+        ),
+      ),
+    },
+    {
+      name: "false job-level continue-on-error is still forbidden",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    continue-on-error: false\n",
+        ),
+      ),
+    },
+    {
+      name: "escaped quoted key cannot hide job-level continue-on-error",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          '  build:\n    "continue-\\u006fn-error": true\n',
+        ),
+      ),
+    },
+    {
+      name: "single-quoted key cannot hide job-level continue-on-error",
+      needle: "job-level continue-on-error is forbidden on required-gate job build",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    'continue-on-error': true\n",
+        ),
+      ),
+    },
+    {
+      name: "decorated job property fails closed",
+      needle: "must use an undecorated block mapping key",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    &policy continue-on-error: true\n",
+        ),
+      ),
+    },
+    {
+      name: "explicit job property fails closed",
+      needle: "must use an undecorated block mapping key",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    ? continue-on-error\n    : true\n",
+        ),
+      ),
+    },
+    {
+      name: "job merge aliases fail closed",
+      needle: "cannot use YAML merge keys or aliases",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    <<: *soft-failure\n",
+        ),
+      ),
+    },
+    {
+      name: "inline job maps fail closed",
+      needle: "must use a block mapping",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n",
+          "  build: { runs-on: ubuntu-latest, continue-on-error: true }\n",
+        ),
+      ),
+    },
+    {
+      name: "reindented direct job properties fail closed",
+      needle: "job build must use canonical four-space property indentation",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n",
+          "  build:\n      continue-on-error: true\n      runs-on: ubuntu-latest\n      steps:\n        - run: exit 1\n",
+        ),
+      ),
+    },
+    {
+      name: "required gate itself cannot ignore failures",
+      needle: "job-level continue-on-error is forbidden on required-gate job gate",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  gate:\n",
+          "  gate:\n    continue-on-error: true\n",
+        ),
+      ),
+    },
+    {
+      name: "block-sequence gate needs remain supported",
+      valid: true,
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "    needs: [build]\n",
+          "    needs:\n      - build\n",
+        ),
+      ),
+    },
+    {
+      name: "every gate dependency must expose its result",
+      needle: "gate dependency advisory must expose needs.advisory.result",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "    needs: [build]\n",
+          "    needs: [build, advisory]\n",
+        ),
+      ),
+    },
+    {
+      name: "every exposed dependency result must be consumed",
+      needle: "gate result for advisory is not consumed",
+      files: gateFixture(
+        validGateWorkflow
+          .replace("    needs: [build]\n", "    needs: [build, advisory]\n")
+          .replace(
+            "          BUILD_RESULT: ${{ needs.build.result }}\n",
+            "          BUILD_RESULT: ${{ needs.build.result }}\n          ADVISORY_RESULT: ${{ needs.advisory.result }}\n",
+          ),
+      ),
     },
     {
       name: "tag",
@@ -441,7 +984,7 @@ function runSelfTest() {
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
-  console.log(`self-test: ${cases.length} action pin policy case(s) passed.`);
+  console.log(`self-test: ${cases.length} GitHub Actions policy case(s) passed.`);
 }
 
 const args = process.argv.slice(2);
@@ -457,7 +1000,7 @@ if (args[0] === "--self-test") {
   const repoRoot = path.resolve(scriptDirectory, "..");
   const result = scanRepository(repoRoot);
   if (result.failures.length) {
-    console.error("GitHub Actions immutable-reference policy failed:");
+    console.error("GitHub Actions fail-closed policy failed:");
     for (const failure of result.failures) console.error(`- ${failure}`);
     console.error(
       `${result.failures.length} failure(s); scanned ${result.scannedFiles} workflow/action file(s) and ${result.externalReferences} external reference(s).`,
@@ -465,6 +1008,8 @@ if (args[0] === "--self-test") {
     process.exit(1);
   }
   console.log(
-    `Every external GitHub Action and reusable workflow is pinned to a full 40-character commit SHA with readable provenance (${result.externalReferences} reference(s), ${result.scannedFiles} file(s)).`,
+    "GitHub Actions policy passed: every external action/reusable workflow is immutably pinned, " +
+      `and every required-gate dependency is fail-closed and consumed (${result.externalReferences} ` +
+      `external reference(s), ${result.scannedFiles} file(s)).`,
   );
 }
