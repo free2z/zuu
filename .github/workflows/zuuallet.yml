@@ -24,6 +24,7 @@ on:
       - 'scripts/check-rust-fmt.sh'
       - 'scripts/check-rust-deny.sh'
       - 'scripts/check-rust-clippy.sh'
+      - 'scripts/check-zcash-permissions.mjs'
       - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   push:
@@ -36,6 +37,7 @@ on:
       - 'scripts/check-rust-fmt.sh'
       - 'scripts/check-rust-deny.sh'
       - 'scripts/check-rust-clippy.sh'
+      - 'scripts/check-zcash-permissions.mjs'
       - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   workflow_dispatch:
@@ -233,6 +235,10 @@ jobs:
       - name: Configure exact Git workspace trust
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
       # Only fetch the one submodule the build needs — the rest of z/ is huge
       # (zebra, zcashd, zodl, ...) and irrelevant to compiling Zuuallet.
       - name: Fetch librustzcash submodule
@@ -255,7 +261,41 @@ jobs:
       # itself declares, a plugin that free-rides on an undeclared feature fails
       # here too — so this single build is enough to catch feature-hygiene bugs.
       - name: Build Tauri backend (plugin + librustzcash path deps)
+        env:
+          # The build script watches this value. Changing it on every attempt
+          # forces schema generation even when Cargo artifacts were restored.
+          TAURI_SCHEMA_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
+          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
         run: cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
+
+      - name: Verify generated Zcash permissions are current
+        run: |
+          set -euo pipefail
+          node scripts/check-zcash-permissions.mjs --self-test
+          node scripts/check-zcash-permissions.mjs
+          permissions=wallet/plugins/tauri-plugin-zcash/permissions
+          git diff --exit-code -- "$permissions"
+          untracked=$(git ls-files --others --exclude-standard -- "$permissions")
+          test -z "$untracked" || {
+            echo "Unexpected generated permission files:" >&2
+            echo "$untracked" >&2
+            exit 1
+          }
+
+      # Tauri's build script refreshes only the schema for the current target.
+      # Linux CI therefore owns the committed Linux schema and catches stale
+      # plugin permissions without paying for a second generation pass.
+      - name: Verify committed Tauri schemas are current
+        run: |
+          set -euo pipefail
+          schemas=wallet/zuuallet/src-tauri/gen/schemas
+          git diff --exit-code -- "$schemas"
+          untracked=$(git ls-files --others --exclude-standard -- "$schemas")
+          test -z "$untracked" || {
+            echo "Unexpected generated schema files:" >&2
+            echo "$untracked" >&2
+            exit 1
+          }
 
       - name: Test wallet plugin
         run: >-
