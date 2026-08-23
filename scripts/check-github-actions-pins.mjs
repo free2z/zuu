@@ -607,6 +607,9 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
     );
   }
   const jobEnvironment = job.properties.get("env");
+  const expectedJobEnvironment = requiredMainWorkflow
+    ? REQUIRED_JOB_ENVIRONMENTS.get(job.id) ?? new Map()
+    : new Map();
   if (jobEnvironment) {
     const actual = environmentMap(
       relativeFile,
@@ -616,17 +619,18 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
       failures,
       `required job ${job.id}`,
     );
-    const expected = requiredMainWorkflow
-      ? REQUIRED_JOB_ENVIRONMENTS.get(job.id) ?? new Map()
-      : new Map();
     failures.push(
       ...exactEnvironmentFailures(
         relativeFile,
         jobEnvironment.index,
         actual,
-        expected,
+        expectedJobEnvironment,
         `required job ${job.id}`,
       ),
+    );
+  } else if (expectedJobEnvironment.size) {
+    failures.push(
+      `${relativeFile}:${job.start + 1}: required job ${job.id} environment differs from its exact reviewed allowlist`,
     );
   }
   failures.push(...requiredContainerInjectionFailures(relativeFile, lines, job));
@@ -649,6 +653,9 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
     const stepEnvironmentProperty = step.properties.get("env");
     const stepName = step.properties.get("name")?.value ?? "";
     const stepScope = `${job.id}\0${stepName}`;
+    const expectedStepEnvironment = requiredMainWorkflow
+      ? REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map()
+      : new Map();
     if (stepEnvironmentProperty) {
       const actual = environmentMap(
         relativeFile,
@@ -658,17 +665,18 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
         failures,
         `required job ${job.id} step`,
       );
-      const expected = requiredMainWorkflow
-        ? REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map()
-        : new Map();
       failures.push(
         ...exactEnvironmentFailures(
           relativeFile,
           stepEnvironmentProperty.index,
           actual,
-          expected,
+          expectedStepEnvironment,
           `required job ${job.id} step ${stepName || "<unnamed>"}`,
         ),
+      );
+    } else if (expectedStepEnvironment.size) {
+      failures.push(
+        `${relativeFile}:${step.start + 1}: required job ${job.id} step ${stepName || "<unnamed>"} environment differs from its exact reviewed allowlist`,
       );
     }
     const workingDirectory = step.properties.get("working-directory");
@@ -910,6 +918,10 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
   if (workflowEnvironments.length > 1) {
     failures.push(`${relativeFile}: required workflow cannot repeat env`);
   }
+  const expectedWorkflowEnvironment =
+    relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH
+      ? REQUIRED_WORKFLOW_ENVIRONMENT
+      : new Map();
   for (const environment of workflowEnvironments) {
     const actual = environmentMap(
       relativeFile,
@@ -919,18 +931,19 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
       failures,
       "required workflow",
     );
-    const expected =
-      relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH
-        ? REQUIRED_WORKFLOW_ENVIRONMENT
-        : new Map();
     failures.push(
       ...exactEnvironmentFailures(
         relativeFile,
         environment.index,
         actual,
-        expected,
+        expectedWorkflowEnvironment,
         "required workflow",
       ),
+    );
+  }
+  if (!workflowEnvironments.length && expectedWorkflowEnvironment.size) {
+    failures.push(
+      `${relativeFile}: required workflow environment differs from its exact reviewed allowlist`,
     );
   }
 
@@ -1532,6 +1545,71 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       ),
     },
     {
+      name: "real workflow requires its reviewed environment",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "env:\n  CARGO_TERM_COLOR: always\n  RUST_BACKTRACE: 1\n\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the schema job environment",
+      needle:
+        "required job zuuallet_schema environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "    env:\n      CARGO_TARGET_DIR: ${{ github.workspace }}/target\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the ZUULI build nonce environment",
+      needle:
+        "required job rust_app step Build ZUULI Tauri backend environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        [
+          "        env:",
+          "          # The build script watches this value. Changing it on every attempt",
+          "          # forces schema generation even when Cargo artifacts were restored.",
+          "          TAURI_SCHEMA_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+          "          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+        ].join("\n") + "\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the Zuuallet schema nonce environment",
+      needle:
+        "required job zuuallet_schema step Regenerate Zuuallet permissions and target schema environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        [
+          "        env:",
+          "          # These values are build-script inputs, so restored Cargo artifacts",
+          "          # cannot turn this freshness assertion into a no-op.",
+          "          TAURI_SCHEMA_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+          "          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+        ].join("\n") + "\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the change-detector environment",
+      needle:
+        "required job changes step Detect release-impacting ZUULI changes environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the gate verdict environment",
+      needle:
+        "required job gate step Verify required jobs succeeded or legitimately skipped environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          POLICY_OUTCOME: ${{ steps.policy.outcome }}\n          REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}\n",
+        "",
+      ),
+    },
+    {
       name: "real workflow rejects Android job-level SHELLOPTS noexec",
       needle:
         "required job rust_android_32 environment differs from its exact reviewed allowlist",
@@ -1721,6 +1799,9 @@ function runSelfTest(repoRoot) {
   const validGateWorkflow = [
     "name: required gate fixture",
     "on: pull_request",
+    "env:",
+    "  CARGO_TERM_COLOR: always",
+    "  RUST_BACKTRACE: 1",
     "jobs:",
     "  changes:",
     "    runs-on: ubuntu-latest",
@@ -1793,7 +1874,7 @@ function runSelfTest(repoRoot) {
       files: gateFixture(validGateWorkflow),
     },
     {
-      name: "valid required gate may call a fail-closed local reusable workflow",
+      name: "valid required gate may call a local reusable workflow without environment blocks",
       valid: true,
       files: {
         ...gateFixture(reusableGateWorkflow),
