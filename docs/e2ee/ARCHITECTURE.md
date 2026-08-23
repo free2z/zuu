@@ -6,7 +6,7 @@
 [#132](https://github.com/free2z/zuu/issues/132),
 [#133](https://github.com/free2z/zuu/issues/133),
 [#134](https://github.com/free2z/zuu/issues/134).
-**Companion:** [`THREAT-MODEL.md`](./THREAT-MODEL.md),
+**Companion:** [`THREAT-MODEL.md`](./THREAT-MODEL.md), [`WIRE.md`](./WIRE.md),
 [`decisions/`](./decisions/).
 
 This document is written to be read by a third-party security auditor. Where
@@ -329,7 +329,7 @@ is the mechanism we intend to use for component-scoped exports as it stabilizes.
 |---|---|---|---|
 | FROST/DKG (§11) | `free2z/frost/v1` | `ceremony_id` | Session domain separator, transcript binding, outer AEAD for part-2 shares |
 | WebRTC binding (§10) | `free2z/webrtc/v1` | `session_id` | Binds DTLS fingerprints to the group |
-| Queue rotation (§6.2) | `free2z/queue/v1` | `peer_leaf_index` | Derives the next queue addresses without a round trip |
+| Queue rotation (§6.2) | `free2z/queue/v1` | `peer_leaf_index` | Derives the next queue **signing keys** and the rotation schedule — see the correction below |
 | Local history wrap | `free2z/history/v1` | `conversation_id` | At-rest key for retained plaintext |
 
 Because these are exporter outputs, they inherit the group's forward secrecy and
@@ -338,6 +338,17 @@ precisely the "confidential, authenticated, replay-bound channel between an
 agreed participant list" that
 [#132](https://github.com/free2z/zuu/issues/132) requires, obtained from a
 standard instead of invented.
+
+> **Correction (2026-08-23).** An earlier revision of the table above said the
+> queue exporter *"derives the next queue addresses without a round trip."* That
+> is no longer accurate and should not be read as though it were.
+> [ADR 0009](./decisions/0009-queue-addressing-and-binding.md) has the **relay**
+> generate both queue addresses from its own CSPRNG, because client-chosen
+> addresses permit squatting and collisions. The exporter therefore derives the
+> rotation *schedule* and the next queue *signing keys*; the new address comes
+> back from the relay and still has to reach the peer in an in-band advert. **A
+> rotation costs one relay round trip and one in-band message** —
+> [`WIRE.md` §7.5](./WIRE.md#75-rotation-needs-no-new-command).
 
 ### 5.5 What hybrid PQ does and does not buy
 
@@ -380,9 +391,19 @@ Its design follows SimpleX's SMP: pairwise, unidirectional, opaque queues with
 no user identifiers anywhere. We adopt the *protocol design*; the implementation
 is clean-room.
 
-> **Action item (§13-E):** verify SimpleX's server licensing **before** anyone
-> reads their server source. Parts of that project are copyleft and we need a
-> clean-room posture.
+> **§13-E, closed 2026-08-23.** The licence was verified from published
+> repository metadata only, without reading any source file: `simplex-chat/simplexmq`
+> — the reference SMP server — is **AGPL-3.0**. The binding rule and the full
+> clean-room posture are recorded in
+> [`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--blocking-pre-check-resolved):
+> **nobody on this project reads `simplexmq` source**; the design derives solely
+> from the public protocol description.
+
+The relay's wire protocol — transport, framing, canonical serialization, the
+command set, the signing transcript, anti-replay, queue lifecycle, ACK semantics,
+TTLs, padding enforcement, error codes, the capability document, first contact and
+anti-abuse — is specified in [`WIRE.md`](./WIRE.md). Where that document narrows
+or corrects something below, it says so at the point of use.
 
 ### 6.1 What the relay is
 
@@ -443,6 +464,16 @@ via the server. Addresses rotate on a schedule using the
 `free2z/queue/v1` exporter so a long-lived relationship does not present a
 long-lived identifier.
 
+> **This paragraph is circular for a pair that has never spoken**, and the gap is
+> real rather than a detail: there is no path for the `Welcome` that creates the
+> group in the first place, because the recipient has no queue the sender is
+> authorized to write to.
+> [ADR 0011](./decisions/0011-first-contact-contact-queues.md) and
+> [`WIRE.md` §12](./WIRE.md#12-first-contact) close it with a hard-capped
+> **contact queue** whose send side is never bound and whose address is published
+> in the owner's directory entry — together with the honest limits on what its
+> anti-abuse actually buys.
+
 **Fan-out (D2):** a message to a recipient with *d* registered devices is sent
 to *d* queues, one per device, as *d* independently encrypted MLS messages
 (each device is its own MLS leaf). Group messages to a group with *m* member
@@ -476,10 +507,14 @@ Three properties follow, and each is deliberate:
    themselves MLS application messages. The relay cannot forge, suppress
    undetectably (§7), or observe it.
 
-Undelivered ciphertext has a **TTL ceiling** (proposed: 30 days) after which the
-relay drops it and the sender learns only from the continued absence of a
-receipt. Quota and TTL are relay policy and are published in the relay's
-capability document so clients can choose.
+Undelivered ciphertext has a **TTL ceiling** (30 days) after which the relay
+drops it and the sender learns only from the continued absence of a receipt.
+Quota and TTL are relay policy and are published in the relay's capability
+document so clients can choose. The wire-level rules — a per-queue message TTL
+clamped to that 30-day ceiling, a **queue idle TTL** that the merged docs did not
+have and without which the queue table grows without bound, and the exact ACK
+semantics that make delete-on-ack safe — are
+[`WIRE.md` §7.7](./WIRE.md#77-ttls) and [§8](./WIRE.md#8-ack-semantics).
 
 ### 6.4 Delete-on-ack and lost acknowledgements
 
@@ -502,7 +537,13 @@ colluding relay. Real text is ~100 bytes; the padding dominates, which is the
 intent.
 
 > **Open question (§13-F):** bucket sizes need a traffic study. The values above
-> are placeholders chosen for arithmetic convenience, not measurement.
+> are placeholders chosen for arithmetic convenience, not measurement. Because of
+> that, [`WIRE.md` §9](./WIRE.md#9-padding-enforcement) puts the accepted size set
+> in the relay's **capability document** rather than in the protocol, so that
+> adopting the measured answer is an operator config change rather than a
+> federation-wide flag day — and states plainly that the relay's list is a filter,
+> not the source of truth: the property comes from the client padding to its own
+> set before the ciphertext leaves the device.
 
 ### 6.6 Delivery receipts
 
@@ -720,11 +761,28 @@ A CONIKS / SEEMless / Parakeet-lineage **append-only log** of
   loud, non-dismissible alarm on any key change it did not initiate. This is
   what makes an attempted MITM *detectable by the victim*, which is the whole
   point.
+- **Key rotation rules** —
+  [ADR 0014](./decisions/0014-directory-key-rotation.md): a same-key entry is
+  self-signed; a key *change* requires both a rotation proof signed by the
+  outgoing key and a signature by the new key; a *lost* key requires a
+  platform-authority reset that raises a **non-dismissible** peer alarm and
+  applies a multi-day cooldown during which clients keep using the old key. That
+  reset is a real weakening — platform-assisted recovery is indistinguishable
+  from platform-assisted attack — and announcing it loudly is the entire
+  mitigation.
 - **Manual safety-number verification** remains available and is the strongest
   check; ZUULI additionally offers verification over a shielded Zcash memo
   between two users who already know each other's payment address — an
   authenticated, private, *remote* out-of-band channel, which is genuinely
   unusual (see [ADR 0006](./decisions/0006-zcash-coupling.md)).
+
+> **Deliberately still unspecified: the log construction itself.** The
+> `SignedTreeHead` format, the epoch cadence, the inclusion- and
+> consistency-proof encodings, the full `DirectoryEntry` structure and the
+> witness-cosignature message format land in a companion `KT.md` with **ADR
+> 0013**, both of which are blocked on spike
+> [#544](https://github.com/free2z/zuu/issues/544). The gap in the ADR numbering
+> is intentional, so that its absence is visible rather than silent.
 
 ### 9.3 Anti-equivocation without a blockchain
 
@@ -998,10 +1056,11 @@ deliberate.
   local history (§8.1), do we transfer it device-to-device (requiring a secure
   pairing channel), and what does that do to the forward-secrecy claim?
   Unresolved.
-- **E. SimpleX licensing.** Verify the server licence **before** anyone reads
-  their source; adopt the SMP protocol design with a clean-room implementation.
 - **F. Padding bucket sizes.** Need a traffic study; current values are
-  placeholders.
+  placeholders. [`WIRE.md` §9](./WIRE.md#9-padding-enforcement) deliberately puts
+  the size set in the relay's capability document rather than in the protocol, so
+  that adopting the measured answer is a configuration change rather than a
+  federation-wide flag day.
 - **G. Relay redundancy factor *k*.** Default value, and whether it is per
   conversation or global.
 - **H. Push notifications.** APNs/FCM are the standard way to avoid a persistent
@@ -1012,13 +1071,42 @@ deliberate.
 - **I. Anonymous credentials for quota.** The zkgroup/KVAC-style design for
   "prove you paid for capacity without revealing who you are"
   ([ADR 0006](./decisions/0006-zcash-coupling.md), optional tier) is unspecified.
+  It remains the real answer to the abuse cases that
+  [ADR 0012](./decisions/0012-anti-abuse-v1.md) explicitly does **not** close.
 - **K. Handle rename and transfer.** How the KT log represents a handle changing
   owner without creating a MITM window.
+  [ADR 0014](./decisions/0014-directory-key-rotation.md) settles directory *key
+  rotation* — including the lost-key case — and deliberately does **not** settle
+  rename or transfer, which are a change of owner rather than of key and create a
+  MITM window of a different shape. Still open.
 - **L. Encrypted media attachments.** Out of scope for the first release, but the
   storage decision (zero-egress object storage) should be made before we build,
   not after — retrofitting off S3-style egress pricing is painful.
 - **M. Group scale limits.** MLS is O(log N) for rekey but the delivery fan-out
   is O(members × devices). At what size do we need a different fan-out strategy?
+- **N. Proof-of-work function and calibration.** Opened 2026-08-23 by
+  [`WIRE.md` §12.4](./WIRE.md#124-the-honest-limits). v1 specifies a
+  leading-zero-bit search over BLAKE2b, chosen so the relay's verification cost is
+  a single hash — the property that matters under flood. That is also the family
+  of function commodity parallel hardware accelerates best, so it **taxes phones
+  far more than rented GPUs**, and no difficulty setting fixes that. A memory-hard
+  function narrows the hardware gap and multiplies the relay's own verification
+  cost by the same factor. What difficulty is simultaneously a real cost to an
+  attacker and tolerable on a cheap Android device is **unmeasured**, and whether
+  a memory-hard function is affordable at relay scale is undecided.
+- **O. Messaging-handle eligibility for existing accounts.** Opened 2026-08-23 by
+  [`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved).
+  Messaging handles are `[a-z0-9_]{1,30}`, ASCII, so that homograph and
+  mixed-script impersonation does not exist. free2z usernames are broader
+  (`^[\w.@+-]+$`, up to 150 characters), so some existing accounts are not
+  eligible. **How many is not known** — this repository holds no user data — and
+  it must be measured before the rule ships, because it is the difference between
+  a rounding error and a migration project. Two sub-questions are also open:
+  whether the `Creator` model uses Django's Unicode or ASCII username validator
+  (undeterminable from this repository, and it decides whether the platform's
+  existing handle space already contains the homograph surface); and whether the
+  excluded population is served by a separate opt-in messaging handle, which is
+  directory design and touches §13-K.
 
 ### 13.1 Closed
 
@@ -1034,6 +1122,22 @@ finds the answer instead of a hole.
   This closes the question of whether the library has been audited; it does not
   close the question of auditing *our* use of it, which per #305's economics
   remains the dominant cost of the system.
+- **E. SimpleX licensing — closed 2026-08-23.** The check was performed from
+  **published repository metadata only** (GitHub's REST repository endpoint and a
+  top-level contents listing), by an agent working on
+  [#545](https://github.com/free2z/zuu/issues/545). **No source file from that
+  project was fetched, opened or read.** Result:
+  `simplex-chat/simplexmq` — the reference implementation of SMP, i.e. the
+  server — reports **AGPL-3.0**, as does `simplex-chat/simplex-chat`. The
+  operative consequence is recorded as a binding rule in
+  [`WIRE.md` §15](./WIRE.md#15-clean-room-posture-toward-simplex--blocking-pre-check-resolved):
+  **nobody on this project reads `simplexmq` source**, and the design derives
+  solely from the public protocol description. Also recorded there, rather than
+  glossed: the published protocol document lives in that same AGPL repository, so
+  the clean-room posture rests on the distinction between the expression of a
+  specification and the protocol it describes. That is our position, stated so it
+  can be challenged; it is not legal advice, and anything beyond avoiding the code
+  requires actual advice.
 - **J. Retention unanimity — closed 2026-08-08, by removing the premise.** The
   negotiated-unanimity retention model was withdrawn (§8.1). With retention a
   per-user local choice there is no group policy to change unanimously or
