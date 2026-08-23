@@ -95,6 +95,9 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         }
         activity.runOnUiThread {
             if (args.active) {
+                val previousToken = sensitiveDisplayToken
+                val previousReleasePending = secureFlagReleasePending
+                val previousFlagOwnership = secureFlagAddedByPlugin
                 // Record ownership only for the first lease. A replacement, or
                 // a new lease while background release is pending, inherits
                 // that exact ownership rather than mistaking our own flag for
@@ -106,8 +109,11 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
                 secureFlagReleasePending = false
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 if (!hasSecureFlag()) {
-                    sensitiveDisplayToken = null
-                    secureFlagAddedByPlugin = false
+                    // Keep Rust and native authority aligned if acquisition B
+                    // fails while lease A is still awaiting its cleared paint.
+                    sensitiveDisplayToken = previousToken
+                    secureFlagReleasePending = previousReleasePending
+                    secureFlagAddedByPlugin = previousFlagOwnership
                     return@runOnUiThread reject(invoke, "unavailable", "Android FLAG_SECURE did not apply")
                 }
             } else if (sensitiveDisplayToken == args.token) {

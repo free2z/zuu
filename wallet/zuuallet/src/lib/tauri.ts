@@ -57,6 +57,21 @@ export async function getSeedPhrase(token: string): Promise<string> {
   return invoke("plugin:zcash|get_seed_phrase", { args: { token } });
 }
 
+export async function getBackupSeedPhrase(
+  walletId: string,
+  token: string,
+): Promise<string> {
+  return invoke("plugin:zcash|get_backup_seed_phrase", {
+    args: { walletId, token },
+  });
+}
+
+export async function confirmWalletBackup(walletId: string): Promise<void> {
+  return invoke("plugin:zcash|confirm_wallet_backup", {
+    args: { walletId },
+  });
+}
+
 export async function getViewingKey(accountIndex: number): Promise<string> {
   return invoke("plugin:zcash|get_viewing_key", {
     args: { accountIndex },

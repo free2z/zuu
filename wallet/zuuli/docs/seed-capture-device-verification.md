@@ -21,10 +21,11 @@ recorder, or external display behaves.
   removed; ZUULI therefore places no mnemonic on the clipboard.
 
 This slice does not yet protect user-entered restore mnemonics in
-`RestoreIdentity.tsx` or Onboarding's `RestorePane` with the native display
-lease. Those inputs remain renderer-visible while the user types or pastes
-them. Issue #381 therefore remains open for restore-input protection as well as
-the physical-device evidence below.
+`RestoreIdentity.tsx`, Onboarding's `RestorePane`, classic Zuuallet's
+`RestoreWallet`, or its Settings re-link field with the native display lease.
+Those inputs remain renderer-visible while the user types or pastes them. Issue
+#381 therefore remains open for restore-input protection as well as the
+physical-device evidence below.
 
 Run the automated contract with:
 

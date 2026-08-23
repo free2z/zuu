@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { SeedPhraseGrid } from "../components/SeedPhraseGrid";
 import { formatHeight } from "../lib/format";
 import * as api from "../lib/tauri";
+import {
+  SensitiveSeedSession,
+  sensitiveSeedAuthority,
+} from "../lib/sensitive-seed";
 
 const SERVERS = [
   { label: "zec.rocks (default)", url: "https://zec.rocks:443" },
@@ -80,20 +84,17 @@ function SeedPhraseSection() {
   const [showUnlock, setShowUnlock] = useState(false);
   const [unlockPhrase, setUnlockPhrase] = useState("");
   const [unlocking, setUnlocking] = useState(false);
-  const sensitiveLease = useRef<string | null>(null);
-  const revealGeneration = useRef(0);
-
-  const releaseSensitiveLease = useCallback(() => {
-    ++revealGeneration.current;
-    const token = sensitiveLease.current;
-    sensitiveLease.current = null;
-    if (token) void api.endSensitiveDisplay(token);
-  }, []);
+  const sensitiveSession = useRef<SensitiveSeedSession | null>(null);
+  if (!sensitiveSession.current) {
+    sensitiveSession.current = new SensitiveSeedSession(
+      sensitiveSeedAuthority,
+      setPhrase,
+    );
+  }
 
   useEffect(() => {
     const clearSensitiveDisplay = () => {
-      setPhrase(null);
-      releaseSensitiveLease();
+      sensitiveSession.current?.clear();
     };
     const onVisibility = () => {
       if (document.visibilityState !== "visible") clearSensitiveDisplay();
@@ -107,32 +108,13 @@ function SeedPhraseSection() {
       document.removeEventListener("visibilitychange", onVisibility);
       clearSensitiveDisplay();
     };
-  }, [releaseSensitiveLease]);
+  }, []);
 
   const readSeedUnderLease = async () => {
-    releaseSensitiveLease();
-    const generation = ++revealGeneration.current;
-    const { token } = await api.beginSensitiveDisplay();
-    if (generation !== revealGeneration.current) {
-      await api.endSensitiveDisplay(token);
-      throw new Error("Recovery phrase reveal was cancelled.");
-    }
-    sensitiveLease.current = token;
-    try {
-      const result = await api.getSeedPhrase(token);
-      if (
-        generation !== revealGeneration.current ||
-        sensitiveLease.current !== token
-      ) {
-        await api.endSensitiveDisplay(token);
-        throw new Error("Recovery phrase reveal was cancelled.");
-      }
-      return result;
-    } catch (error) {
-      if (sensitiveLease.current === token) sensitiveLease.current = null;
-      await api.endSensitiveDisplay(token);
-      throw error;
-    }
+    const revealed = await sensitiveSession.current!.reveal((token) =>
+      api.getSeedPhrase(token),
+    );
+    if (!revealed) throw new Error("Recovery phrase reveal was cancelled.");
   };
 
   const wordCount = unlockPhrase.trim()
@@ -148,14 +130,13 @@ function SeedPhraseSection() {
   const handleReveal = async () => {
     if (phrase) {
       setPhrase(null);
-      releaseSensitiveLease();
+      sensitiveSession.current?.clear();
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const result = await readSeedUnderLease();
-      setPhrase(result);
+      await readSeedUnderLease();
       setShowUnlock(false);
     } catch {
       setError(null);
@@ -170,8 +151,7 @@ function SeedPhraseSection() {
     setError(null);
     try {
       await api.unlockWallet(unlockPhrase.trim());
-      const result = await readSeedUnderLease();
-      setPhrase(result);
+      await readSeedUnderLease();
       setShowUnlock(false);
       setUnlockPhrase("");
     } catch (e) {

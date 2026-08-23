@@ -1,23 +1,23 @@
 import { useCallback } from "react";
 import { useWalletStore } from "../store/wallet";
 import * as api from "../lib/tauri";
+import { createdSeedSession } from "../lib/sensitive-seed";
 
 export function useWallet() {
-  const {
-    setWalletStatus,
-    setSeedPhrase,
-    setPage,
-    setError,
-    setWallets,
-    resetWalletState,
-  } = useWalletStore();
+  const { setWalletStatus, setPage, setError, setWallets, resetWalletState } =
+    useWalletStore();
 
   const checkStatus = useCallback(async () => {
     try {
       const status = await api.getWalletStatus();
       setWalletStatus(status);
       if (status.initialized) {
-        setPage("home");
+        if (status.backupRequired && status.activeWalletId) {
+          createdSeedSession.prepare(status.activeWalletId);
+          setPage("create");
+        } else {
+          setPage("home");
+        }
       }
     } catch (e) {
       setError(String(e));
@@ -28,13 +28,23 @@ export function useWallet() {
     async (name?: string) => {
       try {
         const result = await api.createWallet(24, name);
-        setSeedPhrase(result.seedPhrase);
-        setPage("create");
+        createdSeedSession.prepare(result.walletId);
+        try {
+          await createdSeedSession.reveal(result.walletId, (walletId, token) =>
+            api.getBackupSeedPhrase(walletId, token),
+          );
+        } finally {
+          // Authentication cancellation still enters the exact resumable
+          // backup gate; it never strands the native backup-required wallet.
+          if (createdSeedSession.currentWalletId === result.walletId) {
+            setPage("create");
+          }
+        }
       } catch (e) {
         setError(String(e));
       }
     },
-    [setSeedPhrase, setPage, setError],
+    [setPage, setError],
   );
 
   const restoreWallet = useCallback(
@@ -84,5 +94,12 @@ export function useWallet() {
     [setWalletStatus],
   );
 
-  return { checkStatus, createWallet, restoreWallet, switchWallet, loadWallets, unlockWallet };
+  return {
+    checkStatus,
+    createWallet,
+    restoreWallet,
+    switchWallet,
+    loadWallets,
+    unlockWallet,
+  };
 }
