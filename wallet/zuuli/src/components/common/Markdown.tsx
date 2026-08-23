@@ -70,14 +70,15 @@ function isExternalHref(href: string): boolean {
 /** Open an external URL out-of-app, never in the SPA's own webview. */
 async function openExternal(url: string) {
   if (isTauri()) {
-    // Desktop: hand off to the OS default handler via tauri-plugin-opener so
+    // Native: hand off to the OS default handler via tauri-plugin-opener so
     // the wallet's own webview is never navigated away.
     try {
       await openUrl(url);
-      return;
     } catch {
-      // Fall through to a browser tab (also covers non-http schemes).
+      // Fail closed. A native fallback must never navigate the privileged
+      // WebView or create another in-process frame/window for remote content.
     }
+    return;
   }
   window.open(url, "_blank", "noopener,noreferrer");
 }
@@ -306,10 +307,37 @@ function vimeoId(url: URL): string | null {
 }
 
 /**
+ * A remote frame inside a Tauri WebView can inherit the main window's native
+ * IPC authority on Android. Provider videos therefore leave every native
+ * ZUULI WebView and open in the OS browser; browser builds retain inline embeds.
+ */
+function NativeExternalEmbed({
+  href,
+  provider,
+}: {
+  href: string;
+  provider: "YouTube" | "Vimeo";
+}) {
+  return (
+    <p
+      className="my-4 rounded-lg border border-border bg-muted p-3"
+      data-native-external-embed={provider.toLowerCase()}
+    >
+      <MarkdownLink
+        className="min-tap inline-flex items-center"
+        href={href}
+      >
+        Open {provider} video outside ZUULI
+      </MarkdownLink>
+    </p>
+  );
+}
+
+/**
  * Safe, allowlisted `::embed[URL]` renderer. NO remote metadata fetch (Iframely)
  * — only known-safe, fixed-shape targets:
- *   • YouTube  → youtube-nocookie.com/embed iframe
- *   • Vimeo    → player.vimeo.com iframe
+ *   • YouTube  → browser iframe; OS-external link in privileged native builds
+ *   • Vimeo    → browser iframe; OS-external link in privileged native builds
  *   • .mp4/... → native <video controls>
  *   • .mp3/... → native <audio controls>
  *   • anything else → a plain external link.
@@ -325,6 +353,14 @@ function SafeEmbed({ url }: { url: string }) {
   if (parsed && parsed.protocol === "https:") {
     const yt = youTubeId(parsed);
     if (yt) {
+      if (isTauri()) {
+        return (
+          <NativeExternalEmbed
+            href={`https://www.youtube.com/watch?v=${yt}`}
+            provider="YouTube"
+          />
+        );
+      }
       return (
         <RemoteMedia
           source={`https://www.youtube-nocookie.com/embed/${yt}`}
@@ -347,6 +383,14 @@ function SafeEmbed({ url }: { url: string }) {
 
     const vm = vimeoId(parsed);
     if (vm) {
+      if (isTauri()) {
+        return (
+          <NativeExternalEmbed
+            href={`https://vimeo.com/${vm}`}
+            provider="Vimeo"
+          />
+        );
+      }
       return (
         <RemoteMedia
           source={`https://player.vimeo.com/video/${vm}`}
