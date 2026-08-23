@@ -55,6 +55,20 @@ function minimalCycloneDx() {
         "bom-ref": "pkg:cargo/example@1.0.0",
         name: "example",
         version: "1.0.0",
+        properties: [
+          {
+            name: "syft:package:foundBy",
+            value: "elf-binary-package-cataloger",
+          },
+          {
+            name: "syft:cpe23",
+            value: "cpe:2.3:a:example:first:*:*:*:*:*:*:*:*",
+          },
+          {
+            name: "syft:cpe23",
+            value: "cpe:2.3:a:example:second:*:*:*:*:*:*:*:*",
+          },
+        ],
       },
     ],
   };
@@ -852,6 +866,17 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
       true,
       "Syft-discovered packages must be preserved alongside the complete file inventory",
     );
+    assert.deepEqual(
+      document.components
+        .find((component) => component.name === "example")
+        .properties.filter((entry) => entry.name === "syft:cpe23")
+        .map((entry) => entry.value),
+      [
+        "cpe:2.3:a:example:first:*:*:*:*:*:*:*:*",
+        "cpe:2.3:a:example:second:*:*:*:*:*:*:*:*",
+      ],
+      "ordered upstream multivalue properties must survive finalization",
+    );
     rmSync(root, { recursive: true, force: true });
     assert.doesNotThrow(
       () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
@@ -920,6 +945,81 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
     assert.throws(
       () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
       /binding does not match exact artifact and SBOM bytes/,
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("SBOM property validation preserves upstream multivalues and rejects ambiguous authority fields", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-sbom-properties-"));
+  try {
+    const { archive } = makeZipFixture(temporary);
+    const root = resolve(temporary, "unpacked");
+    prepareArtifact({ artifact: archive, root });
+    const assertRawRejected = (name, mutate, expected) => {
+      const document = minimalCycloneDx();
+      mutate(document.components[0].properties);
+      const rawSbom = resolve(temporary, `${name}.raw.cdx.json`);
+      writeJson(rawSbom, document);
+      assert.throws(
+        () =>
+          finalizeArtifactSbom({
+            artifact: archive,
+            root,
+            rawSbom,
+            sbom: resolve(temporary, `${name}.artifact.sbom.cdx.json`),
+            binding: resolve(temporary, `${name}.artifact.sbom-binding.json`),
+          }),
+        expected,
+      );
+    };
+    assertRawRejected(
+      "non-string",
+      (properties) => properties.push({ name: "syft:invalid", value: 1 }),
+      /must have string names and values/,
+    );
+    const malformedDocument = minimalCycloneDx();
+    malformedDocument.components[0].properties = {};
+    const malformedRawSbom = resolve(
+      temporary,
+      "malformed-collection.raw.cdx.json",
+    );
+    writeJson(malformedRawSbom, malformedDocument);
+    assert.throws(
+      () =>
+        finalizeArtifactSbom({
+          artifact: archive,
+          root,
+          rawSbom: malformedRawSbom,
+          sbom: resolve(
+            temporary,
+            "malformed-collection.artifact.sbom.cdx.json",
+          ),
+          binding: resolve(
+            temporary,
+            "malformed-collection.artifact.sbom-binding.json",
+          ),
+        }),
+      /properties must be an array/,
+    );
+    assertRawRejected(
+      "duplicate-authority",
+      (properties) =>
+        properties.push(
+          { name: "free2z:test-authority", value: "same" },
+          { name: "free2z:test-authority", value: "same" },
+        ),
+      /authority property must be unique: free2z:test-authority/,
+    );
+    assertRawRejected(
+      "conflicting-authority",
+      (properties) =>
+        properties.push(
+          { name: "free2z:test-authority", value: "first" },
+          { name: "free2z:test-authority", value: "second" },
+        ),
+      /authority property must be unique: free2z:test-authority/,
     );
   } finally {
     rmSync(temporary, { recursive: true, force: true });

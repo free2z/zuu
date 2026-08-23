@@ -1184,6 +1184,7 @@ function parseJson(path, label) {
 }
 
 function setProperties(properties, replacements) {
+  propertyMap(properties);
   const names = new Set(Object.keys(replacements));
   const kept = Array.isArray(properties)
     ? properties.filter(
@@ -1201,20 +1202,31 @@ function setProperties(properties, replacements) {
 }
 
 function propertyMap(properties) {
+  if (properties !== undefined && !Array.isArray(properties)) {
+    throw new Error("SBOM properties must be an array");
+  }
   const result = new Map();
   for (const property of Array.isArray(properties) ? properties : []) {
     if (
       !property ||
       typeof property !== "object" ||
       typeof property.name !== "string" ||
-      typeof property.value !== "string" ||
-      result.has(property.name)
+      typeof property.value !== "string"
     ) {
+      throw new Error("SBOM properties must have string names and values");
+    }
+    if (property.name.startsWith("free2z:") && result.has(property.name)) {
       throw new Error(
-        "SBOM properties must have unique string names and values",
+        `SBOM authority property must be unique: ${property.name}`,
       );
     }
-    result.set(property.name, property.value);
+    // CycloneDX properties are an ordered name/value list. Syft deliberately
+    // emits repeated names for multivalued discoveries such as syft:cpe23.
+    // Preserve those upstream values; only free2z:* properties carry authority
+    // in this verifier and therefore require unique names.
+    if (!result.has(property.name)) {
+      result.set(property.name, property.value);
+    }
   }
   return result;
 }
