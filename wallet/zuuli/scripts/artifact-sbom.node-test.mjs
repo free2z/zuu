@@ -1188,6 +1188,80 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "utf8",
   );
   assert.deepEqual(artifactSbomWorkflowFailures(packaging, release), []);
+  const skippedLinuxScan = packaging.replace(
+    "      - name: Scan Linux AppImage shipped artifact\n        if: runner.os == 'Linux'\n",
+    "      - name: Scan Linux AppImage shipped artifact\n        if: false\n",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(skippedLinuxScan, release).some((failure) =>
+      failure.includes("Scan Linux AppImage shipped artifact action contract"),
+    ),
+    "a Linux Syft action cannot be conditionally skipped",
+  );
+  const softFailingLinuxScan = packaging.replace(
+    "      - name: Scan Linux deb shipped artifact\n        if: runner.os == 'Linux'\n",
+    "      - name: Scan Linux deb shipped artifact\n        if: runner.os == 'Linux'\n        continue-on-error: true\n",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(softFailingLinuxScan, release).some(
+      (failure) =>
+        failure.includes("Scan Linux deb shipped artifact action contract"),
+    ),
+    "a Linux Syft action cannot soft-fail",
+  );
+  const skippedReleaseLinuxScan = release.replace(
+    "      - name: Scan Linux rpm shipped artifact\n        uses:",
+    "      - name: Scan Linux rpm shipped artifact\n        if: false\n        uses:",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, skippedReleaseLinuxScan).some(
+      (failure) =>
+        failure.includes("Scan Linux rpm shipped artifact action contract"),
+    ),
+    "a protected-release Syft action cannot gain a skip condition",
+  );
+  const duplicateScan = packaging.replace(
+    "      - name: Scan Linux rpm shipped artifact\n",
+    "      - name: Scan Linux rpm shipped artifact\n        if: false\n        run: echo decorative\n      - name: Scan Linux rpm shipped artifact\n",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(duplicateScan, release).some((failure) =>
+      failure.includes(
+        "expected one named Scan Linux rpm shipped artifact step, found 2",
+      ),
+    ),
+    "duplicate/decorative scan steps cannot satisfy the canonical action",
+  );
+  const decorativeScan = packaging.replace(
+    "      - name: Scan Linux AppImage shipped artifact\n",
+    "      - name: Decorative Linux scan\n        if: runner.os == 'Linux'\n        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10\n        with:\n          syft-version: v1.50.0\n          path: wallet/zuuli/decorative\n          config: wallet/zuuli/syft-artifact.yaml\n          format: cyclonedx-json\n          output-file: wallet/zuuli/decorative.cdx.json\n          upload-artifact: false\n      - name: Scan Linux AppImage shipped artifact\n",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(decorativeScan, release).some((failure) =>
+      failure.includes("expected 6 total canonical Syft actions, found 7"),
+    ),
+    "an extra decorative Syft action cannot obscure the reviewed scan set",
+  );
+  const skippedLinuxPreparation = packaging.replace(
+    "      - name: Prepare Linux shipped-artifact inventories\n        if: runner.os == 'Linux'\n",
+    "      - name: Prepare Linux shipped-artifact inventories\n        if: false\n",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(skippedLinuxPreparation, release).some(
+      (failure) => failure.includes("must be a multiline run step"),
+    ),
+    "Linux preparation cannot be skipped",
+  );
+  const softFailingLinuxBinding = release.replace(
+    "      - name: Bind Linux shipped-artifact SBOMs\n        run: |\n",
+    "      - name: Bind Linux shipped-artifact SBOMs\n        continue-on-error: true\n        run: |\n",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, softFailingLinuxBinding).some(
+      (failure) => failure.includes("must be a multiline run step"),
+    ),
+    "Linux binding cannot soft-fail",
+  );
   const decorated = packaging.replace(
     "node scripts/artifact-sbom.mjs finalize-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab",
     "node scripts/artifact-sbom.mjs finalize-artifact-disabled --artifact=release-artifacts/ZUULI-android-unsigned.aab",

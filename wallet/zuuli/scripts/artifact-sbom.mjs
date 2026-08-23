@@ -1519,7 +1519,14 @@ function jobBlock(workflow, jobName) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-function requireExactRunStep(label, block, stepName, expectedLines, failures) {
+function requireExactRunStep(
+  label,
+  block,
+  stepName,
+  expectedLines,
+  failures,
+  expectedIf,
+) {
   const marker = `\n      - name: ${stepName}\n`;
   const count = block.split(marker).length - 1;
   if (count !== 1) {
@@ -1531,7 +1538,9 @@ function requireExactRunStep(label, block, stepName, expectedLines, failures) {
   const rest = block.slice(block.indexOf(marker) + marker.length);
   const next = rest.search(/^      - /m);
   const step = next === -1 ? rest : rest.slice(0, next);
-  const runMarker = "        run: |\n";
+  const runMarker = expectedIf
+    ? `        if: ${expectedIf}\n        run: |\n`
+    : "        run: |\n";
   if (!step.startsWith(runMarker)) {
     failures.push(`${label}: ${stepName} must be a multiline run step`);
     return;
@@ -1543,6 +1552,33 @@ function requireExactRunStep(label, block, stepName, expectedLines, failures) {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
   if (JSON.stringify(actualLines) !== JSON.stringify(expectedLines)) {
     failures.push(`${label}: ${stepName} executable lines changed`);
+  }
+}
+
+function requireExactActionStep(
+  label,
+  block,
+  stepName,
+  expectedLines,
+  failures,
+) {
+  const marker = `\n      - name: ${stepName}\n`;
+  const count = block.split(marker).length - 1;
+  if (count !== 1) {
+    failures.push(
+      `${label}: expected one named ${stepName} step, found ${count}`,
+    );
+    return;
+  }
+  const rest = block.slice(block.indexOf(marker) + marker.length);
+  const next = rest.search(/^      - /m);
+  const step = next === -1 ? rest : rest.slice(0, next);
+  const actualLines = step
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+  if (JSON.stringify(actualLines) !== JSON.stringify(expectedLines)) {
+    failures.push(`${label}: ${stepName} action contract changed`);
   }
 }
 
@@ -1561,6 +1597,98 @@ function requireOrdered(label, block, markers, failures) {
 
 export function artifactSbomWorkflowFailures(packaging, release) {
   const failures = [];
+  const packagingLinux = jobBlock(packaging, "desktop");
+  const releaseLinux = jobBlock(release, "linux");
+  const prepareLinuxLines = [
+    "appimages=(release-artifacts/*.AppImage)",
+    "debs=(release-artifacts/*.deb)",
+    "rpms=(release-artifacts/*.rpm)",
+    '[[ ${#appimages[@]} -eq 1 && -f "${appimages[0]}" ]] || { echo "expected exactly one Linux AppImage" >&2; exit 1; }',
+    '[[ ${#debs[@]} -eq 1 && -f "${debs[0]}" ]] || { echo "expected exactly one Linux deb" >&2; exit 1; }',
+    '[[ ${#rpms[@]} -eq 1 && -f "${rpms[0]}" ]] || { echo "expected exactly one Linux rpm" >&2; exit 1; }',
+    'node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
+    'node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root',
+    'node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',
+  ];
+  const bindLinuxLines = [
+    "appimages=(release-artifacts/*.AppImage)",
+    "debs=(release-artifacts/*.deb)",
+    "rpms=(release-artifacts/*.rpm)",
+    'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+    'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
+    'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
+  ];
+  requireExactRunStep(
+    "packaging linux",
+    packagingLinux,
+    "Prepare Linux shipped-artifact inventories",
+    prepareLinuxLines,
+    failures,
+    "runner.os == 'Linux'",
+  );
+  requireExactRunStep(
+    "release linux artifacts",
+    releaseLinux,
+    "Prepare Linux shipped-artifact inventories",
+    prepareLinuxLines,
+    failures,
+  );
+  requireExactRunStep(
+    "packaging linux",
+    packagingLinux,
+    "Bind Linux shipped-artifact SBOMs",
+    bindLinuxLines,
+    failures,
+    "runner.os == 'Linux'",
+  );
+  requireExactRunStep(
+    "release linux artifacts",
+    releaseLinux,
+    "Bind Linux shipped-artifact SBOMs",
+    bindLinuxLines,
+    failures,
+  );
+  for (const [workflowLabel, block, expectedIf] of [
+    ["packaging linux", packagingLinux, "runner.os == 'Linux'"],
+    ["release linux artifacts", releaseLinux, undefined],
+  ]) {
+    for (const [display, path] of [
+      ["AppImage", "appimage"],
+      ["deb", "deb"],
+      ["rpm", "rpm"],
+    ]) {
+      requireExactActionStep(
+        workflowLabel,
+        block,
+        `Scan Linux ${display} shipped artifact`,
+        [
+          ...(expectedIf ? [`if: ${expectedIf}`] : []),
+          "uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10",
+          "with:",
+          "syft-version: v1.50.0",
+          `path: wallet/zuuli/artifact-sbom-work/linux-${path}/root`,
+          "config: wallet/zuuli/syft-artifact.yaml",
+          "format: cyclonedx-json",
+          `output-file: wallet/zuuli/artifact-sbom-work/linux-${path}/syft.raw.sbom.cdx.json`,
+          "upload-artifact: false",
+        ],
+        failures,
+      );
+    }
+  }
+  const syftAction =
+    "uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d";
+  for (const [workflowLabel, block, expectedCount] of [
+    ["packaging linux", packagingLinux, 6],
+    ["release linux artifacts", releaseLinux, 4],
+  ]) {
+    const actualCount = block.split(syftAction).length - 1;
+    if (actualCount !== expectedCount) {
+      failures.push(
+        `${workflowLabel}: expected ${expectedCount} total canonical Syft actions, found ${actualCount}`,
+      );
+    }
+  }
   for (const [label, block, markers] of [
     [
       "packaging android",
