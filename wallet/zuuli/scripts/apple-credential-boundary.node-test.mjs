@@ -169,6 +169,8 @@ const inertAssertionForms = [
   ["then-list statement", "if true; then [[ 1 -eq 2 ]]; echo REACHED; fi"],
   ["and-list trailing statement", "true && [[ 1 -eq 2 ]]; echo REACHED"],
   ["group statement", "{ [[ 1 -eq 2 ]]; echo REACHED; }"],
+  ["background-list statement", "sleep 0 & [[ 1 -eq 2 ]]; echo REACHED"],
+  ["timed statement", "time [[ 1 -eq 2 ]]; echo REACHED"],
   [
     "do-list statement",
     "for item in one; do [[ 1 -eq 2 ]]; echo REACHED; done",
