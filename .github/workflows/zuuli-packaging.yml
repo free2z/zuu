@@ -164,6 +164,13 @@ jobs:
             # Play so the protected release can restore a complete cache.
             ./node_modules/.bin/tauri android build --ci --aab -- --locked
           fi
+      - name: Verify generated Android project remains clean
+        # scripts/mobile-release.sh runs exactly this pair after its build, so a
+        # stale gen/android tree only surfaced during a protected store upload.
+        # Repeating it here fails the pull request that introduces the drift.
+        run: |
+          node scripts/normalize-generated-android-manifest.mjs
+          git diff --exit-code
       - name: Collect package
         run: |
           mkdir release-artifacts
