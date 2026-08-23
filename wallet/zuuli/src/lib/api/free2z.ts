@@ -8,6 +8,7 @@
 import { useMock } from "../platform";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
+import { normalizeArticleTags, sanitizeArticleTags } from "../article-tags";
 import {
   cancelMobileOAuth,
   captureOAuthCode,
@@ -61,6 +62,7 @@ import type {
   Article,
   ArticleFeedPage,
   ArticleFeedParams,
+  ArticleTagSuggestion,
   AuthUser,
   Comment,
   CommentContentType,
@@ -442,7 +444,7 @@ function mapArticle(z: RawZPage): Article {
     votes: z.f2z_score ? Math.round(Number(z.f2z_score)) : 0,
     published_at: z.publish_at || z.created_at,
     reading_minutes: readingMinutes(z.content),
-    tags: z.tags ?? [],
+    tags: sanitizeArticleTags(Array.isArray(z.tags) ? z.tags : []),
   };
 }
 
@@ -1411,24 +1413,145 @@ export const articles = {
     subtitle?: string;
     content: string;
     category?: string;
+    tags?: string[];
   }): Promise<Article> {
+    const tags = normalizeArticleTags(input.tags ?? []);
     if (useMock()) {
       await delay(500);
-      return { ...mockArticles[0], ...input, id: `${Date.now()}`, slug: undefined };
+      const timestamp = Date.now();
+      const author: SimpleCreator = {
+        username: mockUser.username,
+        free2zaddr: mockUser.free2zaddr ?? mockUser.username,
+        display_name: mockUser.display_name,
+        image: mockUser.image,
+        bio: mockUser.bio,
+        is_verified: mockUser.is_verified,
+        member_price: mockUser.member_price,
+      };
+      const created: Article = {
+        ...mockArticles[0],
+        ...input,
+        tags,
+        id: `${timestamp}`,
+        slug: undefined,
+        free2zaddr: `mock-${timestamp}`,
+        author,
+        published_at: new Date().toISOString(),
+      };
+      mockArticles.unshift(created);
+      return created;
     }
-    const z = await request<RawZPage>("/api/zpage/", {
+    const created = await request<unknown>("/api/zpage/", {
       method: "POST",
       body: {
         title: input.title,
         description: input.subtitle || "",
         content: input.content,
         category: input.category || "",
+        tags,
         is_published: true,
       },
     });
-    return mapArticle(z);
+    if (
+      !isRecord(created) ||
+      typeof created.free2zaddr !== "string" ||
+      !created.free2zaddr
+    ) {
+      throw new Error("Malformed published article identity.");
+    }
+
+    // POST uses zPageUpdateSerializer, whose documented response contains the
+    // saved tags but not the creator object required by `Article`. Retrieve the
+    // canonical detail so real mode returns the same complete shape as mock
+    // mode and proves the tags survived persistence rather than echoing input.
+    try {
+      return await articles.get(created.free2zaddr);
+    } catch {
+      // The mutation is already committed. Preserve that success boundary so
+      // the composer can navigate to the canonical id and let the reader retry
+      // hydration instead of inviting a second POST and a duplicate article.
+      throw new ArticlePublishedHydrationError(created.free2zaddr);
+    }
+  },
+
+  /** Existing public zpage tags, ordered by platform usage for autocomplete. */
+  async suggestTags(
+    query: string,
+    selected: string[] = [],
+  ): Promise<ArticleTagSuggestion[]> {
+    try {
+      const selectedTags = normalizeArticleTags(selected);
+      if (useMock()) {
+        await delay(80);
+        const counts = new Map<string, number>();
+        for (const article of mockArticles) {
+          for (const tag of sanitizeArticleTags(article.tags ?? [])) {
+            counts.set(tag, (counts.get(tag) ?? 0) + 1);
+          }
+        }
+        const needle = query
+          .normalize("NFKC")
+          .trim()
+          .toLocaleLowerCase("en-US");
+        return [...counts]
+          .filter(
+            ([name]) =>
+              !selectedTags.includes(name) &&
+              (!needle || name.includes(needle)),
+          )
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .slice(0, 10)
+          .map(([name, count]) => ({ name, count }));
+      }
+      const response = await request<unknown>("/api/tagging/autocomplete", {
+        query: {
+          query: query.trim(),
+          type: "zpage",
+          selected_tags: selectedTags.join(","),
+          num_results: 10,
+        },
+        anonymous: true,
+      });
+      if (!Array.isArray(response)) return [];
+      return response
+        .flatMap((value): ArticleTagSuggestion[] => {
+          if (!isRecord(value) || typeof value.name !== "string") return [];
+          const [name] = sanitizeArticleTags([value.name]);
+          if (!name) return [];
+          const count = Number(value.count);
+          return [
+            {
+              name,
+              count: Number.isFinite(count)
+                ? Math.max(0, Math.round(count))
+                : 0,
+            },
+          ];
+        })
+        .filter(
+          (suggestion, index, all) =>
+            !selectedTags.includes(suggestion.name) &&
+            all.findIndex((candidate) => candidate.name === suggestion.name) ===
+              index,
+        )
+        .slice(0, 10);
+    } catch {
+      // Autocomplete is an optional authoring aid. Network/schema failures
+      // must never prevent a valid open-vocabulary tag from being entered.
+      return [];
+    }
   },
 };
+
+export class ArticlePublishedHydrationError extends Error {
+  readonly articleId: string;
+
+  constructor(articleId: string) {
+    super("Article published, but its canonical detail is not available yet.");
+    this.name = "ArticlePublishedHydrationError";
+    this.articleId = articleId;
+  }
+}
 
 // ─── Comments (threaded, on zpages) ──────────────────────────────────────────
 

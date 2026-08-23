@@ -16,10 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
 import { PageHeader } from "@/components/common/PageHeader";
-import { articles } from "@/lib/api/free2z";
+import { ArticlePublishedHydrationError, articles } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
 import { cn } from "@/lib/utils";
 import { articleHref, readingMinutes, wordCount } from "../lib";
+import { ArticleTagInput } from "../components/ArticleTagInput";
 
 const CATEGORIES = ["Zcash", "Technology", "Community", "Education"];
 
@@ -39,6 +40,7 @@ export function Author() {
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [category, setCategory] = useState<string>("");
+  const [tags, setTags] = useState<string[]>([]);
   const [content, setContent] = useState("");
   const [publishing, setPublishing] = useState(false);
 
@@ -57,10 +59,16 @@ export function Author() {
         subtitle: subtitle.trim() || undefined,
         content: content.trim(),
         category: category || undefined,
+        tags,
       });
       toast.success("Published");
       navigate(articleHref(created));
-    } catch {
+    } catch (error) {
+      if (error instanceof ArticlePublishedHydrationError) {
+        toast.success("Published");
+        navigate(articleHref({ id: error.articleId, slug: undefined }));
+        return;
+      }
       toast.error("Couldn't publish. Please try again.");
       setPublishing(false);
     }
@@ -173,6 +181,12 @@ export function Author() {
             </DropdownMenu>
           </div>
 
+          <ArticleTagInput
+            value={tags}
+            onChange={setTags}
+            disabled={publishing}
+          />
+
           <div className="space-y-2">
             <Label htmlFor="art-content">Content (Markdown)</Label>
             <Textarea
@@ -200,6 +214,21 @@ export function Author() {
                 ) : null}
                 {subtitle ? (
                   <p className="text-lg text-muted-foreground">{subtitle}</p>
+                ) : null}
+                {tags.length > 0 ? (
+                  <div
+                    className="flex flex-wrap gap-2"
+                    aria-label="Article tags preview"
+                  >
+                    {tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="max-w-full break-words rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
                 ) : null}
                 {content ? (
                   <Markdown>{content}</Markdown>

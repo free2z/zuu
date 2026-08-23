@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Loader2, Newspaper, PenLine, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,11 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
+import {
+  MAX_ARTICLE_TAGS,
+  parseArticleTagsParam,
+  sanitizeArticleTags,
+} from "@/lib/article-tags";
 import type { ArticleSort } from "@/lib/api/types";
 import { ArticleCard, ArticleCardSkeleton } from "../components/ArticleCard";
 import { useArticleFeed } from "../useArticleFeed";
@@ -20,8 +25,12 @@ const SORTS: { value: ArticleSort; label: string }[] = [
 
 export function Feed() {
   const { viewport } = useRouteScroll();
+  const [params, setParams] = useSearchParams();
   const [sort, setSort] = useState<ArticleSort>("popular");
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const selectedTags = useMemo(
+    () => parseArticleTagsParam(params.get("tags")),
+    [params],
+  );
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
 
@@ -41,7 +50,9 @@ export function Feed() {
   useEffect(() => {
     setKnownTags((prev) => {
       const set = new Set(prev);
-      for (const a of items) for (const t of a.tags ?? []) set.add(t);
+      for (const article of items) {
+        for (const tag of sanitizeArticleTags(article.tags ?? [])) set.add(tag);
+      }
       for (const t of selectedTags) set.add(t);
       const merged = Array.from(set).sort();
       return merged.length === prev.length && merged.every((t, i) => t === prev[i])
@@ -50,10 +61,21 @@ export function Feed() {
     });
   }, [items, selectedTags]);
 
-  const toggleTag = (tag: string) =>
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+  function updateSelectedTags(tags: string[]) {
+    const canonical = sanitizeArticleTags(tags).slice(0, MAX_ARTICLE_TAGS);
+    const next = new URLSearchParams(params);
+    if (canonical.length > 0) next.set("tags", canonical.join(","));
+    else next.delete("tags");
+    setParams(next);
+  }
+
+  function toggleTag(tag: string) {
+    updateSelectedTags(
+      selectedTags.includes(tag)
+        ? selectedTags.filter((candidate) => candidate !== tag)
+        : [...selectedTags, tag],
     );
+  }
 
   // Infinite scroll: fire loadMore when the sentinel scrolls into view.
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
@@ -185,7 +207,7 @@ export function Feed() {
           {selectedTags.length > 0 ? (
             <button
               type="button"
-              onClick={() => setSelectedTags([])}
+              onClick={() => updateSelectedTags([])}
               className="min-tap inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-3 w-3" aria-hidden />
@@ -239,7 +261,7 @@ export function Feed() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setSelectedTags([]);
+                  updateSelectedTags([]);
                   setSearchInput("");
                 }}
               >

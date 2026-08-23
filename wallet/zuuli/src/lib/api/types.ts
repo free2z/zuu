@@ -324,6 +324,11 @@ export interface ArticleFeedParams {
   pageSize?: number;
 }
 
+export interface ArticleTagSuggestion {
+  name: string;
+  count: number;
+}
+
 /**
  * One page of the article feed. `next` is the next page number to request, or
  * `null` at the end of the corpus — so infinite scroll never needs the raw
