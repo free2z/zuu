@@ -56,6 +56,7 @@ import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
 import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
 import { CreatorSocialLinks } from "./SocialLinks";
+import { useCreatorCatalog } from "./catalog";
 
 export default function CreatorFeature() {
   const { username = "" } = useParams<{ username: string }>();
@@ -149,19 +150,7 @@ function CreatorProfile({
     "creator-subscription",
     "creator-tip",
   ]);
-  const {
-    data: pagesData,
-    loading: pagesLoading,
-    error: pagesError,
-    reload: reloadPages,
-  } = useAsync<KeyedRemoteData<string, Article[]>>(
-    async () => ({
-      key: creator.username,
-      value: await discover.creatorPages(creator.username),
-    }),
-    [creator.username],
-  );
-  const pages = currentResourceData(pagesData, creator.username);
+  const pages = useCreatorCatalog(creator.username, creator.zpages);
   const { body: bio, socials } = useMemo(
     () => parseBioFrontmatter(creator.bio),
     [creator.bio],
@@ -295,45 +284,71 @@ function CreatorProfile({
 
       {/* Pages */}
       <div className="creator-profile-inset mt-10" data-creator-pages>
-        <h2 className="mb-4 text-lg font-semibold tracking-tight">
-          Pages by {name}
-        </h2>
-        {pagesError ? (
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Pages by {name}
+          </h2>
+          <span
+            className="text-sm tabular-nums text-muted-foreground"
+            aria-live="polite"
+          >
+            {pages.items.length} of {creator.zpages}
+          </span>
+        </div>
+        {pages.error ? (
           <SectionLoadError
             className="mb-4"
             title={
-              pages === null
+              pages.items.length === 0
                 ? "Couldn't load this creator's pages"
-                : "Couldn't refresh this creator's pages"
+                : "Couldn't load more of this creator's pages"
             }
             description={
-              pages === null
+              pages.items.length === 0
                 ? "The published pages are temporarily unavailable."
-                : "Showing the last pages loaded on this device."
+                : "The pages already loaded are still available."
             }
-            retry={reloadPages}
-            retrying={pagesLoading}
-            stale={pages !== null}
+            retry={pages.retry}
+            retrying={pages.loading}
+            stale={pages.items.length > 0}
           />
         ) : null}
-        {pagesLoading && pages === null ? (
+        {pages.loading && !pages.initialized && pages.items.length === 0 ? (
           <div className="creator-pages-grid grid grid-cols-1 gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <PageCardSkeleton key={i} />
             ))}
           </div>
-        ) : pagesError && pages === null ? null : pages?.length === 0 ? (
+        ) : pages.error && pages.items.length === 0 ? null : creator.zpages ===
+          0 ? (
           <EmptyState
             icon={FileText}
             title="No pages yet"
             description={`${name} hasn't published any pages yet.`}
           />
-        ) : pages ? (
-          <div className="creator-pages-grid grid grid-cols-1 gap-4">
-            {pages.map((p) => (
-              <PageCard key={String(p.id)} article={p} />
-            ))}
-          </div>
+        ) : pages.items.length > 0 ? (
+          <>
+            <div className="creator-pages-grid grid grid-cols-1 gap-4">
+              {pages.items.map((p) => (
+                <PageCard key={String(p.id)} article={p} />
+              ))}
+            </div>
+            {pages.next !== null && !pages.error ? (
+              <div className="mt-5 flex justify-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={pages.loadMore}
+                  disabled={pages.loading}
+                >
+                  {pages.loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : null}
+                  {pages.loading ? "Loading pages" : "Load more pages"}
+                </Button>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>
@@ -981,7 +996,10 @@ function TipButton({
 // ─── Page card ────────────────────────────────────────────────────────────────
 function PageCard({ article }: { article: Article }) {
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40">
+    <div
+      className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40"
+      data-creator-page-card
+    >
       <div className="aspect-[16/9] w-full overflow-hidden bg-secondary">
         {article.image ? (
           <RemoteMedia

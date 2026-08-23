@@ -67,6 +67,7 @@ import type {
   CommentInput,
   CommentVote,
   CreatorDetail,
+  CreatorPagesPage,
   DyteJoinTicket,
   KycIdentityDocType,
   KycIdentityDocuments,
@@ -441,6 +442,62 @@ function mapArticle(z: RawZPage): Article {
     published_at: z.publish_at || z.created_at,
     reading_minutes: readingMinutes(z.content),
     tags: z.tags ?? [],
+  };
+}
+
+function parseCreatorZPage(value: unknown): RawZPage {
+  if (
+    !isRecord(value) ||
+    typeof value.free2zaddr !== "string" ||
+    value.free2zaddr.length === 0 ||
+    typeof value.title !== "string" ||
+    !isRecord(value.creator) ||
+    typeof value.creator.username !== "string" ||
+    value.creator.username.length === 0
+  ) {
+    throw new Error("Malformed creator page response: page identity.");
+  }
+  return value as unknown as RawZPage;
+}
+
+/** Runtime validator for the creator catalog's DRF pagination contract. */
+export function parseCreatorPagesPage(
+  value: unknown,
+  username: string,
+  currentPage: number,
+): CreatorPagesPage {
+  if (!isRecord(value) || !Array.isArray(value.results)) {
+    throw new Error("Malformed creator pagination response.");
+  }
+  if (!Number.isSafeInteger(value.count) || Number(value.count) < 0) {
+    throw new Error("Malformed creator pagination count.");
+  }
+  if (value.next !== null && typeof value.next !== "string") {
+    throw new Error("Malformed creator pagination next link.");
+  }
+  if (value.previous !== null && typeof value.previous !== "string") {
+    throw new Error("Malformed creator pagination previous link.");
+  }
+
+  let next: number | null = null;
+  if (typeof value.next === "string") {
+    const nextUrl = new URL(value.next, "http://localhost");
+    if (nextUrl.pathname !== "/api/zpage/") {
+      throw new Error("Creator pagination left its endpoint.");
+    }
+    if (nextUrl.searchParams.get("username") !== username) {
+      throw new Error("Creator pagination changed its creator filter.");
+    }
+    next = Number(nextUrl.searchParams.get("page"));
+    if (!Number.isSafeInteger(next) || next <= currentPage) {
+      throw new Error("Creator pagination returned an invalid next page.");
+    }
+  }
+
+  return {
+    count: Number(value.count),
+    next,
+    items: value.results.map((row) => mapArticle(parseCreatorZPage(row))),
   };
 }
 
@@ -1832,19 +1889,39 @@ export const discover = {
     return mapCreatorDetail(c);
   },
 
-  /** A creator's published zpages — GET /api/zpage/?username=<username>. */
-  async creatorPages(username: string): Promise<Article[]> {
+  /** A validated page of a creator's published zpages. */
+  async creatorPages(
+    username: string,
+    page = 1,
+    pageSize = 12,
+  ): Promise<CreatorPagesPage> {
     if (useMock()) {
       await delay(160);
-      return mockArticles.filter(
+      const scenario =
+        typeof window === "undefined"
+          ? null
+          : window.sessionStorage.getItem("zuuli.mock.creator-pages");
+      if (scenario === "fail" || scenario === "fail-once") {
+        if (scenario === "fail-once") {
+          window.sessionStorage.removeItem("zuuli.mock.creator-pages");
+        }
+        throw new Error("Mock creator catalog unavailable");
+      }
+      const items = mockArticles.filter(
         (a) => a.author.username.toLowerCase() === username.toLowerCase(),
       );
+      const start = (page - 1) * pageSize;
+      return {
+        items: items.slice(start, start + pageSize),
+        next: start + pageSize < items.length ? page + 1 : null,
+        count: items.length,
+      };
     }
-    const page = await request<Paginated<RawZPage>>("/api/zpage/", {
-      query: { username, page_size: 12, ordering: "-created_at" },
+    const response = await request<unknown>("/api/zpage/", {
+      query: { username, page, page_size: pageSize, ordering: "-created_at" },
       anonymous: true,
     });
-    return (page.results ?? []).map(mapArticle);
+    return parseCreatorPagesPage(response, username, page);
   },
 
   /**
