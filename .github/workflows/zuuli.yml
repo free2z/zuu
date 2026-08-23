@@ -611,7 +611,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Recheck immutable actions and fail-closed required jobs
         id: policy
-        run: node scripts/check-github-actions-pins.mjs
+        run: |
+          node scripts/check-github-actions-pins.mjs --self-test
+          node scripts/check-github-actions-pins.mjs
 
       - name: Verify required jobs succeeded or legitimately skipped
         env:
