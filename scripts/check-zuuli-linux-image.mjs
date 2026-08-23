@@ -452,12 +452,11 @@ function validate(root) {
     failures.push("required gate: gate does not await the Zuuallet schema job");
   }
   for (const expected of [
-    "ZUUALLET_SCHEMA_CHANGED: ${{ needs.changes.outputs.zuuallet_schema }}",
-    "ZUUALLET_SCHEMA_RESULT: ${{ needs.zuuallet_schema.result }}",
-    '[ "$ZUUALLET_SCHEMA_RESULT" = "$schema_expected" ]',
+    "REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}",
+    "node scripts/check-github-actions-pins.mjs --verify-gate-results",
   ]) {
     if (!gateJob?.contents.includes(expected)) {
-      failures.push(`required gate: gate does not enforce Zuuallet schema result: ${expected}`);
+      failures.push(`required gate: gate does not enforce the complete needs context: ${expected}`);
     }
   }
   const schemaGateFallbacks =
@@ -678,6 +677,15 @@ function runSelfTest() {
         path: consumerWorkflows[0],
         mutate: (value) => value.replace(", zuuallet_schema]", "]"),
         expected: "gate does not await the Zuuallet schema job",
+      },
+      {
+        name: "schema result detached from complete-needs verifier",
+        path: consumerWorkflows[0],
+        mutate: (value) => value.replace(
+          "          node scripts/check-github-actions-pins.mjs --verify-gate-results\n",
+          "          echo \"$REQUIRED_JOBS_JSON\"\n",
+        ),
+        expected: "gate does not enforce the complete needs context",
       },
       {
         name: "schema policy removed from always-required changes job",
