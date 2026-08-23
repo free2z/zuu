@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoDir = resolve(appDir, "../..");
@@ -28,6 +29,29 @@ function requireCount(label, contents, value, expected) {
   }
 }
 
+function triggerPaths(label, contents, event) {
+  let workflow;
+  try {
+    workflow = parse(contents);
+  } catch (error) {
+    failures.push(
+      `${label}: invalid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return [];
+  }
+  const paths = workflow?.on?.[event]?.paths;
+  if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) {
+    failures.push(`${label}: on.${event}.paths must be a string list`);
+    return [];
+  }
+  return paths;
+}
+
+function pathFilterCovers(pattern, path) {
+  if (pattern.endsWith("/**")) return path.startsWith(pattern.slice(0, -2));
+  return pattern === path;
+}
+
 const action = readRepo(".github/actions/zuuli-rust-cache/action.yml");
 const packaging = readRepo(".github/workflows/zuuli-packaging.yml");
 const release = readRepo(".github/workflows/zuuli-release.yml");
@@ -41,6 +65,33 @@ const cacheFamilies = [
   "zuuli-release-ios-device-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-ios18-aarch64-device",
   "zuuli-release-linux-v2-rust-${{ env.ZUULI_RUST_VERSION }}-ubuntu-24.04-gtk-webkit-4.1",
   "zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64",
+];
+const packagingLocalInputs = [
+  // Direct scripts and configuration consumed from the broad ZUULI tree.
+  "wallet/zuuli/package-lock.json",
+  "wallet/zuuli/package.json",
+  "wallet/zuuli/scripts/android-toolchain-env.sh",
+  "wallet/zuuli/scripts/normalize-generated-ios-project.mjs",
+  "wallet/zuuli/scripts/release-identity.mjs",
+  "wallet/zuuli/scripts/release-manifest.mjs",
+  "wallet/zuuli/scripts/verify-ci-cache-policy.mjs",
+  "wallet/zuuli/scripts/verify-ios-ipa.sh",
+  "wallet/zuuli/syft.yaml",
+  // Inputs outside wallet/zuuli/** that builds or contract checks consume.
+  "wallet/plugins/tauri-plugin-zcash/Cargo.toml",
+  "wallet/rust-toolchain.toml",
+  "scripts/check-rust-toolchain.sh",
+  "z/zcash/librustzcash",
+  ".gitmodules",
+  ".github/actions/zuuli-rust-cache/action.yml",
+  ".github/workflows/cache-cleanup.yml",
+  ".github/workflows/zuuli.yml",
+  ".github/workflows/zuuli-packaging.yml",
+  ".github/workflows/zuuli-release.yml",
+  ".github/workflows/zuuli-store-audit.yml",
+  ".github/workflows/zuuli-store-publish.yml",
+  ".github/workflows/zuuli-testflight-bootstrap.yml",
+  ".github/workflows/zuuli-testflight-recovery.yml",
 ];
 
 function job(contents, name, nextName) {
@@ -109,6 +160,25 @@ requireCount(
   ".github/workflows/cache-cleanup.yml",
   2,
 );
+const pullRequestPaths = triggerPaths(
+  "packaging pull-request trigger",
+  packaging,
+  "pull_request",
+);
+const pushPaths = triggerPaths("packaging push trigger", packaging, "push");
+for (const [event, paths] of [
+  ["pull_request", pullRequestPaths],
+  ["push", pushPaths],
+]) {
+  for (const input of packagingLocalInputs) {
+    if (!paths.some((pattern) => pathFilterCovers(pattern, input))) {
+      failures.push(`packaging ${event} trigger does not cover local input ${input}`);
+    }
+  }
+}
+if (JSON.stringify(pullRequestPaths) !== JSON.stringify(pushPaths)) {
+  failures.push("packaging pull-request and push path filters must remain identical");
+}
 
 for (const family of cacheFamilies) {
   requireCount("packaging effective cache family", packaging, `shared-key: ${family}`, 1);

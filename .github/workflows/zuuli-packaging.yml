@@ -6,11 +6,17 @@ on:
       - wallet/zuuli/**
       - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
+      - scripts/check-rust-toolchain.sh
       - z/zcash/librustzcash
       - .gitmodules
+      - .github/workflows/zuuli.yml
       - .github/workflows/zuuli-packaging.yml
       - .github/workflows/zuuli-release.yml
       - .github/workflows/cache-cleanup.yml
+      - .github/workflows/zuuli-store-audit.yml
+      - .github/workflows/zuuli-store-publish.yml
+      - .github/workflows/zuuli-testflight-bootstrap.yml
+      - .github/workflows/zuuli-testflight-recovery.yml
       - .github/actions/zuuli-rust-cache/**
   push:
     branches: [main]
@@ -18,11 +24,17 @@ on:
       - wallet/zuuli/**
       - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
+      - scripts/check-rust-toolchain.sh
       - z/zcash/librustzcash
       - .gitmodules
+      - .github/workflows/zuuli.yml
       - .github/workflows/zuuli-packaging.yml
       - .github/workflows/zuuli-release.yml
       - .github/workflows/cache-cleanup.yml
+      - .github/workflows/zuuli-store-audit.yml
+      - .github/workflows/zuuli-store-publish.yml
+      - .github/workflows/zuuli-testflight-bootstrap.yml
+      - .github/workflows/zuuli-testflight-recovery.yml
       - .github/actions/zuuli-rust-cache/**
   schedule:
     # A weekly cache-free native build proves that warm dependency artifacts
