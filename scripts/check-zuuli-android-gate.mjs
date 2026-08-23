@@ -173,37 +173,23 @@ function check(workflow, toolchainEnv) {
   if (/^\s+continue-on-error:/m.test(gate)) {
     failures.push("required gate and its steps must fail closed");
   }
-  requireLine(
-    failures,
-    gate,
-    "RUST_ANDROID_32_RESULT: ${{ needs.rust_android_32.result }}",
-    "gate must read the 32-bit Android result",
-  );
-  const resultAssignments = gate.match(/^\s+results=.*$/gm) ?? [];
-  if (
-    resultAssignments.length !== 1 ||
-    !resultAssignments[0].includes("$RUST_ANDROID_32_RESULT")
-  ) {
-    failures.push("gate must enforce the 32-bit Android result");
-  }
   const expectedGateStep = [
-    "      - name: Enforce the 32-bit Android result",
+    "      - name: Verify required jobs succeeded or legitimately skipped",
     "        env:",
-    "          ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}",
-    "          RUST_ANDROID_32_RESULT: ${{ needs.rust_android_32.result }}",
+    "          POLICY_OUTCOME: ${{ steps.policy.outcome }}",
+    "          REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}",
     "        run: |",
-    "          set -euo pipefail",
-    '          case "$ZUULI_CHANGED:$RUST_ANDROID_32_RESULT" in',
-    "            true:success|false:skipped) ;;",
-    '            *) echo "32-bit Android result is inconsistent: changed=$ZUULI_CHANGED result=$RUST_ANDROID_32_RESULT"; exit 1 ;;',
-    "          esac",
+    "          node scripts/check-github-actions-pins.mjs",
+    "          node scripts/check-github-actions-pins.mjs --verify-gate-results",
   ].join("\n");
-  const gateStep = namedStep(gate, "Enforce the 32-bit Android result");
+  const gateStep = namedStep(
+    gate,
+    "Verify required jobs succeeded or legitimately skipped",
+  );
   if (gateStep !== expectedGateStep) {
-    failures.push("gate must directly reject an unexpected 32-bit Android result");
-  }
-  if (/\b(?:export\s+)?RUST_ANDROID_32_RESULT\s*=/.test(gate)) {
-    failures.push("gate must not overwrite the 32-bit Android result");
+    failures.push(
+      "gate must enforce the complete needs context containing the 32-bit Android result",
+    );
   }
 
   return failures;
@@ -237,9 +223,9 @@ function runSelfTest(workflow, toolchainEnv) {
     ],
     ["the job is removed from gate needs", ", rust_android_32", ""],
     [
-      "the gate result input is redirected",
-      "RUST_ANDROID_32_RESULT: ${{ needs.rust_android_32.result }}",
-      "RUST_ANDROID_32_RESULT: success",
+      "the complete gate result input is redirected",
+      "REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}",
+      'REQUIRED_JOBS_JSON: "{}"',
     ],
     [
       "the exact type-check command is hidden behind a false condition",
@@ -247,14 +233,14 @@ function runSelfTest(workflow, toolchainEnv) {
       "          if false; then\n          source wallet/zuuli/scripts/android-toolchain-env.sh\n          fi\n",
     ],
     [
-      "the gate overwrites the checked result",
-      '          results="$FRONTEND_RESULT $RUST_FMT_RESULT $RUST_DENY_RESULT $RUST_CLIPPY_RESULT $RUST_PLUGIN_RESULT $RUST_ANDROID_32_RESULT $RUST_APP_RESULT"',
-      '          results="$FRONTEND_RESULT $RUST_FMT_RESULT $RUST_DENY_RESULT $RUST_CLIPPY_RESULT $RUST_PLUGIN_RESULT $RUST_ANDROID_32_RESULT $RUST_APP_RESULT"\n          results="$FRONTEND_RESULT $RUST_FMT_RESULT $RUST_DENY_RESULT $RUST_CLIPPY_RESULT $RUST_PLUGIN_RESULT $RUST_APP_RESULT"',
+      "the complete gate verifier is replaced with logging",
+      "          node scripts/check-github-actions-pins.mjs --verify-gate-results",
+      '          echo "$REQUIRED_JOBS_JSON"',
     ],
     [
-      "the dedicated gate check is disabled",
-      "        run: |\n          set -euo pipefail\n          case \"$ZUULI_CHANGED:$RUST_ANDROID_32_RESULT\" in",
-      "        if: false\n        run: |\n          set -euo pipefail\n          case \"$ZUULI_CHANGED:$RUST_ANDROID_32_RESULT\" in",
+      "the complete gate verdict is disabled",
+      "      - name: Verify required jobs succeeded or legitimately skipped\n        env:",
+      "      - name: Verify required jobs succeeded or legitimately skipped\n        if: false\n        env:",
     ],
     ["the policy no longer selects itself", `|${policyPath}|`, "|"],
     [

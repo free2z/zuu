@@ -39,9 +39,10 @@ jobs:
           fetch-depth: 0
 
       # This runs before change detection on every event. A workflow cannot
-      # replace its own judge with a mutable external action and then skip the
-      # full application suite as an allegedly unrelated change.
-      - name: Verify every external action has an immutable revision
+      # replace its own judge with a mutable external action, or mark a job the
+      # required gate awaits as best-effort, then skip the full application
+      # suite as an allegedly unrelated change.
+      - name: Verify immutable actions and fail-closed required jobs
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
           node scripts/check-github-actions-pins.mjs
@@ -604,57 +605,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Enforce the 32-bit Android result
-        env:
-          ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}
-          RUST_ANDROID_32_RESULT: ${{ needs.rust_android_32.result }}
-        run: |
-          set -euo pipefail
-          case "$ZUULI_CHANGED:$RUST_ANDROID_32_RESULT" in
-            true:success|false:skipped) ;;
-            *) echo "32-bit Android result is inconsistent: changed=$ZUULI_CHANGED result=$RUST_ANDROID_32_RESULT"; exit 1 ;;
-          esac
+      # Re-run the workflow policy here so even job-level continue-on-error on
+      # `changes` cannot turn that job's deliberately failing policy verdict
+      # into the `success` conclusion this gate consumes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Recheck immutable actions and fail-closed required jobs
+        id: policy
+        run: node scripts/check-github-actions-pins.mjs
 
       - name: Verify required jobs succeeded or legitimately skipped
         env:
-          CHANGES_RESULT: ${{ needs.changes.result }}
-          ZUULI_CHANGED: ${{ needs.changes.outputs.zuuli }}
-          ZUUALLET_SCHEMA_CHANGED: ${{ needs.changes.outputs.zuuallet_schema }}
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
-          RUST_FMT_RESULT: ${{ needs.rust_fmt.result }}
-          RUST_DENY_RESULT: ${{ needs.rust_deny.result }}
-          RUST_CLIPPY_RESULT: ${{ needs.rust_clippy.result }}
-          RUST_PLUGIN_RESULT: ${{ needs.rust_plugin.result }}
-          RUST_ANDROID_32_RESULT: ${{ needs.rust_android_32.result }}
-          RUST_APP_RESULT: ${{ needs.rust_app.result }}
-          ZUUALLET_SCHEMA_RESULT: ${{ needs.zuuallet_schema.result }}
+          POLICY_OUTCOME: ${{ steps.policy.outcome }}
+          REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}
         run: |
-          set -euo pipefail
-          [ "$CHANGES_RESULT" = "success" ] || {
-            echo "Change detection did not pass: $CHANGES_RESULT"; exit 1;
-          }
-
-          # Every job in `needs:` above must appear here as well; a job that is
-          # awaited but not inspected makes the gate decorative for that job.
-          results="$FRONTEND_RESULT $RUST_FMT_RESULT $RUST_DENY_RESULT $RUST_CLIPPY_RESULT $RUST_PLUGIN_RESULT $RUST_ANDROID_32_RESULT $RUST_APP_RESULT"
-          echo "ZUULI changed: $ZUULI_CHANGED; job results: $results"
-          case "$ZUULI_CHANGED" in
-            true) expected=success ;;
-            false) expected=skipped ;;
-            *) echo "Invalid or missing change-detector output: $ZUULI_CHANGED"; exit 1 ;;
-          esac
-
-          for result in $results; do
-            [ "$result" = "$expected" ] || {
-              echo "Expected every applicable job to be $expected, got: $result"; exit 1;
-            }
-          done
-          case "$ZUUALLET_SCHEMA_CHANGED" in
-            true) schema_expected=success ;;
-            false) schema_expected=skipped ;;
-            *) echo "Invalid or missing Zuuallet schema change output: $ZUUALLET_SCHEMA_CHANGED"; exit 1 ;;
-          esac
-          [ "$ZUUALLET_SCHEMA_RESULT" = "$schema_expected" ] || {
-            echo "Expected Zuuallet schema job to be $schema_expected, got: $ZUUALLET_SCHEMA_RESULT"; exit 1;
-          }
-          echo "The full-stack gate is internally consistent and passed."
+          node scripts/check-github-actions-pins.mjs
+          node scripts/check-github-actions-pins.mjs --verify-gate-results
