@@ -96,15 +96,18 @@ const packagingLocalInputs = [
   ".github/workflows/zuuli-testflight-recovery.yml",
 ];
 
-function job(contents, name, nextName) {
+function job(contents, name, sink = failures) {
   const startMarker = `\n  ${name}:\n`;
-  const endMarker = `\n  ${nextName}:\n`;
   const start = contents.indexOf(startMarker);
-  const end = contents.indexOf(endMarker, start + startMarker.length);
-  if (start < 0 || end < 0) {
-    failures.push(`workflow: cannot isolate ${name} job`);
+  if (start < 0) {
+    sink.push(`workflow: cannot isolate ${name} job`);
     return "";
   }
+  const tailStart = start + startMarker.length;
+  const next = /\n  [A-Za-z0-9_-]+:\n/g;
+  next.lastIndex = tailStart;
+  const following = next.exec(contents);
+  const end = following?.index ?? contents.length;
   return contents.slice(start, end);
 }
 
@@ -184,22 +187,85 @@ if (JSON.stringify(pullRequestPaths) !== JSON.stringify(pushPaths)) {
 
 for (const family of cacheFamilies) {
   requireCount("packaging effective cache family", packaging, `shared-key: ${family}`, 1);
-  requireCount("protected release effective cache family", release, `shared-key: ${family}`, 1);
 }
 
-requireCount("protected release cache callers", release, localAction, 4);
-requireCount("protected release restore-only callers", release, 'save: "false"', 4);
-rejectText("protected release", release, 'save: "true"');
-for (const writer of [
+const forbiddenReleaseCacheWriters = [
   "Swatinem/rust-cache@",
   "actions/cache@",
   "actions/cache/save@",
+  "cache: npm",
   "cache: gradle",
   "bundler-cache: true",
   "gh cache",
-]) {
-  rejectText("protected release direct cache writer", release, writer);
+];
+
+function releaseCachePolicyFailures(contents) {
+  const result = [];
+  const requireLocalCount = (label, source, value, expected) => {
+    const actual = count(source, value);
+    if (actual !== expected) result.push(`${label}: expected ${expected}, found ${actual}`);
+  };
+  const rejectLocalText = (label, source, value) => {
+    if (source.includes(value)) result.push(`${label}: contains ${value}`);
+  };
+
+  requireLocalCount("protected release cache callers", contents, localAction, 4);
+  requireLocalCount("protected release restore-only callers", contents, 'save: "false"', 4);
+  rejectLocalText("protected release", contents, 'save: "true"');
+  for (const writer of forbiddenReleaseCacheWriters.filter((value) => value !== "cache: npm")) {
+    rejectLocalText("protected release direct cache writer", contents, writer);
+  }
+  for (const family of cacheFamilies) {
+    requireLocalCount(
+      "protected release effective cache family",
+      contents,
+      `shared-key: ${family}`,
+      1,
+    );
+  }
+
+  requireLocalCount("protected release npm auto-cache", contents, "cache: npm", 1);
+  const prepareJob = job(contents, "prepare", result);
+  requireLocalCount("credential-free prepare npm auto-cache", prepareJob, "cache: npm", 1);
+
+  for (const name of ["android-build", "ios-build", "linux", "macos-build"]) {
+    const buildJob = job(contents, name, result);
+    requireLocalCount(`${name} cache caller`, buildJob, localAction, 1);
+    requireLocalCount(`${name} restore-only cache caller`, buildJob, 'save: "false"', 1);
+    for (const writer of forbiddenReleaseCacheWriters) {
+      rejectLocalText(`${name} credential-free build job`, buildJob, writer);
+    }
+  }
+
+  for (const name of [
+    "android-sign-upload",
+    "ios-sign",
+    "ios-upload",
+    "macos-sign",
+  ]) {
+    const credentialJob = job(contents, name, result);
+    rejectLocalText(`${name} credential-bearing job`, credentialJob, localAction);
+    for (const writer of forbiddenReleaseCacheWriters) {
+      rejectLocalText(`${name} credential-bearing job`, credentialJob, writer);
+    }
+  }
+
+  for (const name of [
+    "android-finalize",
+    "ios-verify",
+    "ios-finalize",
+    "macos-finalize",
+  ]) {
+    const finalizer = job(contents, name, result);
+    rejectLocalText(`${name} credential-free finalizer`, finalizer, localAction);
+    for (const writer of forbiddenReleaseCacheWriters) {
+      rejectLocalText(`${name} credential-free finalizer`, finalizer, writer);
+    }
+  }
+  return result;
 }
+
+failures.push(...releaseCachePolicyFailures(release));
 
 requireText("store audit protected environment", storeAudit, "environment: zuuli-app-stores");
 requireText(
@@ -221,50 +287,6 @@ for (const writer of [
   rejectText("store audit credential-bearing job", storeAudit, writer);
   rejectText("store publication gate", storePublish, writer);
 }
-requireCount("protected release npm auto-cache", release, "cache: npm", 1);
-const prepareJob = job(release, "prepare", "android");
-requireCount("credential-free prepare npm auto-cache", prepareJob, "cache: npm", 1);
-for (const [name, nextName] of [
-  ["android", "ios-build"],
-  ["ios-build", "ios-sign"],
-  ["linux", "macos-build"],
-  ["macos-build", "macos-sign"],
-]) {
-  const protectedJob = job(release, name, nextName);
-  requireCount(`${name} cache caller`, protectedJob, localAction, 1);
-  requireCount(`${name} restore-only cache caller`, protectedJob, 'save: "false"', 1);
-  for (const writer of [
-    "Swatinem/rust-cache@",
-    "actions/cache@",
-    "actions/cache/save@",
-    "cache: npm",
-    "cache: gradle",
-    "bundler-cache: true",
-    "gh cache",
-  ]) {
-    rejectText(`${name} protected job`, protectedJob, writer);
-  }
-}
-for (const [name, nextName] of [
-  ["ios-sign", "ios-verify"],
-  ["ios-upload", "ios-finalize"],
-  ["macos-sign", "macos-finalize"],
-]) {
-  const credentialJob = job(release, name, nextName);
-  rejectText(`${name} credential-bearing job`, credentialJob, localAction);
-  for (const writer of [
-    "Swatinem/rust-cache@",
-    "actions/cache@",
-    "actions/cache/save@",
-    "cache: npm",
-    "cache: gradle",
-    "bundler-cache: true",
-    "gh cache",
-  ]) {
-    rejectText(`${name} credential-bearing job`, credentialJob, writer);
-  }
-}
-
 requireText("cache cleanup trigger", cleanup, "pull_request_target:");
 requireText("cache cleanup trigger", cleanup, "types: [closed]");
 requireText("cache cleanup recovery", cleanup, "schedule:");
@@ -303,13 +325,111 @@ requireText(
   requiredGate,
   ".github/workflows/zuuli-store-publish.yml",
 );
-const frontendGate = job(requiredGate, "frontend", "rust_plugin");
+const frontendGate = job(requiredGate, "frontend");
 requireCount(
-  "required gate cache policy verification",
+  "required gate cache policy self-test",
   frontendGate,
-  "node scripts/verify-ci-cache-policy.mjs",
+  "node scripts/verify-ci-cache-policy.mjs --self-test",
   1,
 );
+requireCount(
+  "required gate live cache policy verification",
+  frontendGate,
+  "\n          node scripts/verify-ci-cache-policy.mjs\n",
+  1,
+);
+requireCount(
+  "packaging cache policy self-test",
+  packaging,
+  "node scripts/verify-ci-cache-policy.mjs --self-test",
+  1,
+);
+requireCount(
+  "packaging live cache policy verification",
+  packaging,
+  "\n          node scripts/verify-ci-cache-policy.mjs\n",
+  1,
+);
+
+function mutateReleaseJob(contents, name, mutate) {
+  const isolationFailures = [];
+  const block = job(contents, name, isolationFailures);
+  if (isolationFailures.length > 0) throw new Error(isolationFailures.join("; "));
+  const replacement = mutate(block);
+  if (replacement === block) throw new Error(`${name} mutation target was not found`);
+  return contents.replace(block, replacement);
+}
+
+function runSelfTest() {
+  const baseline = releaseCachePolicyFailures(release);
+  if (baseline.length > 0) {
+    throw new Error(`current release cache topology is not a valid mutation base: ${baseline.join("; ")}`);
+  }
+  const mutations = [
+    {
+      name: "renamed Android build cannot escape its restore-only contract",
+      needle: "cannot isolate android-build job",
+      source: release.replace("\n  android-build:\n", "\n  android-builder:\n"),
+    },
+    {
+      name: "Android build cannot drop its reviewed cache restore",
+      needle: "android-build cache caller: expected 1, found 0",
+      source: mutateReleaseJob(release, "android-build", (block) =>
+        block.replace("      - name: Restore reviewed Android Rust dependencies\n        uses: ./.github/actions/zuuli-rust-cache\n", "")),
+    },
+    {
+      name: "Android build cannot write a release cache",
+      needle: "android-build restore-only cache caller: expected 1, found 0",
+      source: mutateReleaseJob(release, "android-build", (block) =>
+        block.replace('          save: "false"', '          save: "true"')),
+    },
+    {
+      name: "protected Android signer cannot restore the local Rust cache",
+      needle: "android-sign-upload credential-bearing job: contains uses: ./.github/actions/zuuli-rust-cache",
+      source: mutateReleaseJob(release, "android-sign-upload", (block) =>
+        block.replace("    steps:\n", `    steps:\n      - ${localAction}\n`)),
+    },
+    {
+      name: "protected Android signer cannot introduce a direct cache",
+      needle: "android-sign-upload credential-bearing job: contains actions/cache@",
+      source: mutateReleaseJob(release, "android-sign-upload", (block) =>
+        block.replace("    steps:\n", "    steps:\n      - uses: actions/cache@deadbeef\n")),
+    },
+    {
+      name: "Android finalizer cannot introduce dependency auto-cache",
+      needle: "android-finalize credential-free finalizer: contains cache: npm",
+      source: mutateReleaseJob(release, "android-finalize", (block) =>
+        block.replace(
+          "    steps:\n",
+          "    steps:\n      - uses: actions/setup-node@deadbeef\n        with:\n          cache: npm\n",
+        )),
+    },
+    {
+      name: "renamed Android finalizer cannot escape its zero-cache contract",
+      needle: "cannot isolate android-finalize job",
+      source: release.replace("\n  android-finalize:\n", "\n  android-provenance:\n"),
+    },
+  ];
+  for (const mutation of mutations) {
+    if (mutation.source === release) throw new Error(`${mutation.name}: mutation did not apply`);
+    const mutationFailures = releaseCachePolicyFailures(mutation.source);
+    if (!mutationFailures.some((failure) => failure.includes(mutation.needle))) {
+      throw new Error(
+        `${mutation.name}: expected ${JSON.stringify(mutation.needle)}, got ${mutationFailures.join("; ")}`,
+      );
+    }
+    console.log(`self-test: ${mutation.name}: passed`);
+  }
+  console.log(`self-test: ${mutations.length} release cache topology mutation(s) passed.`);
+}
+
+if (process.argv.includes("--self-test")) {
+  if (failures.length > 0) {
+    throw new Error(`current cache policy does not pass before mutation tests: ${failures.join("; ")}`);
+  }
+  runSelfTest();
+  process.exit(0);
+}
 
 if (failures.length > 0) {
   console.error("ZUULI CI cache policy verification failed:");
