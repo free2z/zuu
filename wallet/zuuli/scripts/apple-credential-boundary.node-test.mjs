@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 
 import {
@@ -12,16 +13,39 @@ import {
   verifyAppleCredentialBoundary,
 } from "./apple-credential-boundary.mjs";
 
+const profileValidityMarkers = `
+          verify_developer_id_profile()
+          plutil -extract TeamIdentifier raw -expect array
+          plutil -extract TeamIdentifier.0 raw -expect string
+          plutil -extract ProvisionsAllDevices raw -expect bool
+          plutil -extract 'Entitlements.com\\.apple\\.application-identifier' raw -expect string
+          plutil -extract Entitlements.keychain-access-groups raw -expect array
+          plutil -extract "Entitlements.keychain-access-groups.\${group_index}" raw -expect string
+          [[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == 'F9AV5HKF6N.*' ]] || return 1
+          plutil -extract CreationDate raw -expect date
+          plutil -extract ExpirationDate raw -expect date
+          date -j -u -f "%Y-%m-%dT%H:%M:%SZ"
+          created_epoch <= profile_now && profile_now < expiration_epoch`;
+
+function removeLast(source, needle) {
+  const index = source.lastIndexOf(needle);
+  assert.notEqual(index, -1, `fixture is missing ${needle}`);
+  return source.slice(0, index) + source.slice(index + needle.length);
+}
+
 const buildJob = (name, command) => {
   const checksumMembers = name === "ios-build"
     ? "ZUULI.xcarchive.zip ExportOptions.plist source-record.json"
-    : "ZUULI.app.zip ZUULI-layout.dmg source-record.json";
+    : "Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json";
+  const macosPolicy = name === "macos-build"
+    ? "      - run: node scripts/macos-keychain-entitlements.mjs\n"
+    : "";
   return `  ${name}:
     steps:
       - uses: actions/checkout@sha
       - run: scripts/assert-no-apple-credentials.sh
       - run: npm ci
-      - run: |
+${macosPolicy}      - run: |
           ${command} --no-sign
           shasum -a 256 ${checksumMembers} > CHECKSUMS.sha256
       - run: scripts/assert-no-apple-credentials.sh
@@ -39,7 +63,11 @@ const credentialJob = (name, command, secret) => {
     : name === "ios-sign"
       ? "          EXPECTED_PAYLOAD_SHA256=fixture\n          test \"$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')\" = \"$EXPECTED_PAYLOAD_SHA256\"\n          (cd unsigned-ios && shasum -a 256 -c CHECKSUMS.sha256)\n          gh attestation verify unsigned-ios/CHECKSUMS.sha256 --repo repo"
       : name === "macos-sign"
-        ? "          EXPECTED_PAYLOAD_SHA256=fixture\n          test \"$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')\" = \"$EXPECTED_PAYLOAD_SHA256\"\n          (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)\n          gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo repo"
+        ? `          EXPECTED_PAYLOAD_SHA256=fixture
+          test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
+          (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)
+          gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo repo${profileValidityMarkers}
+          verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"`
         : "          echo verified";
   const cleanupMarkers = name === "ios-sign" || name === "macos-sign"
     ? name === "ios-sign"
@@ -72,7 +100,9 @@ ${cleanupMarkers}
 const finalizeJob = (name) => `  ${name}:
     steps:
       - uses: actions/download-artifact@sha
-      - uses: actions/attest-build-provenance@sha
+${name === "macos-finalize" ? `      - run: |${profileValidityMarkers}
+          verify_developer_id_profile "$inspect/profile.plist" "$profile_now"
+` : ""}      - uses: actions/attest-build-provenance@sha
       - uses: actions/upload-artifact@sha
 `;
 
@@ -106,7 +136,7 @@ ${finalizeJob("ios-verify")}
 ${credentialJob("ios-upload", "xcrun altool --upload-app", "ASC_KEY_BASE64")}
 ${finalizeJob("ios-finalize")}
 ${buildJob("macos-build", "tauri build")}
-${credentialJob("macos-sign", "codesign app && xcrun notarytool submit app")}
+${credentialJob("macos-sign", "codesign --entitlements unsigned-macos/Entitlements.plist app && echo signed-entitlements.plist embedded.provisionprofile APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 '\"keychain-access-groups\"[0]' && xcrun notarytool submit app")}
 ${finalizeJob("macos-finalize")}
   linux:
     container:
@@ -243,6 +273,152 @@ test("an explicit assertion guard aborts before credential work continues", () =
   assert.match(result.stderr, /assertion rejected/);
   assert.doesNotMatch(result.stdout, /REACHED/);
 });
+
+const protectedReleaseWorkflow = new URL(
+  "../../../.github/workflows/zuuli-release.yml",
+  import.meta.url,
+);
+const developerIdProfileFixture = new URL(
+  "./fixtures/developer-id-profile.plist",
+  import.meta.url,
+);
+
+function replaceFixture(source, needle, replacement) {
+  assert.ok(source.includes(needle), `profile fixture is missing ${needle}`);
+  return source.replace(needle, replacement);
+}
+
+function extractProfileVerifier(workflow, job) {
+  const document = parseDocument(workflow);
+  assert.deepEqual(document.errors, []);
+  const run = document.toJS().jobs[job].steps.find(
+    (step) => typeof step.run === "string" && step.run.includes("verify_developer_id_profile()"),
+  )?.run;
+  assert.equal(typeof run, "string", `${job} has no executable profile verifier`);
+  const start = run.indexOf("verify_developer_id_profile() {");
+  const end = run.indexOf("\n}\n", start);
+  assert.notEqual(start, -1, `${job} verifier function is missing`);
+  assert.notEqual(end, -1, `${job} verifier function is unterminated`);
+  return run.slice(start, end + 2);
+}
+
+function runProfileVerifier(verifier, profile, now) {
+  return spawnSync(
+    "/bin/bash",
+    ["-c", `set -euo pipefail\n${verifier}\nverify_developer_id_profile "$PROFILE_PATH" "$PROFILE_NOW"`],
+    {
+      encoding: "utf8",
+      env: { ...process.env, PROFILE_PATH: profile, PROFILE_NOW: String(now) },
+    },
+  );
+}
+
+test(
+  "both workflow trust boundaries execute typed Developer ID profile verification",
+  { skip: process.platform !== "darwin" },
+  async (context) => {
+    const workflow = await readFile(protectedReleaseWorkflow, "utf8");
+    const fixture = await readFile(developerIdProfileFixture, "utf8");
+    const jsonConversion = spawnSync(
+      "plutil",
+      ["-convert", "json", "-o", "-", fileURLToPath(developerIdProfileFixture)],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(
+      jsonConversion.status,
+      0,
+      "the real <date> fixture must retain the regression that JSON conversion cannot handle",
+    );
+
+    const temporary = await mkdtemp(join(tmpdir(), "zuuli-developer-id-profile-test."));
+    context.after(() => rm(temporary, { recursive: true, force: true }));
+    const now = Math.floor(Date.parse("2030-06-01T00:00:00Z") / 1000);
+    const mutations = [
+      [
+        "missing CreationDate",
+        replaceFixture(
+          fixture,
+          "\t<key>CreationDate</key>\n\t<date>2020-01-02T03:04:05Z</date>\n",
+          "",
+        ),
+      ],
+      [
+        "string-typed CreationDate",
+        replaceFixture(
+          fixture,
+          "<date>2020-01-02T03:04:05Z</date>",
+          "<string>2020-01-02T03:04:05Z</string>",
+        ),
+      ],
+      [
+        "missing ExpirationDate",
+        replaceFixture(
+          fixture,
+          "\t<key>ExpirationDate</key>\n\t<date>2099-12-30T23:59:58Z</date>\n",
+          "",
+        ),
+      ],
+      ["future CreationDate", replaceFixture(fixture, "2020-01-02T03:04:05Z", "2040-01-02T03:04:05Z")],
+      ["expired ExpirationDate", replaceFixture(fixture, "2099-12-30T23:59:58Z", "2025-12-30T23:59:58Z")],
+      ["altered team identifier", replaceFixture(fixture, "F9AV5HKF6N</string>", "ATTACKTEAM</string>")],
+      [
+        "non-array team identifier",
+        replaceFixture(
+          fixture,
+          "\t<array>\n\t\t<string>F9AV5HKF6N</string>\n\t</array>\n\t<key>ProvisionsAllDevices</key>",
+          "\t<string>F9AV5HKF6N</string>\n\t<key>ProvisionsAllDevices</key>",
+        ),
+      ],
+      ["disabled all-device distribution", replaceFixture(fixture, "\t<true/>\n", "\t<false/>\n")],
+      [
+        "altered application identifier",
+        replaceFixture(
+          fixture,
+          "F9AV5HKF6N.cash.free2z.zuuli</string>",
+          "F9AV5HKF6N.cash.attacker.app</string>",
+        ),
+      ],
+      [
+        "unauthorized keychain access group",
+        replaceFixture(
+          fixture,
+          "\t\t\t<string>F9AV5HKF6N.*</string>",
+          "\t\t\t<string>ATTACKTEAM.shared-secrets</string>",
+        ),
+      ],
+      [
+        "same-team unrelated keychain access group only",
+        replaceFixture(
+          fixture,
+          "\t\t<array>\n\t\t\t<string>F9AV5HKF6N.cash.free2z.zuuli</string>\n\t\t\t<string>F9AV5HKF6N.*</string>\n\t\t</array>",
+          "\t\t<array>\n\t\t\t<string>F9AV5HKF6N.cash.unrelated</string>\n\t\t</array>",
+        ),
+      ],
+      [
+        "non-array keychain access groups",
+        replaceFixture(
+          fixture,
+          "\t\t<array>\n\t\t\t<string>F9AV5HKF6N.cash.free2z.zuuli</string>\n\t\t\t<string>F9AV5HKF6N.*</string>\n\t\t</array>",
+          "\t\t<string>F9AV5HKF6N.cash.free2z.zuuli</string>",
+        ),
+      ],
+    ];
+
+    for (const job of ["macos-sign", "macos-finalize"]) {
+      const verifier = extractProfileVerifier(workflow, job);
+      const validProfile = join(temporary, `${job}-valid.plist`);
+      await writeFile(validProfile, fixture);
+      const valid = runProfileVerifier(verifier, validProfile, now);
+      assert.equal(valid.status, 0, `${job} rejected a valid typed profile: ${valid.stderr}`);
+      for (const [label, mutation] of mutations) {
+        const profile = join(temporary, `${job}-${label.replaceAll(" ", "-")}.plist`);
+        await writeFile(profile, mutation);
+        const result = runProfileVerifier(verifier, profile, now);
+        assert.notEqual(result.status, 0, `${job} accepted ${label}`);
+      }
+    }
+  },
+);
 
 test("rejects the actionlint-valid two-file reusable-workflow escape", () => {
   const caller = validWorkflow.replace(
@@ -530,8 +706,72 @@ for (const [name, mutate, expected] of [
   ],
   [
     "rejects an unsigned macOS manifest that omits the shipping layout",
-    (source) => source.replace("ZUULI.app.zip ZUULI-layout.dmg source-record.json", "ZUULI.app.zip source-record.json"),
-    "macOS unsigned builder is missing \"ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
+    (source) => source.replace("Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json", "Entitlements.plist ZUULI.app.zip source-record.json"),
+    "macOS unsigned builder is missing \"Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
+  ],
+  [
+    "rejects a macOS build that skips the entitlement policy",
+    (source) => source.replace("      - run: node scripts/macos-keychain-entitlements.mjs\n", ""),
+    "macOS unsigned builder is missing \"node scripts/macos-keychain-entitlements.mjs\"",
+  ],
+  [
+    "rejects a macOS signer that omits reviewed entitlements",
+    (source) => source.replace("--entitlements unsigned-macos/Entitlements.plist ", ""),
+    "macOS signer is missing \"--entitlements unsigned-macos/Entitlements.plist\"",
+  ],
+  [
+    "rejects a macOS signer that omits its authorizing profile",
+    (source) => source.replace("embedded.provisionprofile ", ""),
+    "macOS signer is missing \"embedded.provisionprofile\"",
+  ],
+  [
+    "rejects a macOS signer without typed profile CreationDate extraction",
+    (source) => source.replace("plutil -extract CreationDate raw -expect date", "plutil -extract CreationDate raw"),
+    'macOS signer is missing "plutil -extract CreationDate raw -expect date"',
+  ],
+  [
+    "rejects a macOS signer without typed profile ExpirationDate extraction",
+    (source) => source.replace("plutil -extract ExpirationDate raw -expect date", "plutil -extract ExpirationDate raw"),
+    'macOS signer is missing "plutil -extract ExpirationDate raw -expect date"',
+  ],
+  [
+    "rejects a macOS signer that permits future-created profiles",
+    (source) => source.replace(
+      "created_epoch <= profile_now && profile_now < expiration_epoch",
+      "profile_now < expiration_epoch",
+    ),
+    'macOS signer is missing "created_epoch <= profile_now && profile_now < expiration_epoch"',
+  ],
+  [
+    "rejects a macOS signer without literal keychain-group authorization",
+    (source) => source.replace(
+      '[[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == \'F9AV5HKF6N.*\' ]]',
+      'case "$group" in F9AV5HKF6N.*) true;; esac',
+    ),
+    'macOS signer is missing "[[ \\"$group\\" == F9AV5HKF6N.cash.free2z.zuuli || \\"$group\\" == \'F9AV5HKF6N.*\' ]]"',
+  ],
+  [
+    "rejects a macOS finalizer without typed team-array extraction",
+    (source) => removeLast(source, "plutil -extract TeamIdentifier raw -expect array"),
+    'macOS finalizer is missing "plutil -extract TeamIdentifier raw -expect array"',
+  ],
+  [
+    "rejects a macOS finalizer without typed keychain-group extraction",
+    (source) => removeLast(source, "plutil -extract Entitlements.keychain-access-groups raw -expect array"),
+    'macOS finalizer is missing "plutil -extract Entitlements.keychain-access-groups raw -expect array"',
+  ],
+  [
+    "rejects a macOS finalizer that permits expired profiles",
+    (source) => removeLast(source, "created_epoch <= profile_now && profile_now < expiration_epoch"),
+    'macOS finalizer is missing "created_epoch <= profile_now && profile_now < expiration_epoch"',
+  ],
+  [
+    "rejects a macOS finalizer without literal keychain-group authorization",
+    (source) => removeLast(
+      source,
+      '[[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == \'F9AV5HKF6N.*\' ]]',
+    ),
+    'macOS finalizer is missing "[[ \\"$group\\" == F9AV5HKF6N.cash.free2z.zuuli || \\"$group\\" == \'F9AV5HKF6N.*\' ]]"',
   ],
   [
     "rejects an iOS signer that does not bind the attested checksum manifest",
