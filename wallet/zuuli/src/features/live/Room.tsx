@@ -41,7 +41,12 @@ import { useSession } from "@/store/session";
 import { formatTuzis, timeAgo, initials, truncateAddress } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { coverTone } from "@/lib/cover";
-import { parsePrivateInviteHash, privateInviteUrl } from "@/lib/private-live";
+import {
+  parsePrivateInviteHash,
+  privateInviteDisplayUrl,
+} from "@/lib/private-live";
+import { API_BASE } from "@/lib/env";
+import { isTauri } from "@/lib/platform";
 import { KIND_META } from "./lib";
 import {
   enterSubscriberStream,
@@ -106,6 +111,8 @@ export function Room() {
     const found = (data?.streams ?? []).find((s) => s.username === username);
     if (found) return found;
     if (justStarted || data?.inviteTicket) {
+      const currentUserIsCreator =
+        user?.username.toLowerCase() === username.toLowerCase();
       const resolved = justStarted ?? {
         ticket: data!.inviteTicket!,
         kind: "private" as const,
@@ -118,8 +125,10 @@ export function Room() {
         creator: {
           username,
           free2zaddr: username,
-          display_name: user?.display_name ?? username,
-          image: user?.image ?? null,
+          display_name: currentUserIsCreator
+            ? (user?.display_name ?? username)
+            : username,
+          image: currentUserIsCreator ? (user?.image ?? null) : null,
         },
         title: resolved.title,
         kind: resolved.kind,
@@ -1040,7 +1049,13 @@ function HostControls({
   const inviteInput = useRef<HTMLInputElement>(null);
   const inviteUrl =
     inviteSecret && typeof window !== "undefined"
-      ? privateInviteUrl(window.location.origin, stream.username, inviteSecret)
+      ? privateInviteDisplayUrl({
+          appOrigin: window.location.origin,
+          publicWebBase: API_BASE,
+          native: isTauri(),
+          username: stream.username,
+          secret: inviteSecret,
+        })
       : null;
 
   async function copyInvite() {

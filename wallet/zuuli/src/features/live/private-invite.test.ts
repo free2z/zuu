@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizePrivateSecret,
   parsePrivateInviteHash,
+  privateInviteDisplayUrl,
   privateInviteHash,
   privateInvitePath,
   privateInviteUrl,
@@ -19,6 +20,39 @@ describe("private livestream invite", () => {
     expect(url).toBe(`https://app.example/live/alice#private=${secret}`);
     expect(new URL(url).pathname).not.toContain(secret);
     expect(new URL(url).search).not.toContain(secret);
+    expect(
+      privateInviteDisplayUrl({
+        appOrigin: "https://app.example/base",
+        publicWebBase: "",
+        native: false,
+        username: "alice",
+        secret,
+      }),
+    ).toBe(url);
+  });
+
+  it("never shares a packaged native origin and uses the proven public route", () => {
+    for (const appOrigin of ["tauri://localhost", "http://tauri.localhost"]) {
+      const url = privateInviteDisplayUrl({
+        appOrigin,
+        publicWebBase: "https://free2z.cash/api?stale=1#stale",
+        native: true,
+        username: "alice/example",
+        secret,
+      });
+      expect(url).toBe(`https://free2z.cash/alice%2Fexample/private/${secret}`);
+      expect(url).not.toContain("localhost");
+    }
+
+    expect(
+      privateInviteDisplayUrl({
+        appOrigin: "tauri://localhost",
+        publicWebBase: "http://tauri.localhost",
+        native: true,
+        username: "alice",
+        secret,
+      }),
+    ).toBeNull();
   });
 
   it("accepts one canonical UUID and rejects decorated or malformed input", () => {

@@ -34,3 +34,52 @@ export function privateInviteUrl(
   const url = new URL(privateInvitePath(username, secret), origin);
   return url.toString();
 }
+
+/**
+ * Choose a shareable invite for the current runtime.
+ *
+ * Browser builds keep the capability in a fragment so it is not sent in the
+ * initial HTTP request. Packaged Tauri origins are internal-only, so native
+ * builds use free2z's existing public `/{username}/private/{secret}` route.
+ * There is no native live-link registration to pretend otherwise.
+ */
+export function privateInviteDisplayUrl({
+  appOrigin,
+  publicWebBase,
+  native,
+  username,
+  secret,
+}: {
+  appOrigin: string;
+  publicWebBase: string;
+  native: boolean;
+  username: string;
+  secret: string;
+}): string | null {
+  if (!native) return privateInviteUrl(appOrigin, username, secret);
+
+  const normalized = normalizePrivateSecret(secret);
+  if (!normalized) throw new Error("Private room secret is invalid");
+  try {
+    const url = new URL(publicWebBase);
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !hostname ||
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]"
+    ) {
+      return null;
+    }
+    url.pathname = `/${encodeURIComponent(username)}/private/${encodeURIComponent(normalized)}`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}

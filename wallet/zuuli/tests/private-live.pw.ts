@@ -75,3 +75,17 @@ test("cold guest invite joins without discovery and wrong secrets disclose nothi
   await expect(page.getByText("Private call")).toHaveCount(0);
   await expect(page.getByText("Demo Creator")).toHaveCount(0);
 });
+
+test("an authenticated non-owner remains a guest and never becomes the room creator", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto(`/live/alice#private=${secret}`);
+
+  await expect(page.getByText("Role")).toBeVisible();
+  await expect(page.getByText("participant", { exact: true })).toBeVisible();
+  await expect(page.getByText("alice", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^@alice · started /)).toBeVisible();
+  await expect(page.getByText("Demo Creator", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/You're hosting as/)).toHaveCount(0);
+});
