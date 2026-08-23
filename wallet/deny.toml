@@ -63,12 +63,6 @@ ignore = [
   { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7: wildcard name constraints incorrectly accepted; fix series starts at 0.103.12, no fix exists on the 0.101 line. Requires moving the last rustls 0.21 consumer to 0.23" },
   { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7: reachable panic parsing a CRL; fix series starts at 0.103.13, no fix exists on the 0.101 line. We do not parse CRLs" },
 
-  # quick-xml 0.38.4, via the Tauri bundler chain, in the plugin and zuuallet
-  # lockfiles only; zuuli/src-tauri is already on 0.41.0. Build-time XML only, so
-  # nothing here reaches a shipped binary.
-  { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4 in the plugin and zuuallet lockfiles: quadratic duplicate-attribute scan; fixed in 0.41.0, a semver-major bump owned by the Tauri bundler chain. Build-time XML only; already clear in zuuli" },
-  { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38.4 in the plugin and zuuallet lockfiles: unbounded namespace allocation; fixed in 0.41.0, same semver-major bump. Build-time XML only; already clear in zuuli" },
-
   # ---------------------------------------------------------------------------
   # Unmaintained. None of these has a fixed version to move to — the advisory is
   # that the crate is no longer developed. Clearing them means the *dependent*
