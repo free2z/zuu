@@ -191,9 +191,9 @@ if [[ $mode == fix ]]; then
 fi
 
 if [[ ${#failed[@]} -gt 0 ]]; then
-  printf '\n%d crate(s) have clippy warnings: %s\n' "${#failed[@]}" "${failed[*]}" >&2
-  printf 'Fix the code, or add a narrow #[allow(clippy::lint)] with a comment saying why.\n' >&2
-  printf 'Do not blanket-allow at crate level, and do not raise the bar for the next reader.\n' >&2
+  printf '\n%d crate(s) failed the clippy gate: %s\n' "${#failed[@]}" "${failed[*]}" >&2
+  printf 'Inspect the Cargo error above: this may be a lint, compile error, or missing target-native build prerequisite.\n' >&2
+  printf 'For a real lint, fix the code or add only a narrow, justified #[allow(clippy::lint)].\n' >&2
   exit 1
 fi
 
