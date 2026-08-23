@@ -201,6 +201,7 @@ const mobileRelease = read("scripts/mobile-release.sh");
 const ascTestFlight = read("scripts/asc-testflight.mjs");
 const gateWorkflow = read("../../.github/workflows/zuuli.yml");
 const releaseWorkflow = read("../../.github/workflows/zuuli-release.yml");
+const githubReleasePublisher = read("scripts/publish-github-release.sh");
 const testFlightRecoveryWorkflow = read(
   "../../.github/workflows/zuuli-testflight-recovery.yml",
 );
@@ -690,6 +691,24 @@ for (const publishContract of [
   if (!storePublishWorkflow.includes(publishContract))
     failures.push(`store publication gate is missing: ${publishContract}`);
 }
+for (const releaseTagContract of [
+  'RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}',
+  'Verify release-index source binding',
+  'scripts/publish-github-release.sh "$RELEASE_TAG" "$RELEASE_IDENTITY" "$RELEASE_SOURCE_SHA" release-downloads',
+]) {
+  if (!releaseWorkflow.includes(releaseTagContract))
+    failures.push(`release tag identity contract is missing: ${releaseTagContract}`);
+}
+for (const releasePublishContract of [
+  'verify-release-tag.sh" "$tag" "$expected_commit"',
+  'release-tag-identity.json',
+  'reverify_tag_identity',
+]) {
+  if (!githubReleasePublisher.includes(releasePublishContract))
+    failures.push(`GitHub release publication identity contract is missing: ${releasePublishContract}`);
+}
+if (/gh release edit[^\n]*(?:--draft(?:=|\s+)false|--draft=false)/.test(githubReleasePublisher))
+  failures.push("GitHub release publication must not make a draft public without a final tag identity gate");
 for (const forbiddenPublishContract of ["ASC_KEY_BASE64", "PLAY_SERVICE_ACCOUNT_JSON_BASE64", "fastlane deliver", "fastlane supply"])
   if (storePublishWorkflow.includes(forbiddenPublishContract))
     failures.push(`Phase A store publication gate must not materialize credentials or invoke a writer: ${forbiddenPublishContract}`);
