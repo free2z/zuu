@@ -8,10 +8,15 @@
 # request when one of them stops matching, instead of letting a half-finished
 # bump surface in a protected release build.
 #
+# The same file also owns the browser compilation target. The required ZUULI
+# frontend job restates it because an action input cannot read TOML; this check
+# rejects drift between those two declarations.
+#
 # Usage:
 #   scripts/check-rust-toolchain.sh                  verify every pin agrees
 #   scripts/check-rust-toolchain.sh --print-channel  print the pinned channel (X.Y.Z)
 #   scripts/check-rust-toolchain.sh --print-msrv     print the MSRV floor (X.Y)
+#   scripts/check-rust-toolchain.sh --print-targets  print the canonical WASM target
 #   scripts/check-rust-toolchain.sh --self-test      prove the check still fails on drift
 
 set -euo pipefail
@@ -25,6 +30,7 @@ TOOLCHAIN_FILE=wallet/rust-toolchain.toml
 # three-component channel (1.88.0) — Cargo's `rust-version` is a floor, not an
 # exact toolchain, so the forms are deliberately different and compared as such.
 MANIFESTS=(
+  wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
@@ -63,8 +69,11 @@ DOC_PINS=(
 # is therefore rejected rather than quietly trusted.
 ACCEPTED_EXPRESSIONS=(
   'env.ZUULI_RUST_VERSION'
+  'steps.frontend_rust_toolchain.outputs.version'
   'steps.rust_toolchain.outputs.version'
 )
+
+WASM_TARGET=wasm32-unknown-unknown
 
 # These are implementation identities, not alternate version decisions. The
 # generic branch commit accepts the source-derived `toolchain:` input; the
@@ -116,6 +125,16 @@ read_channel() {
     return 1
   fi
   printf '%s\n' "$channel"
+}
+
+read_targets() {
+  local root=$1 line
+  line=$(grep -E '^[[:space:]]*targets[[:space:]]*=' "$root/$TOOLCHAIN_FILE" || true)
+  if [[ $line != "targets = [\"$WASM_TARGET\"]" ]]; then
+    printf '%s must declare exactly targets = ["%s"].\n' "$TOOLCHAIN_FILE" "$WASM_TARGET" >&2
+    return 1
+  fi
+  printf '%s\n' "$WASM_TARGET"
 }
 
 # Print `line-number<TAB>value` for toolchain inputs that are structurally
@@ -374,6 +393,18 @@ check_docs() {
   done
 }
 
+check_wasm_target() {
+  local root=$1 target count
+  target=$(read_targets "$root") || {
+    fail "$TOOLCHAIN_FILE does not carry the canonical WASM target"
+    return
+  }
+  count=$(grep -cE "^[[:space:]]*targets:[[:space:]]*$target[[:space:]]*$" \
+    "$root/.github/workflows/zuuli.yml" || true)
+  [[ $count == 1 ]] ||
+    fail ".github/workflows/zuuli.yml must restate targets: $target exactly once for the frontend compiler; found $count"
+}
+
 run_checks() {
   local root=$1 channel msrv
 
@@ -384,6 +415,7 @@ run_checks() {
   check_workflows "$root" "$channel"
   check_manifests "$root" "$channel" "$msrv"
   check_docs "$root" "$channel" "$msrv"
+  check_wasm_target "$root"
 
   if (( errors > 0 )); then
     printf '%d pin(s) disagree with %s (channel %s, MSRV %s).\n' \
@@ -414,6 +446,8 @@ SELF_TEST_MUTATIONS=(
   $'a crate manifest MSRV drifts\twallet/zuuli/src-tauri/Cargo.toml\ts|rust-version = "%MSRV%"|rust-version = "%BOGUS_MSRV%"|'
   $'documentation still names the old version\twallet/plugins/tauri-plugin-zcash/README.md\ts|MSRV\\*\\*: %MSRV%|MSRV**: %BOGUS_MSRV%|'
   $'only the source of truth is bumped and nothing follows\twallet/rust-toolchain.toml\ts|channel = "%CHANNEL%"|channel = "%BOGUS%"|'
+  $'the canonical WASM target disappears from the source of truth\twallet/rust-toolchain.toml\ts|targets = \["wasm32-unknown-unknown"\]|targets = ["wasm32-wasip1"]|'
+  $'the frontend compiler target drifts from the source of truth\t.github/workflows/zuuli.yml\ts|targets: wasm32-unknown-unknown|targets: wasm32-wasip1|'
 )
 
 staged_paths() {
@@ -530,6 +564,9 @@ main() {
       local channel
       channel=$(read_channel "$REPO_ROOT")
       printf '%s\n' "${channel%.*}"
+      ;;
+    --print-targets)
+      read_targets "$REPO_ROOT"
       ;;
     --self-test)
       self_test
