@@ -7,6 +7,11 @@ import { fileURLToPath } from "node:url";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const EXTERNAL_USES = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
+const GATE_CHECKOUT_REFERENCE =
+  "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
+const GATE_VERDICT_COMMAND =
+  "node scripts/check-github-actions-pins.mjs --verify-gate-results";
 
 // Required-gate policy deliberately accepts a small, canonical YAML subset.
 // Alternate keys, inline job maps, aliases, and decorators fail closed instead
@@ -292,49 +297,176 @@ function parseGateNeeds(lines, needsIndex, needsIndent) {
   return { values };
 }
 
-function gateResultInputs(lines, gateStart, gateEnd) {
-  const resultInputs = new Map();
-  const runBlocks = [];
-
-  for (let index = gateStart + 1; index < gateEnd; index += 1) {
+function blockScalarCommands(lines, property, end) {
+  if (property.value && !/^[|>][+-]?[1-9]?$/.test(property.value)) {
+    return [property.value];
+  }
+  const commands = [];
+  for (let index = property.index + 1; index < end; index += 1) {
     const line = workflowLine(lines[index]);
-    if (!line || line.error) continue;
-    const entry = mappingEntry(line.text, "gate property");
-    if (entry.error) continue;
+    if (!line) continue;
+    if (line.error || line.indent <= property.indent) break;
+    if (!line.text.trimStart().startsWith("#")) commands.push(line.text.trim());
+  }
+  return commands;
+}
 
-    if (entry.key === "env" && !entry.value) {
-      const envIndent = line.indent;
-      for (let childIndex = index + 1; childIndex < gateEnd; childIndex += 1) {
-        const child = workflowLine(lines[childIndex]);
-        if (!child) continue;
-        if (child.error || child.indent <= envIndent) break;
-        const envEntry = mappingEntry(child.text, "gate environment");
-        if (envEntry.error) continue;
-        const expression = envEntry.value.match(
-          /^\$\{\{\s*needs\.([A-Za-z_][A-Za-z0-9_-]*)\.result\s*\}\}$/,
-        );
-        if (!expression) continue;
-        if (!resultInputs.has(expression[1])) resultInputs.set(expression[1], new Set());
-        resultInputs.get(expression[1]).add(envEntry.key);
-      }
+function gateSteps(relativeFile, lines, gate, failures) {
+  const stepsProperty = gate.properties.get("steps");
+  if (!stepsProperty || stepsProperty.value) {
+    failures.push(
+      `${relativeFile}:${gate.start + 1}: gate steps must use a block sequence`,
+    );
+    return [];
+  }
+
+  const steps = [];
+  for (let index = stepsProperty.index + 1; index < gate.end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line || line.error || line.indent !== 6) continue;
+    if (!line.text.startsWith("- ")) {
+      failures.push(
+        `${relativeFile}:${index + 1}: gate steps must use canonical block-sequence entries`,
+      );
+      continue;
     }
+    const entry = mappingEntry(line.text.slice(2), "gate step");
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+      continue;
+    }
+    const step = { start: index, properties: new Map() };
+    step.properties.set(entry.key, {
+      index,
+      indent: 6,
+      value: entry.value,
+    });
+    steps.push(step);
+  }
 
-    if (entry.key === "run") {
-      const block = [];
-      if (entry.value && !/^[|>][+-]?[1-9]?$/.test(entry.value)) {
-        block.push(entry.value);
-      } else {
-        for (let childIndex = index + 1; childIndex < gateEnd; childIndex += 1) {
-          const child = workflowLine(lines[childIndex]);
-          if (!child) continue;
-          if (child.error || child.indent <= line.indent) break;
-          if (!child.text.trimStart().startsWith("#")) block.push(child.text);
-        }
+  for (const [position, step] of steps.entries()) {
+    step.end = steps[position + 1]?.start ?? gate.end;
+    for (let index = step.start + 1; index < step.end; index += 1) {
+      const line = workflowLine(lines[index]);
+      if (!line || line.error || line.indent !== 8) continue;
+      const entry = mappingEntry(line.text, "gate step property");
+      if (entry.error) {
+        failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+        continue;
       }
-      runBlocks.push(block.join("\n"));
+      if (step.properties.has(entry.key)) {
+        failures.push(
+          `${relativeFile}:${index + 1}: duplicate ${entry.key} property on gate step`,
+        );
+        continue;
+      }
+      step.properties.set(entry.key, {
+        index,
+        indent: 8,
+        value: entry.value,
+      });
     }
   }
-  return { resultInputs, runText: runBlocks.join("\n") };
+  return steps;
+}
+
+function stepEnvironment(relativeFile, lines, step, failures) {
+  const environment = new Map();
+  const property = step.properties.get("env");
+  if (!property || property.value) return environment;
+
+  for (let index = property.index + 1; index < step.end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error || line.indent <= property.indent) break;
+    if (line.indent !== 10) {
+      failures.push(
+        `${relativeFile}:${index + 1}: gate verdict environment must use canonical indentation`,
+      );
+      continue;
+    }
+    const entry = mappingEntry(line.text, "gate verdict environment");
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+      continue;
+    }
+    if (environment.has(entry.key)) {
+      failures.push(
+        `${relativeFile}:${index + 1}: duplicate gate verdict environment key ${entry.key}`,
+      );
+    } else {
+      environment.set(entry.key, entry.value);
+    }
+  }
+  return environment;
+}
+
+function hasExactKeys(map, keys) {
+  return (
+    map.size === keys.length &&
+    keys.every((key) => map.has(key))
+  );
+}
+
+function requiredGateControlFailures(relativeFile, lines, gate) {
+  const failures = [];
+  const steps = gateSteps(relativeFile, lines, gate, failures);
+  if (steps.length !== 3) {
+    failures.push(
+      `${relativeFile}:${gate.start + 1}: gate must contain exactly checkout, policy recheck, and enforcing verdict steps`,
+    );
+    return failures;
+  }
+
+  const [checkout, policy, verdict] = steps;
+  if (
+    !hasExactKeys(checkout.properties, ["uses"]) ||
+    checkout.properties.get("uses")?.value !== GATE_CHECKOUT_REFERENCE
+  ) {
+    failures.push(
+      `${relativeFile}:${checkout.start + 1}: gate checkout must be exact, current-source, and unconditional`,
+    );
+  }
+
+  if (
+    !hasExactKeys(policy.properties, ["name", "id", "run"]) ||
+    policy.properties.get("name")?.value !==
+      "Recheck immutable actions and fail-closed required jobs" ||
+    policy.properties.get("id")?.value !== "policy" ||
+    policy.properties.get("run")?.value !== GATE_POLICY_COMMAND
+  ) {
+    failures.push(
+      `${relativeFile}:${policy.start + 1}: gate policy recheck must be exact, unconditional, and non-soft-failing`,
+    );
+  }
+
+  const verdictEnvironment = stepEnvironment(
+    relativeFile,
+    lines,
+    verdict,
+    failures,
+  );
+  const verdictCommands = blockScalarCommands(
+    lines,
+    verdict.properties.get("run") ?? { index: verdict.start, indent: 8, value: "" },
+    verdict.end,
+  );
+  if (
+    !hasExactKeys(verdict.properties, ["name", "env", "run"]) ||
+    verdict.properties.get("name")?.value !==
+      "Verify required jobs succeeded or legitimately skipped" ||
+    !hasExactKeys(verdictEnvironment, ["POLICY_OUTCOME", "REQUIRED_JOBS_JSON"]) ||
+    verdictEnvironment.get("POLICY_OUTCOME") !== "${{ steps.policy.outcome }}" ||
+    verdictEnvironment.get("REQUIRED_JOBS_JSON") !== "${{ toJSON(needs) }}" ||
+    verdictCommands.length !== 2 ||
+    verdictCommands[0] !== GATE_POLICY_COMMAND ||
+    verdictCommands[1] !== GATE_VERDICT_COMMAND
+  ) {
+    failures.push(
+      `${relativeFile}:${verdict.start + 1}: gate verdict must unconditionally recheck policy and enforce the complete needs context`,
+    );
+  }
+  return failures;
 }
 
 function gatePolicyFailures(relativeFile, lines) {
@@ -486,30 +618,73 @@ function gatePolicyFailures(relativeFile, lines) {
     }
   }
 
-  const inspection = gateResultInputs(lines, gate.start, gate.end);
-  for (const dependency of parsedNeeds.values) {
-    const variables = inspection.resultInputs.get(dependency);
-    if (!variables?.size) {
-      failures.push(
-        `${relativeFile}:${gate.start + 1}: gate dependency ${dependency} must expose ` +
-          `needs.${dependency}.result through a gate-step environment variable`,
-      );
-      continue;
-    }
-    const consumed = [...variables].some((variable) => {
-      const escaped = variable.replaceAll(/[$()*+.?[\]^{|}]/g, "\\$&");
-      return new RegExp(`\\$(?:\\{${escaped}\\}|${escaped}(?![A-Za-z0-9_]))`).test(
-        inspection.runText,
-      );
-    });
-    if (!consumed) {
-      failures.push(
-        `${relativeFile}:${gate.start + 1}: gate result for ${dependency} is not consumed by a gate run step`,
-      );
-    }
+  if (gate.properties.get("if")?.value !== "always()") {
+    failures.push(
+      `${relativeFile}:${gate.start + 1}: required gate must run with if: always()`,
+    );
   }
+  failures.push(...requiredGateControlFailures(relativeFile, lines, gate));
 
   return failures;
+}
+
+function selectorResult(value, name) {
+  if (value === "true") return "success";
+  if (value === "false") return "skipped";
+  throw new Error(`invalid or missing ${name} change-detector output: ${value}`);
+}
+
+function verifyGateResults(policyOutcome, serializedNeeds) {
+  if (policyOutcome !== "success") {
+    throw new Error(`gate-local policy recheck did not pass: ${policyOutcome || "missing"}`);
+  }
+
+  let needs;
+  try {
+    needs = JSON.parse(serializedNeeds);
+  } catch {
+    throw new Error("required jobs context is not valid JSON");
+  }
+  if (!needs || typeof needs !== "object" || Array.isArray(needs)) {
+    throw new Error("required jobs context must be a JSON object");
+  }
+  const entries = Object.entries(needs);
+  if (!entries.length || !needs.changes) {
+    throw new Error("required jobs context must include changes");
+  }
+
+  const changes = needs.changes;
+  if (changes.result !== "success") {
+    throw new Error(`change detection did not pass: ${changes.result || "missing"}`);
+  }
+  if (!changes.outputs || typeof changes.outputs !== "object") {
+    throw new Error("change detection outputs are missing");
+  }
+  const zuuliExpected = selectorResult(changes.outputs.zuuli, "ZUULI");
+  const schemaExpected = selectorResult(
+    changes.outputs.zuuallet_schema,
+    "Zuuallet schema",
+  );
+
+  const verdicts = [];
+  for (const [job, state] of entries) {
+    if (!state || typeof state !== "object" || typeof state.result !== "string") {
+      throw new Error(`required job ${job} has no result`);
+    }
+    const expected =
+      job === "changes"
+        ? "success"
+        : job === "zuuallet_schema"
+          ? schemaExpected
+          : zuuliExpected;
+    if (state.result !== expected) {
+      throw new Error(
+        `required job ${job} must be ${expected}, got ${state.result}`,
+      );
+    }
+    verdicts.push(`${job}=${state.result}`);
+  }
+  return verdicts;
 }
 
 function localTarget(repoRoot, reference) {
@@ -607,11 +782,130 @@ function writeFixture(root, relative, contents) {
   fs.writeFileSync(destination, contents);
 }
 
-function runSelfTest() {
+function runCurrentWorkflowMutationTests(repoRoot) {
+  const relative = path.join(".github", "workflows", "zuuli.yml");
+  const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
+  const baseline = gatePolicyFailures(relative, source.split(/\r?\n/));
+  if (baseline.length) {
+    throw new Error(`current required workflow is not a valid mutation base: ${baseline.join("; ")}`);
+  }
+  const replaceLast = (value, target, replacement) => {
+    const index = value.lastIndexOf(target);
+    if (index < 0) return value;
+    return value.slice(0, index) + replacement + value.slice(index + target.length);
+  };
+
+  const checkoutLine =
+    `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n`;
+  const policyName =
+    "      - name: Recheck immutable actions and fail-closed required jobs";
+  const policyBlock = [
+    policyName,
+    "        id: policy",
+    `        run: ${GATE_POLICY_COMMAND}`,
+    "",
+  ].join("\n");
+  const verdictName =
+    "      - name: Verify required jobs succeeded or legitimately skipped";
+  const mutations = [
+    {
+      name: "real workflow rejects log-only needs consumption",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
+      source: source.replace(
+        `          ${GATE_VERDICT_COMMAND}\n`,
+        '          echo "$REQUIRED_JOBS_JSON"\n',
+      ),
+    },
+    {
+      name: "real workflow rejects a dynamically dead verdict",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
+      source: source.replace(
+        verdictName,
+        `${verdictName}\n        if: github.event_name == '__never__'`,
+      ),
+    },
+    {
+      name: "real workflow rejects deleted gate checkout",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      source: replaceLast(source, checkoutLine, ""),
+    },
+    {
+      name: "real workflow rejects skipped gate checkout",
+      needle: "gate checkout must be exact, current-source, and unconditional",
+      source: replaceLast(
+        source,
+        checkoutLine,
+        `${checkoutLine.trimEnd()}\n        if: false\n`,
+      ),
+    },
+    {
+      name: "real workflow rejects deleted policy recheck",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      source: source.replace(policyBlock, ""),
+    },
+    {
+      name: "real workflow rejects dynamically dead policy recheck",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: source.replace(
+        policyName,
+        `${policyName}\n        if: github.event_name == '__never__'`,
+      ),
+    },
+    {
+      name: "real workflow rejects soft-failing policy recheck",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: source.replace(
+        policyName,
+        `${policyName}\n        continue-on-error: true`,
+      ),
+    },
+    {
+      name: "real workflow rejects soft-failing required dependency",
+      needle: "job-level continue-on-error is forbidden on required-gate job rust_app",
+      source: source.replace(
+        "  rust_app:\n",
+        "  rust_app:\n    continue-on-error: true\n",
+      ),
+    },
+  ];
+
+  for (const mutation of mutations) {
+    if (mutation.source === source) {
+      throw new Error(`${mutation.name}: mutation target was not found`);
+    }
+    const failures = gatePolicyFailures(relative, mutation.source.split(/\r?\n/));
+    if (!failures.some((failure) => failure.includes(mutation.needle))) {
+      throw new Error(
+        `${mutation.name}: expected ${JSON.stringify(mutation.needle)}, got ${failures.join("; ")}`,
+      );
+    }
+    console.log(`self-test: ${mutation.name}: passed`);
+  }
+  return mutations.length;
+}
+
+function runSelfTest(repoRoot) {
   const fullSha = "0123456789abcdef0123456789abcdef01234567";
   const gateFixture = (contents) => ({
     ".github/workflows/zuuli.yml": contents,
   });
+  const gateCheckoutLines = [
+    `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
+  ];
+  const gatePolicyLines = [
+    "      - name: Recheck immutable actions and fail-closed required jobs",
+    "        id: policy",
+    `        run: ${GATE_POLICY_COMMAND}`,
+  ];
+  const gateVerdictLines = [
+    "      - name: Verify required jobs succeeded or legitimately skipped",
+    "        env:",
+    "          POLICY_OUTCOME: ${{ steps.policy.outcome }}",
+    "          REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}",
+    "        run: |",
+    `          ${GATE_POLICY_COMMAND}`,
+    `          ${GATE_VERDICT_COMMAND}`,
+  ];
   const validGateWorkflow = [
     "name: required gate fixture",
     "on: pull_request",
@@ -632,11 +926,9 @@ function runSelfTest() {
     "    if: always()",
     "    runs-on: ubuntu-latest",
     "    steps:",
-    "      - name: inspect every dependency",
-    "        env:",
-    "          BUILD_RESULT: ${{ needs.build.result }}",
-    "        run: |",
-    '          [ "$BUILD_RESULT" = "success" ]',
+    ...gateCheckoutLines,
+    ...gatePolicyLines,
+    ...gateVerdictLines,
     "",
   ].join("\n");
   const cases = [
@@ -766,25 +1058,82 @@ function runSelfTest() {
       ),
     },
     {
-      name: "every gate dependency must expose its result",
-      needle: "gate dependency advisory must expose needs.advisory.result",
+      name: "future gate dependency is covered by the complete needs context",
+      valid: true,
+      files: gateFixture(
+        validGateWorkflow
+          .replace(
+            "  gate:\n",
+            "  rust_android_32:\n    runs-on: ubuntu-latest\n    steps:\n      - run: cargo check\n  gate:\n",
+          )
+          .replace(
+            "    needs: [build]\n",
+            "    needs: [build, rust_android_32]\n",
+          ),
+      ),
+    },
+    {
+      name: "logging the needs context cannot replace the enforcing verdict",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
       files: gateFixture(
         validGateWorkflow.replace(
-          "    needs: [build]\n",
-          "    needs: [build, advisory]\n",
+          `          ${GATE_VERDICT_COMMAND}\n`,
+          '          echo "$REQUIRED_JOBS_JSON"\n',
         ),
       ),
     },
     {
-      name: "every exposed dependency result must be consumed",
-      needle: "gate result for advisory is not consumed",
+      name: "dynamically dead verdict use fails closed",
+      needle: "must unconditionally recheck policy and enforce the complete needs context",
       files: gateFixture(
-        validGateWorkflow
-          .replace("    needs: [build]\n", "    needs: [build, advisory]\n")
-          .replace(
-            "          BUILD_RESULT: ${{ needs.build.result }}\n",
-            "          BUILD_RESULT: ${{ needs.build.result }}\n          ADVISORY_RESULT: ${{ needs.advisory.result }}\n",
-          ),
+        validGateWorkflow.replace(
+          gateVerdictLines[0],
+          `${gateVerdictLines[0]}\n        if: github.event_name == '__never__'`,
+        ),
+      ),
+    },
+    {
+      name: "deleted gate checkout fails closed",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      files: gateFixture(
+        validGateWorkflow.replace(`${gateCheckoutLines.join("\n")}\n`, ""),
+      ),
+    },
+    {
+      name: "skipped gate checkout fails closed",
+      needle: "gate checkout must be exact, current-source, and unconditional",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          gateCheckoutLines[0],
+          `${gateCheckoutLines[0]}\n        if: false`,
+        ),
+      ),
+    },
+    {
+      name: "deleted gate policy recheck fails closed",
+      needle: "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+      files: gateFixture(
+        validGateWorkflow.replace(`${gatePolicyLines.join("\n")}\n`, ""),
+      ),
+    },
+    {
+      name: "dynamically dead gate policy recheck fails closed",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          gatePolicyLines[0],
+          `${gatePolicyLines[0]}\n        if: github.event_name == '__never__'`,
+        ),
+      ),
+    },
+    {
+      name: "soft-failing gate policy recheck fails closed",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          gatePolicyLines[0],
+          `${gatePolicyLines[0]}\n        continue-on-error: true`,
+        ),
       ),
     },
     {
@@ -984,20 +1333,128 @@ function runSelfTest() {
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
-  console.log(`self-test: ${cases.length} GitHub Actions policy case(s) passed.`);
+
+  const gateResultCases = [
+    {
+      name: "all changed jobs including future Android 32-bit succeed",
+      policyOutcome: "success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "true", zuuallet_schema: "false" },
+        },
+        build: { result: "success", outputs: {} },
+        rust_android_32: { result: "success", outputs: {} },
+        zuuallet_schema: { result: "skipped", outputs: {} },
+      },
+    },
+    {
+      name: "independent schema selector is enforced",
+      policyOutcome: "success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "true" },
+        },
+        build: { result: "skipped", outputs: {} },
+        zuuallet_schema: { result: "success", outputs: {} },
+      },
+    },
+    {
+      name: "soft-failed policy outcome is rejected",
+      policyOutcome: "failure",
+      needle: "gate-local policy recheck did not pass",
+      needs: {},
+    },
+    {
+      name: "failed ordinary dependency is rejected",
+      policyOutcome: "success",
+      needle: "required job build must be success, got failure",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "true", zuuallet_schema: "false" },
+        },
+        build: { result: "failure", outputs: {} },
+      },
+    },
+    {
+      name: "schema result cannot follow the general selector",
+      policyOutcome: "success",
+      needle: "required job zuuallet_schema must be skipped, got success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "true", zuuallet_schema: "false" },
+        },
+        zuuallet_schema: { result: "success", outputs: {} },
+      },
+    },
+    {
+      name: "invalid change selector fails closed",
+      policyOutcome: "success",
+      needle: "invalid or missing ZUULI change-detector output",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "", zuuallet_schema: "false" },
+        },
+      },
+    },
+  ];
+  for (const testCase of gateResultCases) {
+    let error = null;
+    try {
+      verifyGateResults(testCase.policyOutcome, JSON.stringify(testCase.needs));
+    } catch (caught) {
+      error = caught;
+    }
+    if (testCase.needle) {
+      if (!error?.message.includes(testCase.needle)) {
+        throw new Error(
+          `${testCase.name}: expected failure containing ${JSON.stringify(testCase.needle)}, got ${error?.message ?? "success"}`,
+        );
+      }
+    } else if (error) {
+      throw new Error(`${testCase.name}: expected success, got ${error.message}`);
+    }
+    console.log(`self-test: gate verdict: ${testCase.name}: passed`);
+  }
+  const currentWorkflowMutations = runCurrentWorkflowMutationTests(repoRoot);
+  console.log(
+    `self-test: ${cases.length} source-policy, ${gateResultCases.length} gate-verdict, ` +
+      `and ${currentWorkflowMutations} current-workflow mutation case(s) passed.`,
+  );
 }
 
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDirectory, "..");
 const args = process.argv.slice(2);
-if (args.length > 1 || (args.length === 1 && args[0] !== "--self-test")) {
-  console.error("usage: scripts/check-github-actions-pins.mjs [--self-test]");
+const mode = args[0];
+if (
+  args.length > 1 ||
+  (args.length === 1 && !["--self-test", "--verify-gate-results"].includes(mode))
+) {
+  console.error(
+    "usage: scripts/check-github-actions-pins.mjs [--self-test|--verify-gate-results]",
+  );
   process.exit(2);
 }
 
-if (args[0] === "--self-test") {
-  runSelfTest();
+if (mode === "--self-test") {
+  runSelfTest(repoRoot);
+} else if (mode === "--verify-gate-results") {
+  try {
+    const verdicts = verifyGateResults(
+      process.env.POLICY_OUTCOME,
+      process.env.REQUIRED_JOBS_JSON,
+    );
+    console.log(`The full-stack gate passed: ${verdicts.join(", ")}`);
+  } catch (error) {
+    console.error(`Required-gate verdict failed: ${error.message}`);
+    process.exit(1);
+  }
 } else {
-  const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(scriptDirectory, "..");
   const result = scanRepository(repoRoot);
   if (result.failures.length) {
     console.error("GitHub Actions fail-closed policy failed:");
