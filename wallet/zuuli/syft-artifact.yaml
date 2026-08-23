@@ -1,0 +1,6 @@
+# Shipped-artifact inventory. The input is an unpacked package payload, never
+# the source tree. File metadata stays enabled so Syft package discovery and the
+# repository's independent complete-file reconciliation see the same boundary.
+file:
+  metadata:
+    selection: "all"

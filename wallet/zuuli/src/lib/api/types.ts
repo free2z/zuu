@@ -383,6 +383,12 @@ export interface DyteJoinTicket {
   as: "host" | "participant";
 }
 
+export interface LiveStartResult {
+  ticket: DyteJoinTicket;
+  /** Present only for a newly created private room; never persist this value. */
+  inviteSecret?: string;
+}
+
 // ── Tuzi (2Z) subscriptions & transactions ──────────────────────────────────
 export interface Subscription {
   fan: SimpleCreator;

@@ -6,6 +6,7 @@ import {
   discardPaidIntentForAccountTransition,
 } from "@/lib/auth/paid-intent";
 import type { AuthUser } from "@/lib/api/types";
+import { allowExplicitAccountTransition } from "@/lib/unsaved-transition";
 
 /**
  * `GET /api/auth/user/` 403s (some deployments 401) for anonymous requests —
@@ -84,6 +85,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async logout() {
+    if (!allowExplicitAccountTransition()) return;
     // Clear private pending input before awaiting a network logout. Even if
     // that request fails, the draft must not survive for another account.
     discardPaidIntent();
