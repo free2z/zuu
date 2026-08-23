@@ -61,6 +61,15 @@ jobs:
           scripts/check-public-repo-boundary.sh --self-test
           scripts/check-public-repo-boundary.sh
 
+      # This policy checker owns the schema job's pinned build image, selector
+      # coverage, and attachment to the required gate. Run both its mutation
+      # controls and current-tree verdict in the always-required job so those
+      # guarantees cannot regress behind an advisory workflow.
+      - name: Verify the required schema build policy
+        run: |
+          node scripts/check-zuuli-linux-image.mjs --self-test
+          node scripts/check-zuuli-linux-image.mjs
+
       - name: Verify Zcash command and permission parity
         run: |
           node scripts/check-zcash-permissions.mjs --self-test
@@ -100,7 +109,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
+              wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
                 zuuallet_schema=true
                 ;;
             esac
