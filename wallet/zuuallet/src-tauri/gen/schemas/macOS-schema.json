@@ -2427,10 +2427,10 @@
           "markdownDescription": "Denies the reveal_item_in_dir command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-retry-wallet-cleanup`\n- `allow-get-seed-phrase`\n- `allow-get-backup-seed-phrase`\n- `allow-confirm-wallet-backup`\n- `allow-begin-sensitive-display`\n- `allow-end-sensitive-display`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-confirm-send`\n- `allow-execute-send`\n- `allow-discard-send-proposal`\n- `allow-get-pending-send`\n- `allow-retry-pending-send`\n- `allow-discard-unrecoverable-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`\n- `allow-sign-challenge`",
+          "description": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-preview-legacy-wallet-import`\n- `allow-retry-wallet-cleanup`\n- `allow-get-seed-phrase`\n- `allow-get-backup-seed-phrase`\n- `allow-confirm-wallet-backup`\n- `allow-begin-sensitive-display`\n- `allow-end-sensitive-display`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-confirm-send`\n- `allow-execute-send`\n- `allow-discard-send-proposal`\n- `allow-get-pending-send`\n- `allow-retry-pending-send`\n- `allow-discard-unrecoverable-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`\n- `allow-sign-challenge`",
           "type": "string",
           "const": "zcash:default",
-          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-retry-wallet-cleanup`\n- `allow-get-seed-phrase`\n- `allow-get-backup-seed-phrase`\n- `allow-confirm-wallet-backup`\n- `allow-begin-sensitive-display`\n- `allow-end-sensitive-display`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-confirm-send`\n- `allow-execute-send`\n- `allow-discard-send-proposal`\n- `allow-get-pending-send`\n- `allow-retry-pending-send`\n- `allow-discard-unrecoverable-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`\n- `allow-sign-challenge`"
+          "markdownDescription": "Default permissions for the Zcash wallet plugin\n#### This default permission set includes:\n\n- `allow-create-wallet`\n- `allow-restore-wallet`\n- `allow-get-wallet-status`\n- `allow-preview-legacy-wallet-import`\n- `allow-retry-wallet-cleanup`\n- `allow-get-seed-phrase`\n- `allow-get-backup-seed-phrase`\n- `allow-confirm-wallet-backup`\n- `allow-begin-sensitive-display`\n- `allow-end-sensitive-display`\n- `allow-get-viewing-key`\n- `allow-get-spending-key`\n- `allow-list-wallets`\n- `allow-switch-wallet`\n- `allow-rename-wallet`\n- `allow-delete-wallet`\n- `allow-create-account`\n- `allow-list-accounts`\n- `allow-get-account-balance`\n- `allow-get-unified-address`\n- `allow-start-sync`\n- `allow-stop-sync`\n- `allow-get-sync-status`\n- `allow-ensure-sapling-params`\n- `allow-propose-send`\n- `allow-propose-send-all`\n- `allow-confirm-send`\n- `allow-execute-send`\n- `allow-discard-send-proposal`\n- `allow-get-pending-send`\n- `allow-retry-pending-send`\n- `allow-discard-unrecoverable-send`\n- `allow-get-transaction-history`\n- `allow-set-lightwalletd-url`\n- `allow-parse-payment-uri`\n- `allow-unlock-wallet`\n- `allow-validate-address`\n- `allow-sign-challenge`"
         },
         {
           "description": "Enables the begin_sensitive_display command without any pre-configured scope.",
@@ -2575,6 +2575,12 @@
           "type": "string",
           "const": "zcash:allow-parse-payment-uri",
           "markdownDescription": "Enables the parse_payment_uri command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the preview_legacy_wallet_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:allow-preview-legacy-wallet-import",
+          "markdownDescription": "Enables the preview_legacy_wallet_import command without any pre-configured scope."
         },
         {
           "description": "Enables the propose_send command without any pre-configured scope.",
@@ -2797,6 +2803,12 @@
           "type": "string",
           "const": "zcash:deny-parse-payment-uri",
           "markdownDescription": "Denies the parse_payment_uri command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_legacy_wallet_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "zcash:deny-preview-legacy-wallet-import",
+          "markdownDescription": "Denies the preview_legacy_wallet_import command without any pre-configured scope."
         },
         {
           "description": "Denies the propose_send command without any pre-configured scope.",

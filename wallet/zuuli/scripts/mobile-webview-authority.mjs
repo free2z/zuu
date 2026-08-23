@@ -12,6 +12,7 @@ export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-create-wallet",
   "zcash:allow-restore-wallet",
   "zcash:allow-get-wallet-status",
+  "zcash:allow-preview-legacy-wallet-import",
   "zcash:allow-retry-wallet-cleanup",
   "zcash:allow-get-backup-seed-phrase",
   "zcash:allow-confirm-wallet-backup",
