@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
 import {
-  BrowserRouter,
+  createBrowserRouter,
   Navigate,
+  RouterProvider,
   Routes,
   Route,
   useLocation,
@@ -192,24 +193,15 @@ function MobileCheckoutRecovery() {
   return null;
 }
 
-export default function App() {
-  const bootstrapSession = useSession((s) => s.bootstrap);
-  const bootstrapWallet = useWallet((s) => s.bootstrap);
-
-  useEffect(() => {
-    void bootstrapSession();
-    void bootstrapWallet();
-  }, [bootstrapSession, bootstrapWallet]);
-
+function AppRoutes() {
   return (
-    <TooltipProvider delayDuration={200}>
-      <BrowserRouter>
-        <MobileOAuthRecovery />
-        <MobileCheckoutRecovery />
-        <Routes>
-          {/* Every route lives inside the viewport-bound shell. A single Suspense boundary
-              per route keeps the AppShell mounted while the lazy chunk loads. */}
-          <Route element={<AppShell />}>
+    <>
+      <MobileOAuthRecovery />
+      <MobileCheckoutRecovery />
+      <Routes>
+        {/* Every route lives inside the viewport-bound shell. A single Suspense boundary
+            per route keeps the AppShell mounted while the lazy chunk loads. */}
+        <Route element={<AppShell />}>
             <Route path={APP_ROUTES.login} element={<AuthFeature />} />
             <Route
               index
@@ -290,9 +282,29 @@ export default function App() {
 
             {/* Catch-all: unknown paths render a NotFound inside the shell */}
             <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+        </Route>
+      </Routes>
+    </>
+  );
+}
+
+// A data router gives long-form editors a first-class blocker for every SPA
+// transition, including browser POP gestures and imperative `navigate` calls.
+// The existing route tree remains nested below a single catch-all root.
+const appRouter = createBrowserRouter([{ path: "*", element: <AppRoutes /> }]);
+
+export default function App() {
+  const bootstrapSession = useSession((s) => s.bootstrap);
+  const bootstrapWallet = useWallet((s) => s.bootstrap);
+
+  useEffect(() => {
+    void bootstrapSession();
+    void bootstrapWallet();
+  }, [bootstrapSession, bootstrapWallet]);
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <RouterProvider router={appRouter} />
       <Toaster />
     </TooltipProvider>
   );
