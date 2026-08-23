@@ -159,16 +159,30 @@ function check(workflow, toolchainEnv) {
     );
   }
 
-  const expectedGateHeader = [
+  const gateLines = gate.split("\n");
+  const expectedGateControls = [
     "  gate:",
-    "    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_plugin, rust_android_32, rust_app, zuuallet_schema]",
     "    if: always()",
     "    runs-on: ubuntu-latest",
     "    timeout-minutes: 5",
     "    steps:",
-  ].join("\n");
-  if (!gate.startsWith(expectedGateHeader)) {
-    failures.push("gate must await rust_android_32");
+  ];
+  if (
+    gateLines[0] !== expectedGateControls[0] ||
+    gateLines.slice(2, 6).join("\n") !== expectedGateControls.slice(1).join("\n")
+  ) {
+    failures.push("gate must retain its exact required-job controls");
+  }
+  const gateNeedsLines = [...gate.matchAll(/^    needs: \[([^\n]*)\]$/gm)];
+  if (gateNeedsLines.length !== 1 || gateNeedsLines[0].index !== gate.indexOf("\n") + 1) {
+    failures.push("gate must declare exactly one inline needs list in its header");
+  } else {
+    const gateNeeds = gateNeedsLines[0][1]
+      .split(",")
+      .map((dependency) => dependency.trim());
+    if (gateNeeds.filter((dependency) => dependency === "rust_android_32").length !== 1) {
+      failures.push("gate must await rust_android_32 exactly once");
+    }
   }
   if (/^\s+continue-on-error:/m.test(gate)) {
     failures.push("required gate and its steps must fail closed");
@@ -222,6 +236,11 @@ function runSelfTest(workflow, toolchainEnv) {
       "  rust_android_32:\n    name: Rust / Android 32-bit\n    needs: []",
     ],
     ["the job is removed from gate needs", ", rust_android_32", ""],
+    [
+      "the job is duplicated in gate needs",
+      "rust_android_32, rust_app",
+      "rust_android_32, rust_android_32, rust_app",
+    ],
     [
       "the complete gate result input is redirected",
       "REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}",

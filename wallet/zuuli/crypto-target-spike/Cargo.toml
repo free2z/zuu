@@ -1,0 +1,13 @@
+[package]
+name = "zuuli-crypto-target-spike"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+libcrux-ml-kem = { version = "=0.0.10", default-features = false, features = ["mlkem768"] }
+libcrux-platform = { version = "=0.0.3", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"
