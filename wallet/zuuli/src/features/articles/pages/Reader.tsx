@@ -28,6 +28,32 @@ import { ArticleScore } from "../components/ArticleScore";
 import { coverTone } from "@/lib/cover";
 import { formatPublished } from "../lib";
 
+const articleTagClassName =
+  "min-tap inline-flex max-w-full items-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary";
+
+function StoredArticleTag({ tag }: { tag: string }) {
+  const href = articleTagHref(tag);
+  const label = <span className="min-w-0 break-words">#{tag}</span>;
+  if (!href) {
+    return (
+      <span
+        className={articleTagClassName}
+        title="This stored tag cannot be represented by the server's comma-delimited filter."
+      >
+        {label}
+      </span>
+    );
+  }
+  return (
+    <Link
+      to={href}
+      className={`${articleTagClassName} transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+    >
+      {label}
+    </Link>
+  );
+}
+
 export function Reader() {
   const { slug } = useParams<{ slug: string }>();
   const key = slug ?? "";
@@ -128,13 +154,7 @@ export function Reader() {
           {tags.length > 0 ? (
             <nav className="flex flex-wrap gap-2" aria-label="Article tags">
               {tags.map((tag) => (
-                <Link
-                  key={tag}
-                  to={articleTagHref(tag)}
-                  className="min-tap inline-flex max-w-full items-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="min-w-0 break-words">#{tag}</span>
-                </Link>
+                <StoredArticleTag key={tag} tag={tag} />
               ))}
             </nav>
           ) : null}
