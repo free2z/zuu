@@ -27,6 +27,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-ensure-sapling-params`
 - `allow-propose-send`
 - `allow-propose-send-all`
+- `allow-confirm-send`
 - `allow-execute-send`
 - `allow-discard-send-proposal`
 - `allow-get-pending-send`
@@ -47,6 +48,32 @@ Default permissions for the Zcash wallet plugin
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`zcash:allow-confirm-send`
+
+</td>
+<td>
+
+Enables the confirm_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-confirm-send`
+
+</td>
+<td>
+
+Denies the confirm_send command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

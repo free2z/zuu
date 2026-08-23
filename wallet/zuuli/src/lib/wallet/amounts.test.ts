@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { assertExactSendProposal } from "./amounts";
+import { assertExactSendProposal, assertFreshSendConfirmation } from "./amounts";
 
 describe("assertExactSendProposal", () => {
   const expected = { recipient: "u1recipient", amount: 100_000_001, memo: "private note" };
   const exact = {
     proposalId: 1,
     review: {
-      version: 1,
+      version: 2,
       network: "mainnet" as const,
       payments: [{ ...expected }],
       feePolicy: "zip317-standard",
@@ -15,7 +15,7 @@ describe("assertExactSendProposal", () => {
       changePolicy: "zip317-shielded-auto",
     },
     reviewDigest: "a".repeat(64),
-    confirmationToken: "b".repeat(64),
+    proposalToken: "b".repeat(64),
   };
 
   it("accepts a safe proposal whose amount and total are exact", () => {
@@ -64,7 +64,33 @@ describe("assertExactSendProposal", () => {
       }),
     ).toThrow("unsupported review authorization");
     expect(() =>
-      assertExactSendProposal(expected, { ...exact, confirmationToken: "short" }),
+      assertExactSendProposal(expected, { ...exact, proposalToken: "short" }),
     ).toThrow("unsupported review authorization");
+  });
+});
+
+describe("assertFreshSendConfirmation", () => {
+  const now = 1_800_000_000_000;
+
+  it("accepts only a short-lived opaque execution credential", () => {
+    expect(() =>
+      assertFreshSendConfirmation(
+        { confirmationToken: "c".repeat(64), expiresAt: now + 120_000 },
+        now,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects absent, stale, malformed, and implausibly long-lived credentials", () => {
+    for (const confirmation of [
+      { confirmationToken: "", expiresAt: now + 120_000 },
+      { confirmationToken: "c".repeat(64), expiresAt: now },
+      { confirmationToken: "c".repeat(64), expiresAt: now + 10 * 60 * 1000 },
+      { confirmationToken: "c".repeat(64), expiresAt: Number.MAX_VALUE },
+    ]) {
+      expect(() => assertFreshSendConfirmation(confirmation, now)).toThrow(
+        "invalid native payment confirmation",
+      );
+    }
   });
 });

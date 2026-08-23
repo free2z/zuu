@@ -14,6 +14,9 @@ const [
   legacySend,
   legacyBridge,
   legacyTypes,
+  mobileCapability,
+  zuuliNative,
+  legacyNative,
 ] = await Promise.all(
   [
     "src/features/wallet/Send.tsx",
@@ -27,6 +30,9 @@ const [
     "../zuuallet/src/pages/Send.tsx",
     "../zuuallet/src/lib/tauri.ts",
     "../zuuallet/src/types/index.ts",
+    "src-tauri/capabilities/mobile.json",
+    "src-tauri/src/lib.rs",
+    "../zuuallet/src-tauri/src/lib.rs",
   ].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")),
 );
 
@@ -40,7 +46,7 @@ test("confirmation renders only the immutable native review", () => {
   assert.doesNotMatch(send, /<Row label="Memo">[\s\S]{0,300}>\s*\{memo\}/);
 });
 
-test("execution cannot regress to proposal-id-only authorization", () => {
+test("execution cannot regress to proposal-id-only or proposal-token authorization", () => {
   assert.match(
     bridge,
     /executeSend\(\s*proposalId:\s*number,\s*reviewDigest:\s*string,\s*confirmationToken:\s*string/s,
@@ -59,7 +65,7 @@ test("execution cannot regress to proposal-id-only authorization", () => {
   );
   assert.match(
     nativeSend,
-    /verify_confirmation[\s\S]*review_digest[\s\S]*confirmation_token/,
+    /verify_execution[\s\S]*review_digest[\s\S]*confirmation_token/,
   );
   assert.doesNotMatch(send, /executeSend\(proposal\.proposalId\)/);
   assert.match(
@@ -82,12 +88,49 @@ test("execution cannot regress to proposal-id-only authorization", () => {
   );
 });
 
-test("native proposal state owns review, digest, and one-use token", () => {
+test("native confirmation is a distinct OS-gated transition before execution", () => {
+  for (const consumerBridge of [bridge, legacyBridge]) {
+    assert.match(
+      consumerBridge,
+      /confirmSend\(\s*proposalId:\s*number,\s*reviewDigest:\s*string,\s*proposalToken:\s*string/s,
+    );
+    assert.match(
+      consumerBridge,
+      /args:\s*\{\s*proposalId,\s*reviewDigest,\s*proposalToken\s*\}/s,
+    );
+  }
+  for (const consumerSend of [send, legacySend]) {
+    assert.ok(
+      consumerSend.indexOf("confirmSend(") < consumerSend.indexOf("executeSend("),
+      "each renderer must request native confirmation before execution",
+    );
+    assert.match(consumerSend, /confirmation\.confirmationToken/);
+  }
+  const confirmCommand = nativeCommands.match(
+    /pub\(crate\) async fn confirm_send[\s\S]*?(?=\n#\[command\])/,
+  )?.[0];
+  assert.ok(confirmCommand, "native confirmation command must remain inspectable");
+  assert.ok(
+    confirmCommand.indexOf("prepare_send_confirmation") <
+      confirmCommand.indexOf(".dialog()") &&
+      confirmCommand.indexOf(".dialog()") <
+        confirmCommand.indexOf("issue_send_confirmation"),
+    "native review must validate, prompt, then mint the execution token",
+  );
+  assert.match(nativePermissions, /"allow-confirm-send"/);
+  assert.match(zuuliNative, /plugin\(tauri_plugin_dialog::init\(\)\)/);
+  assert.match(legacyNative, /plugin\(tauri_plugin_dialog::init\(\)\)/);
+  assert.doesNotMatch(mobileCapability, /dialog:/);
+});
+
+test("native proposal state owns review, wallet session, expiry, and separate token hashes", () => {
   assert.match(types, /review:\s*SendReview/);
   assert.match(types, /reviewDigest:\s*string/);
-  assert.match(types, /confirmationToken:\s*string/);
+  assert.match(types, /proposalToken:\s*string/);
+  assert.match(types, /interface SendConfirmation[\s\S]*confirmationToken:\s*string[\s\S]*expiresAt:\s*number/);
   assert.match(nativeModels, /pub struct SendReview/);
   assert.match(nativeModels, /pub review_digest:\s*String/);
+  assert.match(nativeModels, /pub proposal_token:\s*String/);
   assert.match(nativeModels, /pub confirmation_token:\s*String/);
   assert.match(
     nativeState,
@@ -97,7 +140,19 @@ test("native proposal state owns review, digest, and one-use token", () => {
     nativeSend,
     /pub struct PendingProposal\s*\{[\s\S]*review:\s*SendReview/,
   );
+  assert.match(nativeState, /send_session_id:\s*\[u8;\s*32\]/);
+  assert.match(nativeSend, /wallet_id:\s*String/);
+  assert.match(nativeSend, /session_id:\s*\[u8;\s*32\]/);
+  assert.match(nativeSend, /proposal_token_hash:\s*\[u8;\s*32\]/);
   assert.match(nativeSend, /confirmation_token_hash:\s*\[u8;\s*32\]/);
+  assert.match(nativeSend, /expires_at:\s*Instant/);
+  assert.match(nativeSend, /SEND_CONFIRMATION_TTL/);
+  assert.match(nativeSend, /review_from_native_proposal/);
+  assert.match(
+    nativeSend,
+    /proposed_change\(\)[\s\S]{0,180}PoolType::Shielded/,
+    "the displayed shielded-change policy must be re-derived from the native proposal",
+  );
   assert.doesNotMatch(
     nativeSend,
     /struct PendingProposal\s*\{[^}]*confirmation_token:\s*String/,
@@ -108,7 +163,8 @@ test("native proposal state owns review, digest, and one-use token", () => {
   );
   assert.match(legacyTypes, /review:\s*SendReview/);
   assert.match(legacyTypes, /reviewDigest:\s*string/);
-  assert.match(legacyTypes, /confirmationToken:\s*string/);
+  assert.match(legacyTypes, /proposalToken:\s*string/);
+  assert.match(legacyTypes, /interface SendConfirmation[\s\S]*expiresAt:\s*number/);
   assert.match(legacySend, /proposal\?\.review\.payments/);
   assert.match(legacySend, /proposal\.review\.fee/);
   assert.match(legacySend, /proposal\.review\.total/);

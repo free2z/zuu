@@ -30,7 +30,10 @@ import {
   truncateAddress,
 } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
-import { assertExactSendProposal } from "@/lib/wallet/amounts";
+import {
+  assertExactSendProposal,
+  assertFreshSendConfirmation,
+} from "@/lib/wallet/amounts";
 import type {
   AddressValidation,
   ExecuteSendResult,
@@ -106,7 +109,7 @@ export function Send() {
       await wallet.discardSendProposal(
         stale.proposalId,
         stale.reviewDigest,
-        stale.confirmationToken,
+        stale.proposalToken,
       );
     } catch {
       // Exact credentials make this safe when a newer proposal replaced it or
@@ -292,10 +295,17 @@ export function Send() {
     const generation = generationRef.current;
     setSending(true);
     try {
+      const confirmation = await wallet.confirmSend(
+        confirmedProposal.proposalId,
+        confirmedProposal.reviewDigest,
+        confirmedProposal.proposalToken,
+      );
+      assertFreshSendConfirmation(confirmation);
+      if (!mountedRef.current || generation !== generationRef.current) return;
       const result = await wallet.executeSend(
         confirmedProposal.proposalId,
         confirmedProposal.reviewDigest,
-        confirmedProposal.confirmationToken,
+        confirmation.confirmationToken,
       );
       if (!mountedRef.current || generation !== generationRef.current) return;
       proposalRef.current = null;
@@ -332,6 +342,7 @@ export function Send() {
     } catch (e) {
       const recovered = await wallet.getPendingSend().catch(() => null);
       if (!mountedRef.current || generation !== generationRef.current) return;
+      void discardNativeProposal(confirmedProposal);
       proposalRef.current = null;
       setProposal(null);
       setDialogOpen(false);
@@ -341,7 +352,7 @@ export function Send() {
       confirmingRef.current = false;
       if (mountedRef.current && generation === generationRef.current) setSending(false);
     }
-  }, [refreshBalance, navigate]);
+  }, [discardNativeProposal, refreshBalance, navigate]);
 
   const onRetryPending = useCallback(async () => {
     setSending(true);
