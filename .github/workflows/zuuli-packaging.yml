@@ -429,14 +429,14 @@ jobs:
           node scripts/artifact-sbom.mjs prepare --artifact="${zips[0]}" --root=artifact-sbom-work/macos-zip/root
       - name: Download Syft for macOS shipped artifacts
         if: runner.os == 'macOS'
-        id: desktop-artifact-syft
+        id: desktop_artifact_syft
         uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
       - name: Scan macOS shipped artifacts
         if: runner.os == 'macOS'
         env:
-          SYFT: ${{ steps.desktop-artifact-syft.outputs.cmd }}
+          SYFT: ${{ steps.desktop_artifact_syft.outputs.cmd }}
         run: |
           "$SYFT" scan dir:artifact-sbom-work/macos-dmg/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json
           "$SYFT" scan dir:artifact-sbom-work/macos-zip/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json

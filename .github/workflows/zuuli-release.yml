@@ -1413,13 +1413,13 @@ jobs:
           node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root
           node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root
       - name: Download Syft for macOS shipped artifacts
-        id: macos-artifact-syft
+        id: macos_artifact_syft
         uses: anchore/sbom-action/download-syft@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
         with:
           syft-version: v1.50.0
       - name: Scan macOS shipped artifacts
         env:
-          SYFT: ${{ steps.macos-artifact-syft.outputs.cmd }}
+          SYFT: ${{ steps.macos_artifact_syft.outputs.cmd }}
         run: |
           "$SYFT" scan dir:artifact-sbom-work/macos-dmg/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-dmg/syft.raw.sbom.cdx.json
           "$SYFT" scan dir:artifact-sbom-work/macos-zip/root --config syft-artifact.yaml --output cyclonedx-json=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json
