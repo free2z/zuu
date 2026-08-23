@@ -7,11 +7,82 @@ import { fileURLToPath } from "node:url";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const EXTERNAL_USES = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
+const REQUIRED_WORKFLOW_PATH = ".github/workflows/zuuli.yml";
 const GATE_CHECKOUT_REFERENCE =
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const GATE_POLICY_SELF_TEST_COMMAND =
+  "node scripts/check-github-actions-pins.mjs --self-test";
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
+// Environment inheritance can alter Bash and Node before an exact `run:` block
+// begins. Required jobs therefore accept only these reviewed data inputs; every
+// other workflow/job/step environment entry fails closed.
+const REQUIRED_WORKFLOW_ENVIRONMENT = new Map([
+  ["CARGO_TERM_COLOR", "always"],
+  ["RUST_BACKTRACE", "1"],
+]);
+const REQUIRED_JOB_ENVIRONMENTS = new Map([
+  [
+    "zuuallet_schema",
+    new Map([
+      ["CARGO_TARGET_DIR", "${{ github.workspace }}/target"],
+    ]),
+  ],
+]);
+const REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES = new Map([
+  ["frontend", "wallet/zuuli"],
+]);
+const REQUIRED_STEP_ENVIRONMENTS = new Map([
+  [
+    "changes\0Detect release-impacting ZUULI changes",
+    new Map([
+      [
+        "BASE_SHA",
+        "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}",
+      ],
+    ]),
+  ],
+  [
+    "rust_app\0Build ZUULI Tauri backend",
+    new Map([
+      [
+        "TAURI_SCHEMA_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+      [
+        "TAURI_PERMISSION_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+    ]),
+  ],
+  [
+    "zuuallet_schema\0Regenerate Zuuallet permissions and target schema",
+    new Map([
+      [
+        "TAURI_SCHEMA_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+      [
+        "TAURI_PERMISSION_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+    ]),
+  ],
+  [
+    "gate\0Verify required jobs succeeded or legitimately skipped",
+    new Map([
+      ["POLICY_OUTCOME", "${{ steps.policy.outcome }}"],
+      ["REQUIRED_JOBS_JSON", "${{ toJSON(needs) }}"],
+    ]),
+  ],
+]);
+const REQUIRED_STEP_WORKING_DIRECTORIES = new Map([
+  ["rust_clippy\0Verify pinned Linux build image", "/"],
+  ["rust_plugin\0Verify pinned Linux build image", "/"],
+  ["rust_app\0Verify pinned Linux build image", "/"],
+  ["zuuallet_schema\0Verify pinned Linux build image", "/"],
+]);
 
 // Required-gate policy deliberately accepts a small, canonical YAML subset.
 // Alternate keys, inline job maps, aliases, and decorators fail closed instead
@@ -249,6 +320,97 @@ function mappingEntry(source, kind) {
   return { key: decoded.value, value: match[2].trim() };
 }
 
+function defaultRunExecutionFailures(
+  relativeFile,
+  lines,
+  property,
+  end,
+  owner,
+  expectedWorkingDirectory,
+) {
+  const failures = [];
+  if (property.value) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: ${owner} defaults must use a canonical block mapping`,
+    );
+    return failures;
+  }
+
+  let run = null;
+  for (let index = property.index + 1; index < end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= property.indent) break;
+    if (line.indent !== property.indent + 2) continue;
+    const entry = mappingEntry(line.text, `${owner} defaults property`);
+    if (entry.error || entry.key !== "run" || run) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} defaults may contain exactly one canonical run mapping`,
+      );
+      continue;
+    }
+    run = {
+      index,
+      indent: line.indent,
+      value: entry.value,
+    };
+  }
+
+  if (!run || run.value) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: ${owner} defaults.run must use a canonical block mapping`,
+    );
+    return failures;
+  }
+
+  const runProperties = new Map();
+  for (let index = run.index + 1; index < end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= run.indent) break;
+    if (line.indent !== run.indent + 2) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} defaults.run must use canonical indentation`,
+      );
+      continue;
+    }
+    const entry = mappingEntry(line.text, `${owner} defaults.run property`);
+    if (
+      entry.error ||
+      !["shell", "working-directory"].includes(entry.key) ||
+      runProperties.has(entry.key)
+    ) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} defaults.run contains an unsupported or duplicate property`,
+      );
+      continue;
+    }
+    runProperties.set(entry.key, { index, value: entry.value });
+  }
+
+  const shell = runProperties.get("shell");
+  if (shell && shell.value !== "bash") {
+    failures.push(
+      `${relativeFile}:${shell.index + 1}: ${owner} defaults.run.shell must be exactly bash`,
+    );
+  }
+  const workingDirectory = runProperties.get("working-directory");
+  if ((workingDirectory?.value ?? undefined) !== expectedWorkingDirectory) {
+    failures.push(
+      `${relativeFile}:${(workingDirectory?.index ?? property.index) + 1}: ${owner} defaults.run.working-directory differs from its exact reviewed value`,
+    );
+  }
+  return failures;
+}
+
 function parseGateNeeds(lines, needsIndex, needsIndent) {
   const source = workflowLine(lines[needsIndex]);
   const entry = mappingEntry(source.text, "gate needs");
@@ -311,26 +473,44 @@ function blockScalarCommands(lines, property, end) {
   return commands;
 }
 
-function gateSteps(relativeFile, lines, gate, failures) {
-  const stepsProperty = gate.properties.get("steps");
+function policyJobSteps(relativeFile, lines, job, failures, label) {
+  const stepsProperty = job.properties.get("steps");
   if (!stepsProperty || stepsProperty.value) {
     failures.push(
-      `${relativeFile}:${gate.start + 1}: gate steps must use a block sequence`,
+      `${relativeFile}:${job.start + 1}: ${label} steps must use a block sequence`,
+    );
+    return [];
+  }
+
+  const firstStepLine = lines
+    .slice(stepsProperty.index + 1, job.end)
+    .map((line, offset) => ({
+      index: stepsProperty.index + 1 + offset,
+      line: workflowLine(line),
+    }))
+    .find(({ line }) => line && !line.error);
+  if (
+    !firstStepLine ||
+    firstStepLine.line.indent !== 6 ||
+    !firstStepLine.line.text.startsWith("- ")
+  ) {
+    failures.push(
+      `${relativeFile}:${stepsProperty.index + 1}: ${label} steps must begin with a canonical block-sequence entry`,
     );
     return [];
   }
 
   const steps = [];
-  for (let index = stepsProperty.index + 1; index < gate.end; index += 1) {
+  for (let index = stepsProperty.index + 1; index < job.end; index += 1) {
     const line = workflowLine(lines[index]);
     if (!line || line.error || line.indent !== 6) continue;
     if (!line.text.startsWith("- ")) {
       failures.push(
-        `${relativeFile}:${index + 1}: gate steps must use canonical block-sequence entries`,
+        `${relativeFile}:${index + 1}: ${label} steps must use canonical block-sequence entries`,
       );
       continue;
     }
-    const entry = mappingEntry(line.text.slice(2), "gate step");
+    const entry = mappingEntry(line.text.slice(2), `${label} step`);
     if (entry.error) {
       failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
       continue;
@@ -345,18 +525,18 @@ function gateSteps(relativeFile, lines, gate, failures) {
   }
 
   for (const [position, step] of steps.entries()) {
-    step.end = steps[position + 1]?.start ?? gate.end;
+    step.end = steps[position + 1]?.start ?? job.end;
     for (let index = step.start + 1; index < step.end; index += 1) {
       const line = workflowLine(lines[index]);
       if (!line || line.error || line.indent !== 8) continue;
-      const entry = mappingEntry(line.text, "gate step property");
+      const entry = mappingEntry(line.text, `${label} step property`);
       if (entry.error) {
         failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
         continue;
       }
       if (step.properties.has(entry.key)) {
         failures.push(
-          `${relativeFile}:${index + 1}: duplicate ${entry.key} property on gate step`,
+          `${relativeFile}:${index + 1}: duplicate ${entry.key} property on ${label} step`,
         );
         continue;
       }
@@ -370,35 +550,211 @@ function gateSteps(relativeFile, lines, gate, failures) {
   return steps;
 }
 
-function stepEnvironment(relativeFile, lines, step, failures) {
-  const environment = new Map();
-  const property = step.properties.get("env");
-  if (!property || property.value) return environment;
+function requiredContainerInjectionFailures(relativeFile, lines, job) {
+  const failures = [];
+  const container = job.properties.get("container");
+  if (!container) return failures;
+  if (container.value) {
+    failures.push(
+      `${relativeFile}:${container.index + 1}: required job ${job.id} container must use a canonical block mapping`,
+    );
+    return failures;
+  }
 
-  for (let index = property.index + 1; index < step.end; index += 1) {
+  for (let index = container.index + 1; index < job.end; index += 1) {
     const line = workflowLine(lines[index]);
     if (!line) continue;
-    if (line.error || line.indent <= property.indent) break;
-    if (line.indent !== 10) {
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= container.indent) break;
+    if (line.indent !== container.indent + 2) continue;
+    const entry = mappingEntry(line.text, `required job ${job.id} container property`);
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+    } else if (["env", "options"].includes(entry.key)) {
       failures.push(
-        `${relativeFile}:${index + 1}: gate verdict environment must use canonical indentation`,
+        `${relativeFile}:${index + 1}: required job ${job.id} container cannot inject environment or runtime options`,
+      );
+    }
+  }
+  return failures;
+}
+
+function requiredJobExecutionFailures(relativeFile, lines, job) {
+  const failures = [];
+  const requiredMainWorkflow =
+    relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
+  const defaults = job.properties.get("defaults");
+  const expectedDefaultWorkingDirectory = requiredMainWorkflow
+    ? REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES.get(job.id)
+    : undefined;
+  if (defaults) {
+    failures.push(
+      ...defaultRunExecutionFailures(
+        relativeFile,
+        lines,
+        defaults,
+        job.end,
+        `required job ${job.id}`,
+        expectedDefaultWorkingDirectory,
+      ),
+    );
+  } else if (expectedDefaultWorkingDirectory !== undefined) {
+    failures.push(
+      `${relativeFile}:${job.start + 1}: required job ${job.id} defaults.run.working-directory differs from its exact reviewed value`,
+    );
+  }
+  const jobEnvironment = job.properties.get("env");
+  const expectedJobEnvironment = requiredMainWorkflow
+    ? REQUIRED_JOB_ENVIRONMENTS.get(job.id) ?? new Map()
+    : new Map();
+  if (jobEnvironment) {
+    const actual = environmentMap(
+      relativeFile,
+      lines,
+      jobEnvironment,
+      job.end,
+      failures,
+      `required job ${job.id}`,
+    );
+    failures.push(
+      ...exactEnvironmentFailures(
+        relativeFile,
+        jobEnvironment.index,
+        actual,
+        expectedJobEnvironment,
+        `required job ${job.id}`,
+      ),
+    );
+  } else if (expectedJobEnvironment.size) {
+    failures.push(
+      `${relativeFile}:${job.start + 1}: required job ${job.id} environment differs from its exact reviewed allowlist`,
+    );
+  }
+  failures.push(...requiredContainerInjectionFailures(relativeFile, lines, job));
+
+  if (!job.properties.has("steps")) return failures;
+  const steps = policyJobSteps(
+    relativeFile,
+    lines,
+    job,
+    failures,
+    `required job ${job.id}`,
+  );
+  for (const step of steps) {
+    const shell = step.properties.get("shell");
+    if (shell && shell.value !== "bash") {
+      failures.push(
+        `${relativeFile}:${shell.index + 1}: required job ${job.id} step shell must be exactly bash`,
+      );
+    }
+    const stepEnvironmentProperty = step.properties.get("env");
+    const stepName = step.properties.get("name")?.value ?? "";
+    const stepScope = `${job.id}\0${stepName}`;
+    const expectedStepEnvironment = requiredMainWorkflow
+      ? REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map()
+      : new Map();
+    if (stepEnvironmentProperty) {
+      const actual = environmentMap(
+        relativeFile,
+        lines,
+        stepEnvironmentProperty,
+        step.end,
+        failures,
+        `required job ${job.id} step`,
+      );
+      failures.push(
+        ...exactEnvironmentFailures(
+          relativeFile,
+          stepEnvironmentProperty.index,
+          actual,
+          expectedStepEnvironment,
+          `required job ${job.id} step ${stepName || "<unnamed>"}`,
+        ),
+      );
+    } else if (expectedStepEnvironment.size) {
+      failures.push(
+        `${relativeFile}:${step.start + 1}: required job ${job.id} step ${stepName || "<unnamed>"} environment differs from its exact reviewed allowlist`,
+      );
+    }
+    const workingDirectory = step.properties.get("working-directory");
+    const expectedWorkingDirectory = requiredMainWorkflow
+      ? REQUIRED_STEP_WORKING_DIRECTORIES.get(stepScope)
+      : undefined;
+    if ((workingDirectory?.value ?? undefined) !== expectedWorkingDirectory) {
+      failures.push(
+        `${relativeFile}:${(workingDirectory?.index ?? step.start) + 1}: required job ${job.id} step ${stepName || "<unnamed>"} working-directory differs from its exact reviewed value`,
+      );
+    }
+  }
+  return failures;
+}
+
+function environmentMap(relativeFile, lines, property, end, failures, owner) {
+  const environment = new Map();
+  if (property.value) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: ${owner} environment must use a canonical block mapping`,
+    );
+    return environment;
+  }
+
+  for (let index = property.index + 1; index < end; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= property.indent) break;
+    if (line.indent !== property.indent + 2) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${owner} environment must use canonical indentation`,
       );
       continue;
     }
-    const entry = mappingEntry(line.text, "gate verdict environment");
+    const entry = mappingEntry(line.text, `${owner} environment`);
     if (entry.error) {
       failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
       continue;
     }
     if (environment.has(entry.key)) {
       failures.push(
-        `${relativeFile}:${index + 1}: duplicate gate verdict environment key ${entry.key}`,
+        `${relativeFile}:${index + 1}: duplicate ${owner} environment key ${entry.key}`,
       );
     } else {
       environment.set(entry.key, entry.value);
     }
   }
   return environment;
+}
+
+function stepEnvironment(relativeFile, lines, step, failures) {
+  const property = step.properties.get("env");
+  if (!property) return new Map();
+  return environmentMap(
+    relativeFile,
+    lines,
+    property,
+    step.end,
+    failures,
+    "gate verdict",
+  );
+}
+
+function exactEnvironmentFailures(relativeFile, location, actual, expected, owner) {
+  const failures = [];
+  if (
+    actual.size !== expected.size ||
+    [...expected].some(([key, value]) => actual.get(key) !== value)
+  ) {
+    failures.push(
+      `${relativeFile}:${location + 1}: ${owner} environment differs from its exact reviewed allowlist`,
+    );
+  }
+  return failures;
 }
 
 function hasExactKeys(map, keys) {
@@ -410,7 +766,7 @@ function hasExactKeys(map, keys) {
 
 function requiredGateControlFailures(relativeFile, lines, gate) {
   const failures = [];
-  const steps = gateSteps(relativeFile, lines, gate, failures);
+  const steps = policyJobSteps(relativeFile, lines, gate, failures, "gate");
   if (steps.length !== 3) {
     failures.push(
       `${relativeFile}:${gate.start + 1}: gate must contain exactly checkout, policy recheck, and enforcing verdict steps`,
@@ -428,12 +784,20 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
     );
   }
 
+  const policyCommands = blockScalarCommands(
+    lines,
+    policy.properties.get("run") ?? { index: policy.start, indent: 8, value: "" },
+    policy.end,
+  );
   if (
     !hasExactKeys(policy.properties, ["name", "id", "run"]) ||
     policy.properties.get("name")?.value !==
       "Recheck immutable actions and fail-closed required jobs" ||
     policy.properties.get("id")?.value !== "policy" ||
-    policy.properties.get("run")?.value !== GATE_POLICY_COMMAND
+    policy.properties.get("run")?.value !== "|" ||
+    policyCommands.length !== 2 ||
+    policyCommands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
+    policyCommands[1] !== GATE_POLICY_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: gate policy recheck must be exact, unconditional, and non-soft-failing`,
@@ -455,6 +819,7 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
     !hasExactKeys(verdict.properties, ["name", "env", "run"]) ||
     verdict.properties.get("name")?.value !==
       "Verify required jobs succeeded or legitimately skipped" ||
+    verdict.properties.get("run")?.value !== "|" ||
     !hasExactKeys(verdictEnvironment, ["POLICY_OUTCOME", "REQUIRED_JOBS_JSON"]) ||
     verdictEnvironment.get("POLICY_OUTCOME") !== "${{ steps.policy.outcome }}" ||
     verdictEnvironment.get("REQUIRED_JOBS_JSON") !== "${{ toJSON(needs) }}" ||
@@ -469,11 +834,51 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
   return failures;
 }
 
-function gatePolicyFailures(relativeFile, lines) {
+function requiredChangesControlFailures(relativeFile, lines, changes) {
   const failures = [];
+  const steps = policyJobSteps(
+    relativeFile,
+    lines,
+    changes,
+    failures,
+    "changes",
+  );
+  const policySteps = steps.filter(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Verify immutable actions and fail-closed required jobs",
+  );
+  if (policySteps.length !== 1) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: changes must contain exactly one immutable-actions policy step`,
+    );
+    return failures;
+  }
+
+  const [policy] = policySteps;
+  const commands = blockScalarCommands(
+    lines,
+    policy.properties.get("run") ?? { index: policy.start, indent: 8, value: "" },
+    policy.end,
+  );
+  if (
+    !hasExactKeys(policy.properties, ["name", "run"]) ||
+    policy.properties.get("run")?.value !== "|" ||
+    commands.length !== 2 ||
+    commands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
+    commands[1] !== GATE_POLICY_COMMAND
+  ) {
+    failures.push(
+      `${relativeFile}:${policy.start + 1}: changes policy step must exactly self-test and enforce the current-source policy`,
+    );
+  }
+  return failures;
+}
+
+function policyWorkflowJobs(relativeFile, lines, failures) {
   const topLevel = [];
-  const requiredGateWorkflow =
-    relativeFile.split(path.sep).join("/") === ".github/workflows/zuuli.yml";
+  const workflowDefaults = [];
+  const workflowEnvironments = [];
 
   for (const [index, rawLine] of lines.entries()) {
     const line = workflowLine(rawLine);
@@ -488,25 +893,74 @@ function gatePolicyFailures(relativeFile, lines) {
       failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
     } else if (entry.key === "jobs") {
       topLevel.push({ index, value: entry.value });
+    } else if (entry.key === "defaults") {
+      workflowDefaults.push({ index, indent: 0, value: entry.value });
+    } else if (entry.key === "env") {
+      workflowEnvironments.push({ index, indent: 0, value: entry.value });
     }
   }
 
+  if (workflowDefaults.length > 1) {
+    failures.push(`${relativeFile}: required workflow cannot repeat defaults`);
+  }
+  for (const defaults of workflowDefaults) {
+    failures.push(
+      ...defaultRunExecutionFailures(
+        relativeFile,
+        lines,
+        defaults,
+        lines.length,
+        "required workflow",
+        undefined,
+      ),
+    );
+  }
+  if (workflowEnvironments.length > 1) {
+    failures.push(`${relativeFile}: required workflow cannot repeat env`);
+  }
+  const expectedWorkflowEnvironment =
+    relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH
+      ? REQUIRED_WORKFLOW_ENVIRONMENT
+      : new Map();
+  for (const environment of workflowEnvironments) {
+    const actual = environmentMap(
+      relativeFile,
+      lines,
+      environment,
+      lines.length,
+      failures,
+      "required workflow",
+    );
+    failures.push(
+      ...exactEnvironmentFailures(
+        relativeFile,
+        environment.index,
+        actual,
+        expectedWorkflowEnvironment,
+        "required workflow",
+      ),
+    );
+  }
+  if (!workflowEnvironments.length && expectedWorkflowEnvironment.size) {
+    failures.push(
+      `${relativeFile}: required workflow environment differs from its exact reviewed allowlist`,
+    );
+  }
+
   if (!topLevel.length) {
-    if (requiredGateWorkflow) {
-      failures.push(`${relativeFile}: required workflow must contain a jobs block mapping`);
-    }
-    return failures;
+    failures.push(`${relativeFile}: required workflow must contain a jobs block mapping`);
+    return new Map();
   }
   if (topLevel.length !== 1) {
     failures.push(`${relativeFile}: workflow must contain exactly one jobs mapping`);
-    return failures;
+    return new Map();
   }
   const jobsEntry = topLevel[0];
   if (jobsEntry.value) {
     failures.push(
       `${relativeFile}:${jobsEntry.index + 1}: jobs must use a block mapping so required-gate policy can inspect it`,
     );
-    return failures;
+    return new Map();
   }
 
   let jobsEnd = lines.length;
@@ -579,15 +1033,86 @@ function gatePolicyFailures(relativeFile, lines) {
         );
         continue;
       }
-      job.properties.set(entry.key, { index, value: entry.value });
+      job.properties.set(entry.key, {
+        index,
+        indent: 4,
+        value: entry.value,
+      });
     }
   }
 
+  return jobs;
+}
+
+function requiredJobUsesReference(relativeFile, property, failures) {
+  const parsed = usesFromLine(`uses: ${property.value}`);
+  if (!parsed || parsed.error) {
+    failures.push(
+      `${relativeFile}:${property.index + 1}: required reusable workflow reference is invalid: ${parsed?.error ?? property.value}`,
+    );
+    return null;
+  }
+  return parsed.ref;
+}
+
+function requiredReusableWorkflowFailures(
+  repoRoot,
+  targetFile,
+  validated = new Set(),
+  active = new Set(),
+) {
+  const failures = [];
+  const canonical = fs.realpathSync(targetFile);
+  const relativeFile = path.relative(repoRoot, canonical);
+  if (active.has(canonical)) {
+    failures.push(`${relativeFile}: required reusable workflow cycle is forbidden`);
+    return failures;
+  }
+  if (validated.has(canonical)) return failures;
+
+  active.add(canonical);
+  const lines = fs.readFileSync(canonical, "utf8").split(/\r?\n/);
+  const jobs = policyWorkflowJobs(relativeFile, lines, failures);
+  for (const job of jobs.values()) {
+    failures.push(...requiredJobExecutionFailures(relativeFile, lines, job));
+    const softFail = job.properties.get("continue-on-error");
+    if (softFail) {
+      failures.push(
+        `${relativeFile}:${softFail.index + 1}: job-level continue-on-error is forbidden in required reusable workflow job ${job.id}`,
+      );
+    }
+
+    const uses = job.properties.get("uses");
+    if (!uses) continue;
+    const reference = requiredJobUsesReference(relativeFile, uses, failures);
+    if (!reference) continue;
+    if (!/^\.\/\.github\/workflows\/[^/]+\.ya?ml$/.test(reference)) {
+      failures.push(
+        `${relativeFile}:${uses.index + 1}: required reusable workflow job ${job.id} must call a repository-local workflow`,
+      );
+      continue;
+    }
+    const target = localTarget(repoRoot, reference);
+    if (target.error) {
+      failures.push(`${relativeFile}:${uses.index + 1}: ${target.error}`);
+      continue;
+    }
+    failures.push(
+      ...requiredReusableWorkflowFailures(repoRoot, target.file, validated, active),
+    );
+  }
+  active.delete(canonical);
+  validated.add(canonical);
+  return failures;
+}
+
+function gatePolicyFailures(repoRoot, relativeFile, lines) {
+  const failures = [];
+  const jobs = policyWorkflowJobs(relativeFile, lines, failures);
+
   const gate = jobs.get("gate");
   if (!gate) {
-    if (requiredGateWorkflow) {
-      failures.push(`${relativeFile}: required workflow must contain the gate job`);
-    }
+    failures.push(`${relativeFile}: required workflow must contain the gate job`);
     return failures;
   }
   const needsProperty = gate.properties.get("needs");
@@ -609,8 +1134,39 @@ function gatePolicyFailures(relativeFile, lines) {
     }
   }
 
+  const validatedReusableWorkflows = new Set();
+  for (const dependency of parsedNeeds.values) {
+    const job = jobs.get(dependency);
+    const uses = job?.properties.get("uses");
+    if (!uses) continue;
+    const reference = requiredJobUsesReference(relativeFile, uses, failures);
+    if (!reference) continue;
+    if (!/^\.\/\.github\/workflows\/[^/]+\.ya?ml$/.test(reference)) {
+      failures.push(
+        `${relativeFile}:${uses.index + 1}: required-gate job ${dependency} must call a repository-local reusable workflow`,
+      );
+      continue;
+    }
+    const target = localTarget(repoRoot, reference);
+    if (target.error) {
+      failures.push(`${relativeFile}:${uses.index + 1}: ${target.error}`);
+      continue;
+    }
+    failures.push(
+      ...requiredReusableWorkflowFailures(
+        repoRoot,
+        target.file,
+        validatedReusableWorkflows,
+      ),
+    );
+  }
+
   for (const jobId of [...parsedNeeds.values, "gate"]) {
-    const property = jobs.get(jobId)?.properties.get("continue-on-error");
+    const requiredJob = jobs.get(jobId);
+    if (requiredJob) {
+      failures.push(...requiredJobExecutionFailures(relativeFile, lines, requiredJob));
+    }
+    const property = requiredJob?.properties.get("continue-on-error");
     if (property) {
       failures.push(
         `${relativeFile}:${property.index + 1}: job-level continue-on-error is forbidden on required-gate job ${jobId}`,
@@ -622,6 +1178,12 @@ function gatePolicyFailures(relativeFile, lines) {
     failures.push(
       `${relativeFile}:${gate.start + 1}: required gate must run with if: always()`,
     );
+  }
+  const changes = jobs.get("changes");
+  if (!changes) {
+    failures.push(`${relativeFile}: required workflow must contain the changes job`);
+  } else {
+    failures.push(...requiredChangesControlFailures(relativeFile, lines, changes));
   }
   failures.push(...requiredGateControlFailures(relativeFile, lines, gate));
 
@@ -733,8 +1295,8 @@ function scanRepository(repoRoot) {
 
     const relativeFile = path.relative(repoRoot, file);
     const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-    if (relativeFile.startsWith(path.join(".github", "workflows") + path.sep)) {
-      failures.push(...gatePolicyFailures(relativeFile, lines));
+    if (relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH) {
+      failures.push(...gatePolicyFailures(repoRoot, relativeFile, lines));
     }
     for (const [index, line] of lines.entries()) {
       const parsed = usesFromLine(line);
@@ -785,7 +1347,7 @@ function writeFixture(root, relative, contents) {
 function runCurrentWorkflowMutationTests(repoRoot) {
   const relative = path.join(".github", "workflows", "zuuli.yml");
   const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
-  const baseline = gatePolicyFailures(relative, source.split(/\r?\n/));
+  const baseline = gatePolicyFailures(repoRoot, relative, source.split(/\r?\n/));
   if (baseline.length) {
     throw new Error(`current required workflow is not a valid mutation base: ${baseline.join("; ")}`);
   }
@@ -802,7 +1364,9 @@ function runCurrentWorkflowMutationTests(repoRoot) {
   const policyBlock = [
     policyName,
     "        id: policy",
-    `        run: ${GATE_POLICY_COMMAND}`,
+    "        run: |",
+    `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
+    `          ${GATE_POLICY_COMMAND}`,
     "",
   ].join("\n");
   const verdictName =
@@ -860,6 +1424,326 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       ),
     },
     {
+      name: "real workflow rejects a missing gate policy self-test",
+      needle: "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${GATE_POLICY_SELF_TEST_COMMAND}\n`,
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a replaced changes policy invocation",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(
+        [
+          "      - name: Verify immutable actions and fail-closed required jobs",
+          "        run: |",
+          `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
+          `          ${GATE_POLICY_COMMAND}`,
+        ].join("\n"),
+        [
+          "      - name: Verify immutable actions and fail-closed required jobs",
+          "        run: true",
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a dynamically dead changes policy",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(
+        "      - name: Verify immutable actions and fail-closed required jobs",
+        "      - name: Verify immutable actions and fail-closed required jobs\n        if: false",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing changes policy",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(
+        "      - name: Verify immutable actions and fail-closed required jobs",
+        "      - name: Verify immutable actions and fail-closed required jobs\n        continue-on-error: true",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing required gate",
+      needle: "job-level continue-on-error is forbidden on required-gate job gate",
+      source: source.replace(
+        "  gate:\n",
+        "  gate:\n    continue-on-error: true\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only gate default shell",
+      needle: "required job gate defaults.run.shell must be exactly bash",
+      source: source.replace(
+        "    timeout-minutes: 5\n    steps:\n      # Re-run the workflow policy here",
+        [
+          "    timeout-minutes: 5",
+          "    defaults:",
+          "      run:",
+          "        shell: bash -n {0}",
+          "    steps:",
+          "      # Re-run the workflow policy here",
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only workflow default shell",
+      needle: "required workflow defaults.run.shell must be exactly bash",
+      source: source.replace(
+        "permissions:\n  contents: read",
+        [
+          "defaults:",
+          "  run:",
+          "    shell: sh -n {0}",
+          "",
+          "permissions:",
+          "  contents: read",
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only required step shell",
+      needle: "required job changes step shell must be exactly bash",
+      source: source.replace(
+        "        shell: bash\n",
+        "        shell: bash -n {0}\n",
+      ),
+    },
+    {
+      name: "real workflow rejects workflow-level SHELLOPTS noexec",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "env:\n  CARGO_TERM_COLOR: always\n",
+        "env:\n  SHELLOPTS: noexec\n  CARGO_TERM_COLOR: always\n",
+      ),
+    },
+    {
+      name: "real workflow rejects gate-level NODE_OPTIONS startup injection",
+      needle: "required job gate environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "  gate:\n",
+        '  gate:\n    env:\n      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"\n',
+      ),
+    },
+    {
+      name: "real workflow rejects gate-step imported node function",
+      needle:
+        "required job gate step Verify required jobs succeeded or legitimately skipped environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          POLICY_OUTCOME: ${{ steps.policy.outcome }}\n",
+        "        env:\n          'BASH_FUNC_node%%': '() { return 0; }'\n          POLICY_OUTCOME: ${{ steps.policy.outcome }}\n",
+      ),
+    },
+    {
+      name: "real workflow rejects PATH injection on a required step",
+      needle:
+        "required job changes step Detect release-impacting ZUULI changes environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}\n",
+        "        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}\n          PATH: ./ci-shims\n",
+      ),
+    },
+    {
+      name: "real workflow requires its reviewed environment",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "env:\n  CARGO_TERM_COLOR: always\n  RUST_BACKTRACE: 1\n\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the schema job environment",
+      needle:
+        "required job zuuallet_schema environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "    env:\n      CARGO_TARGET_DIR: ${{ github.workspace }}/target\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the ZUULI build nonce environment",
+      needle:
+        "required job rust_app step Build ZUULI Tauri backend environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        [
+          "        env:",
+          "          # The build script watches this value. Changing it on every attempt",
+          "          # forces schema generation even when Cargo artifacts were restored.",
+          "          TAURI_SCHEMA_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+          "          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+        ].join("\n") + "\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the Zuuallet schema nonce environment",
+      needle:
+        "required job zuuallet_schema step Regenerate Zuuallet permissions and target schema environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        [
+          "        env:",
+          "          # These values are build-script inputs, so restored Cargo artifacts",
+          "          # cannot turn this freshness assertion into a no-op.",
+          "          TAURI_SCHEMA_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+          "          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}",
+        ].join("\n") + "\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the change-detector environment",
+      needle:
+        "required job changes step Detect release-impacting ZUULI changes environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires the gate verdict environment",
+      needle:
+        "required job gate step Verify required jobs succeeded or legitimately skipped environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "        env:\n          POLICY_OUTCOME: ${{ steps.policy.outcome }}\n          REQUIRED_JOBS_JSON: ${{ toJSON(needs) }}\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects Android job-level SHELLOPTS noexec",
+      needle:
+        "required job rust_android_32 environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "  rust_android_32:\n",
+        "  rust_android_32:\n    env:\n      SHELLOPTS: noexec\n",
+      ),
+    },
+    {
+      name: "real workflow rejects Android typecheck-step SHELLOPTS noexec",
+      needle:
+        "required job rust_android_32 step Type-check the shared plugin on 32-bit Android environment differs from its exact reviewed allowlist",
+      source: source.replace(
+        "      - name: Type-check the shared plugin on 32-bit Android\n        run: |\n",
+        "      - name: Type-check the shared plugin on 32-bit Android\n        env:\n          SHELLOPTS: noexec\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects required-container environment options",
+      needle: "required job rust_clippy container cannot inject environment or runtime options",
+      source: source.replace(
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      credentials:\n",
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
+      ),
+    },
+    {
+      name: "real workflow rejects redirected Rust plugin tests",
+      needle:
+        "required job rust_plugin step Build and test shared Zcash plugin working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Build and test shared Zcash plugin\n        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
+        "      - name: Build and test shared Zcash plugin\n        working-directory: bypass\n        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a changes-job default working directory",
+      needle:
+        "required job changes defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "    timeout-minutes: 5\n    outputs:\n",
+        "    timeout-minutes: 5\n    defaults:\n      run:\n        working-directory: bypass\n    outputs:\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected changes policy step",
+      needle:
+        "required job changes step Verify immutable actions and fail-closed required jobs working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Verify immutable actions and fail-closed required jobs\n        run: |\n",
+        "      - name: Verify immutable actions and fail-closed required jobs\n        working-directory: bypass\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a gate-job default working directory",
+      needle:
+        "required job gate defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "    timeout-minutes: 5\n    steps:\n      # Re-run the workflow policy here",
+        "    timeout-minutes: 5\n    defaults:\n      run:\n        working-directory: bypass\n    steps:\n      # Re-run the workflow policy here",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected gate policy step",
+      needle:
+        "required job gate step Recheck immutable actions and fail-closed required jobs working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Recheck immutable actions and fail-closed required jobs\n        id: policy\n",
+        "      - name: Recheck immutable actions and fail-closed required jobs\n        id: policy\n        working-directory: bypass\n",
+      ),
+    },
+    {
+      name: "real workflow rejects an Android-job default working directory",
+      needle:
+        "required job rust_android_32 defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "  rust_android_32:\n    name: Rust / Android 32-bit\n",
+        "  rust_android_32:\n    name: Rust / Android 32-bit\n    defaults:\n      run:\n        working-directory: bypass\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected Android policy-control step",
+      needle:
+        "required job changes step Verify the required 32-bit Android type-check policy working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Verify the required 32-bit Android type-check policy\n        run: |\n",
+        "      - name: Verify the required 32-bit Android type-check policy\n        working-directory: bypass\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a redirected Android typecheck step",
+      needle:
+        "required job rust_android_32 step Type-check the shared plugin on 32-bit Android working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Type-check the shared plugin on 32-bit Android\n        run: |\n",
+        "      - name: Type-check the shared plugin on 32-bit Android\n        working-directory: bypass\n        run: |\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a workflow default working directory",
+      needle:
+        "required workflow defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "permissions:\n  contents: read",
+        "defaults:\n  run:\n    working-directory: bypass\n\npermissions:\n  contents: read",
+      ),
+    },
+    {
+      name: "real workflow requires the reviewed frontend default working directory",
+      needle:
+        "required job frontend defaults.run.working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "        working-directory: wallet/zuuli\n",
+        "",
+      ),
+    },
+    {
+      name: "real workflow requires reviewed image-verification working directories",
+      needle:
+        "required job rust_clippy step Verify pinned Linux build image working-directory differs from its exact reviewed value",
+      source: source.replace(
+        "      - name: Verify pinned Linux build image\n        working-directory: /\n",
+        "      - name: Verify pinned Linux build image\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a syntax-only dependency default shell",
+      needle: "required job zuuallet_schema defaults.run.shell must be exactly bash",
+      source: replaceLast(
+        source,
+        "        shell: bash\n",
+        "        shell: bash -n {0}\n",
+      ),
+    },
+    {
       name: "real workflow rejects soft-failing required dependency",
       needle: "job-level continue-on-error is forbidden on required-gate job rust_app",
       source: source.replace(
@@ -873,7 +1757,11 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     if (mutation.source === source) {
       throw new Error(`${mutation.name}: mutation target was not found`);
     }
-    const failures = gatePolicyFailures(relative, mutation.source.split(/\r?\n/));
+    const failures = gatePolicyFailures(
+      repoRoot,
+      relative,
+      mutation.source.split(/\r?\n/),
+    );
     if (!failures.some((failure) => failure.includes(mutation.needle))) {
       throw new Error(
         `${mutation.name}: expected ${JSON.stringify(mutation.needle)}, got ${failures.join("; ")}`,
@@ -895,7 +1783,9 @@ function runSelfTest(repoRoot) {
   const gatePolicyLines = [
     "      - name: Recheck immutable actions and fail-closed required jobs",
     "        id: policy",
-    `        run: ${GATE_POLICY_COMMAND}`,
+    "        run: |",
+    `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
+    `          ${GATE_POLICY_COMMAND}`,
   ];
   const gateVerdictLines = [
     "      - name: Verify required jobs succeeded or legitimately skipped",
@@ -909,7 +1799,17 @@ function runSelfTest(repoRoot) {
   const validGateWorkflow = [
     "name: required gate fixture",
     "on: pull_request",
+    "env:",
+    "  CARGO_TERM_COLOR: always",
+    "  RUST_BACKTRACE: 1",
     "jobs:",
+    "  changes:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: Verify immutable actions and fail-closed required jobs",
+    "        run: |",
+    `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
+    `          ${GATE_POLICY_COMMAND}`,
     "  advisory:",
     "    continue-on-error: true",
     "    runs-on: ubuntu-latest",
@@ -922,13 +1822,39 @@ function runSelfTest(repoRoot) {
     "        continue-on-error: true",
     "        run: echo 'step-level continue-on-error: true is allowed'",
     "  gate:",
-    "    needs: [build]",
+    "    needs: [changes, build]",
     "    if: always()",
     "    runs-on: ubuntu-latest",
     "    steps:",
     ...gateCheckoutLines,
     ...gatePolicyLines,
     ...gateVerdictLines,
+    "",
+  ].join("\n");
+  const reusableBuildJob = [
+    "  build:",
+    "    uses: ./.github/workflows/required-build.yml",
+  ].join("\n");
+  const reusableGateWorkflow = validGateWorkflow.replace(
+    [
+      "  build:",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - name: a legitimate best-effort step",
+      "        continue-on-error: true",
+      "        run: echo 'step-level continue-on-error: true is allowed'",
+    ].join("\n"),
+    reusableBuildJob,
+  );
+  const reusableBuildWorkflow = [
+    "name: required reusable build",
+    "on:",
+    "  workflow_call:",
+    "jobs:",
+    "  build:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: npm test",
     "",
   ].join("\n");
   const cases = [
@@ -946,6 +1872,309 @@ function runSelfTest(repoRoot) {
       name: "valid required gate permits advisory jobs and best-effort steps",
       valid: true,
       files: gateFixture(validGateWorkflow),
+    },
+    {
+      name: "valid required gate may call a local reusable workflow without environment blocks",
+      valid: true,
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow,
+      },
+    },
+    {
+      name: "required reusable workflow rejects workflow-level BASH_ENV",
+      needle: "required workflow environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "jobs:\n",
+          "env:\n  BASH_ENV: bypass-gate.sh\njobs:\n",
+        ),
+      },
+    },
+    {
+      name: "required reusable workflow rejects job-level SHELLOPTS",
+      needle: "required job build environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "  build:\n",
+          "  build:\n    env:\n      SHELLOPTS: noexec\n",
+        ),
+      },
+    },
+    {
+      name: "required reusable workflow rejects step-level PATH replacement",
+      needle:
+        "required job build step <unnamed> environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "      - run: npm test\n",
+          "      - env:\n          PATH: ./ci-shims\n        run: npm test\n",
+        ),
+      },
+    },
+    {
+      name: "nested required reusable workflow rejects NODE_OPTIONS",
+      needle: "required job nested environment differs from its exact reviewed allowlist",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          "    uses: ./.github/workflows/nested-build.yml",
+        ),
+        ".github/workflows/nested-build.yml": [
+          "on:",
+          "  workflow_call:",
+          "jobs:",
+          "  nested:",
+          "    env:",
+          '      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"',
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: cargo test",
+          "",
+        ].join("\n"),
+      },
+    },
+    {
+      name: "quoted BASH_FUNC key cannot hide required-job environment injection",
+      needle: "required job build environment differs from its exact reviewed allowlist",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    env:\n      'BASH_FUNC_node%%': '() { return 0; }'\n",
+        ),
+      ),
+    },
+    {
+      name: "inline required-job environment maps fail closed",
+      needle: "required job build environment must use a canonical block mapping",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n    env: { SHELLOPTS: noexec }\n",
+        ),
+      ),
+    },
+    {
+      name: "required-step environment merge aliases fail closed",
+      needle: "cannot use YAML merge keys or aliases",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "      - name: a legitimate best-effort step\n",
+          "      - name: a legitimate best-effort step\n        env:\n          <<: *execution-environment\n",
+        ),
+      ),
+    },
+    {
+      name: "required reusable workflow rejects a default working directory",
+      needle:
+        "required job build defaults.run.working-directory differs from its exact reviewed value",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n",
+          "    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: bypass\n",
+        ),
+      },
+    },
+    {
+      name: "required reusable workflow rejects a step working directory",
+      needle:
+        "required job build step <unnamed> working-directory differs from its exact reviewed value",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "      - run: npm test\n",
+          "      - working-directory: bypass\n        run: npm test\n",
+        ),
+      },
+    },
+    {
+      name: "quoted working-directory keys remain policy-visible",
+      needle:
+        "required job build step a legitimate best-effort step working-directory differs from its exact reviewed value",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "      - name: a legitimate best-effort step\n",
+          "      - name: a legitimate best-effort step\n        'working-directory': bypass\n",
+        ),
+      ),
+    },
+    {
+      name: "inline required-job defaults fail closed",
+      needle: "required job build defaults must use a canonical block mapping",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n",
+          "    runs-on: ubuntu-latest\n    defaults: { run: { working-directory: bypass } }\n    steps:\n      - name: a legitimate best-effort step\n",
+        ),
+      ),
+    },
+    {
+      name: "required-job default working-directory merge aliases fail closed",
+      needle: "defaults.run contains an unsupported or duplicate property",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n",
+          "    runs-on: ubuntu-latest\n    defaults:\n      run:\n        <<: *redirected-defaults\n    steps:\n      - name: a legitimate best-effort step\n",
+        ),
+      ),
+    },
+    {
+      name: "required reusable workflow cannot inherit a syntax-only shell",
+      needle: "required job build defaults.run.shell must be exactly bash",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n",
+          [
+            "    runs-on: ubuntu-latest",
+            "    defaults:",
+            "      run:",
+            "        shell: bash -n {0}",
+            "",
+          ].join("\n"),
+        ),
+      },
+    },
+    {
+      name: "required workflow cannot select a dynamic default shell",
+      needle: "required workflow defaults.run.shell must be exactly bash",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "on: pull_request\n",
+          [
+            "on: pull_request",
+            "defaults:",
+            "  run:",
+            "    shell: ${{ inputs.shell }}",
+            "",
+          ].join("\n"),
+        ),
+      ),
+    },
+    {
+      name: "required dependency cannot override a step with a non-bash shell",
+      needle: "required job build step shell must be exactly bash",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "      - name: a legitimate best-effort step\n",
+          "      - name: a legitimate best-effort step\n        shell: python {0}\n",
+        ),
+      ),
+    },
+    {
+      name: "reindented required steps cannot hide a shell override",
+      needle: "required job build steps must begin with a canonical block-sequence entry",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          [
+            "    steps:",
+            "      - name: a legitimate best-effort step",
+            "        continue-on-error: true",
+            "        run: echo 'step-level continue-on-error: true is allowed'",
+          ].join("\n"),
+          [
+            "    steps:",
+            "        - name: a legitimate best-effort step",
+            "          shell: bash -n {0}",
+            "          run: echo hidden",
+          ].join("\n"),
+        ),
+      ),
+    },
+    {
+      name: "required reusable workflow cannot soft-fail an internal job",
+      needle: "job-level continue-on-error is forbidden in required reusable workflow job build",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "  build:\n",
+          "  build:\n    continue-on-error: true\n",
+        ),
+      },
+    },
+    {
+      name: "nested required reusable workflow cannot hide a soft-failing job",
+      needle: "job-level continue-on-error is forbidden in required reusable workflow job nested",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          "    uses: ./.github/workflows/nested-build.yml",
+        ),
+        ".github/workflows/nested-build.yml": [
+          "on:",
+          "  workflow_call:",
+          "jobs:",
+          "  nested:",
+          "    continue-on-error: true",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: cargo test",
+          "",
+        ].join("\n"),
+      },
+    },
+    {
+      name: "external reusable workflow is forbidden as a gate dependency",
+      needle: "required-gate job build must call a repository-local reusable workflow",
+      files: gateFixture(
+        reusableGateWorkflow.replace(
+          "./.github/workflows/required-build.yml",
+          `owner/repo/.github/workflows/build.yml@${fullSha} # reviewed`,
+        ),
+      ),
+    },
+    {
+      name: "external reusable workflow is forbidden behind a local callee",
+      needle: "required reusable workflow job build must call a repository-local workflow",
+      files: {
+        ...gateFixture(reusableGateWorkflow),
+        ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
+          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          `    uses: owner/repo/.github/workflows/build.yml@${fullSha} # reviewed`,
+        ),
+      },
+    },
+    {
+      name: "non-required workflows may use valid noncanonical indentation",
+      valid: true,
+      files: {
+        ".github/workflows/formatted.yml": [
+          "name: formatter output",
+          "on: pull_request",
+          "jobs:",
+          "   formatted:",
+          "      runs-on: ubuntu-latest",
+          "      steps:",
+          "      - run: true",
+          "",
+        ].join("\n"),
+      },
+    },
+    {
+      name: "tab-indented required control fails closed",
+      needle: "tabs are unsupported in YAML indentation",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          "  build:\n",
+          "  build:\n\tcontinue-on-error: true\n",
+        ),
+      ),
+    },
+    {
+      name: "changes policy invocation cannot be replaced",
+      needle: "changes policy step must exactly self-test and enforce the current-source policy",
+      files: gateFixture(
+        validGateWorkflow.replace(
+          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n`,
+          "        run: true\n",
+        ),
+      ),
     },
     {
       name: "gate dependency cannot use job-level continue-on-error",
@@ -1052,8 +2281,8 @@ function runSelfTest(repoRoot) {
       valid: true,
       files: gateFixture(
         validGateWorkflow.replace(
-          "    needs: [build]\n",
-          "    needs:\n      - build\n",
+          "    needs: [changes, build]\n",
+          "    needs:\n      - changes\n      - build\n",
         ),
       ),
     },
@@ -1067,8 +2296,8 @@ function runSelfTest(repoRoot) {
             "  rust_android_32:\n    runs-on: ubuntu-latest\n    steps:\n      - run: cargo check\n  gate:\n",
           )
           .replace(
-            "    needs: [build]\n",
-            "    needs: [build, rust_android_32]\n",
+            "    needs: [changes, build]\n",
+            "    needs: [changes, build, rust_android_32]\n",
           ),
       ),
     },
