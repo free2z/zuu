@@ -41,11 +41,13 @@ For each artifact the release train:
 ZIP extraction rejects escaping symlinks. DMGs are mounted read-only at a
 private mountpoint, copied with a walker that never follows symlinks (including
 the canonical absolute `/Applications` link), and detached before Syft runs.
-AppImages are parsed as ELF without invoking their runtime; the computed Type 2
-payload offset and SquashFS v4 boundary are checked before `unsquashfs` lists
-and extracts the filesystem. `dpkg-deb` and `rpm2archive` emit data archives
-without running package scripts, and the release verifier parses and
-materializes their tar members itself rather than invoking package installers.
+AppImages are parsed as ELF without invoking their runtime; checked arithmetic
+over every section extent locates the Type 2 payload, and the SquashFS v4
+boundary and UTF-8 member listing are validated before extraction. `dpkg-deb`
+and `rpm2archive` emit data archives without running package scripts. Normalized
+DEB control fields and RPM header-query fields are captured in the Syft scan
+root and bound as package components, while the release verifier parses and
+materializes tar members itself rather than invoking package installers.
 Any omitted, altered, duplicate, escaping, or unsupported payload entry fails
 closed. Archive size, entry-count, and expanded-byte ceilings bound extraction
 resource use. The release manifest then hashes the artifact, SBOM, and binding

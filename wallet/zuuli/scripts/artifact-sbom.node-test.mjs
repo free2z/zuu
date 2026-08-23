@@ -116,10 +116,20 @@ function writeCanaryPayload(root) {
   symlinkSync("../../bin/zuuli", resolve(root, "usr/lib/zuuli/current"));
 }
 
-function makeAppImageFixture(root) {
-  const source = resolve(root, "appimage-root");
+function makeAppImageFixture(root, { invalidUtf8Name = false } = {}) {
+  const suffix = invalidUtf8Name ? "-invalid-utf8" : "";
+  const source = resolve(root, `appimage-root${suffix}`);
   writeCanaryPayload(source);
-  const squashfs = resolve(root, "payload.squashfs");
+  if (invalidUtf8Name) {
+    writeFileSync(
+      Buffer.concat([
+        Buffer.from(`${source}/usr/lib/zuuli/invalid-`),
+        Buffer.from([0xff]),
+      ]),
+      "invalid path bytes\n",
+    );
+  }
+  const squashfs = resolve(root, `payload${suffix}.squashfs`);
   execFileSync(
     "mksquashfs",
     [source, squashfs, "-noappend", "-quiet", "-all-root"],
@@ -127,15 +137,15 @@ function makeAppImageFixture(root) {
       stdio: ["ignore", "ignore", "pipe"],
     },
   );
-  const cSource = resolve(root, "runtime.c");
-  const runtime = resolve(root, "runtime");
+  const cSource = resolve(root, `runtime${suffix}.c`);
+  const runtime = resolve(root, `runtime${suffix}`);
   writeFileSync(cSource, "int main(void) { return 0; }\n");
   execFileSync("cc", ["-s", "-o", runtime, cSource]);
   const runtimeBytes = readFileSync(runtime);
   runtimeBytes[8] = 0x41;
   runtimeBytes[9] = 0x49;
   runtimeBytes[10] = 0x02;
-  const artifact = resolve(root, "ZUULI-test.AppImage");
+  const artifact = resolve(root, `ZUULI-test${suffix}.AppImage`);
   writeFileSync(
     artifact,
     Buffer.concat([runtimeBytes, readFileSync(squashfs)]),
@@ -279,10 +289,59 @@ function assertRealLinuxArtifactBoundary(temporary, label, artifact) {
   const inventory = prepareArtifact({ artifact, root });
   const canaryPath = "usr/lib/zuuli/libundeclared-canary.so";
   assert.ok(inventory.some((entry) => entry.path === canaryPath));
+  const metadataPath = resolve(root, ".free2z-package-metadata.json");
+  if (label === "deb" || label === "rpm") {
+    assert.equal(
+      inventory.some((entry) => entry.path === ".free2z-package-metadata.json"),
+      false,
+      "scan metadata is not a shipped payload entry",
+    );
+    const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+    assert.equal(metadata.format, label);
+    assert.equal(
+      label === "deb" ? metadata.fields.Package : metadata.fields.name,
+      "zuuli-fixture",
+    );
+    assert.equal(
+      label === "deb" ? metadata.fields.Version : metadata.fields.version,
+      "1.0.0",
+    );
+    const exactMetadata = readFileSync(metadataPath);
+    const tampered = structuredClone(metadata);
+    if (label === "deb") tampered.fields.Version = "9.9.9";
+    else tampered.fields.version = "9.9.9";
+    writeJson(metadataPath, tampered);
+    assert.throws(
+      () =>
+        finalizeArtifactSbom({
+          artifact,
+          root,
+          rawSbom,
+          sbom,
+          binding,
+        }),
+      /sidecar does not match the exact artifact/,
+    );
+    writeFileSync(metadataPath, exactMetadata);
+  } else {
+    assert.equal(existsSync(metadataPath), false);
+  }
   finalizeArtifactSbom({ artifact, root, rawSbom, sbom, binding });
   assert.doesNotThrow(() => verifyArtifactSbom({ artifact, sbom, binding }));
 
   const document = JSON.parse(readFileSync(sbom, "utf8"));
+  if (label === "deb" || label === "rpm") {
+    const packages = document.components.filter(
+      (component) =>
+        property(
+          component.properties ?? [],
+          "free2z:artifact-package:format",
+        ) === label,
+    );
+    assert.equal(packages.length, 1);
+    assert.equal(packages[0].name, "zuuli-fixture");
+    assert.equal(packages[0].version, "1.0.0");
+  }
   document.components = document.components.filter(
     (component) =>
       property(component.properties ?? [], "free2z:artifact:path") !==
@@ -306,6 +365,39 @@ function assertRealLinuxArtifactBoundary(temporary, label, artifact) {
       verifyArtifactSbom({ artifact, sbom: omitted, binding: omittedBinding }),
     /inventory count mismatch|omits shipped artifact entry/,
   );
+  if (label === "deb" || label === "rpm") {
+    document.components = document.components.filter(
+      (component) =>
+        property(
+          component.properties ?? [],
+          "free2z:artifact-package:format",
+        ) !== label,
+    );
+    const missingMetadata = resolve(
+      temporary,
+      `${label}.missing-metadata.sbom.cdx.json`,
+    );
+    writeJson(missingMetadata, document);
+    const missingMetadataBinding = resolve(
+      temporary,
+      `${label}.missing-metadata.sbom-binding.json`,
+    );
+    record.sbom = {
+      path: basename(missingMetadata),
+      bytes: lstatSync(missingMetadata).size,
+      sha256: sha256File(missingMetadata),
+    };
+    writeJson(missingMetadataBinding, record);
+    assert.throws(
+      () =>
+        verifyArtifactSbom({
+          artifact,
+          sbom: missingMetadata,
+          binding: missingMetadataBinding,
+        }),
+      /package metadata does not match/,
+    );
+  }
 }
 
 test(
@@ -358,6 +450,8 @@ test(
       const sectionCount = original.readUInt16LE(60);
       const lastSectionHeader =
         sectionTableOffset + sectionHeaderSize * (sectionCount - 1);
+      const earlierSectionHeader =
+        sectionTableOffset + sectionHeaderSize * (sectionCount - 2);
       const mutations = [
         {
           name: "truncated-elf",
@@ -373,10 +467,30 @@ test(
         },
         {
           name: "truncated-section-table",
+          bytes: original.subarray(0, lastSectionHeader + 32),
+          expected: /ELF section .* header is truncated/,
+        },
+        {
+          name: "earlier-section-extends-past-final-header",
           mutate(bytes) {
-            bytes.writeUInt16LE(0xffff, 60);
+            bytes.writeBigUInt64LE(
+              BigInt(payloadOffset),
+              earlierSectionHeader + 24,
+            );
+            bytes.writeBigUInt64LE(1n, earlierSectionHeader + 32);
           },
-          expected: /last ELF section header is truncated/,
+          expected: /does not begin with SquashFS magic/,
+        },
+        {
+          name: "overflowed-section-extent",
+          mutate(bytes) {
+            bytes.writeBigUInt64LE(
+              BigInt(Number.MAX_SAFE_INTEGER),
+              earlierSectionHeader + 24,
+            );
+            bytes.writeBigUInt64LE(1n, earlierSectionHeader + 32);
+          },
+          expected: /section .* extent exceeds the safe integer range/,
         },
         {
           name: "shifted-squashfs-offset",
@@ -414,6 +528,16 @@ test(
           expected: /exceeds the artifact boundary/,
         },
         {
+          name: "overflowed-squashfs-addition",
+          mutate(bytes) {
+            bytes.writeBigUInt64LE(
+              BigInt(Number.MAX_SAFE_INTEGER),
+              payloadOffset + 40,
+            );
+          },
+          expected: /SquashFS payload end exceeds the safe integer range/,
+        },
+        {
           name: "missing-type-2-magic",
           mutate(bytes) {
             bytes[8] = 0;
@@ -432,6 +556,29 @@ test(
           mutation.name,
         );
       }
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "AppImage listing rejects a SquashFS member with invalid UTF-8 bytes",
+  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
+  () => {
+    const temporary = mkdtempSync(
+      resolve(tmpdir(), "zuuli-appimage-utf8-mutation-"),
+    );
+    try {
+      const artifact = makeAppImageFixture(temporary, {
+        invalidUtf8Name: true,
+      });
+      const root = resolve(temporary, "unpacked");
+      assert.throws(
+        () => prepareArtifact({ artifact, root }),
+        /SquashFS member listing must be valid UTF-8/,
+      );
+      assert.equal(existsSync(root), false);
     } finally {
       rmSync(temporary, { recursive: true, force: true });
     }
@@ -551,6 +698,45 @@ test("tar payload parser rejects traversal, links, special files, and duplicates
         expected: /valid UTF-8/,
         beforeMaterialization: true,
       },
+      {
+        name: "invalid-utf8-gnu-long-name",
+        entries: [
+          {
+            name: "long-name-header",
+            type: "L",
+            data: Buffer.from([0xff, 0]),
+          },
+          { name: "fallback", data: "x" },
+        ],
+        expected: /valid UTF-8/,
+        beforeMaterialization: true,
+      },
+      {
+        name: "invalid-utf8-gnu-long-link",
+        entries: [
+          {
+            name: "long-link-header",
+            type: "K",
+            data: Buffer.from([0xff, 0]),
+          },
+          { name: "usr/link", type: "2", target: "safe" },
+        ],
+        expected: /valid UTF-8/,
+        beforeMaterialization: true,
+      },
+      ...["1e0", "1.0", " 1", "01"].map((size) => ({
+        name: `noncanonical-pax-size-${Buffer.from(size).toString("hex")}`,
+        entries: [
+          {
+            name: "pax-header",
+            type: "x",
+            data: paxRecord("size", size),
+          },
+          { name: "file", data: "x" },
+        ],
+        expected: /PAX member size must use canonical decimal digits/,
+        beforeMaterialization: true,
+      })),
     ];
     for (const fixture of cases) {
       const archive = resolve(temporary, `${fixture.name}.tar`);
@@ -1078,7 +1264,7 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "the policy must keep all Linux scans and bindings before manifest/upload",
   );
   const skippedRealFixtures = packaging.replace(
-    "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
+    "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
     "node --test --test-name-pattern='nonexistent' scripts/artifact-sbom.node-test.mjs",
   );
   assert.ok(

@@ -45,8 +45,12 @@ const ARTIFACT_PATH = "free2z:artifact:path";
 const ARTIFACT_KIND = "free2z:artifact:kind";
 const ARTIFACT_FILE_BYTES = "free2z:artifact:file-bytes";
 const ARTIFACT_LINK_TARGET = "free2z:artifact:link-target";
+const PACKAGE_METADATA_FORMAT = "free2z:artifact-package:format";
+const PACKAGE_METADATA_SHA256 = "free2z:artifact-package:metadata-sha256";
+const PACKAGE_METADATA_FIELD = "free2z:artifact-package:field:";
 const SOURCE_ROOT = "free2z:source-root";
 const SOURCE_COMMIT = "free2z:source-commit";
+const PACKAGE_METADATA_PATH = ".free2z-package-metadata.json";
 
 // Mobile stores reject packages anywhere near these ceilings. Enforcing them
 // before extraction also keeps a corrupt or hostile ZIP from exhausting a CI
@@ -127,15 +131,19 @@ export function validateArchiveMembers(members) {
 }
 
 function zipMembers(artifact) {
-  const listing = execFileSync("unzip", ["-Z1", artifact], {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const listing = decodeUtf8(
+    execFileSync("unzip", ["-Z1", artifact], {
+      maxBuffer: 64 * 1024 * 1024,
+    }),
+    "ZIP member listing",
+  );
   const members = validateArchiveMembers(listing.split("\n").filter(Boolean));
-  const totals = execFileSync("unzip", ["-Z", "-t", artifact], {
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024,
-  }).trim();
+  const totals = decodeUtf8(
+    execFileSync("unzip", ["-Z", "-t", artifact], {
+      maxBuffer: 1024 * 1024,
+    }),
+    "ZIP resource totals",
+  ).trim();
   const match = /^(\d+) files?, ([\d,]+) bytes uncompressed,/.exec(totals);
   if (!match) throw new Error("unable to read archive resource totals");
   const entryCount = Number(match[1]);
@@ -158,9 +166,10 @@ function zipMembers(artifact) {
 
 export function inventoryRoot(
   rootPath,
-  { allowExternalSymlinks = false } = {},
+  { allowExternalSymlinks = false, excludedFiles = [] } = {},
 ) {
   const root = realpathSync(rootPath);
+  const excluded = new Set(excludedFiles);
   const entries = [];
   let memberCount = 0;
   let regularBytes = 0;
@@ -180,6 +189,12 @@ export function inventoryRoot(
         );
       }
       const info = lstatSync(absolute);
+      if (excluded.has(path)) {
+        if (!info.isFile()) {
+          throw new Error(`excluded scan metadata must be a file: ${path}`);
+        }
+        continue;
+      }
       if (info.isDirectory()) {
         visit(absolute);
       } else if (info.isFile()) {
@@ -237,6 +252,14 @@ function artifactFormat(artifact) {
   throw new Error(`unsupported artifact format .${extension}`);
 }
 
+function checkedAdd(left, right, label) {
+  return safeInteger(BigInt(left) + BigInt(right), label);
+}
+
+function checkedMultiply(left, right, label) {
+  return safeInteger(BigInt(left) * BigInt(right), label);
+}
+
 function readExactly(descriptor, length, position, label) {
   const buffer = Buffer.alloc(length);
   let read = 0;
@@ -246,7 +269,7 @@ function readExactly(descriptor, length, position, label) {
       buffer,
       read,
       length - read,
-      position + read,
+      checkedAdd(position, read, `${label} read offset`),
     );
     if (count === 0) throw new Error(`${label} is truncated`);
     read += count;
@@ -265,6 +288,14 @@ function safeInteger(value, label) {
     throw new Error(`${label} must be a nonnegative safe integer`);
   }
   return value;
+}
+
+function decodeUtf8(buffer, label) {
+  try {
+    return utf8Decoder.decode(buffer);
+  } catch {
+    throw new Error(`${label} must be valid UTF-8`);
+  }
 }
 
 export function appImagePayloadOffset(artifact) {
@@ -313,34 +344,52 @@ export function appImagePayloadOffset(artifact) {
     if (sectionTableOffset === 0 || sectionCount === 0) {
       throw new Error("AppImage ELF must retain its section table");
     }
-    const lastHeaderOffset = safeInteger(
-      sectionTableOffset + sectionHeaderSize * (sectionCount - 1),
-      "last ELF section header offset",
-    );
-    const section = readExactly(
-      descriptor,
+    const sectionTableSize = checkedMultiply(
       sectionHeaderSize,
-      lastHeaderOffset,
-      "last ELF section header",
+      sectionCount,
+      "ELF section table size",
     );
-    const lastSectionOffset =
-      header[4] === 2
-        ? safeInteger(
-            section.readBigUInt64LE(sectionOffsetField),
-            "last ELF section offset",
-          )
-        : section.readUInt32LE(sectionOffsetField);
-    const lastSectionSize =
-      header[4] === 2
-        ? safeInteger(
-            section.readBigUInt64LE(sectionSizeField),
-            "last ELF section size",
-          )
-        : section.readUInt32LE(sectionSizeField);
-    const offset = Math.max(
-      sectionTableOffset + sectionHeaderSize * sectionCount,
-      lastSectionOffset + lastSectionSize,
+    const sectionTableEnd = checkedAdd(
+      sectionTableOffset,
+      sectionTableSize,
+      "ELF section table end",
     );
+    let offset = sectionTableEnd;
+    for (let index = 0; index < sectionCount; index += 1) {
+      const headerOffset = checkedAdd(
+        sectionTableOffset,
+        checkedMultiply(
+          sectionHeaderSize,
+          index,
+          `ELF section ${index} header index`,
+        ),
+        `ELF section ${index} header offset`,
+      );
+      const section = readExactly(
+        descriptor,
+        sectionHeaderSize,
+        headerOffset,
+        `ELF section ${index} header`,
+      );
+      const sectionOffset =
+        header[4] === 2
+          ? safeInteger(
+              section.readBigUInt64LE(sectionOffsetField),
+              `ELF section ${index} offset`,
+            )
+          : section.readUInt32LE(sectionOffsetField);
+      const sectionSize =
+        header[4] === 2
+          ? safeInteger(
+              section.readBigUInt64LE(sectionSizeField),
+              `ELF section ${index} size`,
+            )
+          : section.readUInt32LE(sectionSizeField);
+      offset = Math.max(
+        offset,
+        checkedAdd(sectionOffset, sectionSize, `ELF section ${index} extent`),
+      );
+    }
     const superblock = readExactly(
       descriptor,
       96,
@@ -357,7 +406,8 @@ export function appImagePayloadOffset(artifact) {
       superblock.readBigUInt64LE(40),
       "SquashFS bytes-used field",
     );
-    if (bytesUsed < 96 || offset + bytesUsed > fstatSync(descriptor).size) {
+    const payloadEnd = checkedAdd(offset, bytesUsed, "SquashFS payload end");
+    if (bytesUsed < 96 || payloadEnd > fstatSync(descriptor).size) {
       throw new Error(
         "AppImage SquashFS payload exceeds the artifact boundary",
       );
@@ -432,11 +482,12 @@ export function validateLogicalEntries(entries) {
 }
 
 function listAppImagePayload(artifact, offset) {
-  const output = execFileSync(
+  const outputBytes = execFileSync(
     "unsquashfs",
     ["-lln", "-full-precision", "-UTC", "-quiet", "-o", `${offset}`, artifact],
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 120_000 },
+    { maxBuffer: 64 * 1024 * 1024, timeout: 120_000 },
   );
+  const output = decodeUtf8(outputBytes, "SquashFS member listing");
   const entries = [];
   for (const line of output.trimEnd().split("\n")) {
     const match =
@@ -470,11 +521,13 @@ function listAppImagePayload(artifact, offset) {
 
 function extractAppImage(artifact, root) {
   const offset = appImagePayloadOffset(artifact);
-  const readelf = execFileSync("readelf", ["-hW", artifact], {
-    encoding: "utf8",
-    timeout: 120_000,
-    env: { ...process.env, LC_ALL: "C" },
-  });
+  const readelf = decodeUtf8(
+    execFileSync("readelf", ["-hW", artifact], {
+      timeout: 120_000,
+      env: { ...process.env, LC_ALL: "C" },
+    }),
+    "readelf output",
+  );
   if (!/^\s*Class:\s+ELF(?:32|64)$/m.test(readelf)) {
     throw new Error("readelf did not confirm the AppImage ELF class");
   }
@@ -519,13 +572,7 @@ function extractAppImage(artifact, root) {
 
 function tarText(buffer, label = "tar text field") {
   const nul = buffer.indexOf(0);
-  try {
-    return utf8Decoder.decode(
-      buffer.subarray(0, nul < 0 ? buffer.length : nul),
-    );
-  } catch {
-    throw new Error(`${label} must be valid UTF-8`);
-  }
+  return decodeUtf8(buffer.subarray(0, nul < 0 ? buffer.length : nul), label);
 }
 
 function tarNumber(buffer, label) {
@@ -567,7 +614,7 @@ function parsePax(buffer) {
     if (!/^[1-9][0-9]*$/.test(lengthText))
       throw new Error("invalid PAX record length");
     const length = Number(lengthText);
-    const end = offset + length;
+    const end = checkedAdd(offset, length, "PAX record end");
     if (
       !Number.isSafeInteger(length) ||
       end > buffer.length ||
@@ -575,18 +622,23 @@ function parsePax(buffer) {
     ) {
       throw new Error("truncated PAX record");
     }
-    let record;
-    try {
-      record = utf8Decoder.decode(buffer.subarray(space + 1, end - 1));
-    } catch {
-      throw new Error("PAX record must be valid UTF-8");
-    }
+    const record = decodeUtf8(
+      buffer.subarray(space + 1, end - 1),
+      "PAX record",
+    );
     const equals = record.indexOf("=");
     if (equals < 1) throw new Error("invalid PAX record");
     fields.set(record.slice(0, equals), record.slice(equals + 1));
     offset = end;
   }
   return fields;
+}
+
+function paxDecimal(value, label) {
+  if (!/^(0|[1-9][0-9]*)$/.test(value)) {
+    throw new Error(`${label} must use canonical decimal digits`);
+  }
+  return safeInteger(Number(value), label);
 }
 
 function parseTarArchive(archive) {
@@ -604,7 +656,7 @@ function parseTarArchive(archive) {
       const header = readExactly(descriptor, 512, position, "tar header");
       if (header.every((byte) => byte === 0)) {
         zeroBlocks += 1;
-        position += 512;
+        position = checkedAdd(position, 512, "next tar end-marker offset");
         continue;
       }
       if (zeroBlocks > 0)
@@ -620,8 +672,17 @@ function parseTarArchive(archive) {
         header.subarray(124, 136),
         "tar member size",
       );
-      const dataOffset = position + 512;
-      const nextPosition = dataOffset + Math.ceil(headerSize / 512) * 512;
+      const dataOffset = checkedAdd(position, 512, "tar member data offset");
+      const paddedSize = checkedMultiply(
+        Math.ceil(headerSize / 512),
+        512,
+        "padded tar member size",
+      );
+      const nextPosition = checkedAdd(
+        dataOffset,
+        paddedSize,
+        "next tar member offset",
+      );
       if (nextPosition > archiveSize)
         throw new Error("tar member exceeds archive boundary");
       const rawName = tarText(header.subarray(0, 100));
@@ -649,7 +710,7 @@ function parseTarArchive(archive) {
       const size =
         paxSize === undefined
           ? headerSize
-          : safeInteger(Number(paxSize), "PAX member size");
+          : paxDecimal(paxSize, "PAX member size");
       if (size !== headerSize)
         throw new Error("PAX size does not match the tar data boundary");
       const name = normalizeTarPath(pax.get("path") ?? longName ?? headerName);
@@ -781,23 +842,163 @@ export function extractTarArchive(archive, root) {
   }
 }
 
+function normalizedMetadataText(buffer, label) {
+  const text = decodeUtf8(buffer, label).replaceAll("\r\n", "\n");
+  if (text.includes("\r") || /\u0000/.test(text)) {
+    throw new Error(`${label} contains unsupported control bytes`);
+  }
+  return text.replace(/\n+$/, "");
+}
+
+function debPackageMetadata(artifact) {
+  const control = normalizedMetadataText(
+    execFileSync("dpkg-deb", ["--field", artifact], {
+      env: { ...process.env, LC_ALL: "C" },
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 120_000,
+    }),
+    "deb control metadata",
+  );
+  const fields = new Map();
+  let current;
+  for (const line of control.split("\n")) {
+    if (/^[ \t]/.test(line)) {
+      if (!current) throw new Error("deb control continuation has no field");
+      fields.set(current, `${fields.get(current)}\n${line.slice(1)}`);
+      continue;
+    }
+    const match = /^([A-Za-z0-9][A-Za-z0-9-]*):[ \t]?(.*)$/.exec(line);
+    if (!match) throw new Error("deb control metadata is not canonical");
+    if (fields.has(match[1])) {
+      throw new Error(`deb control metadata repeats ${match[1]}`);
+    }
+    current = match[1];
+    fields.set(current, match[2]);
+  }
+  for (const required of ["Package", "Version", "Architecture"]) {
+    if (!fields.get(required)) {
+      throw new Error(`deb control metadata is missing ${required}`);
+    }
+  }
+  return {
+    schemaVersion: 1,
+    format: "deb",
+    fields: Object.fromEntries(
+      [...fields].sort(([left], [right]) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      ),
+    ),
+  };
+}
+
+const RPM_METADATA_TAGS = [
+  ["name", "NAME"],
+  ["epoch", "EPOCHNUM"],
+  ["version", "VERSION"],
+  ["release", "RELEASE"],
+  ["architecture", "ARCH"],
+  ["license", "LICENSE"],
+  ["summary", "SUMMARY"],
+  ["vendor", "VENDOR"],
+  ["packager", "PACKAGER"],
+  ["url", "URL"],
+  ["sourceRpm", "SOURCERPM"],
+];
+
+function rpmPackageMetadata(artifact) {
+  const fields = {};
+  for (const [name, tag] of RPM_METADATA_TAGS) {
+    const value = normalizedMetadataText(
+      execFileSync(
+        "rpm",
+        ["--noplugins", "-qp", `--queryformat=%{${tag}}`, artifact],
+        {
+          env: { ...process.env, LC_ALL: "C" },
+          maxBuffer: 4 * 1024 * 1024,
+          timeout: 120_000,
+        },
+      ),
+      `RPM ${tag} header`,
+    );
+    if (value !== "(none)") fields[name] = value;
+  }
+  for (const required of ["name", "version", "release", "architecture"]) {
+    if (!fields[required]) throw new Error(`RPM header is missing ${required}`);
+  }
+  return { schemaVersion: 1, format: "rpm", fields };
+}
+
+function packageMetadataForArtifact(
+  artifact,
+  format = artifactFormat(artifact),
+) {
+  if (format === "deb") return debPackageMetadata(artifact);
+  if (format === "rpm") return rpmPackageMetadata(artifact);
+  return undefined;
+}
+
+function validatePackageMetadata(metadata, expectedFormat) {
+  if (
+    !metadata ||
+    Array.isArray(metadata) ||
+    metadata.schemaVersion !== 1 ||
+    metadata.format !== expectedFormat ||
+    !metadata.fields ||
+    Array.isArray(metadata.fields) ||
+    typeof metadata.fields !== "object"
+  ) {
+    throw new Error(`invalid ${expectedFormat} package metadata sidecar`);
+  }
+  for (const [name, value] of Object.entries(metadata.fields)) {
+    if (
+      !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(name) ||
+      typeof value !== "string" ||
+      /\u0000|\r/.test(value)
+    ) {
+      throw new Error(`invalid ${expectedFormat} package metadata field`);
+    }
+  }
+  return metadata;
+}
+
+function readPackageMetadata(root, format) {
+  if (!packageMetadataForArtifactFormat(format)) return undefined;
+  return validatePackageMetadata(
+    parseJson(resolve(root, PACKAGE_METADATA_PATH), "package metadata sidecar"),
+    format,
+  );
+}
+
+function packageMetadataForArtifactFormat(format) {
+  return format === "deb" || format === "rpm";
+}
+
+function artifactInventoryOptions(artifact) {
+  const format = artifactFormat(artifact);
+  return {
+    allowExternalSymlinks: format === "dmg",
+    excludedFiles: packageMetadataForArtifactFormat(format)
+      ? [PACKAGE_METADATA_PATH]
+      : [],
+  };
+}
+
 function extractLinuxPackage(artifact, root, format) {
   const temporary = mkdtempSync(resolve(tmpdir(), `zuuli-${format}-payload-`));
   const archive = resolve(temporary, "payload.tar");
   const output = openSync(archive, "wx", 0o600);
+  const packageMetadata = packageMetadataForArtifact(artifact, format);
   try {
     try {
       if (format === "deb") {
-        execFileSync("dpkg-deb", ["--info", artifact], {
-          stdio: ["ignore", "ignore", "pipe"],
-          timeout: 120_000,
-        });
         execFileSync("dpkg-deb", ["--fsys-tarfile", artifact], {
+          env: { ...process.env, LC_ALL: "C" },
           stdio: ["ignore", output, "pipe"],
           timeout: 120_000,
         });
       } else {
         execFileSync("rpm2archive", ["-n", artifact], {
+          env: { ...process.env, LC_ALL: "C" },
           stdio: ["ignore", output, "pipe"],
           timeout: 120_000,
         });
@@ -811,6 +1012,7 @@ function extractLinuxPackage(artifact, root, format) {
       );
     }
     extractTarArchive(archive, root);
+    canonicalWrite(resolve(root, PACKAGE_METADATA_PATH), packageMetadata);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
@@ -939,9 +1141,7 @@ export function prepareArtifact({ artifact, root }) {
   } else {
     extractLinuxPackage(artifact, root, format);
   }
-  const inventory = inventoryRoot(root, {
-    allowExternalSymlinks: format === "dmg",
-  });
+  const inventory = inventoryRoot(root, artifactInventoryOptions(artifact));
   console.log(
     `unpacked ${basename(artifact)} into ${inventory.length} shipped payload entries`,
   );
@@ -954,7 +1154,11 @@ function inventoryArtifactFresh(artifact) {
   );
   const root = resolve(temporary, "payload");
   try {
-    return prepareArtifact({ artifact, root });
+    const inventory = prepareArtifact({ artifact, root });
+    return {
+      inventory,
+      packageMetadata: readPackageMetadata(root, artifactFormat(artifact)),
+    };
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
@@ -1028,6 +1232,29 @@ function inventoryComponent(entry) {
     ...(entry.kind === "regular"
       ? { hashes: [{ alg: "SHA-256", content: entry.sha256 }] }
       : {}),
+    properties: setProperties([], properties),
+  };
+}
+
+function packageMetadataComponent(metadata) {
+  if (!metadata) return undefined;
+  const fields = metadata.fields;
+  const name = metadata.format === "deb" ? fields.Package : fields.name;
+  const version = metadata.format === "deb" ? fields.Version : fields.version;
+  const canonical = `${JSON.stringify(metadata, null, 2)}\n`;
+  const metadataSha256 = sha256Text(canonical);
+  const properties = {
+    [PACKAGE_METADATA_FORMAT]: metadata.format,
+    [PACKAGE_METADATA_SHA256]: metadataSha256,
+  };
+  for (const [field, value] of Object.entries(fields)) {
+    properties[`${PACKAGE_METADATA_FIELD}${field}`] = value;
+  }
+  return {
+    type: "application",
+    "bom-ref": `artifact-package:${metadataSha256}`,
+    name,
+    version,
     properties: setProperties([], properties),
   };
 }
@@ -1111,9 +1338,22 @@ export function verifyArtifactSbom({ artifact, sbom: sbomPath, binding }) {
   // This is intentionally derived from the bound archive in a fresh, private
   // extraction directory. The root Syft scanned is mutable workspace state and
   // cannot be trusted as verification evidence for the shipped archive.
-  const expected = new Map(
-    inventoryArtifactFresh(artifact).map((entry) => [entry.path, entry]),
+  const fresh = inventoryArtifactFresh(artifact);
+  const expected = new Map(fresh.inventory.map((entry) => [entry.path, entry]));
+  const expectedPackageComponent = packageMetadataComponent(
+    fresh.packageMetadata,
   );
+  const packageComponents = (sbom.components ?? []).filter((component) =>
+    propertyMap(component?.properties).has(PACKAGE_METADATA_FORMAT),
+  );
+  if (
+    packageComponents.length !== (expectedPackageComponent ? 1 : 0) ||
+    (expectedPackageComponent &&
+      JSON.stringify(packageComponents[0]) !==
+        JSON.stringify(expectedPackageComponent))
+  ) {
+    throw new Error("SBOM package metadata does not match the exact artifact");
+  }
   const actual = new Map();
   for (const component of sbom.components ?? []) {
     if (component?.type !== "file") continue;
@@ -1186,12 +1426,21 @@ export function finalizeArtifactSbom({
   const document = parseJson(rawSbom, "raw Syft SBOM");
   requireCycloneDx(document, "raw Syft SBOM");
   const artifactInfo = artifactMetadata(artifact);
-  const inventory = inventoryRoot(root, {
-    allowExternalSymlinks: artifactFormat(artifact) === "dmg",
-  });
+  const format = artifactFormat(artifact);
+  const inventory = inventoryRoot(root, artifactInventoryOptions(artifact));
+  const packageMetadata = readPackageMetadata(root, format);
+  const expectedPackageMetadata = packageMetadataForArtifact(artifact, format);
+  if (
+    JSON.stringify(packageMetadata) !== JSON.stringify(expectedPackageMetadata)
+  ) {
+    throw new Error(
+      "package metadata sidecar does not match the exact artifact",
+    );
+  }
   const packageComponents = (document.components ?? []).filter((component) => {
+    const properties = propertyMap(component?.properties);
+    if (properties.has(PACKAGE_METADATA_FORMAT)) return false;
     if (component?.type !== "file") return true;
-    const properties = propertyMap(component.properties);
     return !properties.has(ARTIFACT_PATH);
   });
   document.metadata = document.metadata ?? {};
@@ -1209,6 +1458,7 @@ export function finalizeArtifactSbom({
   });
   document.components = [
     ...packageComponents,
+    ...(packageMetadata ? [packageMetadataComponent(packageMetadata)] : []),
     ...inventory.map(inventoryComponent),
   ];
   canonicalWrite(sbomPath, document);
@@ -1368,7 +1618,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       "packaging linux",
       jobBlock(packaging, "desktop"),
       [
-        "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
+        "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
         'node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
         'node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root',
         'node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',
