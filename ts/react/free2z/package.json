@@ -91,7 +91,8 @@
   "proxy": "https://test.free2z.com",
   "scripts": {
     "start": "react-app-rewired start --host 0.0.0.0",
-    "build": "react-app-rewired build",
+    "prebuild": "node scripts/ios15-regex-compat.test.js",
+    "build": "react-app-rewired build && node scripts/check-ios15-bundle.js",
     "test": "react-app-rewired test",
     "eject": "react-scripts eject",
     "prettier": "prettier -c './**/*.{tsx,js,jsx,ts,json}'",
@@ -127,6 +128,7 @@
     "@types/testing-library__react": "^10.2.0",
     "@types/three": "^0.168.0",
     "@types/uuid": "^10.0.0",
+    "acorn": "^8.15.0",
     "prettier": "2.6.2",
     "react-app-rewired": "^2.2.1"
   }
