@@ -187,6 +187,45 @@ function workflowJobs(contents, workflow) {
   }));
 }
 
+function removeRequiredGateDependency(contents, dependency) {
+  const jobStarts = [...contents.matchAll(/^  ([a-zA-Z0-9_-]+):\s*$/gm)];
+  const gateIndexes = jobStarts
+    .map((match, index) => ({ index, match }))
+    .filter(({ match }) => match[1] === "gate");
+  if (gateIndexes.length !== 1) {
+    throw new Error(`expected exactly one gate job, found ${gateIndexes.length}`);
+  }
+
+  const [{ index, match }] = gateIndexes;
+  const gateStart = match.index;
+  const gateEnd = jobStarts[index + 1]?.index ?? contents.length;
+  const gate = contents.slice(gateStart, gateEnd);
+  const needsMatches = [...gate.matchAll(/^    needs: \[([^\n]*)\]$/gm)];
+  if (needsMatches.length !== 1) {
+    throw new Error(
+      `expected exactly one inline gate needs list, found ${needsMatches.length}`,
+    );
+  }
+
+  const [needsMatch] = needsMatches;
+  const dependencies = needsMatch[1].split(",").map((value) => value.trim());
+  if (dependencies.filter((value) => value === dependency).length !== 1) {
+    throw new Error(`gate needs list does not contain exactly one ${dependency}`);
+  }
+  const replacement = `    needs: [${dependencies
+    .filter((value) => value !== dependency)
+    .join(", ")}]`;
+  const mutatedGate =
+    gate.slice(0, needsMatch.index) +
+    replacement +
+    gate.slice(needsMatch.index + needsMatch[0].length);
+  if (mutatedGate === gate) {
+    throw new Error(`failed to remove ${dependency} from the gate needs list`);
+  }
+
+  return contents.slice(0, gateStart) + mutatedGate + contents.slice(gateEnd);
+}
+
 function validateConsumerJob(job, failures) {
   const exactTrust = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
   const inventoryFirst = job.contents.match(/steps:\s*\n\s*- name: Verify pinned Linux build image/);
@@ -741,7 +780,8 @@ function runSelfTest() {
       {
         name: "schema regeneration detached from required gate",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace(", zuuallet_schema]", "]"),
+        mutate: (value) =>
+          removeRequiredGateDependency(value, "zuuallet_schema"),
         expected: "gate does not await the Zuuallet schema job",
       },
       {
