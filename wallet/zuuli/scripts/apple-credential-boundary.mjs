@@ -91,6 +91,16 @@ function sourceForNode(workflow, node) {
   return node?.range ? workflow.slice(node.range[0], node.range[2]) : "";
 }
 
+function containsBareBashDoubleBracket(source) {
+  // Bash treats a failing `[[ ]]` in statement position as exempt from
+  // `errexit` on the macOS runner's Bash 3.2. Join shell continuations first
+  // so splitting the expression across physical lines cannot evade the guard.
+  const logicalLines = source.replace(/\\\r?\n[\t ]*/g, " ");
+  return /^[\t ]*\[\[[^\n]*\]\][\t ]*;?[\t ]*(?:#[^\n]*)?$/m.test(
+    logicalLines,
+  );
+}
+
 function sha256(source) {
   return createHash("sha256").update(source).digest("hex");
 }
@@ -237,7 +247,7 @@ export function verifyAppleCredentialBoundary(
   }
   for (const name of [...BUILD_JOBS, ...CREDENTIAL_JOBS, ...FINALIZE_JOBS]) {
     const source = jobs.get(name) ?? "";
-    if (/^[\t ]*\[\[[^\n]*\]\](?:[\t ]*#[^\n]*)?[\t ]*$/m.test(source)) {
+    if (containsBareBashDoubleBracket(source)) {
       failures.push(`${name} contains a bare Bash [[ ]] assertion that does not fail closed on macOS Bash 3.2`);
     }
   }

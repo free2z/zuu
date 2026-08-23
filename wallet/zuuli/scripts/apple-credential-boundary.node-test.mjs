@@ -154,6 +154,48 @@ test("rejects a bare Bash assertion in an Apple release job", () => {
   );
 });
 
+const unsealedMacJobs = [
+  "ios-build",
+  "macos-build",
+  "ios-verify",
+  "ios-finalize",
+  "macos-finalize",
+];
+const inertAssertionForms = [
+  ["trailing semicolon", "[[ 1 -eq 2 ]];"],
+  ["spaced trailing semicolon", "[[ 1 -eq 2 ]] ;"],
+  [
+    "line continuation",
+    `[[ 1 -eq 1 && ${String.fromCharCode(92)}\n  1 -eq 2 ]]`,
+  ],
+];
+
+for (const job of unsealedMacJobs) {
+  for (const [form, assertion] of inertAssertionForms) {
+    test(`rejects ${form} assertion in unsealed ${job}`, () => {
+      const marker = `  ${job}:\n    steps:\n`;
+      const script = assertion
+        .split("\n")
+        .map((line) => `          ${line}`)
+        .join("\n");
+      const mutated = validWorkflow.replace(
+        marker,
+        `${marker}      - run: |\n${script}\n`,
+      );
+      assert.notEqual(mutated, validWorkflow, `missing fixture job ${job}`);
+      const failures = verifyFixture(mutated);
+      assert.ok(
+        failures.some(
+          (failure) =>
+            failure.includes(job) &&
+            failure.includes("bare Bash [[ ]] assertion"),
+        ),
+        failures.join("\n"),
+      );
+    });
+  }
+}
+
 test("an explicit assertion guard aborts before credential work continues", () => {
   const result = spawnSync(
     "/bin/bash",
