@@ -429,7 +429,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: wallet/plugins/tauri-plugin-zcash
-          key: zuuli-plugin-android-armv7
+          key: zuuli-plugin-android-armv7-ndk27.0.12077973-api29
 
       - name: Type-check the shared plugin on 32-bit Android
         run: |

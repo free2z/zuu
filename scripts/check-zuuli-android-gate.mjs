@@ -8,6 +8,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workflowPath = ".github/workflows/zuuli.yml";
 const policyPath = "scripts/check-zuuli-android-gate.mjs";
 const target = "armv7-linux-androideabi";
+const ndk = "27.0.12077973";
+const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 
 function job(workflow, name) {
   const start = new RegExp(`^  ${name}:\\n`, "m").exec(workflow);
@@ -83,6 +85,18 @@ function check(workflow) {
   requireLine(
     failures,
     android,
+    `'ndk;${ndk}' >/dev/null`,
+    `32-bit Android job must install NDK ${ndk}`,
+  );
+  requireLine(
+    failures,
+    android,
+    `key: ${cacheKey}`,
+    "32-bit Android cache must bind the target, NDK, and API level",
+  );
+  requireLine(
+    failures,
+    android,
     `cargo check --locked --target ${target} --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml`,
     "32-bit Android job must type-check the shared plugin for armv7 with its lockfile",
   );
@@ -107,6 +121,8 @@ function runSelfTest(workflow) {
   const mutations = [
     ["the armv7 target is replaced", `targets: ${target}`, "targets: aarch64-linux-android"],
     ["the target check is replaced", `--target ${target}`, "--target aarch64-linux-android"],
+    ["the pinned NDK is changed", `'ndk;${ndk}'`, "'ndk;latest'"],
+    ["the cache drops its NDK boundary", `key: ${cacheKey}`, "key: zuuli-plugin-android-armv7"],
     [
       "the job is detached from change detection",
       "  rust_android_32:\n    name: Rust / Android 32-bit\n    needs: changes",
