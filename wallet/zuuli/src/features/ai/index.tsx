@@ -139,11 +139,18 @@ export default function AiFeature() {
   const [sessionCost, setSessionCost] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
+  const chatGenerationRef = useRef(0);
   // Which live backend conversation (if any) the next turn continues — pinned
   // to a single (model, personality) pair for its lifetime.
   const conversationRef = useRef<{ id: string; key: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const selectedRef = useRef(selected);
+  const personalityRef = useRef(personality);
+  const messagesRef = useRef(messages);
+  selectedRef.current = selected;
+  personalityRef.current = personality;
+  messagesRef.current = messages;
 
   useEffect(() => {
     if (restoredIntent?.kind !== "ai" || restoredIntentHandled.current) return;
@@ -221,33 +228,44 @@ export default function AiFeature() {
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const startNewChat = useCallback(() => {
+    chatGenerationRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
     conversationRef.current = null;
+    messagesRef.current = [];
     setMessages([]);
     setSessionCost(0);
+    setIsSending(false);
   }, []);
 
   const requestChatIdentity = useCallback(
     (model: AIModel, nextPersonality: Personality | null) => {
+      const currentModel = selectedRef.current;
+      const currentPersonality = personalityRef.current;
       if (
-        selected?.id === model.id &&
-        personality?.id === nextPersonality?.id
+        currentModel?.id === model.id &&
+        currentPersonality?.id === nextPersonality?.id
       ) {
         return;
       }
-      if (messages.length === 0) {
+      if (messagesRef.current.length === 0) {
         conversationRef.current = null;
+        selectedRef.current = model;
+        personalityRef.current = nextPersonality;
         setSelected(model);
         setPersonality(nextPersonality);
         return;
       }
       setPendingSwitch({ model, personality: nextPersonality });
     },
-    [messages.length, personality?.id, selected?.id],
+    [],
   );
 
   const confirmChatIdentity = useCallback(() => {
     if (!pendingSwitch) return;
     startNewChat();
+    selectedRef.current = pendingSwitch.model;
+    personalityRef.current = pendingSwitch.personality;
     setSelected(pendingSwitch.model);
     setPersonality(pendingSwitch.personality);
     setPendingSwitch(null);
@@ -255,15 +273,16 @@ export default function AiFeature() {
 
   const resetForActivePersonalityMutation = useCallback(
     (nextPersonality: Personality | null) => {
-      if (messages.length > 0) {
+      if (messagesRef.current.length > 0) {
         startNewChat();
         toast.info(
           "Started a new chat because the active personality changed.",
         );
       }
+      personalityRef.current = nextPersonality;
       setPersonality(nextPersonality);
     },
-    [messages.length, startNewChat],
+    [startNewChat],
   );
 
   const send = useCallback(
@@ -297,6 +316,15 @@ export default function AiFeature() {
 
       const controller = new AbortController();
       abortRef.current = controller;
+      const generation = chatGenerationRef.current;
+      const assertCurrentGeneration = () => {
+        if (
+          controller.signal.aborted ||
+          chatGenerationRef.current !== generation
+        ) {
+          throw new DOMException("Chat context changed", "AbortError");
+        }
+      };
 
       try {
         // A conversation is pinned to one (model, personality) pair for its
@@ -308,6 +336,7 @@ export default function AiFeature() {
             model,
             personality: pers,
           });
+          assertCurrentGeneration();
           conversationRef.current = { id: convo.id, key };
         }
 
@@ -323,6 +352,7 @@ export default function AiFeature() {
             }),
           controller.signal,
         );
+        assertCurrentGeneration();
 
         let tuzisCharged = res.tuzis_charged;
         if (tuzisCharged != null) {
@@ -334,6 +364,7 @@ export default function AiFeature() {
           // breakdown, so sync the authoritative balance from the account
           // and derive the exact charge from the delta.
           await refreshSession();
+          assertCurrentGeneration();
           tuzisCharged = Math.max(0, beforeTuzis - useSession.getState().tuzis);
         }
 
@@ -358,6 +389,7 @@ export default function AiFeature() {
         }
       } catch (err) {
         const aborted = isAbortError(err);
+        if (chatGenerationRef.current !== generation) return;
         const genericMessage =
           "Sorry — the model could not be reached. Please try again.";
         const detail =
@@ -382,8 +414,10 @@ export default function AiFeature() {
         );
         if (!aborted) toast.error(detail ?? "The model could not be reached.");
       } finally {
-        abortRef.current = null;
-        setIsSending(false);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setIsSending(false);
+        }
       }
     },
     [
@@ -640,21 +674,22 @@ export default function AiFeature() {
         onChanged={(change) => {
           if (change.created) {
             setPersonalities((prev) => [...prev, change.created!]);
-            if (selected) requestChatIdentity(selected, change.created);
+            const currentModel = selectedRef.current;
+            if (currentModel) requestChatIdentity(currentModel, change.created);
           } else if (change.updated) {
             setPersonalities((prev) =>
               prev.map((p) =>
                 p.id === change.updated!.id ? change.updated! : p,
               ),
             );
-            if (personality?.id === change.updated.id) {
+            if (personalityRef.current?.id === change.updated.id) {
               resetForActivePersonalityMutation(change.updated);
             }
           } else if (change.deletedId) {
             setPersonalities((prev) =>
               prev.filter((p) => p.id !== change.deletedId),
             );
-            if (personality?.id === change.deletedId) {
+            if (personalityRef.current?.id === change.deletedId) {
               resetForActivePersonalityMutation(null);
             }
           }

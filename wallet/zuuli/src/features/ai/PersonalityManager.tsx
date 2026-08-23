@@ -53,12 +53,14 @@ export function PersonalityManager({
 }: PersonalityManagerProps) {
   const [view, setView] = useState<View>({ kind: "list" });
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   // Armed by a first click on the trash icon; a second click on "Confirm"
   // actually deletes. Avoids a blocking `window.confirm()`, which freezes
   // the page (and is untheme-able) — an inline step keeps it in-app.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   function close(next: boolean) {
+    if (!next && (saving || deletingId !== null)) return;
     if (!next) {
       setView({ kind: "list" });
       setConfirmingId(null);
@@ -157,6 +159,7 @@ export function PersonalityManager({
           <PersonalityForm
             personality={view.personality}
             onCancel={() => setView({ kind: "list" })}
+            onBusyChange={setSaving}
             onSaved={(saved, wasCreate) => {
               onChanged(wasCreate ? { created: saved } : { updated: saved });
               setView({ kind: "list" });
@@ -281,10 +284,12 @@ function PersonalityForm({
   personality,
   onCancel,
   onSaved,
+  onBusyChange,
 }: {
   personality: Personality | null;
   onCancel: () => void;
   onSaved: (saved: Personality, wasCreate: boolean) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const [displayName, setDisplayName] = useState(personality?.display_name ?? "");
   const [systemMessage, setSystemMessage] = useState(
@@ -299,6 +304,7 @@ function PersonalityForm({
   async function save() {
     if (!canSave) return;
     setSaving(true);
+    onBusyChange(true);
     try {
       const input = {
         display_name: displayName.trim(),
@@ -314,6 +320,7 @@ function PersonalityForm({
       toast.error("Couldn't save that personality. Please try again.");
     } finally {
       setSaving(false);
+      onBusyChange(false);
     }
   }
 

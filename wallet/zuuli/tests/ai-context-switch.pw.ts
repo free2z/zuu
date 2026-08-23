@@ -90,3 +90,32 @@ test("an empty chat switches immediately without a destructive confirmation", as
     page.getByRole("button", { name: "Select AI model" }),
   ).toContainText("Claude Sonnet 5");
 });
+
+test("an in-flight personality save cannot close into a mismatched chat", async ({
+  page,
+}) => {
+  await openSignedInAi(page);
+  await page.getByRole("button", { name: "Select AI personality" }).click();
+  await page.getByRole("menuitem", { name: "Manage personalities…" }).click();
+
+  const manager = page.getByRole("dialog", { name: "Personalities" });
+  await manager.getByRole("button", { name: "New personality" }).click();
+  await page.getByLabel("Name").fill("Late Persona");
+  await page
+    .getByLabel("System message")
+    .fill("Answer as the late but correctly bound persona.");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  await expect(page.getByRole("dialog")).toBeVisible();
+  const savedManager = page.getByRole("dialog", { name: "Personalities" });
+  await expect(savedManager.getByText("Late Persona", { exact: true })).toBeVisible();
+  await savedManager.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Select AI personality" }),
+  ).toContainText("Late Persona");
+
+  await sendMessage(page, "This message belongs to Late Persona");
+  await expect(page.getByText(/primed as “Late Persona”/).last()).toBeVisible();
+});
