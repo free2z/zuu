@@ -87,6 +87,7 @@ const pinnedRustCache =
   "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2";
 const requiredPackages = [
   "bash",
+  "binutils",
   "build-essential",
   "ca-certificates",
   "curl",
@@ -109,6 +110,7 @@ const requiredPackages = [
   "patchelf",
   "pkg-config",
   "rpm",
+  "squashfs-tools",
   "tar",
   "wget",
   "xdg-utils",
@@ -337,8 +339,11 @@ function validate(root) {
     "libxdo shared library",
     "desktop-file-validate",
     "dpkg-deb",
+    "readelf",
+    "rpm2archive",
     "rpmbuild",
     "timeout",
+    "unsquashfs",
     "/var/lib/apt/lists",
     "APPIMAGE_EXTRACT_AND_RUN",
     "for forbidden in cargo rustc rustup",
@@ -638,6 +643,30 @@ function runSelfTest() {
         path: `${contextDir}/packages.txt`,
         mutate: (value) => value.replace("libwebkit2gtk-4.1-dev\n", ""),
         expected: "missing libwebkit2gtk-4.1-dev",
+      },
+      {
+        name: "missing explicit ELF inspection package",
+        path: `${contextDir}/packages.txt`,
+        mutate: (value) => value.replace("binutils\n", ""),
+        expected: "missing binutils",
+      },
+      {
+        name: "substituted SquashFS extraction package",
+        path: `${contextDir}/packages.txt`,
+        mutate: (value) => value.replace("squashfs-tools\n", "cpio\n"),
+        expected: "missing squashfs-tools",
+      },
+      ...["readelf", "rpm2archive", "unsquashfs"].map((command) => ({
+        name: `missing ${command} inventory contract`,
+        path: `${contextDir}/verify-inventory.sh`,
+        mutate: (value) => value.replace(`  ${command} \\\n`, ""),
+        expected: `inventory: missing ${command}`,
+      })),
+      {
+        name: "substituted RPM archive extractor",
+        path: `${contextDir}/verify-inventory.sh`,
+        mutate: (value) => value.replace("  rpm2archive \\\n", "  rpm2cpio \\\n"),
+        expected: "inventory: missing rpm2archive",
       },
       {
         name: "mutable consumer image",

@@ -1,4 +1,5 @@
 bash
+binutils
 build-essential
 ca-certificates
 curl
@@ -21,6 +22,7 @@ libxdo-dev
 patchelf
 pkg-config
 rpm
+squashfs-tools
 tar
 wget
 xdg-utils
