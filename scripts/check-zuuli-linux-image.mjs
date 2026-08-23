@@ -765,27 +765,31 @@ function runSelfTest() {
       {
         name: "Zuuallet source stops selecting schema regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace(
-          "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-          "wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-        ),
+        mutate: (value) => value
+          .replace(
+            "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+            "wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+          )
+          .replaceAll("wallet/*/Cargo.toml|", ""),
         expected: "schema input must select regeneration: wallet/zuuallet/src-tauri/Cargo.toml",
       },
       {
         name: "plugin source stops selecting schema regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace(
-          "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-          "wallet/zuuallet/src-tauri/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-        ),
+        mutate: (value) => value
+          .replace(
+            "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+            "wallet/zuuallet/src-tauri/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
+          )
+          .replaceAll("wallet/*.rs|", ""),
         expected: "schema input must select regeneration: wallet/plugins/tauri-plugin-zcash/build.rs",
       },
       {
         name: "schema policy changes stop selecting regeneration",
         path: consumerWorkflows[0],
         mutate: (value) => value.replace(
-          "scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash",
-          "scripts/check-rust-toolchain.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash",
+          "scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash",
+          "scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash",
         ),
         expected: "schema input must select regeneration: scripts/check-zuuli-linux-image.mjs",
       },
