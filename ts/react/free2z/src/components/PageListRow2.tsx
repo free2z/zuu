@@ -5,7 +5,7 @@ import {
     Popover, Divider, Tooltip, Box,
 } from "@mui/material";
 import moment from "moment";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CreatorDonate from "./CreatorDonate";
 import { PageInterface } from "./PageRenderer";
 import UpDownPage from "./UpDownPage";
@@ -13,6 +13,7 @@ import { useGlobalState } from "../state/global";
 import TransitionLink from "./TransitionLink";
 import { useTransitionNavigate } from "../hooks/useTransitionNavigate";
 import CreatorSupport from "./profile/CreatorSupport";
+import { getPageCardImage } from "../lib/page-card-image";
 
 
 export interface PageListRowProps extends PageInterface {
@@ -27,6 +28,10 @@ export default function PageListRow(page: PageListRowProps) {
     const isSmallerScreen = useMediaQuery('(max-width: 800px)');
     const [user, setUser] = useGlobalState("creator")
     const navigate = useTransitionNavigate()
+    const cardImage = useMemo(
+        () => getPageCardImage(page.featured_image?.thumbnail, page.content),
+        [page.featured_image?.thumbnail, page.content],
+    )
 
     useEffect(() => {
         function updateCardContentHeight() {
@@ -52,7 +57,6 @@ export default function PageListRow(page: PageListRowProps) {
     }
 
     const isSubbed = user.stars.indexOf(page.creator.username) !== -1
-
     return (
         <Card
             sx={{
@@ -323,9 +327,9 @@ export default function PageListRow(page: PageListRowProps) {
                             height: 0,
                             paddingTop: '56.25%',  // 16:9
                             marginRight: "0.5em",
-                            opacity: page.featured_image ? 1 : 0.25,
+                            opacity: cardImage.source === "fallback" ? 0.25 : 1,
                         }}
-                        image={page.featured_image?.thumbnail || "/docs/img/tuzi.svg"}
+                        image={cardImage.url}
                         title={page.title}
                     />
                     {/* </Suspense> */}
