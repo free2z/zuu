@@ -9,6 +9,7 @@ function source(relativeUrl) {
 const html = source("../index.html");
 const css = source("../src/index.css");
 const app = source("../src/App.tsx");
+const routes = source("../src/lib/routes.ts");
 const shell = source("../src/components/layout/AppShell.tsx");
 const topBar = source("../src/components/layout/TopBar.tsx");
 const sidebar = source("../src/components/layout/Sidebar.tsx");
@@ -92,13 +93,14 @@ test("the document and app are bounded to one dynamic viewport frame", () => {
 test("login stays inside pinned chrome with one bounded scroll owner", () => {
   const shellRoute = app.indexOf('<Route element={<AppShell />}>');
   const loginRoute = app.indexOf(
-    '<Route path="/login" element={<AuthFeature />} />',
+    '<Route path={APP_ROUTES.login} element={<AuthFeature />} />',
   );
   const catchAll = app.indexOf('<Route path="*" element={<NotFound />} />');
 
   assert.ok(shellRoute >= 0);
   assert.ok(loginRoute > shellRoute);
   assert.ok(loginRoute < catchAll);
+  assert.match(routes, /login: "\/login"/);
   assert.match(shell, /location\.pathname === "\/login"/);
   assert.equal(auth.match(/overflow-y-auto/g)?.length, 1);
   assert.equal(auth.match(/data-route-scroll/g)?.length, 1);
