@@ -39,9 +39,10 @@ jobs:
           fetch-depth: 0
 
       # This runs before change detection on every event. A workflow cannot
-      # replace its own judge with a mutable external action and then skip the
-      # full application suite as an allegedly unrelated change.
-      - name: Verify every external action has an immutable revision
+      # replace its own judge with a mutable external action, or mark a job the
+      # required gate awaits as best-effort, then skip the full application
+      # suite as an allegedly unrelated change.
+      - name: Verify immutable actions and fail-closed required jobs
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
           node scripts/check-github-actions-pins.mjs
@@ -544,6 +545,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Re-run the workflow policy here so even job-level continue-on-error on
+      # `changes` cannot turn that job's deliberately failing policy verdict
+      # into the `success` conclusion this gate consumes.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Recheck immutable actions and fail-closed required jobs
+        run: node scripts/check-github-actions-pins.mjs
+
       - name: Verify required jobs succeeded or legitimately skipped
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
