@@ -174,6 +174,12 @@ integrate, and move it forward alongside everything else.
   code defect. Each has a mirrored job in `zuuallet.yml`, because the required
   `gate` lives in `zuuli.yml` and its change detector does not select
   `wallet/zuuallet/**`.
+- **Target-native clippy is part of custody coverage.** Linux cannot compile
+  macOS- and Windows-only Keychain, Credential Manager, filesystem, and OAuth
+  branches. The `custody-platforms` matrix in `.github/workflows/zuuallet.yml`
+  therefore runs the same pinned `scripts/check-rust-clippy.sh` verdict on both
+  native hosts. Each lane first executes the script's negative control so a
+  missing or ineffective `-D warnings` cannot masquerade as a clean target.
 - **`wallet/deny.toml`'s `ignore` entries rot, and re-reading them will not tell
   you.** Each carries a human-written reason that was true the day it was
   written and quietly stops being true as the graph moves. A stale justification
