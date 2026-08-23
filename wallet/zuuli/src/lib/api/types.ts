@@ -338,6 +338,9 @@ export interface SearchResultPage<T> {
   count: number;
 }
 
+/** One validated page of a creator's published catalog. */
+export type CreatorPagesPage = ArticleFeedPage;
+
 // ── Livestreams (dyte) ──────────────────────────────────────────────────────
 export type StreamKind = "broadcast" | "subscriber" | "ppv" | "private";
 

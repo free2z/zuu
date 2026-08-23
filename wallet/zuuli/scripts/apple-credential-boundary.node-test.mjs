@@ -142,6 +142,29 @@ test("accepts separated source, credential, and finalization jobs", () => {
   assert.deepEqual(verifyFixture(validWorkflow), []);
 });
 
+test("rejects a bare Bash assertion in an Apple release job", () => {
+  const mutated = validWorkflow.replace(
+    "          tauri ios build --archive-only --no-sign\n",
+    "          [[ 1 -eq 2 ]]\n          tauri ios build --archive-only --no-sign\n",
+  );
+  const failures = verifyFixture(mutated);
+  assert.ok(
+    failures.some((failure) => failure.includes("bare Bash [[ ]] assertion")),
+    failures.join("\n"),
+  );
+});
+
+test("an explicit assertion guard aborts before credential work continues", () => {
+  const result = spawnSync(
+    "/bin/bash",
+    ["-c", 'set -euo pipefail; [[ 1 -eq 2 ]] || { echo "assertion rejected" >&2; exit 1; }; echo REACHED'],
+    { encoding: "utf8" },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /assertion rejected/);
+  assert.doesNotMatch(result.stdout, /REACHED/);
+});
+
 test("rejects the actionlint-valid two-file reusable-workflow escape", () => {
   const caller = validWorkflow.replace(
     "  release-index:\n",
