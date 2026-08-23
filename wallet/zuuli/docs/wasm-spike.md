@@ -55,12 +55,25 @@ The release module is **116 bytes** before transport compression.
 | Warm `npm run wasm:build`                                |         about 0.52 s |
 | Release `.wasm`                                          |            116 bytes |
 | Release `.wasm`, deterministic gzip (`gzip -n -9`)       |            128 bytes |
-| Hosted required-frontend job overhead                    | Pending first PR run |
+| Hosted required-frontend direct WASM overhead            |         about 10.5 s |
 
 The build script reports its own elapsed time, byte count, and SHA-256 in every
-CI log. The PR's first hosted run should replace the final row before merge;
-that number includes installing the exact Rust compiler/target on GitHub's
-runner and is the honest effect on the required job's wall clock.
+CI log. The first replacement-head run for
+[PR #535](https://github.com/free2z/zuu/actions/runs/32651540544/job/97223897698)
+measured the required frontend job from GitHub's job and step timestamps plus
+the build script's own timers. Installing Rust 1.97.1 with the WASM target took
+10 seconds. The fresh test build, Playwright web-server build, and production
+build reported 107 ms, 23 ms, and 24 ms respectively; the three artifact
+negative tests reported 254 ms total, and final dist verification took about
+72 ms from log timestamps. Those directly attributable sequential costs total
+about **10.5 seconds** within an 8 minute 31 second frontend job.
+
+The real-browser WASM case ran successfully inside the existing 127-case,
+two-worker Playwright suite. GitHub's reporter exposes only the aggregate 6.9
+minute suite duration for successful tests, so no additional browser-test wall
+time is claimed: it was scheduled in parallel and cannot be isolated honestly
+from this run. Likewise this is an isolated-cost measurement, not a noisy
+before/after claim about the rest of the frontend or packaging pipeline.
 
 ## Recommendation
 
