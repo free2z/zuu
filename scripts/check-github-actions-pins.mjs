@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,6 +69,73 @@ const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   "        shell: bash",
   "        run: scripts/check-rust-clippy.sh",
 ];
+const REQUIRED_CRYPTO_TARGET_JOB_LINES = [
+  "  rust_crypto_targets:",
+  "    name: Rust / modern crypto targets (${{ matrix.family }})",
+  "    needs: changes",
+  "    if: needs.changes.outputs.zuuli == 'true'",
+  "    timeout-minutes: 45",
+  "    strategy:",
+  "      fail-fast: false",
+  "      matrix:",
+  "        include:",
+  "          - family: linux-android",
+  "            os: ubuntu-24.04",
+  "            targets: x86_64-unknown-linux-gnu,aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android",
+  "          - family: apple",
+  "            os: macos-26",
+  "            targets: aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-ios",
+  "          - family: windows",
+  "            os: windows-2025",
+  "            targets: x86_64-pc-windows-msvc",
+  "    runs-on: ${{ matrix.os }}",
+  "    steps:",
+  `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - name: Resolve the pinned Rust toolchain",
+  "        id: rust_toolchain",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  "          version=$(scripts/check-rust-toolchain.sh --print-channel)",
+  '          echo "version=$version" >> "$GITHUB_OUTPUT"',
+  "      - name: Install the pinned compiler and release targets",
+  "        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+  "        with:",
+  "          toolchain: ${{ steps.rust_toolchain.outputs.version }}",
+  "          targets: ${{ matrix.targets }}",
+  "      - name: Verify exact clean source identity",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  '          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+  '          test -z "$(git status --porcelain --untracked-files=all)"',
+  "      - name: Build the representative crypto probe for every release target",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  "          IFS=',' read -ra targets <<< '${{ matrix.targets }}'",
+  '          for target in "${targets[@]}"; do',
+  '            cargo build --locked --release --lib --target "$target" \\',
+  "              --manifest-path wallet/zuuli/crypto-target-spike/Cargo.toml",
+  "          done",
+  "      - name: Execute the representative crypto probe on the hosted OS",
+  "        shell: bash",
+  "        run: cargo test --locked --manifest-path wallet/zuuli/crypto-target-spike/Cargo.toml -- --nocapture",
+];
+const REQUIRED_CRYPTO_PROBE_INPUTS = new Map([
+  [
+    "wallet/zuuli/crypto-target-spike/Cargo.toml",
+    "341cd331a35d440ac495f42843a2712fdaf0df84a6f80920c30101c27e37688f",
+  ],
+  [
+    "wallet/zuuli/crypto-target-spike/Cargo.lock",
+    "a72f1141ad6803d643c87c44f87ea20b82bd166193818db2919caca444cc1b94",
+  ],
+  [
+    "wallet/zuuli/crypto-target-spike/src/lib.rs",
+    "6988d6425fc811739c8fd6f7f71f4f052585ed9d97ceaa80143b03b37f26bc66",
+  ],
+]);
 const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "Cargo.toml",
   "Cargo.lock",
@@ -1552,6 +1620,27 @@ function nativeClippySelectorFailures(relativeFile, lines, changes) {
   return failures;
 }
 
+function cryptoProbeInputFailures(repoRoot, overrides = new Map()) {
+  const failures = [];
+  for (const [input, expectedDigest] of REQUIRED_CRYPTO_PROBE_INPUTS) {
+    const absoluteInput = path.resolve(repoRoot, input);
+    if (!overrides.has(input)) {
+      if (!fs.existsSync(absoluteInput) || !fs.lstatSync(absoluteInput).isFile()) {
+        failures.push(`${input}: required crypto probe input must be a regular file`);
+        continue;
+      }
+    }
+    const contents = overrides.has(input)
+      ? overrides.get(input)
+      : fs.readFileSync(absoluteInput);
+    const actualDigest = createHash("sha256").update(contents).digest("hex");
+    if (actualDigest !== expectedDigest) {
+      failures.push(`${input}: crypto probe input differs from its reviewed digest`);
+    }
+  }
+  return failures;
+}
+
 function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const failures = [];
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
@@ -1592,6 +1681,9 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const enforceWasmBoundary = enforceNativeClippy;
   if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_clippy")) {
     failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`);
+  }
+  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_crypto_targets")) {
+    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_crypto_targets`);
   }
 
   const nativeClippy = jobs.get("rust_native_clippy");
@@ -1680,6 +1772,26 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
         `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must run exactly one unconditional all-wallet lint entrypoint`,
       );
     }
+  }
+
+  const cryptoTargets = jobs.get("rust_crypto_targets");
+  if (enforceNativeClippy && !cryptoTargets) {
+    failures.push(`${relativeFile}: required workflow must contain rust_crypto_targets`);
+  } else if (enforceNativeClippy) {
+    const actualCryptoTargetJobLines = lines
+      .slice(cryptoTargets.start, cryptoTargets.end)
+      .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+      .map((line) => line.trimEnd());
+    if (
+      JSON.stringify(actualCryptoTargetJobLines) !==
+      JSON.stringify(REQUIRED_CRYPTO_TARGET_JOB_LINES)
+    ) {
+      failures.push(
+        `${relativeFile}:${cryptoTargets.start + 1}: rust_crypto_targets must match the exact reviewed target/source/test contract`,
+      );
+    }
+
+    failures.push(...cryptoProbeInputFailures(repoRoot));
   }
 
   const validatedReusableWorkflows = new Set();
@@ -2013,6 +2125,48 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       source: source.replace(
         "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
         "    if: needs.changes.outputs.zuuli == 'true'",
+      ),
+    },
+    {
+      name: "real workflow rejects crypto targets detached from gate",
+      needle: "gate must await rust_crypto_targets",
+      source: source.replace(", rust_crypto_targets", ""),
+    },
+    {
+      name: "real workflow rejects a stale crypto source reset",
+      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      source: source.replace(
+        "      - name: Verify exact clean source identity",
+        "      - name: Substitute an earlier clean source\n        run: git reset --hard HEAD~1\n\n      - name: Verify exact clean source identity",
+      ),
+    },
+    {
+      name: "real workflow rejects a removed crypto target",
+      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      source: source.replace(",i686-linux-android", ""),
+    },
+    {
+      name: "real workflow rejects crypto type-check substituted for code generation",
+      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      source: source.replace(
+        "            cargo build --locked --release --lib --target",
+        "            cargo check --locked --release --lib --target",
+      ),
+    },
+    {
+      name: "real workflow rejects a skipped crypto host runtime test",
+      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      source: source.replace(
+        "      - name: Execute the representative crypto probe on the hosted OS\n        shell: bash",
+        "      - name: Execute the representative crypto probe on the hosted OS\n        if: false\n        shell: bash",
+      ),
+    },
+    {
+      name: "real workflow rejects deletion of crypto source identity",
+      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      source: source.replace(
+        '          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\n',
+        "",
       ),
     },
     {
@@ -2667,10 +2821,9 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a syntax-only dependency default shell",
       needle:
         "required job zuuallet_schema defaults.run.shell must be exactly bash",
-      source: replaceLast(
-        source,
-        "        shell: bash\n",
-        "        shell: bash -n {0}\n",
+      source: source.replace(
+        "    defaults:\n      run:\n        shell: bash\n    env:\n      CARGO_TARGET_DIR: ${{ github.workspace }}/target",
+        "    defaults:\n      run:\n        shell: bash -n {0}\n    env:\n      CARGO_TARGET_DIR: ${{ github.workspace }}/target",
       ),
     },
     {
@@ -2700,7 +2853,20 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     }
     console.log(`self-test: ${mutation.name}: passed`);
   }
-  return mutations.length;
+  let cryptoInputMutations = 0;
+  for (const input of REQUIRED_CRYPTO_PROBE_INPUTS.keys()) {
+    const original = fs.readFileSync(path.resolve(repoRoot, input));
+    const failures = cryptoProbeInputFailures(
+      repoRoot,
+      new Map([[input, Buffer.concat([original, Buffer.from("\nmutated")])]]),
+    );
+    if (!failures.some((failure) => failure.includes("differs from its reviewed digest"))) {
+      throw new Error(`crypto input mutation escaped policy: ${input}`);
+    }
+    cryptoInputMutations += 1;
+    console.log(`self-test: crypto input digest rejects mutation: ${input}: passed`);
+  }
+  return mutations.length + cryptoInputMutations;
 }
 
 function runSelfTest(repoRoot) {
