@@ -43,7 +43,10 @@ for directory in "$artifact_root"/*; do
 
   provenance_count=0
   while IFS= read -r -d '' manifest; do
-    jq -e --arg sha "$expected_commit" '.source.commit == $sha' "$manifest" >/dev/null
+    jq -e --arg sha "$expected_commit" '.source.commit == $sha' "$manifest" >/dev/null || {
+      echo "release provenance is not bound to expected commit: $name" >&2
+      exit 65
+    }
     provenance_count=$((provenance_count + 1))
   done < <(find "$directory" -type f -name provenance.json -print0)
   [[ "$provenance_count" -eq 1 ]] || {
