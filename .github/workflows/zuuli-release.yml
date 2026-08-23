@@ -1099,7 +1099,7 @@ jobs:
       id-token: write
       attestations: write
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:1f51900724b8ccac86832dbf573a019fdd405f3ad4a407382047e2e4087055a1
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -1154,6 +1154,52 @@ jobs:
           for extension in AppImage deb rpm; do
             test -n "$(find release-artifacts -type f -name "*.$extension" -size +0c -print -quit)"
           done
+      - name: Prepare Linux shipped-artifact inventories
+        run: |
+          appimages=(release-artifacts/*.AppImage)
+          debs=(release-artifacts/*.deb)
+          rpms=(release-artifacts/*.rpm)
+          [[ ${#appimages[@]} -eq 1 && -f "${appimages[0]}" ]] || { echo "expected exactly one Linux AppImage" >&2; exit 1; }
+          [[ ${#debs[@]} -eq 1 && -f "${debs[0]}" ]] || { echo "expected exactly one Linux deb" >&2; exit 1; }
+          [[ ${#rpms[@]} -eq 1 && -f "${rpms[0]}" ]] || { echo "expected exactly one Linux rpm" >&2; exit 1; }
+          node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root
+          node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root
+          node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root
+      - name: Scan Linux AppImage shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/linux-appimage/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Scan Linux deb shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/linux-deb/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Scan Linux rpm shipped artifact
+        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        with:
+          syft-version: v1.50.0
+          path: wallet/zuuli/artifact-sbom-work/linux-rpm/root
+          config: wallet/zuuli/syft-artifact.yaml
+          format: cyclonedx-json
+          output-file: wallet/zuuli/artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json
+          upload-artifact: false
+      - name: Bind Linux shipped-artifact SBOMs
+        run: |
+          appimages=(release-artifacts/*.AppImage)
+          debs=(release-artifacts/*.deb)
+          rpms=(release-artifacts/*.rpm)
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json
       - name: Prepare explicitly labeled source inventory
         run: mkdir -p artifact-sbom-work
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
@@ -1170,6 +1216,12 @@ jobs:
         run: node scripts/artifact-sbom.mjs label-source --raw-sbom=artifact-sbom-work/ZUULI-linux.source.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux.source.sbom.cdx.json --source-root=wallet/zuuli
       - name: Record checksums and provenance
         run: |
+          appimages=(release-artifacts/*.AppImage)
+          debs=(release-artifacts/*.deb)
+          rpms=(release-artifacts/*.rpm)
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json
           jq -e '(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)' release-artifacts/ZUULI-linux.source.sbom.cdx.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
