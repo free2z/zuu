@@ -5,6 +5,8 @@ dist-ssr
 playwright-report
 test-results
 release-artifacts
+wasm-spike/generated/
+wasm-spike/target/
 vendor/
 .bundle/
 *.local
