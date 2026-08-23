@@ -33,13 +33,14 @@ binds the untagged subject
 `sha256:bc66315a17723a6a828a8d3c91733ff2e06f164d18a17de72acf199cc27381d1`,
 the main-branch image workflow, and a GitHub-hosted runner.
 
-The current promoted image was built from
-`d946765402106cfd231c2d50f619738bdf6537f0`. [GitHub attestation
-41745676](https://github.com/free2z/zuu/attestations/41745676) binds the subject
-`ghcr.io/free2z/zuuli-linux-ci` to digest
+The current promoted image was built from main commit
+`7f26cad2d9dfdbf2467f51af38c51412a5fa62dc` by [workflow run
+32642217313](https://github.com/free2z/zuu/actions/runs/32642217313). [GitHub
+attestation 42422072](https://github.com/free2z/zuu/attestations/42422072)
+binds the subject `ghcr.io/free2z/zuuli-linux-ci` to digest
 `sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406`.
-The same main-branch job pulled that exact digest and passed its embedded
-inventory before promotion.
+The same main-branch run pulled that exact digest and passed its embedded
+inventory before promotion; the signed transparency entry is Rekor log index 2571737098.
 
 This #434 rebuild replaces an unsafe `ldconfig | grep -q` inventory pipeline.
 Under `pipefail`, an early successful match could close the pipe and turn
@@ -50,11 +51,11 @@ negative case for a genuinely absent library.
 
 ## Phase B: digest-pinned consumers
 
-Exactly six Linux consumers use the promoted digest: the required lint,
-standalone plugin, and ZUULI backend jobs; the Linux packaging smoke matrix
-entry; the protected Linux release job; and Zuuallet's required locked Rust
-build/test job. Zuuallet's lightweight jobs and separately scoped upstream
-canary remain outside this focused consumer set. macOS, Android, iOS,
+Exactly seven Linux consumer jobs use the promoted digest: the required lint,
+standalone plugin, ZUULI backend, and Zuuallet schema jobs; the Linux packaging
+smoke matrix entry; the protected Linux release job; and Zuuallet's required
+locked Rust build/test job. Zuuallet's lightweight jobs and separately scoped
+upstream canary remain outside this focused consumer set. macOS, Android, iOS,
 lightweight format/supply-chain jobs, and all store-upload jobs remain on their
 native runners.
 

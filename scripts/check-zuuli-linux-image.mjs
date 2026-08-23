@@ -25,6 +25,7 @@ const contextFiles = [
 ];
 const lockPath = `${contextDir}/image.lock`;
 const workflowPath = ".github/workflows/zuuli-linux-image.yml";
+const documentationPath = "docs/ZUULI-LINUX-BUILD-IMAGE.md";
 const consumerWorkflows = [
   ".github/workflows/zuuli.yml",
   ".github/workflows/zuuli-packaging.yml",
@@ -34,6 +35,10 @@ const consumerWorkflows = [
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
 const lockedImageDigest = "sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406";
 const lockedImageSourceHash = "9a8236c68bcd1b740200b03aeb5b92a521da9c5095ff4075603f41e2ab6b9ba4";
+const lockedImageSourceCommit = "7f26cad2d9dfdbf2467f51af38c51412a5fa62dc";
+const lockedImagePublicationRun = "32642217313";
+const lockedImageAttestation = "42422072";
+const lockedImageRekorIndex = "2571737098";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
 const expectedConsumerCount = 7;
 const requiredConsumerJobs = new Set([
@@ -260,6 +265,26 @@ function validate(root) {
   const libxdoVerifier = read(root, `${contextDir}/verify-libxdo.sh`);
   const lock = parseLock(read(root, lockPath), failures);
   const workflow = read(root, workflowPath);
+  const documentation = read(root, documentationPath);
+
+  const promotionStart = documentation.indexOf("The current promoted image");
+  const promotionEnd =
+    promotionStart < 0 ? -1 : documentation.indexOf("\n\n", promotionStart);
+  const promotionRecord =
+    promotionStart < 0 || promotionEnd < 0
+      ? ""
+      : documentation.slice(promotionStart, promotionEnd);
+  for (const evidence of [
+    lockedImageSourceCommit,
+    `actions/runs/${lockedImagePublicationRun}`,
+    `attestations/${lockedImageAttestation}`,
+    lockedImageDigest,
+    `Rekor log index ${lockedImageRekorIndex}`,
+  ]) {
+    if (!promotionRecord.includes(evidence)) {
+      failures.push(`documentation: current promotion evidence is missing ${evidence}`);
+    }
+  }
 
   if (lock.get("schema_version") !== "1") failures.push("image.lock: schema_version must be 1");
   const phase = lock.get("phase");
@@ -527,7 +552,7 @@ function validate(root) {
 }
 
 function copyFixture(destination) {
-  for (const path of [lockPath, workflowPath, ...consumerWorkflows]) {
+  for (const path of [lockPath, workflowPath, documentationPath, ...consumerWorkflows]) {
     const target = resolve(destination, path);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(resolve(repoRoot, path), target, { recursive: true });
@@ -600,6 +625,18 @@ function runSelfTest() {
         mutate: (value) => value.replace(lockedImageDigest, `${lockedImageDigest.slice(0, -1)}0`),
         expected: "image_digest",
       },
+      ...[
+        ["source commit", lockedImageSourceCommit],
+        ["publication run", `actions/runs/${lockedImagePublicationRun}`],
+        ["attestation", `attestations/${lockedImageAttestation}`],
+        ["digest", lockedImageDigest],
+        ["Rekor index", `Rekor log index ${lockedImageRekorIndex}`],
+      ].map(([name, evidence]) => ({
+        name: `stale documented promotion ${name}`,
+        path: documentationPath,
+        mutate: (value) => value.replace(evidence, `${evidence.slice(0, -1)}0`),
+        expected: "current promotion evidence",
+      })),
       {
         name: "candidate overwrites consumed source binding",
         path: lockPath,

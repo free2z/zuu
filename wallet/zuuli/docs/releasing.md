@@ -53,6 +53,13 @@ closed. Archive size, entry-count, and expanded-byte ceilings bound extraction
 resource use. The release manifest then hashes the artifact, SBOM, and binding
 record, and protected jobs attest every member of `release-artifacts`.
 
+One #379 acceptance item remains separate from artifact fidelity: the release
+train does not yet reconcile each source-declared dependency set with the
+components discovered in every Android, iOS, Linux, and macOS artifact SBOM.
+Until a fail-closed cross-inventory policy and positive/negative fixtures cover
+every platform boundary, the exact artifact inventories must not be described
+as declared-dependency reconciliation.
+
 `release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
 byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
 compares the original bytes with the canonical serialization, rejecting invalid
