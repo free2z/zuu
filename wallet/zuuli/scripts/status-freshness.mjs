@@ -5,6 +5,11 @@ import { dirname, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  buildReleaseBumpContents,
+  releaseBumpRelativePaths,
+} from "./release-bump-content.mjs";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = resolve(scriptDirectory, "../../..");
 const statusPath = "wallet/zuuli/STATUS.md";
@@ -44,17 +49,9 @@ const releaseImpactingPaths = new Set([
 // release-bump.mjs owns exactly these generated identity surfaces. The source
 // commit is still checked by release-identity.mjs, which proves that their
 // version/build values agree with canonical release.json.
-export const releaseBumpPaths = new Set([
-  "wallet/zuuli/release.json",
-  "wallet/zuuli/package.json",
-  "wallet/zuuli/package-lock.json",
-  "wallet/zuuli/src-tauri/Cargo.toml",
-  "wallet/zuuli/src-tauri/Cargo.lock",
-  "wallet/zuuli/src-tauri/tauri.conf.json",
-  "wallet/zuuli/src-tauri/gen/apple/project.yml",
-  "wallet/zuuli/src-tauri/gen/apple/zuuli_iOS/Info.plist",
-  "wallet/zuuli/src-tauri/gen/android/app/build.gradle.kts",
-]);
+export const releaseBumpPaths = new Set(
+  releaseBumpRelativePaths.map((path) => `wallet/zuuli/${path}`),
+);
 
 export function isReleaseImpactingPath(path) {
   return (
@@ -95,7 +92,9 @@ export function parseStatusMarker(contents) {
     );
   }
   if (!validCalendarDate(marker[2])) {
-    throw new Error(`STATUS.md re-derivation date is not a real calendar date: ${marker[2]}`);
+    throw new Error(
+      `STATUS.md re-derivation date is not a real calendar date: ${marker[2]}`,
+    );
   }
   return { auditSha: marker[1], auditDate: marker[2] };
 }
@@ -122,10 +121,21 @@ function changedPaths(repoRoot, from, to) {
     ["diff", "--name-only", "--no-renames", "-z", from, to, "--"],
     { encoding: "buffer" },
   );
-  return bytes
-    .toString("utf8")
-    .split("\0")
-    .filter(Boolean);
+  return bytes.toString("utf8").split("\0").filter(Boolean);
+}
+
+function readTextAtCommit(repoRoot, sha, path) {
+  let bytes;
+  try {
+    bytes = git(repoRoot, ["show", `${sha}:${path}`], { encoding: "buffer" });
+  } catch {
+    throw new Error(`${path} is missing from commit ${sha}`);
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error(`${path} at commit ${sha} must contain valid UTF-8`);
+  }
 }
 
 function sourceParent(repoRoot, sourceSha) {
@@ -148,24 +158,17 @@ function isFirstParentAncestor(repoRoot, ancestor, descendant) {
 }
 
 function readStatusAtSource(repoRoot, sourceSha) {
-  let bytes;
-  try {
-    bytes = git(repoRoot, ["show", `${sourceSha}:${statusPath}`], {
-      encoding: "buffer",
-    });
-  } catch {
-    throw new Error(`${statusPath} is missing from release source ${sourceSha}`);
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw new Error(`${statusPath} at release source must contain valid UTF-8`);
-  }
+  return readTextAtCommit(repoRoot, sourceSha, statusPath);
 }
 
-export function verifyStatusFreshness({ repoRoot = defaultRepoRoot, sourceSha }) {
+export function verifyStatusFreshness({
+  repoRoot = defaultRepoRoot,
+  sourceSha,
+}) {
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
-    throw new Error("source SHA must be a full lowercase 40-character commit SHA");
+    throw new Error(
+      "source SHA must be a full lowercase 40-character commit SHA",
+    );
   }
   requireCommit(repoRoot, sourceSha, "release source");
 
@@ -207,9 +210,55 @@ export function verifyStatusFreshness({ repoRoot = defaultRepoRoot, sourceSha })
     );
   }
 
-  const statusWasReDerived = changedPaths(repoRoot, auditSha, sourceSha).includes(
-    statusPath,
-  );
+  let releaseIdentity;
+  try {
+    releaseIdentity = JSON.parse(
+      readTextAtCommit(repoRoot, sourceSha, "wallet/zuuli/release.json"),
+    );
+  } catch (error) {
+    throw new Error(`release source identity is malformed: ${error.message}`);
+  }
+  if (
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(
+      releaseIdentity.version ?? "",
+    ) ||
+    !Number.isSafeInteger(releaseIdentity.build) ||
+    releaseIdentity.build < 1 ||
+    releaseIdentity.build > 2_100_000_000
+  ) {
+    throw new Error("release source identity has an invalid version or build");
+  }
+  let expectedBumpContents;
+  try {
+    expectedBumpContents = buildReleaseBumpContents({
+      read: (path) =>
+        readTextAtCommit(repoRoot, parentSha, `wallet/zuuli/${path}`),
+      ...releaseIdentity,
+    });
+  } catch (error) {
+    throw new Error(
+      `release source identity cannot be reproduced mechanically: ${error.message}`,
+    );
+  }
+  const nonMechanicalBumpPaths = sourceDelta
+    .filter((path) => releaseBumpPaths.has(path))
+    .filter((path) => {
+      const sourceContents = readTextAtCommit(repoRoot, sourceSha, path);
+      const relativePath = path.slice("wallet/zuuli/".length);
+      const expected = expectedBumpContents.get(relativePath);
+      return sourceContents !== expected;
+    });
+  if (nonMechanicalBumpPaths.length > 0) {
+    throw new Error(
+      `release source contains non-mechanical changes in release-bump files:\n${nonMechanicalBumpPaths.map((path) => `- ${path}`).join("\n")}`,
+    );
+  }
+
+  const statusWasReDerived = changedPaths(
+    repoRoot,
+    auditSha,
+    sourceSha,
+  ).includes(statusPath);
   if (!statusWasReDerived) {
     throw new Error(
       `STATUS.md at the release source was not committed after its recorded audit source ${auditSha}`,
@@ -221,7 +270,9 @@ export function verifyStatusFreshness({ repoRoot = defaultRepoRoot, sourceSha })
 
 function argument(name) {
   const prefix = `--${name}=`;
-  return process.argv.find((value) => value.startsWith(prefix))?.slice(prefix.length);
+  return process.argv
+    .find((value) => value.startsWith(prefix))
+    ?.slice(prefix.length);
 }
 
 function main() {
@@ -234,4 +285,5 @@ function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main();
