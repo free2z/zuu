@@ -31,12 +31,15 @@ these ZIP-family artifacts the release train:
    target-bearing inventory of every safe relative symlink;
 4. writes a separate binding record containing the exact artifact and SBOM
    SHA-256 digests and byte counts; and
-5. independently re-inventories the payload before the release manifest and
-   build-provenance attestation are created.
+5. independently re-extracts the exact digest-bound archive into a fresh
+   private temporary root and re-inventories that payload before the release
+   manifest and build-provenance attestation are created. Verification never
+   accepts the mutable root that Syft scanned as evidence of shipped bytes.
 
 Any omitted, altered, duplicate, escaping, or unsupported payload entry fails
-closed. The release manifest then hashes the artifact, SBOM, and binding record,
-and protected jobs attest every member of `release-artifacts`.
+closed. Archive size, entry-count, and expanded-byte ceilings bound extraction
+resource use. The release manifest then hashes the artifact, SBOM, and binding
+record, and protected jobs attest every member of `release-artifacts`.
 
 Artifact-level extraction for Linux AppImage, deb, and rpm packages and for the
 macOS DMG and signed app ZIP remains tracked in issue #379. Those jobs retain

@@ -203,7 +203,7 @@ jobs:
         run: node scripts/artifact-sbom.mjs finalize-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --root=artifact-sbom-work/android/root --raw-sbom=artifact-sbom-work/android/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
       - name: Record checksums and provenance
         run: |
-          node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --root=artifact-sbom-work/android/root --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -305,7 +305,7 @@ jobs:
         run: node scripts/artifact-sbom.mjs finalize-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --root=artifact-sbom-work/ios/root --raw-sbom=artifact-sbom-work/ios/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
       - name: Record checksums and provenance
         run: |
-          node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --root=artifact-sbom-work/ios/root --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

@@ -7,15 +7,18 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readFileSync,
   readSync,
   readdirSync,
   readlinkSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import {
   basename,
   dirname,
@@ -36,6 +39,13 @@ const ARTIFACT_FILE_BYTES = "free2z:artifact:file-bytes";
 const ARTIFACT_LINK_TARGET = "free2z:artifact:link-target";
 const SOURCE_ROOT = "free2z:source-root";
 const SOURCE_COMMIT = "free2z:source-commit";
+
+// Mobile stores reject packages anywhere near these ceilings. Enforcing them
+// before extraction also keeps a corrupt or hostile ZIP from exhausting a CI
+// runner while the SBOM boundary is being checked.
+const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 100_000;
+const MAX_UNPACKED_BYTES = 4 * 1024 * 1024 * 1024;
 
 function sha256Text(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -88,6 +98,11 @@ function safeArchiveMember(member) {
 
 export function validateArchiveMembers(members) {
   if (members.length === 0) throw new Error("archive is empty");
+  if (members.length > MAX_ARCHIVE_ENTRIES) {
+    throw new Error(
+      `archive has too many entries: ${members.length} > ${MAX_ARCHIVE_ENTRIES}`,
+    );
+  }
   const seen = new Set();
   for (const member of members) {
     if (!safeArchiveMember(member)) {
@@ -107,12 +122,35 @@ function zipMembers(artifact) {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
-  return validateArchiveMembers(listing.split("\n").filter(Boolean));
+  const members = validateArchiveMembers(listing.split("\n").filter(Boolean));
+  const totals = execFileSync("unzip", ["-Z", "-t", artifact], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+  }).trim();
+  const match = /^(\d+) files?, ([\d,]+) bytes uncompressed,/.exec(totals);
+  if (!match) throw new Error("unable to read archive resource totals");
+  const entryCount = Number(match[1]);
+  const unpackedBytes = Number(match[2].replaceAll(",", ""));
+  if (entryCount !== members.length) {
+    throw new Error(
+      `archive listing count changed: ${members.length} names, ${entryCount} entries`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(unpackedBytes) ||
+    unpackedBytes > MAX_UNPACKED_BYTES
+  ) {
+    throw new Error(
+      `archive expands beyond the ${MAX_UNPACKED_BYTES}-byte safety limit`,
+    );
+  }
+  return members;
 }
 
 export function inventoryRoot(rootPath) {
   const root = realpathSync(rootPath);
   const entries = [];
+  let regularBytes = 0;
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = resolve(directory, entry.name);
@@ -126,6 +164,12 @@ export function inventoryRoot(rootPath) {
       if (info.isDirectory()) {
         visit(absolute);
       } else if (info.isFile()) {
+        regularBytes += info.size;
+        if (regularBytes > MAX_UNPACKED_BYTES) {
+          throw new Error(
+            `unpacked artifact exceeds the ${MAX_UNPACKED_BYTES}-byte safety limit`,
+          );
+        }
         entries.push({
           path,
           kind: "regular",
@@ -162,7 +206,12 @@ export function inventoryRoot(rootPath) {
 }
 
 export function prepareArtifact({ artifact, root }) {
-  requireRegularFile(artifact, "artifact");
+  const artifactInfo = requireRegularFile(artifact, "artifact");
+  if (artifactInfo.size > MAX_ARCHIVE_BYTES) {
+    throw new Error(
+      `artifact exceeds the ${MAX_ARCHIVE_BYTES}-byte safety limit`,
+    );
+  }
   const extension = artifact.toLowerCase().split(".").at(-1);
   if (!["aab", "ipa", "zip"].includes(extension)) {
     throw new Error(`unsupported artifact format .${extension}`);
@@ -177,6 +226,18 @@ export function prepareArtifact({ artifact, root }) {
     `unpacked ${basename(artifact)} into ${inventory.length} shipped payload entries`,
   );
   return inventory;
+}
+
+function inventoryArtifactFresh(artifact) {
+  const temporary = mkdtempSync(
+    resolve(tmpdir(), "zuuli-artifact-sbom-verify-"),
+  );
+  const root = resolve(temporary, "payload");
+  try {
+    return prepareArtifact({ artifact, root });
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 function parseJson(path, label) {
@@ -294,12 +355,7 @@ function regularComponentHash(component) {
   return matches[0].content;
 }
 
-export function verifyArtifactSbom({
-  artifact,
-  root,
-  sbom: sbomPath,
-  binding,
-}) {
+export function verifyArtifactSbom({ artifact, sbom: sbomPath, binding }) {
   const artifactInfo = artifactMetadata(artifact);
   const sbomInfo = {
     path: basename(sbomPath),
@@ -332,8 +388,11 @@ export function verifyArtifactSbom({
     }
   }
 
+  // This is intentionally derived from the bound archive in a fresh, private
+  // extraction directory. The root Syft scanned is mutable workspace state and
+  // cannot be trusted as verification evidence for the shipped archive.
   const expected = new Map(
-    inventoryRoot(root).map((entry) => [entry.path, entry]),
+    inventoryArtifactFresh(artifact).map((entry) => [entry.path, entry]),
   );
   const actual = new Map();
   for (const component of sbom.components ?? []) {
@@ -373,6 +432,19 @@ export function verifyArtifactSbom({
         `SBOM artifact entry does not match shipped bytes: ${path}`,
       );
     }
+  }
+  if (
+    JSON.stringify(artifactMetadata(artifact)) !== JSON.stringify(artifactInfo)
+  ) {
+    throw new Error("artifact changed during independent SBOM verification");
+  }
+  const sbomAfter = {
+    path: basename(sbomPath),
+    bytes: requireRegularFile(sbomPath, "SBOM").size,
+    sha256: sha256File(sbomPath),
+  };
+  if (JSON.stringify(sbomAfter) !== JSON.stringify(sbomInfo)) {
+    throw new Error("SBOM changed during independent artifact verification");
   }
   if (record.inventoryEntries !== expected.size) {
     throw new Error("artifact-SBOM binding inventory count is stale");
@@ -430,9 +502,8 @@ export function finalizeArtifactSbom({
     sbom: sbomInfo,
     inventoryEntries: inventory.length,
   });
-  verifyArtifactSbom({ artifact, root, sbom: sbomPath, binding });
   console.log(
-    `bound ${sbomInfo.path} (${inventory.length} shipped entries) to sha256:${artifactInfo.sha256}`,
+    `wrote ${sbomInfo.path} (${inventory.length} scanned entries) bound to sha256:${artifactInfo.sha256}; independent artifact verification is still required`,
   );
 }
 
@@ -476,6 +547,33 @@ function jobBlock(workflow, jobName) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+function requireExactRunStep(label, block, stepName, expectedLines, failures) {
+  const marker = `\n      - name: ${stepName}\n`;
+  const count = block.split(marker).length - 1;
+  if (count !== 1) {
+    failures.push(
+      `${label}: expected one named ${stepName} step, found ${count}`,
+    );
+    return;
+  }
+  const rest = block.slice(block.indexOf(marker) + marker.length);
+  const next = rest.search(/^      - /m);
+  const step = next === -1 ? rest : rest.slice(0, next);
+  const runMarker = "        run: |\n";
+  if (!step.startsWith(runMarker)) {
+    failures.push(`${label}: ${stepName} must be a multiline run step`);
+    return;
+  }
+  const actualLines = step
+    .slice(runMarker.length)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+  if (JSON.stringify(actualLines) !== JSON.stringify(expectedLines)) {
+    failures.push(`${label}: ${stepName} executable lines changed`);
+  }
+}
+
 function requireOrdered(label, block, markers, failures) {
   let previous = -1;
   for (const marker of markers) {
@@ -500,7 +598,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
         "path: wallet/zuuli/artifact-sbom-work/android/root",
         "config: wallet/zuuli/syft-artifact.yaml",
         "node scripts/artifact-sbom.mjs finalize-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --root=artifact-sbom-work/android/root --raw-sbom=artifact-sbom-work/android/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json",
-        "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --root=artifact-sbom-work/android/root --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json",
+        "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json",
         "npm run release:manifest -- --artifacts=release-artifacts",
         "actions/upload-artifact@",
       ],
@@ -513,7 +611,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
         "path: wallet/zuuli/artifact-sbom-work/ios/root",
         "config: wallet/zuuli/syft-artifact.yaml",
         "node scripts/artifact-sbom.mjs finalize-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --root=artifact-sbom-work/ios/root --raw-sbom=artifact-sbom-work/ios/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json",
-        "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --root=artifact-sbom-work/ios/root --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json",
+        "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json",
         "npm run release:manifest -- --artifacts=release-artifacts",
         "actions/upload-artifact@",
       ],
@@ -526,7 +624,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
         "path: wallet/zuuli/artifact-sbom-work/android/root",
         "config: wallet/zuuli/syft-artifact.yaml",
         'node scripts/artifact-sbom.mjs finalize-artifact --artifact="$artifact" --root=artifact-sbom-work/android/root --raw-sbom=artifact-sbom-work/android/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json',
-        'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/android/root --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json',
         "npm run release:manifest -- --artifacts=release-artifacts",
         "actions/attest-build-provenance@",
       ],
@@ -539,13 +637,61 @@ export function artifactSbomWorkflowFailures(packaging, release) {
         "path: wallet/zuuli/artifact-sbom-work/ios/root",
         "config: wallet/zuuli/syft-artifact.yaml",
         'node scripts/artifact-sbom.mjs finalize-artifact --artifact="$artifact" --root=artifact-sbom-work/ios/root --raw-sbom=artifact-sbom-work/ios/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json',
-        'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/ios/root --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json',
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json',
         "node scripts/release-manifest.mjs --artifacts=release-artifacts",
         "actions/attest-build-provenance@",
       ],
     ],
   ]) {
     requireOrdered(label, block, markers, failures);
+  }
+  for (const [label, block, expectedLines] of [
+    [
+      "packaging android",
+      jobBlock(packaging, "android"),
+      [
+        "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-android-unsigned.aab --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json",
+        "npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+    [
+      "packaging ios",
+      jobBlock(packaging, "ios"),
+      [
+        "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json",
+        "npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+    [
+      "release android",
+      jobBlock(release, "android"),
+      [
+        "artifacts=(release-artifacts/*.aab)",
+        '[[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }',
+        "artifact=${artifacts[0]}",
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json',
+        "npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+    [
+      "release ios",
+      jobBlock(release, "ios-finalize"),
+      [
+        "artifacts=(release-artifacts/*.ipa)",
+        '[[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }',
+        "artifact=${artifacts[0]}",
+        'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json',
+        "node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json",
+      ],
+    ],
+  ]) {
+    requireExactRunStep(
+      label,
+      block,
+      "Record checksums and provenance",
+      expectedLines,
+      failures,
+    );
   }
   for (const [label, block, output, manifest] of [
     [
@@ -589,7 +735,7 @@ function optionsFor(command, args) {
       : command === "finalize-artifact"
         ? ["artifact", "root", "raw-sbom", "sbom", "binding"]
         : command === "verify-artifact"
-          ? ["artifact", "root", "sbom", "binding"]
+          ? ["artifact", "sbom", "binding"]
           : command === "label-source"
             ? ["raw-sbom", "sbom", "source-root", "source-commit"]
             : [],

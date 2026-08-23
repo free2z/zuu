@@ -95,7 +95,7 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
     assert.ok(inventory.some((entry) => entry.path === canaryPath));
     finalizeArtifactSbom({ artifact: archive, root, rawSbom, sbom, binding });
     assert.doesNotThrow(() =>
-      verifyArtifactSbom({ artifact: archive, root, sbom, binding }),
+      verifyArtifactSbom({ artifact: archive, sbom, binding }),
     );
 
     const document = JSON.parse(readFileSync(sbom, "utf8"));
@@ -122,6 +122,11 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
       true,
       "Syft-discovered packages must be preserved alongside the complete file inventory",
     );
+    rmSync(root, { recursive: true, force: true });
+    assert.doesNotThrow(
+      () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
+      "verification must remain independent after the mutable scan root is removed",
+    );
 
     const mutatedSbom = resolve(temporary, "mutated.sbom.cdx.json");
     document.components = document.components.filter(
@@ -142,7 +147,6 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
       () =>
         verifyArtifactSbom({
           artifact: archive,
-          root,
           sbom: mutatedSbom,
           binding: mutatedBinding,
         }),
@@ -151,8 +155,44 @@ test("shipped canary is inventoried and exact artifact/SBOM bytes are bound", ()
 
     appendFileSync(archive, "post-scan artifact mutation");
     assert.throws(
-      () => verifyArtifactSbom({ artifact: archive, root, sbom, binding }),
+      () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
       /binding does not match exact artifact and SBOM bytes/,
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("verification re-extracts the artifact instead of trusting a mutated scan root", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-artifact-fresh-"));
+  try {
+    const { archive } = makeZipFixture(temporary);
+    const root = resolve(temporary, "unpacked");
+    const injectedPath = resolve(
+      root,
+      "Payload/ZUULI.app/Frameworks/post-prepare-injection.dylib",
+    );
+    const rawSbom = resolve(temporary, "raw.cdx.json");
+    const sbom = resolve(temporary, "artifact.sbom.cdx.json");
+    const binding = resolve(temporary, "artifact.sbom-binding.json");
+    writeJson(rawSbom, minimalCycloneDx());
+
+    prepareArtifact({ artifact: archive, root });
+    writeFileSync(injectedPath, "not present in the shipped IPA\n");
+    finalizeArtifactSbom({ artifact: archive, root, rawSbom, sbom, binding });
+
+    const document = JSON.parse(readFileSync(sbom, "utf8"));
+    assert.ok(
+      document.components.some(
+        (component) =>
+          property(component.properties ?? [], "free2z:artifact:path") ===
+          "Payload/ZUULI.app/Frameworks/post-prepare-injection.dylib",
+      ),
+      "the finalizer must consume the mutated Syft scan root for this canary",
+    );
+    assert.throws(
+      () => verifyArtifactSbom({ artifact: archive, sbom, binding }),
+      /artifact file inventory count mismatch|omits shipped artifact entry/,
     );
   } finally {
     rmSync(temporary, { recursive: true, force: true });
@@ -194,6 +234,13 @@ test("source inventory is labeled without pretending to describe an artifact", (
 });
 
 test("archive member validation rejects duplicate and unsafe names", () => {
+  assert.throws(
+    () =>
+      validateArchiveMembers(
+        Array.from({ length: 100_001 }, (_, index) => `entry-${index}`),
+      ),
+    /archive has too many entries/,
+  );
   assert.throws(
     () =>
       validateArchiveMembers([
@@ -257,12 +304,22 @@ test("workflow contract catches removal of a mobile artifact scan", () => {
     ),
   );
   const skippedVerification = release.replace(
-    'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/android/root',
-    'node scripts/artifact-sbom.mjs verify-artifact-disabled --artifact="$artifact" --root=artifact-sbom-work/android/root',
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json',
+    'node scripts/artifact-sbom.mjs verify-artifact-disabled --artifact="$artifact" --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json',
   );
   assert.ok(
     artifactSbomWorkflowFailures(packaging, skippedVerification).some(
       (failure) => failure.includes("release android"),
     ),
+  );
+  const sameRootVerification = packaging.replace(
+    "node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json",
+    "# node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json\n          node scripts/artifact-sbom.mjs verify-artifact --artifact=release-artifacts/ZUULI-ios-unsigned.zip --root=artifact-sbom-work/ios/root --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(sameRootVerification, release).some(
+      (failure) => failure.includes("packaging ios"),
+    ),
+    "the policy must reject replacing fresh artifact verification with the mutable Syft root",
   );
 });

@@ -333,7 +333,7 @@ jobs:
           artifacts=(release-artifacts/*.aab)
           [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }
           artifact=${artifacts[0]}
-          node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/android/root --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-android.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-android.artifact.sbom-binding.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
@@ -846,7 +846,7 @@ jobs:
           artifacts=(release-artifacts/*.ipa)
           [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }
           artifact=${artifacts[0]}
-          node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --root=artifact-sbom-work/ios/root --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="$artifact" --sbom=release-artifacts/ZUULI-ios.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-ios.artifact.sbom-binding.json
           node scripts/release-manifest.mjs --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
