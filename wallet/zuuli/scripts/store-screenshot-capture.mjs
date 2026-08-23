@@ -492,7 +492,7 @@ export function markCaptureOwnerReviewRequired(manifest, first) {
   for (const locale of manifest.locales) locale.copyStatus = "proposed-owner-legal-review-required";
   manifest.classification.reviewStatus = "proposed-owner-store-review-required";
   manifest.capturePolicy.status = "captured-owner-review-required";
-  manifest.capturePolicy.blockedByIssues = [371, 373, 1257, 1253, 1260];
+  manifest.capturePolicy.blockedByIssues = [371, 373];
   manifest.capturePolicy.sourceSha = first.sourceSha;
   manifest.capturePolicy.sourceDigest = first.sourceDigest;
   manifest.capturePolicy.contractDigest = first.contractDigest;

@@ -64,7 +64,7 @@ test("the repository captured-media contract validates and publication fails clo
   assert.equal(result.publicationReady, false);
   assert.deepEqual(result.screenshotSets.map(({ count }) => count), [4, 4, 4, 4, 4]);
   const manifest = JSON.parse(await readFile(resolve(projectRoot, "store/manifest.json"), "utf8"));
-  assert.deepEqual(manifest.capturePolicy.blockedByIssues, [371, 373, 1257, 1253, 1260]);
+  assert.deepEqual(manifest.capturePolicy.blockedByIssues, [371, 373]);
   await rejectsCode(() => validateStoreContract({ root: projectRoot, publish: true }), "NOT_PUBLICATION_READY");
 });
 

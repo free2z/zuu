@@ -147,10 +147,11 @@ Primary references:
 `store/manifest.json` and `store/locales/` are the canonical locale mapping,
 proposed copy, classification proposals, and exact media contract. Phase B has
 four source- and hash-pinned screenshot candidates for every required device
-class, but `publicationReady` remains false while upstream #1257, #1253, and
-#1260, owner verification of the minimum Apple credential role required by
-#371, the repository Actions policy required by #373, plus owner/legal copy and
-visual approval. The candidates are not assertions about live store media. Run:
+class, but `publicationReady` remains false while unshipped backend dependencies
+tracked internally, owner verification of the minimum Apple credential role
+required by #371, the repository Actions policy required by #373, plus
+owner/legal copy and visual approval. The candidates are not assertions about
+live store media. Run:
 
 ```bash
 npm run store:validate
@@ -247,14 +248,12 @@ The current build does not claim the Free2Z HTTPS host as an iOS universal link
 or Android app link (`appLink: false`). Do not enable that capability until the
 production signing identifiers/fingerprints are served from both platform
 association files on every canonical environment. The HTTPS page plus exact
-private-use fallback is the supported path meanwhile. free2z/tuzi#1265 is
-merged and live in production, but Tuzi issuance remains default-off
-(`ZUULI_NATIVE_CHECKOUT_ENABLED=false` in every environment) until its
-dedicated callback DNS, TLS, isolated Ingress, and live readiness probes pass.
-While it is off, free2z answers `returnMode: "zuuli_mobile"` with 503 and the
-app falls back to the `web` return mode, so card checkout keeps working and
-returns to the Free2Z HTTPS page instead of into ZUULI. Treat a native return
-that never arrives as that gate being closed before suspecting the client.
+private-use fallback is the supported path meanwhile. Native return readiness
+depends on an unshipped backend capability tracked internally. Until that
+capability is available, the app falls back to the `web` return mode, so card
+checkout returns to the Free2Z HTTPS page instead of into ZUULI. Treat a native
+return that never arrives as a possible external readiness gap before
+suspecting the client.
 
 ## Local release dry run
 
