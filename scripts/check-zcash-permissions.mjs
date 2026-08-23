@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -49,6 +50,21 @@ function assertIdentical(entries, label) {
   }
 }
 
+function schemaNamesFromTrackedPaths(listing, schemaDir) {
+  const prefix = `${schemaDir}/`;
+  const names = listing
+    .split("\n")
+    .filter(Boolean)
+    .map((entry) => {
+      if (!entry.startsWith(prefix) || !entry.endsWith("-schema.json")) {
+        throw new Error(`unexpected tracked Zuuallet schema path: ${entry}`);
+      }
+      return entry.slice(prefix.length);
+    });
+  if (!names.length) throw new Error("no tracked Zuuallet target schemas found");
+  return unique(names, "tracked Zuuallet target schemas");
+}
+
 function expectFailure(fn, pattern) {
   try {
     fn();
@@ -79,6 +95,20 @@ function selfTest() {
         "target schemas",
       ),
     /target schemas differ: linux, macOS/,
+  );
+  const discoveredSchemas = schemaNamesFromTrackedPaths(
+    "wallet/zuuallet/src-tauri/gen/schemas/linux-schema.json\n" +
+      "wallet/zuuallet/src-tauri/gen/schemas/windows-schema.json\n",
+    "wallet/zuuallet/src-tauri/gen/schemas",
+  );
+  assertSameSet(
+    ["linux-schema.json", "windows-schema.json"],
+    discoveredSchemas,
+    "dynamic target schema discovery",
+  );
+  expectFailure(
+    () => schemaNamesFromTrackedPaths("", "wallet/zuuallet/src-tauri/gen/schemas"),
+    /no tracked Zuuallet target schemas/,
   );
   console.log("Zcash permission parity negative controls passed.");
 }
@@ -154,7 +184,14 @@ const referenceIds = unique(
 assertSameSet(permissionIds, referenceIds, "command TOMLs and permission reference");
 
 const appSchemaDir = path.join(root, "wallet/zuuallet/src-tauri/gen/schemas");
-const appSchemaNames = ["linux-schema.json", "macOS-schema.json", "desktop-schema.json"];
+const appSchemaRelativeDir = "wallet/zuuallet/src-tauri/gen/schemas";
+const appSchemaNames = schemaNamesFromTrackedPaths(
+  execFileSync("git", ["ls-files", "--", `${appSchemaRelativeDir}/*-schema.json`], {
+    cwd: root,
+    encoding: "utf8",
+  }),
+  appSchemaRelativeDir,
+);
 const namespacedPermissionIds = permissionIds.map((identifier) => `zcash:${identifier}`);
 const expectedAppSchemaIds = [...namespacedPermissionIds, "zcash:default"];
 const appSchemas = appSchemaNames.map((name) => {
