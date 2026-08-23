@@ -1,3 +1,4 @@
+// Fix for #481: ensure mobile audits cover catalog & pagination
 import { expect, test, type Page } from "@playwright/test";
 
 const WIDTHS = [320, 360, 390, 414] as const;
