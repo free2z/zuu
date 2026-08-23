@@ -1011,6 +1011,8 @@ jobs:
       - name: Prove Apple credentials are absent before dependency code
         run: scripts/assert-no-apple-credentials.sh
       - run: npm ci
+      - name: Verify macOS Keychain entitlement policy
+        run: node scripts/macos-keychain-entitlements.mjs
       - name: Reverify exact release source
         run: node scripts/release-identity.mjs "--source-sha=$ZUULI_RELEASE_SOURCE_SHA" --require-main
       - name: Verify Rust compiler
@@ -1032,10 +1034,11 @@ jobs:
           mkdir unsigned-macos
           ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" unsigned-macos/ZUULI.app.zip
           cp "${dmgs[0]}" unsigned-macos/ZUULI-layout.dmg
+          cp src-tauri/Entitlements.plist unsigned-macos/Entitlements.plist
           jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
             '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,kind:"macos-unsigned-app-and-layout"}' \
             > unsigned-macos/source-record.json
-          (cd unsigned-macos && shasum -a 256 ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256)
+          (cd unsigned-macos && shasum -a 256 Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256)
           artifact_sha256=$(shasum -a 256 unsigned-macos/ZUULI.app.zip | awk '{print $1}')
           payload_sha256=$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')
           echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
@@ -1087,10 +1090,10 @@ jobs:
           [[ "$EXPECTED_APP_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected macOS app digest" >&2; exit 1; }
           [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected macOS payload digest" >&2; exit 1; }
           expected_members=$(printf '%s\n' \
-            ./CHECKSUMS.sha256 ./ZUULI-layout.dmg ./ZUULI.app.zip ./source-record.json | LC_ALL=C sort)
+            ./CHECKSUMS.sha256 ./Entitlements.plist ./ZUULI-layout.dmg ./ZUULI.app.zip ./source-record.json | LC_ALL=C sort)
           actual_members=$(cd unsigned-macos && find . -mindepth 1 -print | LC_ALL=C sort)
           [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned macOS artifact inventory" >&2; exit 1; }
-          for member in CHECKSUMS.sha256 ZUULI-layout.dmg ZUULI.app.zip source-record.json; do
+          for member in CHECKSUMS.sha256 Entitlements.plist ZUULI-layout.dmg ZUULI.app.zip source-record.json; do
             [[ -f "unsigned-macos/$member" && ! -L "unsigned-macos/$member" ]] || { echo "unsafe unsigned macOS member: $member" >&2; exit 1; }
           done
           test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
@@ -1111,12 +1114,14 @@ jobs:
         env:
           CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
           umask 077
           : "${APPLE_SIGNING_IDENTITY:?APPLE_DEVELOPER_ID_IDENTITY is not configured}"
           : "${CERTIFICATE_BASE64:?APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 is not configured}"
           : "${CERTIFICATE_PASSWORD:?APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD is not configured}"
+          : "${PROVISIONING_PROFILE_BASE64:?APPLE_DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 is not configured}"
           secret_dir=$(mktemp -d "$RUNNER_TEMP/zuuli-macos-app-sign.XXXXXX")
           keychain="$secret_dir/signing.keychain-db"
           original_keychains_file="$secret_dir/original-keychains.txt"
@@ -1141,6 +1146,36 @@ jobs:
           }
           trap cleanup EXIT
           printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$secret_dir/developer-id.p12"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$secret_dir/zuuli.provisionprofile"
+          test -s "$secret_dir/developer-id.p12"
+          test -s "$secret_dir/zuuli.provisionprofile"
+          security cms -D -i "$secret_dir/zuuli.provisionprofile" > "$secret_dir/profile.plist"
+          verify_developer_id_profile() {
+            local profile_plist=$1
+            local profile_now=$2
+            local team_count group_count group_index group created expiration created_epoch expiration_epoch
+            team_count=$(plutil -extract TeamIdentifier raw -expect array -o - -- "$profile_plist")
+            [[ "$team_count" == 1 ]] || { echo "Developer ID profile must contain exactly one team identifier" >&2; return 1; }
+            [[ "$(plutil -extract TeamIdentifier.0 raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N ]] || { echo "Developer ID profile team identifier is unauthorized" >&2; return 1; }
+            [[ "$(plutil -extract ProvisionsAllDevices raw -expect bool -o - -- "$profile_plist")" == true ]] || { echo "Developer ID profile is not a distribution profile" >&2; return 1; }
+            [[ "$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N.cash.free2z.zuuli ]] || { echo "Developer ID profile application identifier is unauthorized" >&2; return 1; }
+            group_count=$(plutil -extract Entitlements.keychain-access-groups raw -expect array -o - -- "$profile_plist")
+            [[ "$group_count" =~ ^[0-9]+$ && "$group_count" -gt 0 ]] || { echo "Developer ID profile has no keychain access groups" >&2; return 1; }
+            group_index=0
+            while (( group_index < group_count )); do
+              group=$(plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string -o - -- "$profile_plist")
+              [[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == 'F9AV5HKF6N.*' ]] || { echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1; }
+              (( group_index += 1 ))
+            done
+            created=$(plutil -extract CreationDate raw -expect date -o - -- "$profile_plist")
+            expiration=$(plutil -extract ExpirationDate raw -expect date -o - -- "$profile_plist")
+            created_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$created" "+%s")
+            expiration_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$expiration" "+%s")
+            [[ "$profile_now" =~ ^[0-9]+$ ]] || { echo "current profile verification time is invalid" >&2; return 1; }
+            (( created_epoch <= profile_now && profile_now < expiration_epoch )) || { echo "Developer ID profile is outside its validity window" >&2; return 1; }
+          }
+          profile_now=$(date -u +%s)
+          verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 1800 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
@@ -1150,8 +1185,34 @@ jobs:
           security list-keychains -d user -s "$keychain"
           identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true)
           [[ "$identity_count" -eq 1 ]] || { echo "expected exactly one Developer ID signing identity" >&2; exit 1; }
-          codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$ZUULI_SIGNED_APP"
+          identity_sha=$(security find-identity -v -p codesigning "$keychain" | grep -F "$APPLE_SIGNING_IDENTITY" | awk '{print $2}')
+          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]] || { echo "invalid Developer ID signing identity digest" >&2; exit 1; }
+          profile_authorizes_identity=false
+          certificate_index=0
+          while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$secret_dir/profile.plist" 2>/dev/null); do
+            printf '%s' "$certificate_base64" | base64 --decode > "$secret_dir/profile-certificate.der"
+            profile_sha=$(openssl x509 -inform DER -in "$secret_dir/profile-certificate.der" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+            [[ "$profile_sha" != "$identity_sha" ]] || profile_authorizes_identity=true
+            certificate_index=$((certificate_index + 1))
+          done
+          [[ "$profile_authorizes_identity" == true ]] || { echo "Developer ID profile does not authorize the imported signing identity" >&2; exit 1; }
+          verify_keychain_entitlements() {
+            local entitlements=$1
+            plutil -lint "$entitlements"
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.application-identifier"')" = F9AV5HKF6N.cash.free2z.zuuli
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.developer.team-identifier"')" = F9AV5HKF6N
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."keychain-access-groups"[0]')" = F9AV5HKF6N.cash.free2z.zuuli
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."keychain-access-groups" | length')" = 1
+            test "$(plutil -convert json -o - "$entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
+          }
+          verify_keychain_entitlements unsigned-macos/Entitlements.plist
+          cp "$secret_dir/zuuli.provisionprofile" "$ZUULI_SIGNED_APP/Contents/embedded.provisionprofile"
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements unsigned-macos/Entitlements.plist \
+            --sign "$APPLE_SIGNING_IDENTITY" "$ZUULI_SIGNED_APP"
           codesign --verify --deep --strict --verbose=2 "$ZUULI_SIGNED_APP"
+          codesign -d --entitlements :- "$ZUULI_SIGNED_APP" > "$secret_dir/signed-entitlements.plist" 2>/dev/null
+          verify_keychain_entitlements "$secret_dir/signed-entitlements.plist"
       - name: Destroy ephemeral app-signing credential
         if: always()
         run: |
@@ -1380,6 +1441,43 @@ jobs:
           apps=("$inspect"/*.app)
           [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one signed macOS app" >&2; exit 1; }
           codesign --verify --deep --strict --verbose=2 "${apps[0]}"
+          embedded_profile="${apps[0]}/Contents/embedded.provisionprofile"
+          [[ -f "$embedded_profile" && ! -L "$embedded_profile" ]] || { echo "signed app is missing its Developer ID provisioning profile" >&2; exit 1; }
+          security cms -D -i "$embedded_profile" > "$inspect/profile.plist"
+          verify_developer_id_profile() {
+            local profile_plist=$1
+            local profile_now=$2
+            local team_count group_count group_index group created expiration created_epoch expiration_epoch
+            team_count=$(plutil -extract TeamIdentifier raw -expect array -o - -- "$profile_plist")
+            [[ "$team_count" == 1 ]] || { echo "Developer ID profile must contain exactly one team identifier" >&2; return 1; }
+            [[ "$(plutil -extract TeamIdentifier.0 raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N ]] || { echo "Developer ID profile team identifier is unauthorized" >&2; return 1; }
+            [[ "$(plutil -extract ProvisionsAllDevices raw -expect bool -o - -- "$profile_plist")" == true ]] || { echo "Developer ID profile is not a distribution profile" >&2; return 1; }
+            [[ "$(plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -expect string -o - -- "$profile_plist")" == F9AV5HKF6N.cash.free2z.zuuli ]] || { echo "Developer ID profile application identifier is unauthorized" >&2; return 1; }
+            group_count=$(plutil -extract Entitlements.keychain-access-groups raw -expect array -o - -- "$profile_plist")
+            [[ "$group_count" =~ ^[0-9]+$ && "$group_count" -gt 0 ]] || { echo "Developer ID profile has no keychain access groups" >&2; return 1; }
+            group_index=0
+            while (( group_index < group_count )); do
+              group=$(plutil -extract "Entitlements.keychain-access-groups.${group_index}" raw -expect string -o - -- "$profile_plist")
+              [[ "$group" == F9AV5HKF6N.cash.free2z.zuuli || "$group" == 'F9AV5HKF6N.*' ]] || { echo "Developer ID profile contains an unauthorized keychain access group" >&2; return 1; }
+              (( group_index += 1 ))
+            done
+            created=$(plutil -extract CreationDate raw -expect date -o - -- "$profile_plist")
+            expiration=$(plutil -extract ExpirationDate raw -expect date -o - -- "$profile_plist")
+            created_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$created" "+%s")
+            expiration_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$expiration" "+%s")
+            [[ "$profile_now" =~ ^[0-9]+$ ]] || { echo "current profile verification time is invalid" >&2; return 1; }
+            (( created_epoch <= profile_now && profile_now < expiration_epoch )) || { echo "Developer ID profile is outside its validity window" >&2; return 1; }
+          }
+          profile_now=$(date -u +%s)
+          verify_developer_id_profile "$inspect/profile.plist" "$profile_now"
+          signed_entitlements="$inspect/signed-entitlements.plist"
+          codesign -d --entitlements :- "${apps[0]}" > "$signed_entitlements" 2>/dev/null
+          plutil -lint "$signed_entitlements"
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.application-identifier"')" = F9AV5HKF6N.cash.free2z.zuuli
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.developer.team-identifier"')" = F9AV5HKF6N
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."keychain-access-groups"[0]')" = F9AV5HKF6N.cash.free2z.zuuli
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."keychain-access-groups" | length')" = 1
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
           signature=$(codesign -dvv "${apps[0]}" 2>&1)
           grep -F 'Authority=Developer ID Application: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
           grep -F 'TeamIdentifier=F9AV5HKF6N' <<<"$signature"
