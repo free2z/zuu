@@ -35,6 +35,7 @@ import {
   posix,
 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TextDecoder } from "node:util";
 
 const INVENTORY_SCOPE = "free2z:inventory-scope";
 const ARTIFACT_NAME = "free2z:artifact-name";
@@ -53,6 +54,7 @@ const SOURCE_COMMIT = "free2z:source-commit";
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 100_000;
 const MAX_UNPACKED_BYTES = 4 * 1024 * 1024 * 1024;
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 function sha256Text(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -515,9 +517,15 @@ function extractAppImage(artifact, root) {
   }
 }
 
-function tarText(buffer) {
+function tarText(buffer, label = "tar text field") {
   const nul = buffer.indexOf(0);
-  return buffer.subarray(0, nul < 0 ? buffer.length : nul).toString("utf8");
+  try {
+    return utf8Decoder.decode(
+      buffer.subarray(0, nul < 0 ? buffer.length : nul),
+    );
+  } catch {
+    throw new Error(`${label} must be valid UTF-8`);
+  }
 }
 
 function tarNumber(buffer, label) {
@@ -567,7 +575,12 @@ function parsePax(buffer) {
     ) {
       throw new Error("truncated PAX record");
     }
-    const record = buffer.subarray(space + 1, end - 1).toString("utf8");
+    let record;
+    try {
+      record = utf8Decoder.decode(buffer.subarray(space + 1, end - 1));
+    } catch {
+      throw new Error("PAX record must be valid UTF-8");
+    }
     const equals = record.indexOf("=");
     if (equals < 1) throw new Error("invalid PAX record");
     fields.set(record.slice(0, equals), record.slice(equals + 1));

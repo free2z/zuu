@@ -255,6 +255,21 @@ function writeTarFixture(path, entries) {
   writeFileSync(path, Buffer.concat(chunks));
 }
 
+function paxRecord(key, value) {
+  const body = Buffer.concat([
+    Buffer.from(`${key}=`),
+    Buffer.from(value),
+    Buffer.from("\n"),
+  ]);
+  let length = body.length + 2;
+  for (;;) {
+    const next = Buffer.byteLength(`${length} `) + body.length;
+    if (next === length) break;
+    length = next;
+  }
+  return Buffer.concat([Buffer.from(`${length} `), body]);
+}
+
 function assertRealLinuxArtifactBoundary(temporary, label, artifact) {
   const root = resolve(temporary, `${label}-unpacked`);
   const rawSbom = resolve(temporary, `${label}.raw.cdx.json`);
@@ -492,6 +507,50 @@ test("tar payload parser rejects traversal, links, special files, and duplicates
         ],
         expected: /duplicate artifact member/,
       },
+      {
+        name: "invalid-utf8-name",
+        entries: [{ name: Buffer.from([0xff]), data: "x" }],
+        expected: /valid UTF-8/,
+        beforeMaterialization: true,
+      },
+      {
+        name: "invalid-utf8-linkname",
+        entries: [
+          {
+            name: "usr/link",
+            type: "2",
+            target: Buffer.from([0xff]),
+          },
+        ],
+        expected: /valid UTF-8/,
+        beforeMaterialization: true,
+      },
+      {
+        name: "invalid-utf8-pax-path",
+        entries: [
+          {
+            name: "pax-header",
+            type: "x",
+            data: paxRecord("path", Buffer.from([0xff])),
+          },
+          { name: "fallback", data: "x" },
+        ],
+        expected: /valid UTF-8/,
+        beforeMaterialization: true,
+      },
+      {
+        name: "invalid-utf8-pax-linkpath",
+        entries: [
+          {
+            name: "pax-header",
+            type: "x",
+            data: paxRecord("linkpath", Buffer.from([0xff])),
+          },
+          { name: "usr/link", type: "2", target: "safe" },
+        ],
+        expected: /valid UTF-8/,
+        beforeMaterialization: true,
+      },
     ];
     for (const fixture of cases) {
       const archive = resolve(temporary, `${fixture.name}.tar`);
@@ -502,6 +561,13 @@ test("tar payload parser rejects traversal, links, special files, and duplicates
         fixture.expected,
         fixture.name,
       );
+      if (fixture.beforeMaterialization) {
+        assert.equal(
+          existsSync(root),
+          false,
+          `${fixture.name} must fail before materializing the payload`,
+        );
+      }
       rmSync(root, { recursive: true, force: true });
     }
   } finally {
