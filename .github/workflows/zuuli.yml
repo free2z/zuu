@@ -147,7 +147,9 @@ jobs:
         run: npm ci
 
       - name: Verify release cache security policy
-        run: node scripts/verify-ci-cache-policy.mjs
+        run: |
+          node scripts/verify-ci-cache-policy.mjs --self-test
+          node scripts/verify-ci-cache-policy.mjs
 
       - name: Verify generated app and store icons
         run: npm run icons:check

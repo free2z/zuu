@@ -91,7 +91,9 @@ jobs:
       - name: Exercise iOS IPA fail-closed verification
         run: bash scripts/verify-ios-ipa.sh --self-test
       - name: Verify release cache security policy
-        run: node scripts/verify-ci-cache-policy.mjs
+        run: |
+          node scripts/verify-ci-cache-policy.mjs --self-test
+          node scripts/verify-ci-cache-policy.mjs
       - name: Exercise immutable manifest generation
         run: |
           mkdir release-artifacts
