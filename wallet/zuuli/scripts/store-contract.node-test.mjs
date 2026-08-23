@@ -202,12 +202,18 @@ test("application and contact identities cannot drift", async (t) => {
 test("release identity is canonical, returned, and cannot drift", async (t) => {
   const root = await fixture();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const valid = await validateStoreContract({ root });
-  assert.deepEqual(valid.release, { version: "0.1.0", build: 10 });
   const releasePath = resolve(root, "release.json");
   const release = JSON.parse(await readFile(releasePath, "utf8"));
-  release.applicationId = "example.invalid";
-  await writeJson(releasePath, release);
+  const valid = await validateStoreContract({ root });
+  assert.deepEqual(valid.release, { version: release.version, build: release.build });
+  // The identity is read, never assumed: an identity this repository has never
+  // shipped must come back verbatim, so a hardcoded constant cannot pass.
+  const rolled = { ...release, version: "9.9.9", build: release.build + 1000 };
+  await writeJson(releasePath, rolled);
+  assert.deepEqual((await validateStoreContract({ root })).release, { version: "9.9.9", build: release.build + 1000 });
+  await writeJson(releasePath, { ...release, version: "0.1" });
+  await rejectsCode(() => validateStoreContract({ root }), "IDENTITY_MISMATCH");
+  await writeJson(releasePath, { ...release, applicationId: "example.invalid" });
   await rejectsCode(() => validateStoreContract({ root }), "IDENTITY_MISMATCH");
 });
 
