@@ -5,7 +5,7 @@ vi.mock("./http", async (importOriginal) => {
   return { ...original, request: vi.fn() };
 });
 
-import { articles } from "./free2z";
+import { ArticlePublishedHydrationError, articles } from "./free2z";
 import { request } from "./http";
 
 const requestMock = vi.mocked(request);
@@ -77,6 +77,36 @@ describe("article tag HTTP contract", () => {
         num_results: 10,
       },
       anonymous: true,
+    });
+  });
+
+  it("preserves a committed article id when canonical hydration is delayed", async () => {
+    requestMock
+      .mockResolvedValueOnce({ free2zaddr: "committed-article" })
+      .mockRejectedValueOnce(new Error("read-after-write delay"));
+
+    const error = await articles
+      .publish({ title: "Committed", content: "Body" })
+      .catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ArticlePublishedHydrationError);
+    expect(error).toMatchObject({
+      name: "ArticlePublishedHydrationError",
+      articleId: "committed-article",
+    });
+    expect(requestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a malformed backend tag field without breaking article hydration", async () => {
+    requestMock.mockResolvedValue({
+      free2zaddr: "article-id",
+      title: "Legacy",
+      content: "Body",
+      creator: { username: "alice" },
+      tags: "not-an-array",
+    });
+
+    await expect(articles.get("article-id")).resolves.toMatchObject({
+      tags: [],
     });
   });
 

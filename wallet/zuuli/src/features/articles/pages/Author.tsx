@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Markdown } from "@/components/common/Markdown";
 import { PageHeader } from "@/components/common/PageHeader";
-import { articles } from "@/lib/api/free2z";
+import { ArticlePublishedHydrationError, articles } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
 import { cn } from "@/lib/utils";
 import { articleHref, readingMinutes, wordCount } from "../lib";
@@ -63,7 +63,12 @@ export function Author() {
       });
       toast.success("Published");
       navigate(articleHref(created));
-    } catch {
+    } catch (error) {
+      if (error instanceof ArticlePublishedHydrationError) {
+        toast.success("Published");
+        navigate(articleHref({ id: error.articleId, slug: undefined }));
+        return;
+      }
       toast.error("Couldn't publish. Please try again.");
       setPublishing(false);
     }

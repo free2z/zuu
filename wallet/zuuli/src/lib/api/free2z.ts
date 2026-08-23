@@ -444,7 +444,7 @@ function mapArticle(z: RawZPage): Article {
     votes: z.f2z_score ? Math.round(Number(z.f2z_score)) : 0,
     published_at: z.publish_at || z.created_at,
     reading_minutes: readingMinutes(z.content),
-    tags: sanitizeArticleTags(z.tags ?? []),
+    tags: sanitizeArticleTags(Array.isArray(z.tags) ? z.tags : []),
   };
 }
 
@@ -1464,7 +1464,14 @@ export const articles = {
     // saved tags but not the creator object required by `Article`. Retrieve the
     // canonical detail so real mode returns the same complete shape as mock
     // mode and proves the tags survived persistence rather than echoing input.
-    return articles.get(created.free2zaddr);
+    try {
+      return await articles.get(created.free2zaddr);
+    } catch {
+      // The mutation is already committed. Preserve that success boundary so
+      // the composer can navigate to the canonical id and let the reader retry
+      // hydration instead of inviting a second POST and a duplicate article.
+      throw new ArticlePublishedHydrationError(created.free2zaddr);
+    }
   },
 
   /** Existing public zpage tags, ordered by platform usage for autocomplete. */
@@ -1535,6 +1542,16 @@ export const articles = {
     }
   },
 };
+
+export class ArticlePublishedHydrationError extends Error {
+  readonly articleId: string;
+
+  constructor(articleId: string) {
+    super("Article published, but its canonical detail is not available yet.");
+    this.name = "ArticlePublishedHydrationError";
+    this.articleId = articleId;
+  }
+}
 
 // ─── Comments (threaded, on zpages) ──────────────────────────────────────────
 
