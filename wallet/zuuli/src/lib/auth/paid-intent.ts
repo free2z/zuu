@@ -2,6 +2,7 @@ import {
   safeLoginDestination,
   type LoginDestination,
 } from "./login-destination";
+import { MAX_TUZIS } from "@/lib/format";
 
 const STORAGE_KEY = "zuuli.auth.pending-paid-intent";
 const MAX_AGE_MS = 30 * 60 * 1000;
@@ -16,7 +17,7 @@ export type PaidIntent =
   | { kind: "article-tip"; subject: string; amount: string }
   | { kind: "creator-tip"; subject: string; amount: string }
   | { kind: "creator-subscription"; subject: string }
-  | { kind: "send"; query: string; amount: string }
+  | { kind: "send"; query: string; amount: number | string }
   | { kind: "live-entry"; subject: string; mode: "ppv" | "subscriber" };
 
 interface StoredPaidIntent {
@@ -42,6 +43,19 @@ function usernameString(value: unknown): value is string {
   return typeof value === "string" && [...value].length <= MAX_USERNAME;
 }
 
+function sendAmount(value: unknown): value is number | string {
+  // Strings are the one-release migration shape and deliberately remain
+  // permissive: malformed legacy input must restore as invalid UI text rather
+  // than being coerced into a different amount. New valid drafts use numbers.
+  return (
+    shortString(value, 32) ||
+    (typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 1 &&
+      value <= MAX_TUZIS)
+  );
+}
+
 function validIntent(value: unknown): value is PaidIntent {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -54,7 +68,7 @@ function validIntent(value: unknown): value is PaidIntent {
     case "creator-subscription":
       return usernameString(record.subject);
     case "send":
-      return usernameString(record.query) && shortString(record.amount, 32);
+      return usernameString(record.query) && sendAmount(record.amount);
     case "live-entry":
       return (
         usernameString(record.subject) &&

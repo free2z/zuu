@@ -35,6 +35,47 @@ describe("paid login intent", () => {
     expect(consumePaidIntent("/ai", "ai", storage, 200)).toBeNull();
   });
 
+  it("round-trips canonical numeric Send amounts while accepting the legacy string shape", () => {
+    const storage = new MemoryStorage();
+
+    preservePaidIntent(
+      "/wallet/fund/send",
+      { kind: "send", query: "alice", amount: 3_000 },
+      storage,
+      100,
+    );
+    expect(consumePaidIntent("/wallet/fund/send", "send", storage, 200)).toEqual({
+      kind: "send",
+      query: "alice",
+      amount: 3_000,
+    });
+
+    storage.value = JSON.stringify({
+      returnTo: "/wallet/fund/send",
+      createdAt: 100,
+      intent: { kind: "send", query: "alice", amount: "3,000" },
+    });
+    expect(consumePaidIntent("/wallet/fund/send", "send", storage, 200)).toEqual({
+      kind: "send",
+      query: "alice",
+      amount: "3,000",
+    });
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1_000_001])(
+    "rejects an invalid canonical Send amount (%s)",
+    (amount) => {
+      const storage = new MemoryStorage();
+      preservePaidIntent(
+        "/wallet/fund/send",
+        { kind: "send", query: "alice", amount } as never,
+        storage,
+        100,
+      );
+      expect(storage.value).toBeNull();
+    },
+  );
+
   it.each([
     ["/ai", { kind: "ai", draft: "draft" }],
     [

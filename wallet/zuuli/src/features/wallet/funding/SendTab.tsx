@@ -111,7 +111,10 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     if (!restoredSend || restoredHandled.current) return;
     restoredHandled.current = true;
     dispatch({ type: "queryChanged", query: restoredSend.query });
-    const restoredAmount = parseTuzis(restoredSend.amount);
+    const restoredAmount =
+      typeof restoredSend.amount === "number"
+        ? restoredSend.amount
+        : parseTuzis(restoredSend.amount);
     if (
       restoredAmount !== null &&
       TIP_PRESETS.some((preset) => preset === restoredAmount)
@@ -119,7 +122,11 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
       setSelectedAmount(restoredAmount);
       setCustom("");
     } else {
-      setCustom(restoredSend.amount);
+      setCustom(
+        typeof restoredSend.amount === "number"
+          ? restoredSend.amount.toLocaleString()
+          : restoredSend.amount,
+      );
     }
   }, [restoredSend]);
 
@@ -317,7 +324,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     const returnTo = preservePaidIntent("/wallet/fund/send", {
       kind: "send",
       query: recipientState.query,
-      amount: custom || String(selectedAmount),
+      amount: validAmount && amount !== null ? amount : custom,
     });
     navigate("/login", { state: { returnTo } });
   }
