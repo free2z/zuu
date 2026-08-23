@@ -22,6 +22,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSocialProviders } from "@/hooks/useSocialProviders";
 import { auth } from "@/lib/api/free2z";
+import { assertOAuthResultCurrent } from "@/lib/oauth/transport";
 import { setToken } from "@/lib/api/http";
 import { useSession } from "@/store/session";
 import { useAttemptLease } from "@/hooks/useAttemptLease";
@@ -135,6 +136,9 @@ export function SocialButtons({
     try {
       const result = await auth.socialLogin(provider, { associate });
       if (!isCurrent()) return;
+      // The API lease ends as its promise settles. Fence the following global
+      // publication synchronously in case another queued login changed token.
+      assertOAuthResultCurrent(result.sessionGeneration);
       const name = PROVIDER_NAME[provider];
       if (associate) {
         if (result.status !== "associated") throw new Error("Unexpected login result");

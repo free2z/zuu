@@ -181,6 +181,25 @@ export async function buildSessionBinding(
   return `associate:${hex}`;
 }
 
+/** Recompute and compare the exact initiating session before OAuth exchange.
+ * Returns the verified token so callers can pin the authenticated request to
+ * it instead of consulting mutable global state a second time. */
+export async function assertSessionBinding(
+  expectedBinding: string,
+  associate: boolean,
+  token: string | null,
+): Promise<string | null> {
+  const currentBinding = await buildSessionBinding(associate, token);
+  if (currentBinding !== expectedBinding) {
+    throw new Error(
+      associate
+        ? "Your account session changed while linking this identity. Start again."
+        : "Your sign-in session changed while the provider was open. Start again.",
+    );
+  }
+  return associate ? token : null;
+}
+
 /** Whether the current auth mode can still complete the pending OAuth flow. */
 export function canResumeMobileOAuth(
   associate: boolean,

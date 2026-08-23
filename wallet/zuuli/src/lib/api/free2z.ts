@@ -9,15 +9,15 @@ import { useMock } from "../platform";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
 import {
-  assertMobileOAuthSession,
   cancelMobileOAuth,
   captureOAuthCode,
   finishMobileOAuth,
   oauthCallbackTransport,
+  withOAuthSession,
   type OAuthCapture,
 } from "../oauth/transport";
 import type { OAuthStartResponse } from "../oauth/protocol";
-import { ApiError, basicLogin, mediaUrl, request, setToken } from "./http";
+import { ApiError, basicLogin, getToken, mediaUrl, request, setToken } from "./http";
 import {
   DonationContractError,
   IDEMPOTENT_DONATION_ROUTE,
@@ -646,7 +646,7 @@ export const auth = {
     return { token, user: await auth.me(token) };
   },
 
-  async me(authToken?: string): Promise<AuthUser> {
+  async me(authToken?: string, signal?: AbortSignal): Promise<AuthUser> {
     if (useMock()) {
       await delay(120);
       return { ...mockUser };
@@ -663,7 +663,7 @@ export const auth = {
       tuzis?: string;
       avatar_image?: RawImage | null;
       banner_image?: RawImage | null;
-    }>("/api/auth/user/", { cache: "no-store", authToken });
+    }>("/api/auth/user/", { cache: "no-store", authToken, signal });
     return {
       username: u.username,
       email: u.email,
@@ -684,14 +684,22 @@ export const auth = {
   },
 
   async logout(): Promise<void> {
+    // Invalidate the renderer session synchronously so every outstanding OAuth
+    // transport aborts before the revocation request crosses the network.
+    // The request is pinned to the captured token and never re-reads global
+    // state after the account transition.
+    const token = getToken();
+    setToken(null);
     if (!useMock()) {
       try {
-        await request("/api/token/logout/", { method: "POST" });
+        await request("/api/token/logout/", {
+          method: "POST",
+          authToken: token ?? undefined,
+        });
       } catch {
         /* best-effort */
       }
     }
-    setToken(null);
   },
 
   /**
@@ -875,68 +883,81 @@ export const auth = {
    * callback through exactly the same backend path as the live button flow.
    */
   async completeSocialOAuth(capture: OAuthCapture): Promise<SocialAuthResult> {
-    const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
-    await assertMobileOAuthSession(capture);
-    const body = {
-      code,
-      state,
-      redirect_uri: redirectUri,
-      ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
-    };
+    return withOAuthSession<SocialAuthResult>(capture, async (lease) => {
+      const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
+      const body = {
+        code,
+        state,
+        redirect_uri: redirectUri,
+        ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
+      };
 
-    if (associate) {
-      try {
-        // Deliberately NOT `anonymous: true` — the point is that the request
-        // carries `Authorization: Token <knox token>`.
-        await request<unknown>(`/api/auth/social/${provider}/`, {
-          method: "POST",
-          body,
-        });
-        // The backend mutation already succeeded. Local scratch-file cleanup
-        // must not turn a completed link into a user-visible auth failure.
-        await finishMobileOAuth(state).catch(() => undefined);
-      } catch (e) {
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+      if (associate) {
+        try {
+          // Deliberately NOT `anonymous: true` — the request is pinned to the
+          // exact token whose one-way binding preceded provider navigation.
+          await request<unknown>(`/api/auth/social/${provider}/`, {
+            method: "POST",
+            body,
+            authToken: lease.initiatingToken ?? undefined,
+            signal: lease.signal,
+          });
+          lease.assertCurrent();
+          // The backend mutation already succeeded. Local scratch-file cleanup
+          // must not turn a completed link into a user-visible auth failure.
+          await finishMobileOAuth(state).catch(() => undefined);
+          lease.assertCurrent();
+        } catch (e) {
+          if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+            await cancelMobileOAuth(state).catch(() => undefined);
+          }
+          if (e instanceof ApiError && e.status === 409) {
+            throw new Error(
+              "That account is already linked — either to a different free2z account, or this account already has a linked identity for this provider. Unlink it there first, or use a different account.",
+            );
+          }
+          throw e;
+        }
+        const me = await auth.me(lease.initiatingToken ?? undefined, lease.signal);
+        lease.assertCurrent();
+        return {
+          status: "associated",
+          sessionGeneration: lease.sessionGeneration,
+          user: {
+            ...me,
+            social_identities: { ...me.social_identities, [provider]: true },
+          },
+        };
+      }
+
+      const tok = await request<{ token: string }>(`/api/auth/social/${provider}/`, {
+        method: "POST",
+        body,
+        anonymous: true,
+        signal: lease.signal,
+      }).catch(async (error) => {
+        if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
           await cancelMobileOAuth(state).catch(() => undefined);
         }
-        if (e instanceof ApiError && e.status === 409) {
-          throw new Error(
-            "That account is already linked — either to a different free2z account, or this account already has a linked identity for this provider. Unlink it there first, or use a different account.",
-          );
-        }
-        throw e;
-      }
-      const me = await auth.me();
+        throw error;
+      });
+      lease.assertCurrent();
+      await finishMobileOAuth(state).catch(() => undefined);
+      lease.assertCurrent();
+      const me = await auth.me(tok.token, lease.signal);
+      lease.assertCurrent();
       return {
-        status: "associated",
-        user: {
-          ...me,
-          social_identities: { ...me.social_identities, [provider]: true },
+        status: "authenticated",
+        sessionGeneration: lease.sessionGeneration,
+        session: {
+          token: tok.token,
+          user: {
+            ...me,
+            social_identities: { ...me.social_identities, [provider]: true },
+          },
         },
       };
-    }
-
-    const tok = await request<{ token: string }>(
-      `/api/auth/social/${provider}/`,
-      { method: "POST", body, anonymous: true },
-    ).catch(async (error) => {
-      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-        await cancelMobileOAuth(state).catch(() => undefined);
-      }
-      throw error;
     });
-    await finishMobileOAuth(state).catch(() => undefined);
-    const me = await auth.me(tok.token);
-    return {
-      status: "authenticated",
-      session: {
-        token: tok.token,
-        user: {
-          ...me,
-          social_identities: { ...me.social_identities, [provider]: true },
-        },
-      },
-    };
   },
 };
 
