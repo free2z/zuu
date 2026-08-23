@@ -465,14 +465,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected iOS archive digest" >&2; exit 1; }
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected iOS payload digest" >&2; exit 1; }
           expected_members=$(printf '%s\n' \
             ./CHECKSUMS.sha256 ./ExportOptions.plist ./ZUULI.xcarchive.zip ./source-record.json | LC_ALL=C sort)
           actual_members=$(cd unsigned-ios && find . -mindepth 1 -print | LC_ALL=C sort)
-          [[ "$actual_members" == "$expected_members" ]]
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned iOS artifact inventory" >&2; exit 1; }
           for member in CHECKSUMS.sha256 ExportOptions.plist ZUULI.xcarchive.zip source-record.json; do
-            [[ -f "unsigned-ios/$member" && ! -L "unsigned-ios/$member" ]]
+            [[ -f "unsigned-ios/$member" && ! -L "unsigned-ios/$member" ]] || { echo "unsafe unsigned iOS member: $member" >&2; exit 1; }
           done
           test "$(shasum -a 256 unsigned-ios/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
           (cd unsigned-ios && shasum -a 256 -c CHECKSUMS.sha256)
@@ -486,7 +486,7 @@ jobs:
           mkdir archive-root
           ditto -x -k unsigned-ios/ZUULI.xcarchive.zip archive-root
           archives=(archive-root/*.xcarchive)
-          [[ ${#archives[@]} -eq 1 && -d "${archives[0]}" ]]
+          [[ ${#archives[@]} -eq 1 && -d "${archives[0]}" ]] || { echo "expected exactly one unpacked iOS archive" >&2; exit 1; }
           echo "ZUULI_UNSIGNED_ARCHIVE=${archives[0]}" >> "$GITHUB_ENV"
       - name: Materialize, export, and destroy ephemeral iOS signing credential
         id: sign
@@ -536,10 +536,10 @@ jobs:
           profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$secret_dir/profile.plist")
           profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$secret_dir/profile.plist")
           profile_app=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$secret_dir/profile.plist")
-          [[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]]
-          [[ "$profile_name" == 'ZUULI App Store CI' ]]
-          [[ "$profile_team" == F9AV5HKF6N ]]
-          [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]]
+          [[ "$profile_uuid" == e5ead62c-83ec-4e54-abb6-4770833b5e0d ]] || { echo "unexpected provisioning-profile UUID" >&2; exit 1; }
+          [[ "$profile_name" == 'ZUULI App Store CI' ]] || { echo "unexpected provisioning-profile name" >&2; exit 1; }
+          [[ "$profile_team" == F9AV5HKF6N ]] || { echo "unexpected provisioning-profile team" >&2; exit 1; }
+          [[ "$profile_app" == F9AV5HKF6N.cash.free2z.zuuli ]] || { echo "unexpected provisioning-profile application identifier" >&2; exit 1; }
           keychain_password=$(openssl rand -hex 24)
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 1800 "$keychain"
@@ -549,7 +549,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain"
           identity_sha=$(security find-identity -v -p codesigning "$keychain" | awk '/Apple Distribution: Corpora Inc/ {print $2; exit}')
-          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]]
+          [[ "$identity_sha" =~ ^[0-9A-F]{40}$ ]] || { echo "expected exactly one Apple Distribution identity" >&2; exit 1; }
           profile_authorizes_identity=false
           certificate_index=0
           while certificate_base64=$(plutil -extract "DeveloperCertificates.$certificate_index" raw -o - "$secret_dir/profile.plist" 2>/dev/null); do
@@ -558,11 +558,11 @@ jobs:
             [[ "$profile_sha" != "$identity_sha" ]] || profile_authorizes_identity=true
             certificate_index=$((certificate_index + 1))
           done
-          [[ "$profile_authorizes_identity" == true ]]
+          [[ "$profile_authorizes_identity" == true ]] || { echo "provisioning profile does not authorize the imported signing identity" >&2; exit 1; }
           profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$profile_dir"
           profile_candidate="$profile_dir/$profile_uuid.mobileprovision"
-          [[ ! -e "$profile_candidate" ]]
+          [[ ! -e "$profile_candidate" ]] || { echo "refusing to overwrite an existing provisioning profile" >&2; exit 1; }
           profile_path="$profile_candidate"
           cp "$secret_dir/zuuli.mobileprovision" "$profile_path"
           mkdir signed-export signed-ios
@@ -571,10 +571,10 @@ jobs:
             -exportPath signed-export \
             -exportOptionsPlist unsigned-ios/ExportOptions.plist
           ipas=(signed-export/*.ipa)
-          [[ ${#ipas[@]} -eq 1 && -f "${ipas[0]}" ]]
+          [[ ${#ipas[@]} -eq 1 && -f "${ipas[0]}" ]] || { echo "expected exactly one exported iOS IPA" >&2; exit 1; }
           archive_listing=$(/usr/bin/unzip -Z1 "${ipas[0]}")
           embedded=$(awk -F/ '$1 == "Payload" && $2 ~ /\.app$/ && $3 == "embedded.mobileprovision" {print; exit}' <<<"$archive_listing")
-          [[ -n "$embedded" ]]
+          [[ -n "$embedded" ]] || { echo "exported IPA has no embedded provisioning profile" >&2; exit 1; }
           /usr/bin/unzip -p "${ipas[0]}" "$embedded" > "$secret_dir/embedded.mobileprovision"
           cmp -s "$secret_dir/zuuli.mobileprovision" "$secret_dir/embedded.mobileprovision"
           cp "${ipas[0]}" "signed-ios/ZUULI-${RELEASE_IDENTITY}-ios.ipa"
@@ -703,9 +703,9 @@ jobs:
             ./CHECKSUMS.sha256 "./ZUULI-${EXPECTED_IDENTITY}-ios.ipa" \
             ./asc-testflight.mjs ./signing-record.json | LC_ALL=C sort)
           actual_members=$(cd verified-ios && find . -mindepth 1 -print | LC_ALL=C sort)
-          [[ "$actual_members" == "$expected_members" ]]
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected verified iOS artifact inventory" >&2; exit 1; }
           for member in CHECKSUMS.sha256 "ZUULI-${EXPECTED_IDENTITY}-ios.ipa" asc-testflight.mjs signing-record.json; do
-            [[ -f "verified-ios/$member" && ! -L "verified-ios/$member" ]]
+            [[ -f "verified-ios/$member" && ! -L "verified-ios/$member" ]] || { echo "unsafe verified iOS member: $member" >&2; exit 1; }
           done
           test "$(shasum -a 256 "$ipa" | awk '{print $1}')" = "$EXPECTED_IPA_SHA256"
           jq -e --arg identity "$EXPECTED_IDENTITY" --arg source "$EXPECTED_SOURCE_SHA" \
@@ -992,8 +992,8 @@ jobs:
           git diff --exit-code
           apps=(src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app)
           dmgs=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
-          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
-          [[ ${#dmgs[@]} -eq 1 && -f "${dmgs[0]}" ]]
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one unsigned macOS app" >&2; exit 1; }
+          [[ ${#dmgs[@]} -eq 1 && -f "${dmgs[0]}" ]] || { echo "expected exactly one unsigned macOS layout DMG" >&2; exit 1; }
           mkdir unsigned-macos
           ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" unsigned-macos/ZUULI.app.zip
           cp "${dmgs[0]}" unsigned-macos/ZUULI-layout.dmg
@@ -1049,14 +1049,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$EXPECTED_APP_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_APP_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected macOS app digest" >&2; exit 1; }
+          [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected macOS payload digest" >&2; exit 1; }
           expected_members=$(printf '%s\n' \
             ./CHECKSUMS.sha256 ./ZUULI-layout.dmg ./ZUULI.app.zip ./source-record.json | LC_ALL=C sort)
           actual_members=$(cd unsigned-macos && find . -mindepth 1 -print | LC_ALL=C sort)
-          [[ "$actual_members" == "$expected_members" ]]
+          [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned macOS artifact inventory" >&2; exit 1; }
           for member in CHECKSUMS.sha256 ZUULI-layout.dmg ZUULI.app.zip source-record.json; do
-            [[ -f "unsigned-macos/$member" && ! -L "unsigned-macos/$member" ]]
+            [[ -f "unsigned-macos/$member" && ! -L "unsigned-macos/$member" ]] || { echo "unsafe unsigned macOS member: $member" >&2; exit 1; }
           done
           test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
           (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)
@@ -1070,7 +1070,7 @@ jobs:
           mkdir signing-work
           ditto -x -k unsigned-macos/ZUULI.app.zip signing-work
           apps=(signing-work/*.app)
-          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one unpacked macOS app" >&2; exit 1; }
           echo "ZUULI_SIGNED_APP=${apps[0]}" >> "$GITHUB_ENV"
       - name: Materialize, sign app, and destroy ephemeral Developer ID credential
         env:
@@ -1114,7 +1114,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain"
           identity_count=$(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true)
-          [[ "$identity_count" -eq 1 ]]
+          [[ "$identity_count" -eq 1 ]] || { echo "expected exactly one Developer ID signing identity" >&2; exit 1; }
           codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$ZUULI_SIGNED_APP"
           codesign --verify --deep --strict --verbose=2 "$ZUULI_SIGNED_APP"
       - name: Destroy ephemeral app-signing credential
@@ -1204,7 +1204,7 @@ jobs:
             -T /usr/bin/codesign -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain"
-          [[ $(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true) -eq 1 ]]
+          [[ $(security find-identity -v -p codesigning "$keychain" | grep -Fc "$APPLE_SIGNING_IDENTITY" || true) -eq 1 ]] || { echo "expected exactly one Developer ID signing identity for DMG signing" >&2; exit 1; }
           hdiutil convert unsigned-macos/ZUULI-layout.dmg -format UDRW -o "$secret_dir/rewritable.dmg" >/dev/null
           image_bytes=$(stat -f %z "$secret_dir/rewritable.dmg")
           image_megabytes=$(( (image_bytes + 1048575) / 1048576 + 64 ))
@@ -1212,7 +1212,7 @@ jobs:
           mkdir "$mountpoint"
           hdiutil attach "$secret_dir/rewritable.dmg" -readwrite -nobrowse -mountpoint "$mountpoint" >/dev/null
           mounted=true
-          [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]]
+          [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]] || { echo "layout DMG contains no safe ZUULI.app directory" >&2; exit 1; }
           find "$mountpoint/ZUULI.app" -depth -delete
           ditto "$ZUULI_SIGNED_APP" "$mountpoint/ZUULI.app"
           hdiutil detach "$mountpoint" >/dev/null
@@ -1343,7 +1343,7 @@ jobs:
           trap 'find "$inspect" -depth -delete' EXIT
           ditto -x -k "signed-macos/ZUULI-${EXPECTED_IDENTITY}-macos-universal.zip" "$inspect"
           apps=("$inspect"/*.app)
-          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one signed macOS app" >&2; exit 1; }
           codesign --verify --deep --strict --verbose=2 "${apps[0]}"
           signature=$(codesign -dvv "${apps[0]}" 2>&1)
           grep -F 'Authority=Developer ID Application: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
@@ -1362,8 +1362,8 @@ jobs:
           trap 'cleanup_dmg; find "$inspect" -depth -delete' EXIT
           hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mountpoint" >/dev/null
           mounted=true
-          [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]]
-          [[ -L "$mountpoint/Applications" && "$(readlink "$mountpoint/Applications")" == /Applications ]]
+          [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]] || { echo "signed DMG contains no safe ZUULI.app directory" >&2; exit 1; }
+          [[ -L "$mountpoint/Applications" && "$(readlink "$mountpoint/Applications")" == /Applications ]] || { echo "signed DMG Applications link is not canonical" >&2; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$mountpoint/ZUULI.app"
           xcrun stapler validate "$mountpoint/ZUULI.app"
           hdiutil detach "$mountpoint" >/dev/null
@@ -1420,19 +1420,14 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          pattern: zuuli-*-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          pattern: zuuli-{android,ios,linux,macos}-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: release-downloads
+          merge-multiple: false
       - name: Verify release-index source binding
         env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
           EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          count=0
-          while IFS= read -r -d '' manifest; do
-            jq -e --arg sha "$EXPECTED_SOURCE_SHA" '.source.commit == $sha' "$manifest" >/dev/null
-            count=$((count + 1))
-          done < <(find release-downloads -type f -name provenance.json -print0)
-          test "$count" -gt 0
+        run: wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA"
       - name: Publish idempotent draft release
         if: needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.tag_exists == 'true'
         env:

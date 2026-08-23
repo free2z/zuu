@@ -7,8 +7,8 @@ import { TopBar } from "./TopBar";
 vi.mock("@/store/session", () => ({
   useSession: () => ({
     user: {
-      username: "skyl",
-      display_name: "Skylar",
+      username: "demo-creator",
+      display_name: "Demo Creator",
       image: null,
     },
     tuzis: 4210,
