@@ -79,6 +79,7 @@ export function ZcashLoginFlow({
     createIdentity,
     revealSeedBackup,
     confirmSeedSaved,
+    hideSeedBackup,
     retry,
   } = flow;
 
@@ -126,8 +127,8 @@ export function ZcashLoginFlow({
       <div className="animate-slide-up space-y-5">
         <Callout icon={ShieldAlert} title="Back up your recovery phrase">
           <p className="text-muted-foreground">
-            This identity was created, but its required backup was not confirmed.
-            Finish that step before logging in.
+            This identity was created, but its required backup was not
+            confirmed. Finish that step before logging in.
           </p>
         </Callout>
         {error && (
@@ -175,7 +176,9 @@ export function ZcashLoginFlow({
     return (
       <div className="animate-slide-up space-y-4">
         <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-sm font-medium">No Zcash identity on this device</p>
+          <p className="text-sm font-medium">
+            No Zcash identity on this device
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
             Restore the key already linked to your account.
           </p>
@@ -198,7 +201,8 @@ export function ZcashLoginFlow({
 
         <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
           <p className="text-sm text-warning">
-            A new key creates a distinct identity and may open a different account.
+            A new key creates a distinct identity and may open a different
+            account.
           </p>
           <Button
             size="lg"
@@ -229,6 +233,7 @@ export function ZcashLoginFlow({
         seedPhrase={seedPhrase}
         confirming={phase === "confirmingBackup"}
         error={error}
+        onDismiss={hideSeedBackup}
         onConfirm={() => {
           onBusyChange?.(true);
           return confirmSeedSaved();
@@ -259,10 +264,11 @@ export function ZcashLoginFlow({
     <div className="animate-slide-up space-y-5">
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
-          <span className="eyebrow text-muted-foreground">
-            Signing as
-          </span>
-          <code className="mono-id font-mono text-xs text-foreground" title={address}>
+          <span className="eyebrow text-muted-foreground">Signing as</span>
+          <code
+            className="mono-id font-mono text-xs text-foreground"
+            title={address}
+          >
             {truncateAddress(address)}
           </code>
         </div>

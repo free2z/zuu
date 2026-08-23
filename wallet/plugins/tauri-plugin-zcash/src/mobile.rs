@@ -51,7 +51,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
             })?;
     }
 
-    let native_store: Arc<dyn SecureStore> = Arc::new(MobileSecretStore(handle));
+    let native_store: Arc<dyn SecureStore> = Arc::new(MobileSecretStore(handle.clone()));
     let seed_store = SeedStore::new(data_dir.clone(), native_store);
     let state = WalletState::new(data_dir, Network::MainNetwork, seed_store)?;
 
@@ -59,6 +59,8 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
         _app: app.clone(),
         state,
         legacy_app_data: migration.into(),
+        mobile_plugin: handle,
+        sensitive_display: tokio::sync::Mutex::new(None),
     })
 }
 
@@ -66,6 +68,30 @@ pub struct Zcash<R: Runtime> {
     pub _app: AppHandle<R>,
     pub state: WalletState,
     pub legacy_app_data: crate::models::LegacyAppDataStatus,
+    mobile_plugin: PluginHandle<R>,
+    pub sensitive_display: tokio::sync::Mutex<Option<crate::models::SensitiveDisplayState>>,
+}
+
+impl<R: Runtime> Zcash<R> {
+    pub fn set_sensitive_display(&self, active: bool, token: &str) -> crate::Result<()> {
+        self.mobile_plugin
+            .run_mobile_plugin::<()>(
+                "setSensitiveDisplay",
+                SensitiveDisplayArgs { active, token },
+            )
+            .map_err(|error| {
+                crate::error::Error::Other(format!(
+                    "native sensitive-display protection failed: {error}"
+                ))
+            })
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SensitiveDisplayArgs<'a> {
+    active: bool,
+    token: &'a str,
 }
 
 struct MobileSecretStore<R: Runtime>(PluginHandle<R>);

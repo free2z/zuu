@@ -56,11 +56,14 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 
 | Command | Args | Returns | Description |
 |---------|------|---------|-------------|
-| `create_wallet` | `CreateWalletArgs { mnemonicWordCount?, name? }` | `WalletCreated` | Generate new wallet with BIP-39 mnemonic, fetch birthday from chain tip |
+| `create_wallet` | `CreateWalletArgs { mnemonicWordCount?, name? }` | `WalletCreated { walletId, birthdayHeight }` | Generate a wallet into native custody without returning its mnemonic to the renderer |
 | `restore_wallet` | `RestoreWalletArgs { seedPhrase, birthdayHeight?, name? }` | `WalletRestored { success, walletId }` | Restore a wallet and return the exact atomically published manifest identity |
 | `get_wallet_status` | — | `WalletStatus` | Check if wallet is initialized, has seed, synced height, active wallet info |
 | `retry_wallet_cleanup` | — | `WalletCleanupStatus` | Explicitly retry pending orphan cleanup and return diagnostics |
-| `get_seed_phrase` | — | `String` | Authenticate and retrieve the seed from platform-native custody |
+| `get_seed_phrase` | `SensitiveSeedArgs { token }` | `String` | Authenticate and retrieve the seed only while the exact display lease is held |
+| `get_backup_seed_phrase` | `SensitiveBackupSeedArgs { walletId, token }` | `String` | Retrieve a pending backup only while the exact display lease is held |
+| `begin_sensitive_display` | — | `SensitiveDisplayLease` | Acquire an exact display lease before a backup reveal; mobile platforms apply their documented capture controls |
+| `end_sensitive_display` | `EndSensitiveDisplayArgs { token }` | `()` | Release only the matching display lease |
 | `get_viewing_key` | `AccountIdArgs { accountIndex }` | `String` | Get encoded UFVK for an account |
 | `get_spending_key` | `AccountIdArgs { accountIndex }` | `SpendingKeyStatus` | Verify spending authority (does NOT expose raw key) |
 | `list_wallets` | — | `Vec<WalletInfo>` | List all wallets in the manifest |

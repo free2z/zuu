@@ -1,11 +1,31 @@
+import { useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { useWallet } from "../hooks/useWallet";
 
 export function Welcome() {
   const { setPage, walletStatus } = useWalletStore();
   const { createWallet } = useWallet();
+  const createInFlight = useRef(false);
+  const [creating, setCreating] = useState(false);
 
   const hasWallets = (walletStatus?.walletCount ?? 0) > 0;
+
+  const handleCreate = async () => {
+    if (createInFlight.current) return;
+    createInFlight.current = true;
+    setCreating(true);
+    try {
+      await createWallet();
+    } finally {
+      createInFlight.current = false;
+      setCreating(false);
+    }
+  };
+
+  const navigateWhileIdle = (page: "restore" | "wallet-picker") => {
+    if (createInFlight.current) return;
+    setPage(page);
+  };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-8 animate-fade-in">
@@ -21,21 +41,24 @@ export function Welcome() {
 
       <div className="flex flex-col gap-4 w-full max-w-xs">
         <button
-          onClick={() => createWallet()}
-          className="w-full py-3.5 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+          className="w-full py-3.5 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50"
         >
-          Create New Wallet
+          {creating ? "Creating Wallet..." : "Create New Wallet"}
         </button>
         <button
-          onClick={() => setPage("restore")}
-          className="w-full py-3.5 border-2 border-purple-500/50 text-purple-400 rounded-xl hover:bg-purple-500/10 transition-colors"
+          onClick={() => navigateWhileIdle("restore")}
+          disabled={creating}
+          className="w-full py-3.5 border-2 border-purple-500/50 text-purple-400 rounded-xl hover:bg-purple-500/10 transition-colors disabled:opacity-50"
         >
           Restore from Seed Phrase
         </button>
         {hasWallets && (
           <button
-            onClick={() => setPage("wallet-picker")}
-            className="w-full py-3 text-sm text-zinc-400 hover:text-white transition-colors min-tap"
+            onClick={() => navigateWhileIdle("wallet-picker")}
+            disabled={creating}
+            className="w-full py-3 text-sm text-zinc-400 hover:text-white transition-colors disabled:opacity-50 min-tap"
           >
             Back to Wallet Picker
           </button>

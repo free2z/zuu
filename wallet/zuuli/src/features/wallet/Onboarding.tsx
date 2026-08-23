@@ -1,5 +1,5 @@
 // Create / restore onboarding, shown when no wallet is initialized.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Eye,
@@ -21,7 +21,10 @@ import { wallet } from "@/lib/wallet/bridge";
 import type { WalletCreated } from "@/lib/wallet/types";
 import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
-import { CopyButton } from "./shared";
+import {
+  SensitiveSeedSession,
+  walletSensitiveSeedAuthority,
+} from "@/lib/wallet/sensitive-seed";
 
 export function Onboarding() {
   const bootstrap = useWallet((s) => s.bootstrap);
@@ -60,11 +63,7 @@ export function Onboarding() {
   );
 }
 
-function CreatePane({
-  onCreated,
-}: {
-  onCreated: (w: WalletCreated) => void;
-}) {
+function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
   const [wordCount, setWordCount] = useState<12 | 24>(24);
   const [busy, setBusy] = useState(false);
 
@@ -202,7 +201,9 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
             autoComplete="off"
             className={cn(
               "min-h-[104px] resize-none font-mono",
-              !reveal && seed && "[-webkit-text-security:disc] [text-security:disc]",
+              !reveal &&
+                seed &&
+                "[-webkit-text-security:disc] [text-security:disc]",
             )}
           />
           <div className="flex items-center justify-between text-xs">
@@ -268,9 +269,83 @@ function SeedReveal({
   created: WalletCreated;
   onDone: () => void;
 }) {
-  const [reveal, setReveal] = useState(false);
+  const [seedPhrase, setSeedPhrase] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  const words = created.seedPhrase.trim().split(/\s+/);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // React state is not a synchronous exclusion primitive: two clicks in the
+  // same render can both observe `busy === false`. Keep the native reveal and
+  // acknowledgement ceremonies globally single-flight for this view.
+  const operationInFlight = useRef(false);
+  const session = useRef<SensitiveSeedSession | null>(null);
+  if (!session.current) {
+    session.current = new SensitiveSeedSession(
+      walletSensitiveSeedAuthority,
+      setSeedPhrase,
+    );
+  }
+  const words = seedPhrase?.trim().split(/\s+/) ?? [];
+
+  const hide = useCallback(() => {
+    session.current?.clear();
+    setConfirmed(false);
+  }, []);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") hide();
+    };
+    window.addEventListener("blur", hide);
+    window.addEventListener("pagehide", hide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", hide);
+      window.removeEventListener("pagehide", hide);
+      document.removeEventListener("visibilitychange", onVisibility);
+      session.current?.clear();
+    };
+  }, [hide]);
+
+  const reveal = useCallback(async () => {
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await session.current!.reveal((token) =>
+        wallet.getBackupSeedPhrase(created.walletId, token),
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Couldn't reveal recovery phrase",
+      );
+    } finally {
+      operationInFlight.current = false;
+      setBusy(false);
+    }
+  }, [created.walletId]);
+
+  const finish = useCallback(async () => {
+    if (!confirmed || operationInFlight.current) return;
+    operationInFlight.current = true;
+    hide();
+    setBusy(true);
+    try {
+      await wallet.confirmWalletBackup(created.walletId);
+      onDone();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Couldn't save backup confirmation",
+      );
+    } finally {
+      operationInFlight.current = false;
+      setBusy(false);
+    }
+  }, [confirmed, created.walletId, hide, onDone]);
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
@@ -282,7 +357,8 @@ function SeedReveal({
           Back up your recovery phrase
         </h1>
         <p className="text-sm text-muted-foreground">
-          Write these {words.length} words down in order and store them offline.
+          Authenticate, then write the recovery words down in order and store
+          them offline.
         </p>
       </div>
 
@@ -299,11 +375,8 @@ function SeedReveal({
 
           <div className="relative">
             <ol
-              className={cn(
-                "grid grid-cols-2 gap-2 sm:grid-cols-3",
-                !reveal && "select-none blur-md",
-              )}
-              aria-hidden={!reveal}
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3"
+              aria-hidden="true"
             >
               {words.map((word, i) => (
                 <li
@@ -318,15 +391,20 @@ function SeedReveal({
               ))}
             </ol>
 
-            {!reveal ? (
+            {!seedPhrase ? (
               <button
                 type="button"
-                onClick={() => setReveal(true)}
-                className="absolute inset-0 grid place-items-center rounded-lg bg-background/20 text-sm font-medium backdrop-blur-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                onClick={() => void reveal()}
+                disabled={busy}
+                className="min-h-24 w-full rounded-lg border border-border bg-secondary/40 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="flex items-center gap-2 rounded-full bg-secondary px-4 py-2 shadow">
-                  <Eye className="h-4 w-4" />
-                  Tap to reveal phrase
+                <span className="flex items-center justify-center gap-2">
+                  {busy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                  {busy ? "Authenticating…" : "Authenticate to reveal phrase"}
                 </span>
               </button>
             ) : null}
@@ -334,22 +412,29 @@ function SeedReveal({
 
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Birthday height {formatHeight(created.birthdayHeight)}</span>
-            {reveal ? (
-              <CopyButton
-                value={created.seedPhrase}
-                size="sm"
-                label="Recovery phrase copied"
-                ariaLabel="Copy recovery phrase"
-              />
+            {seedPhrase ? (
+              <button
+                type="button"
+                onClick={hide}
+                className="min-tap inline-flex items-center gap-1"
+              >
+                <EyeOff className="h-3.5 w-3.5" /> Hide phrase
+              </button>
             ) : null}
           </div>
+
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
 
           <label className="min-h-11 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border p-3 text-sm">
             <input
               type="checkbox"
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
-              disabled={!reveal}
+              disabled={!seedPhrase || busy}
               className="mt-0.5 h-4 w-4 accent-zec"
             />
             <span>
@@ -362,8 +447,8 @@ function SeedReveal({
             variant="zec"
             size="lg"
             className="w-full"
-            disabled={!confirmed}
-            onClick={onDone}
+            disabled={!confirmed || busy}
+            onClick={() => void finish()}
           >
             I've saved it — open my wallet
           </Button>

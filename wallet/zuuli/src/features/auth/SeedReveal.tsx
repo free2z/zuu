@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 interface SeedRevealProps {
   seedPhrase: string;
   onConfirm: () => void | Promise<void>;
+  onDismiss: () => void;
   confirming?: boolean;
   error?: string | null;
 }
@@ -22,6 +23,7 @@ interface SeedRevealProps {
 export function SeedReveal({
   seedPhrase,
   onConfirm,
+  onDismiss,
   confirming = false,
   error,
 }: SeedRevealProps) {
@@ -48,7 +50,9 @@ export function SeedReveal({
             "grid grid-cols-2 gap-2 sm:grid-cols-3",
             !revealed && "pointer-events-none select-none blur-md",
           )}
-          aria-hidden={!revealed}
+          // Recovery words must never enter an accessibility snapshot or be
+          // spoken aloud by assistive technology in a public setting.
+          aria-hidden="true"
         >
           {words.map((word, i) => (
             <li
@@ -58,7 +62,9 @@ export function SeedReveal({
               <span className="w-5 shrink-0 text-right font-mono text-xs text-muted-foreground">
                 {i + 1}
               </span>
-              <span className="min-w-0 break-words font-mono text-sm">{word}</span>
+              <span className="min-w-0 break-words font-mono text-sm">
+                {word}
+              </span>
             </li>
           ))}
         </ol>
@@ -88,7 +94,11 @@ export function SeedReveal({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => setRevealed(false)}
+            onClick={() => {
+              setRevealed(false);
+              setAcknowledged(false);
+              onDismiss();
+            }}
           >
             <EyeOff className="h-4 w-4" aria-hidden />
             Hide

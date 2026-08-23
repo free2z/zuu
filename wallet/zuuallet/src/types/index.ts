@@ -1,5 +1,5 @@
 export interface WalletCreated {
-  seedPhrase: string;
+  walletId: string;
   birthdayHeight: number;
 }
 
@@ -11,6 +11,7 @@ export interface WalletStatus {
   activeWalletId: string | null;
   activeWalletName: string | null;
   walletCount: number;
+  backupRequired: boolean;
   cleanup: WalletCleanupStatus;
   legacyAppData: LegacyAppDataStatus;
 }

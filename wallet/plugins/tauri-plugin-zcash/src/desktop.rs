@@ -52,6 +52,7 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
         _app: app.clone(),
         state,
         legacy_app_data: migration.into(),
+        sensitive_display: tokio::sync::Mutex::new(None),
     })
 }
 
@@ -59,4 +60,14 @@ pub struct Zcash<R: Runtime> {
     pub _app: AppHandle<R>,
     pub state: WalletState,
     pub legacy_app_data: crate::models::LegacyAppDataStatus,
+    pub sensitive_display: tokio::sync::Mutex<Option<crate::models::SensitiveDisplayState>>,
+}
+
+impl<R: Runtime> Zcash<R> {
+    /// Desktop platforms do not expose a uniform screenshot-prevention API.
+    /// Renderer lifecycle clearing still applies; mobile has native capture
+    /// protection in addition to that boundary.
+    pub fn set_sensitive_display(&self, _active: bool, _token: &str) -> crate::Result<()> {
+        Ok(())
+    }
 }
