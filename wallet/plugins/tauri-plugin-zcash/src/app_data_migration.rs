@@ -323,8 +323,8 @@ fn directory_identity(
     path: &Path,
     _metadata: &fs::Metadata,
 ) -> Result<DirectoryIdentity, MigrationError> {
-    let information = windows_file_information(path, 0, true)?;
-    Ok(windows_information_identity(&information))
+    let (first, second) = windows_file_identity(path, true)?;
+    Ok(DirectoryIdentity { first, second })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -798,6 +798,13 @@ fn reject_hard_linked_file(path: &Path, _metadata: &fs::Metadata) -> Result<(), 
 #[cfg(windows)]
 pub(crate) fn windows_link_count(path: &Path) -> std::io::Result<u32> {
     Ok(windows_file_information(path, 0, false)?.nNumberOfLinks)
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_file_identity(path: &Path, directory: bool) -> std::io::Result<(u64, u64)> {
+    let information = windows_file_information(path, 0, directory)?;
+    let identity = windows_information_identity(&information);
+    Ok((identity.first, identity.second))
 }
 
 #[cfg(windows)]

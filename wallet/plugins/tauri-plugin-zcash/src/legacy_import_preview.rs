@@ -458,13 +458,11 @@ fn file_identity(_path: &Path, metadata: &fs::Metadata) -> Result<FileIdentity, 
 }
 
 #[cfg(windows)]
-fn file_identity(path: &Path, _metadata: &fs::Metadata) -> Result<FileIdentity, &'static str> {
-    use std::os::windows::fs::MetadataExt;
-    let metadata = fs::metadata(path).map_err(|_| "Legacy data changed during preview.")?;
-    Ok(FileIdentity {
-        first: metadata.volume_serial_number().unwrap_or(0) as u64,
-        second: metadata.file_index().unwrap_or(0),
-    })
+fn file_identity(path: &Path, metadata: &fs::Metadata) -> Result<FileIdentity, &'static str> {
+    let (first, second) =
+        crate::app_data_migration::windows_file_identity(path, metadata.file_type().is_dir())
+            .map_err(|_| "Legacy data changed during preview.")?;
+    Ok(FileIdentity { first, second })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -503,12 +501,15 @@ impl Snapshot {
     fn new() -> std::io::Result<Self> {
         let path =
             std::env::temp_dir().join(format!("zuuli-legacy-preview-{}", uuid::Uuid::new_v4()));
-        let mut builder = fs::DirBuilder::new();
         #[cfg(unix)]
-        {
+        let builder = {
             use std::os::unix::fs::DirBuilderExt;
+            let mut builder = fs::DirBuilder::new();
             builder.mode(0o700);
-        }
+            builder
+        };
+        #[cfg(not(unix))]
+        let builder = fs::DirBuilder::new();
         builder.create(&path)?;
         Ok(Self { path })
     }
@@ -1087,5 +1088,17 @@ mod tests {
             reject_links(&linked, &metadata),
             Err("Legacy application data contains a linked file.")
         );
+    }
+
+    #[test]
+    fn windows_identity_is_bound_to_the_stable_no_follow_win32_helper() {
+        let preview_source = include_str!("legacy_import_preview.rs");
+        let migration_source = include_str!("app_data_migration.rs");
+
+        assert!(preview_source.contains(
+            "crate::app_data_migration::windows_file_identity(path, metadata.file_type().is_dir())"
+        ));
+        assert!(migration_source.contains("FILE_FLAG_OPEN_REPARSE_POINT"));
+        assert!(migration_source.contains("GetFileInformationByHandle"));
     }
 }
