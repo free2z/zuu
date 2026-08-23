@@ -5,11 +5,11 @@ devices. Automated checks prove the software boundary and its fail-closed race
 behavior; they cannot prove how a particular OS release, OEM recents UI, screen
 recorder, or external display behaves.
 
-## Software-verifiable boundary
+## Software-verifiable generated-backup boundary
 
-- Wallet creation returns only the wallet ID and birthday. A mnemonic enters
-  the renderer only after an explicit backup action performs a fresh native
-  user-presence check.
+- Wallet creation returns only the wallet ID and birthday. Its generated
+  mnemonic enters the renderer only after an explicit backup action performs a
+  fresh native user-presence check.
 - Native capture protection is acquired before that custody read. Releases are
   bound to opaque leases, so delayed cleanup cannot uncover a newer reveal.
 - Blur, page hide, visibility loss, explicit Hide, confirmation, and unmount
@@ -19,6 +19,12 @@ recorder, or external display behaves.
   background snapshots and while screen capture is active.
 - Recovery words are excluded from the accessibility tree. Seed-copy UI was
   removed; ZUULI therefore places no mnemonic on the clipboard.
+
+This slice does not yet protect user-entered restore mnemonics in
+`RestoreIdentity.tsx` or Onboarding's `RestorePane` with the native display
+lease. Those inputs remain renderer-visible while the user types or pastes
+them. Issue #381 therefore remains open for restore-input protection as well as
+the physical-device evidence below.
 
 Run the automated contract with:
 

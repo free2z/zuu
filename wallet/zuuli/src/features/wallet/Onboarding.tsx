@@ -307,8 +307,8 @@ function SeedReveal({
     setBusy(true);
     setError(null);
     try {
-      await session.current!.reveal(() =>
-        wallet.getBackupSeedPhrase(created.walletId),
+      await session.current!.reveal((token) =>
+        wallet.getBackupSeedPhrase(created.walletId, token),
       );
     } catch (cause) {
       setError(

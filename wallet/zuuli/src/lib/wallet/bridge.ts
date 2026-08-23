@@ -28,13 +28,19 @@ import type {
 
 // Lazily import the Tauri API only when running under Tauri, so the browser
 // bundle never requires it.
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function invoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
   return tauriInvoke<T>(`plugin:zcash|${cmd}`, args);
 }
 
 export const wallet = {
-  async createWallet(mnemonicWordCount = 24, name?: string): Promise<WalletCreated> {
+  async createWallet(
+    mnemonicWordCount = 24,
+    name?: string,
+  ): Promise<WalletCreated> {
     if (useMock()) return mockWallet.createWallet();
     return invoke("create_wallet", { args: { mnemonicWordCount, name } });
   },
@@ -51,7 +57,9 @@ export const wallet = {
         return Promise.reject(error);
       }
     }
-    return invoke("restore_wallet", { args: { seedPhrase, birthdayHeight, name } });
+    return invoke("restore_wallet", {
+      args: { seedPhrase, birthdayHeight, name },
+    });
   },
 
   async getWalletStatus(): Promise<WalletStatus> {
@@ -64,14 +72,14 @@ export const wallet = {
     return invoke("retry_wallet_cleanup");
   },
 
-  async getSeedPhrase(): Promise<string> {
-    if (useMock()) return mockWallet.getSeedPhrase();
-    return invoke("get_seed_phrase");
+  async getSeedPhrase(token: string): Promise<string> {
+    if (useMock()) return mockWallet.getSeedPhrase(token);
+    return invoke("get_seed_phrase", { args: { token } });
   },
 
-  async getBackupSeedPhrase(walletId: string): Promise<string> {
-    if (useMock()) return mockWallet.getBackupSeedPhrase(walletId);
-    return invoke("get_backup_seed_phrase", { args: { walletId } });
+  async getBackupSeedPhrase(walletId: string, token: string): Promise<string> {
+    if (useMock()) return mockWallet.getBackupSeedPhrase(walletId, token);
+    return invoke("get_backup_seed_phrase", { args: { walletId, token } });
   },
 
   async beginSensitiveDisplay(): Promise<SensitiveDisplayLease> {
@@ -125,7 +133,9 @@ export const wallet = {
     limit?: number,
   ): Promise<TransactionEntry[]> {
     if (useMock()) return mockWallet.getTransactionHistory();
-    return invoke("get_transaction_history", { args: { accountIndex, offset, limit } });
+    return invoke("get_transaction_history", {
+      args: { accountIndex, offset, limit },
+    });
   },
 
   async validateAddress(address: string): Promise<AddressValidation> {
@@ -138,7 +148,11 @@ export const wallet = {
     return invoke("parse_payment_uri", { args: { uri } });
   },
 
-  async proposeSend(to: string, amount: number, memo?: string): Promise<SendProposal> {
+  async proposeSend(
+    to: string,
+    amount: number,
+    memo?: string,
+  ): Promise<SendProposal> {
     if (useMock()) return mockWallet.proposeSend(to, amount, memo);
     return invoke("propose_send", { args: { to, amount, memo } });
   },
@@ -153,7 +167,12 @@ export const wallet = {
     reviewDigest: string,
     confirmationToken: string,
   ): Promise<ExecuteSendResult> {
-    if (useMock()) return mockWallet.executeSend(proposalId, reviewDigest, confirmationToken);
+    if (useMock())
+      return mockWallet.executeSend(
+        proposalId,
+        reviewDigest,
+        confirmationToken,
+      );
     return invoke("execute_send", {
       args: { proposalId, reviewDigest, confirmationToken },
     });
@@ -165,7 +184,11 @@ export const wallet = {
     confirmationToken: string,
   ): Promise<void> {
     if (useMock()) {
-      return mockWallet.discardSendProposal(proposalId, reviewDigest, confirmationToken);
+      return mockWallet.discardSendProposal(
+        proposalId,
+        reviewDigest,
+        confirmationToken,
+      );
     }
     return invoke("discard_send_proposal", {
       args: { proposalId, reviewDigest, confirmationToken },
@@ -194,7 +217,10 @@ export const wallet = {
    * routes to the plugin's signing command; in mock mode it returns a
    * believable signature so the login flow completes end-to-end.
    */
-  async signChallenge(challenge: string, accountIndex = 0): Promise<SignedChallenge> {
+  async signChallenge(
+    challenge: string,
+    accountIndex = 0,
+  ): Promise<SignedChallenge> {
     if (useMock()) return mockWallet.signChallenge(challenge);
     return invoke("sign_challenge", { args: { challenge, accountIndex } });
   },

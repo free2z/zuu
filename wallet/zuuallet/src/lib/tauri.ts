@@ -9,12 +9,12 @@ import type {
   SyncStatus,
   TransactionEntry,
   PaymentRequest,
-  SpendingKeyStatus,
   AddressValidation,
   SaplingParamsStatus,
   SendProposal,
   ExecuteSendResult,
   PendingSendStatus,
+  SpendingKeyStatus,
 } from "../types";
 
 export async function createWallet(
@@ -44,8 +44,16 @@ export async function retryWalletCleanup(): Promise<WalletCleanupStatus> {
   return invoke("plugin:zcash|retry_wallet_cleanup");
 }
 
-export async function getSeedPhrase(): Promise<string> {
-  return invoke("plugin:zcash|get_seed_phrase");
+export async function beginSensitiveDisplay(): Promise<{ token: string }> {
+  return invoke("plugin:zcash|begin_sensitive_display");
+}
+
+export async function endSensitiveDisplay(token: string): Promise<void> {
+  return invoke("plugin:zcash|end_sensitive_display", { args: { token } });
+}
+
+export async function getSeedPhrase(token: string): Promise<string> {
+  return invoke("plugin:zcash|get_seed_phrase", { args: { token } });
 }
 
 export async function getViewingKey(accountIndex: number): Promise<string> {

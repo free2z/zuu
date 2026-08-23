@@ -60,7 +60,8 @@ All commands are invoked from TypeScript as `invoke("plugin:zcash|command_name",
 | `restore_wallet` | `RestoreWalletArgs { seedPhrase, birthdayHeight?, name? }` | `WalletRestored { success, walletId }` | Restore a wallet and return the exact atomically published manifest identity |
 | `get_wallet_status` | — | `WalletStatus` | Check if wallet is initialized, has seed, synced height, active wallet info |
 | `retry_wallet_cleanup` | — | `WalletCleanupStatus` | Explicitly retry pending orphan cleanup and return diagnostics |
-| `get_seed_phrase` | — | `String` | Authenticate and retrieve the seed from platform-native custody |
+| `get_seed_phrase` | `SensitiveSeedArgs { token }` | `String` | Authenticate and retrieve the seed only while the exact display lease is held |
+| `get_backup_seed_phrase` | `SensitiveBackupSeedArgs { walletId, token }` | `String` | Retrieve a pending backup only while the exact display lease is held |
 | `begin_sensitive_display` | — | `SensitiveDisplayLease` | Acquire exact native capture protection before a backup reveal |
 | `end_sensitive_display` | `EndSensitiveDisplayArgs { token }` | `()` | Release only the matching capture-protection lease |
 | `get_viewing_key` | `AccountIdArgs { accountIndex }` | `String` | Get encoded UFVK for an account |

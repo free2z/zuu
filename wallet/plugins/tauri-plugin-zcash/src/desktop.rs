@@ -60,7 +60,7 @@ pub struct Zcash<R: Runtime> {
     pub _app: AppHandle<R>,
     pub state: WalletState,
     pub legacy_app_data: crate::models::LegacyAppDataStatus,
-    pub sensitive_display: tokio::sync::Mutex<Option<String>>,
+    pub sensitive_display: tokio::sync::Mutex<Option<crate::models::SensitiveDisplayState>>,
 }
 
 impl<R: Runtime> Zcash<R> {

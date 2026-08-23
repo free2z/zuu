@@ -464,8 +464,8 @@ export function useZcashChallengeFlow(
         await runCrypto(isCurrent, status.activeWalletId);
         return;
       }
-      const revealed = await sensitiveSeed.current!.reveal(() =>
-        wallet.getBackupSeedPhrase(status.activeWalletId!),
+      const revealed = await sensitiveSeed.current!.reveal((token) =>
+        wallet.getBackupSeedPhrase(status.activeWalletId!, token),
       );
       if (!isCurrent() || !revealed) return;
       setBackupWalletId(status.activeWalletId);

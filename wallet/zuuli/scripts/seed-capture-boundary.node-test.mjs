@@ -13,8 +13,11 @@ const sources = Object.fromEntries(
       ios: "../plugins/tauri-plugin-zcash/ios/Sources/ZcashPlugin.swift",
       rustCommands: "../plugins/tauri-plugin-zcash/src/commands.rs",
       models: "../plugins/tauri-plugin-zcash/src/models.rs",
+      defaults: "../plugins/tauri-plugin-zcash/permissions/default.toml",
       session: "src/lib/wallet/sensitive-seed.ts",
       bridge: "src/lib/wallet/bridge.ts",
+      desktopBridge: "../zuuallet/src/lib/tauri.ts",
+      desktopSettings: "../zuuallet/src/pages/Settings.tsx",
       flow: "src/features/auth/useZcashChallengeFlow.ts",
       onboarding: "src/features/wallet/Onboarding.tsx",
       reveal: "src/features/auth/SeedReveal.tsx",
@@ -48,8 +51,32 @@ for (const [name, key, search, replacement] of [
   [
     "Android background release clears immediately",
     "android",
-    "secureFlagReleasePending = true",
+    "secureFlagReleasePending = secureFlagAddedByPlugin",
     "activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)",
+  ],
+  [
+    "Android claims a pre-existing secure flag",
+    "android",
+    "secureFlagAddedByPlugin = !hasSecureFlag()",
+    "secureFlagAddedByPlugin = true",
+  ],
+  [
+    "Android superseding lease loses plugin flag ownership",
+    "android",
+    "if (sensitiveDisplayToken == null && !secureFlagReleasePending) {",
+    "if (true) {",
+  ],
+  [
+    "Android pending-background reacquire loses plugin flag ownership",
+    "android",
+    "if (sensitiveDisplayToken == null && !secureFlagReleasePending) {",
+    "if (sensitiveDisplayToken == null) {",
+  ],
+  [
+    "Android resume clears independent protection",
+    "android",
+    "if (secureFlagAddedByPlugin) {\n                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)",
+    "if (true) {\n                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)",
   ],
   [
     "iOS capture observer removed",
@@ -112,6 +139,66 @@ for (const [name, key, search, replacement] of [
     'return Promise.resolve({ token: "decorative" });',
   ],
   [
+    "default permission cannot acquire display protection",
+    "defaults",
+    '    "allow-begin-sensitive-display",',
+    "    # omitted",
+  ],
+  [
+    "native mnemonic read bypasses exact lease",
+    "rustCommands",
+    "        consume_sensitive_display(&zcash.sensitive_display, &args.token, &wallet_id).await?;",
+    "    let _sensitive_guard = zcash.sensitive_display.lock().await;",
+  ],
+  [
+    "native display lease drops wallet binding",
+    "rustCommands",
+    "lease.wallet_id != wallet_id",
+    "false",
+  ],
+  [
+    "native display lease becomes reusable",
+    "rustCommands",
+    " || lease.consumed",
+    "",
+  ],
+  [
+    "native display acquisition omits active wallet identity",
+    "rustCommands",
+    "        wallet_id,\n        consumed: false,",
+    '        wallet_id: "decorative".to_owned(),\n        consumed: false,',
+  ],
+  [
+    "native custody drops consumed lease before read",
+    "rustCommands",
+    "    zcash\n        .state\n        .get_seed_phrase(&transition_guard, &wallet_id)",
+    "    drop(_sensitive_guard);\n    zcash\n        .state\n        .get_seed_phrase(&transition_guard, &wallet_id)",
+  ],
+  [
+    "renderer custody read omits exact lease token",
+    "session",
+    "const phrase = await readPhrase(token);",
+    "const phrase = await readPhrase();",
+  ],
+  [
+    "desktop custody read omits exact lease token",
+    "desktopSettings",
+    "const result = await api.getSeedPhrase(token);",
+    "const result = await api.getSeedPhrase();",
+  ],
+  [
+    "desktop background clearing removed",
+    "desktopSettings",
+    'window.addEventListener("pagehide", clearSensitiveDisplay);',
+    "// omitted",
+  ],
+  [
+    "desktop direct mnemonic bridge drops lease token",
+    "desktopBridge",
+    'return invoke("plugin:zcash|get_seed_phrase", { args: { token } });',
+    'return invoke("plugin:zcash|get_seed_phrase");',
+  ],
+  [
     "wallet creation consumes seed again",
     "flow",
     "const { walletId } = await wallet.createWallet();",
@@ -151,7 +238,7 @@ test("rejects mutation: custody read moved before protection", () => {
       "token = await readPhrase().then(() => this.authority.begin());",
     )
     .replace(
-      "const phrase = await readPhrase();",
+      "const phrase = await readPhrase(token);",
       'const phrase = "already read before protection";',
     );
   assert.notEqual(mutatedSession, sources.session);

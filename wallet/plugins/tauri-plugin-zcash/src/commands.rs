@@ -525,10 +525,22 @@ pub(crate) async fn begin_sensitive_display<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<SensitiveDisplayLease> {
     let zcash = app.zcash();
+    // Bind this session to the exact active wallet. A wallet switch after
+    // acquisition cannot reuse its still-unconsumed token for another wallet.
+    let _transition_guard = zcash.state.lock_wallet_transition().await;
+    let wallet_id = zcash
+        .state
+        .active_wallet_id()
+        .await
+        .ok_or(Error::WalletNotInitialized)?;
     let mut current = zcash.sensitive_display.lock().await;
     let token = uuid::Uuid::new_v4().to_string();
     zcash.set_sensitive_display(true, &token)?;
-    *current = Some(token.clone());
+    *current = Some(SensitiveDisplayState {
+        token: token.clone(),
+        wallet_id,
+        consumed: false,
+    });
     Ok(SensitiveDisplayLease { token })
 }
 
@@ -549,20 +561,123 @@ pub(crate) async fn end_sensitive_display<R: Runtime>(
     Ok(())
 }
 
-fn owns_sensitive_display(current: &Option<String>, token: &str) -> bool {
-    current.as_deref() == Some(token)
+fn owns_sensitive_display(current: &Option<SensitiveDisplayState>, token: &str) -> bool {
+    current.as_ref().is_some_and(|lease| lease.token == token)
+}
+
+async fn consume_sensitive_display<'a>(
+    current: &'a tokio::sync::Mutex<Option<SensitiveDisplayState>>,
+    token: &str,
+    wallet_id: &str,
+) -> Result<tokio::sync::MutexGuard<'a, Option<SensitiveDisplayState>>> {
+    let mut guard = current.lock().await;
+    let Some(lease) = guard.as_mut() else {
+        return Err(Error::Other(
+            "sensitive-display lease is missing or stale".into(),
+        ));
+    };
+    if token.is_empty() || lease.token != token || lease.wallet_id != wallet_id || lease.consumed {
+        return Err(Error::Other(
+            "sensitive-display lease is missing, stale, or already used".into(),
+        ));
+    }
+    lease.consumed = true;
+    Ok(guard)
 }
 
 #[cfg(test)]
 mod sensitive_display_tests {
-    use super::owns_sensitive_display;
+    use super::{consume_sensitive_display, owns_sensitive_display};
+    use crate::models::SensitiveDisplayState;
+    use std::sync::Arc;
+    use tokio::sync::{Mutex, oneshot};
+
+    fn lease(token: &str, wallet_id: &str) -> SensitiveDisplayState {
+        SensitiveDisplayState {
+            token: token.to_owned(),
+            wallet_id: wallet_id.to_owned(),
+            consumed: false,
+        }
+    }
 
     #[test]
     fn stale_release_never_owns_a_newer_sensitive_display() {
-        let current = Some("new-reveal".to_owned());
+        let current = Some(lease("new-reveal", "wallet-a"));
         assert!(owns_sensitive_display(&current, "new-reveal"));
         assert!(!owns_sensitive_display(&current, "old-reveal"));
         assert!(!owns_sensitive_display(&None, "old-reveal"));
+    }
+
+    #[tokio::test]
+    async fn seed_reads_reject_missing_stale_replaced_and_wrong_wallet_leases() {
+        let current = Mutex::new(None);
+        assert!(
+            consume_sensitive_display(&current, "missing", "wallet-a")
+                .await
+                .is_err()
+        );
+
+        *current.lock().await = Some(lease("current", "wallet-a"));
+        assert!(
+            consume_sensitive_display(&current, "stale", "wallet-a")
+                .await
+                .is_err()
+        );
+        assert!(
+            consume_sensitive_display(&current, "", "wallet-a")
+                .await
+                .is_err()
+        );
+        assert!(
+            consume_sensitive_display(&current, "current", "wallet-b")
+                .await
+                .is_err()
+        );
+
+        *current.lock().await = Some(lease("replacement", "wallet-a"));
+        assert!(
+            consume_sensitive_display(&current, "current", "wallet-a")
+                .await
+                .is_err()
+        );
+        let exact = consume_sensitive_display(&current, "replacement", "wallet-a")
+            .await
+            .expect("exact current wallet lease");
+        assert!(exact.as_ref().expect("lease").consumed);
+        drop(exact);
+        assert!(
+            consume_sensitive_display(&current, "replacement", "wallet-a")
+                .await
+                .is_err(),
+            "a displayed phrase lease is one-use even after custody returns"
+        );
+    }
+
+    #[tokio::test]
+    async fn seed_read_holds_the_exact_lease_against_release_or_replacement() {
+        let current = Arc::new(Mutex::new(Some(lease("read-lease", "wallet-a"))));
+        let read_current = Arc::clone(&current);
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (finish_tx, finish_rx) = oneshot::channel();
+        let read = tokio::spawn(async move {
+            let _lease = consume_sensitive_display(&read_current, "read-lease", "wallet-a")
+                .await
+                .expect("exact lease");
+            entered_tx.send(()).expect("announce read");
+            finish_rx.await.expect("finish read");
+        });
+
+        entered_rx.await.expect("read entered");
+        assert!(
+            current.try_lock().is_err(),
+            "release/replacement must wait until custody read finishes"
+        );
+        finish_tx.send(()).expect("release read");
+        read.await.expect("read task");
+        let current = current.lock().await;
+        let current = current.as_ref().expect("lease remains until explicit end");
+        assert_eq!(current.token, "read-lease");
+        assert!(current.consumed);
     }
 }
 
@@ -876,7 +991,10 @@ pub(crate) async fn retry_wallet_cleanup<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn get_seed_phrase<R: Runtime>(app: AppHandle<R>) -> Result<String> {
+pub(crate) async fn get_seed_phrase<R: Runtime>(
+    app: AppHandle<R>,
+    args: SensitiveSeedArgs,
+) -> Result<String> {
     let zcash = app.zcash();
     let transition_guard = zcash.state.lock_wallet_transition().await;
     let wallet_id = zcash
@@ -884,6 +1002,10 @@ pub(crate) async fn get_seed_phrase<R: Runtime>(app: AppHandle<R>) -> Result<Str
         .active_wallet_id()
         .await
         .ok_or(Error::WalletNotInitialized)?;
+    // Keep the exact display lease locked for the entire user-presence-bound
+    // custody read. Neither release nor replacement can race the mnemonic.
+    let _sensitive_guard =
+        consume_sensitive_display(&zcash.sensitive_display, &args.token, &wallet_id).await?;
     zcash
         .state
         .get_seed_phrase(&transition_guard, &wallet_id)
@@ -898,7 +1020,7 @@ pub(crate) async fn get_seed_phrase<R: Runtime>(app: AppHandle<R>) -> Result<Str
 #[command]
 pub(crate) async fn get_backup_seed_phrase<R: Runtime>(
     app: AppHandle<R>,
-    args: ConfirmWalletBackupArgs,
+    args: SensitiveBackupSeedArgs,
 ) -> Result<String> {
     let zcash = app.zcash();
     let transition_guard = zcash.state.lock_wallet_transition().await;
@@ -908,6 +1030,8 @@ pub(crate) async fn get_backup_seed_phrase<R: Runtime>(
             return Err(Error::BackupRequired);
         }
     }
+    let _sensitive_guard =
+        consume_sensitive_display(&zcash.sensitive_display, &args.token, &args.wallet_id).await?;
     zcash
         .state
         .get_seed_phrase(&transition_guard, &args.wallet_id)

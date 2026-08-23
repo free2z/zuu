@@ -29,6 +29,14 @@ let created = true;
 let tip = 2_612_004;
 let synced = 2_612_004;
 let syncing = false;
+let sensitiveDisplayToken: string | null = null;
+
+function requireSensitiveDisplay(token: string): void {
+  if (!token || token !== sensitiveDisplayToken) {
+    throw new Error("sensitive-display lease is missing or stale");
+  }
+  sensitiveDisplayToken = null;
+}
 
 /**
  * Browser-only scenarios for exercising states that otherwise require a
@@ -76,8 +84,7 @@ const history: TransactionEntry[] = [
     blockHeight: 2_611_980,
     timestamp: Math.floor(Date.now() / 1000) - 3600,
     value: 50_000_000,
-    memo:
-      "Welcome to ZUULI 🎉 — this first note carries a memo long enough to prove a transaction row wraps instead of clipping it.",
+    memo: "Welcome to ZUULI 🎉 — this first note carries a memo long enough to prove a transaction row wraps instead of clipping it.",
     incoming: true,
   },
   {
@@ -103,7 +110,9 @@ let pendingProposal: SendProposal | null = null;
 
 function mockProposalDelay(): number {
   try {
-    const value = Number(globalThis.localStorage?.getItem("zuuli.mock.send-proposal-delay-ms"));
+    const value = Number(
+      globalThis.localStorage?.getItem("zuuli.mock.send-proposal-delay-ms"),
+    );
     return Number.isFinite(value) && value > 0 ? Math.min(value, 5_000) : 0;
   } catch {
     return 0;
@@ -116,7 +125,8 @@ function proposalCredential(counter: number, marker: string): string {
 
 export const mockWallet = {
   getWalletStatus(): WalletStatus {
-    const persistedCreated = globalThis.localStorage?.getItem(MOCK_CREATED_WALLET_KEY) === "1";
+    const persistedCreated =
+      globalThis.localStorage?.getItem(MOCK_CREATED_WALLET_KEY) === "1";
     const scenario = mockWalletScenario();
     const needsRestore = [
       "empty",
@@ -142,7 +152,8 @@ export const mockWallet = {
       walletCount: 1,
       backupRequired:
         initialized &&
-        globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY) === MOCK_WALLET_ID,
+        globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY) ===
+          MOCK_WALLET_ID,
       cleanup: {
         pendingOperations: 0,
         blockedOperations: 0,
@@ -173,20 +184,30 @@ export const mockWallet = {
     return { walletId: MOCK_WALLET_ID, birthdayHeight: tip - 100 };
   },
   beginSensitiveDisplay() {
-    return { token: crypto.randomUUID() };
+    sensitiveDisplayToken = crypto.randomUUID();
+    return { token: sensitiveDisplayToken };
   },
-  endSensitiveDisplay(_token: string) {},
+  endSensitiveDisplay(token: string) {
+    if (sensitiveDisplayToken === token) sensitiveDisplayToken = null;
+  },
   restoreWallet(seedPhrase: string): WalletRestored | Promise<WalletRestored> {
     if (mockWalletScenario() === "slow-restore-error") {
       return new Promise((_, reject) =>
         setTimeout(
-          () => reject(new Error("Recovery phrase is not a valid supported BIP39 mnemonic.")),
+          () =>
+            reject(
+              new Error(
+                "Recovery phrase is not a valid supported BIP39 mnemonic.",
+              ),
+            ),
           250,
         ),
       );
     }
     if (seedPhrase.trim().replace(/\s+/g, " ") !== MOCK_SEED) {
-      throw new Error("Recovery phrase is not a valid supported BIP39 mnemonic.");
+      throw new Error(
+        "Recovery phrase is not a valid supported BIP39 mnemonic.",
+      );
     }
     const publish = (): WalletRestored => {
       created = true;
@@ -195,19 +216,25 @@ export const mockWallet = {
       return { success: true, walletId: MOCK_WALLET_ID };
     };
     if (mockWalletScenario() === "slow-restore") {
-      return new Promise((resolve) => setTimeout(() => resolve(publish()), 750));
+      return new Promise((resolve) =>
+        setTimeout(() => resolve(publish()), 750),
+      );
     }
     return publish();
   },
-  getSeedPhrase(): string {
+  getSeedPhrase(token: string): string {
+    requireSensitiveDisplay(token);
     return MOCK_SEED;
   },
-  getBackupSeedPhrase(walletId: string): string {
+  getBackupSeedPhrase(walletId: string, token: string): string {
+    requireSensitiveDisplay(token);
     if (
       walletId !== MOCK_WALLET_ID ||
       globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY) !== walletId
     ) {
-      throw new Error("backup phrase request does not match the active pending wallet");
+      throw new Error(
+        "backup phrase request does not match the active pending wallet",
+      );
     }
     return MOCK_SEED;
   },
@@ -283,9 +310,14 @@ export const mockWallet = {
       label: params.get("label"),
     };
   },
-  async proposeSend(to: string, amount: number, memo?: string): Promise<SendProposal> {
+  async proposeSend(
+    to: string,
+    amount: number,
+    memo?: string,
+  ): Promise<SendProposal> {
     const delay = mockProposalDelay();
-    if (delay) await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
+    if (delay)
+      await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
     const proposalId = proposalCounter++;
     const proposal: SendProposal = {
       proposalId,
@@ -307,7 +339,11 @@ export const mockWallet = {
   ensureSaplingParams() {
     return { ready: true };
   },
-  executeSend(proposalId: number, reviewDigest: string, confirmationToken: string) {
+  executeSend(
+    proposalId: number,
+    reviewDigest: string,
+    confirmationToken: string,
+  ) {
     if (
       !pendingProposal ||
       pendingProposal.proposalId !== proposalId ||
@@ -323,7 +359,11 @@ export const mockWallet = {
       message: null,
     };
   },
-  discardSendProposal(proposalId: number, reviewDigest: string, confirmationToken: string) {
+  discardSendProposal(
+    proposalId: number,
+    reviewDigest: string,
+    confirmationToken: string,
+  ) {
     if (
       !pendingProposal ||
       pendingProposal.proposalId !== proposalId ||
@@ -347,7 +387,9 @@ export const mockWallet = {
   discardUnrecoverableSend() {},
   signChallenge(challenge: string): SignedChallenge {
     if (globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY)) {
-      throw new Error("Recovery phrase backup must be confirmed before signing.");
+      throw new Error(
+        "Recovery phrase backup must be confirmed before signing.",
+      );
     }
     if (mockWalletScenario() === "sign-error") {
       throw new Error("The mock wallet could not sign this challenge.");

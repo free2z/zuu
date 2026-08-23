@@ -13,9 +13,29 @@ pub struct SensitiveDisplayLease {
     pub token: String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SensitiveDisplayState {
+    pub token: String,
+    pub wallet_id: String,
+    pub consumed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EndSensitiveDisplayArgs {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SensitiveSeedArgs {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SensitiveBackupSeedArgs {
+    pub wallet_id: String,
     pub token: String,
 }
 
@@ -101,6 +121,23 @@ mod legacy_app_data_tests {
         assert_eq!(value["walletId"], "wallet-new-123");
         assert_eq!(value["birthdayHeight"], 3_000_000);
         assert_eq!(value.as_object().expect("object").len(), 2);
+        assert!(value.get("seedPhrase").is_none());
+    }
+
+    #[test]
+    fn spending_key_status_never_serializes_secret_material() {
+        let value = serde_json::to_value(SpendingKeyStatus {
+            account_index: 0,
+            available: true,
+            message: "Spending authority verified.".to_owned(),
+        })
+        .expect("serialize spending authority status");
+
+        assert_eq!(value.as_object().expect("object").len(), 3);
+        assert_eq!(value["accountIndex"], 0);
+        assert_eq!(value["available"], true);
+        assert_eq!(value["message"], "Spending authority verified.");
+        assert!(value.get("spendingKey").is_none());
         assert!(value.get("seedPhrase").is_none());
     }
 

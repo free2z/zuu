@@ -31,7 +31,8 @@ describe("SensitiveSeedSession", () => {
     );
 
     await expect(
-      session.reveal(async () => {
+      session.reveal(async (token) => {
+        events.push(`read-token:${token}`);
         events.push("custody-read");
         return "alpha beta gamma";
       }),
@@ -39,6 +40,7 @@ describe("SensitiveSeedSession", () => {
     expect(events).toEqual([
       "publish:null",
       "protected",
+      "read-token:lease-1",
       "custody-read",
       "publish:alpha beta gamma",
     ]);

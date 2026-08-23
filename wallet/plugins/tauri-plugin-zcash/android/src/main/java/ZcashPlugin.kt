@@ -62,11 +62,17 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
     private val prefs = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
     @Volatile private var sensitiveDisplayToken: String? = null
     private var secureFlagReleasePending = false
+    private var secureFlagAddedByPlugin = false
     private val sensitiveLifecycleObserver = object : DefaultLifecycleObserver {
         override fun onResume(owner: LifecycleOwner) {
             if (sensitiveDisplayToken == null && secureFlagReleasePending) {
-                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                secureFlagReleasePending = false
+                if (secureFlagAddedByPlugin) {
+                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+                if (!secureFlagAddedByPlugin || !hasSecureFlag()) {
+                    secureFlagAddedByPlugin = false
+                    secureFlagReleasePending = false
+                }
             }
         }
     }
@@ -89,31 +95,45 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         }
         activity.runOnUiThread {
             if (args.active) {
+                // Record ownership only for the first lease. A replacement, or
+                // a new lease while background release is pending, inherits
+                // that exact ownership rather than mistaking our own flag for
+                // independent protection.
+                if (sensitiveDisplayToken == null && !secureFlagReleasePending) {
+                    secureFlagAddedByPlugin = !hasSecureFlag()
+                }
                 sensitiveDisplayToken = args.token
                 secureFlagReleasePending = false
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0) {
+                if (!hasSecureFlag()) {
                     sensitiveDisplayToken = null
+                    secureFlagAddedByPlugin = false
                     return@runOnUiThread reject(invoke, "unavailable", "Android FLAG_SECURE did not apply")
                 }
             } else if (sensitiveDisplayToken == args.token) {
                 sensitiveDisplayToken = null
                 val lifecycle = (activity as? FragmentActivity)?.lifecycle
                 if (lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true) {
-                    activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+                    if (secureFlagAddedByPlugin) {
+                        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                    if (secureFlagAddedByPlugin && hasSecureFlag()) {
                         sensitiveDisplayToken = args.token
                         return@runOnUiThread reject(invoke, "unavailable", "Android FLAG_SECURE did not clear")
                     }
+                    secureFlagAddedByPlugin = false
                 } else {
                     // Keep recents protected until the activity is foregrounded;
                     // renderer clearing may not have painted before background.
-                    secureFlagReleasePending = true
+                    secureFlagReleasePending = secureFlagAddedByPlugin
                 }
             }
             invoke.resolve()
         }
     }
+
+    private fun hasSecureFlag(): Boolean =
+        activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
 
     @Command
     fun storeSeed(invoke: Invoke) {

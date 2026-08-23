@@ -30,7 +30,9 @@ export class SensitiveSeedSession {
     private readonly scheduleRelease: ReleaseScheduler = releaseAfterRendererPaint,
   ) {}
 
-  async reveal(readPhrase: () => Promise<string>): Promise<boolean> {
+  async reveal(
+    readPhrase: (token: string) => Promise<string>,
+  ): Promise<boolean> {
     this.clear();
     this.active = true;
     const generation = ++this.generation;
@@ -53,7 +55,7 @@ export class SensitiveSeedSession {
     try {
       // Native capture protection is active before this biometric/user-
       // presence-bound custody read can put a mnemonic in the renderer.
-      const phrase = await readPhrase();
+      const phrase = await readPhrase(token);
       if (generation !== this.generation || this.token !== token) {
         await this.release(token);
         return false;
