@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { act } from "react";
 import { createRoot, Root } from "react-dom/client";
 import { VirtuosoMockContext } from "react-virtuoso";
@@ -74,6 +75,14 @@ jest.mock("./components/CommentCardInfinite", () => {
       </article>
     );
   };
+});
+
+test("disables native scroll anchoring at the Converse feed boundary", () => {
+  const css = readFileSync(`${__dirname}/ConverseList.css`, "utf8");
+
+  expect(css).toMatch(
+    /\.converse-feed\s*\{[^}]*overflow-anchor\s*:\s*none\s*;?[^}]*\}/
+  );
 });
 
 test("keeps async embed resizes from selecting a native scroll anchor in the virtual feed", async () => {
