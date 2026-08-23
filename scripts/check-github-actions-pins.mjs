@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
+const POLICY_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXTERNAL_USES = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[^@\s]+)?@([^@\s]+)$/;
 const REQUIRED_WORKFLOW_PATH = ".github/workflows/zuuli.yml";
 const GATE_CHECKOUT_REFERENCE =
@@ -15,6 +16,68 @@ const GATE_POLICY_SELF_TEST_COMMAND =
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
+const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
+  "  rust_native_clippy:",
+  "    name: Rust / native lints (${{ matrix.target_os }})",
+  "    needs: changes",
+  "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+  "    timeout-minutes: 90",
+  "    strategy:",
+  "      fail-fast: false",
+  "      matrix:",
+  "        include:",
+  "          - os: macos-latest",
+  "            target_os: macos",
+  "          - os: windows-latest",
+  "            target_os: windows",
+  "    runs-on: ${{ matrix.os }}",
+  "    steps:",
+  `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - name: Fetch librustzcash submodule",
+  "        run: git submodule update --init z/zcash/librustzcash",
+  "      - name: Resolve the pinned Rust toolchain",
+  "        id: rust_toolchain",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  "          version=$(scripts/check-rust-toolchain.sh --print-channel)",
+  '          echo "version=$version" >> "$GITHUB_OUTPUT"',
+  "      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+  "        with:",
+  "          toolchain: ${{ steps.rust_toolchain.outputs.version }}",
+  "          components: clippy",
+  "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+  "        with:",
+  "          workspaces: |",
+  "            wallet/plugins/tauri-plugin-zcash",
+  "            wallet/zuuli/src-tauri",
+  "            wallet/zuuallet/src-tauri",
+  "          key: zuuli-native-clippy-${{ matrix.target_os }}",
+  "      - name: Prove native target selection and -D warnings",
+  "        shell: bash",
+  '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
+  "      - name: Lint every Rust crate under wallet/ at -D warnings",
+  "        shell: bash",
+  "        run: scripts/check-rust-clippy.sh",
+];
+const REQUIRED_NATIVE_CLIPPY_INPUTS = [
+  "Cargo.toml",
+  "Cargo.lock",
+  ".cargo/config.toml",
+  "clippy.toml",
+  ".clippy.toml",
+  "wallet/Cargo.toml",
+  "wallet/Cargo.lock",
+  "wallet/.cargo/config.toml",
+  "wallet/clippy.toml",
+  "wallet/.clippy.toml",
+  "wallet/future-crate/src/lib.rs",
+  "wallet/future-crate/Cargo.toml",
+  "wallet/future-crate/Cargo.lock",
+  "wallet/future-crate/.cargo/config.toml",
+  "wallet/future-crate/clippy.toml",
+  "wallet/future-crate/.clippy.toml",
+];
 // Environment inheritance can alter Bash and Node before an exact `run:` block
 // begins. Required jobs therefore accept only these reviewed data inputs; every
 // other workflow/job/step environment entry fails closed.
@@ -217,6 +280,14 @@ function usesFromLine(line) {
   const ref = (comment < 0 ? scalar : scalar.slice(0, comment)).trim();
   const provenance = comment < 0 ? "" : scalar.slice(comment).replace(/^\s+#/, "").trim();
   return ref ? { provenance, ref } : { error: "empty `uses:` value" };
+}
+
+function shellCasePatternMatches(pattern, value) {
+  const regex = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replaceAll("*", ".*")
+    .replaceAll("?", ".");
+  return new RegExp(`^${regex}$`).test(value);
 }
 
 function stripYamlComment(line) {
@@ -1106,6 +1177,67 @@ function requiredReusableWorkflowFailures(
   return failures;
 }
 
+function nativeClippySelectorFailures(relativeFile, lines, changes) {
+  const failures = [];
+  const steps = policyJobSteps(
+    relativeFile,
+    lines,
+    changes,
+    failures,
+    "changes",
+  );
+  const detectors = steps.filter(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Detect release-impacting ZUULI changes",
+  );
+  if (detectors.length !== 1) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: changes must contain exactly one release-impacting change detector`,
+    );
+    return failures;
+  }
+
+  const detector = detectors[0];
+  const run = detector.properties.get("run");
+  if (run?.value !== "|") {
+    failures.push(
+      `${relativeFile}:${detector.start + 1}: release-impacting change detector must use a block run script`,
+    );
+    return failures;
+  }
+  const body = lines.slice(run.index + 1, detector.end).join("\n");
+  const arms = new Map();
+  for (const match of body.matchAll(
+    /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*(zuuli|zuuallet_schema)=true\s*\n\s*;;\s*\n\s*esac\s*$/gm,
+  )) {
+    const output = match[2];
+    if (arms.has(output)) {
+      failures.push(
+        `${relativeFile}:${detector.start + 1}: release-impacting change detector has duplicate ${output} selector arms`,
+      );
+    } else {
+      arms.set(output, match[1].split("|").map((pattern) => pattern.trim()));
+    }
+  }
+  if (!arms.has("zuuli") || !arms.has("zuuallet_schema")) {
+    failures.push(
+      `${relativeFile}:${detector.start + 1}: release-impacting change detector must retain both native lint selector arms`,
+    );
+    return failures;
+  }
+
+  const patterns = [...arms.values()].flat();
+  for (const input of REQUIRED_NATIVE_CLIPPY_INPUTS) {
+    if (!patterns.some((pattern) => shellCasePatternMatches(pattern, input))) {
+      failures.push(
+        `${relativeFile}:${detector.start + 1}: native clippy input must select at least one native lint path: ${input}`,
+      );
+    }
+  }
+  return failures;
+}
+
 function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const failures = [];
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
@@ -1130,6 +1262,101 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     if (!jobs.has(dependency)) {
       failures.push(
         `${relativeFile}:${needsProperty.index + 1}: gate depends on undefined job ${dependency}`,
+      );
+    }
+  }
+
+  const enforceNativeClippy =
+    path.resolve(repoRoot) === POLICY_REPO_ROOT &&
+    relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
+  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_clippy")) {
+    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`);
+  }
+
+  const nativeClippy = jobs.get("rust_native_clippy");
+  if (enforceNativeClippy && !nativeClippy) {
+    failures.push(`${relativeFile}: required workflow must contain rust_native_clippy`);
+  } else if (enforceNativeClippy) {
+    const actualNativeClippyJobLines = lines
+      .slice(nativeClippy.start, nativeClippy.end)
+      .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+      .map((line) => line.trimEnd());
+    if (
+      JSON.stringify(actualNativeClippyJobLines) !==
+      JSON.stringify(REQUIRED_NATIVE_CLIPPY_JOB_LINES)
+    ) {
+      failures.push(
+        `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must match the exact current-source native job contract`,
+      );
+    }
+
+    const expectedProperties = new Map([
+      ["name", "Rust / native lints (${{ matrix.target_os }})"],
+      ["needs", "changes"],
+      [
+        "if",
+        "needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+      ],
+      ["timeout-minutes", "90"],
+      ["runs-on", "${{ matrix.os }}"],
+    ]);
+    for (const [property, expected] of expectedProperties) {
+      if (nativeClippy.properties.get(property)?.value !== expected) {
+        failures.push(
+          `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy ${property} differs from its required value`,
+        );
+      }
+    }
+
+    const nativeLines = lines.slice(nativeClippy.start, nativeClippy.end);
+    const targetOperatingSystems = nativeLines
+      .map((line) => /^\s+target_os:\s+(\S+)\s*$/.exec(line)?.[1])
+      .filter(Boolean);
+    const runnerOperatingSystems = nativeLines
+      .map((line) => /^\s+- os:\s+(\S+)\s*$/.exec(line)?.[1])
+      .filter(Boolean);
+    if (
+      JSON.stringify(targetOperatingSystems) !== JSON.stringify(["macos", "windows"]) ||
+      JSON.stringify(runnerOperatingSystems) !==
+        JSON.stringify(["macos-latest", "windows-latest"])
+    ) {
+      failures.push(
+        `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must use the exact macOS/Windows native matrix`,
+      );
+    }
+
+    const nativeSteps = policyJobSteps(
+      relativeFile,
+      lines,
+      nativeClippy,
+      failures,
+      "rust_native_clippy",
+    );
+    const stepsByName = (name) =>
+      nativeSteps.filter((step) => step.properties.get("name")?.value === name);
+    const selfTests = stepsByName("Prove native target selection and -D warnings");
+    const selfTest = selfTests[0];
+    if (
+      selfTests.length !== 1 ||
+      !hasExactKeys(selfTest?.properties ?? new Map(), ["name", "shell", "run"]) ||
+      selfTest?.properties.get("shell")?.value !== "bash" ||
+      selfTest?.properties.get("run")?.value !==
+      'scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"'
+    ) {
+      failures.push(
+        `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must run exactly one unconditional target-bound negative control`,
+      );
+    }
+    const lints = stepsByName("Lint every Rust crate under wallet/ at -D warnings");
+    const lint = lints[0];
+    if (
+      lints.length !== 1 ||
+      !hasExactKeys(lint?.properties ?? new Map(), ["name", "shell", "run"]) ||
+      lint?.properties.get("shell")?.value !== "bash" ||
+      lint?.properties.get("run")?.value !== "scripts/check-rust-clippy.sh"
+    ) {
+      failures.push(
+        `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must run exactly one unconditional all-wallet lint entrypoint`,
       );
     }
   }
@@ -1184,6 +1411,9 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     failures.push(`${relativeFile}: required workflow must contain the changes job`);
   } else {
     failures.push(...requiredChangesControlFailures(relativeFile, lines, changes));
+    if (enforceNativeClippy) {
+      failures.push(...nativeClippySelectorFailures(relativeFile, lines, changes));
+    }
   }
   failures.push(...requiredGateControlFailures(relativeFile, lines, gate));
 
@@ -1227,6 +1457,8 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
     changes.outputs.zuuallet_schema,
     "Zuuallet schema",
   );
+  const nativeClippyExpected =
+    zuuliExpected === "success" || schemaExpected === "success" ? "success" : "skipped";
 
   const verdicts = [];
   for (const [job, state] of entries) {
@@ -1238,7 +1470,9 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
         ? "success"
         : job === "zuuallet_schema"
           ? schemaExpected
-          : zuuliExpected;
+          : job === "rust_native_clippy"
+            ? nativeClippyExpected
+            : zuuliExpected;
     if (state.result !== expected) {
       throw new Error(
         `required job ${job} must be ${expected}, got ${state.result}`,
@@ -1372,6 +1606,127 @@ function runCurrentWorkflowMutationTests(repoRoot) {
   const verdictName =
     "      - name: Verify required jobs succeeded or legitimately skipped";
   const mutations = [
+    {
+      name: "real workflow rejects native clippy detached from gate",
+      needle: "gate must await rust_native_clippy",
+      source: source.replace(", rust_native_clippy", ""),
+    },
+    {
+      name: "real workflow rejects a stale native checkout",
+      needle: "must match the exact current-source native job contract",
+      source: source.replace(
+        `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n\n      - name: Fetch librustzcash submodule`,
+        `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1\n        with:\n          ref: 0123456789abcdef0123456789abcdef01234567\n\n      - name: Fetch librustzcash submodule`,
+      ),
+    },
+    {
+      name: "real workflow rejects a native source reset step",
+      needle: "must match the exact current-source native job contract",
+      source: source.replace(
+        "      - name: Prove native target selection and -D warnings",
+        "      - name: Reset to an earlier clean source\n        run: git checkout 0123456789abcdef0123456789abcdef01234567\n\n      - name: Prove native target selection and -D warnings",
+      ),
+    },
+    {
+      name: "real workflow rejects a non-native target matrix",
+      needle: "must use the exact macOS/Windows native matrix",
+      source: source.replace("            target_os: windows", "            target_os: linux"),
+    },
+    {
+      name: "real workflow rejects a weakened native clippy selector",
+      needle: "rust_native_clippy if differs from its required value",
+      source: source.replace(
+        "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+        "    if: needs.changes.outputs.zuuli == 'true'",
+      ),
+    },
+    {
+      name: "real workflow selects root Cargo workspace inputs for native clippy",
+      needle: "native clippy input must select at least one native lint path: Cargo.toml",
+      source: source.replaceAll("Cargo.toml|Cargo.lock|", ""),
+    },
+    {
+      name: "real workflow selects root Cargo configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: .cargo/config.toml",
+      source: source.replaceAll(".cargo/*|", ""),
+    },
+    {
+      name: "real workflow selects root Clippy configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: clippy.toml",
+      source: source.replaceAll("clippy.toml|.clippy.toml|", ""),
+    },
+    {
+      name: "real workflow selects wallet parent workspace manifests for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/Cargo.toml",
+      source: source.replaceAll("wallet/Cargo.toml|wallet/Cargo.lock|", ""),
+    },
+    {
+      name: "real workflow selects wallet parent lint configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/.cargo/config.toml",
+      source: source.replaceAll(
+        "wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|",
+        "",
+      ),
+    },
+    {
+      name: "real workflow selects future wallet Rust sources for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/src/lib.rs",
+      source: source.replaceAll("wallet/*.rs|", ""),
+    },
+    {
+      name: "real workflow selects future wallet manifests for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/Cargo.toml",
+      source: source.replaceAll(
+        "wallet/*/Cargo.toml|wallet/*/Cargo.lock|",
+        "",
+      ),
+    },
+    {
+      name: "real workflow selects future wallet Cargo configuration for native clippy",
+      needle:
+        "native clippy input must select at least one native lint path: wallet/future-crate/.cargo/config.toml",
+      source: source.replaceAll("wallet/*/.cargo/*|", ""),
+    },
+    {
+      name: "real workflow selects future wallet Clippy configuration for native clippy",
+      needle: "native clippy input must select at least one native lint path: wallet/future-crate/clippy.toml",
+      source: source.replaceAll(
+        "wallet/*/clippy.toml|wallet/*/.clippy.toml|",
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a decorative native negative control",
+      needle: "must run exactly one unconditional target-bound negative control",
+      source: source.replace(
+        '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
+        '        run: echo "native clippy self-test"',
+      ),
+    },
+    {
+      name: "real workflow rejects a skipped native negative control",
+      needle: "must run exactly one unconditional target-bound negative control",
+      source: source.replace(
+        '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
+        '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"\n        if: false',
+      ),
+    },
+    {
+      name: "real workflow rejects a decorative native lint verdict",
+      needle: "must run exactly one unconditional all-wallet lint entrypoint",
+      source: source.replace(
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh",
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: echo clean",
+      ),
+    },
+    {
+      name: "real workflow rejects a skipped native lint verdict",
+      needle: "must run exactly one unconditional all-wallet lint entrypoint",
+      source: source.replace(
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh",
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh\n        if: false",
+      ),
+    },
     {
       name: "real workflow rejects log-only needs consumption",
       needle: "must unconditionally recheck policy and enforce the complete needs context",
@@ -2586,6 +2941,20 @@ function runSelfTest(repoRoot) {
           outputs: { zuuli: "false", zuuallet_schema: "true" },
         },
         build: { result: "skipped", outputs: {} },
+        rust_native_clippy: { result: "success", outputs: {} },
+        zuuallet_schema: { result: "success", outputs: {} },
+      },
+    },
+    {
+      name: "native clippy cannot skip a Zuuallet-only Rust change",
+      policyOutcome: "success",
+      needle: "required job rust_native_clippy must be success, got skipped",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "true" },
+        },
+        rust_native_clippy: { result: "skipped", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
       },
     },

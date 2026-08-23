@@ -26,6 +26,7 @@
 #
 # Usage:
 #   scripts/check-rust-clippy.sh          fail on any clippy warning
+#   scripts/check-rust-clippy.sh --self-test <target-os>
 #   scripts/check-rust-clippy.sh --fix    apply clippy's machine-applicable fixes
 #
 # After --fix, read every edit before committing it and run
@@ -45,8 +46,20 @@ TOOLCHAIN_FILE=$RUST_ROOT/rust-toolchain.toml
 SUBMODULE=$REPO_ROOT/z/zcash/librustzcash
 
 mode=check
+expected_target_os=
 case "${1-}" in
   "") ;;
+  --self-test)
+    mode=self-test
+    expected_target_os=${2-}
+    case "$expected_target_os" in
+      linux | macos | windows) ;;
+      *)
+        printf '%s\n' 'Usage: scripts/check-rust-clippy.sh --self-test <linux|macos|windows>' >&2
+        exit 2
+        ;;
+    esac
+    ;;
   --fix) mode=fix ;;
   -h | --help)
     awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
@@ -84,6 +97,50 @@ if [[ $installed != "rustc $channel "* ]]; then
     "$channel" "$installed" >&2
   printf "clippy's lint set differs between compiler versions, so this run could only produce a misleading verdict.\n" >&2
   exit 1
+fi
+
+if [[ $mode == self-test ]]; then
+  fixture=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-clippy-self-test.XXXXXX")
+  trap 'rm -rf -- "$fixture"' EXIT
+  mkdir "$fixture/src"
+  cat > "$fixture/Cargo.toml" <<'EOF'
+[package]
+name = "zuuli-clippy-negative-control"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+EOF
+  cat > "$fixture/build.rs" <<'EOF'
+fn main() {
+    let expected = std::env::var("ZUU_CLIPPY_EXPECT_TARGET_OS")
+        .expect("self-test expected target OS is missing");
+    let actual = std::env::var("CARGO_CFG_TARGET_OS")
+        .expect("Cargo did not report the selected target OS");
+    assert_eq!(actual, expected, "clippy selected the wrong target OS");
+}
+EOF
+  cat > "$fixture/src/lib.rs" <<'EOF'
+pub fn target_native_warning(value: bool) -> bool {
+    if value { true } else { false }
+}
+EOF
+  if ZUU_CLIPPY_EXPECT_TARGET_OS="$expected_target_os" \
+    CARGO_TARGET_DIR="$fixture/target" cargo clippy \
+    --manifest-path "$fixture/Cargo.toml" -- -D warnings \
+    > "$fixture/clippy.log" 2>&1; then
+    printf 'clippy negative control unexpectedly accepted a known warning on %s.\n' \
+      "$(rustc -vV | awk -F': ' '/^host:/ { print $2 }')" >&2
+    exit 1
+  fi
+  if ! grep -F 'clippy::needless_bool' "$fixture/clippy.log" >/dev/null; then
+    printf 'clippy negative control failed for an unexpected reason:\n' >&2
+    cat "$fixture/clippy.log" >&2
+    exit 1
+  fi
+  printf 'Clippy -D warnings rejected the target-native negative control for %s on %s.\n' \
+    "$expected_target_os" "$(rustc -vV | awk -F': ' '/^host:/ { print $2 }')"
+  exit 0
 fi
 
 # Tracked, buildable crates only: target/ holds vendored and generated
@@ -134,9 +191,9 @@ if [[ $mode == fix ]]; then
 fi
 
 if [[ ${#failed[@]} -gt 0 ]]; then
-  printf '\n%d crate(s) have clippy warnings: %s\n' "${#failed[@]}" "${failed[*]}" >&2
-  printf 'Fix the code, or add a narrow #[allow(clippy::lint)] with a comment saying why.\n' >&2
-  printf 'Do not blanket-allow at crate level, and do not raise the bar for the next reader.\n' >&2
+  printf '\n%d crate(s) failed the clippy gate: %s\n' "${#failed[@]}" "${failed[*]}" >&2
+  printf 'Inspect the Cargo error above: this may be a lint, compile error, or missing target-native build prerequisite.\n' >&2
+  printf 'For a real lint, fix the code or add only a narrow, justified #[allow(clippy::lint)].\n' >&2
   exit 1
 fi
 
