@@ -29,10 +29,10 @@ import type {
 // (`profile.update`) persists across the mock session and reflects in `auth.me()`.
 export const mockUser: AuthUser = {
   id: 1,
-  username: "skyl",
-  email: "skylar.saveland@gmail.com",
-  free2zaddr: "skyl",
-  display_name: "Skylar Saveland-Okonkwo Þórsdóttir",
+  username: "demo-creator",
+  email: "demo.creator@example.com",
+  free2zaddr: "demo-creator",
+  display_name: "Demo Creator",
   image: null,
   banner: null,
   bio: "Building on Zcash. Shielded by default.",
