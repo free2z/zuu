@@ -18,6 +18,14 @@
 #   scripts/check-rust-toolchain.sh --print-msrv     print the MSRV floor (X.Y)
 #   scripts/check-rust-toolchain.sh --print-targets  print the canonical WASM target
 #   scripts/check-rust-toolchain.sh --self-test      prove the check still fails on drift
+#
+# A second top-level Rust tree needs its own rust-toolchain.toml so rustup
+# selects the pin when cargo runs from it, and its crates carry their own
+# rust-version. Neither is a second decision: register them as restatements and
+# they are held to the one below, exactly like every other restatement.
+#
+#   scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
+#                                   --manifest rs/relay/Cargo.toml
 
 set -euo pipefail
 
@@ -35,6 +43,12 @@ MANIFESTS=(
   wallet/zuuallet/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
 )
+
+# Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
+# it runs in, so a second Rust tree needs its own copy — but a copy is a
+# restatement, never a second source of truth, and every entry here must repeat
+# TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file.
+TOOLCHAIN_RESTATEMENTS=()
 
 # Workflows whose jobs verify the installed compiler with
 # `rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "`. GitHub cannot
@@ -375,6 +389,31 @@ check_manifests() {
   done
 }
 
+check_toolchain_restatements() {
+  local root=$1 channel=$2
+  local rel value
+
+  (( ${#TOOLCHAIN_RESTATEMENTS[@]} > 0 )) || return 0
+
+  for rel in "${TOOLCHAIN_RESTATEMENTS[@]}"; do
+    if [[ $rel == "$TOOLCHAIN_FILE" ]]; then
+      fail "$rel is the source of truth, not a restatement of it"
+      continue
+    fi
+    if [[ ! -f "$root/$rel" ]]; then
+      fail "$rel is missing"
+      continue
+    fi
+    value=$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/ { print $2; exit }' "$root/$rel")
+    if [[ -z $value ]]; then
+      fail "$rel does not declare a channel"
+      continue
+    fi
+    [[ $value == "$channel" ]] ||
+      fail "$rel pins channel \"$value\", expected \"$channel\" (from $TOOLCHAIN_FILE)"
+  done
+}
+
 check_docs() {
   local root=$1 channel=$2 msrv=$3
   local entry rel needle
@@ -414,6 +453,7 @@ run_checks() {
 
   check_workflows "$root" "$channel"
   check_manifests "$root" "$channel" "$msrv"
+  check_toolchain_restatements "$root" "$channel"
   check_docs "$root" "$channel" "$msrv"
   check_wasm_target "$root"
 
@@ -454,6 +494,9 @@ staged_paths() {
   local entry file
   printf '%s\n' "$TOOLCHAIN_FILE"
   printf '%s\n' "${MANIFESTS[@]}"
+  if (( ${#TOOLCHAIN_RESTATEMENTS[@]} > 0 )); then
+    printf '%s\n' "${TOOLCHAIN_RESTATEMENTS[@]}"
+  fi
   for entry in "${DOC_PINS[@]}"; do
     printf '%s\n' "${entry%%$'\t'*}"
   done
@@ -468,6 +511,9 @@ stage_tree() {
   local dest=$1 rel
   while IFS= read -r rel; do
     [[ -e "$dest/$rel" ]] && continue
+    # A registered path that does not exist yet is the check's own finding to
+    # report, not the staging step's to die on.
+    [[ -e "$REPO_ROOT/$rel" ]] || continue
     mkdir -p "$dest/$(dirname "$rel")"
     cp "$REPO_ROOT/$rel" "$dest/$rel"
   done < <(staged_paths)
@@ -541,6 +587,8 @@ self_test() {
     printf 'self-test: caught drift when %s.\n' "$description"
   done
 
+  self_test_second_tree "$scratch" "$channel" "$msrv" || failures=$((failures + $?))
+
   if (( failures > 0 )); then
     printf '%d self-test case(s) failed.\n' "$failures" >&2
     return 1
@@ -548,12 +596,144 @@ self_test() {
   printf 'self-test: %d drift case(s) caught.\n' "${#SELF_TEST_MUTATIONS[@]}"
 }
 
+# --- self-test: a second Rust tree -------------------------------------------
+#
+# The capability that lets `rs/` be policed by the same source of truth is
+# proven here rather than by the existence of a second tree, so it is verified
+# before the first one lands. A synthetic tree is registered through
+# --toolchain-file and --manifest, confirmed to pass while it restates the pin,
+# and then broken one way at a time.
+self_test_second_tree() {
+  local scratch=$1 channel=$2 msrv=$3
+  local tree=$scratch/second-tree
+  local failures=0
+  local saved_manifests=("${MANIFESTS[@]}")
+  local saved_restatements=()
+  (( ${#TOOLCHAIN_RESTATEMENTS[@]} > 0 )) &&
+    saved_restatements=("${TOOLCHAIN_RESTATEMENTS[@]}")
+
+  stage_tree "$tree"
+  mkdir -p "$tree/rs/relay/src"
+  printf '[toolchain]\nchannel = "%s"\n' "$channel" > "$tree/rs/rust-toolchain.toml"
+  printf '[package]\nname = "relay"\nversion = "0.0.0"\nedition = "2024"\nrust-version = "%s"\n' \
+    "$msrv" > "$tree/rs/relay/Cargo.toml"
+
+  MANIFESTS+=(rs/relay/Cargo.toml)
+  TOOLCHAIN_RESTATEMENTS+=(rs/rust-toolchain.toml)
+
+  if run_checks "$tree" >/dev/null; then
+    printf 'self-test: a second Rust tree that restates the pin passes.\n'
+  else
+    printf 'self-test FAILED: a second tree that restates the pin must pass.\n' >&2
+    failures=$((failures + 1))
+  fi
+
+  self_test_second_tree_case "$tree" \
+    'a second tree pins a channel of its own' \
+    rs/rust-toolchain.toml "s|channel = \"$channel\"|channel = \"9.99.9\"|" ||
+    failures=$((failures + 1))
+
+  self_test_second_tree_case "$tree" \
+    "a second tree's crate MSRV drifts" \
+    rs/relay/Cargo.toml "s|rust-version = \"$msrv\"|rust-version = \"9.99\"|" ||
+    failures=$((failures + 1))
+
+  rm -f "$tree/rs/rust-toolchain.toml"
+  if run_checks "$tree" >/dev/null 2>&1; then
+    printf 'self-test FAILED: drift went undetected when a second tree loses its toolchain file.\n' >&2
+    failures=$((failures + 1))
+  else
+    printf 'self-test: caught drift when a second tree loses its toolchain file.\n'
+  fi
+
+  # A restatement that is really the source of truth proves nothing, so saying
+  # so must be an error rather than a tautological pass.
+  printf '[toolchain]\nchannel = "%s"\n' "$channel" > "$tree/rs/rust-toolchain.toml"
+  TOOLCHAIN_RESTATEMENTS+=("$TOOLCHAIN_FILE")
+  if run_checks "$tree" >/dev/null 2>&1; then
+    printf 'self-test FAILED: the source of truth was accepted as a restatement of itself.\n' >&2
+    failures=$((failures + 1))
+  else
+    printf 'self-test: the source of truth is rejected as a restatement of itself.\n'
+  fi
+
+  MANIFESTS=("${saved_manifests[@]}")
+  TOOLCHAIN_RESTATEMENTS=()
+  (( ${#saved_restatements[@]} > 0 )) &&
+    TOOLCHAIN_RESTATEMENTS=("${saved_restatements[@]}")
+
+  return "$failures"
+}
+
+self_test_second_tree_case() {
+  local tree=$1 description=$2 rel=$3 script=$4
+  local before after
+
+  before=$(cat "$tree/$rel")
+  apply_sed "$tree/$rel" "$script"
+  after=$(cat "$tree/$rel")
+  if [[ $before == "$after" ]]; then
+    printf 'self-test FAILED: the second-tree case (%s) changed nothing.\n' "$description" >&2
+    return 1
+  fi
+
+  if run_checks "$tree" >/dev/null 2>&1; then
+    printf 'self-test FAILED: drift went undetected when %s.\n' "$description" >&2
+    printf '%s\n' "$before" > "$tree/$rel"
+    return 1
+  fi
+  printf 'self-test: caught drift when %s.\n' "$description"
+  printf '%s\n' "$before" > "$tree/$rel"
+}
+
 usage() {
   awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
 }
 
 main() {
-  case "${1-}" in
+  local mode=''
+  local channel
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --print-channel | --print-msrv | --print-targets | --self-test)
+        if [[ -n $mode ]]; then
+          printf 'conflicting arguments: %s and %s\n' "$mode" "$1" >&2
+          usage >&2
+          return 2
+        fi
+        mode=$1
+        ;;
+      --toolchain-file)
+        if [[ -z ${2-} ]]; then
+          printf -- '--toolchain-file needs a path relative to the repository root.\n' >&2
+          return 2
+        fi
+        TOOLCHAIN_RESTATEMENTS+=("$2")
+        shift
+        ;;
+      --manifest)
+        if [[ -z ${2-} ]]; then
+          printf -- '--manifest needs a path relative to the repository root.\n' >&2
+          return 2
+        fi
+        MANIFESTS+=("$2")
+        shift
+        ;;
+      -h | --help)
+        usage
+        return 0
+        ;;
+      *)
+        printf 'unknown argument: %s\n' "$1" >&2
+        usage >&2
+        return 2
+        ;;
+    esac
+    shift
+  done
+
+  case "$mode" in
     "")
       run_checks "$REPO_ROOT"
       ;;
@@ -561,7 +741,6 @@ main() {
       read_channel "$REPO_ROOT"
       ;;
     --print-msrv)
-      local channel
       channel=$(read_channel "$REPO_ROOT")
       printf '%s\n' "${channel%.*}"
       ;;
@@ -570,14 +749,6 @@ main() {
       ;;
     --self-test)
       self_test
-      ;;
-    -h | --help)
-      usage
-      ;;
-    *)
-      printf 'unknown argument: %s\n' "$1" >&2
-      usage >&2
-      return 2
       ;;
   esac
 }

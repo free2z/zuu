@@ -173,7 +173,13 @@ integrate, and move it forward alongside everything else.
   and a check that ran on whatever was installed would report version skew as a
   code defect. Each has a mirrored job in `zuuallet.yml`, because the required
   `gate` lives in `zuuli.yml` and its change detector does not select
-  `wallet/zuuallet/**`.
+  `wallet/zuuallet/**`. Which tree they judge is `--root`'s to say (default
+  `wallet`, so the wallet gate is unchanged), `--config` chooses the policy
+  `check-rust-deny.sh` enforces, and clippy's `z/zcash/librustzcash`
+  requirement is read out of the manifests rather than assumed — so a second
+  top-level Rust namespace is policed by the same three gates without
+  inheriting the wallet's path-dependency baggage. All three carry a
+  `--self-test` that proves they still fail on the thing they exist to catch.
 - **Target-native clippy is part of the required gate.** Linux cannot compile
   macOS- and Windows-only Keychain, Credential Manager, filesystem, and OAuth
   branches. The `rust_native_clippy` matrix in `.github/workflows/zuuli.yml`
@@ -209,6 +215,13 @@ read a TOML file at the moment they need the value:
 | `dtolnay/rust-toolchain@<sha> # <version>` in packaging/release and target-native Zuuallet jobs | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
 | `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `wallet/rust-toolchain.toml`; the upstream canary deliberately omits that input so only its compiler selection follows `stable` |
 | MSRV/`cargo +<version>` lines in the wallet READMEs, the plugin `CLAUDE.md`, and `wallet/zuuli/docs/releasing.md` | Prose |
+
+A second top-level Rust tree does not get a decision of its own either. It needs
+its own `rust-toolchain.toml`, because Cargo picks the toolchain from the
+directory it runs in, and its crates carry their own `rust-version` — both are
+restatements. Register them with `scripts/check-rust-toolchain.sh
+--toolchain-file <path>` and `--manifest <path>` and they are held to
+`wallet/rust-toolchain.toml` exactly like every row above.
 
 The `wallet/zuuli` gate reads the channel out of the file (`--print-channel`) and
 feeds it to the toolchain action, so the required CI jobs hold **no literal at
