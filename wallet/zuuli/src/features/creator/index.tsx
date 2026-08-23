@@ -6,24 +6,13 @@ import {
   BadgeCheck,
   Check,
   Clock,
-  Facebook,
   FileText,
-  Github,
-  Globe,
   Heart,
-  Instagram,
-  Link2,
-  Linkedin,
   Loader2,
   Radio,
-  Send,
-  Twitter,
   UserX,
-  Youtube,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +43,7 @@ import {
 } from "@/lib/format";
 import { coverTone } from "@/lib/cover";
 import { cn } from "@/lib/utils";
-import { parseBioFrontmatter, type SocialLink } from "@/lib/utils/bio";
+import { parseBioFrontmatter } from "@/lib/utils/bio";
 import {
   currentResourceData,
   isConfirmedNotFound,
@@ -66,21 +55,7 @@ import { useSession } from "@/store/session";
 import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
 import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
-
-/** Icon per canonical social platform key, falling back to a plain link glyph. */
-const SOCIAL_ICONS: Record<SocialLink["key"], LucideIcon> = {
-  twitter: Twitter,
-  github: Github,
-  instagram: Instagram,
-  youtube: Youtube,
-  facebook: Facebook,
-  linkedin: Linkedin,
-  reddit: Link2,
-  telegram: Send,
-  mastodon: Link2,
-  nostr: Zap,
-  website: Globe,
-};
+import { CreatorSocialLinks } from "./SocialLinks";
 
 export default function CreatorFeature() {
   const { username = "" } = useParams<{ username: string }>();
@@ -316,26 +291,7 @@ function CreatorProfile({
 
       {/* Links / socials — parsed from a frontmatter block at the top of the
           bio (e.g. `---\nsocials:\n  twitter: handle\n---`). */}
-      {socials.length > 0 ? (
-        <div className="creator-profile-inset mt-4 flex flex-wrap gap-2">
-          {socials.map((social) => {
-            const Icon = SOCIAL_ICONS[social.key];
-            return (
-              <a
-                key={social.key}
-                href={social.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label={`${name} on ${social.label}`}
-                className="min-tap inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Icon className="h-3.5 w-3.5" aria-hidden />
-                {social.display}
-              </a>
-            );
-          })}
-        </div>
-      ) : null}
+      <CreatorSocialLinks creatorName={name} socials={socials} />
 
       {/* Pages */}
       <div className="creator-profile-inset mt-10" data-creator-pages>

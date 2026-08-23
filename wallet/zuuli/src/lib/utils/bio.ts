@@ -12,12 +12,12 @@
 //
 //   ...markdown body...
 //
-// This is a straight TypeScript port of the svelte web client's parser
-// (`ts/svelte/free2z/src/lib/utils/bio.js`, added for issue #566) so both
-// clients render the same social row from the same bio text. It is a
-// dependency-free, pure helper: it strips the leading frontmatter block off
-// the body and returns the recognized social links in a stable order. A bio
-// with no frontmatter is returned unchanged.
+// This originated as a TypeScript port of the svelte web client's parser
+// (`ts/svelte/free2z/src/lib/utils/bio.js`, added for issue #566). ZUULI also
+// enforces its branded-host trust boundary here before returning any link to
+// the renderer. It is a dependency-free, pure helper: it strips the leading
+// frontmatter block off the body and returns recognized, safe social links in
+// a stable order. A bio with no frontmatter is returned unchanged.
 
 /** Canonical platform key (twitter, github, ...). */
 export type SocialKey =
@@ -44,6 +44,10 @@ export interface SocialLink {
   url: string;
   /** Short text to show next to the icon. */
   display: string;
+  /** Whether the destination is entitled to trusted platform branding. */
+  trust: "branded" | "generic";
+  /** Browser-canonical host, including a non-default port for generic links. */
+  destinationHost: string;
 }
 
 export interface ParsedBio {
@@ -68,123 +72,317 @@ const ALIASES: Record<string, SocialKey> = {
   telegramme: "telegram",
 };
 
-function isUrl(v: string): boolean {
-  return /^https?:\/\//i.test(v);
+const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const ABSOLUTE_HTTPS = /^https:\/\//i;
+
+type BrandedKey = Exclude<SocialKey, "mastodon" | "website">;
+
+interface BrandedHostPolicy {
+  canonicalHost: string;
+  allowedHosts: readonly string[];
+  handlePath: (handle: string) => string;
+  /** Only profile namespaces whose prefix is unambiguous may be recovered
+   * from an absolute stored URL. Root-path platforms accept handles only. */
+  absoluteProfile: boolean;
 }
 
-function stripHandle(v: string): string {
-  return v
-    .replace(/^@/, "")
-    .replace(/^https?:\/\/[^/]+\//i, "")
-    .replace(/\/+$/, "");
+/** Exact reviewed hosts. Entries such as `www` and legacy Twitter/Telegram
+ * hosts are aliases, not wildcard subdomain grants. */
+const BRANDED_HOSTS: Record<BrandedKey, BrandedHostPolicy> = {
+  twitter: {
+    canonicalHost: "x.com",
+    allowedHosts: ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+    handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
+  },
+  github: {
+    canonicalHost: "github.com",
+    allowedHosts: ["github.com", "www.github.com"],
+    handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
+  },
+  instagram: {
+    canonicalHost: "instagram.com",
+    allowedHosts: ["instagram.com", "www.instagram.com"],
+    handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
+  },
+  youtube: {
+    canonicalHost: "youtube.com",
+    allowedHosts: ["youtube.com", "www.youtube.com"],
+    handlePath: (handle) => `/@${handle}`,
+    absoluteProfile: true,
+  },
+  facebook: {
+    canonicalHost: "facebook.com",
+    allowedHosts: ["facebook.com", "www.facebook.com"],
+    handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
+  },
+  linkedin: {
+    canonicalHost: "linkedin.com",
+    allowedHosts: ["linkedin.com", "www.linkedin.com"],
+    handlePath: (handle) => `/in/${handle}`,
+    absoluteProfile: true,
+  },
+  reddit: {
+    canonicalHost: "reddit.com",
+    allowedHosts: ["reddit.com", "www.reddit.com", "old.reddit.com"],
+    handlePath: (handle) => `/u/${handle}`,
+    absoluteProfile: true,
+  },
+  telegram: {
+    canonicalHost: "t.me",
+    allowedHosts: ["t.me", "telegram.me", "www.telegram.me"],
+    handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
+  },
+  nostr: {
+    canonicalHost: "njump.me",
+    allowedHosts: ["njump.me", "www.njump.me"],
+    handlePath: (handle) => `/${handle}`,
+    absoluteProfile: false,
+  },
+};
+
+function validPlatformHandle(key: BrandedKey, handle: string): boolean {
+  switch (key) {
+    case "twitter":
+      return /^[A-Za-z0-9_]{1,15}$/.test(handle);
+    case "github":
+      return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(handle);
+    case "instagram":
+      return /^[A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?$/.test(handle);
+    case "youtube":
+      return /^[A-Za-z0-9_.-]{3,30}$/.test(handle);
+    case "facebook":
+      return /^[A-Za-z0-9.]{1,50}$/.test(handle);
+    case "linkedin":
+      return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?$/.test(handle);
+    case "reddit":
+      return /^[A-Za-z0-9_-]{3,20}$/.test(handle);
+    case "telegram":
+      return /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(handle);
+    case "nostr":
+      return /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/.test(handle);
+  }
 }
 
-/** Build an https href for a plain-handle platform. */
-function handleUrl(v: string, prefix: string): string {
-  return isUrl(v) ? v : prefix + stripHandle(v);
+function plainHandle(key: BrandedKey, value: string): string | null {
+  let handle = value.trim();
+  if (key === "nostr") handle = handle.replace(/^nostr:/i, "");
+  if (key === "reddit") handle = handle.replace(/^\/?(?:u|user)\//i, "");
+  if (key === "linkedin") handle = handle.replace(/^\/?in\//i, "");
+  handle = handle.replace(/^@/, "");
+
+  // Handles are path data, never another URL or a query/fragment. Keeping the
+  // accepted alphabet deliberately small also prevents invisible lookalikes.
+  return validPlatformHandle(key, handle) ? handle : null;
 }
 
-function websiteUrl(v: string): string {
-  if (isUrl(v)) return v;
-  return "https://" + v.replace(/^\/+/, "");
+/** Extract only the reviewed profile shape for a branded platform. Absolute
+ * input is never returned directly: the identifier is validated and rebuilt
+ * through the canonical handle path below. */
+function profileHandle(key: BrandedKey, url: URL): string | null {
+  if (url.search || url.hash || url.pathname.includes("%")) return null;
+
+  let match: RegExpExecArray | null;
+  switch (key) {
+    case "youtube":
+      match = /^\/@([^/]+)\/?$/.exec(url.pathname);
+      break;
+    case "linkedin":
+      match = /^\/in\/([^/]+)\/?$/i.exec(url.pathname);
+      break;
+    case "reddit":
+      match = /^\/(?:u|user)\/([^/]+)\/?$/i.exec(url.pathname);
+      break;
+    default:
+      match = /^\/([^/]+)\/?$/.exec(url.pathname);
+      break;
+  }
+  return match ? plainHandle(key, match[1]) : null;
 }
 
-function nostrUrl(v: string): string {
-  if (isUrl(v)) return v;
-  return "https://njump.me/" + v.replace(/^nostr:/i, "").replace(/^@/, "");
+function brandedUrl(key: BrandedKey, rawValue: string): URL | null {
+  const value = rawValue.trim();
+  const policy = BRANDED_HOSTS[key];
+
+  if (!ABSOLUTE_HTTPS.test(value)) {
+    if (value.startsWith("//") || (URL_SCHEME.test(value) && key !== "nostr")) {
+      return null;
+    }
+    const handle = plainHandle(key, value);
+    return handle
+      ? new URL(
+          `https://${policy.canonicalHost}${policy.handlePath(
+            encodeURIComponent(handle),
+          )}`,
+        )
+      : null;
+  }
+
+  const authority = /^https:\/\/([^/?#]*)/i.exec(value)?.[1];
+  // URL parsers may decode percent escapes in a hostname before comparison.
+  // Reject encoded, Unicode, backslash, whitespace and userinfo authorities
+  // before parsing so an accepted brand host was written unambiguously.
+  if (
+    !authority ||
+    /[%\\@]/.test(authority) ||
+    [...authority].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x20 || codePoint > 0x7e;
+    })
+  ) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      !policy.allowedHosts.includes(url.hostname)
+    ) {
+      return null;
+    }
+    if (!policy.absoluteProfile) return null;
+    const handle = profileHandle(key, url);
+    return handle
+      ? new URL(
+          `https://${policy.canonicalHost}${policy.handlePath(
+            encodeURIComponent(handle),
+          )}`,
+        )
+      : null;
+  } catch {
+    return null;
+  }
 }
 
-function mastodonUrl(v: string): string {
-  if (isUrl(v)) return v;
-  // user@instance or @user@instance -> https://instance/@user
-  const m = v.match(/^@?([^@\s]+)@([^@\s/]+)$/);
-  if (m) return `https://${m[2]}/@${m[1]}`;
-  return "https://" + v.replace(/^@/, "");
+function genericHttpsUrl(rawValue: string): URL | null {
+  const value = rawValue.trim();
+  if (!value || value.startsWith("//")) return null;
+  const hostWithPort = /^[A-Za-z0-9.-]+:\d+(?:[/#?]|$)/.test(value);
+  if (URL_SCHEME.test(value) && !ABSOLUTE_HTTPS.test(value) && !hostWithPort) {
+    return null;
+  }
+  const candidate = ABSOLUTE_HTTPS.test(value) ? value : `https://${value}`;
+
+  try {
+    const url = new URL(candidate);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !url.hostname
+    ) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
 }
 
-function redditUrl(v: string): string {
-  if (isUrl(v)) return v;
-  return "https://reddit.com/u/" + v.replace(/^\/?(u\/|user\/|@)/i, "");
-}
-
-function linkedinUrl(v: string): string {
-  if (isUrl(v)) return v;
-  return "https://linkedin.com/in/" + stripHandle(v);
-}
-
-function youtubeUrl(v: string): string {
-  if (isUrl(v)) return v;
-  const h = v.replace(/^@/, "");
-  return "https://youtube.com/@" + h;
-}
-
-function truncateMiddle(v: string): string {
-  if (v.length <= 16) return v;
-  return v.slice(0, 8) + "…" + v.slice(-6);
+function mastodonUrl(value: string): URL | null {
+  const trimmed = value.trim();
+  if (URL_SCHEME.test(trimmed) || trimmed.startsWith("//")) {
+    return genericHttpsUrl(trimmed);
+  }
+  const federatedHandle = trimmed.match(/^@?([^@\s/]+)@([^@\s/]+)$/);
+  if (federatedHandle) {
+    return genericHttpsUrl(
+      `${federatedHandle[2]}/@${encodeURIComponent(federatedHandle[1])}`,
+    );
+  }
+  return genericHttpsUrl(trimmed.replace(/^@/, ""));
 }
 
 interface SocialConfig {
   label: string;
-  url: (v: string) => string;
-  display: (v: string) => string;
+  trust: "branded" | "generic";
+  url: (v: string) => URL | null;
+  display: (url: URL) => string;
+}
+
+function pathDisplay(url: URL): string {
+  return url.pathname.replace(/^\/+|\/+$/g, "") || url.hostname;
+}
+
+function handleDisplay(url: URL): string {
+  return "@" + pathDisplay(url).replace(/^@/, "");
 }
 
 /** Canonical platform config. Order here is the render order. */
 const SOCIAL_CONFIG: Record<SocialKey, SocialConfig> = {
   twitter: {
     label: "X",
-    url: (v) => handleUrl(v, "https://x.com/"),
-    display: (v) => (isUrl(v) ? stripHandle(v) : "@" + stripHandle(v)),
+    trust: "generic",
+    url: (v) => brandedUrl("twitter", v),
+    display: (url) => url.host,
   },
   github: {
     label: "GitHub",
-    url: (v) => handleUrl(v, "https://github.com/"),
-    display: (v) => stripHandle(v),
+    trust: "generic",
+    url: (v) => brandedUrl("github", v),
+    display: (url) => url.host,
   },
   instagram: {
     label: "Instagram",
-    url: (v) => handleUrl(v, "https://instagram.com/"),
-    display: (v) => (isUrl(v) ? stripHandle(v) : "@" + stripHandle(v)),
+    trust: "generic",
+    url: (v) => brandedUrl("instagram", v),
+    display: (url) => url.host,
   },
   youtube: {
     label: "YouTube",
-    url: youtubeUrl,
-    display: (v) => (isUrl(v) ? stripHandle(v) : "@" + v.replace(/^@/, "")),
+    trust: "branded",
+    url: (v) => brandedUrl("youtube", v),
+    display: handleDisplay,
   },
   facebook: {
     label: "Facebook",
-    url: (v) => handleUrl(v, "https://facebook.com/"),
-    display: (v) => stripHandle(v),
+    trust: "generic",
+    url: (v) => brandedUrl("facebook", v),
+    display: (url) => url.host,
   },
   linkedin: {
     label: "LinkedIn",
-    url: linkedinUrl,
-    display: (v) => stripHandle(v),
+    trust: "branded",
+    url: (v) => brandedUrl("linkedin", v),
+    display: pathDisplay,
   },
   reddit: {
     label: "Reddit",
-    url: redditUrl,
-    display: (v) => "u/" + v.replace(/^\/?(u\/|user\/|@)/i, ""),
+    trust: "branded",
+    url: (v) => brandedUrl("reddit", v),
+    display: pathDisplay,
   },
   telegram: {
     label: "Telegram",
-    url: (v) => handleUrl(v, "https://t.me/"),
-    display: (v) => (isUrl(v) ? stripHandle(v) : "@" + stripHandle(v)),
+    trust: "generic",
+    url: (v) => brandedUrl("telegram", v),
+    display: (url) => url.host,
   },
   mastodon: {
     label: "Mastodon",
+    trust: "generic",
     url: mastodonUrl,
-    display: (v) => (isUrl(v) ? v.replace(/^https?:\/\//i, "") : v),
+    display: (url) => url.host,
   },
   nostr: {
     label: "Nostr",
-    url: nostrUrl,
-    display: (v) => truncateMiddle(v.replace(/^nostr:/i, "").replace(/^@/, "")),
+    trust: "generic",
+    url: (v) => brandedUrl("nostr", v),
+    display: (url) => url.host,
   },
   website: {
     label: "Website",
-    url: websiteUrl,
-    display: (v) => v.replace(/^https?:\/\//i, "").replace(/\/+$/, ""),
+    trust: "generic",
+    url: genericHttpsUrl,
+    display: (url) => url.host,
   },
 };
 
@@ -314,17 +512,25 @@ function buildSocialLinks(map: Record<string, string>): SocialLink[] {
     const config = SOCIAL_CONFIG[key];
     const value = (map[rawKey] || "").trim();
     if (!config || !value || seen.has(key)) continue;
+    const url = config.url(value);
+    // Existing invalid branded values fail closed here: no link object means
+    // the renderer has no trusted label or icon it could attach to that value.
+    if (!url) continue;
     seen.add(key);
     links.push({
       key,
       label: config.label,
       value,
-      url: config.url(value),
-      display: config.display(value),
+      url: url.href,
+      display: config.display(url),
+      trust: config.trust,
+      destinationHost: url.host,
     });
   }
 
-  links.sort((a, b) => RENDER_ORDER.indexOf(a.key) - RENDER_ORDER.indexOf(b.key));
+  links.sort(
+    (a, b) => RENDER_ORDER.indexOf(a.key) - RENDER_ORDER.indexOf(b.key),
+  );
   return links;
 }
 
