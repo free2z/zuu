@@ -27,3 +27,20 @@ module.exports = function override(config, env) {
     return config
 }
 
+module.exports.jest = function overrideJest(config) {
+    // The production Markdown stack is ESM-only. Transform it in Jest so card
+    // image tests execute the same parser instead of a mock or parallel parser.
+    const parserTransformPattern =
+        "node_modules/(?!(?:bail|character-entities|decode-named-character-reference|devlop|is-plain-obj|mdast-util-[^/]+|micromark(?:-[^/]*)?|remark-parse|trough|unified|unist-util-[^/]+|vfile(?:-message)?)/)"
+    config.transformIgnorePatterns = config.transformIgnorePatterns.map(
+        (pattern) =>
+            pattern.includes("node_modules") ? parserTransformPattern : pattern
+    )
+    config.moduleNameMapper = {
+        ...config.moduleNameMapper,
+        "^#minpath$": "<rootDir>/node_modules/vfile/lib/minpath.js",
+        "^#minproc$": "<rootDir>/node_modules/vfile/lib/minproc.js",
+        "^#minurl$": "<rootDir>/node_modules/vfile/lib/minurl.js",
+    }
+    return config
+}
