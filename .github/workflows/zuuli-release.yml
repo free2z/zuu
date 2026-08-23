@@ -1420,19 +1420,14 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          pattern: zuuli-*-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
+          pattern: zuuli-{android,ios,linux,macos}-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: release-downloads
+          merge-multiple: false
       - name: Verify release-index source binding
         env:
+          RELEASE_IDENTITY: ${{ needs.prepare.outputs.identity }}
           EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          count=0
-          while IFS= read -r -d '' manifest; do
-            jq -e --arg sha "$EXPECTED_SOURCE_SHA" '.source.commit == $sha' "$manifest" >/dev/null
-            count=$((count + 1))
-          done < <(find release-downloads -type f -name provenance.json -print0)
-          test "$count" -gt 0
+        run: wallet/zuuli/scripts/verify-release-index.sh release-downloads "$RELEASE_IDENTITY" "$EXPECTED_SOURCE_SHA"
       - name: Publish idempotent draft release
         if: needs.prepare.outputs.dry_run == 'false' && needs.prepare.outputs.tag_exists == 'true'
         env:
