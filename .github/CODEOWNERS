@@ -1,0 +1,20 @@
+# Release-control changes need review from an owner who did not push the final
+# commit. Branch protection dismisses stale approvals and enforces that
+# separation on the exact merged tree.
+/.github/CODEOWNERS @skyl @azhrcs
+/.github/workflows/ @skyl @azhrcs
+/.github/actions/ @skyl @azhrcs
+
+# Release identity, credential boundaries, packaging, and publication logic.
+/wallet/zuuli/release.json @skyl @azhrcs
+/wallet/zuuli/release.schema.json @skyl @azhrcs
+/wallet/zuuli/scripts/ @skyl @azhrcs
+
+# Native authority/signing configuration and checked-in platform projects.
+/wallet/zuuli/src-tauri/tauri.conf.json @skyl @azhrcs
+/wallet/zuuli/src-tauri/capabilities/ @skyl @azhrcs
+/wallet/zuuli/src-tauri/gen/apple/ @skyl @azhrcs
+/wallet/zuuli/src-tauri/gen/android/ @skyl @azhrcs
+
+# Store-facing metadata and listing media are part of the promoted release.
+/wallet/zuuli/store/ @skyl @azhrcs
