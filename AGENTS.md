@@ -297,6 +297,10 @@ to catch these too, but catching them before the push is cheaper than a red run.
 
 ## Practical notes
 
+- The three first-party Cargo roots and lockfiles are deliberately independent.
+  The release-train boundary, new-crate rules, and explicit triggers for
+  reconsidering a wallet-wide workspace are recorded in
+  [docs/architecture/CARGO-WORKSPACE.md](docs/architecture/CARGO-WORKSPACE.md).
 - Submodules live at `z/{github-org}/{repo}` and track a branch (see
   `.gitmodules`). Update to latest with `git submodule update --remote`.
 - A submodule pin must be **fetchable from its configured `url`**. Verify a
