@@ -1212,6 +1212,23 @@ deliberate.
   portable evidence rather than a local error dialog are all unspecified.
   `KT.md` defines the evidence structures but deliberately does not invent the
   protocol that exchanges them.
+- **S. What authorizes a handle's first directory entry.** Opened 2026-08-24 by
+  [`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry), and **blocking**. §9.2
+  above specifies an append-only log of `(handle → identity key, …)` and does not
+  say who is entitled to a handle; [ADR 0014](./decisions/0014-directory-key-rotation.md)
+  settles authorization for a handle that already has an entry — same-key update,
+  key change, lost key — and takes no position on the first one. `KT.md` §4.4
+  inherited that silence, and as its rules are enumerated they accept a first
+  entry for an unregistered handle from **whoever submits one**. Closing it means
+  deciding who may vouch that a handle belongs to a submitter, whether a log may
+  run with no such authority (a self-hosted log must be able to, under
+  [ADR 0005](./decisions/0005-federation.md)) and whether clients must be told
+  when it does, what binds a vouching artifact to the key being installed, and
+  what a compromise of the vouching key costs. That is a product-and-trust
+  decision of the same weight as ADR 0014's reset authority — which is what
+  [#551](https://github.com/free2z/zuu/issues/551) is open about — so `KT.md`
+  states the option space and deliberately answers none of it.
+  [#594](https://github.com/free2z/zuu/issues/594).
 
 ### 13.1 Closed
 
