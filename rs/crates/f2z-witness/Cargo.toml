@@ -45,7 +45,7 @@ log = { workspace = true }
 # fixture this daemon must refuse. Both talk to the witness through the same
 # `Transport` trait the production client implements, so the test exercises the
 # loop rather than a mock of it.
-f2z-kt = { path = "../f2z-kt", version = "0.1.0" }
+f2z-kt = { path = "../f2z-kt", version = "0.1.0", features = ["testing"] }
 f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
 akd_core = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

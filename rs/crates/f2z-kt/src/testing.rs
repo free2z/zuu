@@ -347,6 +347,16 @@ impl EntryBuilder {
     }
 }
 
+/// A per-assertion nonce derived from what the assertion is about.
+fn nonce_for(handle: &[u8], identity_pk: &PublicKey) -> [u8; 16] {
+    let mut input = handle.to_vec();
+    input.extend_from_slice(identity_pk.as_bytes());
+    let digest = f2z_codec::hash::hash(b"f2z-kt/testing/nonce", &input);
+    let mut nonce = [0u8; 16];
+    nonce.copy_from_slice(digest.as_bytes().get(..16).unwrap_or(&[0u8; 16]));
+    nonce
+}
+
 /// The canonical bytes of an entry.
 ///
 /// # Panics
@@ -521,7 +531,15 @@ impl Harness {
                     0,
                     now_ms,
                     now_ms.saturating_add(60_000),
-                    f2z_authority::types::AssertionNonce::new([now_ms as u8; 16]),
+                    // Derived from the handle and the identity key rather than
+                    // from the clock: two registrations in one millisecond are
+                    // ordinary, and a fixture that reused a nonce would be
+                    // testing the nonce ledger instead of whatever the test is
+                    // about. (It caught exactly that the first time.)
+                    f2z_authority::types::AssertionNonce::new(nonce_for(
+                        entry.entry.handle.as_slice(),
+                        &entry.entry.identity_pk,
+                    )),
                 )
                 .unwrap();
                 Some(tbs.sign(issuer).unwrap())
