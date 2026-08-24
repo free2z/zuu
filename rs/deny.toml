@@ -28,6 +28,18 @@
 # Evaluate every target. This tree compiles for wasm32-unknown-unknown as well
 # as for the servers' hosts, and a host-only view would miss whatever the wasm
 # half pulls in.
+#
+# `targets` is the knob that decides that, and an empty list is cargo-deny's
+# "every target". It is stated rather than left absent because this is a
+# property we rely on: an absent key is indistinguishable from an unconsidered
+# one, and a default that changes upstream would narrow the graph silently,
+# between two CI runs, with no commit of ours in between.
+targets = []
+
+# A *feature* knob, not a target one. `--all-features` would judge a graph
+# nothing in this tree compiles; the crates here are checked with the features
+# they actually build with. Restated rather than inherited so that turning it on
+# is a visible, reviewed edit.
 all-features = false
 
 # =============================================================================
@@ -105,6 +117,26 @@ exceptions = []
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+
+[[bans.deny]]
+# akd < 0.13.0 contains an auditor append-only bypass, facebook/akd#495, merged
+# 2026-08-12 and released in 0.13.0 on 2026-08-13: a malicious log can rewrite an
+# existing label's value while still producing a VALID append-only proof, which
+# defeats the witness role entirely (see docs/e2ee/KT.md §7).
+# There is no RustSec/OSV advisory — an OSV query for `akd` returns {} — so
+# `cargo audit` and `cargo deny advisories` will NOT catch a downgrade. This entry
+# is the floor. Do not remove it, and do not assume tooling is holding it.
+name = "akd"
+version = "<0.13.0"
+
+[[bans.deny]]
+name = "akd_core"
+version = "<0.13.0"
+
+[[bans.deny]]
+# akd_mysql's last release is 0.8.9 (2023-03-15) and it is not maintained.
+# The durable Database impl is ours (KT.md §11.2).
+name = "akd_mysql"
 
 # =============================================================================
 # Sources. Everything resolves to crates.io. Making that a rule rather than a
