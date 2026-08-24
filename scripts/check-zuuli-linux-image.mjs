@@ -643,6 +643,40 @@ function validateLibxdoVerifierRuntime(root) {
 
 function runSelfTest() {
   const fixture = mkdtempSync(join(tmpdir(), "zuuli-linux-image-policy-"));
+  const removeChangeDetectorPatterns = (value, outputName, targets) => {
+    const lines = value.split("\n");
+    const candidates = [];
+    for (let index = 0; index + 2 < lines.length; index += 1) {
+      if (
+        lines[index].trim() === 'case "$file" in' &&
+        lines[index + 2].trim() === `${outputName}=true`
+      ) {
+        candidates.push(index + 1);
+      }
+    }
+    if (candidates.length !== 1) {
+      throw new Error(
+        `self-test mutation target must find exactly one ${outputName} detector; found ${candidates.length}`,
+      );
+    }
+
+    const patternIndex = candidates[0];
+    const match = lines[patternIndex].match(/^(\s*)(.*)\)$/);
+    if (!match) {
+      throw new Error(`self-test mutation target cannot parse ${outputName} detector patterns`);
+    }
+    const patterns = match[2].split("|");
+    for (const target of targets) {
+      const targetCount = patterns.filter((pattern) => pattern === target).length;
+      if (targetCount !== 1) {
+        throw new Error(
+          `self-test mutation target must find ${target} exactly once in ${outputName}; found ${targetCount}`,
+        );
+      }
+    }
+    lines[patternIndex] = `${match[1]}${patterns.filter((pattern) => !targets.includes(pattern)).join("|")})`;
+    return lines.join("\n");
+  };
   const asCandidateLock = (value, candidateHash) => {
     const withoutCandidate = value.replace(/^candidate_source_sha256=.*\n?/m, "");
     return `${withoutCandidate.replace(/^phase=.*$/m, "phase=candidate").trimEnd()}\n` +
@@ -805,32 +839,34 @@ function runSelfTest() {
       {
         name: "Zuuallet source stops selecting schema regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value
-          .replace(
-            "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-            "wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-          )
-          .replaceAll("wallet/*/Cargo.toml|", ""),
+        mutate: (value) =>
+          removeChangeDetectorPatterns(
+            value,
+            "zuuallet_schema",
+            ["wallet/zuuallet/src-tauri/*", "wallet/*/Cargo.toml"],
+          ),
         expected: "schema input must select regeneration: wallet/zuuallet/src-tauri/Cargo.toml",
       },
       {
         name: "plugin source stops selecting schema regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value
-          .replace(
-            "wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-            "wallet/zuuallet/src-tauri/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh",
-          )
-          .replaceAll("wallet/*.rs|", ""),
+        mutate: (value) =>
+          removeChangeDetectorPatterns(
+            value,
+            "zuuallet_schema",
+            ["wallet/plugins/*", "wallet/*.rs"],
+          ),
         expected: "schema input must select regeneration: wallet/plugins/tauri-plugin-zcash/build.rs",
       },
       {
         name: "schema policy changes stop selecting regeneration",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace(
-          "scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash",
-          "scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|z/zcash/librustzcash",
-        ),
+        mutate: (value) =>
+          removeChangeDetectorPatterns(
+            value,
+            "zuuallet_schema",
+            ["scripts/check-zuuli-linux-image.mjs"],
+          ),
         expected: "schema input must select regeneration: scripts/check-zuuli-linux-image.mjs",
       },
       {
