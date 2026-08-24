@@ -14,6 +14,8 @@ const EXPECTED_LIBRUSTZCASH_SHA =
   "330e4c0aa9e25199acdb93a56bf70126d0d3f2b9";
 const SEND_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs";
+const NATIVE_SEND_POLICY_SOURCE =
+  "wallet/plugins/tauri-plugin-zcash/src/wallet/send/native.rs";
 const WALLET_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/mod.rs";
 const LOCKFILES = [
@@ -203,7 +205,59 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     );
   }
 
-  const send = normalizedRust(snapshot.files[SEND_SOURCE]);
+  const orchestrationSource = snapshot.files[SEND_SOURCE];
+  const nativePolicySource = snapshot.files[NATIVE_SEND_POLICY_SOURCE];
+  const outsidePolicySource = snapshot.policyAuthorityPeers
+    .map((relative) => snapshot.files[relative])
+    .join("\n");
+  const send = normalizedRust(nativePolicySource);
+  const orchestration = normalizedRust(orchestrationSource);
+
+  if (
+    occurrences(orchestrationSource, "mod native;") !== 1 ||
+    occurrences(orchestrationSource, "pub mod native;") !== 0
+  ) {
+    errors.push(
+      "native send policy must remain in one private child module",
+    );
+  }
+  const forbiddenOutsidePolicyModule = [
+    "CreateErrT",
+    "DustOutputPolicy",
+    "GreedyInputSelector",
+    "LockRequest",
+    "OvkPolicy",
+    "ProposeTransferErrT",
+    "SingleOutputChangeStrategy",
+    "SpendPolicy",
+    "TxVersion",
+    "Zip317FeeRule",
+    "create_proposed_transactions",
+    "propose_transfer",
+  ];
+  for (const symbol of forbiddenOutsidePolicyModule) {
+    if (occurrences(outsidePolicySource, symbol) !== 0) {
+      errors.push(
+        `${symbol} must remain inaccessible outside the private native send policy module`,
+      );
+    }
+  }
+  const allowedPolicyExports = [
+    "pub(super) fn create_transactions<",
+    "pub(super) fn propose_fixed<",
+    "pub(super) fn propose_send_all_attempt<",
+  ];
+  if (
+    occurrences(send, "pub(super)") !== allowedPolicyExports.length ||
+    allowedPolicyExports.some((declaration) => occurrences(send, declaration) !== 1) ||
+    occurrences(send, "pub(crate)") !== 0 ||
+    occurrences(send, "pub(in ") !== 0 ||
+    occurrences(send, "pub ") !== 0
+  ) {
+    errors.push(
+      "private native send policy module must expose only its three audited safe boundaries",
+    );
+  }
   const lockHelper =
     "fn proposal_lock_request() -> Option<LockRequest> { None }";
   const versionHelper =
@@ -224,13 +278,13 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
   }
   const sharedProposalCore = rustFunctionBody(
     send,
-    "propose_native_send_with_policy",
+    "propose_with_policy",
   );
-  const defaultProposalBoundary = rustFunctionBody(send, "propose_native_send");
-  const fixedSendBoundary = rustFunctionBody(send, "propose_fixed_native_send");
+  const defaultProposalBoundary = rustFunctionBody(send, "propose_default");
+  const fixedSendBoundary = rustFunctionBody(send, "propose_fixed");
   const sendAllBoundary = rustFunctionBody(
     send,
-    "propose_send_all_native_attempt",
+    "propose_send_all_attempt",
   );
   const auditedTail =
     "request, ConfirmationsPolicy::default(), spend_policy, proposal_lock_request(), proposed_transaction_version(),";
@@ -245,7 +299,7 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     );
   }
   const defaultPolicyCall =
-    "propose_native_send_with_policy(db, params, account_id, request, &SpendPolicy::default())";
+    "propose_with_policy(db, params, account_id, request, &SpendPolicy::default())";
   if (
     defaultProposalBoundary === null ||
     occurrences(defaultProposalBoundary ?? "", defaultPolicyCall) !== 1 ||
@@ -256,7 +310,7 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     );
   }
   const sharedDefaultCall =
-    "propose_native_send(db, params, account_id, request)";
+    "propose_default(db, params, account_id, request)";
   if (
     fixedSendBoundary === null ||
     sendAllBoundary === null ||
@@ -267,6 +321,20 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     errors.push(
       "fixed send and send-all must each delegate exactly once to the shared default proposal boundary",
     );
+  }
+  for (const [boundary, call] of [
+    ["fixed send", "propose_fixed(db, &state.network, account_id, request)"],
+    [
+      "send-all",
+      "propose_send_all_attempt(db, &state.network, account_id, request)",
+    ],
+    ["transaction creation", "create_transactions("],
+  ]) {
+    if (occurrences(orchestration, call) !== 1) {
+      errors.push(
+        `${boundary} orchestration must enter its only accessible native send boundary exactly once`,
+      );
+    }
   }
 
   const wallet = normalizedRust(snapshot.files[WALLET_SOURCE]);
@@ -303,8 +371,34 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
 }
 
 function liveSnapshot() {
+  const policyAuthorityPeers = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "--",
+      ":(glob)wallet/plugins/tauri-plugin-zcash/src/**/*.rs",
+    ],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  )
+    .trim()
+    .split("\n")
+    .filter(
+      (relative) =>
+        relative.length > 0 && relative !== NATIVE_SEND_POLICY_SOURCE,
+    );
+  if (!policyAuthorityPeers.includes(SEND_SOURCE)) {
+    throw new Error("native send authority census must include send orchestration");
+  }
+  const sourceFiles = [
+    ...new Set([
+      ...policyAuthorityPeers,
+      NATIVE_SEND_POLICY_SOURCE,
+      WALLET_SOURCE,
+      ...LOCKFILES,
+    ]),
+  ];
   const files = Object.fromEntries(
-    [SEND_SOURCE, WALLET_SOURCE, ...LOCKFILES].map((relative) => [
+    sourceFiles.map((relative) => [
       relative,
       fs.readFileSync(path.join(REPO_ROOT, relative), "utf8"),
     ]),
@@ -315,7 +409,11 @@ function liveSnapshot() {
     { cwd: REPO_ROOT, encoding: "utf8" },
   ).trim();
   const match = stage.match(/^160000 ([0-9a-f]{40}) 0\t/);
-  return { files, gitlink: match?.[1] ?? `invalid index entry: ${stage}` };
+  return {
+    files,
+    gitlink: match?.[1] ?? `invalid index entry: ${stage}`,
+    policyAuthorityPeers,
+  };
 }
 
 function replaceOnce(source, target, replacement, mutation) {
@@ -473,10 +571,98 @@ function runSelfTest() {
   ];
   const cases = [
     [
-      "LockRequest helper drift",
+      "native send policy module becomes public",
       mutated(
         baseline,
         SEND_SOURCE,
+        "mod native;",
+        "pub mod native;",
+        "native send policy module becomes public",
+      ),
+      "one private child module",
+    ],
+    [
+      "private policy core becomes parent-visible",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "fn propose_with_policy<",
+        "pub(super) fn propose_with_policy<",
+        "private policy core becomes parent-visible",
+      ),
+      "expose only its three audited safe boundaries",
+    ],
+    [
+      "fixed safe boundary loses parent visibility",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "pub(super) fn propose_fixed<",
+        "fn propose_fixed<",
+        "fixed safe boundary loses parent visibility",
+      ),
+      "expose only its three audited safe boundaries",
+    ],
+    [
+      "policy module re-exports a policy type",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "use zcash_client_backend::fees::DustOutputPolicy;",
+        "use zcash_client_backend::fees::DustOutputPolicy;\npub(super) use zcash_client_backend::data_api::wallet::input_selection::SpendPolicy as ExposedSpendPolicy;",
+        "policy module re-exports a policy type",
+      ),
+      "expose only its three audited safe boundaries",
+    ],
+    [
+      "parent imports a forbidden policy type",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};",
+        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};\nuse zcash_client_backend::data_api::wallet::input_selection::SpendPolicy;",
+        "parent imports a forbidden policy type",
+      ),
+      "SpendPolicy must remain inaccessible",
+    ],
+    [
+      "parent aliases direct proposal authority",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};",
+        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};\nuse zcash_client_backend::data_api::wallet::propose_transfer as aliased_proposal;",
+        "parent aliases direct proposal authority",
+      ),
+      "propose_transfer must remain inaccessible",
+    ],
+    [
+      "fixed orchestration drops its only safe boundary",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "propose_fixed(db, &state.network, account_id, request)",
+        "propose_send_all_attempt(db, &state.network, account_id, request)",
+        "fixed orchestration drops its only safe boundary",
+      ),
+      "fixed send orchestration",
+    ],
+    [
+      "send-all orchestration drops its only safe boundary",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "propose_send_all_attempt(db, &state.network, account_id, request)",
+        "propose_fixed(db, &state.network, account_id, request)",
+        "send-all orchestration drops its only safe boundary",
+      ),
+      "send-all orchestration",
+    ],
+    [
+      "LockRequest helper drift",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
         "fn proposal_lock_request() -> Option<LockRequest> {",
         "fn proposal_lock_request() -> Option<LockRequest> { panic!(\"mutant\");",
         "LockRequest helper drift",
@@ -487,7 +673,7 @@ function runSelfTest() {
       "TxVersion helper drift",
       mutated(
         baseline,
-        SEND_SOURCE,
+        NATIVE_SEND_POLICY_SOURCE,
         "fn proposed_transaction_version() -> Option<TxVersion> {",
         "fn proposed_transaction_version() -> Option<TxVersion> { panic!(\"mutant\");",
         "TxVersion helper drift",
@@ -498,9 +684,9 @@ function runSelfTest() {
       "shared proposal core is no longer recognizable",
       mutated(
         baseline,
-        SEND_SOURCE,
-        "fn propose_native_send_with_policy<",
-        "fn propose_native_send_with_policy_mutant<",
+        NATIVE_SEND_POLICY_SOURCE,
+        "fn propose_with_policy<",
+        "fn propose_with_policy_mutant<",
         "shared proposal core is no longer recognizable",
       ),
       "shared proposal core",
@@ -509,7 +695,7 @@ function runSelfTest() {
       "a duplicated direct proposal path revives the old split authority",
       mutated(
         baseline,
-        SEND_SOURCE,
+        NATIVE_SEND_POLICY_SOURCE,
         "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
         "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(\n    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
         "a duplicated direct proposal path revives the old split authority",
@@ -520,7 +706,7 @@ function runSelfTest() {
       "shared proposal core bypasses the exact lock decision",
       mutated(
         baseline,
-        SEND_SOURCE,
+        NATIVE_SEND_POLICY_SOURCE,
         "        proposal_lock_request(),\n",
         "        None,\n",
         "shared proposal core bypasses the exact lock decision",
@@ -531,7 +717,7 @@ function runSelfTest() {
       "shared proposal core bypasses the exact version decision",
       mutated(
         baseline,
-        SEND_SOURCE,
+        NATIVE_SEND_POLICY_SOURCE,
         "        proposed_transaction_version(),\n",
         "        None,\n",
         "shared proposal core bypasses the exact version decision",
@@ -542,9 +728,9 @@ function runSelfTest() {
       "default policy boundary bypasses the shared proposal core",
       mutated(
         baseline,
-        SEND_SOURCE,
-        "fn propose_native_send<",
-        "fn propose_native_send_mutant<",
+        NATIVE_SEND_POLICY_SOURCE,
+        "fn propose_default<",
+        "fn propose_default_mutant<",
         "default policy boundary bypasses the shared proposal core",
       ),
       "default native-send boundary",
@@ -553,9 +739,9 @@ function runSelfTest() {
       "fixed send bypasses the shared default boundary",
       mutatedOccurrence(
         baseline,
-        SEND_SOURCE,
-        "    propose_native_send(db, params, account_id, request)",
-        "    propose_native_send_with_policy(db, params, account_id, request, &SpendPolicy::default())",
+        NATIVE_SEND_POLICY_SOURCE,
+        "    propose_default(db, params, account_id, request)",
+        "    propose_with_policy(db, params, account_id, request, &SpendPolicy::default())",
         0,
         2,
         "fixed send bypasses the shared default boundary",
@@ -566,9 +752,9 @@ function runSelfTest() {
       "send-all bypasses the shared default boundary",
       mutatedOccurrence(
         baseline,
-        SEND_SOURCE,
-        "    propose_native_send(db, params, account_id, request)",
-        "    propose_native_send_with_policy(db, params, account_id, request, &SpendPolicy::default())",
+        NATIVE_SEND_POLICY_SOURCE,
+        "    propose_default(db, params, account_id, request)",
+        "    propose_with_policy(db, params, account_id, request, &SpendPolicy::default())",
         1,
         2,
         "send-all bypasses the shared default boundary",
