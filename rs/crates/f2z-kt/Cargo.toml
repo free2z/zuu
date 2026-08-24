@@ -1,0 +1,79 @@
+[package]
+name = "f2z-kt"
+version = "0.1.0"
+description = "The free2z key-transparency log server (docs/e2ee/KT.md v1): durable storage, the submission choke point, the epoch scheduler and the proof-serving API"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# **AGPL-3.0, and this is the licence boundary** (owner decision on #305). This
+# is a server binary: an operator who modifies it and runs it for others must
+# publish that change. `THREAT-MODEL.md` §4.5 concedes that server-side deletion
+# is "auditable, not verifiable", and a copyleft obligation for network use is
+# the only lever we have over an operator we do not run.
+#
+# The library crates it links — `f2z-codec`, `f2z-kt-core`, `f2z-authority` —
+# stay MIT so that clients and third-party implementations can link them.
+# `rs/deny.toml` makes the split mechanical: this crate is named in
+# `[licenses] exceptions`, and nowhere else.
+license = "AGPL-3.0"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Fixtures for the acceptance tests. A feature rather than `#[cfg(test)]`
+# because the **witness**'s acceptance test stands up a real log — a witness
+# verified against a mock is a witness that has not been tested — and an
+# integration test in another crate cannot see a `#[cfg(test)]` module. Nothing
+# behind it is compiled into a shipped binary.
+testing = []
+# The KMS signing path, kept out of the ordinary build **on purpose**. See
+# `src/signer.rs`: `FileSigner` is the default and the graph below carries no
+# cloud SDK in any configuration, feature on or off.
+kms = []
+
+[dependencies]
+# `default` — the log needs `verifier` to serve nothing it cannot itself check,
+# and `auditor` because the log and the witness MUST link the same
+# `audit_verify` (`KT.md` §7.4). "Cosign without verifying" must take deleting a
+# call, not forgetting one, and that is only true if there is one implementation.
+f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0" }
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
+f2z-codec = { workspace = true }
+
+akd = { workspace = true }
+akd_core = { workspace = true }
+protobuf = { workspace = true }
+
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+tls_codec = { workspace = true }
+
+axum = { workspace = true }
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "sync",
+  "time",
+  "signal",
+] }
+log = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+# A crate's own integration tests do not see its `[features]` unless it depends
+# on itself. This is the supported way to say "build my `testing` feature for
+# `tests/`, and never for the binary".
+f2z-kt = { path = ".", version = "0.1.0", features = ["testing"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[[bin]]
+name = "f2z-kt"
+path = "src/main.rs"
