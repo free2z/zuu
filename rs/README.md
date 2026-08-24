@@ -76,7 +76,8 @@ decided is `wallet/rust-toolchain.toml`, and
 ```
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+                                --manifest rs/crates/f2z-kt-core/Cargo.toml
 ```
 
 fails the pull request the moment the two disagree. `.github/workflows/rs.yml`
@@ -110,6 +111,27 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
+| [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
+
+`f2z-kt-core` is the **one** crate the log server, the witness and the client all
+link (`KT.md` §11.4). That is not tidiness: a witness that verified with a
+different implementation than the log builds with would produce cosignatures that
+mean nothing, and §7.4's only structural defence against a lazy witness is that
+there are not two implementations to disagree.
+
+Its `verifier` feature reaches `wasm32-unknown-unknown`; its `auditor` feature
+does not, and must never be enabled for the browser — `akd::auditor::audit_verify`
+hardcodes `AzksParallelismConfig::default()` and reaches `tokio::task::spawn`, so
+it compiles for that target and then traps at runtime (`KT.md` §11.3). The wasm CI
+job builds `--no-default-features --features verifier` for exactly that reason.
+
+**`rs/deny.toml` carries the `akd >= 0.13.0` floor and it is load-bearing.**
+[facebook/akd#495](https://github.com/facebook/akd/pull/495) — an auditor
+append-only bypass letting a malicious log rewrite a label's value while still
+producing a *valid* append-only proof — has no RustSec or OSV advisory and never
+will, so `cargo audit` passes on a vulnerable pin forever
+([ADR 0013](../docs/e2ee/decisions/0013-key-transparency-log.md)). A reviewer who
+removes those `[[bans.deny]]` entries has removed the floor.
 
 **The relay and the clients link both.** That is the licence boundary in
 practice: everything here is MIT because a third-party relay, ZUULI and the WASM
@@ -135,6 +157,8 @@ reasons, and each is enforced by a test rather than by intent:
 cd rs
 cargo test
 cargo build --target wasm32-unknown-unknown --lib -p f2z-codec -p f2z-relay-proto
+cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
+            --no-default-features --features verifier
 ```
 
 The gates are the repository's shared scripts, pointed here with `--root`:
@@ -142,7 +166,8 @@ The gates are the repository's shared scripts, pointed here with `--root`:
 ```bash
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+                                --manifest rs/crates/f2z-kt-core/Cargo.toml
 scripts/check-rust-fmt.sh    --root rs
 scripts/check-rust-clippy.sh --root rs
 scripts/check-rust-deny.sh   --root rs --config rs/deny.toml

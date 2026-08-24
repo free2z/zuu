@@ -49,6 +49,48 @@ ed25519-dalek = { version = "3", default-features = false, features = [
 # constant time. Already in the graph beneath ed25519-dalek; named here so the
 # dependency is a decision rather than an accident of resolution.
 subtle = { version = "2", default-features = false }
+
+# First-party. `f2z-kt-core` builds the transparency envelope on top of
+# `f2z-codec`'s canonical encoding, so the re-encode-equality rule of WIRE.md
+# §3.3 has exactly one implementation in this tree.
+#
+# `version` is carried alongside `path` even though nothing here is published:
+# a bare path dependency has no version requirement, and `rs/deny.toml` sets
+# `wildcards = "deny"` for every dependency including ours.
+f2z-codec = { path = "crates/f2z-codec", version = "0.1.0" }
+
+# The append-only zero-knowledge set, ADR 0013.
+#
+# `>= 0.13.0` is a HARD FLOOR and it is NOT held by these lines. A
+# `[patch.crates-io]`, a path dependency or a vendored copy all walk under a
+# manifest requirement without comment, and facebook/akd#495 — the auditor
+# append-only bypass this floor exists for — has no RustSec/OSV advisory, so
+# `cargo audit` passes on a vulnerable pin forever. The floor is the
+# `[[bans.deny]]` entries in rs/deny.toml. Do not remove them.
+#
+# `akd_core` is the client verifier and reaches wasm32-unknown-unknown; `akd`
+# is the server/witness crate and does not (KT.md §11.3).
+#
+# NOTE, and it is worth a reviewer's attention: `akd_core` 0.13 requires
+# `ed25519-dalek ^2`, so this graph carries **two** major versions of that crate
+# — 3 for our own signing and verification, 2 inside `akd_core`'s ECVRF. That is
+# a `multiple-versions` warning we cannot resolve from here; it goes away when
+# upstream moves. Nothing crosses the boundary: no `ed25519-dalek` type from
+# either version appears in an interface between `akd_core` and our code.
+akd_core = { version = "0.13", default-features = false, features = [
+  "vrf",
+  "whatsapp_v1",
+  "protobuf",
+] }
+akd = { version = "0.13", default-features = false, features = [
+  "whatsapp_v1",
+  "public_auditing",
+] }
+# Only to reach `protobuf::Message::parse_from_bytes` for `akd_core`'s own proof
+# types (KT.md §9.4). Declared rather than inherited through `akd_core`, per
+# AGENTS.md: a feature enabled only by another crate's unification is a feature
+# we do not actually have.
+protobuf = { version = "3", default-features = false }
 # Dev-dependency only. It builds for the host test runner, never for
 # wasm32-unknown-unknown, so its `std` default costs this crate nothing: the
 # library itself is `no_std` and the wasm job builds `--lib`.
