@@ -75,7 +75,8 @@ jobs:
           scripts/check-rust-toolchain.sh \
             --toolchain-file rs/rust-toolchain.toml \
             --manifest rs/crates/f2z-codec/Cargo.toml \
-            --manifest rs/crates/f2z-relay-proto/Cargo.toml
+            --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+            --manifest rs/crates/f2z-relay-testkit/Cargo.toml
 
       - name: Detect changes under rs/
         id: filter
@@ -293,6 +294,11 @@ jobs:
       # rather than `--workspace` so that a future server binary — which will be
       # AGPL, will pull tokio, and will never reach a browser — does not
       # silently join the wasm build and then fail it.
+      #
+      # f2z-relay-testkit is deliberately absent for exactly that reason: it
+      # opens sockets, spawns tasks and reads a clock, and a test harness that
+      # could reach the browser build would be a test harness that could end up
+      # in the shipped bundle.
       - name: Build the client-linked crates for the browser target
         working-directory: rs
         run: |

@@ -76,7 +76,8 @@ decided is `wallet/rust-toolchain.toml`, and
 ```
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+                                --manifest rs/crates/f2z-relay-testkit/Cargo.toml
 ```
 
 fails the pull request the moment the two disagree. `.github/workflows/rs.yml`
@@ -110,8 +111,9 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
+| [`crates/f2z-relay-testkit`](./crates/f2z-relay-testkit) | **FakeRelay**: a spec-conforming relay a client can develop against before `f2z-relay` exists, over an in-process pipe *and* a real `ws://127.0.0.1:0` listener running the same implementation, plus fault injection and a conformance vector suite the real relay will later be run against unchanged. Also ships the `f2z-fakerelay` binary and `rs/deploy/docker-compose.dev.yml`. **Native only** — it opens sockets, spawns tasks and reads a clock, and is deliberately absent from the `wasm32` job. |
 
-**The relay and the clients link both.** That is the licence boundary in
+**The relay and the clients link the first two.** That is the licence boundary in
 practice: everything here is MIT because a third-party relay, ZUULI and the WASM
 web client all compile the same rules, and a rule that two implementations
 disagree about is how ciphertext gets deleted before it is read.
@@ -135,7 +137,14 @@ reasons, and each is enforced by a test rather than by intent:
 cd rs
 cargo test
 cargo build --target wasm32-unknown-unknown --lib -p f2z-codec -p f2z-relay-proto
+
+# A relay endpoint for a client developer, in one command.
+cargo run -p f2z-relay-testkit --bin f2z-fakerelay
 ```
+
+`f2z-relay-testkit` is **not** on the `wasm32` line above, and that absence is
+the rule rather than an oversight: a test harness that could reach the browser
+build is a test harness that could end up in the shipped bundle.
 
 The gates are the repository's shared scripts, pointed here with `--root`:
 
