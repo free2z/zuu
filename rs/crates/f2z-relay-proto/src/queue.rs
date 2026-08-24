@@ -97,6 +97,55 @@ impl QueueState {
         }
     }
 
+    /// Rehydrate a queue whose state was written down somewhere and read back.
+    ///
+    /// A relay's storage outlives its process, so the acknowledgement
+    /// arithmetic of §8 has to be applied to state that was loaded rather than
+    /// accumulated. Without this constructor a store would have to re-derive
+    /// that arithmetic against its own persisted columns, which is the one
+    /// duplication this crate exists to prevent: §8.2's anti-pre-ack rule
+    /// implemented twice is §8.2's rule implemented once and violated once.
+    ///
+    /// The arguments are exactly the fields [`QueueState`] persists, and the
+    /// checks below are the invariants a store cannot restore its way out of.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorCode::Internal`] — and it is deliberately that code rather than
+    /// anything a peer could provoke. Every rejection here means the relay's
+    /// own storage contradicts the protocol, which is a relay fault; §10 says
+    /// `ERR_INTERNAL` "carries no detail, ever", and there is nothing a client
+    /// did that a more specific code would describe.
+    ///
+    /// - A contact queue with a bound send key. §12.2: a contact queue's send
+    ///   side is **never** bound, "always, for everyone".
+    /// - `acked_through >= next_index`, i.e. a watermark at or above the index
+    ///   the next append will take. That is the pre-acked state §8.2 exists to
+    ///   make unreachable, and restoring into it would black-hole the queue.
+    pub fn restore(
+        kind: QueueKind,
+        recv_key: PublicKey,
+        send_key: Option<PublicKey>,
+        next_index: u64,
+        acked_through: Option<u64>,
+    ) -> Result<Self> {
+        if matches!(kind, QueueKind::Contact) && send_key.is_some() {
+            return Err(ProtoError::Wire(ErrorCode::Internal));
+        }
+        if let Some(watermark) = acked_through
+            && watermark >= next_index
+        {
+            return Err(ProtoError::Wire(ErrorCode::Internal));
+        }
+        Ok(Self {
+            kind,
+            recv_key,
+            send_key,
+            next_index,
+            acked_through,
+        })
+    }
+
     /// Standard or contact.
     #[must_use]
     pub const fn kind(&self) -> QueueKind {
@@ -569,6 +618,49 @@ mod tests {
 
     fn queue() -> QueueState {
         QueueState::create(QueueKind::Standard, key(1))
+    }
+
+    #[test]
+    fn restore_round_trips_a_live_queue_and_refuses_the_impossible_ones() {
+        let mut original = queue();
+        original.bind_send(&key(2)).unwrap();
+        original.append().unwrap();
+        original.append().unwrap();
+        original.ack(0).unwrap();
+
+        let mut restored = QueueState::restore(
+            original.kind(),
+            original.recv_key(),
+            original.send_key(),
+            original.next_index(),
+            original.acked_through(),
+        )
+        .unwrap();
+        assert_eq!(restored.next_index(), original.next_index());
+        assert_eq!(restored.acked_through(), original.acked_through());
+        assert_eq!(restored.pending(), original.pending());
+        assert_eq!(
+            restored.bind_send(&key(9)),
+            Err(ProtoError::Wire(ErrorCode::AlreadyBound)),
+            "bind-once survives a restart; it is not a property of one process"
+        );
+
+        assert_eq!(
+            QueueState::restore(QueueKind::Contact, key(1), Some(key(2)), 0, None)
+                .err()
+                .unwrap(),
+            ProtoError::Wire(ErrorCode::Internal),
+            "§12.2: a contact queue's send side is never bound"
+        );
+        assert!(
+            QueueState::restore(QueueKind::Standard, key(1), None, 2, Some(2)).is_err(),
+            "§8.2: a watermark at next_index is the pre-acked state itself"
+        );
+        assert!(
+            QueueState::restore(QueueKind::Standard, key(1), None, 0, Some(0)).is_err(),
+            "§8.2: nothing has ever been appended, so index 0 cannot be acked"
+        );
+        assert!(QueueState::restore(QueueKind::Standard, key(1), None, 1, Some(0)).is_ok());
     }
 
     #[test]

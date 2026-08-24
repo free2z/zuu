@@ -95,6 +95,16 @@ allow = [
   "Apache-2.0",
   "BSD-3-Clause",
   "Unicode-3.0",
+  # Zlib arrives with SQLite: rusqlite -> hashlink -> hashbrown -> foldhash,
+  # which is `Zlib` and is reached through hashbrown's default hasher rather
+  # than by any choice of ours. It is permissive — OSI-approved, FSF Free/Libre,
+  # no copyleft and no attribution-in-binary requirement — so it sits on the
+  # correct side of the boundary this section exists to police, which is
+  # permissive-crates versus AGPL-server-binaries and not licence-family
+  # bookkeeping. wallet/deny.toml already allows it for an unrelated graph
+  # (the objc2 family, bytemuck, miniz_oxide, tinyvec); this entry is judged
+  # against ours and names the crate that needs it.
+  "Zlib",
 ]
 
 # Per-crate escapes. Empty today.
