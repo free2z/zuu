@@ -15,8 +15,17 @@
 //! commands until entries age out. It **MUST NOT** evict live entries to make
 //! room. An eviction policy that discards unexpired entries silently reopens
 //! the replay window at exactly the moment the relay is under load — which is
-//! exactly when an attacker would arrange to be. [`SeenSet::observe`] therefore
+//! exactly when an attacker would arrange to be. [`SeenSet::commit`] therefore
 //! has no eviction path at all; the only way an entry leaves is expiry.
+//!
+//! A lookup and an insert are deliberately separate. [`SeenSet::preflight`] is
+//! the cheap §5.1 step-3 filter; [`SeenSet::commit`] records the pair only after
+//! its signature and command checks succeed. `commit` repeats the lookup and
+//! capacity check atomically under its exclusive borrow, so two callers that
+//! both passed preflight against the **same set instance** cannot both commit
+//! the same pair. The borrow is not a distributed lock: clones and independent
+//! sets do not coordinate. A multi-worker relay must serialize one shared set
+//! or give an external store the same atomic insert-if-absent semantics.
 //!
 //! # Why the set need not survive a restart, and when that stops being true
 //!
@@ -218,7 +227,8 @@ impl SeenSet {
 
     /// Drop every entry whose retention has elapsed, and report how many went.
     ///
-    /// Called by [`SeenSet::observe`] before anything else, so a relay never
+    /// Called by [`SeenSet::preflight`] and [`SeenSet::commit`] before anything
+    /// else, so a relay never
     /// has to schedule a sweep. It is public because an idle relay that stops
     /// receiving signed commands would otherwise hold its last entries
     /// forever, and an operator may want to reclaim that.
@@ -228,10 +238,12 @@ impl SeenSet {
         before.saturating_sub(self.entries.len())
     }
 
-    /// Record a `(signer_key, nonce)` pair, or refuse it.
+    /// Check a `(signer_key, nonce)` pair without recording it.
     ///
     /// Step 3 of §5.1's verification order: it runs *before* the signature
-    /// check, because it is cheap and flood-resistant.
+    /// check, because it is cheap. An unauthenticated frame must not consume a
+    /// slot, so successful preflight never inserts the candidate key. It may
+    /// still purge unrelated entries whose retention has elapsed.
     ///
     /// # Errors
     ///
@@ -242,10 +254,10 @@ impl SeenSet {
     /// - [`ErrorCode::Backpressure`] if the set is full of unexpired entries.
     ///   The relay refuses new signed commands until entries age out. It does
     ///   **not** evict.
-    pub fn observe(&mut self, now_ms: u64, key: ReplayKey) -> Result<()> {
+    pub fn preflight(&mut self, now_ms: u64, key: &ReplayKey) -> Result<()> {
         self.expire(now_ms);
 
-        if self.entries.contains_key(&key) {
+        if self.entries.contains_key(key) {
             return Err(ProtoError::Wire(ErrorCode::Replay));
         }
         // Checked after the replay lookup on purpose: a full set that is being
@@ -255,6 +267,23 @@ impl SeenSet {
             return Err(ProtoError::Wire(ErrorCode::Backpressure));
         }
 
+        Ok(())
+    }
+
+    /// Record an authenticated `(signer_key, nonce)` pair using
+    /// insert-if-absent semantics.
+    ///
+    /// Call this only after every verification step succeeds. It repeats
+    /// [`SeenSet::preflight`] while holding `&mut self`; therefore a competing
+    /// commit that won the same preflight window is rejected as
+    /// [`ErrorCode::Replay`] rather than silently replacing the entry.
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorCode::Replay`] if the pair was committed already.
+    /// - [`ErrorCode::Backpressure`] if authenticated entries fill the set.
+    pub fn commit(&mut self, now_ms: u64, key: ReplayKey) -> Result<()> {
+        self.preflight(now_ms, &key)?;
         let expires_at = now_ms.saturating_add(self.retention_ms);
         self.entries.insert(key, expires_at);
         Ok(())
@@ -306,19 +335,37 @@ mod tests {
     #[test]
     fn a_repeat_inside_the_window_is_a_replay() {
         let mut seen = SeenSet::new(1_000, 8);
-        assert!(seen.observe(0, key(1)).is_ok());
+        assert!(seen.commit(0, key(1)).is_ok());
         assert_eq!(
-            seen.observe(500, key(1)),
+            seen.commit(500, key(1)),
             Err(ProtoError::Wire(ErrorCode::Replay))
         );
         // And a different nonce under the same key is not.
         assert!(
-            seen.observe(
+            seen.commit(
                 500,
                 ReplayKey::new(PublicKey::new([1; 32]), Nonce::new([2; 16]))
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn two_preflight_winners_cannot_both_commit() {
+        let mut seen = SeenSet::new(1_000, 8);
+        let replay_key = key(1);
+
+        assert!(seen.preflight(0, &replay_key).is_ok());
+        assert!(seen.preflight(0, &replay_key).is_ok());
+        assert!(seen.is_empty(), "preflight must not reserve capacity");
+
+        assert!(seen.commit(0, replay_key).is_ok());
+        assert_eq!(
+            seen.commit(0, replay_key),
+            Err(ProtoError::Wire(ErrorCode::Replay)),
+            "commit must repeat the membership test atomically"
+        );
+        assert_eq!(seen.len(), 1);
     }
 
     #[test]
@@ -330,21 +377,21 @@ mod tests {
         // millisecond at the boundary; it is pinned by a test so it cannot
         // change unnoticed.
         let mut seen = SeenSet::new(1_000, 8);
-        seen.observe(0, key(1)).unwrap();
+        seen.commit(0, key(1)).unwrap();
         assert_eq!(
-            seen.observe(999, key(1)),
+            seen.commit(999, key(1)),
             Err(ProtoError::Wire(ErrorCode::Replay))
         );
-        assert!(seen.observe(1_000, key(1)).is_ok());
+        assert!(seen.commit(1_000, key(1)).is_ok());
     }
 
     #[test]
     fn a_full_set_refuses_rather_than_evicting() {
         let mut seen = SeenSet::new(10_000, 2);
-        seen.observe(0, key(1)).unwrap();
-        seen.observe(0, key(2)).unwrap();
+        seen.commit(0, key(1)).unwrap();
+        seen.commit(0, key(2)).unwrap();
         assert_eq!(
-            seen.observe(0, key(3)),
+            seen.commit(0, key(3)),
             Err(ProtoError::Wire(ErrorCode::Backpressure))
         );
         // The live entries are still live. This is the property: an eviction
@@ -352,19 +399,19 @@ mod tests {
         assert!(seen.contains(&key(1)));
         assert!(seen.contains(&key(2)));
         assert_eq!(
-            seen.observe(0, key(1)),
+            seen.commit(0, key(1)),
             Err(ProtoError::Wire(ErrorCode::Replay))
         );
         // …and once they age out, the set accepts again.
-        assert!(seen.observe(10_001, key(3)).is_ok());
+        assert!(seen.commit(10_001, key(3)).is_ok());
     }
 
     #[test]
     fn a_replay_is_reported_even_when_the_set_is_full() {
         let mut seen = SeenSet::new(10_000, 1);
-        seen.observe(0, key(1)).unwrap();
+        seen.commit(0, key(1)).unwrap();
         assert_eq!(
-            seen.observe(0, key(1)),
+            seen.commit(0, key(1)),
             Err(ProtoError::Wire(ErrorCode::Replay)),
             "capacity must not mask an attack"
         );
@@ -382,8 +429,8 @@ mod tests {
     #[test]
     fn expire_reports_what_it_dropped() {
         let mut seen = SeenSet::new(100, 8);
-        seen.observe(0, key(1)).unwrap();
-        seen.observe(0, key(2)).unwrap();
+        seen.commit(0, key(1)).unwrap();
+        seen.commit(0, key(2)).unwrap();
         assert_eq!(seen.expire(50), 0);
         assert_eq!(seen.len(), 2);
         assert_eq!(seen.expire(101), 2);

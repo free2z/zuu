@@ -15,11 +15,14 @@
 //!    and a non-canonical structure inside it would survive a frame-level
 //!    re-encode untouched.
 //! 2. Timestamp window (§5.5) → `ERR_STALE_TIMESTAMP`.
-//! 3. `(signer_key, nonce)` seen-set (§5.5) → `ERR_REPLAY`.
+//! 3. Preflight `(signer_key, nonce)` against the seen-set (§5.5) →
+//!    `ERR_REPLAY`, without inserting it.
 //! 4. Rebuild the transcript **from the relay's own `relay_id` and its own
 //!    `channel_binding`** and verify the signature → `ERR_BAD_SIGNATURE`.
 //! 5. Address and self-authentication rules (§6.2, §6.3) → `ERR_NO_ACCESS`.
 //! 6. Policy — the payload's padding bucket (§9).
+//! 7. Commit the authenticated `(signer_key, nonce)` with insert-if-absent
+//!    semantics. A competing commit loses as `ERR_REPLAY`.
 //!
 //! Steps 2 and 3 precede the signature check because they are cheap and they
 //! are the flood-resistant filters. Step 5 follows it so that an unsigned guess
@@ -484,12 +487,19 @@ impl<C: RelayCommand> SignedCommand<C> {
     }
 }
 
-/// A command that passed every check of §5.1.
+/// A command accepted through every check prescribed for `C`.
 ///
 /// There is no public constructor. The only way to hold one is to have run
-/// [`CommandVerifier::verify`] or [`CommandVerifier::accept_unsigned`], which
-/// is what makes "we verified this" a fact about the type rather than a comment
-/// on a call site.
+/// [`CommandVerifier::verify`] for a signed command, or
+/// [`CommandVerifier::accept_unsigned`] for an unsigned command. The signed
+/// path proves §5.1, including the timestamp window, signature, command policy,
+/// and a replay key committed to that verifier's process-local [`SeenSet`]. It
+/// does not attest that a relay also committed external, durable, or
+/// cross-worker state. The unsigned path has no authenticator, timestamp, or
+/// replay key to verify; it proves canonical encoding plus that command's own
+/// rules and stores zero values in the authentication-only accessors below.
+/// Holding this type therefore proves the checks for `C`'s prescribed path,
+/// not that an arbitrary `Verified<C>` was authenticated.
 #[derive(Debug)]
 pub struct Verified<C: RelayCommand> {
     body: C::Request,
@@ -536,20 +546,24 @@ impl<C: RelayCommand> Verified<C> {
         self.address
     }
 
-    /// The key that signed it — what §5.1 step 5 compares against the key
-    /// registered for the address. [`PublicKey::zero`] for unsigned commands.
+    /// For a signed command, the key that signed it — what §5.1 step 5 compares
+    /// against the key registered for the address. [`PublicKey::zero`] for an
+    /// unsigned command, which has no signer.
     #[must_use]
     pub const fn signer_key(&self) -> PublicKey {
         self.signer_key
     }
 
-    /// The client clock the command carried, already inside the window.
+    /// For a signed command, the client clock it carried after the timestamp
+    /// window check. Zero for an unsigned command, which carries no timestamp.
     #[must_use]
     pub const fn timestamp_ms(&self) -> u64 {
         self.timestamp_ms
     }
 
-    /// The nonce, already recorded in the seen-set.
+    /// For a signed command, its nonce after the corresponding replay key was
+    /// committed to the seen-set. [`Nonce::zero`] for an unsigned command,
+    /// which carries no nonce and does not touch the seen-set.
     #[must_use]
     pub const fn nonce(&self) -> Nonce {
         self.nonce
@@ -565,6 +579,11 @@ impl<C: RelayCommand> Verified<C> {
 /// replay-across-relays attack and §5.3's replay-across-sessions attack are
 /// both closed by exactly that. A per-command parameter would be a per-command
 /// opportunity to pass the peer's value.
+///
+/// Cloning this value snapshots its [`SeenSet`]; it does not share replay
+/// authority. Callers processing one replay domain in parallel must synchronize
+/// one verifier or enforce the same atomic commit in external state. Likewise,
+/// the in-memory set alone does not satisfy a durable anti-replay policy.
 #[derive(Clone, Debug)]
 pub struct CommandVerifier {
     transcripts: TranscriptBuilder,
@@ -663,9 +682,10 @@ impl CommandVerifier {
 
         // Step 2.
         self.window.check(now_ms, auth.timestamp_ms)?;
-        // Step 3.
-        self.seen
-            .observe(now_ms, ReplayKey::new(auth.signer_key, auth.nonce))?;
+        // Step 3 checks only. Inserting an unauthenticated pair here would let
+        // random invalid signatures consume the bounded global replay set.
+        let replay_key = ReplayKey::new(auth.signer_key, auth.nonce);
+        self.seen.preflight(now_ms, &replay_key)?;
 
         // Step 4. `relay_id` and `channel_binding` come from `self`; only the
         // rest comes from the frame.
@@ -686,6 +706,11 @@ impl CommandVerifier {
         if let Some(payload) = C::payload(body.value()) {
             self.padding.validate_payload(payload)?;
         }
+
+        // Commit only after authentication and every command check succeeds.
+        // `commit` repeats the membership and capacity checks so two callers
+        // that both won preflight cannot both accept the same pair.
+        self.seen.commit(now_ms, replay_key)?;
 
         Ok(Verified {
             address: auth.address,
@@ -896,11 +921,16 @@ mod tests {
                 send_key: victim.public_key(),
             },
         );
+        let mut verifier = verifier();
         assert_eq!(
-            verifier()
+            verifier
                 .verify::<ops::BindSend>(NOW, 1, &stolen)
                 .map(|_| ()),
             Err(ProtoError::Wire(ErrorCode::NoAccess))
+        );
+        assert!(
+            verifier.seen_set().is_empty(),
+            "an authenticated but unauthorized frame must not consume replay capacity"
         );
     }
 
@@ -1038,6 +1068,55 @@ mod tests {
     }
 
     #[test]
+    fn verified_metadata_matches_the_signed_or_unsigned_acceptance_path() {
+        let key = SigningKey::from_seed(&[0x81; 32]);
+        let signer_key = key.public_key();
+        let signed_address = QueueAddress::new([0x83; 32]);
+        let signed_nonce = nonce(0x82);
+        let verification_now = NOW + 1;
+        let signed = SignedCommand::<ops::Append>::create(
+            &transcripts(),
+            17,
+            signed_address,
+            NOW,
+            signed_nonce,
+            &key,
+            &AppendRequest {
+                payload: Payload::new(vec![0u8; 1024]).unwrap(),
+            },
+        )
+        .unwrap();
+        let mut verifier = verifier();
+
+        let verified_signed = verifier
+            .verify::<ops::Append>(verification_now, 17, &signed.request().unwrap())
+            .unwrap();
+        assert_eq!(verified_signed.address(), signed_address);
+        assert_eq!(verified_signed.signer_key(), signer_key);
+        assert_eq!(verified_signed.timestamp_ms(), NOW);
+        assert_eq!(verified_signed.nonce(), signed_nonce);
+        assert!(
+            verifier
+                .seen_set()
+                .contains(&ReplayKey::new(signer_key, signed_nonce)),
+            "returning the signed result must imply its replay key is committed"
+        );
+
+        let unsigned =
+            Request::new(Command::Ping.code(), CommandAuth::Unsigned, Vec::new()).unwrap();
+        let verified_unsigned = verifier.accept_unsigned::<ops::Ping>(&unsigned).unwrap();
+        assert_eq!(verified_unsigned.address(), QueueAddress::zero());
+        assert_eq!(verified_unsigned.signer_key(), PublicKey::zero());
+        assert_eq!(verified_unsigned.timestamp_ms(), 0);
+        assert_eq!(verified_unsigned.nonce(), Nonce::zero());
+        assert_eq!(
+            verifier.seen_set().len(),
+            1,
+            "the unsigned path must not create a replay-set entry"
+        );
+    }
+
+    #[test]
     fn a_signature_made_for_one_relay_fails_at_another() {
         let key = SigningKey::from_seed(&[2u8; 32]);
         let signed = SignedCommand::<ops::Ack>::create(
@@ -1064,6 +1143,10 @@ mod tests {
         assert_eq!(
             elsewhere.verify::<ops::Ack>(NOW, 3, &signed.request().unwrap()),
             Err(ProtoError::Wire(ErrorCode::BadSignature))
+        );
+        assert!(
+            elsewhere.seen_set().is_empty(),
+            "an unauthenticated frame must not consume replay capacity"
         );
     }
 
@@ -1109,6 +1192,11 @@ mod tests {
         assert_eq!(
             verifier.verify::<ops::Subscribe>(NOW, 2, &request),
             Err(ProtoError::Wire(ErrorCode::Replay))
+        );
+        assert_eq!(
+            verifier.verify::<ops::Subscribe>(NOW, 3, &request),
+            Err(ProtoError::Wire(ErrorCode::Replay)),
+            "seen-set preflight must reject before the changed request id makes the signature fail"
         );
     }
 
@@ -1230,9 +1318,14 @@ mod tests {
             },
         )
         .unwrap();
+        let mut verifier = verifier();
         assert_eq!(
-            verifier().verify::<ops::Append>(NOW, 4, &signed.request().unwrap()),
+            verifier.verify::<ops::Append>(NOW, 4, &signed.request().unwrap()),
             Err(ProtoError::Wire(ErrorCode::BadSize))
+        );
+        assert!(
+            verifier.seen_set().is_empty(),
+            "a frame rejected by policy must not consume replay capacity"
         );
     }
 
