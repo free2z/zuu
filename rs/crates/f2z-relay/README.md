@@ -121,8 +121,18 @@ Two things this deliberately is **not**:
   fail the kubelet's liveness probe and restart the only replica. A separate
   listener cannot do that.
 
-`scripts/check-f2z-images.mjs --probe-relay IMAGE` asserts all three properties
-against a running container after every build.
+It is also **bounded in time and concurrency**, which the loopback listener
+never needed to be: a two-second deadline per request and sixteen in flight, so
+a peer that connects and never speaks costs an accept and a close rather than a
+task, a buffer and a descriptor held indefinitely. Be precise about what that
+buys — it bounds *resources*, not *availability*. A determined flood from inside
+the cluster can still occupy the permits and make a probe time out, and no
+in-process constant fixes that; a NetworkPolicy on the port is the answer to a
+hostile pod.
+
+`scripts/check-f2z-images.mjs --probe-relay IMAGE` asserts the three surface
+properties against a running container after every build, and
+`tests/health.rs` covers the slow-client case.
 
 ## `.well-known` is deliberately not served
 

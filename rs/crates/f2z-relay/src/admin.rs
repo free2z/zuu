@@ -51,10 +51,11 @@
 //! relay's existence at that address is not a secret; its queue depth is.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::watch;
+use tokio::sync::{Semaphore, watch};
 
 use crate::config::is_loopback;
 use crate::engine::Relay;
@@ -65,6 +66,41 @@ use crate::engine::Relay;
 /// past the first line is interpreted, so this is a bound on the read rather
 /// than a protocol limit.
 const MAX_REQUEST: usize = 2048;
+
+/// How long one request may take, from accept to written response.
+///
+/// A bound on BYTES is not a bound on TIME: a client that connects and sends
+/// nothing holds a task and a descriptor for as long as it likes, and
+/// [`Scope::HealthOnly`] is reachable from the whole cluster rather than from
+/// loopback. Two seconds is chosen to be SHORTER than the probe's own
+/// `timeoutSeconds` (3-5s in the manifests): the server should give up before
+/// the client does, so a stuck peer is the server's descriptor to reclaim
+/// rather than the probe's deadline to miss.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How many requests this listener will have in flight at once.
+///
+/// The whole population is a kubelet and a load-balancer health checker, which
+/// together produce a handful of requests per ten seconds; anything above this
+/// is not a scraper. A refused connection is closed immediately, before any
+/// read, so the cost of a flood is an accept and a close rather than a task, a
+/// buffer and a descriptor held for the timeout above.
+///
+/// This is deliberately NOT §13.1 layer 1's connection guard: that one lives on
+/// the protocol listener and can refuse under backpressure, which is exactly
+/// why the health check must not be answered there — a probe that fails during
+/// a traffic spike restarts the only replica.
+///
+/// **BE PRECISE ABOUT WHAT THIS BUYS.** It bounds RESOURCES — descriptors,
+/// tasks, buffers — so a peer that opens connections and never speaks cannot
+/// grow this process without limit, and the listener recovers within
+/// [`REQUEST_TIMEOUT`] once the flood stops. It does **not** guarantee
+/// AVAILABILITY: a determined flood from inside the cluster can still occupy
+/// the permits and make a probe time out, and no in-process number fixes that
+/// — an attacker who can do this can also fill the accept backlog. The answer
+/// to a hostile pod on the cluster network is a NetworkPolicy on this port, not
+/// a bigger constant here.
+const MAX_CONCURRENT: usize = 16;
 
 /// The health check's body. Constant, and it is meant to be.
 const HEALTHZ_BODY: &str = "ok\n";
@@ -133,6 +169,7 @@ pub async fn serve(
     scope: Scope,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let permits = Arc::new(Semaphore::new(MAX_CONCURRENT));
     loop {
         let accepted = tokio::select! {
             biased;
@@ -142,9 +179,19 @@ pub async fn serve(
         let Ok((stream, _peer)) = accepted else {
             continue;
         };
+        // `try_acquire`, not `acquire`: waiting here would move the queue from
+        // the semaphore to the accept backlog and hold the connection open,
+        // which is the thing being bounded. Over the limit, close.
+        let Ok(permit) = Arc::clone(&permits).try_acquire_owned() else {
+            drop(stream);
+            continue;
+        };
         let relay = Arc::clone(&relay);
         tokio::spawn(async move {
-            let _ = answer(relay, scope, stream).await;
+            // The timeout wraps the whole exchange, so a peer that connects and
+            // never sends cannot hold the permit either.
+            let _ = tokio::time::timeout(REQUEST_TIMEOUT, answer(relay, scope, stream)).await;
+            drop(permit);
         });
     }
 }
