@@ -29,6 +29,38 @@ lifecycle, no first-contact path, no quotas. Each significant choice below is
 recorded in an ADR with the alternatives that were rejected and why. Nothing here
 should be read as "the merged docs already said this."
 
+> **Correction (2026-08-23) — the Status line above ("Nothing described here is
+> implemented") is no longer true, and the first implementation found defects in
+> this document.** It is left standing so the revision it describes is still
+> legible. `rs/crates/f2z-relay-proto`
+> ([#583](https://github.com/free2z/zuu/pull/583)) is a protocol library — no
+> relay and no client binary exists, and no deployment does — but it implements
+> §5, §6, §7, §8 and §11 closely enough to have discovered two defects and a
+> list of ambiguities. Those are corrected in place below, in the dated-
+> correction style of
+> [`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets):
+> **the merged text is left visible with a pointer, never silently rewritten**,
+> because an auditor's first question about a corrected specification is what it
+> used to say. This revision's corrections, in reading order:
+>
+> | § | What was wrong |
+> |---|---|
+> | 5.1 | Verification step 5 does not apply to three of the nine signed commands, and its error code is wrong for a fourth. |
+> | 5.5 | **Security defect.** Seen-set retention was unrelated to the timestamp window, so a conforming relay could have no replay protection for part of it. INVARIANT R. |
+> | 6.2 | `pending` is not `next_index` minus the acked watermark once TTL expiry is in play. |
+> | 10 | Codes 10 and 15 both claimed the send-side "absent" case; resolved in §6.3's favour. |
+> | 11.1 | `clock_skew_ms` and `antireplay_window_ms` were published as independent fields and are not. |
+>
+> Everything else changed in this revision settles something the merged text
+> left **unstated** rather than stated wrongly, and is written in place: §5.3
+> (zero exporter output), §5.5 (window boundary inclusive), §6 (transcript
+> address and auth-presence mismatches), §6.2 (index origin, `UNSUBSCRIBE`
+> response), §7.2 (`queue_advert` has no wire encoding, deliberately), §7.7
+> (TTL `0` means "no preference"), §8.2 (the bound is `next_index`), §11.3
+> (capability-document consistency checks, and why they are client refusals
+> rather than validity failures), §12.2 (`CREATE_CONTACT_QUEUE`
+> self-authentication).
+
 ---
 
 ## 1. Scope
@@ -440,6 +472,48 @@ Steps 2 and 3 precede signature verification because they are cheap and they are
 the flood-resistant filters; step 5 follows verification so that an unsigned
 guess cannot probe the address space.
 
+> **Correction (2026-08-23) — step 5 as written does not apply to three of the
+> nine signed commands, and its stated error code is wrong for a fourth.** The
+> list above is left standing so an auditor can see what was specified. Step 5
+> assumes (a) that an address exists with a key already registered against it,
+> and (b) that a mismatch is reported as `ERR_NO_ACCESS`. Neither assumption
+> holds universally, and where (a) fails the *substitute* rule is the only thing
+> authenticating the command — so leaving it unstated is not an editorial gap.
+> Found while implementing this section
+> ([#583](https://github.com/free2z/zuu/pull/583)).
+>
+> | Signed command | What step 5 is | Failure |
+> |---|---|---|
+> | `SUBSCRIBE`, `UNSUBSCRIBE`, `READ`, `ACK`, `DELETE_QUEUE` | Step 5 exactly as written: `signer_key` MUST equal the `recv_key` registered for `address`. | `ERR_NO_ACCESS` |
+> | `CREATE_QUEUE`, `CREATE_CONTACT_QUEUE` | No address exists yet (`address` is 32 zero bytes). `signer_key` MUST equal the `recv_key` **in the body** — the command is self-authenticating (§6.2, §12.2). | `ERR_NO_ACCESS` |
+> | `BIND_SEND` | The send side is unbound by definition (§7.3), so there is no registered key to compare against. `signer_key` MUST equal the `send_key` **in the body**. | `ERR_NO_ACCESS` |
+> | `APPEND` | Step 5 as written: `signer_key` MUST equal the bound `send_key`. **But the failure is reported as `ERR_UNAVAILABLE`, not `ERR_NO_ACCESS`** — §6.3 and §10's correction. | `ERR_UNAVAILABLE` |
+>
+> **Why `BIND_SEND` must carry the self-check, stated as a security property and
+> not a tidiness rule.** With no rule, the only thing a `BIND_SEND` signature
+> proves is possession of *some* key; the `send_key` in the body is unrelated to
+> it and can be any 32 bytes the caller chooses. An attacker that has learned a
+> `send_addr` could then bind the queue to a key **it does not hold**, from a
+> signature made with a throwaway key. §7.4's whole property is that stealing the
+> write capability is *possible but noisy*; without this check it is not even
+> theft — the attacker never has to possess anything, and §7.4's "the operator
+> gets the capability" understates it, because *any* party that has seen the
+> address gets it. Requiring `signer_key == send_key` restores the cost to
+> "possess the key you are binding", which is what §7.3 assumes throughout.
+>
+> **Why the `BIND_SEND` and `CREATE_*` checks are not an existence oracle**
+> (§10), despite returning a distinguishable code on a send-side command: each is
+> decided from **two fields of the frame itself**, before any address lookup, and
+> its outcome is a function of what the caller signed and nothing else. A caller
+> can compute the answer without contacting the relay, so the relay reveals
+> nothing by returning it. That is the test to apply to any future exception:
+> not "is it send-side" but "does the answer depend on relay state".
+>
+> **Why `ERR_NO_ACCESS` and not `ERR_MALFORMED`.** These frames decode and
+> re-encode cleanly (§3.3); what fails is an authorization rule. `ERR_MALFORMED`
+> is fatal and would drop the connection of a client with a key-selection bug —
+> a disproportionate response to a frame the relay understood perfectly.
+
 ### 5.2 Relay identity binding — the attack it closes
 
 ```
@@ -508,6 +582,14 @@ Therefore:
 
 - Such a relay MUST set `channel_binding_mode: "none"` in its capability
   document and MUST use **32 zero bytes** in the transcript.
+- Because 32 zero bytes is that sentinel, a relay in `channel_binding_mode:
+  "tls-exporter"` whose exporter output is 32 zero bytes MUST treat it as a
+  failure to obtain a binding and MUST refuse the connection rather than sign
+  against it. A genuine exporter output of zero has probability 2^-256, so this
+  costs nothing; what it buys is that "bound" and "unbound" are never the same
+  32 bytes. Without the rule the two modes are indistinguishable in the
+  transcript, and the symptom of a broken exporter is a signature that verifies
+  against the wrong mode much later, which is the worst place to discover it.
 - A client MAY refuse such a relay outright, and the reference client SHOULD make
   this a user-visible setting with a strict mode that refuses.
 - **In `none` mode the restart argument of §5.5 does not hold**, so the relay
@@ -544,19 +626,115 @@ Two mechanisms, together:
    relay's clock. Default `120000` (±2 minutes), published. Outside the window →
    `ERR_STALE_TIMESTAMP`. Clients with an unreliable clock learn the relay's time
    from `HELLO` and `GET_CHALLENGE` and apply the offset locally; they MUST NOT
-   set their system clock from it.
+   set their system clock from it. **The boundary is inclusive on both sides:**
+   the acceptance predicate is
+   `|now_ms - timestamp_ms| <= clock_skew_ms`, so a frame exactly
+   `clock_skew_ms` from the relay's clock is accepted. This is stated because it
+   is otherwise a coin flip per implementer, and the exclusive reading has a
+   real failure mode: a client whose measured offset is exactly the published
+   skew — the value it was told to aim inside of — would fail intermittently as
+   the two clocks jitter across the boundary, with `ERR_STALE_TIMESTAMP` and no
+   way to tell it from a genuinely wrong clock. `clock_skew_ms` is a policy
+   allowance, not a security threshold, so nothing is bought by making its
+   endpoint exclusive.
 2. **Seen-set.** The relay keeps the set of `(signer_key, nonce)` pairs observed
    within the window and rejects a repeat with `ERR_REPLAY`. `nonce` is 16 bytes
    from the client's CSPRNG, fresh per command; the birthday bound is 2^64 per
    key, which is not reachable inside a two-minute window at any rate a relay
    would serve.
 
+> **Correction (2026-08-23) — "within the window" in point 2 is not a
+> specification, and read literally it leaves §5.5's replay protection absent
+> for part of the timestamp window.** The sentence above is left standing so an
+> auditor can see exactly what was specified. It names no retention origin and
+> no retention duration, and §11.1 publishes `clock_skew_ms` and
+> `antireplay_window_ms` as two independent fields with **no stated relation
+> between them**. A relay that publishes `antireplay_window_ms = 30000` beside
+> `clock_skew_ms = 120000` is fully conforming to the merged text and has **no
+> seen-set coverage at all** for a frame re-presented more than 30 seconds after
+> the relay first saw it, while the timestamp check goes on accepting it for
+> another 210 seconds. Nothing told an implementer this and nothing told a
+> client to check. Found while implementing this section
+> ([#583](https://github.com/free2z/zuu/pull/583)).
+>
+> **The derivation, so the bound is checkable rather than asserted.** Fix a
+> frame with timestamp `t` and let `skew = clock_skew_ms`. By point 1 the frame
+> is accepted at relay time `now` exactly when `|now - t| <= skew`, i.e. for
+> every `now` in the closed interval
+>
+> ```
+> [ t - skew , t + skew ]
+> ```
+>
+> An adversary replaying a captured frame chooses when to present it and can
+> present it repeatedly, so the relevant quantity is the **length** of that
+> interval, not its position:
+>
+> ```
+> latest acceptance  - earliest acceptance
+>   = (t + skew) - (t - skew)
+>   = 2 * skew
+> ```
+>
+> Worst case for the relay is the adversary who presents the frame at the
+> earliest acceptable instant `t - skew` — the relay's *first observation* — and
+> replays it at the latest, `t + skew`. The seen-set entry created at first
+> observation must therefore still be present `2 * skew` later, or the replay is
+> not detected. Hence, with retention measured **from first observation**:
+>
+> ```
+> antireplay_window_ms >= 2 * clock_skew_ms      (INVARIANT R)
+> ```
+>
+> Both parts are load-bearing and neither can be dropped:
+>
+> - **The origin.** `antireplay_window_ms` is the retention of a seen-set entry
+>   measured from the instant the relay **first observed** that
+>   `(signer_key, nonce)`, by the relay's own clock. It is deliberately **not**
+>   measured from the frame's `timestamp_ms`: `timestamp_ms` is chosen by the
+>   party being defended against, and pinning retention to the relay's own
+>   monotonic view of arrival is the only reading that does not let an adversary
+>   influence how long it is remembered. (An implementation that instead aged
+>   entries from `timestamp_ms` would need only `antireplay_window_ms >= skew`
+>   for the same coverage — which is precisely why the origin has to be stated:
+>   the same number means two different things and only one of them is safe with
+>   the factor of 2 dropped.)
+> - **The factor of 2.** It is `2 * skew` and not `skew` because the window is
+>   two-sided. A relay that reasons "entries live as long as the timestamp
+>   window, which is `clock_skew_ms`" has silently used the half-width for the
+>   full width and is uncovered for the future half of every frame's life.
+>
+> **Normative statement.** A relay MUST retain each `(signer_key, nonce)` entry
+> for at least `2 * clock_skew_ms` after first observing it, and MUST publish an
+> `antireplay_window_ms` satisfying INVARIANT R. A relay that cannot satisfy R
+> — because its seen-set is bounded and full — MUST refuse signed commands per
+> the fail-closed rule below; it MUST NOT satisfy R by shortening
+> `clock_skew_ms` for some callers and not others, which would make the
+> published value a lie.
+>
+> **Client obligation.** R is checkable from the capability document alone, with
+> no round trip and no state: a client MUST compare the two published fields and
+> MUST refuse a relay whose document violates R (§11.3 step 6). It is worth
+> being explicit that a client cannot *detect* the resulting exposure any other
+> way — a relay with too short a seen-set behaves identically to a correct one
+> until someone replays a frame at the client, and by then it has already
+> worked.
+>
+> **What this correction does not change.** The residual of §5.6 is unaffected:
+> R closes the gap between the two published numbers, and says nothing about a
+> replay presented *inside* the window on the same TLS session by a party that
+> can see the frames, which remains exactly as §5.6 describes it.
+
 **The seen-set is fail-closed.** It is bounded (`antireplay_seen_max`, published)
 and when the bound is reached the relay returns `ERR_BACKPRESSURE` and refuses new
 signed commands until entries age out. It MUST NOT evict live entries to make
 room: an eviction policy that discards unexpired entries silently reopens the
 replay window at exactly the moment the relay is under load, which is exactly when
-an attacker would arrange to be.
+an attacker would arrange to be. **"Live" and "age out" are defined by INVARIANT
+R above:** an entry is live until `2 * clock_skew_ms` after the relay first
+observed it, and refusing service is the only conforming response to a full
+seen-set — refusal is an outage, eviction is a silent loss of the property the
+seen-set exists to provide, and the two are not interchangeable.
 
 **Why the seen-set deliberately need not survive a restart.** A restart destroys
 every TLS session. Every command signed before the restart carries a
@@ -572,6 +750,14 @@ does not hold, because the binding is a constant. Such a relay MUST persist the
 seen-set or declare `antireplay_persistence: "volatile"` and accept that a
 restart reopens a replay window of `clock_skew_ms` for any frame an adversary
 captured. Clients read that field and may refuse.
+
+*(The width in the sentence above is the half-width and understates the
+exposure, by the same half-for-full slip INVARIANT R exists to prevent. The
+sentence is left as merged; the correct figure is that a restart reopens up to
+`2 * clock_skew_ms` of replay window, since a frame captured at the earliest
+acceptable instant is still acceptable a full `2 * clock_skew_ms` later. The
+conclusion — persist, or declare `volatile` and let clients refuse — is
+unchanged.)*
 
 ### 5.6 The residual, stated
 
@@ -618,6 +804,28 @@ to error codes.
 | `0x0021` | `APPEND` | send key | `send_addr` |
 | `0x0030` | `CREATE_CONTACT_QUEUE` | recv key | zeros |
 | `0x0031` | `CONTACT_APPEND` | none (PoW) | — |
+
+**The last two columns are normative, and a frame that disagrees with them is
+rejected.** They were merged as a summary; they are requirements, and an
+implementer needs to know what a violation is called:
+
+- **Wrong shape in the `Auth` column.** A command listed as signed that arrives
+  with `CommandAuth.present = 0` is `ERR_BAD_SIGNATURE` (non-fatal): the frame is
+  well-formed and simply failed to authorize, which is the same outcome as a bad
+  signature and deserves the same code and the same survivable connection. A
+  command listed as unsigned that arrives with `present = 1` is `ERR_MALFORMED`
+  (fatal): §5.1 defines no transcript for it, so the frame carries an
+  authenticator that **nothing in this protocol can check**, and accepting it
+  would mean carrying bytes that look like proof and are not. The asymmetry is
+  deliberate — missing authentication is a failure to authorize, unverifiable
+  authentication is a malformed frame.
+- **Wrong `address` in the transcript.** A `CREATE_QUEUE` or
+  `CREATE_CONTACT_QUEUE` whose transcript `address` is not 32 zero bytes, or any
+  other signed command whose `address` **is** 32 zero bytes, is `ERR_MALFORMED`
+  (fatal). This is not a disagreement about state between honest peers — it is a
+  frame no conforming client emits, and the fatal code is what keeps a client
+  that is confused about which address a command acts on from continuing to sign
+  things.
 
 ### 6.1 Unsigned commands
 
@@ -722,10 +930,16 @@ proves possession of the key that the new queue will be bound to.
 
 #### `SUBSCRIBE` — `0x0011` / `UNSUBSCRIBE` — `0x0012`
 
-Empty bodies. `SUBSCRIBE` registers the connection to receive `MSG` pushes (§6.4)
-for `recv_addr` and returns the current `next_index` so the client can decide
-whether to `READ` first. A subscription is scoped to the connection and dies with
-it.
+Empty **request** bodies, both. `SUBSCRIBE` registers the connection to receive
+`MSG` pushes (§6.4) for `recv_addr` and returns the `SubscribeResponse` below,
+carrying the current `next_index` so the client can decide whether to `READ`
+first. A subscription is scoped to the connection and dies with it.
+
+**`UNSUBSCRIBE`'s response body is empty** — the "empty bodies" above governs the
+requests, and this says what the other half is. There is no queue state an
+unsubscribe could report that `SUBSCRIBE` has not already reported, and a
+response shape that exists only to restate it is a shape to keep in sync for no
+reason.
 
 ```
 struct {
@@ -737,6 +951,29 @@ struct {
 `pending` is disclosed to the **reader** only. The reader is the recipient; it is
 about to learn this by reading. No equivalent is ever disclosed to a sender
 (§6.3).
+
+**Index origin: queue indices start at 0.** A queue that has never been appended
+to reports `next_index = 0`, and the first message appended receives index 0.
+Nothing in the merged text pinned this and both conventions are defensible; 0 is
+chosen because `next_index` is then exactly the number of messages ever
+appended, which makes §8.2's bound the plain comparison `up_to_index <
+next_index` with no adjustment by one anywhere. The choice matters more than it
+looks: an off-by-one here is an off-by-one in §8.2's pre-ack check, and that is
+a security check.
+
+> **Correction (2026-08-23) — `pending` is not `next_index` minus the
+> watermark, and a client must not compute it that way.** The comment above
+> ("messages present and not yet acked") is correct and is what a relay MUST
+> report; the trap is the arithmetic that looks equivalent. Message TTL expiry
+> (§7.7) removes stored messages **without moving the acked watermark**, because
+> nothing acknowledged them — so after any expiry,
+> `next_index - watermark` **over-counts**, sometimes by the whole queue. A
+> relay MUST answer `pending` from what it actually stores, not from index
+> arithmetic. A client MUST treat `pending` as a count of messages, never as an
+> index or as an index difference, and MUST NOT infer `from_index` for a `READ`
+> from it. Noted while implementing this section
+> ([#583](https://github.com/free2z/zuu/pull/583)), where a component with no
+> storage can only produce the index-space upper bound and says so.
 
 #### `READ` — `0x0013`
 
@@ -834,7 +1071,10 @@ and "no such queue" returned different codes, a bound sender could learn the
 queue's state by filling it. Therefore **every send-side refusal that would
 distinguish queue state collapses to the single code `ERR_UNAVAILABLE`**: absent
 queue, deleted queue, expired queue, queue at its message cap, queue at its byte
-cap, relay in global backpressure. See §10.
+cap, relay in global backpressure, **and `signer_key` not the key bound to
+`send_addr`** — that last one included precisely because a distinguishable
+"wrong key" answer is an answer that the address exists. See §10, whose table
+assigned the absent case to a second code and is corrected there.
 
 Two honest consequences:
 
@@ -927,6 +1167,17 @@ chose.
 
 A relay never sees a `queue_advert`; it sees an opaque MLS `PrivateMessage` like
 every other payload.
+
+**It is therefore shown as a named-field object and deliberately given no
+`tls_codec` structure.** Every other structure in this document is specified in
+the TLS presentation language because a relay parses it; this one is not on the
+wire this document fixes. Its encoding is an application-framing question
+([`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering)),
+and specifying it here would be inventing protocol at a layer this document has
+no business fixing — an implementer needing to move
+`(relay_url, relay_id, send_addr)` into the §5.2 check needs the fields, not a
+wire format. The absence is a decision; do not read it as an omission and do not
+fill it in.
 
 ### 7.3 `BIND_SEND` — once-only and irreversible
 
@@ -1073,6 +1324,26 @@ direction. Ninety days is chosen to be far longer than any plausible holiday and
 far shorter than "forever". It is a policy value, published, and an operator
 serving a population of intermittently-connected users should raise it.
 
+**How a requested value and a default meet, which the table above leaves
+unstated.** A `req_*_ttl_seconds` of **`0` means "no preference"** and the relay
+grants its published default. Zero is free to carry that meaning because a
+zero-second TTL is not a policy any client can want — a queue whose messages
+expire on arrival, or which expires the instant it is created — so nothing is
+given up by spending the value on the sentinel, and the alternative (a separate
+"present" flag on two fields) buys nothing. Then, for a nonzero request:
+
+```
+granted = clamp(requested, min_*_ttl_seconds, max_*_ttl_seconds)
+```
+
+with the relay's published `min` and `max`, **and the 30-day message-TTL ceiling
+is applied last and unconditionally**, over the relay's own configured maximum
+if that maximum is larger. The order matters: a relay that clamps to its own
+policy and stops has granted a TTL the architecture forbids, and §11.3 step 5
+makes a client refuse such a relay — but a client already connected must not be
+able to obtain the forbidden grant either. The granted values, whatever path
+produced them, are returned in `CreateQueueResponse`.
+
 Expiry of either timer is silent to the sender and surfaces to a subscribed
 reader as `QUEUE_EVENT` (§6.4).
 
@@ -1098,6 +1369,19 @@ relay deletes them and advances the queue's acked watermark.
 
 `up_to_index` greater than the highest index the relay has ever appended to that
 queue is `ERR_ACK_TOO_HIGH`, and the watermark does not move.
+
+**"Ever appended" is exactly that, and the check is against `next_index`, not
+against what is stored.** With indices starting at 0 (§6.2), the rule is
+`up_to_index < next_index`; equivalently, an `ACK` is refused when
+`up_to_index >= next_index`. A queue that has been fully drained — every message
+acked, or every message TTL-expired, nothing in storage — still refuses an
+`ACK` above its high-water mark, because `next_index` is a monotone counter of
+appends and is **not** reset by deletion, acknowledgement or expiry. This is
+stated because "the highest index the relay has ever appended" has an obvious
+and wrong implementation ("the highest index I currently hold"), and under that
+implementation a queue is briefly pre-ackable every time it drains — the attack
+described immediately below, restored on a schedule an attacker can arrange by
+waiting.
 
 The reason is specific and it is not tidiness. Without this rule a reader could
 **pre-ack** — set the watermark to a very large value — after which every future
@@ -1217,7 +1501,7 @@ a bug report from two years ago must all still mean the same thing.
 | 7 | `ERR_STALE_TIMESTAMP` | | Outside `clock_skew_ms` (§5.5). |
 | 8 | `ERR_REPLAY` | | `(signer_key, nonce)` already seen (§5.5). |
 | 9 | `ERR_CHANNEL_BINDING` | | Reserved for a future binding-mode mismatch; unused in v1. |
-| 10 | `ERR_NO_ACCESS` | | **Either** the address does not exist **or** it exists and `signer_key` does not authorize it. See below. |
+| 10 | `ERR_NO_ACCESS` | | **Either** the address does not exist **or** it exists and `signer_key` does not authorize it. **Never returned by `APPEND` or `CONTACT_APPEND`** — see the correction below. See also the existence-oracle rule. |
 | 11 | `ERR_ALREADY_BOUND` | | `BIND_SEND` on an already-bound send address (§7.3). |
 | 12 | `ERR_BAD_SIZE` | | Payload length not in `padding_sizes` (§9). |
 | 13 | `ERR_ACK_TOO_HIGH` | | `up_to_index` above the highest appended index (§8.2). |
@@ -1229,6 +1513,49 @@ a bug report from two years ago must all still mean the same thing.
 | 19 | `ERR_RATE_LIMITED` | | Per-connection or per-source rate limit. |
 | 20 | `ERR_NOT_PERMITTED` | | The command is not valid for this queue kind — e.g. `BIND_SEND` on a contact queue (§12.2). |
 | 21 | `ERR_INTERNAL` | | Relay fault. Carries no detail, ever. |
+
+> **Correction (2026-08-23) — codes 10 and 15 as merged both claim the "absent"
+> case, and they cannot both have it.** The row for code 10 said "the address
+> does not exist"; the row for code 15 says "**Send side only.** Absent, deleted,
+> expired…". Read together, an `APPEND` to an address that does not exist has two
+> different codes assigned to it by the same table. Both rows are left standing
+> above, with a pointer added to row 10, so an auditor can see the contradiction
+> that was merged rather than a table that quietly stopped having one. Found
+> while implementing this section
+> ([#583](https://github.com/free2z/zuu/pull/583)).
+>
+> **Resolved in §6.3's favour, and the reason is not preference.** §6.3's rule
+> carries a security argument that code 10's row does not: if a send-side refusal
+> distinguishes "no such queue" from "queue full", a bound sender learns the
+> recipient's queue state by filling it, which converts the send capability into
+> a weak read capability — exactly the escalation the two-address split of §7.1
+> exists to prevent. Code 10's row carries only a naming convenience. When a rule
+> with a security argument meets a rule without one, the one with the argument
+> wins. Concretely:
+>
+> - **`APPEND` and `CONTACT_APPEND` never return code 10.** Every refusal —
+>   address absent, queue deleted, queue expired, at its message cap, at its byte
+>   cap, relay in backpressure, **and `signer_key` not the bound `send_key`** —
+>   is `ERR_UNAVAILABLE` (15). The last item is easy to miss and is the one that
+>   would reintroduce the oracle: a distinguishable "wrong key" answer is
+>   precisely an answer that the address exists.
+> - **Code 10 remains the code for recv-key-signed commands** (§6.2 and §12.2's
+>   contact-queue reads) and for `BIND_SEND`'s frame-internal self-authentication
+>   check (§5.1's correction), which is decided without touching relay state and
+>   therefore discloses none.
+> - **`ERR_ALREADY_BOUND` (11) and `ERR_NOT_PERMITTED` (20) stay distinguishable
+>   on the send side, deliberately.** §7.4 requires a client to be able to tell
+>   `ERR_ALREADY_BOUND` from anything else — it is the loud, non-dismissible
+>   signal that the write capability was stolen, and collapsing it into
+>   `ERR_UNAVAILABLE` would delete the only detection §7.4 has. §12.2 requires
+>   `ERR_NOT_PERMITTED` for `BIND_SEND` on a contact address, whose address is
+>   published by design and so is not information to withhold. §7.4 already
+>   accepts the resulting noise explicitly; this correction does not widen it.
+>
+> **What is lost, stated.** A relay operator debugging a customer's failed
+> `APPEND` has one code and no detail, and so does the customer. That is the same
+> trade §6.3 already priced — "a sender cannot back off intelligently" — extended
+> to the absent case. It is paid on purpose.
 
 ### The existence-oracle rule
 
@@ -1287,9 +1614,9 @@ struct {
     uint16   ws_ping_interval_seconds;
     uint32   handshake_timeout_ms;
 
-    /* anti-replay */
-    uint32   clock_skew_ms;
-    uint32   antireplay_window_ms;
+    /* anti-replay — see INVARIANT R below; these two are NOT independent */
+    uint32   clock_skew_ms;               /* default 120000 */
+    uint32   antireplay_window_ms;        /* MUST be >= 2 * clock_skew_ms; default 240000 */
     uint8    antireplay_persistence;      /* 0 = volatile, 1 = durable (§5.3, §5.5) */
 
     /* padding */
@@ -1337,6 +1664,33 @@ struct {
 } SignedCapabilities;
 ```
 
+> **Correction (2026-08-23) — the anti-replay block above was merged as two
+> independent fields and they are not independent.** The structure is left
+> standing with a comment added, rather than rewritten, so that the shape an
+> auditor may already have implemented is still visible. The constraint is:
+>
+> ```
+> antireplay_window_ms >= 2 * clock_skew_ms      (INVARIANT R)
+> ```
+>
+> derived in §5.5, where the derivation is written out and the retention origin
+> is pinned. Restated here because this is the section an operator configures
+> from and the only place the two numbers appear side by side: a relay
+> publishing values that violate R has, for the gap between them, **no
+> anti-replay protection at all**, while remaining conformant to every other
+> sentence in this document. A relay MUST NOT publish such a document, and a
+> client MUST refuse one (§11.3 step 6). The defaults above satisfy R with no
+> slack — `240000 = 2 * 120000` — so an operator who lowers `clock_skew_ms`
+> alone is safe and an operator who raises it **must** raise
+> `antireplay_window_ms` with it.
+>
+> **The three other consistency conditions on this document**, none of which
+> were stated and each of which describes a document no client can use, are
+> likewise enforced at §11.3 rather than here: `contact_queues_enabled` requires
+> a real `contact_append_pow`; `max_frame_bytes` must be able to carry the
+> largest entry in `padding_sizes`; and `max_message_ttl_seconds` must not
+> exceed 2 592 000 (already §11.3 step 5).
+
 Note what the last two blocks are for. `operator_jurisdiction` and the contact
 fields are not decoration: a user choosing among *k* relays
 ([ADR 0005](./decisions/0005-federation.md)) is making a jurisdictional choice
@@ -1381,8 +1735,39 @@ On first use of a relay, and on `NOTICE(3)`:
    implausibly fine-grained (§9).
 5. Refuse if `max_message_ttl_seconds > 2592000` — the relay is claiming a policy
    the architecture forbids.
-6. Record `queue_creation_mode`, quotas and PoW parameters for §13.
-7. Surface operator name, jurisdiction and contact in the relay-picker UI.
+6. **Refuse if `antireplay_window_ms < 2 * clock_skew_ms`** — INVARIANT R (§5.5,
+   §11.1). The relay is claiming an anti-replay policy that does not cover its
+   own timestamp window.
+7. **Refuse if `contact_queues_enabled = 1` and `contact_append_pow` is
+   zeroed.** §12.3 requires all four caps, and proof of work is the one that
+   makes the other three affordable to enforce; a contact queue without it is an
+   unsigned, unmetered write endpoint open to the whole internet, which is not a
+   relay a client should help anyone reach.
+8. **Refuse if `max_frame_bytes` cannot carry the largest entry in
+   `padding_sizes`** plus this document's framing overhead. This is a necessary
+   consistency check, not a sufficient one: it does not prove the relay's frame
+   cap is workable, only that the relay has published a set in which its own
+   largest legal payload is unsendable.
+9. Record `queue_creation_mode`, quotas and PoW parameters for §13.
+10. Surface operator name, jurisdiction and contact in the relay-picker UI.
+
+**Steps 2–8 are client refusals, not document-validity failures, and the
+distinction is deliberate.** A document that violates any of them is still a
+**valid, correctly signed `SignedCapabilities`**: it decodes, it re-encodes
+identically (§3.3), and its signature verifies against the `relay_identity_pk`
+proven in `HELLO`. Treating a policy violation as a decode failure would throw
+away exactly the artifact that makes the violation reportable — a client that
+refuses at step 6 should be able to log, display and hand a human the signed
+bytes proving *this operator, at this `published_at_ms`, published these two
+numbers*. Quarantine, not discard. It also keeps the two layers honestly
+separate: parsing answers "is this a capability document", policy answers "will
+I use this relay", and only the second is a matter of the client's own
+configuration.
+
+A client MAY make any of steps 2–8 overridable by an explicit user action, on
+the model of §2.3's insecure override and §5.3's strict mode — but the default
+MUST be to refuse, and an override MUST be per-relay and surfaced, never a
+global "ignore relay policy" switch.
 
 ---
 
@@ -1444,6 +1829,19 @@ struct {
     PowStamp  stamp;                /* over a relay-issued challenge (§6.1) */
 } ContactAppendRequest;
 ```
+
+**`CREATE_CONTACT_QUEUE` is self-authenticating on exactly §6.2's rule, which
+this section did not restate and must.** The transcript's `address` is 32 zero
+bytes and `signer_key` MUST equal the `recv_key` in the body. The command has
+the same shape as `CREATE_QUEUE` — a `recv_key` in the body, a zero transcript
+address, no queue yet in existence — and that rule is the **only** thing
+authenticating it: with no address to look up, §5.1 step 5 has nothing to
+compare against, and a signature by an unrelated key would prove only that
+somebody signed something. A relay that skips the check lets any caller create a
+contact queue bound to a `recv_key` it does not hold, which produces a published
+contact address whose owner cannot read it — a queue that silently swallows
+first-contact traffic. See §5.1's correction for the full table of where step 5
+does and does not apply.
 
 `CONTACT_APPEND`'s response is **empty**, for the same reason `APPEND`'s is
 (§6.3): a stranger writing to Bob's contact queue must learn nothing about how
