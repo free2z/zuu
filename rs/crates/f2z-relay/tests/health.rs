@@ -113,6 +113,54 @@ async fn the_health_listener_does_not_serve_metrics() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_connects_and_says_nothing_is_disconnected_and_the_listener_recovers() {
+    // The health surface is the one that may answer off loopback, so its
+    // population is the whole cluster rather than processes on this host. A
+    // bound on request BYTES is not a bound on TIME: without a timeout and a
+    // concurrency cap, a peer that connects and sends nothing holds a task, a
+    // buffer and a descriptor indefinitely, and enough of them grow the process
+    // until the memory limit kills the only replica.
+    //
+    // What is asserted here is what the bound actually buys: the peers are
+    // disconnected on the server's own deadline, and the listener is serving
+    // again afterwards. It is NOT an availability guarantee — see the note on
+    // MAX_CONCURRENT; a determined flood can still make a probe time out, and
+    // a NetworkPolicy is the answer to that, not a bigger constant.
+    let mut config = base();
+    config.health.enabled = true;
+    config.health.address = "127.0.0.1:0".to_owned();
+    let server = Server::start(config).await.expect("the relay starts");
+    let health = server.health_addr().expect("bound");
+
+    let mut silent = Vec::new();
+    for _ in 0..64 {
+        if let Ok(stream) = tokio::net::TcpStream::connect(health).await {
+            silent.push(stream);
+        }
+    }
+    assert!(silent.len() > 16, "the listener accepted {}", silent.len());
+
+    // Every one of them is dropped by the server without ever being spoken to.
+    // Reading returns 0 bytes at EOF rather than hanging, which is the property:
+    // the connection is the server's to reclaim, not the peer's to hold.
+    let mut closed = 0usize;
+    for mut stream in silent {
+        let mut byte = [0u8; 1];
+        if let Ok(Ok(0)) =
+            tokio::time::timeout(Duration::from_secs(10), stream.read(&mut byte)).await
+        {
+            closed += 1;
+        }
+    }
+    assert_eq!(closed, 64, "the server held connections open indefinitely");
+
+    // And it is serving again.
+    let response = get(health, "/healthz").await;
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_health_listener_is_off_unless_asked_for() {
     let server = Server::start(base()).await.expect("the relay starts");
     assert!(server.health_addr().is_none());
