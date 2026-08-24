@@ -1220,23 +1220,23 @@ deliberate.
   portable evidence rather than a local error dialog are all unspecified.
   `KT.md` defines the evidence structures but deliberately does not invent the
   protocol that exchanges them.
-- **S. What authorizes a handle's first directory entry.** Opened 2026-08-24 by
-  [`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry), and **blocking**. §9.2
-  above specifies an append-only log of `(handle → identity key, …)` and does not
-  say who is entitled to a handle; [ADR 0014](./decisions/0014-directory-key-rotation.md)
-  settles authorization for a handle that already has an entry — same-key update,
-  key change, lost key — and takes no position on the first one. `KT.md` §4.4
-  inherited that silence, and as its rules are enumerated they accept a first
-  entry for an unregistered handle from **whoever submits one**. Closing it means
-  deciding who may vouch that a handle belongs to a submitter, whether a log may
-  run with no such authority (a self-hosted log must be able to, under
-  [ADR 0005](./decisions/0005-federation.md)) and whether clients must be told
-  when it does, what binds a vouching artifact to the key being installed, and
-  what a compromise of the vouching key costs. That is a product-and-trust
-  decision of the same weight as ADR 0014's reset authority — which is what
-  [#551](https://github.com/free2z/zuu/issues/551) is open about — so `KT.md`
-  states the option space and deliberately answers none of it.
-  [#594](https://github.com/free2z/zuu/issues/594).
+- **S′. Client verification of a handle's first directory entry.** Opened
+  2026-08-24 by [`KT.md` §4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do),
+  as the narrower remainder of **S** below. §4.5 now says what authorizes a first
+  entry, and the log is the only party that checks it: a `HandleAssertion`
+  travels in the submission envelope, is not part of `DirectoryEntry`, is not
+  inside the value the tree commits to, and is not served with a lookup. Every
+  other authorization in §4.4 is the opposite — a `RotationProof` and a
+  `ResetAuthorization` sit inside `EntryAuthorization` and are re-verified by
+  every client on every lookup. So the first-entry hole is closed against a
+  stranger and **not against the log**, `KT.md` §8.1 step 6 still verifies
+  nothing at `entry_version == 1`, and §8.5's table still says so. Closing it
+  means a fourth `EntryAuthorization` case carrying the assertion and the
+  identity countersignature, with the binding committing to
+  `H(tls_codec(DirectoryEntryTBS))` rather than to the whole entry digest —
+  a wire change to a structure two implementations have already frozen, so it is
+  filed rather than made. [#594](https://github.com/free2z/zuu/issues/594).
+
 - **T. Proving that a handle is unregistered.** Opened 2026-08-24 by
   [`KT.md` §8.1](./KT.md#81-lookup) and
   [§9.5](./KT.md#95-error-codes), and unlike most of this list it is not a
@@ -1258,14 +1258,44 @@ deliberate.
   saying so. The knock-on is in
   [`KT.md` §5.3](./KT.md#53-the-submission-receipt): a submission receipt for a
   handle's **first** entry cannot be turned into portable evidence either, which
-  is the same handle-with-no-entry case as §13-S above.
+  is the same handle-with-no-entry case as **§13-S′** above — and as §13-S, which
+  closed on 2026-08-24 and moved to §13.1.
   [#634](https://github.com/free2z/zuu/issues/634).
+**S** — what authorizes a handle's first directory entry — was opened and closed
+on 2026-08-24 and has moved to §13.1.
 
 ### 13.1 Closed
 
 Kept here rather than deleted, so that a reader who arrives via an old citation
 finds the answer instead of a hole.
 
+- **S. What authorizes a handle's first directory entry — opened and closed
+  2026-08-24.** §9.2 above specifies an append-only log of
+  `(handle → identity key, …)` and does not say who is entitled to a handle;
+  [ADR 0014](./decisions/0014-directory-key-rotation.md) settles authorization
+  for a handle that already has an entry — same-key update, key change, lost key
+  — and takes no position on the first one.
+  [`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry) inherited that silence, and
+  as its rules were first enumerated they accepted a first entry for an
+  unregistered handle from **whoever submitted one**.
+  [#594](https://github.com/free2z/zuu/issues/594) found it while implementing
+  against the document.
+  **It is answered by [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry)**:
+  a short-lived, log-pinned, single-use `HandleAssertion` from a configured
+  authority, countersigned by the identity key it names so that a stolen
+  assertion is worthless, with the validity cap held by the **log** rather than
+  the issuer. §4.6 fixes the no-authority mode a self-hosted log needs under
+  [ADR 0005](./decisions/0005-federation.md) and **requires it to be reported**
+  in a signed policy document, so a client can see that handles there are
+  unvouched. §4.7 states what the trust root costs.
+  **It was not decided in the specification**, which is the objection
+  [#551](https://github.com/free2z/zuu/issues/551) is open about: the decision is
+  the owner decision recorded on
+  [#305](https://github.com/free2z/zuu/issues/305), which
+  [#554](https://github.com/free2z/zuu/issues/554)'s brief did not name, so the
+  documents inherited the gap rather than introducing it, and §4.5 transcribes
+  what two independent implementations already agreed on byte-for-byte. What it
+  does **not** close is above as **S′**.
 - **A. OpenMLS audit status — closed 2026-08-08.** An independent assessment by
   SRLabs, sponsored by the Sovereign Tech Agency, was published
   [2026-05-27](https://blog.openmls.tech/posts/2026-05-27-independent-audit/):

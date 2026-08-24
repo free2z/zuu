@@ -28,8 +28,13 @@ no message. [ADR 0013](./decisions/0013-key-transparency-log.md) settled the
 construction — adopt [`akd`](https://github.com/facebook/akd) — and
 [ADR 0014](./decisions/0014-directory-key-rotation.md) settled what authorizes an
 entry **once a handle already has one** — it distinguishes a same-key update, a
-key change and a lost key, and takes no position on a handle's *first* entry
-(§1.2, §4.4). **Everything between those two decisions and an implementation is
+key change and a lost key, and takes no position on a handle's *first* entry. A
+third owner decision, recorded on
+[#305](https://github.com/free2z/zuu/issues/305) and not named in this document's
+brief, settled the first entry: a short-lived signed handle-ownership assertion
+from the party that runs the user directory. It went unspecified until 2026-08-24
+and is now §4.5, §4.6 and §4.7 ([#594](https://github.com/free2z/zuu/issues/594)).
+**Everything between those decisions and an implementation is
 invented below**, and where a choice was invented rather than inherited it says
 so at the point of use. Nothing here should be read as "the merged docs already
 said this."
@@ -40,9 +45,14 @@ said this."
 
 ### 1.1 What this document fixes
 
-The `DirectoryEntry` structure and its authorization **from the second entry
-onward** — the first entry's authorization is §1.2's first bullet and is not
-fixed here; the `SignedTreeHead` format
+The `DirectoryEntry` structure and its authorization — including, since
+2026-08-24, a handle's **first** entry: the `HandleAssertion` and its binding
+signature (§4.5), the no-authority mode and its mandatory reporting (§4.6), and
+an accounting of what trusting an authority costs (§4.7). An earlier revision
+said this document fixed authorization "from the second entry onward" and
+deferred the first to §1.2; §4.4's **closing** correction — the last of the four
+that section carries — records the closure and what
+an implementer working from that revision must add. The `SignedTreeHead` format
 and its signing transcript; log-key rotation; epoch cadence and the maximum merge
 delay; the submission receipt; the witness poll-verify-cosign protocol, its
 state-update ordering and its fault evidence; the `WitnessCosignature` format;
@@ -51,14 +61,6 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
 
 ### 1.2 What it deliberately does not fix
 
-- **What authorizes a handle's *first* directory entry.** §4.4 fixes the
-  authorization of every entry that follows one, and **does not fix the first**.
-  This is not a tidy deferral: it is a hole in merged normative text, it is
-  **blocking**, and §4.4 carries a dated correction saying so at the point an
-  implementer would otherwise walk past it. Who may vouch for handle ownership is
-  a product-and-trust decision, not a wire encoding, and inventing one here is
-  exactly the mistake [#551](https://github.com/free2z/zuu/issues/551) is open
-  about. §12, [#594](https://github.com/free2z/zuu/issues/594).
 - **A proof that a handle is *unregistered*.** §8.1 and §9.5 require one — *"'No
   such user' is a claim the log must prove"* — and `akd` 0.13 has no API that
   produces it, so a v1 log serves an assertion it MUST label unproved. Listed
@@ -68,6 +70,23 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
   [§13-T](./ARCHITECTURE.md#13-open-questions),
   [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved).
   [#634](https://github.com/free2z/zuu/issues/634).
+- **~~What authorizes a handle's *first* directory entry.~~ Closed 2026-08-24 by
+  §4.5.** Kept here rather than deleted so a reader arriving from an older
+  citation finds the answer instead of a hole. This bullet used to say the
+  question was blocking and that inventing an answer here would repeat
+  [#551](https://github.com/free2z/zuu/issues/551)'s mistake. The answer was not
+  invented: it was the owner decision recorded on
+  [#305](https://github.com/free2z/zuu/issues/305), which
+  [#554](https://github.com/free2z/zuu/issues/554)'s brief did not name, so this
+  document inherited the gap rather than introducing it. §4.5 writes down what
+  two interoperating implementations agreed on, §4.6 fixes the no-authority mode
+  and requires it to be reported, and §4.7 states what the trust root costs —
+  including the part §4.5 does **not** close, which is the log itself.
+  [#594](https://github.com/free2z/zuu/issues/594).
+- **Client verification of a first entry's authorization.** §4.5 is checked by
+  the log and is not committed to the tree, so a client cannot verify it. §4.7's
+  last paragraph states the property as not holding and names the wire change
+  that would close it. This is a narrower gap than the one above and it is real.
 - **The client gossip protocol.** §9.3 and
   [#311](https://github.com/free2z/zuu/issues/311) make gossip load-bearing — it
   is the only anti-equivocation that functions before independent witnesses
@@ -122,7 +141,8 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
 
 | Role | Holds | Reachability | Fails how |
 |---|---|---|---|
-| **Log** | The tree, every entry, the log signing key, the VRF key | Public HTTPS listener | Can equivocate, can withhold, can refuse. Cannot forge an entry for a handle that **already has one** (§4.4), and cannot forge a cosignature. What authorizes a handle's **first** entry is open and blocking (§4.4, §12). |
+| **Log** | The tree, every entry, the log signing key, the VRF key | Public HTTPS listener | Can equivocate, can withhold, can refuse. Cannot forge an entry for a handle that **already has one** (§4.4), and cannot forge a cosignature. **Can still publish a handle's first entry unchecked** — §4.5 authorizes a first entry against a third party, but it is a rule the log applies to itself and is not committed to the tree (§4.7). |
+| **Authority** | An assertion signing key, and the record of who owns which handle | Issues to authenticated users; not part of the log | Compromise claims **unregistered** handles. Cannot swap a live key, cannot reset alone, cannot use a stolen assertion (§4.7). A log MAY run with none, and MUST report it (§4.6). |
 | **Witness** | Its own signing key, and its last accepted tree head — a few hundred bytes | **Outbound only.** No inbound port, no TLS certificate, no domain, no database | Can refuse to sign, can sign falsely, can cosign without checking (§7.4). Cannot make a client accept a root alone unless *t* = 1. |
 | **Client** | Its own keys, its pinned view of handles it has resolved, its witness policy | Outbound only | Can be lied to if the witness set is not independent. |
 | **Reset authority** | An offline key, per [ADR 0014](./decisions/0014-directory-key-rotation.md) | Not networked | Compromise is compromise of every handle without `no_reset`. |
@@ -376,9 +396,17 @@ struct {
 
 | `kind` | `auth_signature` by | Plus |
 |---|---|---|
-| `same_key` | the `directory_auth_pk` **published in the previous entry** | — |
+| `same_key`, `entry_version == 1` — a handle's **first** entry | the `directory_auth_pk` **in this entry** | a `HandleAssertion` and an `AssertionBinding` signature (§4.5). On a log that declares itself no-authority (§4.6), the `AssertionBinding` signature alone. |
+| `same_key`, `entry_version >= 2` | the `directory_auth_pk` **published in the previous entry** | — |
 | `key_change` | the `directory_auth_pk` **in this entry** (the new key) | a `RotationProof` signed by the **outgoing `identity_pk`** |
-| `platform_reset` | the `directory_auth_pk` **in this entry** | a `ResetAuthorization` signed by the pinned reset authority key |
+| `platform_reset` | the `directory_auth_pk` **in this entry** | a `ResetAuthorization` signed by the pinned reset authority key, **and** a `HandleAssertion` with `intent = reset` (§4.5) |
+
+**The first row's middle column authorizes nothing on its own and must not be
+read as though it did.** A version-1 entry signed by the `directory_auth_pk` it
+itself publishes proves that whoever wrote the entry also wrote the entry. It
+authenticates the submitter's *key*; it says nothing about the submitter's claim
+to the handle. What authorizes a first entry is the third column, and it is
+§4.5.
 
 > **Invented here — a narrowing of `ARCHITECTURE.md` §4.2 that a reader should
 > notice.** §4.2's key table says the `IdentitySigningKey` "signs device
@@ -393,6 +421,27 @@ struct {
 > from the same `account_node`, so this is a use-separation, not an independence
 > claim: compromise of the seed yields both.
 
+> **Correction (2026-08-24) — the blast-radius sentence above is now narrower
+> than it reads, and the example it gives is no longer an example.** §4.5's
+> `AssertionBinding` signature is by the **`identity_pk`**, and it is required on
+> **every** submission — including `same_key` and `key_change`, where the
+> assertion itself is absent and `assertion_digest` is 32 zero bytes (§4.5.2,
+> rule 11). So "a routine update then never touches the key peers pin and display
+> as a safety number" is no longer true of a routine update: rotating a contact
+> endpoint now requires ISK, exactly as adding a device always did.
+>
+> **The stricter behaviour is specified rather than relaxed, and the trade is
+> worth stating.** What is lost is the cold-key property for one operation. What
+> is bought is that there is **no submission path that omits the identity
+> self-signature** — not on a vouched log, not on an unvouched one, not on a
+> routine update. A rule with an exemption is a rule an implementation can be
+> talked into taking, and A16 is the rule that makes a stolen assertion
+> worthless; the alternative design has a branch where a verifier holds a
+> checked assertion and no binding, which is the primitive §4.5.2 exists to
+> forbid. The use-separation above still holds for what each key *authorizes* —
+> `DirectoryAuthKey` alone still cannot install a new `identity_pk` (rules 6 and
+> 7) — but it no longer holds for what each key *is asked to sign*.
+
 Verification rules the log MUST apply, in order, before an entry enters a batch:
 
 1. Re-encode equality on the submitted bytes
@@ -400,8 +449,11 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
 2. `label`, `kt_version` and `log_id` are exactly this log's.
 3. `handle` matches the charset rule and `entry_version` is `previous + 1` (or 1).
    **The `(or 1)` case is not an authorization rule and MUST NOT be read as one**
-   — see the second correction at the end of this section; what authorizes a
-   handle's *first* entry is open and blocking (§12).
+   — it fixes the version number and nothing else. What authorizes a handle's
+   *first* entry is **rule 11** and §4.5. (Until 2026-08-24 this document said
+   the question was open and blocking; the correction that said so, and the
+   closing correction that supersedes it, are the last two at the end of this
+   section.)
 4. `prev_entry_hash` matches the published previous entry, or is all-zero when
    `entry_version` is 1 (§4.2).
 5. `authorization.kind == entry.kind`, and the table above holds.
@@ -422,6 +474,38 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
 9. Every `DeviceCredential` signature verifies under this entry's `identity_pk`,
    and no two credentials share a `device_pk`.
 10. §4.3's uniqueness rule.
+11. **§4.5 applies, in full, and the entry MUST NOT be published unless it
+    passes.** Three cases, and an implementer applies all three:
+    - **`entry_version == 1`.** This is the rule that authorizes a handle's first
+      entry. Rules 1–10 above establish only that the entry is well-formed,
+      self-consistent and signed by the key it publishes — never that the
+      submitter is entitled to the handle. §4.5's assertion carries `intent =
+      bind`.
+    - **`platform_reset`.** §4.5's assertion carries `intent = reset`, **in
+      addition to** rule 8's `ResetAuthorization` and never instead of it. A log
+      with no configured authority (§4.6) therefore cannot admit a
+      `platform_reset` at all.
+    - **`same_key` at `entry_version >= 2`, and `key_change`.** These carry **no**
+      assertion, and a log MUST refuse one rather than ignore it (§4.5.3). Rule
+      A16 — the identity self-signature over the binding — still applies.
+
+    On a log that declares itself no-authority under §4.6, A16 is the whole of
+    §4.5 that runs at `entry_version == 1`, and the rest does not.
+12. **`entry_version == 1` MUST carry `kind == same_key`.** `key_change` needs an
+    outgoing `identity_pk` and `platform_reset` needs a key to displace; a handle
+    with no previous entry has neither, so rules 7 and 8 cannot be satisfied at
+    version 1 and both cases MUST be rejected with `ERR_BAD_AUTHORIZATION`
+    rather than left to fail obscurely inside a rule that dereferences a
+    predecessor that does not exist.
+
+**Rule 11 runs last, and the order is deliberate rather than a numbering
+accident.** §4.5's checks are the most expensive in the list — two signature
+verifications and the one write in the whole submission path — and A17 mutates
+the log's replay ledger. Running rules 1–10 first means a submission that fails
+any cheaper rule never reaches the ledger and therefore cannot consume a nonce
+that belongs to somebody else. It also means §4.5 is checked against an
+`entry_version`, an `identity_pk` and a predecessor that this section has already
+agreed to, rather than against values the submitter merely asserted.
 
 **And the thing an implementer must understand about all of that: `akd` enforces
 none of it.** The library will happily commit any bytes to any label. Every rule
@@ -439,7 +523,12 @@ target in the system for our own testing.
 is loud, delayed and permanently counted, and is a real weakening announced
 rather than hidden. **Read "a live key" strictly**: everything in this paragraph
 is scoped to a handle that already has an entry in the log, and the second
-correction below is why that scope is doing work.
+correction below is why that scope is doing work. §4.5 now says what authorizes
+a first entry, and it does **not** widen this paragraph: §4.5 is a rule the log
+applies to submissions it receives, not a signature a client can check on an
+entry it is served, so the log remains able to publish a first entry for a
+handle nobody enrolled. §4.7 states that residual plainly rather than letting
+this paragraph be restated without its scope.
 
 > **Correction (2026-08-24) — rule 6 is new, and the list above was incomplete
 > without it.** As first published, this section's numbered rules never required
@@ -529,6 +618,510 @@ correction below is why that scope is doing work.
 > no-authority mode. Deciding those is a product-and-trust decision, and it is
 > deliberately not taken in this document.
 > [#594](https://github.com/free2z/zuu/issues/594).
+
+> **Correction (2026-08-24, later the same day) — the correction directly above
+> is superseded: the first-entry gap is closed, and §4.5 closes it.** The text
+> above is kept verbatim rather than deleted, because it is the record of what
+> the rules admitted between the first revision of this document and this one,
+> and an implementer working from that revision must add rules 11 and 12.
+>
+> **What changed, and what did not.** The correction above declined to answer its
+> four questions on the ground that naming a vouching authority is a
+> product-and-trust decision the specification does not get to take. That
+> remains true, and this revision does not take it. The decision was **already
+> on the record**: the owner decision recorded on
+> [#305](https://github.com/free2z/zuu/issues/305) is that KT submission
+> authority is a short-lived signed handle-ownership assertion issued by the
+> party that runs the user directory, with the log verifying a signature against
+> a configured authority key and a self-hoster plugging in their own.
+> [#554](https://github.com/free2z/zuu/issues/554)'s brief did not name that
+> artifact, so this document inherited the gap rather than introducing it, and
+> what §4.5 does is **write down a decision that was taken and never
+> specified** — not mint a new trust root in a specification, which is the
+> failure [#551](https://github.com/free2z/zuu/issues/551) is open about. The
+> distinction is the whole reason §4.5 exists as encoding-and-rules and §4.7
+> exists as an honest accounting of what the decision costs.
+>
+> **The candidate is now ratified, and it is ratified as-implemented.** The
+> structures, transcripts and rules in §4.5 are not an invention of this
+> revision. They are what two independent implementations already agreed on
+> byte-for-byte — the Rust verification crate offered against
+> [#593](https://github.com/free2z/zuu/issues/593)/[#626](https://github.com/free2z/zuu/pull/626)
+> and the issuing endpoint operated by the party that runs the user directory —
+> and this section's job is to write down what they agreed on so a third
+> implementer is not left to infer it. Where the two disagreed on a *default*
+> rather than on a rule, §4.5 fixes the rule and says the default is not one.
+>
+> **Rules 11 and 12 are new, and the `auth_signature` table's first row is a
+> split.** As first published the table had one `same_key` row, authorized by
+> "the `directory_auth_pk` published in the previous entry", which at
+> `entry_version == 1` names nothing. It is now two rows, and the version-1 row
+> states in the table itself that its middle column authorizes nothing on its
+> own. Rule 12 — that a first entry must be `same_key` — was never written down
+> and both implementations inferred it.
+> [#594](https://github.com/free2z/zuu/issues/594).
+
+---
+
+### 4.5 `HandleAssertion` — what authorizes a handle's first entry
+
+> **Invented in the sense §4.4's closing correction describes: the *decision* is
+> the owner decision on [#305](https://github.com/free2z/zuu/issues/305), and
+> the *encoding* is written down here for the first time.** Every structure,
+> transcript and rule below is transcribed from two implementations that already
+> interoperate, not proposed fresh. **Two requirements here are stricter than
+> what a shipped implementation does**, and both are stated at the point of use
+> rather than softened to match: §4.5.4's rule that `account_epoch` must be a
+> durable counter and never a clock, and §4.5.5's rule that A17's replay ledger
+> must survive a restart. Each is a case where the weaker behaviour leaves a
+> field or a rule in place that looks like it is doing work it is not.
+
+An assertion is a short-lived, single-use, log-pinned statement by a configured
+authority that a named handle belongs to a named identity key. It is **not** part
+of the `DirectoryEntry`; it accompanies one, in the submission envelope of §9.2,
+and §4.7 states what that costs.
+
+#### 4.5.1 Structures
+
+```
+struct {
+    opaque label<0..255>;      /* exactly "free2z/kt/v1/handle-assertion" */
+    opaque authority_id[32];   /* H("free2z/kt/v1/authority-id", authority_pk) */
+    opaque log_id[32];         /* §6.1 — the log this assertion is for        */
+    opaque handle<1..30>;
+    opaque handle_id[32];      /* H("free2z/kt/v1/handle-id", handle)         */
+    opaque identity_pk[32];    /* ISK.public — the key being vouched for      */
+    uint8  intent;             /* bind(1), reset(2) — §4.5.3                  */
+    uint32 account_epoch;      /* §4.5.4                                      */
+    uint64 issued_ms;
+    uint64 expires_ms;
+    opaque nonce[16];          /* issuer CSPRNG, fresh per assertion          */
+} HandleAssertionTBS;
+
+struct {
+    HandleAssertionTBS assertion;
+    opaque             signature[64];   /* Ed25519 by authority_id's key */
+} HandleAssertion;
+
+struct {
+    opaque label<0..255>;         /* exactly "free2z/kt/v1/assertion-binding" */
+    opaque log_id[32];
+    opaque handle<1..30>;
+    opaque identity_pk[32];
+    opaque assertion_digest[32];  /* H("free2z/kt/v1/assertion-digest",
+                                       tls_codec(HandleAssertion));
+                                     all-zero when no assertion accompanies
+                                     this submission — §4.6 */
+    opaque entry_digest[32];      /* == AkdValue, §3.3 */
+} AssertionBindingTBS;
+```
+
+`AssertionBinding` has no structure of its own: the signature over
+`tls_codec(AssertionBindingTBS)` travels as the submission envelope's
+`identity_signature` field (§9.2). It is Ed25519 **by the entry's own
+`identity_pk`**.
+
+`authority_id` and `handle_id` are **derived, never accepted as input**, on both
+the issuing and the verifying side. The same shape as
+[`WIRE.md` §5.2](./WIRE.md#52-relay-identity-binding--the-attack-it-closes)'s `relay_id`, for the
+same reason: a key id derived from the key cannot disagree with it, so an
+assertion cannot name one authority while being signed by another, or name one
+handle while being indexed under another. `handle_id` is redundant with `handle`
+in exactly the way §4.2's hash chain is redundant with the tree, and rule A5
+below is what makes the redundancy load-bearing rather than decorative.
+
+Encoding is `tls_codec` under [`WIRE.md` §3](./WIRE.md#3-serialization)'s rules,
+including re-encode equality: fixed-width `opaque` carries no length prefix, the
+two variable-width fields carry a single `uint8` length byte, integers are
+unsigned big-endian, and `HandleAssertion` is the TBS bytes immediately followed
+by 64 signature bytes with no separator, no outer length and no trailing slack.
+`HandleAssertionTBS` is therefore `196 + len(handle)` bytes and a signed
+`HandleAssertion` is `260 + len(handle)`.
+
+#### 4.5.2 The signing transcripts
+
+Two signatures, over two structures, and **both are required**:
+
+| Signature | Over | By | Carried in |
+|---|---|---|---|
+| `HandleAssertion.signature` | `tls_codec(HandleAssertionTBS)`, in full and nothing else | the configured authority key whose digest is `authority_id` | the assertion |
+| the `AssertionBinding` signature | `tls_codec(AssertionBindingTBS)` | the submission's own `identity_pk` | the submission envelope, §9.2 |
+
+Both are Ed25519 over the structure **signed directly, not prehashed**, and both
+are verified over the **re-encoded** bytes rather than the bytes that arrived —
+§6.2's reasoning and [ADR 0008](./decisions/0008-transport-and-serialization.md)'s
+rule, unchanged. Domain separation is the `label` field, first, inside the signed
+bytes, as it is for every other structure this document signs; §6.2's table is
+extended accordingly.
+
+**The identity self-signature is normative, required on every submission, and
+there is no path without it** — including `same_key` and `key_change`, which
+carry no assertion and set `assertion_digest` to 32 zero bytes so that the
+submitter still answers for this exact entry. §4.4's key-separation note carries
+a dated correction because that is stricter than the rationale it gave.
+An assertion is a **bearer document**: it is bytes an authority signed, sent over
+a network, sitting in a submission queue and in whatever archive an operator
+kept. Anyone who obtains a copy holds everything the authority said. If holding
+one were sufficient to submit under the handle it names, then intercepting one —
+from a terminating proxy, from an access log, from a stolen backup — would be a
+handle takeover, and the authority would have no way to tell the thief from the
+subject. The `AssertionBinding` signature closes that, because producing it
+requires the very identity private key the assertion vouches for, which is the
+key the thief was trying to replace. A log that verifies the authority's
+signature without also verifying the binding has implemented a takeover
+primitive, and **MUST NOT** be described as conforming.
+
+Two field choices in `AssertionBindingTBS` are doing specific work and a reader
+should notice both:
+
+- **`entry_digest`** is what stops the subject's *own* binding from being
+  reusable. A binding signed for one submission does not authorize a second, so
+  a log that saw one cannot resubmit it against different entry bytes.
+- **`assertion_digest` is over the `HandleAssertion` including its signature**,
+  on §4.2's reasoning for `prev_entry_hash`: committing to the authorization as
+  well as the contents means an assertion cannot be re-signed after the subject
+  has bound itself to it.
+
+#### 4.5.3 `intent`, and where each value is legal
+
+```
+enum { bind(1), reset(2), (255) } AssertionIntent;
+```
+
+An unknown `intent` byte is a **decode failure, never a default**.
+[`WIRE.md` §3.3](./WIRE.md#33-the-re-encode-equality-rule--mandatory) names
+"unknown variant bytes silently mapped to a default" as one of the four things
+re-encode equality exists to make loud, and here the worst available default is
+the one that creates a handle.
+
+| `intent` | Legal at | Paired with |
+|---|---|---|
+| `bind` | `entry_version == 1` **only** | §4.4's first table row |
+| `reset` | `entry_version >= 2` **only**, and only for `kind == platform_reset` | §4.4's `ResetAuthorization`, in addition — never instead |
+
+Splitting the two is what stops an assertion issued to hand somebody a fresh
+handle from being re-presented to take over an established one.
+
+**`same_key` and `key_change` MUST NOT carry an assertion, and a log MUST refuse
+one rather than ignore it.** Those two cases are authorized under §4.4 by the
+previous entry's `directory_auth_pk` and, for a rotation, by the outgoing
+`identity_pk`. Admitting an assertion there would give the authority a second
+way to authorize a change to a live handle — precisely the power
+[ADR 0014](./decisions/0014-directory-key-rotation.md) spends a cooldown, a
+non-dismissible alarm and a per-epoch counter to constrain. Refusing rather than
+ignoring matters because an ignored field is one an implementation can start
+honouring later without anyone noticing.
+
+#### 4.5.4 `account_epoch`
+
+`account_epoch` is the authority's counter for the **account** behind the
+handle. It increments when the account changes hands or is recovered, which is
+the only thing that justifies a `reset`. The log retains the value from the last
+admitted assertion for the handle and requires the next one to be **strictly
+greater** (A15), so a `reset` assertion cannot be spent twice on one
+account-ownership event. At a **first** entry there is no retained value and A15
+has nothing to compare against; the value in a `bind` assertion is simply the
+baseline the handle's first `reset` must exceed.
+
+> **One of the two places this document is stricter than a shipped
+> implementation, and it is deliberate** — the other is A17's ledger durability
+> (§4.5.5). `account_epoch` **MUST** be a durable per-account counter
+> held by the authority, and **MUST NOT** be derived from a clock. A monotonic
+> wall clock satisfies "strictly greater than the last one" unconditionally and
+> forever, which does not merely weaken A15 — it deletes it, while leaving a
+> field in place that looks like it is doing the work. One reference issuer
+> currently derives the value from Unix time in whole seconds where no counter
+> is supplied, and by this rule it is non-conforming; the rule is stated here
+> rather than softened to match, because A15's entire purpose is to make a reset
+> a distinct event and a clock-derived epoch makes every instant a distinct
+> event. A `u32` seconds counter also exhausts the field in 2106, which is a
+> second reason not to put a clock in it.
+
+#### 4.5.5 The rules, in the order a log applies them
+
+These are §4.4 rule 11, expanded. They run **after** §4.4's rules 1–10, for the
+reason stated there. `A` numbering keeps them distinguishable from §4.4's list;
+a log MUST apply all of them.
+
+1. **A1 — presence, in both directions.** An assertion is present **iff** this is
+   a first entry or a `platform_reset` on a log with a configured authority
+   (§4.6). A missing one where it is required is a refusal; a present one where
+   it cannot be judged is also a refusal.
+2. **A2 — re-encode equality** on the assertion bytes
+   ([`WIRE.md` §3.3](./WIRE.md#33-the-re-encode-equality-rule--mandatory)). The
+   re-encoded bytes, never the received ones, are what the signature is checked
+   over.
+3. **A3 — `label`** is exactly `free2z/kt/v1/handle-assertion`.
+4. **A4 — `log_id` is this log's.** Refused, not ignored. An authority that
+   vouched for `@alice` on one log has said nothing about `@alice` on another,
+   and a `log_id` treated as advisory makes every log in existence a replay
+   target for every other log's assertions.
+5. **A5 — `handle_id == H("free2z/kt/v1/handle-id", handle)`.** The assertion
+   agrees with itself.
+6. **A6 — `handle` is the submission's handle**, compared as bytes. Charset
+   conformance is not a separate check: bytes outside `[a-z0-9_]{1,30}` do not
+   decode into a handle at all (§1.3), so a non-conforming handle cannot reach
+   this rule as bytes-that-decoded. **No normalization is performed**, per
+   [`WIRE.md` §14.1](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved);
+   comparing by any rule other than byte equality would reintroduce exactly what
+   the charset removed.
+7. **A7 — `identity_pk` is the submission's `identity_pk`.** An assertion about
+   one key cannot authorize another.
+8. **A8 — `expires_ms > issued_ms`.**
+9. **A9 — `expires_ms - issued_ms <= max_validity_ms`, and `max_validity_ms` is
+   the log's, not the issuer's.** This is the log-side cap and it is the single
+   most load-bearing bound in this section. An issuer that could choose its own
+   validity would, once compromised, mint one assertion good for a decade, and
+   every later rotation of the authority set would leave that assertion working.
+   The cap is what bounds a captured or post-compromise assertion to the cap.
+   **The value is not fixed by this document** — it is published in §4.6's
+   policy document so that a bound nobody can see is not a bound nobody can
+   check. A short window is the point: long enough for a user to complete a
+   submission after the authority issued for them, short enough that a captured
+   assertion is stale before it can be carried anywhere. The implementations
+   this section transcribes use 15 minutes as a cap and disagree on the default
+   validity an issuer picks within it, which is why the default is not specified
+   here and the cap is.
+10. **A10 — `issued_ms` is not further ahead of the log's clock than
+    `clock_skew_ms`**, also published in §4.6.
+11. **A11 — `now_ms < expires_ms`.** The skew allowance is deliberately **not**
+    applied to expiry: an assertion is refused the moment the log's clock reaches
+    it. The asymmetry is fail-closed — a verifier whose clock runs fast refuses a
+    little early rather than accepting a little late — and it keeps the widest
+    window any assertion can be accepted in at exactly
+    `max_validity_ms + clock_skew_ms`, which is a number an operator can state.
+12. **A12 — `authority_id` is in the log's configured authority set** (§4.6).
+13. **A13 — the authority's signature verifies**, strictly, over the re-encoded
+    body.
+14. **A14 — `intent` matches the position**, per §4.5.3's table, and the entry
+    kind matches its sequence position: a first entry has no predecessor, a
+    `platform_reset` has one and must replace its `identity_pk`.
+15. **A15 — `account_epoch` is strictly greater** than the value retained for
+    this handle. §4.5.4 governs what the value must be.
+16. **A16 — the `AssertionBinding` signature verifies under the submission's
+    `identity_pk`.** §4.5.2. **This rule applies on every path**, including
+    §4.6's no-authority path, where it is the whole of the check.
+17. **A17 — `(authority_id, nonce)` has not been admitted before.** Single-use,
+    and it is the only rule here that writes. Keying on the pair rather than on
+    the assertion digest is deliberate: a digest catches only a byte-identical
+    replay, while the pair also catches an issuer that reused a nonce across two
+    *different* assertions — an issuer bug, or a compromised issuer trying to
+    make two claims look like one, which is the case worth failing on.
+
+**On A17's ledger.** A log MUST refuse rather than evict: discarding an unexpired
+entry to make room silently reopens the replay window at exactly the moment the
+log is under load, which is exactly when an attacker would arrange to be. A full
+ledger is `ERR_RATE_LIMITED` (§9.5). Retention MUST be at least
+`expires_ms + clock_skew_ms`, which is derived rather than configured, so it can
+never be shorter than the window it protects. The ledger MUST survive a restart:
+a log that rebuilds an empty ledger on startup has reopened the window for the
+length of one validity period, and while §4.2's version chain independently
+refuses the replays that matter today, a rule whose enforcement depends on
+another rule is not the rule that was specified.
+
+#### 4.5.6 What the wire codes are
+
+There is no new error code. §9.5's table is unchanged and the mapping is:
+
+| Refusal | §9.5 code |
+|---|---|
+| A2 decode, re-encode mismatch, charset | `ERR_MALFORMED` (1) |
+| A4 wrong `log_id` | `ERR_UNSUPPORTED_VERSION` (2) — "a `log_id` this server does not serve" |
+| A13, A16 signature failures | `ERR_BAD_SIGNATURE` (3) |
+| A1, A3, A5–A12, A14, A15, and A17 **as a replay** | `ERR_BAD_AUTHORIZATION` (4) |
+| A17 refused because the ledger is **full of unexpired entries** | `ERR_RATE_LIMITED` (9) |
+| the log's own authority set is misconfigured | `ERR_INTERNAL` (11) |
+
+The last row is the one to notice. A misconfigured authority set is the
+operator's fault, not the submitter's, and §9.5 is explicit that `ERR_INTERNAL`
+carries no detail. A log that answered `ERR_BAD_AUTHORIZATION` there would blame
+a user for an operator error and hide the operator error. A log MAY keep a finer
+local distinction for its own operators — an operator debugging a real failed
+submission needs to know whether the clock, the charset or the nonce was the
+problem — but MUST NOT put it on the wire, for
+[`WIRE.md` §10](./WIRE.md#10-error-codes)'s reason.
+
+### 4.6 A log with no authority, and why it must say so
+
+[ADR 0005](./decisions/0005-federation.md) requires that the directory be
+self-hostable, and a self-hoster may have no user directory to vouch with. Such
+a log **MAY** run with no configured authority. On it:
+
+- A first entry is admitted on rule **A16 alone** — the submitter proves it holds
+  the identity key it is publishing, and no party has said which person that key
+  belongs to.
+- A `platform_reset` cannot be admitted at all, because there is no authority to
+  issue the `intent = reset` assertion §4.5.3 requires. A no-authority log is
+  therefore a log on which a lost identity key means a lost handle, permanently
+  — the same posture [ADR 0014](./decisions/0014-directory-key-rotation.md)
+  gives a user who sets `no_reset`, applied to every handle at once. This is a
+  consequence worth choosing deliberately rather than discovering.
+- Handles mean **"whoever got there first"**, and that is a materially different
+  statement from "whoever the directory says."
+
+**No authority MUST be an explicit configuration, never an empty set.** An
+authority set that is empty because somebody deleted a line refuses every
+submission; a log that is deliberately unvouched admits them on A16. A log that
+silently turned the first into the second would be downgraded by a typo. The two
+MUST be distinguishable in configuration and MUST fail differently.
+
+**And it MUST be reported.** A log MUST serve a signed policy document, and a
+client MUST be able to learn from it whether handles on this log are vouched at
+all, *before* it resolves anything.
+
+```
+struct { opaque key[32]; } AuthorityPublicKey;
+
+struct {
+    opaque             label<0..255>;   /* exactly "free2z/kt/v1/authority-policy" */
+    uint16             kt_version;      /* 0x0001 */
+    opaque             log_id[32];
+    uint8              vouching;        /* 1 = vouched, 0 = unvouched */
+    AuthorityPublicKey authorities<0..2^16-1>;  /* empty iff unvouched */
+    uint64             max_validity_ms; /* §4.5 A9 — this log's cap  */
+    uint64             clock_skew_ms;   /* §4.5 A10                  */
+    uint32             asserted_versions<0..2^16-1>;
+                                        /* the entry_version values at which an
+                                           assertion is required; exactly [1] in
+                                           kt_version 1 — a platform_reset is
+                                           selected by kind, not by version */
+    uint64             published_at_ms;
+} AuthorityPolicyTBS;
+
+struct {
+    AuthorityPolicyTBS policy;
+    opaque             signature[64];   /* Ed25519 by the log signing key */
+} SignedAuthorityPolicy;
+```
+
+Served at `GET /.well-known/free2z-kt/v1/authority` (§9.2). A verifier MUST
+reject a policy that contradicts itself — an unvouched log listing authorities,
+or a vouched one listing none.
+
+**This document is not a way to learn who the authorities are and trust them.**
+An authority key a client learns from the log is a key the log chose, exactly as
+§9.1 says of `reset_authority_pk`. The published list exists so a human can
+compare it against a key they were told out of band. What the document gives a
+client is the one thing it cannot get anywhere else: **whether this log claims
+any handle vouching at all**, so that "unvouched" is a visible property of a
+directory rather than something a user discovers after somebody takes their name.
+
+**A client MUST NOT render a vouched and an unvouched handle identically.** This
+is §8.3's rule about witness counts applied to the same failure: a client that
+cannot distinguish the two is showing a reassuring name for a property it does
+not have. An unreported no-authority mode is a downgrade attack surface — a log
+that quietly drops its authority set would otherwise be indistinguishable from
+one that never had one, and from one that still has one.
+
+**Two honest limits on the reporting, both real.**
+
+- **The policy is log-wide, not per-handle.** Nothing in the log records whether
+  a *particular* handle was vouched when it was registered. A log that ran
+  unvouched and later configured an authority serves a policy saying "vouched"
+  while the handles registered before the change were not, and a client cannot
+  tell which is which. A log SHOULD NOT make that transition on a directory that
+  already has entries; nothing in this document can stop it.
+- **The policy is signed by the log**, so it is a statement by the party a
+  client is trying to hold at arm's length. It is exactly as strong as the log's
+  other signed statements and no stronger: it makes a downgrade a **documented,
+  attributable** act rather than an invisible one, and does not prevent it.
+
+### 4.7 What a compromised authority can and cannot do
+
+The authority is **the one non-cryptographic trust root in the directory**.
+Everything else here is provable: `akd` proves the tree is append-only, §4.4
+proves an entry was authorized by the key that held the handle before, §7 proves
+the log did not equivocate. None of that answers the first question a user
+actually asks — *is this `@alice` the `@alice` I know?* — because a
+key-transparency log will faithfully, verifiably and permanently publish a key
+for a handle for **whoever got there first**. Something has to say who owns a
+handle, and no amount of cryptography derives it. This section says what
+trusting that something costs, in the manner of
+[`THREAT-MODEL.md` §4](./THREAT-MODEL.md#4-known-limits-stated-up-front).
+
+**What a compromised authority cannot do.**
+
+- **It cannot silently swap a live user's key.** `same_key` and `key_change`
+  refuse an assertion outright (§4.5.3), so there is no path by which an
+  authority signature authorizes a routine change to a handle that already has
+  an entry. Rule 6 forbids a `same_key` entry from changing `identity_pk`; rule 7
+  requires a `RotationProof` by the **outgoing** `identity_pk`, which a
+  compromised authority does not hold. This is
+  [ADR 0014](./decisions/0014-directory-key-rotation.md)'s guarantee and §4.5
+  does not weaken it.
+- **It cannot perform a reset on its own.** `platform_reset` requires §4.4 rule
+  8's `ResetAuthorization` under the **pinned reset authority key** — a
+  different key, held offline, pinned in clients, not the assertion key — plus
+  the published cooldown, plus a `reset_count` in the tree head, plus the
+  non-dismissible alarm of §8.2. §4.5 *adds* a requirement to that path and
+  removes none, so a compromised assertion authority makes a reset harder, never
+  easier.
+- **It cannot use a stolen assertion.** A16 requires the identity private key the
+  assertion is about. That is the point of the second signature.
+- **It cannot replay across logs or across time without bound.** A4 pins the
+  `log_id`, A9 caps the validity at a bound the *log* holds, A17 spends the
+  nonce once. Assertions minted during a compromise expire within the cap once
+  the compromise ends.
+
+**What a compromised authority can do, and it is not small.**
+
+- **It can claim any unregistered handle.** It mints an assertion for `@bob`
+  naming an identity key it generated, and produces A16's binding signature
+  because it chose that key. `@bob` is now a handle in the log, chained and
+  witnessed and permanently correct-looking, belonging to the attacker. **This
+  is the genuine residual and there is no prior key to check it against** — that
+  is the whole difficulty of a first claim, and it does not go away by
+  specifying it better. Nothing detects it: the person who would run §8.2's
+  self-audit is not a user of the system, so there is no client anywhere with a
+  pin to contradict. A peer who later resolves `@bob` is
+  [#133](https://github.com/free2z/zuu/issues/133)'d, with every proof
+  verifying.
+- **It can deny service**, by refusing to issue. Visible to the user, and not
+  something §4.5 addresses.
+- **Anyone who can authenticate to the issuer as a user can obtain that user's
+  assertions**, and **this document does not say what authorizes issuance.**
+  That silence is not a detail. An issuer that mints an `intent = reset`
+  assertion on the strength of an ordinary session token has made session theft
+  the first step of a handle takeover, and the only things then standing between
+  that and a completed takeover are §4.4 rule 8's separate offline key, its
+  cooldown, and §8.2's alarm — all of which live in the *log*, none in the
+  issuer. An issuer **SHOULD** require materially more for `intent = reset` than
+  for `intent = bind` — a recent-authentication window, a second factor, or a
+  proof from the outgoing identity key — and **this document does not fix
+  which**, because it is an account-security decision and not a wire encoding.
+  Named here rather than left to be discovered; §12.
+- **It can keep minting for as long as it holds the key.** A9 bounds a *stolen
+  assertion* and bounds the damage *after* eviction. It does not bound the
+  compromise window itself. Eviction is a membership change in §4.6's authority
+  set (rotation is set membership, not a succession protocol — a rotation
+  ceremony would be a second trust root guarding the first), and it takes effect
+  only when the log's configuration is changed.
+
+**And the limit that constrains all of the above, stated because it is the one a
+reader is most likely to assume away.** A `HandleAssertion` is **not committed to
+the tree and not served to clients**. It travels in §9.2's submission envelope,
+which is not part of `DirectoryEntry`, so it is not inside
+`AkdValue = H("free2z/kt/v1/value", tls_codec(DirectoryEntry))` and it does not
+come back with a lookup. Every other row of §4.4's table is different in exactly
+this respect: a `RotationProof` and a `ResetAuthorization` live inside
+`EntryAuthorization`, are hashed into the value the tree commits to, and are
+re-verified by every client on every lookup. §4.5 is not. **It is admission
+control the log performs on itself, and no client, auditor or witness can check
+that it happened.** A log that skipped §4.5 entirely would produce entries
+indistinguishable from ones that passed it.
+
+So state the property precisely: §4.5 closes the first-entry hole **against third
+parties** — a stranger cannot claim `@alice` — and does **not** close it against
+the log. §8.1 step 6 still verifies nothing at `entry_version == 1`, and §8.5's
+table still says so. Making the first-entry authorization client-verifiable means
+moving the assertion and the binding signature inside `EntryAuthorization` as a
+fourth case, with the binding committing to `H(tls_codec(DirectoryEntryTBS))`
+rather than to the full entry digest to avoid the circularity that would
+otherwise create. That is a wire change to a structure two implementations have
+already frozen, it is filed rather than done here, and until it lands this
+section describes a property that does not hold.
+[#649](https://github.com/free2z/zuu/issues/649),
+[§13-S′](./ARCHITECTURE.md#13-open-questions), §12.
 
 ---
 
@@ -704,10 +1297,13 @@ the correction below.**
 > demonstration that the entry is absent.
 >
 > This lands on the same case as
-> [§13-S](./ARCHITECTURE.md#13-open-questions): a handle's first entry is the one
-> §4.4 does not say how to authorize *and* the one whose non-inclusion cannot be
-> proved. Both are recorded rather than reconciled, because they close by
-> different means.
+> [§13-S′](./ARCHITECTURE.md#13-open-questions): a handle's first entry is the one
+> whose authorization a *client* cannot check (§4.7) **and** the one whose
+> non-inclusion cannot be proved. Both are recorded rather than reconciled,
+> because they close by different means. (This paragraph named §13-S until
+> 2026-08-24, when §4.5 answered what authorizes a first entry and §13-S moved to
+> [§13.1 Closed](./ARCHITECTURE.md#131-closed); what remains open is the narrower
+> §13-S′, and it is still the same handle-with-no-entry case.)
 
 **What it does not prove, stated because a receipt looks stronger than it is.**
 
@@ -819,6 +1415,30 @@ field, and a verifier MUST check it before anything else. The set is closed:
 | `free2z/kt/v1/log-key-transition` | `LogKeyTransitionTBS` | log, both keys |
 | `free2z/kt/v1/fault` | `FaultReportTBS` | witness |
 | `free2z/device-credential/v1` | `DeviceCredentialTBS` | user's ISK |
+| `free2z/kt/v1/handle-assertion` | `HandleAssertionTBS` | authority (§4.5) |
+| `free2z/kt/v1/assertion-binding` | `AssertionBindingTBS` | user's ISK (§4.5) |
+| `free2z/kt/v1/authority-policy` | `AuthorityPolicyTBS` | log (§4.6) |
+
+> **Correction (2026-08-24) — the last three rows are new, and the set was
+> described as closed without them.** As first published this table covered the
+> nine structures this document then signed and called the set closed. §4.5 and
+> §4.6 add three signed structures, so the set is closed **as of this revision**
+> rather than as of the first, and an implementer working from the first must add
+> them. Nothing above changed: no existing label was renamed and no existing
+> structure gained or lost a signer.
+
+Three further labels in the `free2z/kt/v1/` namespace are **hash-domain labels,
+not signing labels**, and are listed separately so nobody looks for a structure
+that starts with them: `free2z/kt/v1/authority-id` and
+`free2z/kt/v1/handle-id` derive the two ids inside a `HandleAssertionTBS`, and
+`free2z/kt/v1/assertion-digest` derives the value an `AssertionBindingTBS`
+commits to (§4.5.1). They are held to
+[`WIRE.md` §1.3](./WIRE.md#13-conventions)'s prefix-freeness requirement along
+with everything else in the namespace — note in particular that
+`free2z/kt/v1/handle-id`, `free2z/kt/v1/handle-assertion` and §3.3's
+`free2z/kt/v1/handle:` are mutually prefix-free, which is not an accident and is
+enforced by `scripts/check-hash-domain-labels.mjs` on every pull request
+([#602](https://github.com/free2z/zuu/issues/602)).
 
 The reason to be strict about it: the log's signing key signs tree heads,
 receipts and key transitions. Without an in-band, checked type constant, a
@@ -1136,10 +1756,17 @@ To resolve `@alice`:
    `vrf_public_key` from the verified tree head.
 6. Verify the entry's own authorization (§4.4) — the log's proof says the entry
    is *in the tree*, not that it was *authorized*. **At `entry_version == 1`
-   there is nothing here to verify**: §4.4 does not yet say what authorizes a
-   handle's first entry, so this step establishes nothing about a handle being
-   resolved for the first time. See §4.4's second correction and §12.
-7. Pin `(handle, identity_pk, entry_version, prev_entry_hash, epoch)`.
+   there is still nothing here to verify.** §4.5 now says what authorizes a first
+   entry, but it is checked by the log at submission and is not committed to the
+   tree, so a client is served no artifact to check (§4.7's last paragraph). This
+   step therefore establishes nothing about a handle being resolved for the first
+   time, and a client MUST NOT present it as though it did.
+7. Fetch §4.6's `SignedAuthorityPolicy` for this `log_id` and verify it under the
+   log key already accepted in step 2. If the log reports itself **unvouched**,
+   every handle on it means "whoever got there first" and the client MUST
+   surface that — §4.6, and §8.3's rule about not displaying a reassuring number
+   for a property the system does not have.
+8. Pin `(handle, identity_pk, entry_version, prev_entry_hash, epoch)`.
 
 **A handle that is not registered returns a proof of non-membership, not an
 error.** **That is the requirement and not the shipped property — read the
@@ -1184,7 +1811,7 @@ the rest of the directory.
 >   user "no such handle". It MUST NOT record it as an established fact about the
 >   directory, MUST NOT conclude from it that a handle it has previously resolved
 >   has been removed, and MUST NOT let it weaken or discard a pin it already
->   holds (step 7 above).
+>   holds (step 8 above).
 > - A client that holds a pin for a handle and is then told that handle does not
 >   exist **MUST fail closed and alarm.** It must also be told plainly what it
 >   has: a contradiction it **cannot prove to anyone**. The log signs tree heads,
@@ -1299,7 +1926,8 @@ Stated at the point of use, and it is the correction
 | Its own key history, unbroken by version and by hash chain (~2.6 ms) | That the witness set is independent — a social fact ([`THREAT-MODEL.md` §3.9](./THREAT-MODEL.md#39-malicious-directory-witness)) |
 | Monotonicity and the tree-head chain across roots **it has seen** (§6.3) | That the roots it has seen are the roots everyone else was shown |
 | That an entry **after the first** was authorized under §4.4 | That the log did not refuse someone else's submission |
-| — | That a handle's **first** entry came from whoever is entitled to the handle — §4.4 does not say what authorizes `entry_version == 1` (§12) |
+| Whether the log **claims** to vouch for handles at all (§4.6's signed policy) | That a handle's **first** entry came from whoever is entitled to the handle. §4.5 now says what authorizes `entry_version == 1`, and the log checks it; it is not committed to the tree and not served, so there is nothing for a client to verify (§4.7) |
+| — | That a log which reports itself vouched actually applied §4.5 — or that a handle registered while it was unvouched was later re-vouched. The policy is log-wide, not per-handle (§4.6) |
 | That a `SubmissionReceipt`'s deadline was met, for its own submissions | That a log which met the deadline did so on the branch everyone else sees |
 
 **A client cannot substitute its own consistency check for a witness's.** There
@@ -1368,12 +1996,13 @@ and the directory is a different service from a relay with a different lifecycle
 | Method | Path | Body / response | Who |
 |---|---|---|---|
 | `GET` | `/.well-known/free2z-kt/v1/log` | `SignedLogDescriptor` | anyone |
+| `GET` | `/.well-known/free2z-kt/v1/authority` | `SignedAuthorityPolicy` (§4.6) | anyone |
 | `GET` | `/kt/v1/sth` | latest `SignedTreeHead` + `WitnessCosignature<>` | anyone |
 | `GET` | `/kt/v1/sth/{epoch}` | that epoch's `SignedTreeHead` + cosignatures | anyone |
 | `GET` | `/kt/v1/audit?from={e0}&to={e1}` | `AppendOnlyProof` (akd protobuf, §9.4) + both tree heads | witnesses in practice (§10) |
 | `POST` | `/kt/v1/lookup` | `{handle}` → `DirectoryEntry` + `LookupProof` + tree head + cosignatures | anyone |
 | `POST` | `/kt/v1/history` | `{handle, params}` → `DirectoryEntry<>` + `HistoryProofV2` + tree head + cosignatures | anyone |
-| `POST` | `/kt/v1/submit` | `DirectoryEntry` → `SubmissionReceipt` | the handle's owner |
+| `POST` | `/kt/v1/submit` | `SubmissionEnvelope` → `SubmissionReceipt` | the handle's owner |
 | `POST` | `/kt/v1/cosign` | `WitnessCosignature` → empty | witnesses |
 
 Request and response bodies are `tls_codec`, `Content-Type:
@@ -1384,6 +2013,44 @@ rules including re-encode equality — with the §9.4 exception.
 is an unproved assertion rather than a proof, per §8.1's correction. `entry` and
 `proof` are empty in that case, and a response that populates either while
 claiming absence — or claims presence with them empty — is malformed.
+```
+struct {
+    opaque label<0..255>;         /* exactly "free2z/kt/v1/submission" */
+    uint16 kt_version;            /* 0x0001 */
+    opaque entry<0..2^24-1>;      /* tls_codec(DirectoryEntry) */
+    opaque assertion<0..2^24-1>;  /* tls_codec(HandleAssertion); empty where
+                                     §4.5 A1 says none is carried */
+    opaque identity_signature[64];/* the AssertionBinding signature, §4.5.2 */
+} SubmissionEnvelope;
+```
+
+> **Correction (2026-08-24) — `/kt/v1/submit` takes a `SubmissionEnvelope`, not
+> a bare `DirectoryEntry`.** The table said `DirectoryEntry` as first published,
+> which was accurate for the rules that existed then and is not a shape §4.5 can
+> be carried in: an assertion and its binding signature have nowhere to live
+> inside a `DirectoryEntry`, and putting them there would have been a change to
+> the structure the tree commits to (§4.7's last paragraph explains why that
+> change is the *better* one and why it is filed rather than made here). An
+> implementer working from the first revision must change the request body.
+>
+> `entry` is carried as **bytes rather than as a decoded structure**, so that
+> §4.4's rule 1 applies re-encode equality to the bytes that arrived rather than
+> to a structure the envelope's decoder already round-tripped. Decoding here and
+> re-encoding for the validator would put a second codec between the wire and
+> the rule, which is the parse-versus-verify gap
+> [`WIRE.md` §3.3](./WIRE.md#33-the-re-encode-equality-rule--mandatory) exists to
+> close.
+>
+> `label` and `kt_version` are a **type-and-version tag on an unsigned
+> container**, not signing labels: nothing signs a `SubmissionEnvelope`, and
+> §6.2's table is the set of labels that appear inside *signed* bytes. The tag is
+> there because a decoder that checks a constant before reading a field is
+> cheaper than one that infers the type from the shape.
+>
+> An **empty `assertion` field and an absent one are the same thing**, and §4.5's
+> A1 decides which is correct for a given submission. `identity_signature` is
+> **never optional on any path** — not on a vouched log, not on an unvouched one,
+> where it is the whole of the check (§4.6).
 
 `/kt/v1/cosign` is an inbound endpoint on the **log**, not on the witness: the
 witness pushes outbound, keeping §9.3's promise that a witness needs no inbound
@@ -1447,8 +2114,8 @@ is never reused** — [`WIRE.md` §10](./WIRE.md#10-error-codes)'s rule, for
 | 0 | — | Success. Reserved; never an error. |
 | 1 | `ERR_MALFORMED` | Decode failure, re-encode mismatch, oversize body. |
 | 2 | `ERR_UNSUPPORTED_VERSION` | Unknown `kt_version`, or a `log_id` this server does not serve. |
-| 3 | `ERR_BAD_SIGNATURE` | An `auth_signature`, `RotationProof`, reset or cosignature failed verification. |
-| 4 | `ERR_BAD_AUTHORIZATION` | Structurally valid but §4.4's rules unmet — e.g. a key change with one signature (rule 7), or a `same_key` entry that changes `identity_pk` (rule 6). |
+| 3 | `ERR_BAD_SIGNATURE` | An `auth_signature`, `RotationProof`, reset, cosignature, **authority signature or `AssertionBinding` signature** (§4.5 A13, A16) failed verification. |
+| 4 | `ERR_BAD_AUTHORIZATION` | Structurally valid but §4.4's rules unmet — e.g. a key change with one signature (rule 7), a `same_key` entry that changes `identity_pk` (rule 6), or any of §4.5's rules other than the four §4.5.6 maps elsewhere (rule 11). |
 | 5 | `ERR_VERSION_CONFLICT` | `entry_version` not `previous + 1`, `prev_entry_hash` mismatch, or a second entry for this handle in this epoch (§4.3). |
 | 6 | `ERR_COOLDOWN` | A `platform_reset` whose `effective_at_ms` has not arrived. |
 | 7 | `ERR_EPOCH_UNAVAILABLE` | The requested epoch or audit range is outside the served horizon (§9.3). |
@@ -1605,19 +2272,15 @@ change, and nothing here should be read as a promise that it is in flight.
 
 Deliberately, and listed rather than invented.
 
-- **What authorizes a handle's first entry — open, blocking, and not the
-  specification's decision to take.** §4.4's rules authorize `entry_version >= 2`
-  by reference to state a previous entry established, and say **nothing** about
-  `entry_version == 1`; as enumerated they accept a first entry for an
-  unregistered handle from whoever submits one. The second correction in §4.4
-  states the hole, the option space and what a decision has to settle, and
-  deliberately settles none of it: naming a vouching authority for handle
-  ownership is a product-and-trust decision of the same weight as
-  [ADR 0014](./decisions/0014-directory-key-rotation.md)'s reset authority, which
-  [#551](https://github.com/free2z/zuu/issues/551) is open about precisely
-  because it was created in a specification instead. **Until it is decided, an
-  implementation of §4.4 is incomplete by construction.**
-  [#594](https://github.com/free2z/zuu/issues/594),
+- **~~What authorizes a handle's first entry.~~ Closed 2026-08-24 by §4.5, §4.6
+  and §4.7.** Kept in the list rather than deleted, per this repository's
+  convention that a reader arriving from an older citation should find the answer
+  and not a hole. It said the question was open, blocking, and not the
+  specification's to take; the decision turned out to be one the owner had
+  already taken on [#305](https://github.com/free2z/zuu/issues/305) and which
+  [#554](https://github.com/free2z/zuu/issues/554)'s brief did not name, so what
+  §4.5 does is transcribe it and the two implementations that already
+  interoperate under it. [#594](https://github.com/free2z/zuu/issues/594),
   [§13-S](./ARCHITECTURE.md#13-open-questions).
 - **Proving that a handle is unregistered — open, and the specification's
   requirement stands unmet.** §8.1 and §9.5 require the log to *prove* absence;
@@ -1631,6 +2294,34 @@ Deliberately, and listed rather than invented.
   [#634](https://github.com/free2z/zuu/issues/634),
   [§13-T](./ARCHITECTURE.md#13-open-questions),
   [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved).
+- **Client verification of a first entry's authorization — open, and narrower
+  than what it replaces.** A `HandleAssertion` is checked by the log and is not
+  committed to the tree, so unlike every other row of §4.4's table it is not
+  something a client, auditor or witness can check. §4.5 therefore closes the
+  first-entry hole against third parties and not against the log (§4.7). Closing
+  it means moving the assertion and its binding signature into
+  `EntryAuthorization`, which is a wire change to a structure two
+  implementations have frozen. Filed, not invented here.
+  [#649](https://github.com/free2z/zuu/issues/649),
+  [#594](https://github.com/free2z/zuu/issues/594).
+- **What authorizes the *issuance* of a `HandleAssertion`.** §4.5 fixes
+  everything a log does with an assertion and nothing about how a user gets one.
+  In particular, whether `intent = reset` requires more than `intent = bind` —
+  a recent-authentication window, a second factor, a proof from the outgoing
+  identity key — is unspecified, and an issuer that treats them alike makes
+  session theft the first step of a handle takeover (§4.7). This is an
+  account-security decision rather than a wire encoding, which is why §4.5 does
+  not invent one, and it is a real gap rather than a tidy deferral. The two
+  conformance rules §4.5 states more strictly than a shipped implementation are
+  tracked as [#651](https://github.com/free2z/zuu/issues/651) (`account_epoch`)
+  and [#650](https://github.com/free2z/zuu/issues/650) (A17's ledger).
+- **The authority key's own distribution and rotation.** §4.6 publishes the
+  authority set in a document signed by the log, which is not a trust root —
+  exactly the caveat §9.1 states for `reset_authority_pk`, and the same
+  unanswered question §1.2 already lists for the reset authority key. Rotation is
+  set membership and takes effect only when the log's configuration changes;
+  there is no revocation artifact and no way for a client to learn that a key was
+  evicted. The two gaps are the same gap and should be closed together.
 - **Epoch cadence and maximum merge delay values** —
   [§13-P](./ARCHITECTURE.md#13-open-questions). §5's 600 s / 3,600 s are
   placeholders chosen to make silence detectable, not measured answers.
