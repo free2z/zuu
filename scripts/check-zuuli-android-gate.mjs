@@ -13,7 +13,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "0a18f5b385da5ebfee7392fd1f5fc9df137ae0cc02ab4101332066a5ba65b7dc";
+  "c6310395af8224c88b3e58fddf182950d65c52cf12caf6b48bbf82815694f52b";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const classicSeedBoundaryInputs = [
@@ -228,6 +228,16 @@ function check(workflow, toolchainEnv) {
 
 function runSelfTest(workflow, toolchainEnv) {
   const mutations = [
+    [
+      "the change detector restores a line-delimited Git producer",
+      "git diff --name-only -z --no-renames",
+      "git diff --name-only --no-renames",
+    ],
+    [
+      "the change detector restores a line-delimited consumer",
+      "while IFS= read -r -d '' file; do",
+      "while IFS= read -r file; do",
+    ],
     ["the armv7 target is replaced", `targets: ${target}`, "targets: aarch64-linux-android"],
     ["the target check is replaced", `--target ${target}`, "--target aarch64-linux-android"],
     ["the pinned NDK is changed", `'ndk;${ndk}'`, "'ndk;latest'"],
