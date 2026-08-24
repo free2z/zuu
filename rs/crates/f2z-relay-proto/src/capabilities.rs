@@ -488,8 +488,8 @@ pub fn defaults(relay_identity_pk: &PublicKey, published_at_ms: u64) -> Result<C
 
         // §5.5 default: ±2 minutes.
         clock_skew_ms: 120_000,
-        // Twice the skew, for the reason `Refusal::AntiReplayWindowTooShort`
-        // gives. `WIRE.md` publishes no default for this field.
+        // Twice the skew. Equality is sound because §5.5 requires seen-set
+        // entries to remain live through their expiration instant.
         antireplay_window_ms: 240_000,
         antireplay_persistence: AntiReplayPersistence::Volatile.code(),
 
