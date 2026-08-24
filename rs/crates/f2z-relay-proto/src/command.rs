@@ -829,6 +829,183 @@ mod tests {
 
     const NOW: u64 = 1_800_000_000_000;
 
+    /// Assemble a request frame the way a hostile client would, rather than
+    /// the way [`SignedCommand::create`] permits.
+    ///
+    /// `create` derives `signer_key` from the signing key it is handed and
+    /// runs [`check_transcript_address`] and `C::check` before it returns, so
+    /// **every frame it can produce has already satisfied §5.1 step 5**. That
+    /// makes it structurally unable to express the frame step 5 exists to
+    /// refuse, and a test that only calls `create` therefore says nothing
+    /// about [`CommandVerifier::verify`] — which is the side a relay runs
+    /// against input it did not author.
+    ///
+    /// This builds the same bytes from the parts, with a *genuine* signature
+    /// over exactly the `address` and `signer_key` named, so verification
+    /// reaches step 5 instead of stopping at step 4's `ERR_BAD_SIGNATURE`.
+    fn hostile_request<C: RelayCommand>(
+        request_id: u32,
+        address: QueueAddress,
+        nonce: Nonce,
+        signing_key: &SigningKey,
+        body: &C::Request,
+    ) -> Request {
+        let encoded = body.encode_canonical().unwrap();
+        let context = AuthContext {
+            address,
+            signer_key: signing_key.public_key(),
+            timestamp_ms: NOW,
+            nonce,
+        };
+        let transcript = transcripts()
+            .build(C::COMMAND.code(), request_id, &context, &encoded)
+            .unwrap();
+        let auth = context.into_auth(signing_key.sign(&transcript.signing_bytes().unwrap()));
+        Request::new(C::COMMAND.code(), CommandAuth::Signed(auth), encoded).unwrap()
+    }
+
+    #[test]
+    fn verify_refuses_a_bind_send_whose_signer_is_not_the_key_it_binds() {
+        // §7.4's send-capability theft, as a frame. The send side is unbound,
+        // so the only thing the signature can prove is possession of the key
+        // in the body; a caller that signs with its own key and names someone
+        // else's `send_key` is binding a key it does not hold.
+        let thief = SigningKey::from_seed(&[0x21; 32]);
+        let victim = SigningKey::from_seed(&[0x22; 32]);
+        let address = QueueAddress::new([0x23; 32]);
+
+        // Control: the same construction, signer and `send_key` agreeing, is
+        // accepted. Without this the refusal below could be any other step.
+        let honest = hostile_request::<ops::BindSend>(
+            1,
+            address,
+            nonce(0x21),
+            &thief,
+            &BindSendRequest {
+                send_key: thief.public_key(),
+            },
+        );
+        assert!(verifier().verify::<ops::BindSend>(NOW, 1, &honest).is_ok());
+
+        let stolen = hostile_request::<ops::BindSend>(
+            1,
+            address,
+            nonce(0x22),
+            &thief,
+            &BindSendRequest {
+                send_key: victim.public_key(),
+            },
+        );
+        assert_eq!(
+            verifier()
+                .verify::<ops::BindSend>(NOW, 1, &stolen)
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::NoAccess))
+        );
+    }
+
+    #[test]
+    fn verify_refuses_a_create_queue_whose_signer_is_not_the_key_it_registers() {
+        // The same rule on the other command that carries its own key: a
+        // queue registered against a `recv_key` its creator does not hold is
+        // a queue whose ciphertext the creator can never read and someone
+        // else can.
+        let caller = SigningKey::from_seed(&[0x24; 32]);
+        let stranger = SigningKey::from_seed(&[0x25; 32]);
+        let body = |recv_key| CreateQueueRequest {
+            recv_key,
+            req_message_ttl_seconds: 0,
+            req_idle_ttl_seconds: 0,
+            flags: 0,
+            stamp: PowStamp::empty(),
+        };
+
+        let honest = hostile_request::<ops::CreateQueue>(
+            2,
+            QueueAddress::zero(),
+            nonce(0x24),
+            &caller,
+            &body(caller.public_key()),
+        );
+        assert!(
+            verifier()
+                .verify::<ops::CreateQueue>(NOW, 2, &honest)
+                .is_ok()
+        );
+
+        let hijacked = hostile_request::<ops::CreateQueue>(
+            2,
+            QueueAddress::zero(),
+            nonce(0x25),
+            &caller,
+            &body(stranger.public_key()),
+        );
+        assert_eq!(
+            verifier()
+                .verify::<ops::CreateQueue>(NOW, 2, &hijacked)
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::NoAccess))
+        );
+    }
+
+    #[test]
+    fn verify_refuses_a_frame_whose_transcript_address_contradicts_its_command() {
+        // §6's table both ways. The zero address is the sentinel for "no queue
+        // exists yet", so an `ACK` carrying it is an acknowledgement of no
+        // queue at all, and a `CREATE_QUEUE` carrying a real one is a creation
+        // command about a queue that already exists.
+        let key = SigningKey::from_seed(&[0x26; 32]);
+        let real = QueueAddress::new([0x27; 32]);
+
+        let acknowledgement = |address| {
+            hostile_request::<ops::Ack>(
+                3,
+                address,
+                nonce(0x26),
+                &key,
+                &AckRequest { up_to_index: 1 },
+            )
+        };
+        assert!(
+            verifier()
+                .verify::<ops::Ack>(NOW, 3, &acknowledgement(real))
+                .is_ok()
+        );
+        assert_eq!(
+            verifier()
+                .verify::<ops::Ack>(NOW, 3, &acknowledgement(QueueAddress::zero()))
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::Malformed))
+        );
+
+        let creation = |address| {
+            hostile_request::<ops::CreateQueue>(
+                4,
+                address,
+                nonce(0x27),
+                &key,
+                &CreateQueueRequest {
+                    recv_key: key.public_key(),
+                    req_message_ttl_seconds: 0,
+                    req_idle_ttl_seconds: 0,
+                    flags: 0,
+                    stamp: PowStamp::empty(),
+                },
+            )
+        };
+        assert!(
+            verifier()
+                .verify::<ops::CreateQueue>(NOW, 4, &creation(QueueAddress::zero()))
+                .is_ok()
+        );
+        assert_eq!(
+            verifier()
+                .verify::<ops::CreateQueue>(NOW, 4, &creation(real))
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::Malformed))
+        );
+    }
+
     #[test]
     fn a_signed_append_round_trips_through_verification() {
         let key = SigningKey::from_seed(&[1u8; 32]);
