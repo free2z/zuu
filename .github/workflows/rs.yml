@@ -333,6 +333,10 @@ jobs:
       # `f2z-relay-testkit` is absent for a neighbouring reason: it opens
       # sockets, spawns tasks and reads a clock, and a test harness that could
       # reach the browser build could end up in the shipped bundle.
+      #
+      # `f2z-relay` — the server binary the paragraph above anticipated — is all
+      # three at once: AGPL-3.0, tokio and SQLite, and never a browser. Adding a
+      # crate to this line is a claim that a client links it.
       - name: Build the client-linked crates for the browser target
         working-directory: rs
         run: |

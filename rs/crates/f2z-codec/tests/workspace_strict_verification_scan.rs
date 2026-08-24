@@ -350,6 +350,31 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             receiver: "identity",
         },
     },
+    // The two relays. Neither verifies a signature itself: each builds a
+    // `CommandVerifier` from `f2z-relay-proto` and hands it the frame, so what
+    // they reach is `command.rs::verify`, which reaches `key.rs::verify`'s
+    // `verify_strict`. `target` names the terminal strict verifier and
+    // `receiver` names the local call, exactly as `command.rs::verify`'s own
+    // row does. Registered rather than exempted, because "it only delegates" is
+    // the claim this scan exists to check rather than accept.
+    VerifyFn {
+        file: "f2z-relay/src/engine.rs",
+        name: "verify_with",
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-relay-proto/src/key.rs::verify",
+            receiver: "verifier",
+        },
+    },
+    VerifyFn {
+        file: "f2z-relay-testkit/src/engine.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-relay-proto/src/key.rs::verify",
+            receiver: "verifier",
+        },
+    },
     VerifyFn {
         file: "f2z-authority/src/key.rs",
         name: "verify",
