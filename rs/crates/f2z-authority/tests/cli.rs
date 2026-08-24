@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use f2z_authority::{HandleAssertion, Intent, SigningKey, authority_id};
+use f2z_authority::{ACCOUNT_EPOCH_CEILING, HandleAssertion, Intent, SigningKey, authority_id};
 use f2z_codec::canonical::{Canonical as _, decode_canonical};
 
 const FIXED_KEY_SEED: [u8; 32] = [
@@ -42,6 +42,7 @@ const RAW_ISSUE_SEED: [u8; 32] = [
     0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
     0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
 ];
+const EXPECTED_HELP: &str = include_str!("fixtures/f2z-assert-help.txt");
 
 struct TestDirectory(PathBuf);
 
@@ -86,6 +87,51 @@ fn command_strings(args: &[String]) -> Output {
         .args(args)
         .output()
         .unwrap()
+}
+
+fn ascii_numbers(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut numbers = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_digit() {
+            let start = index;
+            while index < bytes.len() && bytes[index].is_ascii_digit() {
+                index += 1;
+            }
+            numbers.push(&text[start..index]);
+        } else {
+            index += 1;
+        }
+    }
+    numbers
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+#[test]
+fn every_usage_path_publishes_the_library_epoch_ceiling() {
+    assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
+    assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
+    for args in [&["--help"][..], &[][..]] {
+        let output = command(args);
+        assert_eq!(output.status.success(), !args.is_empty());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout, EXPECTED_HELP);
+        assert_eq!(fnv1a64(stdout.as_bytes()), 0xd869_f92d_9457_63b0);
+        assert!(stdout.contains(&ACCOUNT_EPOCH_CEILING.to_string()));
+        assert_eq!(
+            ascii_numbers(&stdout),
+            [
+                "2", "2", "2", "2", "25519", "64", "2", "2", "64", "32", "0600", "0014", "4", "5",
+                "4", "0", "1048576", "900000", "15",
+            ]
+        );
+    }
 }
 
 #[cfg(unix)]
