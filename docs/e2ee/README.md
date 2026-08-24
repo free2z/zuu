@@ -14,6 +14,12 @@ deliberately and can be reviewed by a third party.
   wire protocol: `WIRE.md` and ADRs `0008`–`0012`, `0014`. Nothing could be
   implemented against placeholders, so this closes those gaps **on the record**,
   before code exists.
+- **Phase 1, directory** ([#554](https://github.com/free2z/zuu/issues/554)) fixes
+  the key-transparency protocol: `KT.md` and ADR `0013`, unblocked by spike
+  [#544](https://github.com/free2z/zuu/issues/544). It also **corrects**
+  `ARCHITECTURE.md` §9.2, which claimed clients could verify consistency across
+  every root they had seen — they cannot, and the correction says so with a date
+  rather than editing the sentence away.
 
 ## Contents
 
@@ -22,13 +28,8 @@ deliberately and can be reviewed by a third party.
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | The design. Layers, key hierarchy and derivation, delivery-service semantics, retention model, metadata model, federation and relay trust, FROST/DKG application design, open questions. |
 | [`THREAT-MODEL.md`](./THREAT-MODEL.md) | Adversaries, what each can do, and for each one the defense — or a plain statement that there is none. Includes the known, accepted limits. |
 | [`WIRE.md`](./WIRE.md) | The relay protocol, specified for a second implementer: transport, framing, canonical serialization, the command set with request/response shapes and stable error codes, the signing transcript, anti-replay, queue lifecycle, ACK semantics, TTLs, padding enforcement, the capability document, first contact, and anti-abuse. Also carries the two resolved pre-checks — the messaging handle charset (§14) and the SimpleX clean-room posture (§15). |
-| [`decisions/`](./decisions/) | One ADR per decision, `0001`–`0012` and `0014`. |
-
-**Not here yet, deliberately:** `KT.md` and **ADR 0013** — the key-transparency
-log construction (`SignedTreeHead`, epoch cadence, proof encodings, the full
-`DirectoryEntry`, witness-cosignature format). They are blocked on spike
-[#544](https://github.com/free2z/zuu/issues/544). The gap in the ADR numbering is
-intentional so that the absence is visible rather than silent.
+| [`KT.md`](./KT.md) | The key-transparency protocol — `WIRE.md`'s analogue for the directory, specified for a second implementer: the `DirectoryEntry` structure and what authorizes it, `SignedTreeHead` and its signing transcript, log-key rotation, epoch cadence and maximum merge delay, the submission receipt, the witness poll-verify-cosign protocol and its fault evidence, the `WitnessCosignature` format, the client threshold rule and fail-closed behaviour, the proof-serving API, and where `akd`'s types sit underneath ours. |
+| [`decisions/`](./decisions/) | One ADR per decision, `0001`–`0014`. |
 
 ## The binding decisions
 
@@ -50,10 +51,13 @@ which is what ADR 0007 does to ADR 0003.
 
 ## The Phase 1 wire decisions
 
-Not owner decisions — these are **invented in the specification**, each recording
-what the merged docs left open, the answer chosen, and the alternatives rejected.
-An implementation PR that contradicts one should be rejected, or should first
-change the decision on the record.
+Not owner policy decisions — these are **invented in the specification**, each
+recording what the merged docs left open, the answer chosen, and the alternatives
+rejected. An implementation PR that contradicts one should be rejected, or should
+first change the decision on the record. **0013 is the exception**: it was not
+invented but decided by a timeboxed spike with published measurements
+([#544](https://github.com/free2z/zuu/issues/544)) and accepted by the owner, and
+it is the one ADR here whose consequences include *correcting* a merged claim.
 
 | ADR | Decision |
 |---|---|
@@ -62,7 +66,7 @@ change the decision on the record.
 | [0010](./decisions/0010-signing-transcript-and-ack-semantics.md) | **Transcript, anti-replay, ACK** — a fixed transcript including a **relay identity binding** (closing a live cross-relay `ACK` replay that deletes messages) and a **TLS exporter channel binding** (absent behind a terminating proxy, and the consequences stated); a bounded timestamp window plus a fail-closed `(key, nonce)` seen-set; ACK cumulative, monotone, idempotent, never selective, never beyond the head. |
 | [0011](./decisions/0011-first-contact-contact-queues.md) | **First contact** — a hard-capped **contact queue** whose send side is never bound, published in the owner's directory entry, accepting unsigned proof-of-work-stamped appends. Closes a genuine hole: there was no path for the `Welcome` that creates the group. PoW taxes phones far more than rented GPUs, and disk exhaustion is made expensive, not closed. |
 | [0012](./decisions/0012-anti-abuse-v1.md) | **Anti-abuse v1** — connection limits, per-queue quotas, PoW-gated queue creation, global backpressure. **Never delete un-acked messages to make room**; refusing new writes is the correct failure mode. States what is not closed. |
-| — | **0013 is deliberately absent** — the key-transparency log construction, blocked on [#544](https://github.com/free2z/zuu/issues/544). |
+| [0013](./decisions/0013-key-transparency-log.md) | **Key-transparency log construction** — adopt [`akd`](https://github.com/facebook/akd), the SEEMless/Parakeet-lineage zero-knowledge set behind WhatsApp Key Transparency, rather than hand-rolling the Merkle machinery. Hard floor `>= 0.13.0`, held by a `cargo-deny` `[[bans.deny]]` entry because **no advisory exists** for the append-only bypass that sets it, so `cargo audit` passes on a stale pin forever. Not an owner *policy* decision but an owner-accepted *spike* outcome ([#544](https://github.com/free2z/zuu/issues/544)) — the one entry in these tables with measurements behind it. |
 | [0014](./decisions/0014-directory-key-rotation.md) | **Directory key rotation** — same-key entries self-signed; a key *change* needs both a rotation proof by the outgoing key and a signature by the new key; a *lost* key needs a platform-authority reset that raises a **non-dismissible** alarm and applies a multi-day cooldown. A real weakening, announced loudly, which is the whole mitigation. |
 
 ## Prior art in this repo
@@ -93,9 +97,18 @@ against it.
 
 Phase 0's caveat still governs everything it wrote: constants and encodings it
 marked *proposed* were placeholders. `WIRE.md` and ADRs `0008`–`0012`, `0014`
-replace those placeholders for the relay protocol, and say so where they narrow or
-correct a Phase 0 statement. Everything above the relay — the KT log
-construction, `KeyPackage` publication, push notifications, padding bucket sizes,
-the redundancy factor *k* — remains open and is listed in
-[`ARCHITECTURE.md` §13](./ARCHITECTURE.md#13-open-questions) rather than answered
-by invention.
+replace those placeholders for the relay protocol, and `KT.md` with ADR `0013`
+does the same for the directory — each saying so where it narrows or corrects a
+Phase 0 statement. Two Phase 0 claims have now been corrected rather than
+rewritten, with dates: `ARCHITECTURE.md` §5.4 (queue addresses are not
+exporter-derived) and §9.2 (**clients cannot verify append-only consistency; only
+witnesses can**), with the consequences carried into
+[`THREAT-MODEL.md` §3.1](./THREAT-MODEL.md#31-malicious-or-compromised-free2z-server)
+and [§3.9](./THREAT-MODEL.md#39-malicious-directory-witness).
+
+Still open above the relay: `KeyPackage` publication, push notifications, padding
+bucket sizes, the redundancy factor *k*, the client gossip protocol, the witness
+independence criterion and the default *t*, and the KT epoch cadence. All are
+listed in [`ARCHITECTURE.md` §13](./ARCHITECTURE.md#13-open-questions) and in
+[`KT.md` §12](./KT.md#12-what-this-document-leaves-open) rather than answered by
+invention.

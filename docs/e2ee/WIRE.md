@@ -5,7 +5,8 @@
 [#545](https://github.com/free2z/zuu/issues/545) (this document),
 [#131](https://github.com/free2z/zuu/issues/131).
 **Companion:** [`ARCHITECTURE.md`](./ARCHITECTURE.md),
-[`THREAT-MODEL.md`](./THREAT-MODEL.md), [`decisions/`](./decisions/).
+[`THREAT-MODEL.md`](./THREAT-MODEL.md), [`KT.md`](./KT.md),
+[`decisions/`](./decisions/).
 **Decides:** [ADR 0008](./decisions/0008-transport-and-serialization.md),
 [0009](./decisions/0009-queue-addressing-and-binding.md),
 [0010](./decisions/0010-signing-transcript-and-ack-semantics.md),
@@ -41,20 +42,23 @@ capability document, first contact, and anti-abuse v1.
 
 ### 1.2 What it deliberately does not fix
 
-**The key-transparency log construction is not in this document and not in this
-change.** `SignedTreeHead` format, epoch cadence, inclusion- and consistency-proof
+**The key-transparency log construction is not in this document.**
+`SignedTreeHead` format, epoch cadence, inclusion- and consistency-proof
 encodings, the full `DirectoryEntry` structure and the witness-cosignature message
-format belong in a companion `KT.md` with **ADR 0013**, and both are blocked on
-the outcome of spike [#544](https://github.com/free2z/zuu/issues/544). The ADR
-numbering here skips 0013 for exactly that reason: the gap is intentional and
-visible rather than silent.
+format belong in a companion document. When this document was written they were
+blocked on spike [#544](https://github.com/free2z/zuu/issues/544) and the ADR
+numbering skipped 0013 so that the gap was visible rather than silent. **That
+spike closed on 2026-08-23**, and they are now specified in
+[`KT.md`](./KT.md) with [ADR 0013](./decisions/0013-key-transparency-log.md).
 
-Two places below depend on that missing design and say so at the point of use:
+Two places below depend on that design and say so at the point of use:
 
-- §12.2 — a contact endpoint is a field of a directory entry whose full structure
-  is deferred.
+- §12.2 — a contact endpoint is a field of a directory entry. Its structure is
+  now [`KT.md` §4.1](./KT.md#41-structure).
 - §12.5 — MLS `KeyPackage` publication, last-resort key packages and their
-  exhaustion behaviour are directory design, not relay design.
+  exhaustion behaviour are directory design, not relay design, and are **still
+  open**: `KT.md` deliberately does not answer them
+  ([`KT.md` §12](./KT.md#12-what-this-document-leaves-open)).
 
 [ADR 0014](./decisions/0014-directory-key-rotation.md) settles directory *key
 rotation* only, and is written so that it can be implemented on whatever log
@@ -1455,8 +1459,10 @@ The **published address** lives in the owner's directory entry:
 contact_endpoints: [ { relay_url, relay_id, contact_addr }, ... ]
 ```
 
-The full `DirectoryEntry` structure is deferred with `KT.md` and **ADR 0013**
-(§1.2). This document specifies only that the field exists, what it contains, and
+The full `DirectoryEntry` structure is now
+[`KT.md` §4.1](./KT.md#41-structure), which carries this as a
+`ContactEndpoint<0..2^16-1>` covered by the entry's authorization signature.
+This document specifies only that the field exists, what it contains, and
 that it is covered by whatever signature the entry carries — a contact endpoint
 that is not authenticated by the directory is a server-supplied address, which is
 the MITM of [#133](https://github.com/free2z/zuu/issues/133) reintroduced at the
@@ -1885,10 +1891,14 @@ This closes [`ARCHITECTURE.md` §13-E](./ARCHITECTURE.md#131-closed).
 Deliberately, and listed rather than invented:
 
 - **The key-transparency log construction** — `SignedTreeHead`, epoch cadence,
-  proof encodings, the full `DirectoryEntry`, witness-cosignature format. Blocked
-  on [#544](https://github.com/free2z/zuu/issues/544); lands as `KT.md` with
-  ADR 0013 (§1.2).
-- **MLS `KeyPackage` publication and exhaustion** (§12.5) — directory design.
+  proof encodings, the full `DirectoryEntry`, witness-cosignature format. **No
+  longer open**: [#544](https://github.com/free2z/zuu/issues/544) closed on
+  2026-08-23 and it landed as [`KT.md`](./KT.md) with
+  [ADR 0013](./decisions/0013-key-transparency-log.md) (§1.2). Kept in this list
+  rather than deleted, so a reader arriving via an old citation finds the answer
+  instead of a hole.
+- **MLS `KeyPackage` publication and exhaustion** (§12.5) — directory design, and
+  still open after `KT.md`, which says so explicitly.
 - **Padding bucket sizes** — [§13-F](./ARCHITECTURE.md#13-open-questions).
   This document deliberately puts the set in configuration so the measured answer
   is cheap to adopt (§9).
