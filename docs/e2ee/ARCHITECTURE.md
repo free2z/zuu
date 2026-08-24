@@ -1145,20 +1145,26 @@ deliberate.
   a memory-hard function is affordable at relay scale is undecided.
 - **O. Messaging-handle eligibility for existing accounts.** Opened 2026-08-23 by
   [`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved).
-  Messaging handles are `[a-z0-9_]{1,30}`, ASCII, so that homograph and
-  mixed-script impersonation does not exist. free2z usernames are broader
+  Messaging handles are `[a-z0-9_]{1,30}`, ASCII, so that **cross-script**
+  homograph and mixed-script impersonation does not exist — same-script ASCII
+  lookalikes such as `1`/`l` remain and are a client rendering problem
+  ([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
+  free2z usernames are broader
   (`^[\w.@+-]+$`, up to 150 characters), so some existing accounts are not
-  eligible. **Measured 2026-08-24 — and still open**, because measurement was
+  eligible. **Measured 2026-08-23 — and still open**, because measurement was
   never the whole question. What the measurement settled:
-  - **How many, closed.** **Approximately 90% of existing accounts are eligible
+  - **What share, closed.** **Approximately 90% of existing accounts are eligible
     after case-folding and approximately 10% are not** — overwhelmingly because
     the username contains `.` `@` `+` or `-`; non-ASCII characters and
-    over-length names account for very few. It is neither the rounding error nor
-    the migration project the question was framed around, and it is not a set of
-    dead rows: **every ineligible account has logged in at least once and all but
-    one is still active.** Absolute counts are business data and are deliberately
-    not published in this repository; they are recorded in the deployment
-    repository.
+    over-length names account for very few. It is not a set of dead rows:
+    **every ineligible account has logged in at least once and all but one is
+    still active.** Whether that is a rounding error or a migration project is a
+    question about the *absolute* count and not about the share, and absolute
+    counts are business data, deliberately not published in this repository; they
+    are recorded in the deployment repository. The earlier answer that it was
+    "neither" rested on a scale qualifier that the redaction to proportions
+    removed, and is withdrawn — see the correction in
+    [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted).
   - **Which validator, closed.** `Creator(AbstractUser)` does not override
     `username`; the field is recorded with
     `UnicodeUsernameValidator`. **Non-ASCII usernames are legal on free2z today
