@@ -34,9 +34,9 @@
 //! *different* values on purpose — a swap is only detectable if the two values
 //! differ.
 //!
-//! The BLAKE2b known answers in [`labels`] were computed with two tools that
-//! are not this crate: `python3 -c 'hashlib.blake2b(data, digest_size=32)'` and
-//! `b2sum -l 256`, which agree.
+//! The BLAKE2b known answers were computed with two tools that are not this
+//! crate — `python3 -c 'hashlib.blake2b(data, digest_size=32)'` and
+//! `b2sum -l 256` — which agree with each other.
 //!
 //! # Encoding rules used throughout, from the spec
 //!
@@ -51,14 +51,13 @@
 
 // Test code, read by a person looking at a failure. The workspace denies these
 // because a panic in the relay's parser is a remote denial of service; that
-// hazard does not exist in a test binary.
+// hazard does not exist in a test binary. `clippy::panic` is allowed because
+// `assert_wire` reports which spec field the first divergent byte falls in,
+// which `assert_eq!` cannot do.
 #![allow(
     clippy::unwrap_used,
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
-    // `assert_wire` reports which spec field the first divergence falls in,
-    // which `assert_eq!` cannot do. The lint exists because a panic in the
-    // relay's parser is a remote denial of service; this is a test binary.
     clippy::panic
 )]
 
