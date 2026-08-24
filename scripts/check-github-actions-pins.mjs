@@ -50,11 +50,25 @@ const RUST_ROOT_CONTRACTS = [
     selectorId: "filter",
     selectorOutput: "zuuli",
     selectorOutputs: [
-      { name: "zuuli", probeRoot: "wallet" },
+      {
+        name: "zuuli",
+        probeRoot: "wallet",
+        additionalProbePaths: [
+          "wallet/nested/future/source.rs",
+          "wallet/Cargo.toml",
+          "wallet/nested/future/Cargo.toml",
+        ],
+      },
       {
         name: "zuuallet_schema",
         probeRoot: "wallet/zuuallet/src-tauri",
       },
+    ],
+    excludedProbePaths: [
+      "wallet/README.md",
+      "wallet/docs/architecture.md",
+      "docs/e2ee/WIRE.md",
+      "rs/crates/f2z-relay/src/lib.rs",
     ],
     jobs: [
       [
@@ -1902,20 +1916,17 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
         /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*([A-Za-z0-9_]+)=true\s*\n\s*;;\s*\n\s*esac\s*$/gm,
       ),
     ].filter((match) => match[2] === contract.selectorOutput);
-    const exactRootPattern = `${contract.root}/*`;
-    if (
-      selectorArms.length !== 1 ||
-      !selectorArms[0][1]
-        .split("|")
-        .map((pattern) => pattern.trim())
-        .includes(exactRootPattern)
-    ) {
+    if (selectorArms.length !== 1) {
       failures.push(
-        `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner selector must contain the exact active ${exactRootPattern} case pattern`,
+        `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner selector must retain exactly one active arm for ${contract.selectorOutput}`,
       );
     }
     try {
-      for (const { name, probeRoot } of contract.selectorOutputs) {
+      for (const {
+        name,
+        probeRoot,
+        additionalProbePaths = [],
+      } of contract.selectorOutputs) {
         const probePaths = [
           `${probeRoot}/ordinary.rs`,
           `${probeRoot}/space name.rs`,
@@ -1923,6 +1934,7 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
           `${probeRoot}/newline\nname.rs`,
           `${probeRoot}/back\\slash.rs`,
           `${probeRoot}/-dash.rs`,
+          ...additionalProbePaths,
         ];
         for (const probePath of probePaths) {
           const fixture = rustRootSelectorProbeFixture(probePath);
@@ -1942,6 +1954,22 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
                 : `${contract.root}/ owner selector output ${name}`;
             failures.push(
               `${relativeFile}:${selector.start + 1}: ${subject} must actively select ${JSON.stringify(probePath)} as its effective last value`,
+            );
+          }
+        }
+      }
+      for (const probePath of contract.excludedProbePaths ?? []) {
+        const fixture = rustRootSelectorProbeFixture(probePath);
+        const result = executeRustRootSelector(
+          body,
+          fixture,
+          contract,
+          fixture.head,
+        );
+        for (const { name } of contract.selectorOutputs) {
+          if (result.status !== 0 || result.effective.get(name) !== "false") {
+            failures.push(
+              `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner selector must leave ${name} false for unrelated input ${JSON.stringify(probePath)}`,
             );
           }
         }
@@ -2842,7 +2870,7 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     const changed = body.replace(target, replacement);
     return source.slice(0, slice.start) + changed + source.slice(slice.end);
   };
-  const parkBroadSelector = (source, contract) => {
+  const parkPrimarySelector = (source, contract) => {
     const slice = jobSlice(source, "changes");
     if (!slice) return source;
     const body = source.slice(slice.start, slice.end);
@@ -2852,16 +2880,13 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     const endStart = body.indexOf(endMarker, start);
     if (start < 0 || endStart < 0) return source;
     const end = endStart + endMarker.length;
-    const broad = body.slice(start, end);
-    if (
-      !broad.includes(`${contract.root}/*`) ||
-      !broad.includes(`${contract.selectorOutput}=true`)
-    ) {
+    const primary = body.slice(start, end);
+    if (!primary.includes(`${contract.selectorOutput}=true`)) {
       return source;
     }
     const parked = [
       "            if false; then",
-      broad,
+      primary,
       "            fi",
       '            case "${file}" in',
       `              ${contract.root}/known/*)`,
@@ -3053,26 +3078,79 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         ),
       `${ownerPrefix} selector must fail open`,
     );
-    assertWorkflowFailure(
-      contract,
-      source,
-      `${contract.root}/ rejects a narrowed root selector`,
-      (value) =>
-        mutateJob(
-          value,
-          "changes",
-          `${contract.root}/*|`,
-          `${contract.root}/known/*|`,
-        ),
-      `${ownerPrefix} selector must contain the exact active`,
-    );
+    if (contract.root !== "wallet") {
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects a narrowed root selector`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            `${contract.root}/*|`,
+            `${contract.root}/known/*|`,
+          ),
+        `${ownerPrefix} selector must actively select`,
+      );
+    }
     assertWorkflowFailure(
       contract,
       source,
       `${contract.root}/ rejects a dead broad selector beside a narrowed live selector`,
-      (value) => parkBroadSelector(value, contract),
+      (value) => parkPrimarySelector(value, contract),
       `${ownerPrefix} selector must actively select`,
     );
+    if (contract.root === "wallet") {
+      const selectorPatternMutations = [
+        [
+          "wallet Rust source selector",
+          "wallet/*.rs|",
+          "",
+          "must actively select \"wallet/ordinary.rs\"",
+        ],
+        [
+          "wallet Rust source selector",
+          "wallet/*.rs|",
+          "wallet/*|",
+          'must leave zuuli false for unrelated input "wallet/README.md"',
+        ],
+        [
+          "wallet root Cargo manifest selector",
+          "wallet/Cargo.toml|",
+          "",
+          "must actively select \"wallet/Cargo.toml\"",
+        ],
+        [
+          "wallet root Cargo manifest selector",
+          "wallet/Cargo.toml|",
+          "wallet/*|",
+          'must leave zuuli false for unrelated input "wallet/README.md"',
+        ],
+        [
+          "wallet nested Cargo manifest selector",
+          "wallet/*/Cargo.toml|",
+          "",
+          "must actively select \"wallet/nested/future/Cargo.toml\"",
+        ],
+        [
+          "wallet nested Cargo manifest selector",
+          "wallet/*/Cargo.toml|",
+          "wallet/*|",
+          'must leave zuuli false for unrelated input "wallet/README.md"',
+        ],
+      ];
+      for (const [guard, target, replacement, needle] of
+        selectorPatternMutations) {
+        const action = replacement ? "broadened" : "removed";
+        assertWorkflowFailure(
+          contract,
+          source,
+          `${contract.root}/ rejects a ${action} ${guard}`,
+          (value) => mutateJob(value, "changes", target, replacement),
+          needle,
+        );
+      }
+    }
     const outputVouch = `          echo "${contract.selectorOutput}=$${contract.selectorOutput}" >> "$GITHUB_OUTPUT"`;
     assertWorkflowFailure(
       contract,

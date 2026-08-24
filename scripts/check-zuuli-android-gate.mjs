@@ -13,7 +13,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "c6310395af8224c88b3e58fddf182950d65c52cf12caf6b48bbf82815694f52b";
+  "1de7e96daff410630c5a04ec293d3a99ddce6eeb6c2835a62dd37a7a5e69fe46";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const classicSeedBoundaryInputs = [
@@ -60,7 +60,11 @@ function requireLine(failures, contents, expected, message) {
   if (!lines.includes(expected)) failures.push(message);
 }
 
-function check(workflow, toolchainEnv) {
+function check(
+  workflow,
+  toolchainEnv,
+  expectedChangeDetectorDigest = changeDetectorDigest,
+) {
   const failures = [];
   const changes = job(workflow, "changes");
   const android = job(workflow, "rust_android_32");
@@ -80,7 +84,7 @@ function check(workflow, toolchainEnv) {
   }
   const detector = namedStep(changes, "Detect release-impacting ZUULI changes");
   const detectorDigest = createHash("sha256").update(detector).digest("hex");
-  if (detectorDigest !== changeDetectorDigest) {
+  if (detectorDigest !== expectedChangeDetectorDigest) {
     failures.push(
       "change detector differs from the reviewed fail-open/fail-closed selector step",
     );
@@ -310,6 +314,23 @@ function runSelfTest(workflow, toolchainEnv) {
   if (baseline.length > 0) {
     throw new Error(`cannot self-test an invalid baseline:\n${baseline.join("\n")}`);
   }
+  for (const [name, digest] of [
+    [
+      "the reviewed change-detector digest is stale",
+      "c6310395af8224c88b3e58fddf182950d65c52cf12caf6b48bbf82815694f52b",
+    ],
+    ["the reviewed change-detector digest is wrong", "0".repeat(64)],
+  ]) {
+    const failures = check(workflow, toolchainEnv, digest);
+    if (
+      !failures.includes(
+        "change detector differs from the reviewed fail-open/fail-closed selector step",
+      )
+    ) {
+      throw new Error(`mutation escaped policy: ${name}`);
+    }
+    console.log(`self-test: ${name}: passed`);
+  }
   for (const [name, from, to] of mutations) {
     if (!workflow.includes(from)) throw new Error(`self-test fixture missing: ${name}`);
     const failures = check(workflow.replace(from, to), toolchainEnv);
@@ -351,7 +372,7 @@ function runSelfTest(workflow, toolchainEnv) {
     throw new Error("mutation escaped policy: pinned armv7 archiver is dead decoration");
   }
   console.log(
-    `Android gate policy self-test passed (${mutations.length + 4} mutations).`,
+    `Android gate policy self-test passed (${mutations.length + 6} mutations).`,
   );
 }
 
