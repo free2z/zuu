@@ -26,6 +26,7 @@
 //! a default all become the same loud, immediate, testable failure.
 
 use alloc::vec::Vec;
+use core::fmt;
 
 use tls_codec::{DeserializeBytes, SerializeBytes};
 
@@ -38,10 +39,32 @@ use crate::error::CodecError;
 /// agree. [`Canonicalized::bytes`] is therefore always safe to hash or sign:
 /// there is no path by which a caller can obtain the *received* bytes from
 /// here.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Canonicalized<T> {
     value: T,
     encoded: Vec<u8>,
+}
+
+/// Hand-written, like every other `Debug` in this crate that stands between a
+/// log line and a ciphertext.
+///
+/// `value` renders through its own `Debug`, which the newtypes of
+/// [`crate::types`] have already redacted. `encoded` is a bare `Vec<u8>` — the
+/// entire received frame, payload included — and a derived `Debug` would print
+/// it as a list of decimal integers. A decimal dump is a dump: 1 KiB of
+/// ciphertext becomes 5 KiB of log. This is the crate's stated property #2, and
+/// `Canonicalized` is the type every receive path holds, so it is the single
+/// worst place in the crate to leave that derived.
+impl<T: fmt::Debug> fmt::Debug for Canonicalized<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Canonicalized")
+            .field("value", &self.value)
+            .field(
+                "encoded",
+                &format_args!("<redacted; {} bytes>", self.encoded.len()),
+            )
+            .finish()
+    }
 }
 
 impl<T> Canonicalized<T> {
