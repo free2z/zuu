@@ -80,6 +80,19 @@ jobs:
           node scripts/check-hash-domain-labels.mjs --self-test
           node scripts/check-hash-domain-labels.mjs
 
+      # Also deliberately unconditional, and for a sharper reason than the one
+      # above. `.github/workflows/f2z-images.yml` carries an `on: pull_request:
+      # paths:` filter, so the way it fails is by *not running*: a filter that
+      # has drifted off rs/** produces no red job anywhere, and the three server
+      # images simply stop being rebuilt while the deployment goes on pulling a
+      # digest nobody has rebuilt in months. A check that only ran when the
+      # image workflow ran could never see that. This one runs on every pull
+      # request and reads the filter as data.
+      - name: Verify the f2z server image supply chain
+        run: |
+          node scripts/check-f2z-images.mjs --self-test
+          node scripts/check-f2z-images.mjs
+
       # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
       # wallet/rust-toolchain.toml, and are registered in the script's own
       # TOOLCHAIN_RESTATEMENTS/MANIFESTS arrays rather than by flags here. A
@@ -405,6 +418,8 @@ jobs:
           node scripts/check-workflow-gates.mjs
           node scripts/check-hash-domain-labels.mjs --self-test
           node scripts/check-hash-domain-labels.mjs
+          node scripts/check-f2z-images.mjs --self-test
+          node scripts/check-f2z-images.mjs
 
       - name: Verify required jobs succeeded or legitimately skipped
         shell: bash

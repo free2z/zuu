@@ -1,0 +1,13 @@
+# The build context is rs/ — the workspace root, because the build needs one
+# Cargo.lock. Everything below would either be rebuilt anyway or must not be
+# shipped into a builder.
+
+# A developer's local build output. Sending it would upload gigabytes and, worse,
+# let a stale host artefact reach a container build.
+target/
+
+# Nothing in the image build reads these.
+.git/
+.gitignore
+**/*.swp
+**/.DS_Store
