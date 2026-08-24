@@ -134,6 +134,7 @@ jobs:
           echo "zuuallet_schema=$zuuallet_schema" >> "$GITHUB_OUTPUT"
 
   frontend:
+    name: zuuli / frontend
     needs: changes
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
