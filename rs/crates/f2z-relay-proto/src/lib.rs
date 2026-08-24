@@ -51,6 +51,7 @@
 //! use f2z_relay_proto::command::{CommandVerifier, SignedCommand, ops};
 //! use f2z_relay_proto::hello::{RelayAnnouncement, hello_response, verify_hello_response};
 //! use f2z_relay_proto::key::SigningKey;
+//! use f2z_relay_proto::queue::{QueueKind, QueueState};
 //! use f2z_relay_proto::replay::{SeenSet, TimestampWindow};
 //!
 //! # fn main() -> Result<(), Box<dyn core::error::Error>> {
@@ -100,11 +101,18 @@
 //!     SeenSet::new(240_000, 65_536),
 //!     PaddingBuckets::default(),
 //! );
-//! let verified = verifier.verify::<ops::Append>(now, 1, &signed.request()?)?;
+//! let mut queue = QueueState::create(QueueKind::Standard, send_key.public_key());
+//! queue.bind_send(&send_key.public_key())?;
+//! let request = signed.request()?;
+//! let verified = verifier.verify_authorized::<ops::Append, _>(now, 1, &request, |candidate| {
+//!     queue.authorize_send(&candidate.signer_key())
+//! })?;
 //! assert_eq!(verified.signer_key(), send_key.public_key());
 //!
 //! // The same frame a second time is a replay, whatever it was the first time.
-//! assert!(verifier.verify::<ops::Append>(now, 1, &signed.request()?).is_err());
+//! assert!(verifier.verify_authorized::<ops::Append, _>(now, 1, &request, |candidate| {
+//!     queue.authorize_send(&candidate.signer_key())
+//! }).is_err());
 //! # Ok(())
 //! # }
 //! ```

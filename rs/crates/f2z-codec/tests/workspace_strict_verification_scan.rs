@@ -287,6 +287,8 @@ enum Strictness {
         target: &'static str,
         /// The local binding on which the wrapper method must be called.
         receiver: &'static str,
+        /// The method name called on `receiver`.
+        method: &'static str,
     },
     /// Its body calls a registered strict verifier as a **free function**
     /// rather than as a method — `sig::verify(key, message, signature)`.
@@ -359,6 +361,7 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         strictness: Strictness::DelegatesTo {
             target: "f2z-relay-proto/src/key.rs::verify",
             receiver: "key",
+            method: "verify",
         },
     },
     VerifyFn {
@@ -366,8 +369,19 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         name: "verify",
         occurrence: 0,
         strictness: Strictness::DelegatesTo {
+            target: "f2z-relay-proto/src/command.rs::verify_authorized",
+            receiver: "self",
+            method: "verify_authorized",
+        },
+    },
+    VerifyFn {
+        file: "f2z-relay-proto/src/command.rs",
+        name: "verify_authorized",
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
             target: "f2z-relay-proto/src/key.rs::verify",
             receiver: "verifying_key",
+            method: "verify",
         },
     },
     VerifyFn {
@@ -377,22 +391,23 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         strictness: Strictness::DelegatesTo {
             target: "f2z-relay-proto/src/key.rs::verify",
             receiver: "identity",
+            method: "verify",
         },
     },
     // The two relays. Neither verifies a signature itself: each builds a
     // `CommandVerifier` from `f2z-relay-proto` and hands it the frame, so what
-    // they reach is `command.rs::verify`, which reaches `key.rs::verify`'s
-    // `verify_strict`. `target` names the terminal strict verifier and
-    // `receiver` names the local call, exactly as `command.rs::verify`'s own
-    // row does. Registered rather than exempted, because "it only delegates" is
-    // the claim this scan exists to check rather than accept.
+    // they reach is `command.rs::verify_authorized`, which reaches
+    // `key.rs::verify`'s `verify_strict`. Registered rather than exempted,
+    // because "it only delegates" is the claim this scan exists to check
+    // rather than accept.
     VerifyFn {
         file: "f2z-relay/src/engine.rs",
         name: "verify_with",
         occurrence: 0,
         strictness: Strictness::DelegatesTo {
-            target: "f2z-relay-proto/src/key.rs::verify",
+            target: "f2z-relay-proto/src/command.rs::verify_authorized",
             receiver: "verifier",
+            method: "verify_authorized",
         },
     },
     VerifyFn {
@@ -400,8 +415,9 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         name: "verify",
         occurrence: 0,
         strictness: Strictness::DelegatesTo {
-            target: "f2z-relay-proto/src/key.rs::verify",
+            target: "f2z-relay-proto/src/command.rs::verify_authorized",
             receiver: "verifier",
+            method: "verify_authorized",
         },
     },
     VerifyFn {
@@ -417,6 +433,7 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         strictness: Strictness::DelegatesTo {
             target: "f2z-authority/src/key.rs::verify",
             receiver: "identity_key",
+            method: "verify",
         },
     },
     // ---- f2z-kt-core -------------------------------------------------------
@@ -903,6 +920,33 @@ fn registration_matches(entry: &VerifyFn, file: &str, name: &str, occurrence: us
     entry.file == file && entry.name == name && entry.occurrence == occurrence
 }
 
+fn delegation_reaches_strict_base(mut target: &str) -> bool {
+    for _ in 0..WORKSPACE_VERIFY_FNS.len() {
+        let Some((target_file, target_name)) = target.rsplit_once("::") else {
+            return false;
+        };
+        let Some(entry) = WORKSPACE_VERIFY_FNS
+            .iter()
+            .find(|entry| entry.file == target_file && entry.name == target_name)
+        else {
+            return false;
+        };
+        match entry.strictness {
+            Strictness::CallsVerifyStrict { .. } => return true,
+            Strictness::DelegatesTo {
+                target: next_target,
+                ..
+            }
+            | Strictness::DelegatesToFn {
+                target: next_target,
+                ..
+            } => target = next_target,
+            Strictness::NotASignatureCheck { .. } => return false,
+        }
+    }
+    false
+}
+
 fn calls_method(body: &str, name: &str) -> bool {
     identifier_positions(body, name).any(|at| {
         let before = body[..at].trim_end();
@@ -938,7 +982,9 @@ fn registered_body_has_required_call(strictness: &Strictness, body: &str) -> boo
         Strictness::CallsVerifyStrict { receiver } => {
             calls_method_on(body, receiver, "verify_strict")
         }
-        Strictness::DelegatesTo { receiver, .. } => calls_method_on(body, receiver, "verify"),
+        Strictness::DelegatesTo {
+            receiver, method, ..
+        } => calls_method_on(body, receiver, method),
         Strictness::DelegatesToFn { call, .. } | Strictness::NotASignatureCheck { via: call } => {
             calls_path(body, call)
         }
@@ -1041,6 +1087,7 @@ fn the_live_registry_contract_rejects_the_right_method_on_the_wrong_receiver() {
     let delegated = Strictness::DelegatesTo {
         target: "f2z-authority/src/key.rs::verify",
         receiver: "identity_key",
+        method: "verify",
     };
     let delegated_body = function_body(
         "fn verify_binding() { identity_key.verify(message, signature); }",
@@ -1265,15 +1312,10 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
                 );
             }
             Strictness::DelegatesTo { target, .. } => {
-                let (target_file, target_name) = target.rsplit_once("::").unwrap();
                 assert!(
-                    WORKSPACE_VERIFY_FNS
-                        .iter()
-                        .any(|other| other.file == target_file
-                            && other.name == target_name
-                            && matches!(other.strictness, Strictness::CallsVerifyStrict { .. })),
-                    "{}::{} delegates to {target}, which is not registered as a strict \
-                     verifier",
+                    delegation_reaches_strict_base(target),
+                    "{}::{} delegates to {target}, whose registered chain does not terminate in \
+                     a strict verifier",
                     entry.file,
                     entry.name
                 );

@@ -591,7 +591,8 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::CreateQueue>(connection, now, request_id, request)?;
+        let verified =
+            self.verify::<ops::CreateQueue>(connection, now, request_id, request, |_, _| Ok(()))?;
         let body: CreateQueueRequest = verified.into_body();
 
         // §13.1 layer 4, in the order the section states it: creation is the
@@ -645,8 +646,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified =
-            self.verify::<ops::CreateContactQueue>(connection, now, request_id, request)?;
+        let verified = self.verify::<ops::CreateContactQueue>(
+            connection,
+            now,
+            request_id,
+            request,
+            |_, _| Ok(()),
+        )?;
         let body: CreateContactQueueRequest = verified.into_body();
 
         let published = self.published_capabilities();
@@ -701,7 +707,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::Subscribe>(connection, now, request_id, request)?;
+        let verified = self.verify::<ops::Subscribe>(
+            connection,
+            now,
+            request_id,
+            request,
+            |state, candidate| self.preauthorize_recv(state, candidate),
+        )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
 
@@ -731,7 +743,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::Unsubscribe>(connection, now, request_id, request)?;
+        let verified = self.verify::<ops::Unsubscribe>(
+            connection,
+            now,
+            request_id,
+            request,
+            |state, candidate| self.preauthorize_recv(state, candidate),
+        )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
 
@@ -753,7 +771,10 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::Read>(connection, now, request_id, request)?;
+        let verified =
+            self.verify::<ops::Read>(connection, now, request_id, request, |state, candidate| {
+                self.preauthorize_recv(state, candidate)
+            })?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
         let body: ReadRequest = verified.into_body();
@@ -791,7 +812,10 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::Ack>(connection, now, request_id, request)?;
+        let verified =
+            self.verify::<ops::Ack>(connection, now, request_id, request, |state, candidate| {
+                self.preauthorize_recv(state, candidate)
+            })?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
         let body: AckRequest = verified.into_body();
@@ -818,7 +842,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::DeleteQueue>(connection, now, request_id, request)?;
+        let verified = self.verify::<ops::DeleteQueue>(
+            connection,
+            now,
+            request_id,
+            request,
+            |state, candidate| self.preauthorize_recv(state, candidate),
+        )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
 
@@ -842,7 +872,8 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::BindSend>(connection, now, request_id, request)?;
+        let verified =
+            self.verify::<ops::BindSend>(connection, now, request_id, request, |_, _| Ok(()))?;
         let send_addr = verified.address();
         let signer = verified.signer_key();
 
@@ -867,7 +898,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> std::result::Result<Vec<u8>, ProtoError> {
-        let verified = self.verify::<ops::Append>(connection, now, request_id, request)?;
+        let verified = self.verify::<ops::Append>(
+            connection,
+            now,
+            request_id,
+            request,
+            |state, candidate| self.preauthorize_send(state, candidate),
+        )?;
         let send_addr = verified.address();
         let signer = verified.signer_key();
         let body: AppendRequest = verified.into_body();
@@ -1044,6 +1081,7 @@ impl Relay {
         now: u64,
         request_id: u32,
         request: &Request,
+        authorize: impl FnOnce(&mut RelayState, &Verified<C>) -> std::result::Result<(), ProtoError>,
     ) -> std::result::Result<Verified<C>, ProtoError> {
         let padding = self.verifier_padding::<C>(request);
         let mut state = self
@@ -1053,7 +1091,9 @@ impl Relay {
         let seen = state.take_seen();
         let mut verifier =
             CommandVerifier::new(connection.transcripts.clone(), self.window(), seen, padding);
-        let outcome = verifier.verify::<C>(now, request_id, request);
+        let outcome = verifier.verify_authorized::<C, _>(now, request_id, request, |candidate| {
+            authorize(&mut state, candidate)
+        });
         let retention = verifier.seen_set().retention_ms();
         let max_entries = verifier.seen_set().max_entries();
         let seen = core::mem::replace(
@@ -1063,6 +1103,28 @@ impl Relay {
         state.put_seen(seen);
         drop(state);
         outcome
+    }
+
+    fn preauthorize_recv<C: RelayCommand>(
+        &self,
+        state: &mut RelayState,
+        candidate: &Verified<C>,
+    ) -> std::result::Result<(), ProtoError> {
+        let Some(queue) = state.queue_by_recv(&candidate.address()) else {
+            return Err(self.absent_recv());
+        };
+        queue.state.authorize_recv(&candidate.signer_key())
+    }
+
+    fn preauthorize_send<C: RelayCommand>(
+        &self,
+        state: &mut RelayState,
+        candidate: &Verified<C>,
+    ) -> std::result::Result<(), ProtoError> {
+        let Some(queue) = state.queue_by_second(&candidate.address()) else {
+            return Err(self.absent_send());
+        };
+        queue.state.authorize_send(&candidate.signer_key())
     }
 
     fn accept_unsigned<C: RelayCommand>(

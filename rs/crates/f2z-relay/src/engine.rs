@@ -632,6 +632,7 @@ impl Relay {
             now_ms,
             request_id,
             request,
+            |_| Ok(()),
         )?;
         let body: CreateQueueRequest = verified.into_body();
         body.validate()?;
@@ -677,6 +678,7 @@ impl Relay {
             now_ms,
             request_id,
             request,
+            |_| Ok(()),
         )?;
         let body: CreateContactQueueRequest = verified.into_body();
 
@@ -763,6 +765,7 @@ impl Relay {
             now_ms,
             request_id,
             request,
+            |candidate| self.preauthorize_recv(candidate),
         )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
@@ -801,6 +804,7 @@ impl Relay {
             now_ms,
             request_id,
             request,
+            |candidate| self.preauthorize_recv(candidate),
         )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
@@ -819,8 +823,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> Result<Vec<u8>, ProtoError> {
-        let verified =
-            self.verify_with::<ops::Read>(&connection.transcripts, now_ms, request_id, request)?;
+        let verified = self.verify_with::<ops::Read>(
+            &connection.transcripts,
+            now_ms,
+            request_id,
+            request,
+            |candidate| self.preauthorize_recv(candidate),
+        )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
         let body: ReadRequest = verified.into_body();
@@ -891,8 +900,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> Result<Vec<u8>, ProtoError> {
-        let verified =
-            self.verify_with::<ops::Ack>(&connection.transcripts, now_ms, request_id, request)?;
+        let verified = self.verify_with::<ops::Ack>(
+            &connection.transcripts,
+            now_ms,
+            request_id,
+            request,
+            |candidate| self.preauthorize_recv(candidate),
+        )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
         let body: AckRequest = verified.into_body();
@@ -926,6 +940,7 @@ impl Relay {
             now_ms,
             request_id,
             request,
+            |candidate| self.preauthorize_recv(candidate),
         )?;
         let recv_addr = verified.address();
         let signer = verified.signer_key();
@@ -963,6 +978,7 @@ impl Relay {
             now_ms,
             request_id,
             request,
+            |_| Ok(()),
         )?;
         let send_addr = verified.address();
         // `ops::BindSend::check` has already required `signer_key == send_key`:
@@ -996,7 +1012,13 @@ impl Relay {
         request_id: u32,
         request: &Request,
     ) -> Result<Vec<u8>, ProtoError> {
-        let verified = self.verify_with::<ops::Append>(transcripts, now_ms, request_id, request)?;
+        let verified = self.verify_with::<ops::Append>(
+            transcripts,
+            now_ms,
+            request_id,
+            request,
+            |candidate| self.preauthorize_send(candidate),
+        )?;
         let send_addr = verified.address();
         let signer = verified.signer_key();
         let body: AppendRequest = verified.into_body();
@@ -1265,6 +1287,7 @@ impl Relay {
         now_ms: u64,
         request_id: u32,
         request: &Request,
+        authorize: impl FnOnce(&Verified<C>) -> Result<(), ProtoError>,
     ) -> Result<Verified<C>, ProtoError> {
         // §5.5's seen-set is relay-wide, so it is taken out of the shared slot
         // for the duration of one verification and put back. A per-connection
@@ -1277,7 +1300,7 @@ impl Relay {
             seen,
             self.padding.clone(),
         );
-        let outcome = verifier.verify::<C>(now_ms, request_id, request);
+        let outcome = verifier.verify_authorized::<C, _>(now_ms, request_id, request, authorize);
         seen = std::mem::replace(
             verifier.seen_set_mut(),
             SeenSet::new(
@@ -1287,6 +1310,29 @@ impl Relay {
         );
         self.put_seen(seen);
         outcome
+    }
+
+    fn preauthorize_recv<C: RelayCommand>(
+        &self,
+        candidate: &Verified<C>,
+    ) -> Result<(), ProtoError> {
+        self.store
+            .queue_by_recv(&candidate.address(), &candidate.signer_key())
+            .map(|_| ())
+            .map_err(|error| self.recv_error(&error))
+    }
+
+    fn preauthorize_send<C: RelayCommand>(
+        &self,
+        candidate: &Verified<C>,
+    ) -> Result<(), ProtoError> {
+        self.store
+            .queue_by_send(
+                &candidate.address(),
+                &SendAuth::Signed(candidate.signer_key()),
+            )
+            .map(|_| ())
+            .map_err(|error| send_error(&error))
     }
 
     fn accept_unsigned<C: RelayCommand>(

@@ -63,7 +63,8 @@
 use std::time::Duration;
 
 use f2z_codec::ErrorCode;
-use f2z_codec::commands::{AppendRequest, Command};
+use f2z_codec::commands::{AppendRequest, ChallengePurpose, ChallengeRequest, Command};
+use f2z_codec::types::{QueueAddress, ShortBytes};
 use f2z_relay::config::Config;
 use f2z_relay::server::Server;
 use f2z_relay_proto::command::ops;
@@ -107,6 +108,66 @@ async fn client(server: &Server, stream: u8) -> Client {
 
 fn key(seed: u8) -> SigningKey {
     SigningKey::from_seed(&[seed; 32])
+}
+
+/// A fully valid hostile command must not consume its replay key before the
+/// relay has authorized the signed queue identity. This goes through the
+/// production WebSocket listener and the production `RelayStore` lookup; the
+/// count is the live relay-wide seen-set, not a verifier fixture.
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_queue_authorization_does_not_commit_the_replay_key() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x51).await;
+    let owner = key(0x52);
+    let intruder = key(0x53);
+    let queue = alice.create_queue(&owner, 0, 0, None).await.unwrap();
+    let before = server.relay().sweep_memory(0).0;
+
+    expect_code(
+        alice.subscribe(&intruder, queue.recv_addr).await,
+        ErrorCode::NoAccess,
+    )
+    .unwrap();
+
+    let after = server.relay().sweep_memory(0).0;
+    assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// The generic unsigned-command checker is on the production challenge path,
+/// including values the typed convenience method cannot construct.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_challenge_rejects_unknown_purposes_and_wrong_scope_shapes() {
+    let server = relay(|_| {}).await;
+    let mut valid = client(&server, 0x54).await;
+    valid.challenge(ChallengePurpose::Clock, &[]).await.unwrap();
+    valid
+        .challenge(ChallengePurpose::ContactAppend, &[0x55; QueueAddress::LEN])
+        .await
+        .unwrap();
+
+    let mut unknown = client(&server, 0x56).await;
+    let body = ChallengeRequest {
+        purpose: 3,
+        scope: ShortBytes::default(),
+    };
+    expect_code(
+        unknown.call_unsigned::<ops::GetChallenge>(&body).await,
+        ErrorCode::Malformed,
+    )
+    .unwrap();
+
+    let mut wrong_scope = client(&server, 0x57).await;
+    let body = ChallengeRequest {
+        purpose: ChallengePurpose::ContactAppend.code(),
+        scope: ShortBytes::new(vec![0x58; QueueAddress::LEN - 1]).unwrap(),
+    };
+    expect_code(
+        wrong_scope.call_unsigned::<ops::GetChallenge>(&body).await,
+        ErrorCode::Malformed,
+    )
+    .unwrap();
+    server.shutdown().await;
 }
 
 // ---------------------------------------------------------------------------

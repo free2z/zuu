@@ -238,7 +238,7 @@ pub fn check_digest(capabilities: &Capabilities, expected: &Digest) -> Result<()
 /// - [`Refusal::RelayIdNotDerived`] if `relay_id` is not the digest of
 ///   `relay_identity_pk` (§5.2).
 /// - [`Refusal::TtlCeilingExceeded`] if `max_message_ttl_seconds` is above the
-///   architecture's 30-day ceiling (§11.3 step 5).
+///   architecture's 30-day ceiling (§11.3 step 6).
 /// - [`Refusal::PowAlgorithmUnknown`] if a `PowParams` names an algorithm v1
 ///   does not define (§13.1).
 /// - [`Refusal::CapabilitiesInconsistent`] for everything else: an undefined
@@ -362,15 +362,13 @@ pub struct ClientPolicy {
     /// §5.5: refuse `antireplay_persistence: volatile`.
     pub require_durable_antireplay: bool,
     /// Refuse a relay whose seen-set retention is shorter than twice its own
-    /// clock skew. See [`Refusal::AntiReplayWindowTooShort`] — this is a check
-    /// `WIRE.md` does not state and, on the reading in that variant's
-    /// documentation, should.
+    /// clock skew. See [`Refusal::AntiReplayWindowTooShort`] and `WIRE.md` §5.5.
     pub require_sound_antireplay_window: bool,
     /// §9: refuse an implausibly fine-grained padding set.
     pub require_plausible_padding: bool,
     /// §13.1: refuse `queue_creation_mode: token`, which is linkable.
     pub allow_token_queue_creation: bool,
-    /// §11.3 step 4: the sizes this client will emit. The relay's set MUST be a
+    /// §11.3 step 5: the sizes this client will emit. The relay's set MUST be a
     /// superset.
     pub emitted_padding: PaddingBuckets,
 }
@@ -423,13 +421,14 @@ impl ClientPolicy {
         {
             return Err(ProtoError::Refused(Refusal::VolatileAntiReplay));
         }
+        // Step 4.
         if self.require_sound_antireplay_window
             && u64::from(capabilities.antireplay_window_ms)
                 < u64::from(capabilities.clock_skew_ms).saturating_mul(2)
         {
             return Err(ProtoError::Refused(Refusal::AntiReplayWindowTooShort));
         }
-        // Step 4.
+        // Step 5.
         let buckets = PaddingBuckets::new(capabilities.padding_sizes.as_slice().to_vec())
             .map_err(|_| ProtoError::Refused(Refusal::CapabilitiesInconsistent))?;
         if !buckets.is_superset_of(&self.emitted_padding) {
@@ -438,7 +437,7 @@ impl ClientPolicy {
         if self.require_plausible_padding && !buckets.is_plausible() {
             return Err(ProtoError::Refused(Refusal::PaddingImplausible));
         }
-        // Step 6.
+        // Step 8.
         if matches!(
             QueueCreationMode::from_code(capabilities.queue_creation_mode)?,
             QueueCreationMode::Token
@@ -794,7 +793,7 @@ mod tests {
         capabilities.antireplay_window_ms = capabilities.clock_skew_ms;
         assert!(
             validate(&capabilities).is_ok(),
-            "WIRE.md permits this; that is the defect"
+            "policy refusal must preserve the signed document as a valid artifact"
         );
         assert_eq!(
             ClientPolicy::default().accept(&capabilities),

@@ -99,7 +99,9 @@ proptest! {
                             let repeat = queue.ack(up_to).unwrap();
                             prop_assert_eq!(repeat.acknowledged, 0);
                             prop_assert_eq!(queue.acked_through(), watermark);
-                            // Cumulative: `pending` is exactly what is left.
+                            // Cumulative: `pending` is exactly the remaining
+                            // unacknowledged index span (an upper bound after
+                            // TTL expiry removes stored rows).
                             prop_assert_eq!(
                                 outcome.pending,
                                 queue.next_index() - queue.first_unacked()
