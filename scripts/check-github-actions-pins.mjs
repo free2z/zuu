@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +41,65 @@ const WASM_POLICY_SELF_TEST_COMMAND =
   "node wallet/zuuli/scripts/wasm-boundary.mjs --self-test";
 const WASM_POLICY_COMMAND = "node wallet/zuuli/scripts/wasm-boundary.mjs";
 const FRONTEND_CHECKOUT_REFERENCE = GATE_CHECKOUT_REFERENCE;
+const POLICED_RUST_ROOTS = ["wallet", "rs"];
+const RUST_ROOT_CONTRACTS = [
+  {
+    root: "wallet",
+    workflow: ".github/workflows/zuuli.yml",
+    selectorStep: "Detect release-impacting ZUULI changes",
+    selectorId: "filter",
+    selectorOutput: "zuuli",
+    selectorOutputs: [
+      { name: "zuuli", probeRoot: "wallet" },
+      {
+        name: "zuuallet_schema",
+        probeRoot: "wallet/zuuallet/src-tauri",
+      },
+    ],
+    jobs: [
+      [
+        "rust_fmt",
+        "Check formatting of every Rust crate under wallet/",
+        "scripts/check-rust-fmt.sh --root wallet",
+      ],
+      [
+        "rust_clippy",
+        "Lint every Rust crate under wallet/ at -D warnings",
+        "scripts/check-rust-clippy.sh --root wallet",
+      ],
+      [
+        "rust_deny",
+        "Check advisories, licences and sources",
+        "scripts/check-rust-deny.sh --root wallet --config wallet/deny.toml",
+      ],
+    ],
+  },
+  {
+    root: "rs",
+    workflow: ".github/workflows/rs.yml",
+    selectorStep: "Detect changes under rs/",
+    selectorId: "filter",
+    selectorOutput: "rs",
+    selectorOutputs: [{ name: "rs", probeRoot: "rs" }],
+    jobs: [
+      [
+        "rs_fmt",
+        "Check every crate under rs/",
+        "scripts/check-rust-fmt.sh --root rs",
+      ],
+      [
+        "rs_clippy",
+        "Lint every crate under rs/ at -D warnings",
+        "scripts/check-rust-clippy.sh --root rs",
+      ],
+      [
+        "rs_deny",
+        "Enforce rs/deny.toml over every crate under rs/",
+        "scripts/check-rust-deny.sh --root rs --config rs/deny.toml",
+      ],
+    ],
+  },
+];
 const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   "  rust_native_clippy:",
   "    name: Rust / native lints (${{ matrix.target_os }})",
@@ -82,7 +142,7 @@ const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
   "      - name: Lint every Rust crate under wallet/ at -D warnings",
   "        shell: bash",
-  "        run: scripts/check-rust-clippy.sh",
+  "        run: scripts/check-rust-clippy.sh --root wallet",
 ];
 // The macOS/Windows job that *executes* the shared plugin's test suite. Held to
 // its exact source for the same reason as the lint job beside it: this is the
@@ -1438,10 +1498,13 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
   if (workflowEnvironments.length > 1) {
     failures.push(`${relativeFile}: required workflow cannot repeat env`);
   }
-  const expectedWorkflowEnvironment =
-    relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH
-      ? REQUIRED_WORKFLOW_ENVIRONMENT
-      : new Map();
+  const normalizedRelativeFile = relativeFile.split(path.sep).join("/");
+  const expectedWorkflowEnvironment = [
+    REQUIRED_WORKFLOW_PATH,
+    ".github/workflows/rs.yml",
+  ].includes(normalizedRelativeFile)
+    ? REQUIRED_WORKFLOW_ENVIRONMENT
+    : new Map();
   for (const environment of workflowEnvironments) {
     const actual = environmentMap(
       relativeFile,
@@ -1572,6 +1635,434 @@ function policyWorkflowJobs(relativeFile, lines, failures) {
   return jobs;
 }
 
+// Read one canonical block mapping below a job property. Required selector
+// outputs are a security boundary: checking the step body alone is circular if
+// the job publishes a different key, reads a different step id, or drops an
+// output that downstream `if:` expressions consume.
+function policyBlockMapping(
+  relativeFile,
+  lines,
+  property,
+  containerEnd,
+  failures,
+  label,
+) {
+  const entries = new Map();
+  if (!property || property.value) {
+    failures.push(
+      `${relativeFile}:${(property?.index ?? 0) + 1}: ${label} must use a block mapping`,
+    );
+    return entries;
+  }
+  for (let index = property.index + 1; index < containerEnd; index += 1) {
+    const line = workflowLine(lines[index]);
+    if (!line) continue;
+    if (line.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${line.error}`);
+      continue;
+    }
+    if (line.indent <= property.indent) break;
+    if (line.indent !== property.indent + 2) {
+      failures.push(
+        `${relativeFile}:${index + 1}: ${label} must use canonical ${property.indent + 2}-space entry indentation`,
+      );
+      continue;
+    }
+    const entry = mappingEntry(line.text, `${label} entry`);
+    if (entry.error) {
+      failures.push(`${relativeFile}:${index + 1}: ${entry.error}`);
+      continue;
+    }
+    if (entries.has(entry.key)) {
+      failures.push(
+        `${relativeFile}:${index + 1}: duplicate ${label} entry ${entry.key}`,
+      );
+      continue;
+    }
+    entries.set(entry.key, entry.value);
+  }
+  return entries;
+}
+
+const rustRootSelectorProbeCache = new Map();
+const rustRootSelectorProbeDirectories = new Set();
+process.on("exit", () => {
+  for (const directory of rustRootSelectorProbeDirectories) {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function runSelectorProbeGit(cwd, args) {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_EMAIL: "selector-probe@example.invalid",
+      GIT_AUTHOR_NAME: "Rust root selector probe",
+      GIT_COMMITTER_EMAIL: "selector-probe@example.invalid",
+      GIT_COMMITTER_NAME: "Rust root selector probe",
+      HOME: cwd,
+    },
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${args.join(" ")} failed: ${result.stderr?.trim() || `status ${result.status}`}`,
+    );
+  }
+  return result.stdout.trim();
+}
+
+function rustRootSelectorProbeFixture(probePath) {
+  if (rustRootSelectorProbeCache.has(probePath)) {
+    return rustRootSelectorProbeCache.get(probePath);
+  }
+
+  const repo = fs.mkdtempSync(
+    path.join(os.tmpdir(), "rust-root-selector-git-"),
+  );
+  rustRootSelectorProbeDirectories.add(repo);
+  runSelectorProbeGit(repo, ["init", "--quiet"]);
+  runSelectorProbeGit(repo, [
+    "commit",
+    "--quiet",
+    "--allow-empty",
+    "-m",
+    "base",
+  ]);
+  const base = runSelectorProbeGit(repo, ["rev-parse", "HEAD"]);
+  writeFixture(repo, probePath, "selector probe\n");
+  runSelectorProbeGit(repo, ["add", "--", probePath]);
+  runSelectorProbeGit(repo, ["commit", "--quiet", "-m", "head"]);
+  const head = runSelectorProbeGit(repo, ["rev-parse", "HEAD"]);
+  const fixture = { base, head, repo };
+  rustRootSelectorProbeCache.set(probePath, fixture);
+  return fixture;
+}
+
+// GitHub applies the last assignment to a step output. Looking for any earlier
+// `name=true` line lets a later `name=false` silently skip every guarded job.
+// Parse both simple and heredoc output records and return the effective value.
+function effectiveGithubOutput(outputFile, name) {
+  if (!fs.existsSync(outputFile)) return undefined;
+  const lines = fs.readFileSync(outputFile, "utf8").split(/\r?\n/);
+  let effective;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const simplePrefix = `${name}=`;
+    const heredocPrefix = `${name}<<`;
+    if (line.startsWith(simplePrefix)) {
+      effective = line.slice(simplePrefix.length);
+      continue;
+    }
+    if (!line.startsWith(heredocPrefix)) continue;
+    const delimiter = line.slice(heredocPrefix.length);
+    const value = [];
+    index += 1;
+    while (index < lines.length && lines[index] !== delimiter) {
+      value.push(lines[index]);
+      index += 1;
+    }
+    if (index < lines.length) effective = value.join("\n");
+  }
+  return effective;
+}
+
+function executeRustRootSelector(
+  body,
+  fixture,
+  contract,
+  head,
+  base = fixture.base,
+) {
+  const outputDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "rust-root-selector-output-"),
+  );
+  const outputFile = path.join(outputDirectory, "github-output");
+  try {
+    const result = spawnSync("/bin/bash", ["-c", body], {
+      cwd: fixture.repo,
+      encoding: "utf8",
+      env: {
+        BASE_SHA: base,
+        GITHUB_SHA: head,
+        GITHUB_OUTPUT: outputFile,
+        HOME: fixture.repo,
+        PATH: "/usr/bin:/bin",
+        RUNNER_TEMP: outputDirectory,
+      },
+    });
+    return {
+      effective: new Map(
+        contract.selectorOutputs.map(({ name }) => [
+          name,
+          effectiveGithubOutput(outputFile, name),
+        ]),
+      ),
+      status: result.status,
+    };
+  } finally {
+    fs.rmSync(outputDirectory, { recursive: true, force: true });
+  }
+}
+
+function rustRootWorkflowFailures(relativeFile, lines, contract) {
+  const failures = [];
+  const jobs = policyWorkflowJobs(relativeFile, lines, failures);
+  const changes = jobs.get("changes");
+  if (!changes) {
+    failures.push(
+      `${relativeFile}: ${contract.root}/ owner must contain changes`,
+    );
+    return failures;
+  }
+
+  const publishedOutputs = policyBlockMapping(
+    relativeFile,
+    lines,
+    changes.properties.get("outputs"),
+    changes.end,
+    failures,
+    `${contract.root}/ changes outputs`,
+  );
+  const expectedOutputs = new Map(
+    contract.selectorOutputs.map(({ name }) => [
+      name,
+      "${{ steps." + contract.selectorId + ".outputs." + name + " }}",
+    ]),
+  );
+  if (
+    publishedOutputs.size !== expectedOutputs.size ||
+    [...expectedOutputs].some(
+      ([name, expression]) => publishedOutputs.get(name) !== expression,
+    )
+  ) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: ${contract.root}/ changes must publish exactly ${[...expectedOutputs].map(([name, expression]) => `${name}: ${expression}`).join(", ")}`,
+    );
+  }
+
+  const changeSteps = policyJobSteps(
+    relativeFile,
+    lines,
+    changes,
+    failures,
+    `${contract.root} root owner changes`,
+  );
+  const toolchainSteps = changeSteps.filter(
+    (step) =>
+      step.properties.get("name")?.value ===
+      "Verify the Rust toolchain pin has not drifted",
+  );
+  const toolchain = toolchainSteps[0];
+  const toolchainRun = toolchain?.properties.get("run");
+  const toolchainCommands = toolchainRun
+    ? blockScalarCommands(lines, toolchainRun, toolchain.end)
+    : [];
+  if (
+    toolchainSteps.length !== 1 ||
+    !hasExactKeys(toolchain?.properties ?? new Map(), ["name", "run"]) ||
+    toolchainRun?.value !== "|" ||
+    JSON.stringify(toolchainCommands) !==
+      JSON.stringify([
+        "scripts/check-rust-toolchain.sh --self-test",
+        "scripts/check-rust-toolchain.sh",
+      ])
+  ) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: ${contract.root}/ owner must run one unconditional, non-soft-failing toolchain self-test and live verdict`,
+    );
+  }
+
+  const selectorSteps = changeSteps.filter(
+    (step) => step.properties.get("name")?.value === contract.selectorStep,
+  );
+  const selector = selectorSteps[0];
+  const selectorRun = selector?.properties.get("run");
+  if (
+    selectorSteps.length !== 1 ||
+    !hasExactKeys(selector?.properties ?? new Map(), [
+      "name",
+      "id",
+      "shell",
+      "env",
+      "run",
+    ]) ||
+    selector?.properties.get("id")?.value !== contract.selectorId ||
+    selectorRun?.value !== "|"
+  ) {
+    failures.push(
+      `${relativeFile}:${changes.start + 1}: ${contract.root}/ owner must retain one live, non-soft-failing selector step`,
+    );
+  } else {
+    const body = lines.slice(selectorRun.index + 1, selector.end).join("\n");
+    const selectorArms = [
+      ...body.matchAll(
+        /^\s*case "\$file" in\s*\n\s*([^\n)]+)\)\s*\n\s*([A-Za-z0-9_]+)=true\s*\n\s*;;\s*\n\s*esac\s*$/gm,
+      ),
+    ].filter((match) => match[2] === contract.selectorOutput);
+    const exactRootPattern = `${contract.root}/*`;
+    if (
+      selectorArms.length !== 1 ||
+      !selectorArms[0][1]
+        .split("|")
+        .map((pattern) => pattern.trim())
+        .includes(exactRootPattern)
+    ) {
+      failures.push(
+        `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner selector must contain the exact active ${exactRootPattern} case pattern`,
+      );
+    }
+    try {
+      for (const { name, probeRoot } of contract.selectorOutputs) {
+        const probePaths = [
+          `${probeRoot}/ordinary.rs`,
+          `${probeRoot}/space name.rs`,
+          `${probeRoot}/tab\tname.rs`,
+          `${probeRoot}/newline\nname.rs`,
+          `${probeRoot}/back\\slash.rs`,
+          `${probeRoot}/-dash.rs`,
+        ];
+        for (const probePath of probePaths) {
+          const fixture = rustRootSelectorProbeFixture(probePath);
+          const result = executeRustRootSelector(
+            body,
+            fixture,
+            contract,
+            fixture.head,
+          );
+          if (
+            result.status !== 0 ||
+            result.effective.get(name) !== "true"
+          ) {
+            const subject =
+              name === contract.selectorOutput
+                ? `${contract.root}/ owner selector`
+                : `${contract.root}/ owner selector output ${name}`;
+            failures.push(
+              `${relativeFile}:${selector.start + 1}: ${subject} must actively select ${JSON.stringify(probePath)} as its effective last value`,
+            );
+          }
+        }
+      }
+      const fixture = rustRootSelectorProbeFixture(
+        `${contract.root}/ordinary.rs`,
+      );
+      const failedDiff = executeRustRootSelector(
+        body,
+        fixture,
+        contract,
+        "f".repeat(40),
+      );
+      for (const { name } of contract.selectorOutputs) {
+        if (
+          failedDiff.status !== 0 ||
+          failedDiff.effective.get(name) !== "true"
+        ) {
+          const subject =
+            name === contract.selectorOutput
+              ? `${contract.root}/ owner selector`
+              : `${contract.root}/ owner selector output ${name}`;
+          failures.push(
+            `${relativeFile}:${selector.start + 1}: ${subject} must fail open to its full gate when the real Git diff fails`,
+          );
+        }
+      }
+      const unusableBase = executeRustRootSelector(
+        body,
+        fixture,
+        contract,
+        fixture.head,
+        "not-a-commit-sha",
+      );
+      for (const { name } of contract.selectorOutputs) {
+        if (
+          unusableBase.status !== 0 ||
+          unusableBase.effective.get(name) !== "true"
+        ) {
+          const subject =
+            name === contract.selectorOutput
+              ? `${contract.root}/ owner selector`
+              : `${contract.root}/ owner selector output ${name}`;
+          failures.push(
+            `${relativeFile}:${selector.start + 1}: ${subject} must fail open to its full gate when no usable base commit exists`,
+          );
+        }
+      }
+    } catch (error) {
+      failures.push(
+        `${relativeFile}:${selector.start + 1}: ${contract.root}/ owner selector real-Git probe failed closed: ${error.message}`,
+      );
+    }
+  }
+
+  for (const [jobId, stepName, command] of contract.jobs) {
+    const job = jobs.get(jobId);
+    if (!job) {
+      failures.push(
+        `${relativeFile}: ${contract.root}/ owner is missing required job ${jobId}`,
+      );
+      continue;
+    }
+    const expectedIf = `needs.changes.outputs.${contract.selectorOutput} == 'true'`;
+    if (job.properties.get("if")?.value !== expectedIf) {
+      failures.push(
+        `${relativeFile}:${job.start + 1}: ${contract.root}/ owner job ${jobId} must run exactly when its root selector is true`,
+      );
+    }
+    if (job.properties.has("continue-on-error")) {
+      failures.push(
+        `${relativeFile}:${job.start + 1}: ${contract.root}/ owner job ${jobId} cannot soft-fail`,
+      );
+    }
+    const steps = policyJobSteps(
+      relativeFile,
+      lines,
+      job,
+      failures,
+      `${contract.root} root owner ${jobId}`,
+    );
+    const verdicts = steps.filter(
+      (step) => step.properties.get("name")?.value === stepName,
+    );
+    const verdict = verdicts[0];
+    if (
+      verdicts.length !== 1 ||
+      !hasExactKeys(verdict?.properties ?? new Map(), ["name", "run"]) ||
+      verdict?.properties.get("run")?.value !== command
+    ) {
+      failures.push(
+        `${relativeFile}:${job.start + 1}: ${contract.root}/ owner job ${jobId} must run exactly one unconditional, non-soft-failing ${command}`,
+      );
+    }
+  }
+
+  return failures;
+}
+
+function rustRootOwnershipFailures(contracts) {
+  const failures = [];
+  const roots = contracts.map(({ root }) => root);
+  const workflows = contracts.map(({ workflow }) => workflow);
+  if (
+    JSON.stringify([...roots].sort()) !==
+    JSON.stringify([...POLICED_RUST_ROOTS].sort())
+  ) {
+    failures.push(
+      `owner registry must cover exactly the policed Rust roots: ${POLICED_RUST_ROOTS.join(", ")}`,
+    );
+  }
+  if (
+    new Set(roots).size !== contracts.length ||
+    new Set(workflows).size !== contracts.length
+  ) {
+    failures.push(
+      "policed Rust roots and their owning workflows must form a one-to-one mapping",
+    );
+  }
+  return failures;
+}
+
 function requiredJobUsesReference(relativeFile, property, failures) {
   const parsed = usesFromLine(`uses: ${property.value}`);
   if (!parsed || parsed.error) {
@@ -1681,7 +2172,10 @@ function nativeClippySelectorFailures(relativeFile, lines, changes) {
         `${relativeFile}:${detector.start + 1}: release-impacting change detector has duplicate ${output} selector arms`,
       );
     } else {
-      arms.set(output, match[1].split("|").map((pattern) => pattern.trim()));
+      arms.set(
+        output,
+        match[1].split("|").map((pattern) => pattern.trim()),
+      );
     }
   }
   if (!arms.has("zuuli") || !arms.has("zuuallet_schema")) {
@@ -1707,8 +2201,13 @@ function cryptoProbeInputFailures(repoRoot, overrides = new Map()) {
   for (const [input, expectedDigest] of REQUIRED_CRYPTO_PROBE_INPUTS) {
     const absoluteInput = path.resolve(repoRoot, input);
     if (!overrides.has(input)) {
-      if (!fs.existsSync(absoluteInput) || !fs.lstatSync(absoluteInput).isFile()) {
-        failures.push(`${input}: required crypto probe input must be a regular file`);
+      if (
+        !fs.existsSync(absoluteInput) ||
+        !fs.lstatSync(absoluteInput).isFile()
+      ) {
+        failures.push(
+          `${input}: required crypto probe input must be a regular file`,
+        );
         continue;
       }
     }
@@ -1717,7 +2216,9 @@ function cryptoProbeInputFailures(repoRoot, overrides = new Map()) {
       : fs.readFileSync(absoluteInput);
     const actualDigest = createHash("sha256").update(contents).digest("hex");
     if (actualDigest !== expectedDigest) {
-      failures.push(`${input}: crypto probe input differs from its reviewed digest`);
+      failures.push(
+        `${input}: crypto probe input differs from its reviewed digest`,
+      );
     }
   }
   return failures;
@@ -1787,14 +2288,29 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   if (enforceNativeClippy) {
     failures.push(...librustzcashScopeFailures());
   }
-  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_clippy")) {
-    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`);
+  if (
+    enforceNativeClippy &&
+    !parsedNeeds.values.includes("rust_native_clippy")
+  ) {
+    failures.push(
+      `${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`,
+    );
   }
-  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_tests")) {
-    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_tests`);
+  if (
+    enforceNativeClippy &&
+    !parsedNeeds.values.includes("rust_native_tests")
+  ) {
+    failures.push(
+      `${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_tests`,
+    );
   }
-  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_crypto_targets")) {
-    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_crypto_targets`);
+  if (
+    enforceNativeClippy &&
+    !parsedNeeds.values.includes("rust_crypto_targets")
+  ) {
+    failures.push(
+      `${relativeFile}:${needsProperty.index + 1}: gate must await rust_crypto_targets`,
+    );
   }
 
   const nativeTests = jobs.get("rust_native_tests");
@@ -1819,7 +2335,9 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
 
   const nativeClippy = jobs.get("rust_native_clippy");
   if (enforceNativeClippy && !nativeClippy) {
-    failures.push(`${relativeFile}: required workflow must contain rust_native_clippy`);
+    failures.push(
+      `${relativeFile}: required workflow must contain rust_native_clippy`,
+    );
   } else if (enforceNativeClippy) {
     const actualNativeClippyJobLines = lines
       .slice(nativeClippy.start, nativeClippy.end)
@@ -1860,7 +2378,8 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
       .map((line) => /^\s+- os:\s+(\S+)\s*$/.exec(line)?.[1])
       .filter(Boolean);
     if (
-      JSON.stringify(targetOperatingSystems) !== JSON.stringify(["macos", "windows"]) ||
+      JSON.stringify(targetOperatingSystems) !==
+        JSON.stringify(["macos", "windows"]) ||
       JSON.stringify(runnerOperatingSystems) !==
         JSON.stringify(["macos-latest", "windows-latest"])
     ) {
@@ -1878,26 +2397,35 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     );
     const stepsByName = (name) =>
       nativeSteps.filter((step) => step.properties.get("name")?.value === name);
-    const selfTests = stepsByName("Prove native target selection and -D warnings");
+    const selfTests = stepsByName(
+      "Prove native target selection and -D warnings",
+    );
     const selfTest = selfTests[0];
     if (
       selfTests.length !== 1 ||
-      !hasExactKeys(selfTest?.properties ?? new Map(), ["name", "shell", "run"]) ||
+      !hasExactKeys(selfTest?.properties ?? new Map(), [
+        "name",
+        "shell",
+        "run",
+      ]) ||
       selfTest?.properties.get("shell")?.value !== "bash" ||
       selfTest?.properties.get("run")?.value !==
-      'scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"'
+        'scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"'
     ) {
       failures.push(
         `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must run exactly one unconditional target-bound negative control`,
       );
     }
-    const lints = stepsByName("Lint every Rust crate under wallet/ at -D warnings");
+    const lints = stepsByName(
+      "Lint every Rust crate under wallet/ at -D warnings",
+    );
     const lint = lints[0];
     if (
       lints.length !== 1 ||
       !hasExactKeys(lint?.properties ?? new Map(), ["name", "shell", "run"]) ||
       lint?.properties.get("shell")?.value !== "bash" ||
-      lint?.properties.get("run")?.value !== "scripts/check-rust-clippy.sh"
+      lint?.properties.get("run")?.value !==
+        "scripts/check-rust-clippy.sh --root wallet"
     ) {
       failures.push(
         `${relativeFile}:${nativeClippy.start + 1}: rust_native_clippy must run exactly one unconditional all-wallet lint entrypoint`,
@@ -1907,7 +2435,9 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
 
   const cryptoTargets = jobs.get("rust_crypto_targets");
   if (enforceNativeClippy && !cryptoTargets) {
-    failures.push(`${relativeFile}: required workflow must contain rust_crypto_targets`);
+    failures.push(
+      `${relativeFile}: required workflow must contain rust_crypto_targets`,
+    );
   } else if (enforceNativeClippy) {
     const actualCryptoTargetJobLines = lines
       .slice(cryptoTargets.start, cryptoTargets.end)
@@ -2051,7 +2581,9 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
   // it. Deriving both expectations from the same value here means the gate can
   // never accept a skip from one that it would reject from the other.
   const nativeExpected =
-    zuuliExpected === "success" || schemaExpected === "success" ? "success" : "skipped";
+    zuuliExpected === "success" || schemaExpected === "success"
+      ? "success"
+      : "skipped";
   const NATIVE_JOBS = new Set(["rust_native_clippy", "rust_native_tests"]);
 
   const verdicts = [];
@@ -2117,7 +2649,14 @@ function localTarget(repoRoot, reference) {
   return { file: actionFiles[0] };
 }
 
-function scanRepository(repoRoot) {
+function scanRepository(
+  repoRoot,
+  {
+    enforceRustRootOwners = true,
+    rustRootOwnerOverrides = null,
+    rustRootContracts = RUST_ROOT_CONTRACTS,
+  } = {},
+) {
   repoRoot = fs.realpathSync(repoRoot);
   const queued = [
     ...yamlFilesBelow(path.join(repoRoot, ".github", "workflows")),
@@ -2126,6 +2665,36 @@ function scanRepository(repoRoot) {
   const seen = new Set();
   const failures = [];
   let externalReferences = 0;
+
+  if (enforceRustRootOwners) {
+    failures.push(...rustRootOwnershipFailures(rustRootContracts));
+    for (const contract of rustRootContracts) {
+      const owner = path.join(repoRoot, contract.workflow);
+      const overridden = rustRootOwnerOverrides?.has(contract.workflow);
+      if (!overridden && !fs.existsSync(owner)) {
+        failures.push(
+          `${contract.root}/ owning workflow is missing: ${contract.workflow}`,
+        );
+        continue;
+      }
+      const ownerSource = overridden
+        ? rustRootOwnerOverrides.get(contract.workflow)
+        : fs.readFileSync(owner, "utf8");
+      if (ownerSource === null) {
+        failures.push(
+          `${contract.root}/ owning workflow is missing: ${contract.workflow}`,
+        );
+        continue;
+      }
+      failures.push(
+        ...rustRootWorkflowFailures(
+          contract.workflow,
+          ownerSource.split(/\r?\n/),
+          contract,
+        ),
+      );
+    }
+  }
 
   while (queued.length) {
     const file = queued.shift();
@@ -2184,6 +2753,462 @@ function writeFixture(root, relative, contents) {
   const destination = path.join(root, relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.writeFileSync(destination, contents);
+}
+
+function runRustRootWorkflowMutationTests(repoRoot) {
+  let cases = 0;
+
+  // Enter through the same default-enabled repository scan as live mode.  The
+  // detailed controls below deliberately inject owner policy, so they cannot
+  // prove that the production entry point retains its default enforcement.
+  const productionContract = RUST_ROOT_CONTRACTS[0];
+  const productionSource = fs.readFileSync(
+    path.join(repoRoot, productionContract.workflow),
+    "utf8",
+  );
+  const productionMutant = productionSource.replace(
+    "        run: scripts/check-rust-fmt.sh --root wallet",
+    "        run: scripts/check-rust-fmt.sh --root rs",
+  );
+  if (productionMutant === productionSource) {
+    throw new Error("live Rust-root owner scan: mutation target was not found");
+  }
+  const productionFailures = scanRepository(repoRoot, {
+    rustRootOwnerOverrides: new Map([
+      [productionContract.workflow, productionMutant],
+    ]),
+  }).failures;
+  const productionNeedle =
+    "wallet/ owner job rust_fmt must run exactly one unconditional";
+  if (
+    !productionFailures.some((failure) => failure.includes(productionNeedle))
+  ) {
+    throw new Error(
+      `live Rust-root owner scan: expected ${JSON.stringify(productionNeedle)}, got ${productionFailures.join("; ")}`,
+    );
+  }
+  console.log(
+    "self-test: live repository scan enforces its default Rust-root owner policy: passed",
+  );
+  cases += 1;
+
+  const assertOwnershipFailure = (name, contracts, needle) => {
+    const failures = scanRepository(repoRoot, {
+      rustRootContracts: contracts,
+    }).failures;
+    if (!failures.some((failure) => failure.includes(needle))) {
+      throw new Error(
+        `${name}: expected ${JSON.stringify(needle)}, got ${failures.join("; ")}`,
+      );
+    }
+    console.log(`self-test: ${name}: passed`);
+    cases += 1;
+  };
+  assertOwnershipFailure(
+    "Rust-root registry rejects a missing owner",
+    RUST_ROOT_CONTRACTS.slice(0, 1),
+    "cover exactly",
+  );
+  assertOwnershipFailure(
+    "Rust-root registry rejects a duplicate owner workflow",
+    RUST_ROOT_CONTRACTS.map((contract, index) =>
+      index === 1
+        ? { ...contract, workflow: RUST_ROOT_CONTRACTS[0].workflow }
+        : contract,
+    ),
+    "one-to-one",
+  );
+  assertOwnershipFailure(
+    "Rust-root registry rejects a substituted root",
+    RUST_ROOT_CONTRACTS.map((contract, index) =>
+      index === 1 ? { ...contract, root: "third" } : contract,
+    ),
+    "cover exactly",
+  );
+
+  const jobSlice = (source, jobId) => {
+    const start = source.indexOf(`\n  ${jobId}:`);
+    if (start < 0) return null;
+    const nextJob = /\n  [A-Za-z0-9_-]+:\s*(?:\n|$)/g;
+    nextJob.lastIndex = start + 1;
+    const match = nextJob.exec(source);
+    return { start, end: match ? match.index : source.length };
+  };
+  const mutateJob = (source, jobId, target, replacement) => {
+    const slice = jobSlice(source, jobId);
+    if (!slice) return source;
+    const body = source.slice(slice.start, slice.end);
+    const changed = body.replace(target, replacement);
+    return source.slice(0, slice.start) + changed + source.slice(slice.end);
+  };
+  const parkBroadSelector = (source, contract) => {
+    const slice = jobSlice(source, "changes");
+    if (!slice) return source;
+    const body = source.slice(slice.start, slice.end);
+    const marker = '            case "$file" in';
+    const start = body.indexOf(marker);
+    const endMarker = "            esac";
+    const endStart = body.indexOf(endMarker, start);
+    if (start < 0 || endStart < 0) return source;
+    const end = endStart + endMarker.length;
+    const broad = body.slice(start, end);
+    if (
+      !broad.includes(`${contract.root}/*`) ||
+      !broad.includes(`${contract.selectorOutput}=true`)
+    ) {
+      return source;
+    }
+    const parked = [
+      "            if false; then",
+      broad,
+      "            fi",
+      '            case "${file}" in',
+      `              ${contract.root}/known/*)`,
+      `                ${contract.selectorOutput}=true`,
+      "                ;;",
+      "            esac",
+    ].join("\n");
+    const changed = body.slice(0, start) + parked + body.slice(end);
+    return source.slice(0, slice.start) + changed + source.slice(slice.end);
+  };
+  const assertWorkflowFailure = (contract, source, name, mutate, needle) => {
+    const changed = mutate(source);
+    if (changed === source)
+      throw new Error(`${name}: mutation target was not found`);
+    const failures = scanRepository(repoRoot, {
+      rustRootOwnerOverrides: new Map([[contract.workflow, changed]]),
+    }).failures;
+    if (!failures.some((failure) => failure.includes(needle))) {
+      throw new Error(
+        `${name}: expected ${JSON.stringify(needle)}, got ${failures.join("; ")}`,
+      );
+    }
+    console.log(`self-test: ${name}: passed`);
+    cases += 1;
+  };
+
+  for (const contract of RUST_ROOT_CONTRACTS) {
+    const source = fs.readFileSync(
+      path.join(repoRoot, contract.workflow),
+      "utf8",
+    );
+    const baseline = rustRootWorkflowFailures(
+      contract.workflow,
+      source.split(/\r?\n/),
+      contract,
+    );
+    if (baseline.length) {
+      throw new Error(
+        `${contract.root}/ owner is not a valid mutation base: ${baseline.join("; ")}`,
+      );
+    }
+
+    const ownerPrefix = `${contract.root}/ owner`;
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects deleting its owner workflow`,
+      () => null,
+      `${contract.root}/ owning workflow is missing`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects deleting the live toolchain verdict`,
+      (value) => value.replace("        scripts/check-rust-toolchain.sh\n", ""),
+      `${ownerPrefix} must run one unconditional`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a dead toolchain guard`,
+      (value) =>
+        value.replace(
+          "      - name: Verify the Rust toolchain pin has not drifted",
+          "      - name: Verify the Rust toolchain pin has not drifted\n        if: false",
+        ),
+      `${ownerPrefix} must run one unconditional`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a soft-failing toolchain guard`,
+      (value) =>
+        value.replace(
+          "      - name: Verify the Rust toolchain pin has not drifted",
+          "      - name: Verify the Rust toolchain pin has not drifted\n        continue-on-error: true",
+        ),
+      `${ownerPrefix} must run one unconditional`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a renamed selector step id`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          `        id: ${contract.selectorId}`,
+          "        id: renamed_filter",
+        ),
+      `${ownerPrefix} must retain one live`,
+    );
+    for (const { name } of contract.selectorOutputs) {
+      const publication = `      ${name}: \${{ steps.${contract.selectorId}.outputs.${name} }}`;
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects renaming published selector output ${name}`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            publication,
+            `      renamed_${name}: \${{ steps.${contract.selectorId}.outputs.${name} }}`,
+          ),
+        `${contract.root}/ changes must publish exactly`,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects repointing published selector output ${name}`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            publication,
+            `      ${name}: \${{ steps.${contract.selectorId}.outputs.missing_${name} }}`,
+          ),
+        `${contract.root}/ changes must publish exactly`,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects duplicate published selector output ${name}`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            publication,
+            `${publication}\n${publication}`,
+        ),
+        `duplicate ${contract.root}/ changes outputs entry ${name}`,
+      );
+      const failOpenVouch = `            echo "${name}=true" >> "$GITHUB_OUTPUT"`;
+      const failOpenNeedle =
+        name === contract.selectorOutput
+          ? `${ownerPrefix} selector must fail open to its full gate when no usable base commit exists`
+          : `${ownerPrefix} selector output ${name} must fail open to its full gate when no usable base commit exists`;
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects a false ${name} output for an unusable base`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            failOpenVouch,
+            `            echo "${name}=false" >> "$GITHUB_OUTPUT"`,
+          ),
+        failOpenNeedle,
+      );
+    }
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a line-delimited real Git diff`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          "git diff --name-only -z --no-renames",
+          "git diff --name-only --no-renames",
+        ),
+      `${ownerPrefix} selector must actively select`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a line-delimited diff consumer`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          "while IFS= read -r -d '' file; do",
+          "while IFS= read -r file; do",
+      ),
+      `${ownerPrefix} selector must actively select`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects an inverted real Git diff-failure guard`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          "if ! git diff --name-only -z --no-renames",
+          "if git diff --name-only -z --no-renames",
+        ),
+      `${ownerPrefix} selector must fail open`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a narrowed root selector`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          `${contract.root}/*|`,
+          `${contract.root}/known/*|`,
+        ),
+      `${ownerPrefix} selector must contain the exact active`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a dead broad selector beside a narrowed live selector`,
+      (value) => parkBroadSelector(value, contract),
+      `${ownerPrefix} selector must actively select`,
+    );
+    const outputVouch = `          echo "${contract.selectorOutput}=$${contract.selectorOutput}" >> "$GITHUB_OUTPUT"`;
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a selector that exits after writing its vouch`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          outputVouch,
+          `${outputVouch}\n          false`,
+        ),
+      `${ownerPrefix} selector must actively select`,
+    );
+    assertWorkflowFailure(
+      contract,
+      source,
+      `${contract.root}/ rejects a true selector output overwritten false`,
+      (value) =>
+        mutateJob(
+          value,
+          "changes",
+          outputVouch,
+          `${outputVouch}\n          echo "${contract.selectorOutput}=false" >> "$GITHUB_OUTPUT"`,
+        ),
+      `${ownerPrefix} selector must actively select`,
+    );
+    for (const { name } of contract.selectorOutputs) {
+      if (name === contract.selectorOutput) continue;
+      const additionalVouch = `          echo "${name}=$${name}" >> "$GITHUB_OUTPUT"`;
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects a true ${name} output overwritten false`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            additionalVouch,
+            `${additionalVouch}\n          echo "${name}=false" >> "$GITHUB_OUTPUT"`,
+          ),
+        `${ownerPrefix} selector output ${name} must actively select`,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/ rejects a true ${name} heredoc output overwritten false`,
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            additionalVouch,
+            `${additionalVouch}\n          echo '${name}<<OVERRIDE' >> "$GITHUB_OUTPUT"\n          echo false >> "$GITHUB_OUTPUT"\n          echo OVERRIDE >> "$GITHUB_OUTPUT"`,
+          ),
+        `${ownerPrefix} selector output ${name} must actively select`,
+      );
+    }
+
+    for (const [jobId, stepName, command] of contract.jobs) {
+      const exactIf = `    if: needs.changes.outputs.${contract.selectorOutput} == 'true'`;
+      const verdictNeedle = `${ownerPrefix} job ${jobId} must run exactly one`;
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/${jobId} rejects selector bypass`,
+        (value) => mutateJob(value, jobId, exactIf, "    if: true"),
+        `${ownerPrefix} job ${jobId} must run exactly when`,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/${jobId} rejects job-level soft failure`,
+        (value) =>
+          mutateJob(
+            value,
+            jobId,
+            `  ${jobId}:`,
+            `  ${jobId}:\n    continue-on-error: true`,
+          ),
+        `${ownerPrefix} job ${jobId} cannot soft-fail`,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/${jobId} rejects deleting its live verdict`,
+        (value) =>
+          mutateJob(
+            value,
+            jobId,
+            `        run: ${command}`,
+            "        run: echo checked",
+          ),
+        verdictNeedle,
+      );
+      const otherRoot = contract.root === "wallet" ? "rs" : "wallet";
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/${jobId} rejects a wrong-root verdict`,
+        (value) =>
+          mutateJob(
+            value,
+            jobId,
+            `        run: ${command}`,
+            `        run: ${command.replace(`--root ${contract.root}`, `--root ${otherRoot}`)}`,
+          ),
+        verdictNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/${jobId} rejects a dead live verdict`,
+        (value) =>
+          mutateJob(
+            value,
+            jobId,
+            `      - name: ${stepName}`,
+            `      - name: ${stepName}\n        if: false`,
+          ),
+        verdictNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        `${contract.root}/${jobId} rejects a soft-failing live verdict`,
+        (value) =>
+          mutateJob(
+            value,
+            jobId,
+            `      - name: ${stepName}`,
+            `      - name: ${stepName}\n        continue-on-error: true`,
+          ),
+        verdictNeedle,
+      );
+    }
+  }
+  return cases;
 }
 
 function runCurrentWorkflowMutationTests(repoRoot) {
@@ -2255,7 +3280,10 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     {
       name: "real workflow rejects a non-native target matrix",
       needle: "must use the exact macOS/Windows native matrix",
-      source: source.replace("            target_os: windows", "            target_os: linux"),
+      source: source.replace(
+        "            target_os: windows",
+        "            target_os: linux",
+      ),
     },
     {
       name: "real workflow rejects a weakened native clippy selector",
@@ -2312,7 +3340,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a stale crypto source reset",
-      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      needle:
+        "rust_crypto_targets must match the exact reviewed target/source/test contract",
       source: source.replace(
         "      - name: Verify exact clean source identity",
         "      - name: Substitute an earlier clean source\n        run: git reset --hard HEAD~1\n\n      - name: Verify exact clean source identity",
@@ -2320,12 +3349,14 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a removed crypto target",
-      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      needle:
+        "rust_crypto_targets must match the exact reviewed target/source/test contract",
       source: source.replace(",i686-linux-android", ""),
     },
     {
       name: "real workflow rejects crypto type-check substituted for code generation",
-      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      needle:
+        "rust_crypto_targets must match the exact reviewed target/source/test contract",
       source: source.replace(
         "            cargo build --locked --release --lib --target",
         "            cargo check --locked --release --lib --target",
@@ -2333,7 +3364,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a skipped crypto host runtime test",
-      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      needle:
+        "rust_crypto_targets must match the exact reviewed target/source/test contract",
       source: source.replace(
         "      - name: Execute the representative crypto probe on the hosted OS\n        shell: bash",
         "      - name: Execute the representative crypto probe on the hosted OS\n        if: false\n        shell: bash",
@@ -2341,7 +3373,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects deletion of crypto source identity",
-      needle: "rust_crypto_targets must match the exact reviewed target/source/test contract",
+      needle:
+        "rust_crypto_targets must match the exact reviewed target/source/test contract",
       source: source.replace(
         '          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\n',
         "",
@@ -2349,62 +3382,75 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selects root Cargo workspace inputs for native clippy",
-      needle: "native clippy input must select at least one native lint path: Cargo.toml",
+      needle:
+        "native clippy input must select at least one native lint path: Cargo.toml",
       source: source.replaceAll("Cargo.toml|Cargo.lock|", ""),
     },
     {
       name: "real workflow selects root Cargo configuration for native clippy",
-      needle: "native clippy input must select at least one native lint path: .cargo/config.toml",
+      needle:
+        "native clippy input must select at least one native lint path: .cargo/config.toml",
       source: source.replaceAll(".cargo/*|", ""),
     },
     {
       name: "real workflow selects root Clippy configuration for native clippy",
-      needle: "native clippy input must select at least one native lint path: clippy.toml",
+      needle:
+        "native clippy input must select at least one native lint path: clippy.toml",
       source: source.replaceAll("clippy.toml|.clippy.toml|", ""),
     },
     {
       name: "real workflow selects wallet parent workspace manifests for native clippy",
-      needle: "native clippy input must select at least one native lint path: wallet/Cargo.toml",
-      source: source.replaceAll("wallet/Cargo.toml|wallet/Cargo.lock|", ""),
+      needle:
+        "native clippy input must select at least one native lint path: wallet/Cargo.toml",
+      source: source
+        .replaceAll("wallet/*|", "")
+        .replaceAll("wallet/Cargo.toml|wallet/Cargo.lock|", ""),
     },
     {
       name: "real workflow selects wallet parent lint configuration for native clippy",
-      needle: "native clippy input must select at least one native lint path: wallet/.cargo/config.toml",
-      source: source.replaceAll(
-        "wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|",
-        "",
-      ),
+      needle:
+        "native clippy input must select at least one native lint path: wallet/.cargo/config.toml",
+      source: source
+        .replaceAll("wallet/*|", "")
+        .replaceAll(
+          "wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|",
+          "",
+        ),
     },
     {
       name: "real workflow selects future wallet Rust sources for native clippy",
-      needle: "native clippy input must select at least one native lint path: wallet/future-crate/src/lib.rs",
-      source: source.replaceAll("wallet/*.rs|", ""),
+      needle:
+        "native clippy input must select at least one native lint path: wallet/future-crate/src/lib.rs",
+      source: source.replaceAll("wallet/*|", "").replaceAll("wallet/*.rs|", ""),
     },
     {
       name: "real workflow selects future wallet manifests for native clippy",
-      needle: "native clippy input must select at least one native lint path: wallet/future-crate/Cargo.toml",
-      source: source.replaceAll(
-        "wallet/*/Cargo.toml|wallet/*/Cargo.lock|",
-        "",
-      ),
+      needle:
+        "native clippy input must select at least one native lint path: wallet/future-crate/Cargo.toml",
+      source: source
+        .replaceAll("wallet/*|", "")
+        .replaceAll("wallet/*/Cargo.toml|wallet/*/Cargo.lock|", ""),
     },
     {
       name: "real workflow selects future wallet Cargo configuration for native clippy",
       needle:
         "native clippy input must select at least one native lint path: wallet/future-crate/.cargo/config.toml",
-      source: source.replaceAll("wallet/*/.cargo/*|", ""),
+      source: source
+        .replaceAll("wallet/*|", "")
+        .replaceAll("wallet/*/.cargo/*|", ""),
     },
     {
       name: "real workflow selects future wallet Clippy configuration for native clippy",
-      needle: "native clippy input must select at least one native lint path: wallet/future-crate/clippy.toml",
-      source: source.replaceAll(
-        "wallet/*/clippy.toml|wallet/*/.clippy.toml|",
-        "",
-      ),
+      needle:
+        "native clippy input must select at least one native lint path: wallet/future-crate/clippy.toml",
+      source: source
+        .replaceAll("wallet/*|", "")
+        .replaceAll("wallet/*/clippy.toml|wallet/*/.clippy.toml|", ""),
     },
     {
       name: "real workflow rejects a decorative native negative control",
-      needle: "must run exactly one unconditional target-bound negative control",
+      needle:
+        "must run exactly one unconditional target-bound negative control",
       source: source.replace(
         '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
         '        run: echo "native clippy self-test"',
@@ -2412,7 +3458,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a skipped native negative control",
-      needle: "must run exactly one unconditional target-bound negative control",
+      needle:
+        "must run exactly one unconditional target-bound negative control",
       source: source.replace(
         '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"',
         '        run: scripts/check-rust-clippy.sh --self-test "${{ matrix.target_os }}"\n        if: false',
@@ -2422,7 +3469,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a decorative native lint verdict",
       needle: "must run exactly one unconditional all-wallet lint entrypoint",
       source: source.replace(
-        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh",
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh --root wallet",
         "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: echo clean",
       ),
     },
@@ -2430,8 +3477,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a skipped native lint verdict",
       needle: "must run exactly one unconditional all-wallet lint entrypoint",
       source: source.replace(
-        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh",
-        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh\n        if: false",
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh --root wallet",
+        "      - name: Lint every Rust crate under wallet/ at -D warnings\n        shell: bash\n        run: scripts/check-rust-clippy.sh --root wallet\n        if: false",
       ),
     },
     {
@@ -2515,11 +3562,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a missing gate workflow-policy verdict",
       needle:
         "gate policy recheck must be exact, unconditional, and non-soft-failing",
-      source: replaceLast(
-        source,
-        `          ${WORKFLOW_GATES_COMMAND}\n`,
-        "",
-      ),
+      source: replaceLast(source, `          ${WORKFLOW_GATES_COMMAND}\n`, ""),
     },
     {
       name: "real workflow rejects a reordered gate workflow-policy self-test",
@@ -2661,10 +3704,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a missing librustzcash policy verdict",
       needle:
         "changes policy step must exactly self-test and enforce the current-source policy",
-      source: source.replace(
-        `          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
-        "",
-      ),
+      source: source.replace(`          ${LIBRUSTZCASH_POLICY_COMMAND}\n`, ""),
     },
     {
       name: "real workflow rejects a missing WASM boundary policy",
@@ -2718,7 +3758,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selector cannot narrow away future nested WASM Rust source",
-      needle: "ZUULI selector must contain one active wallet/zuuli/* case pattern",
+      needle:
+        "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
         "wallet/zuuli/*|wallet/plugins/*",
         "wallet/zuuli/src/*|wallet/plugins/*",
@@ -2726,7 +3767,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selector cannot launder nested WASM coverage through a comment",
-      needle: "ZUULI selector must contain one active wallet/zuuli/* case pattern",
+      needle:
+        "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
         "wallet/zuuli/*|wallet/plugins/*",
         "wallet/zuuli/src/*|wallet/plugins/* # wallet/zuuli/*|",
@@ -2739,19 +3781,14 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow selector cannot omit the librustzcash verifier",
-      needle:
-        "ZUULI selector must cover scripts/check-librustzcash-compat.mjs",
+      needle: "ZUULI selector must cover scripts/check-librustzcash-compat.mjs",
       source: source.replace("|scripts/check-librustzcash-compat.mjs", ""),
     },
     {
       name: "real workflow schema selector cannot omit the librustzcash verifier",
       needle:
         "Zuuallet schema selector must cover scripts/check-librustzcash-compat.mjs",
-      source: replaceLast(
-        source,
-        "|scripts/check-librustzcash-compat.mjs",
-        "",
-      ),
+      source: replaceLast(source, "|scripts/check-librustzcash-compat.mjs", ""),
     },
     ...REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS.map((input) => ({
       name: `real workflow selects classic seed-boundary input ${input}`,
@@ -2760,7 +3797,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     })),
     {
       name: "real workflow requires the unique frontend display context",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend("    name: zuuli / frontend\n", ""),
     },
     {
@@ -2783,7 +3821,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a stale-source reset after frontend checkout",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Substitute stale frontend source after checkout\n        run: cd ../.. && git reset --hard HEAD~1`,
@@ -2791,7 +3830,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects a stale-source checkout after frontend checkout",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Check out stale frontend source\n        run: cd ../.. && git checkout HEAD~1`,
@@ -2799,7 +3839,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects frontend source overwrite after checkout",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Overwrite checked-out frontend source\n        run: printf stale > src/main.tsx`,
@@ -2807,7 +3848,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects frontend build-script substitution after checkout",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Substitute the WASM build script\n        run: cp package.json scripts/wasm-build.mjs`,
@@ -2815,7 +3857,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects an extra unnamed frontend step",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
         `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - run: true`,
@@ -2823,7 +3866,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     },
     {
       name: "real workflow rejects stale-source substitution inside dependency install",
-      needle: "frontend must match the complete exact current-source execution program",
+      needle:
+        "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
         "      - name: Install locked dependencies\n        run: npm ci",
         "      - name: Install locked dependencies\n        run: cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli && npm ci",
@@ -3198,11 +4242,17 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       repoRoot,
       new Map([[input, Buffer.concat([original, Buffer.from("\nmutated")])]]),
     );
-    if (!failures.some((failure) => failure.includes("differs from its reviewed digest"))) {
+    if (
+      !failures.some((failure) =>
+        failure.includes("differs from its reviewed digest"),
+      )
+    ) {
       throw new Error(`crypto input mutation escaped policy: ${input}`);
     }
     cryptoInputMutations += 1;
-    console.log(`self-test: crypto input digest rejects mutation: ${input}: passed`);
+    console.log(
+      `self-test: crypto input digest rejects mutation: ${input}: passed`,
+    );
   }
   const reviewedScope = reviewedCompatibilityScope();
   const baselineScopeFailures = librustzcashScopeFailures(reviewedScope);
@@ -3894,8 +4944,7 @@ function runSelfTest(repoRoot) {
       files: gateFixture(
         withGatePolicyLines(
           gatePolicyLines.filter(
-            (line) =>
-              line !== `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+            (line) => line !== `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
           ),
         ),
       ),
@@ -4143,7 +5192,9 @@ function runSelfTest(repoRoot) {
       for (const [relative, contents] of Object.entries(testCase.files)) {
         writeFixture(fixture, relative, contents);
       }
-      const result = scanRepository(fixture);
+      const result = scanRepository(fixture, {
+        enforceRustRootOwners: false,
+      });
       if (testCase.valid) {
         if (result.failures.length) {
           throw new Error(
@@ -4305,9 +5356,11 @@ function runSelfTest(repoRoot) {
     console.log(`self-test: gate verdict: ${testCase.name}: passed`);
   }
   const currentWorkflowMutations = runCurrentWorkflowMutationTests(repoRoot);
+  const rustRootWorkflowMutations = runRustRootWorkflowMutationTests(repoRoot);
   console.log(
     `self-test: ${cases.length} source-policy, ${gateResultCases.length} gate-verdict, ` +
-      `and ${currentWorkflowMutations} current-workflow mutation case(s) passed.`,
+      `${currentWorkflowMutations} current-workflow, and ${rustRootWorkflowMutations} ` +
+      `Rust-root ownership mutation case(s) passed.`,
   );
 }
 
