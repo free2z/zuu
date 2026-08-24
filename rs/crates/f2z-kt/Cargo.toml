@@ -77,6 +77,7 @@ async-trait = { workspace = true }
 # `tests/`, and never for the binary".
 f2z-kt = { path = ".", version = "0.1.0", features = ["testing"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
 
 [[bin]]
 name = "f2z-kt"
