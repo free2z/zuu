@@ -164,7 +164,7 @@ fn a_signing_key_never_renders_anything_about_itself() {
 fn a_seen_set_does_not_render_the_keys_and_nonces_it_holds() {
     let mut seen = SeenSet::new(240_000, 8);
     let key = ReplayKey::new(PublicKey::new([SECRET; 32]), Nonce::new([SECRET; 16]));
-    seen.observe(NOW, key).unwrap();
+    seen.commit(NOW, key).unwrap();
 
     assert_no_leak("ReplayKey", &format!("{key:?}"), &[SECRET; 32]);
     assert_no_leak("ReplayKey", &format!("{key:?}"), &[SECRET; 16]);

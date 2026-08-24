@@ -35,9 +35,11 @@
 //! Rust core shared by ZUULI and the web client and a crate that cannot reach
 //! the browser breaks that.
 //!
-//! It also does not store anything. Message bodies, addresses, quotas and
-//! challenge issuance are relay state; this crate holds the rules those states
-//! must obey.
+//! It also performs no application I/O or durable storage. Its state machines
+//! and [`SeenSet`] do hold bounded, process-local protocol bookkeeping. Message
+//! bodies, addresses, quotas, challenge issuance, sharing a replay authority
+//! across workers, and durable replay persistence are relay state; this crate
+//! holds the rules those states must obey.
 //!
 //! # A connection, end to end
 //!
