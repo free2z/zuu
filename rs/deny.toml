@@ -1,0 +1,117 @@
+# Supply-chain policy for every Rust crate under rs/.
+#
+# Separate from wallet/deny.toml on purpose. "Which advisories we accept" is a
+# judgement about a *particular dependency graph*, and this one is not the
+# wallet's: no Tauri, no GTK, no librustzcash, no SQLite. Sharing a policy
+# between two graphs that have nothing in common would mean every entry is
+# either irrelevant to one of them or hiding something in the other.
+#
+# `scripts/check-rust-deny.sh --root rs` enforces this file.
+#
+# =============================================================================
+# THE `ignore` LIST IS EMPTY, AND IT STAYS THAT WAY UNTIL SOMEONE MEASURES ONE.
+# =============================================================================
+#
+# wallet/deny.toml's list is the *measured* backlog from the day the wallet gate
+# landed on a tree that had never had one — real work, tracked in #351. This
+# tree is greenfield. There is nothing here to grandfather, so grandfathering
+# nothing is not strictness, it is just the truth.
+#
+# Do not copy an entry across from wallet/deny.toml. Those justifications were
+# written about a graph that does not exist here; re-stating one would launder
+# an out-of-date assumption about someone else's dependencies as a reviewed
+# decision about ours. If an advisory ever fires here, either fix the dependency
+# or write a fresh entry naming the advisory, the version that fixes it, and why
+# we are not on that version yet.
+
+[graph]
+# Evaluate every target. This tree compiles for wasm32-unknown-unknown as well
+# as for the servers' hosts, and a host-only view would miss whatever the wasm
+# half pulls in.
+all-features = false
+
+# =============================================================================
+# Advisories.
+# =============================================================================
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Yanking is registry state, not repository state: a crate can be yanked
+# upstream between two CI runs with no commit of ours in between, which would
+# turn an unrelated pull request red for reasons its author cannot act on. It is
+# reported on every run and triaged deliberately instead.
+yanked = "warn"
+
+# Empty. See the header. This is the whole point of the file.
+ignore = []
+
+# =============================================================================
+# Licences — and the permissive/AGPL boundary, made mechanical.
+#
+# Per the owner decision recorded on #305: the relay and directory **server
+# binaries** will be AGPL-3.0, while every **shared crate** stays permissive so
+# that the ZUULI client, the WASM web client, and third-party implementations
+# can link them. A permissive core with copyleft servers is only a real boundary
+# if something checks it, and this section is that something.
+#
+# `private.ignore = false` is the load-bearing line. cargo-deny's default is to
+# skip crates marked `publish = false`, which is every crate in this workspace —
+# with the default, our own licences would never be looked at and the boundary
+# would be a comment. With it off, every first-party `license` field is judged
+# against the allow list below, so:
+#
+#   * a shared crate that forgets `license` fails;
+#   * a shared crate that declares AGPL-3.0 fails;
+#   * an AGPL-3.0 **server binary** fails until it is added to `exceptions` by
+#     name, which is a reviewed, one-line, deliberate act.
+#
+# That last case is the boundary: crossing it is possible, and it is impossible
+# to cross by accident.
+# =============================================================================
+[licenses]
+private = { ignore = false }
+
+allow = [
+  # Exactly the licences this workspace's graph actually carries today, and
+  # nothing else. An aspirational allow list is a claim about dependencies we do
+  # not have; cargo-deny reports every unmatched entry, and a policy that emits
+  # warnings on a clean run trains people to ignore its output.
+  #
+  # Adding a permissive licence here when a new dependency needs one is a
+  # one-line, reviewed edit. That is the intended cost.
+  "MIT",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+]
+
+# Per-crate escapes. Empty today.
+#
+# This is where an AGPL-3.0 server binary goes when one lands — as
+# `{ name = "f2z-relay", allow = ["AGPL-3.0"] }`, and nowhere else. Adding
+# "AGPL-3.0" to `allow` above instead would silently permit it for every crate
+# in the tree, including the ones the ZUULI client links, which is exactly the
+# drift this section exists to prevent.
+exceptions = []
+
+# =============================================================================
+# Bans.
+#
+# Unlike the wallet, this tree is small enough for the duplicate-version report
+# to be signal rather than noise, so it is left on. A second copy of a crate in
+# a relay is a second parser on the unauthenticated path or a second copy of a
+# crypto primitive; either is worth a look. Downgrade this only with a reason.
+# =============================================================================
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+# =============================================================================
+# Sources. Everything resolves to crates.io. Making that a rule rather than a
+# coincidence means a `git = "..."` dependency on someone's fork cannot appear
+# in a relay's dependency graph without amending this file.
+# =============================================================================
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,365 @@
+name: rs
+
+# The required check for the rs/ Rust workspace.
+#
+# A separate workflow rather than more jobs in zuuli.yml, on purpose. The
+# wallet's required gate carries a 45-minute Tauri build and a three-host
+# clippy matrix; putting a messaging PR's five-minute feedback loop behind that
+# would make the E2EE work slower for reasons that have nothing to do with it.
+# The two change detectors are disjoint, and the PR that introduced this
+# workflow demonstrated both directions: an rs/-only diff yields zuuli=false,
+# and a wallet/-only diff yields rs=false.
+#
+# The `gate` job at the end is what branch protection should require. Adding it
+# as a required status check is a repository-settings change and cannot be made
+# in this file.
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR updates supersede older runs; post-merge and manual runs key on run_id
+  # and are never cancelled because another main build started.
+  group: rs-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rs: ${{ steps.filter.outputs.rs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Diff locally instead of relying on the pull-request files API.
+          fetch-depth: 0
+
+      # These run on every event, including changes this workflow would
+      # otherwise skip entirely, because a policy regression is not a code
+      # change under rs/ and would sail through a skip. Each self-test runs
+      # first, so the verdict that follows comes from a check that has just been
+      # watched fail.
+      - name: Verify immutable actions and fail-closed required jobs
+        run: |
+          node scripts/check-github-actions-pins.mjs --self-test
+          node scripts/check-github-actions-pins.mjs
+
+      - name: Verify every gate inspects every job it awaits
+        run: |
+          node scripts/check-workflow-gates.mjs --self-test
+          node scripts/check-workflow-gates.mjs
+
+      # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
+      # wallet/rust-toolchain.toml. Registering them here is what holds them to
+      # it; without the flags they would be a second, unpoliced source of truth.
+      - name: Verify the Rust toolchain pin has not drifted
+        run: |
+          scripts/check-rust-toolchain.sh --self-test
+          scripts/check-rust-toolchain.sh \
+            --toolchain-file rs/rust-toolchain.toml \
+            --manifest rs/crates/f2z-codec/Cargo.toml
+
+      - name: Detect changes under rs/
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # Manual runs, first pushes, and incomplete event payloads fail open
+          # into the full suite, never into an unverified skip.
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::notice::No usable base commit; running the full rs gate."
+            echo "rs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! changed_files=$(git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA"); then
+            echo "::warning::Diff failed; running the full rs gate."
+            echo "rs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `case` patterns are not pathname globs: `rs/*` matches every path
+          # under rs/, at any depth.
+          #
+          # wallet/rust-toolchain.toml is deliberately absent. A toolchain bump
+          # that is correct also edits rs/rust-toolchain.toml and
+          # rs/crates/*/Cargo.toml, which select rs; a bump that is not correct
+          # fails scripts/check-rust-toolchain.sh in this always-running job.
+          # Listing it would make every wallet pin bump run the rs suite twice
+          # over for no additional coverage.
+          rs=false
+          while IFS= read -r file; do
+            case "$file" in
+              rs/*|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+                rs=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "rs=$rs" >> "$GITHUB_OUTPUT"
+
+  rs_fmt:
+    name: rs / rustfmt
+    needs: changes
+    if: needs.changes.outputs.rs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The version is read out of wallet/rust-toolchain.toml rather than
+      # restated in YAML, because an action input cannot read TOML and a
+      # restatement here would be one more thing to drift.
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: rustfmt
+
+      - name: Prove the formatting check still fails on unformatted code
+        run: scripts/check-rust-fmt.sh --self-test
+
+      - name: Check every crate under rs/
+        run: scripts/check-rust-fmt.sh --root rs
+
+  rs_clippy:
+    name: rs / clippy
+    needs: changes
+    if: needs.changes.outputs.rs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rs
+          key: rs-clippy
+
+      # The negative control proves -D warnings and the selected target are
+      # both live before the real verdict is trusted. rs/ is portable Rust, so
+      # linux is the only host it needs; the wallet's macOS and Windows lanes
+      # exist because its code has target-gated branches, and this tree
+      # deliberately has none.
+      - name: Prove -D warnings still fails a known lint
+        run: scripts/check-rust-clippy.sh --self-test linux
+
+      - name: Lint every crate under rs/ at -D warnings
+        run: scripts/check-rust-clippy.sh --root rs
+
+  rs_deny:
+    name: rs / cargo-deny
+    needs: changes
+    if: needs.changes.outputs.rs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      - name: Prove the policy still decides the verdict
+        run: scripts/check-rust-deny.sh --self-test
+
+      # --config is explicit rather than defaulted so the separation from
+      # wallet/deny.toml is visible at the call site, not just in the script.
+      - name: Enforce rs/deny.toml over every crate under rs/
+        run: scripts/check-rust-deny.sh --root rs --config rs/deny.toml
+
+  rs_test:
+    name: rs / tests
+    needs: changes
+    if: needs.changes.outputs.rs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rs
+          key: rs-test
+
+      # --locked: test the lockfile CI actually builds, so a resolution that
+      # only happens on a developer's machine cannot change the verdict.
+      - name: Run the rs/ test suite
+        working-directory: rs
+        run: cargo test --locked --all-targets
+
+      - name: Run the rs/ doc tests
+        working-directory: rs
+        run: cargo test --locked --doc
+
+  rs_wasm:
+    name: rs / wasm32
+    needs: changes
+    if: needs.changes.outputs.rs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          target=$(scripts/check-rust-toolchain.sh --print-targets)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          targets: ${{ steps.rust_toolchain.outputs.target }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rs
+          key: rs-wasm
+
+      # ADR 0001 requires one Rust core shared by ZUULI and the web client, so
+      # f2z-codec reaching wasm32 is a protocol-level requirement rather than a
+      # nice property. It is enforced by this job and not by convention, because
+      # "we kept it portable" stops being true the first week nobody checks. The
+      # first accidental `use std::` or tokio dependency fails here.
+      - name: Build f2z-codec for the browser target
+        working-directory: rs
+        run: |
+          set -euo pipefail
+          cargo build --locked --lib \
+            --target "${{ steps.rust_toolchain.outputs.target }}" \
+            -p f2z-codec
+
+  # Branch protection should require this stable context. It succeeds only when
+  # the change detector and every applicable rs job succeeded; a legitimate
+  # non-rs skip reports success rather than remaining pending.
+  #
+  # Every job in `needs:` below is bound into `env:` AND named on the `results=`
+  # line. scripts/check-workflow-gates.mjs enforces that the three sets are
+  # equal, so a job that is awaited but never inspected fails review instead of
+  # quietly making this gate decorative.
+  gate:
+    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Re-run the workflow policy here so that even a job-level
+      # continue-on-error on `changes` cannot turn that job's deliberately
+      # failing policy verdict into the `success` conclusion this gate consumes.
+      - name: Recheck the workflow policy
+        id: policy
+        run: |
+          node scripts/check-github-actions-pins.mjs --self-test
+          node scripts/check-github-actions-pins.mjs
+          node scripts/check-workflow-gates.mjs --self-test
+          node scripts/check-workflow-gates.mjs
+
+      - name: Verify required jobs succeeded or legitimately skipped
+        shell: bash
+        env:
+          POLICY_OUTCOME: ${{ steps.policy.outcome }}
+          RS_SELECTED: ${{ needs.changes.outputs.rs }}
+          CHANGES: ${{ needs.changes.result }}
+          RS_FMT: ${{ needs.rs_fmt.result }}
+          RS_CLIPPY: ${{ needs.rs_clippy.result }}
+          RS_DENY: ${{ needs.rs_deny.result }}
+          RS_TEST: ${{ needs.rs_test.result }}
+          RS_WASM: ${{ needs.rs_wasm.result }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$POLICY_OUTCOME" != success ]]; then
+            echo "::error::workflow policy recheck did not pass: $POLICY_OUTCOME"
+            exit 1
+          fi
+          if [[ "$CHANGES" != success ]]; then
+            echo "::error::change detection did not pass: $CHANGES"
+            exit 1
+          fi
+
+          # A skip is only legitimate when the detector said so. Anything other
+          # than a clean true/false is a detector that failed open into silence,
+          # which must fail the gate rather than excuse every job at once.
+          case "$RS_SELECTED" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *)
+              echo "::error::change detector produced no usable rs verdict: '$RS_SELECTED'"
+              exit 1
+              ;;
+          esac
+
+          results="rs_fmt=$RS_FMT rs_clippy=$RS_CLIPPY rs_deny=$RS_DENY rs_test=$RS_TEST rs_wasm=$RS_WASM"
+          for entry in $results; do
+            job=${entry%%=*}
+            outcome=${entry#*=}
+            if [[ "$outcome" != "$expected" ]]; then
+              echo "::error::required job $job must be $expected, got '$outcome'"
+              exit 1
+            fi
+          done
+
+          echo "The rs gate passed (rs=$RS_SELECTED): changes=$CHANGES $results"

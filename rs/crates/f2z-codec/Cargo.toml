@@ -1,0 +1,27 @@
+[package]
+name = "f2z-codec"
+version = "0.1.0"
+description = "Canonical tls_codec encoding layer for the free2z relay wire protocol (docs/e2ee/WIRE.md v1)"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. This crate is linked by the ZUULI
+# client, by the WASM web client, and by any third-party relay or client
+# implementation; the AGPL-3.0 boundary starts at the server binaries, not here.
+# Stated literally rather than inherited so it is visible to anyone reading the
+# crate. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake2 = { workspace = true }
+tls_codec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
