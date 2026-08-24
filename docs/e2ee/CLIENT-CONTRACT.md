@@ -700,7 +700,9 @@ Both counts are in the payload so there is no reason to write anything else.
 interface DirectoryResolution {
   handle: string;
   found: boolean;                // false is a PROVED non-membership, not an error
-                                 // — the ONLY representation of it; see below
+                                 // — the ONLY representation of it; see below.
+                                 // The word PROVED is wrong as written: see the
+                                 // correction under this section.
   identityFingerprint: string | null;
   deviceCount: number;
   entryVersion: number | null;
@@ -767,6 +769,41 @@ that into an error path would discard the proof, so the UI renders "no such
 handle" as an **answer** — same success path, different content — and never as a
 failure. `handle-ineligible` (§11.3) is a different thing entirely: the string
 cannot be a handle at all, so no lookup is made and no proof exists.
+
+> **Correction (2026-08-24) — `found: false` is an unproved assertion, not a
+> proof, and the UI must not present it as one.** The paragraph above and the
+> comment in `DirectoryResolution` both say *proved*, restating
+> [`KT.md` §9.5](./KT.md#95-error-codes) faithfully — and §9.5 turned out to
+> state a requirement the adopted library cannot meet.
+> [`KT.md` §8.1](./KT.md#81-lookup)'s correction has the mechanics: `akd` 0.13
+> produces **no** proof of non-membership for an unregistered label, so the log
+> answers with an assertion that it must label as unproved on the wire
+> ([#634](https://github.com/free2z/zuu/issues/634)).
+>
+> **What survives.** Everything about the *shape*. `resolve_handle` still
+> succeeds, `found: false` is still the single representation of non-membership,
+> and there is still no unknown-handle `ErrorCode` in either direction (§8.1).
+> Routing an absent answer into an error path is still wrong — now because it
+> would hide which of the two answers the log gave, rather than because it would
+> discard a proof.
+>
+> **What changes, for whoever writes this screen.** `found: false` is the log's
+> word for it and nothing more. The UI **MUST NOT** state or imply that the
+> handle's absence was verified — no "verified: no such handle", no proof or
+> shield iconography on that branch — and copy that reads as a fact about the
+> world rather than a report from the directory is a defect. **The engine MUST
+> NOT let `found: false` overwrite a resolution it has already pinned**: if the
+> client holds a pin for that handle, this is a contradiction it cannot prove to
+> anyone, and it raises an alarm and fails closed rather than forgetting the pin
+> (§9's rules; [`KT.md` §8.1](./KT.md#81-lookup)).
+>
+> **No field is added for this in v1**, deliberately. A flag that is a constant
+> `false` in every response this protocol can produce is a reserved field with
+> extra steps; when the log can prove absence, the field that carries the proof
+> arrives with it, and this document's provisional-shape convention (§12.1) is
+> what makes that additive. The limit itself is
+> [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved)
+> and [`ARCHITECTURE.md` §13-T](./ARCHITECTURE.md#13-open-questions).
 
 Self-audit is the whole point of the directory: every client monitors its own
 handle every epoch and **raises a loud, non-dismissible alarm on any key change
@@ -881,6 +918,24 @@ against the `.well-known` copy, and **refuses on digest mismatch**. It also
 refuses a relay whose `padding_sizes` is not a superset of what this client
 emits, or is implausibly fine-grained. Those refusals are `ErrorCode`s, not
 warnings.
+
+> **Correction (2026-08-24) — a token-gated relay is a refusal, not a warning.**
+> `"token-gated"` appears in `RelayWarning` and `"token"` in
+> `queueCreationMode` above because [`WIRE.md` §13.1](./WIRE.md#131-the-layers)
+> offered three queue-creation modes. It has since **reserved** `token`: v1's
+> `CREATE_QUEUE` has no field a token can go in, so a relay advertising that mode
+> gates creation behind a credential no conforming client can present
+> ([#630](https://github.com/free2z/zuu/issues/630)).
+>
+> `add_relay` **MUST refuse** a capability document whose `queue_creation_mode`
+> is the reserved value, as an `ErrorCode` alongside the digest-mismatch and
+> padding-set refusals, and **MUST NOT offer an override** — there is nothing a
+> user could consent to that would make a token presentable. `"token-gated"`
+> therefore describes a relay this client never adds; the member stays in
+> `RelayWarning` rather than being removed, so a component written against the
+> union does not lose a case it may already handle, and a document advertising
+> that mode is a defect on the relay's side rather than a policy choice a user
+> weighs.
 
 **So a capability-digest mismatch is never a `RelayWarning`, and there is
 deliberately no member for it.** A warning is something a *configured, usable*
@@ -1481,7 +1536,8 @@ attack.
 
 And there is **no unknown-handle code, in either direction**.
 [`KT.md` §9.5](./KT.md#95-error-codes) has none deliberately, and §3.10's
-`found: false` is this document's single representation of non-membership.
+`found: false` is this document's single representation of non-membership —
+which in v1 is an **unproved assertion by the log**, per §3.10's correction.
 
 **The default rule, so the union stays closed as the protocol grows.** A code
 neither table names — one from a protocol version newer than this client, or a
@@ -1578,6 +1634,18 @@ Short, blunt, and each one has a specific failure behind it.
    [`THREAT-MODEL.md` §3.6](./THREAT-MODEL.md#36-a-coerced-server-serving-targeted-javascript-to-web-clients)).
    The browser build must not render the entry point at all — not disabled, not
    "coming soon".
+
+9. **Never present `found: false` as a verified absence, and never let it
+   overwrite a pin.** Added 2026-08-24. `akd` 0.13 cannot prove that a handle is
+   unregistered, so the log's "not registered" is an **assertion labelled
+   unproved**, not a proof
+   ([`KT.md` §8.1](./KT.md#81-lookup)'s correction, §3.10's correction,
+   [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved)).
+   Copy or iconography implying the absence was checked is false in exactly the
+   way rule 3's forbidden copy is false. And if the client already holds a pin
+   for that handle, the answer is a contradiction it **cannot prove to anyone**:
+   raise an alarm and fail closed. Silently dropping the pin would complete the
+   attack.
 
 ---
 

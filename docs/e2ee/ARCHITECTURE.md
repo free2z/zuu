@@ -1122,6 +1122,14 @@ deliberate.
   ([ADR 0006](./decisions/0006-zcash-coupling.md), optional tier) is unspecified.
   It remains the real answer to the abuse cases that
   [ADR 0012](./decisions/0012-anti-abuse-v1.md) explicitly does **not** close.
+  **Not to be confused with `WIRE.md` §13.1's `token` mode**, which was reserved
+  on 2026-08-24 because v1's wire has no field a token can go in
+  ([#630](https://github.com/free2z/zuu/issues/630)). A token is an identifier
+  and an anonymous credential is not; token mode was never this question's
+  carrier, and reserving it costs this question nothing. When it is answered it
+  arrives as a **new command code** under
+  [`WIRE.md` §3.5](./WIRE.md#35-versioning), whose absence on an un-upgraded
+  relay is a non-fatal `ERR_UNKNOWN_COMMAND` rather than a federation flag day.
 - **K. Handle rename and transfer.** How the KT log represents a handle changing
   owner without creating a MITM window.
   [ADR 0014](./decisions/0014-directory-key-rotation.md) settles directory *key
@@ -1229,6 +1237,29 @@ deliberate.
   [#551](https://github.com/free2z/zuu/issues/551) is open about — so `KT.md`
   states the option space and deliberately answers none of it.
   [#594](https://github.com/free2z/zuu/issues/594).
+- **T. Proving that a handle is unregistered.** Opened 2026-08-24 by
+  [`KT.md` §8.1](./KT.md#81-lookup) and
+  [§9.5](./KT.md#95-error-codes), and unlike most of this list it is not a
+  decision we have deferred — it is a **requirement the specification states and
+  the adopted library cannot meet.** `KT.md` requires "no such user" to be
+  answered with a non-membership proof, deliberately, because a directory that
+  may *assert* absence can disappear a user and be indistinguishable from one
+  telling the truth. `akd` 0.13 has no API that produces such a proof: `lookup`
+  errors for a label with no user state, and the `NonMembershipProof` inside a
+  `LookupProof` is about a freshness marker for a label that is present. A v1 log
+  therefore serves an assertion, which `KT.md` now requires to be **labelled
+  unproved on the wire** so a client cannot mistake it for a proof
+  ([`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved)).
+  Closing it means one of: upstream support
+  ([`KT.md` §11.5](./KT.md#115-what-akd-013-cannot-do-and-what-upstream-would-have-to-add)),
+  which is the preferred shape and is not a small change; a per-epoch signed
+  presence commitment, which bounds the lie to one epoch rather than removing it
+  and would need specifying; or accepting the labelled assertion permanently and
+  saying so. The knock-on is in
+  [`KT.md` §5.3](./KT.md#53-the-submission-receipt): a submission receipt for a
+  handle's **first** entry cannot be turned into portable evidence either, which
+  is the same handle-with-no-entry case as §13-S above.
+  [#634](https://github.com/free2z/zuu/issues/634).
 
 ### 13.1 Closed
 
