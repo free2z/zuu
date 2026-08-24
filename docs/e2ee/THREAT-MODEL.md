@@ -71,7 +71,7 @@ data it stores or relays.
 - **Cannot substitute an identity key undetectably.** The KT directory is an
   append-only log with inclusion and consistency proofs; every client self-audits
   its own handle every epoch and alarms on any key change it did not initiate.
-  An attempted substitution is visible **to the victim**. — **Two corrections
+  An attempted substitution is visible **to the victim**. — **Three corrections
   below narrow this bullet; read them with it.**
 - **Cannot equivocate on the directory without leaving evidence**, once an
   independent witness set exists. Witness cosigning plus client gossip means two
@@ -126,6 +126,28 @@ data it stores or relays.
 > It does not prevent it. A user who ignores the alarm is MITM'd, and a user who
 > set `no_reset` has foreclosed the path entirely at the cost of permanent handle
 > loss on a lost seed.
+
+> **Correction (2026-08-24) — the bullet is scoped to a handle that already has
+> a directory entry, and that qualifier was never written down.** "Substitute an
+> identity key" presupposes a key already published for the handle; self-audit,
+> the alarm and the key-change rules all hang off the entry that key lives in.
+> For a handle with **no** entry yet, none of that machinery has anything to act
+> on, and
+> [`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry) does not say what authorizes
+> a handle's **first** entry — as its rules are enumerated, a first entry is
+> accepted from whoever submits one, including the log itself
+> ([#594](https://github.com/free2z/zuu/issues/594),
+> [§13-S](./ARCHITECTURE.md#13-open-questions)). A server that publishes a first
+> entry for a handle whose owner never enrolled is not *substituting* a key, so
+> the bullet above stays literally true — and a peer who resolves that handle is
+> MITM'd anyway, with no self-audit anywhere to fire, because the person who
+> would audit is not a user of the system. **The bullet is therefore not a claim
+> about unregistered handles and must not be restated as one**, which is exactly
+> the failure the scoping convention in
+> [`README.md`](./README.md) exists to catch; the summary row in §5 has been
+> narrowed to match. What closes the gap is a decision that has not been taken —
+> `KT.md` §4.4 states the option space and answers none of it — so this
+> correction records a limit rather than a fix.
 
 **Not defended.**
 
@@ -637,14 +659,14 @@ open question is
 the claim.** A **Yes** means yes under the conditions that section states, and
 nothing wider. Every correction this document carries has the same cause — a
 property that holds under stated conditions, later restated without them (§3.1,
-twice; §4.10, once) — so where a summary line and a section disagree, the
+three times; §4.10, once) — so where a summary line and a section disagree, the
 section's narrower reading is the one intended.
 
 | Property | ZUULI (native) | Web (WASM) |
 |---|---|---|
 | Server cannot read content | **Yes**, unconditionally | **Only if the served bundle is honest** (§3.6) |
 | Server cannot forge messages | **Yes** | Same caveat |
-| Server cannot MITM the identity | **Yes, and read §3.1's two corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. | Same caveat |
+| Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's three corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, what authorizes the first one is undecided ([`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry)) and this row claims nothing. | Same caveat |
 | Server cannot MITM WebRTC | **Yes** — in-band fingerprints | Same caveat |
 | Forward secrecy | **Yes** — MLS epochs | Yes, same caveat |
 | Post-compromise security | **Yes** — MLS Updates | Yes, same caveat |
