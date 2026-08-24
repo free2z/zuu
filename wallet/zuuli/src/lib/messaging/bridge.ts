@@ -65,10 +65,27 @@ import {
 } from "./types";
 import { z } from "zod";
 
-// `invoke<T>()` asserts a shape it never verifies, so a renamed engine field
-// would render as nothing. Dev-only: production skips the parse.
+/**
+ * Commands whose response is parsed in every build, not only in development.
+ *
+ * The symptom this file exists to prevent — a renamed engine field arriving as
+ * `undefined` and rendering nothing — is a production symptom, so a guard that
+ * only runs in development cannot see it, and neither can the parity test,
+ * which runs against the mock. These are the small, low-frequency responses
+ * where the parse costs nothing measurable; the hot list paths stay cast.
+ */
+const ALWAYS_PARSED = new Set([
+  "get_engine_status",
+  "get_device_info",
+  "f2zmsg_enrollment_status",
+  "f2zmsg_enroll",
+  "f2zmsg_unenroll",
+  "start_engine",
+  "stop_engine",
+]);
+
 function checked<T>(schema: z.ZodType<T>, value: unknown, cmd: string): T {
-  if (!import.meta.env.DEV) return value as T;
+  if (!import.meta.env.DEV && !ALWAYS_PARSED.has(cmd)) return value as T;
   const result = schema.safeParse(value);
   if (!result.success) {
     throw new Error(

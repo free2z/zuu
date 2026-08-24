@@ -111,6 +111,18 @@ afterEach(() => {
   resetMockMessaging();
 });
 
+describe("the implementation covers the contract", () => {
+  it("has one bridge method per declared command and one schema per event", () => {
+    // CLIENT-CONTRACT.md §3 declares 46 commands and §5.1 declares 11 events.
+    // These literals are the document's numbers, not this module's: every
+    // other assertion in this file ranges over `Object.keys(RESULTS)`, so it
+    // compares the implementation against itself and a command added to the
+    // contract and wired nowhere would pass all of them.
+    expect(bridgeMethods.length).toBe(46);
+    expect(Object.keys(EVENTS).length).toBe(11);
+  });
+});
+
 describe("the RESULTS manifest covers the bridge exactly", () => {
   it("declares a schema for every bridge method and no others", () => {
     expect(Object.keys(ALL_BRIDGE_METHODS).sort()).toEqual(bridgeMethods);

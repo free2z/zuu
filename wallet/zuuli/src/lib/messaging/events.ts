@@ -106,11 +106,10 @@ export async function listenMessaging<E extends EventName>(
   if (useMock()) return listenMock(name, handler);
 
   const { listen } = await import("@tauri-apps/api/event");
+  // Parsed in every build: event payloads are small and infrequent, and a
+  // renamed field here fails silently in exactly the way this module exists to
+  // prevent.
   const unlisten = await listen(name, (event) => {
-    if (!import.meta.env.DEV) {
-      handler(event.payload as EventPayload<E>);
-      return;
-    }
     const parsed = EVENTS[name].safeParse(event.payload);
     if (!parsed.success) {
       throw new Error(
