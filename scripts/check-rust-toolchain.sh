@@ -60,6 +60,7 @@ MANIFESTS=(
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
   rs/crates/f2z-codec/Cargo.toml
   rs/crates/f2z-relay-proto/Cargo.toml
+  rs/crates/f2z-authority/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory

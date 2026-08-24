@@ -319,7 +319,8 @@ jobs:
           cargo build --locked --lib \
             --target "${{ steps.rust_toolchain.outputs.target }}" \
             -p f2z-codec \
-            -p f2z-relay-proto
+            -p f2z-relay-proto \
+            -p f2z-authority
 
   # Branch protection should require this stable context, `rs / gate`. It
   # succeeds only when the change detector and every applicable rs job

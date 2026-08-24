@@ -112,11 +112,14 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
+| [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 
-**The relay and the clients link both.** That is the licence boundary in
-practice: everything here is MIT because a third-party relay, ZUULI and the WASM
-web client all compile the same rules, and a rule that two implementations
-disagree about is how ciphertext gets deleted before it is read.
+The current dependency graph is narrower than that intended architecture:
+`f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
+standalone experimental leaf and no workspace package depends on it. Wiring the
+authority candidate into a relay or client is future integration work, not a
+property this README claims today. All three remain MIT so downstream relays and
+clients can share the rules once that integration exists.
 
 `f2z-codec` is separate from everything that sits on top of it for three
 reasons, and each is enforced by a test rather than by intent:
@@ -136,7 +139,8 @@ reasons, and each is enforced by a test rather than by intent:
 ```bash
 cd rs
 cargo test
-cargo build --target wasm32-unknown-unknown --lib -p f2z-codec -p f2z-relay-proto
+cargo build --target wasm32-unknown-unknown --lib \
+  -p f2z-codec -p f2z-relay-proto -p f2z-authority
 ```
 
 The gates are the repository's shared scripts, pointed here with `--root`:
