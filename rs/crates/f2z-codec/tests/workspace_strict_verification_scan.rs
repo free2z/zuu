@@ -150,7 +150,7 @@
 mod common;
 
 use common::{
-    cfg_test_ranges, code_only, contains_identifier, identifier_positions, in_cfg_test,
+    cfg_test_ranges, code_lines, contains_identifier, identifier_positions, in_cfg_test,
     source_files, workspace_crates,
 };
 
@@ -238,6 +238,16 @@ const REGISTERED_NON_STRICT: &[Registered] = &[
         line: "raw.verify(&message, &dalek_signature).is_ok(),",
         why: "the call itself, inside that fixture's assertion",
     },
+    Registered {
+        file: "f2z-authority/src/key.rs",
+        line: "use ed25519_dalek::Verifier as _;",
+        why: "the #603 universal-forgery fixture must positively prove plain verification accepts what strict verification rejects",
+    },
+    Registered {
+        file: "f2z-authority/src/key.rs",
+        line: "raw.verify(&message, &dalek_signature).is_ok(),",
+        why: "the deliberate non-strict call inside the #603 positive control",
+    },
 ];
 
 /// The `.verify(` call sites in this workspace that a naive grep flags and
@@ -265,10 +275,19 @@ const SAFE_WRAPPER_CALL_SITES: &[(&str, &str)] = &[
 /// What makes one of this workspace's own `verify` functions strict.
 enum Strictness {
     /// Its body calls `verify_strict` and contains no non-strict entry point.
-    /// There is exactly one of these, and it is the whole basis for the rest.
-    CallsVerifyStrict,
+    /// Each crate-level wrapper has one of these, and is the basis for that
+    /// crate's delegation chain.
+    CallsVerifyStrict {
+        /// The expression whose strict method must be called.
+        receiver: &'static str,
+    },
     /// Its body calls a registered strict verifier, named `<file>::<fn>`.
-    DelegatesTo(&'static str),
+    DelegatesTo {
+        /// The registered strict function this call resolves to.
+        target: &'static str,
+        /// The local binding on which the wrapper method must be called.
+        receiver: &'static str,
+    },
 }
 
 /// A `fn verify…` defined under `rs/crates/*/src/`, and why it is strict.
@@ -277,6 +296,12 @@ struct VerifyFn {
     file: &'static str,
     /// The function name as written after `fn`.
     name: &'static str,
+    /// Which non-test definition with this name in this file, from zero.
+    ///
+    /// This makes a registry row identify one definition rather than every
+    /// same-name method in the file. An added second `fn verify` therefore
+    /// needs its own row and its own body check.
+    occurrence: usize,
     /// What holds it to strict verification.
     strictness: Strictness,
 }
@@ -295,22 +320,50 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
     VerifyFn {
         file: "f2z-relay-proto/src/key.rs",
         name: "verify",
-        strictness: Strictness::CallsVerifyStrict,
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "self.0" },
     },
     VerifyFn {
         file: "f2z-relay-proto/src/capabilities.rs",
         name: "verify",
-        strictness: Strictness::DelegatesTo("f2z-relay-proto/src/key.rs::verify"),
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-relay-proto/src/key.rs::verify",
+            receiver: "key",
+        },
     },
     VerifyFn {
         file: "f2z-relay-proto/src/command.rs",
         name: "verify",
-        strictness: Strictness::DelegatesTo("f2z-relay-proto/src/key.rs::verify"),
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-relay-proto/src/key.rs::verify",
+            receiver: "verifying_key",
+        },
     },
     VerifyFn {
         file: "f2z-relay-proto/src/hello.rs",
         name: "verify_hello_response",
-        strictness: Strictness::DelegatesTo("f2z-relay-proto/src/key.rs::verify"),
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-relay-proto/src/key.rs::verify",
+            receiver: "identity",
+        },
+    },
+    VerifyFn {
+        file: "f2z-authority/src/key.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "self.0" },
+    },
+    VerifyFn {
+        file: "f2z-authority/src/authority.rs",
+        name: "verify_binding",
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-authority/src/key.rs::verify",
+            receiver: "identity_key",
+        },
     },
 ];
 
@@ -341,7 +394,7 @@ impl Finding {
 /// Returns, for each `use` statement, the index of its first line and the
 /// whole statement's code with comments and literals removed.
 fn use_statements(source: &str) -> Vec<(usize, String)> {
-    let lines: Vec<String> = source.lines().map(code_only).collect();
+    let lines = code_lines(source);
     let mut out = Vec::new();
     let mut index = 0usize;
     while index < lines.len() {
@@ -404,8 +457,7 @@ fn dalek_key_names(source: &str) -> Vec<String> {
 fn dalek_receivers(source: &str) -> Vec<String> {
     let names = dalek_key_names(source);
     let mut receivers = Vec::new();
-    for line in source.lines() {
-        let code = code_only(line);
+    for code in code_lines(source) {
         let trimmed = code.trim();
         let mentions_dalek_key = names.iter().any(|name| {
             if name.contains("::") {
@@ -471,8 +523,7 @@ fn dalek_receivers(source: &str) -> Vec<String> {
 fn chained_lines(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut carry = String::new();
-    for line in source.lines() {
-        let code = code_only(line);
+    for code in code_lines(source) {
         let trimmed = code.trim().to_owned();
         let logical = if trimmed.starts_with('.') {
             format!("{carry}{trimmed}")
@@ -489,6 +540,7 @@ fn chained_lines(source: &str) -> Vec<String> {
 fn findings_in(label: &str, source: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
+    let projected = code_lines(source);
 
     let mut push = |line_index: usize, rule: String| {
         findings.push(Finding {
@@ -510,10 +562,9 @@ fn findings_in(label: &str, source: &str) -> Vec<Finding> {
     // makes the non-strict method callable, and a rule about the *name* rather
     // than about the `use` also covers the fully-qualified form, which needs
     // no import.
-    for (index, line) in source.lines().enumerate() {
-        let code = code_only(line);
+    for (index, code) in projected.iter().enumerate() {
         for trait_name in VERIFIER_TRAITS {
-            if contains_identifier(&code, trait_name) {
+            if contains_identifier(code, trait_name) {
                 push(
                     index,
                     format!(
@@ -549,13 +600,12 @@ fn findings_in(label: &str, source: &str) -> Vec<Finding> {
 
     let receivers = dalek_receivers(source);
     let chained = chained_lines(source);
-    for (index, line) in lines.iter().enumerate() {
-        let code = code_only(line);
+    for (index, code) in projected.iter().enumerate() {
         let logical = chained.get(index).cloned().unwrap_or_default();
 
         // Rule 2: entry points that need no trait import.
         for entry in NON_STRICT_ENTRY_POINTS {
-            let called = identifier_positions(&code, entry).any(|at| {
+            let called = identifier_positions(code, entry).any(|at| {
                 let after = &code[at + entry.len()..];
                 after.starts_with('(') || after.starts_with("::<")
             });
@@ -601,17 +651,14 @@ fn findings_in(label: &str, source: &str) -> Vec<Finding> {
 
 /// The body of `fn <name>` in `source`, from its declaration to the matching
 /// close brace, with comments and literals removed.
-fn function_body(source: &str, name: &str) -> Option<String> {
-    let lines: Vec<String> = source.lines().map(code_only).collect();
-    let declaration = lines.iter().position(|line| {
-        let Some(at) = line.find("fn ") else {
-            return false;
-        };
-        let after = &line[at + 3..];
-        identifier_positions(after, name)
-            .next()
-            .is_some_and(|start| start == 0 && after[name.len()..].starts_with(['(', '<']))
-    })?;
+fn function_body_at_line(source: &str, declaration_line: usize) -> Option<String> {
+    let lines = code_lines(source);
+    let declaration = declaration_line.checked_sub(1)?;
+    let declaration_text = lines.get(declaration)?;
+    assert!(
+        declaration_text.contains("fn "),
+        "line {declaration_line} is registered as a function declaration but is not one"
+    );
 
     let mut body = String::new();
     let mut depth = 0i32;
@@ -631,12 +678,20 @@ fn function_body(source: &str, name: &str) -> Option<String> {
     None
 }
 
+fn function_body(source: &str, name: &str) -> Option<String> {
+    let declaration_line = verify_fn_definitions(source)
+        .into_iter()
+        .find(|(candidate, _, _)| candidate == name)
+        .map(|(_, line, _)| line)?;
+    function_body_at_line(source, declaration_line)
+}
+
 /// Every `fn verify…` defined in `source`, as `(name, line number)`, skipping
 /// `#[test]` functions — a test named `verify_refuses_…` is not a verification
 /// API and registering four of them would only teach a reader to ignore the
 /// list.
-fn verify_fn_definitions(source: &str) -> Vec<(String, usize)> {
-    let lines: Vec<String> = source.lines().map(code_only).collect();
+fn verify_fn_definitions(source: &str) -> Vec<(String, usize, usize)> {
+    let lines = code_lines(source);
     let mut out = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         let Some(at) = line.find("fn ") else {
@@ -660,11 +715,171 @@ fn verify_fn_definitions(source: &str) -> Vec<(String, usize)> {
                 })
                 .any(|previous| previous.contains("#[test]"));
             if !is_test {
-                out.push((name, index + 1));
+                let occurrence = out
+                    .iter()
+                    .filter(|(previous, _, _)| previous == &name)
+                    .count();
+                out.push((name, index + 1, occurrence));
             }
         }
     }
     out
+}
+
+fn registration_matches(entry: &VerifyFn, file: &str, name: &str, occurrence: usize) -> bool {
+    entry.file == file && entry.name == name && entry.occurrence == occurrence
+}
+
+fn calls_method(body: &str, name: &str) -> bool {
+    identifier_positions(body, name).any(|at| {
+        let before = body[..at].trim_end();
+        let after = body[at + name.len()..].trim_start();
+        (before.ends_with('.') || before.ends_with("::"))
+            && (after.starts_with('(') || after.starts_with("::<"))
+    })
+}
+
+fn calls_method_on(body: &str, receiver: &str, name: &str) -> bool {
+    identifier_positions(body, name).any(|at| {
+        let before = body[..at].trim_end();
+        let after = body[at + name.len()..].trim_start();
+        let Some(before_dot) = before.strip_suffix('.') else {
+            return false;
+        };
+        let before_dot = before_dot.trim_end();
+        let Some(receiver_at) = before_dot.len().checked_sub(receiver.len()) else {
+            return false;
+        };
+        identifier_positions(before_dot, receiver).any(|at| at == receiver_at)
+            && (after.starts_with('(') || after.starts_with("::<"))
+    })
+}
+
+/// Whether a registered verifier's body contains the exact call its registry
+/// row promises. Both the live workspace audit and the wrong-receiver negative
+/// controls go through this function, so the policy cannot quietly fall back
+/// from receiver-specific matching to “somebody called a method with that
+/// name.”
+fn registered_body_has_required_call(strictness: &Strictness, body: &str) -> bool {
+    match strictness {
+        Strictness::CallsVerifyStrict { receiver } => {
+            calls_method_on(body, receiver, "verify_strict")
+        }
+        Strictness::DelegatesTo { receiver, .. } => calls_method_on(body, receiver, "verify"),
+    }
+}
+
+#[test]
+fn a_comment_or_unrelated_identifier_cannot_claim_strict_verification() {
+    for fake in [
+        "fn verify() -> Result<(), ()> { /* verify_strict */ Ok(()) }",
+        "fn verify() { /* self.0.verify_strict(message, signature); */ Ok(()) }",
+        "fn verify() -> Result<(), ()> { let verify_strict = (); let _ = verify_strict; Ok(()) }",
+        "fn verify() { fn verify_strict() {} verify_strict(); }",
+        "fn verify() { let _ = self.verify_strict; }",
+    ] {
+        let body = function_body(fake, "verify").unwrap();
+        assert!(
+            !calls_method(&body, "verify_strict"),
+            "inert source text was mistaken for a strict-verification call: {fake}"
+        );
+    }
+    let real = function_body(
+        "fn verify() { self.0.verify_strict(message, signature); }",
+        "verify",
+    )
+    .unwrap();
+    assert!(calls_method(&real, "verify_strict"));
+    assert!(calls_method_on(&real, "self.0", "verify_strict"));
+    assert!(!calls_method_on(&real, "other", "verify_strict"));
+    let wrong_receiver = function_body(
+        "fn verify() { other.verify_strict(message, signature); }",
+        "verify",
+    )
+    .unwrap();
+    assert!(calls_method(&wrong_receiver, "verify_strict"));
+    assert!(!calls_method_on(&wrong_receiver, "self.0", "verify_strict"));
+    let field = function_body("fn verify() { let _ = self.0.verify_strict; }", "verify").unwrap();
+    assert!(!calls_method_on(&field, "self.0", "verify_strict"));
+}
+
+#[test]
+fn the_live_registry_contract_rejects_the_right_method_on_the_wrong_receiver() {
+    let strict = Strictness::CallsVerifyStrict { receiver: "self.0" };
+    let strict_body = function_body(
+        "fn verify() { self.0.verify_strict(message, signature); }",
+        "verify",
+    )
+    .unwrap();
+    let wrong_strict_receiver = function_body(
+        "fn verify() { other.verify_strict(message, signature); }",
+        "verify",
+    )
+    .unwrap();
+    assert!(registered_body_has_required_call(&strict, &strict_body));
+    assert!(!registered_body_has_required_call(
+        &strict,
+        &wrong_strict_receiver
+    ));
+
+    let delegated = Strictness::DelegatesTo {
+        target: "f2z-authority/src/key.rs::verify",
+        receiver: "identity_key",
+    };
+    let delegated_body = function_body(
+        "fn verify_binding() { identity_key.verify(message, signature); }",
+        "verify_binding",
+    )
+    .unwrap();
+    let wrong_delegate_receiver = function_body(
+        "fn verify_binding() { other.verify(message, signature); }",
+        "verify_binding",
+    )
+    .unwrap();
+    assert!(registered_body_has_required_call(
+        &delegated,
+        &delegated_body
+    ));
+    assert!(!registered_body_has_required_call(
+        &delegated,
+        &wrong_delegate_receiver
+    ));
+}
+
+#[test]
+fn duplicate_verify_definitions_cannot_share_one_registry_row() {
+    let source = "
+        impl First { fn verify(&self) { self.0.verify_strict(message, signature); } }
+        impl Second { fn verify(&self) -> Result<(), ()> { Ok(()) } }
+    ";
+    let definitions = verify_fn_definitions(source);
+    assert_eq!(
+        definitions,
+        vec![("verify".to_owned(), 2, 0), ("verify".to_owned(), 3, 1)]
+    );
+    let registered = VerifyFn {
+        file: "fixture/src/key.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "self.0" },
+    };
+    assert!(registration_matches(
+        &registered,
+        "fixture/src/key.rs",
+        "verify",
+        0
+    ));
+    assert!(!registration_matches(
+        &registered,
+        "fixture/src/key.rs",
+        "verify",
+        1
+    ));
+    let second_body = function_body_at_line(source, definitions[1].1).unwrap();
+    assert!(!registered_body_has_required_call(
+        &registered.strictness,
+        &second_body
+    ));
 }
 
 #[test]
@@ -740,14 +955,14 @@ fn no_crate_verifies_ed25519_signatures_non_strictly() {
 fn every_verify_function_in_the_workspace_is_registered_as_strict() {
     let sources = source_files();
     let mut crates_reached: Vec<String> = Vec::new();
-    let mut found: Vec<(String, String, usize)> = Vec::new();
+    let mut found: Vec<(String, String, usize, usize)> = Vec::new();
 
     for file in &sources {
         if !crates_reached.contains(&file.krate) {
             crates_reached.push(file.krate.clone());
         }
-        for (name, line) in verify_fn_definitions(&file.source) {
-            found.push((file.label.clone(), name, line));
+        for (name, line, occurrence) in verify_fn_definitions(&file.source) {
+            found.push((file.label.clone(), name, line, occurrence));
         }
     }
 
@@ -763,12 +978,14 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
     // Every definition must be registered …
     let unregistered: Vec<String> = found
         .iter()
-        .filter(|(file, name, _)| {
+        .filter(|(file, name, _, occurrence)| {
             !WORKSPACE_VERIFY_FNS
                 .iter()
-                .any(|entry| entry.file == file && entry.name == name)
+                .any(|entry| registration_matches(entry, file, name, *occurrence))
         })
-        .map(|(file, name, line)| format!("{file}:{line}: fn {name}"))
+        .map(|(file, name, line, occurrence)| {
+            format!("{file}:{line}: fn {name} (occurrence {occurrence})")
+        })
         .collect();
     assert!(
         unregistered.is_empty(),
@@ -782,11 +999,11 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
     let missing: Vec<String> = WORKSPACE_VERIFY_FNS
         .iter()
         .filter(|entry| {
-            !found
-                .iter()
-                .any(|(file, name, _)| file == entry.file && name == entry.name)
+            !found.iter().any(|(file, name, _, occurrence)| {
+                registration_matches(entry, file, name, *occurrence)
+            })
         })
-        .map(|entry| format!("{}::{}", entry.file, entry.name))
+        .map(|entry| format!("{}::{}#{}", entry.file, entry.name, entry.occurrence))
         .collect();
     assert!(
         missing.is_empty(),
@@ -801,16 +1018,28 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
             .iter()
             .find(|source| source.label == entry.file)
             .unwrap_or_else(|| panic!("{} is registered but was not walked", entry.file));
-        let body = function_body(&file.source, entry.name).unwrap_or_else(|| {
+        let declaration_line = found
+            .iter()
+            .find(|(found_file, name, _, occurrence)| {
+                registration_matches(entry, found_file, name, *occurrence)
+            })
+            .map(|(_, _, line, _)| *line)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}::{}#{} is registered but its definition was not found",
+                    entry.file, entry.name, entry.occurrence
+                )
+            });
+        let body = function_body_at_line(&file.source, declaration_line).unwrap_or_else(|| {
             panic!(
-                "could not read the body of {}::{}; this scanner has stopped parsing the source",
-                entry.file, entry.name
+                "could not read the body of {}::{}#{} at line {declaration_line}; this scanner has stopped parsing the source",
+                entry.file, entry.name, entry.occurrence
             )
         });
         match entry.strictness {
-            Strictness::CallsVerifyStrict => {
+            Strictness::CallsVerifyStrict { .. } => {
                 assert!(
-                    contains_identifier(&body, "verify_strict"),
+                    registered_body_has_required_call(&entry.strictness, &body),
                     "{}::{} is registered as calling `verify_strict` and its body no longer \
                      does. Every other verification in this workspace delegates to it, so this \
                      is a universal forgery away from `admit`-style authorization returning Ok \
@@ -819,21 +1048,21 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
                     entry.name
                 );
             }
-            Strictness::DelegatesTo(target) => {
+            Strictness::DelegatesTo { target, .. } => {
                 let (target_file, target_name) = target.rsplit_once("::").unwrap();
                 assert!(
                     WORKSPACE_VERIFY_FNS
                         .iter()
                         .any(|other| other.file == target_file
                             && other.name == target_name
-                            && matches!(other.strictness, Strictness::CallsVerifyStrict)),
+                            && matches!(other.strictness, Strictness::CallsVerifyStrict { .. })),
                     "{}::{} delegates to {target}, which is not registered as a strict \
                      verifier",
                     entry.file,
                     entry.name
                 );
                 assert!(
-                    body.contains(".verify("),
+                    registered_body_has_required_call(&entry.strictness, &body),
                     "{}::{} is registered as delegating to {target} and its body contains no \
                      call to it, so the registration describes something that is not there.",
                     entry.file,

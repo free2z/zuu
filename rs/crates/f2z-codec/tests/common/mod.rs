@@ -126,7 +126,7 @@ pub fn source_files() -> Vec<SourceFile> {
 /// Strip a line comment, so a brace inside a doc comment does not confuse the
 /// depth count. Struct bodies contain no string literals, so a naive cut is
 /// safe there and a real parser is not worth the dependency; function bodies
-/// do, which is what [`code_only`] is for.
+/// do, which is what [`code_lines`] is for.
 pub fn without_comment(line: &str) -> &str {
     match line.find("//") {
         Some(index) => &line[..index],
@@ -134,51 +134,151 @@ pub fn without_comment(line: &str) -> &str {
     }
 }
 
-/// A line with its string literals, character literals and line comment
-/// removed, so that neither a `{` inside a `format!` nor a `.verify(` inside a
-/// doc comment is read as code.
+/// Source projected to code-only physical lines.
 ///
-/// This is the stricter cousin of [`without_comment`], needed wherever a scan
-/// looks at *function* bodies. It is a lexer, not a parser: a raw string with
-/// an embedded quote (`r#"..."#`) is not modelled, and a block comment is not
-/// modelled. Neither appears in the tree today, and both would make the scan
-/// noisier rather than blinder — a `//`-free `/* ... */` mentioning
-/// `.verify(` would be reported, and the report names a file and a line for a
-/// person to read.
-pub fn code_only(line: &str) -> String {
-    let bytes: Vec<char> = line.chars().collect();
-    let mut out = String::with_capacity(line.len());
+/// Strings, character literals, line comments, and nested block comments are
+/// replaced while newlines are retained. Keeping the physical line count is
+/// what lets a source scan report the real line that violated its rule. A
+/// malformed unterminated string or block comment is a refusal, not permission
+/// to scan a projection whose state is unknown.
+pub fn code_lines(source: &str) -> Vec<String> {
+    fn raw_string_start(chars: &[char], at: usize) -> Option<(usize, usize)> {
+        let mut cursor = at;
+        if matches!(chars.get(cursor), Some('b' | 'c')) {
+            cursor += 1;
+        }
+        if chars.get(cursor) != Some(&'r') {
+            return None;
+        }
+        cursor += 1;
+        let hashes = chars[cursor..]
+            .iter()
+            .take_while(|byte| **byte == '#')
+            .count();
+        cursor += hashes;
+        (chars.get(cursor) == Some(&'"')).then_some((cursor, hashes))
+    }
+
+    let bytes: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
     let mut index = 0usize;
     while index < bytes.len() {
         let current = bytes[index];
+        if let Some((quote, hashes)) = raw_string_start(&bytes, index) {
+            for _ in index..=quote {
+                out.push(' ');
+            }
+            index = quote + 1;
+            let mut closed = false;
+            while index < bytes.len() {
+                if bytes[index] == '"'
+                    && bytes
+                        .get(index + 1..index + 1 + hashes)
+                        .is_some_and(|suffix| suffix.iter().all(|byte| *byte == '#'))
+                {
+                    out.push(' ');
+                    for _ in 0..hashes {
+                        out.push(' ');
+                    }
+                    index += 1 + hashes;
+                    closed = true;
+                    break;
+                }
+                out.push(if bytes[index] == '\n' { '\n' } else { ' ' });
+                index += 1;
+            }
+            assert!(
+                closed,
+                "unterminated raw string literal: refusing to scan an incomplete Rust projection"
+            );
+            continue;
+        }
         if current == '/' && bytes.get(index + 1) == Some(&'/') {
-            break;
+            while index < bytes.len() && bytes[index] != '\n' {
+                out.push(' ');
+                index += 1;
+            }
+            continue;
+        }
+        if current == '/' && bytes.get(index + 1) == Some(&'*') {
+            out.push(' ');
+            out.push(' ');
+            index += 2;
+            let mut depth = 1usize;
+            while index < bytes.len() && depth > 0 {
+                if bytes[index] == '/' && bytes.get(index + 1) == Some(&'*') {
+                    out.push(' ');
+                    out.push(' ');
+                    index += 2;
+                    depth += 1;
+                } else if bytes[index] == '*' && bytes.get(index + 1) == Some(&'/') {
+                    out.push(' ');
+                    out.push(' ');
+                    index += 2;
+                    depth -= 1;
+                } else {
+                    out.push(if bytes[index] == '\n' { '\n' } else { ' ' });
+                    index += 1;
+                }
+            }
+            assert_eq!(
+                depth, 0,
+                "unterminated block comment: refusing to scan an incomplete Rust projection"
+            );
+            continue;
         }
         if current == '"' {
+            out.push('_');
             index += 1;
+            let mut closed = false;
             while index < bytes.len() {
                 if bytes[index] == '\\' {
+                    out.push(' ');
+                    if bytes.get(index + 1) == Some(&'\n') {
+                        out.push('\n');
+                    } else {
+                        out.push(' ');
+                    }
                     index += 2;
                     continue;
                 }
                 if bytes[index] == '"' {
+                    out.push(' ');
                     index += 1;
+                    closed = true;
                     break;
                 }
+                out.push(if bytes[index] == '\n' { '\n' } else { ' ' });
                 index += 1;
             }
-            // Leave a placeholder so `"a".len()` does not become `.len()`
-            // glued to whatever preceded the literal.
-            out.push('_');
+            assert!(
+                closed,
+                "unterminated string literal: refusing to scan an incomplete Rust projection"
+            );
             continue;
         }
         // A character literal, distinguished from a lifetime by the closing
-        // quote: `'a'` and `'\n'` are literals, `'a` in `&'a str` is not.
+        // quote after exactly one scalar value or one Rust escape.
         if current == '\'' {
-            let escaped = bytes.get(index + 1) == Some(&'\\');
-            let closing = if escaped { index + 3 } else { index + 2 };
+            let content = index + 1;
+            let closing = if bytes.get(content) == Some(&'\\') {
+                match bytes.get(content + 1) {
+                    Some('x') => content + 4,
+                    Some('u') if bytes.get(content + 2) == Some(&'{') => bytes[content + 3..]
+                        .iter()
+                        .position(|byte| *byte == '}')
+                        .map_or(bytes.len(), |offset| content + 4 + offset),
+                    Some(_) => content + 2,
+                    None => bytes.len(),
+                }
+            } else {
+                content + 1
+            };
             if bytes.get(closing) == Some(&'\'') {
                 out.push('_');
+                for _ in index + 1..=closing {
+                    out.push(' ');
+                }
                 index = closing + 1;
                 continue;
             }
@@ -186,7 +286,7 @@ pub fn code_only(line: &str) -> String {
         out.push(current);
         index += 1;
     }
-    out
+    out.lines().map(str::to_owned).collect()
 }
 
 /// True when `haystack` contains `needle` as a whole identifier — not as part
@@ -228,7 +328,7 @@ pub fn is_identifier_char(c: char) -> bool {
 /// exemption that drifted into a shipped code path would stop matching this
 /// and the scan would refuse it.
 pub fn cfg_test_ranges(source: &str) -> Vec<(usize, usize)> {
-    let lines: Vec<String> = source.lines().map(code_only).collect();
+    let lines = code_lines(source);
     let mut ranges = Vec::new();
     let mut index = 0usize;
     while index < lines.len() {
@@ -266,4 +366,52 @@ pub fn in_cfg_test(ranges: &[(usize, usize)], line: usize) -> bool {
     ranges
         .iter()
         .any(|(start, end)| line >= *start && line < *end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::code_lines;
+
+    #[test]
+    fn code_projection_strips_nested_block_comments_without_moving_lines() {
+        let source = "fn verify() {\n  let _ = r#\"not code \" verify_strict /*\"#;\n  let _ = \"not code \\\" verify_strict }\";\n  let _ = '\\u{7d}';\n  // verify_strict\n  /* outer\n     /* inner */ verify_strict\n  */\n  Ok(())\n}";
+        let lines = code_lines(source);
+        let joined = lines.join("\n");
+        assert_eq!(lines.len(), source.lines().count());
+        assert!(joined.contains("fn verify()"));
+        assert!(joined.contains("Ok(())"));
+        assert!(
+            !joined.contains("verify_strict"),
+            "a comment or literal cannot satisfy a source-code contract"
+        );
+        assert_eq!(
+            joined.matches('}').count(),
+            1,
+            "a brace inside a string or character literal moved function depth"
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "unterminated block comment: refusing to scan an incomplete Rust projection"
+    )]
+    fn code_projection_refuses_an_unterminated_block_comment() {
+        let _ = code_lines("fn verify() { /* verify_strict");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "unterminated string literal: refusing to scan an incomplete Rust projection"
+    )]
+    fn code_projection_refuses_an_unterminated_string() {
+        let _ = code_lines("fn verify() { let claim = \"verify_strict");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "unterminated raw string literal: refusing to scan an incomplete Rust projection"
+    )]
+    fn code_projection_refuses_an_unterminated_raw_string() {
+        let _ = code_lines("fn verify() { let claim = r#\"verify_strict");
+    }
 }
