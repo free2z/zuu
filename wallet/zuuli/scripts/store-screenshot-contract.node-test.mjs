@@ -111,6 +111,7 @@ test("fixture git children disable automatic gc and maintenance", async (t) => {
   await writeFile(emptyGlobalConfig, "");
   const isolatedEnv = {
     ...process.env,
+    GIT_CONFIG_COUNT: "0",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: emptyGlobalConfig,
   };
@@ -142,6 +143,57 @@ test("git fixture teardown exhausts deterministic ENOTEMPTY races before succeed
   assert.equal(attempts, 11);
   assert.deepEqual(pauses, [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]);
   await assert.rejects(() => readFile(resolve(root, "fixture")), { code: "ENOENT" });
+});
+
+test("git fixture teardown rejects a non-ENOTEMPTY error immediately and unchanged", async () => {
+  const injectedError = new Error("injected permission failure");
+  injectedError.code = "EACCES";
+  let attempts = 0;
+  const pauses = [];
+
+  await assert.rejects(
+    () => removeGitFixture("unused", {
+      remove: async () => {
+        attempts += 1;
+        throw injectedError;
+      },
+      pause: async (milliseconds) => pauses.push(milliseconds),
+    }),
+    (error) => {
+      assert.equal(error, injectedError);
+      return true;
+    },
+  );
+
+  assert.equal(attempts, 1);
+  assert.deepEqual(pauses, []);
+});
+
+test("git fixture teardown rejects the eleventh consecutive ENOTEMPTY after ten pauses", async () => {
+  const injectedError = new Error("injected persistent directory race");
+  injectedError.code = "ENOTEMPTY";
+  let attempts = 0;
+  const pauses = [];
+
+  await assert.rejects(
+    () => removeGitFixture("unused", {
+      remove: async () => {
+        attempts += 1;
+        throw injectedError;
+      },
+      pause: async (milliseconds) => {
+        pauses.push(milliseconds);
+        assert.ok(pauses.length <= 10, "retry limit allowed an eleventh pause");
+      },
+    }),
+    (error) => {
+      assert.equal(error, injectedError);
+      return true;
+    },
+  );
+
+  assert.equal(attempts, 11);
+  assert.deepEqual(pauses, [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]);
 });
 
 async function preflight(env) {
