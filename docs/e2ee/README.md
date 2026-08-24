@@ -98,7 +98,12 @@ Where each of those is addressed is tabulated in
 
 ## Status
 
-Specification only. **Nothing here is implemented.** In particular
+Specification only. **Nothing here is implemented.** That second sentence stopped
+being true, and is corrected rather than deleted: as of **2026-08-24** the relay
+and the directory log are being built against these documents in `rs/crates/` —
+`f2z-relay`, `f2z-kt`, `f2z-kt-core` and their neighbours — and the three
+corrections listed below were found by that work. What it still describes
+correctly is the **client**: in particular
 `CLIENT-CONTRACT.md` describes an interface that does not exist yet: there is no
 `tauri-plugin-f2zmsg` and no frontend messaging module, and nothing should be
 read as though there were. The phasing plan lives in
@@ -142,6 +147,52 @@ and settles none of it.
 [`THREAT-MODEL.md` §3.1](./THREAT-MODEL.md#31-malicious-or-compromised-free2z-server)
 carries the scoping consequence, and it is
 [`ARCHITECTURE.md` §13-S](./ARCHITECTURE.md#13-open-questions).
+
+**Three more corrections landed on 2026-08-24, and they are the first that
+reconcile a merged document against a shipped implementation rather than against
+another document.** Each was found by building the thing the specification
+describes, and each moved in the direction the evidence pointed rather than the
+direction that would have been tidier
+([#630](https://github.com/free2z/zuu/issues/630),
+[#633](https://github.com/free2z/zuu/issues/633),
+[#634](https://github.com/free2z/zuu/issues/634)):
+
+- [`WIRE.md` §13.1](./WIRE.md#131-the-layers) — **the spec moved.**
+  `queue_creation_mode: token` had no wire representation: `CREATE_QUEUE` carries
+  a `PowStamp` and a reserved `flags` field, so no conforming client could
+  present a token. The mode is now **reserved and unpublishable**, a relay
+  configured for it MUST refuse to start, and a client MUST refuse a relay
+  advertising it. §13-I's anonymous credentials were never carried by this mode —
+  a token is an identifier and an anonymous credential is not — and land as a new
+  command code under §3.5, whose absence on an old relay is a non-fatal
+  `ERR_UNKNOWN_COMMAND` rather than a federation flag day.
+- [`KT.md` §5.1](./KT.md#51-cadence) — **the spec moved, and the property did
+  not.** "An append-only proof over zero insertions" is not producible with
+  `akd`, whose `publish` does not advance the epoch on an empty batch, and an
+  epoch numbering decoupled from `akd`'s would make `/kt/v1/audit` unverifiable.
+  A log publishes a **heartbeat insertion** per epoch instead; the correction
+  specifies its label, its value and its effect on `tree_size`, and shows that
+  what the empty epoch existed for — silence as a detectable fault with a
+  timestamp — is delivered rather than resembled, and that the heartbeat leaks
+  nothing an observer could not already compute.
+- [`KT.md` §8.1 / §9.5](./KT.md#81-lookup) — **the spec's promise was withdrawn,
+  and the requirement kept as unmet.** *"'No such user' is a claim the log must
+  prove"* is a property `akd` 0.13 cannot deliver: it produces no non-membership
+  proof for an unregistered label. A v1 log serves an **assertion**, which is now
+  required to be labelled unproved on the wire, and the consequence — a log can
+  deny that a user exists undetectably — is a stated limit in
+  [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved),
+  a **No** row in its §5 table, and
+  [`ARCHITECTURE.md` §13-T](./ARCHITECTURE.md#13-open-questions). It also removes
+  the second half of §5.3's receipt evidence for a handle's *first* entry.
+  `CLIENT-CONTRACT.md` §3.10 carries the client-facing half, because a UI that
+  renders an unproved absence as a verified one is the downgrade in its final
+  form.
+
+The two `akd` limits are limits of the **adopted library**, not of the
+construction, and the upstream capabilities that would lift them are named in
+[`KT.md` §11.5](./KT.md#115-what-akd-013-cannot-do-and-what-upstream-would-have-to-add)
+so a future reader on a newer `akd` knows what to re-check.
 
 Still open above the relay: **what authorizes a handle's first directory entry**,
 `KeyPackage` publication, push notifications, padding

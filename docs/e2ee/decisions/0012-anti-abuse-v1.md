@@ -37,7 +37,8 @@ architecture has ([`../THREAT-MODEL.md` §4.4](../THREAT-MODEL.md#44-tail-trunca
    state.
 3. **Queue-creation control** — `open`, `pow`, or `token`, **defaulting to
    `pow`**: a proof-of-work stamp over a relay-issued, single-use, expiring
-   challenge, verifiable in one hash.
+   challenge, verifiable in one hash. **`token` is reserved and unusable; see
+   the amendment below.**
 4. **Global backpressure** — on crossing published high-water marks the relay
    refuses, in order: queue creation, then appends, then new connections.
    `READ`, `ACK` and `DELETE_QUEUE` are **never** refused for backpressure.
@@ -76,7 +77,7 @@ writes.**
   remove. It is offered because a closed or invitational deployment may
   legitimately want it, it MUST be declared in the capability document, and
   clients SHOULD prefer `pow` relays and SHOULD say in the UI what a token-gated
-  relay can correlate.
+  relay can correlate. **Withdrawn — see the amendment below.**
 - **Everything is published.** Limits, TTLs, creation mode, PoW parameters,
   whether per-source limits are on, and the durability mode all live in the signed
   capability document, so a client can choose a relay on policy rather than
@@ -108,6 +109,33 @@ writes.**
   about the client. The whole of the mitigation is that operators publish whether
   per-source limits are on, so a user behind shared egress can choose a relay that
   does not use them.
+
+## Amendment (2026-08-24) — `token` mode is reserved, because it was never speakable
+
+Found by `f2z-relay` while implementing layer 3
+([#630](https://github.com/free2z/zuu/issues/630)). This ADR named three
+queue-creation modes and `WIRE.md` §13.1 specified them, but **v1's wire has no
+field a token can go in**: `CREATE_QUEUE` carries a `PowStamp` and a `flags`
+field that MUST be 0, and `CREATE_CONTACT_QUEUE` carries a `PowStamp`. A relay in
+`token` mode could not be satisfied by any conforming client.
+
+**The decision above is amended, not reinterpreted:** `queue_creation_mode`
+value 2 is **reserved and MUST NOT be published**, and the value is never reused;
+a relay configured for `token` **MUST refuse to start**; a client that reads
+mode 2 **MUST treat the relay as unusable and MUST NOT offer an override.**
+`pow` and `open` are the modes v1 has. The full reasoning — including why a
+placeholder credential field was rejected in favour of §3.5's new-command-code
+path, whose failure mode on an un-upgraded relay is a **non-fatal**
+`ERR_UNKNOWN_COMMAND` rather than a federation flag day — is in
+[`../WIRE.md` §13.1](../WIRE.md#131-the-layers)'s correction.
+
+**§13-I is unaffected, and that is the point.** The consequence bullet above says
+it: a token *is* an identifier. §13-I's anonymous quota credentials are unlinkable
+by construction, which is why this ADR already rejects clear payment for queue
+creation and defers blind issuance. Token mode was never §13-I's carrier, so
+reserving it removes an unusable mode and costs the anti-abuse story nothing.
+What is not closed is unchanged, and now reads without a third mode standing in
+front of it.
 
 ## Alternatives rejected
 

@@ -59,6 +59,15 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
   a product-and-trust decision, not a wire encoding, and inventing one here is
   exactly the mistake [#551](https://github.com/free2z/zuu/issues/551) is open
   about. §12, [#594](https://github.com/free2z/zuu/issues/594).
+- **A proof that a handle is *unregistered*.** §8.1 and §9.5 require one — *"'No
+  such user' is a claim the log must prove"* — and `akd` 0.13 has no API that
+  produces it, so a v1 log serves an assertion it MUST label unproved. Listed
+  here because it is a requirement this document states and does not deliver,
+  which is worse than a gap and is written down as such: §8.1's correction,
+  §9.5's correction, §11.5, §12,
+  [§13-T](./ARCHITECTURE.md#13-open-questions),
+  [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved).
+  [#634](https://github.com/free2z/zuu/issues/634).
 - **The client gossip protocol.** §9.3 and
   [#311](https://github.com/free2z/zuu/issues/311) make gossip load-bearing — it
   is the only anti-equivocation that functions before independent witnesses
@@ -534,7 +543,8 @@ correction below is why that scope is doing work.
 - **The log publishes an epoch every `epoch_interval` seconds — proposed 600 —
   whether or not there is anything to publish.** An epoch with no submissions is
   a valid epoch: same monotonicity, same signature, same cosignatures, an
-  append-only proof over zero insertions.
+  append-only proof over zero insertions. **"Over zero insertions" is not
+  producible with `akd`; see the correction at the end of this section.**
 - Each published epoch increments `epoch` by exactly 1.
 - Within an epoch, at most one entry per handle (§4.3).
 - `epoch_interval` and `max_merge_delay_seconds` are published in the log
@@ -548,6 +558,84 @@ A heartbeat epoch costs a signature and a near-empty proof, and converts that
 ambiguity into a **detectable fault** with a timestamp attached. Empty epochs
 also cost the witness almost nothing, because the append-only proof is
 O(entries added) (§10) and an empty epoch adds none.
+
+> **Correction (2026-08-24) — an empty epoch is not producible with `akd`, and
+> what a log publishes for an epoch with no submissions is a heartbeat
+> insertion.** Found by `f2z-kt` while implementing this section
+> ([#633](https://github.com/free2z/zuu/issues/633)). The cadence rule and the
+> argument for it stand unchanged and are the reason this correction exists at
+> all; what does not stand is *"an append-only proof over zero insertions"* and
+> the sentence about an empty epoch adding none.
+>
+> **Why `akd` cannot.** `akd::Directory::publish` with an empty update set does
+> not advance the epoch: it filters the batch, finds nothing to insert, and
+> returns the **current** `EpochHash` unchanged. There is no empty epoch
+> transition, so there is no append-only proof over zero insertions to publish.
+>
+> **And numbering our way around it does not work either**, which is the half a
+> reader could not derive from this document before. `akd::auditor::audit_verify`
+> requires exactly one `AppendOnlyProof` segment per epoch transition, and §7.1's
+> witness additionally pins each `proof.epochs[i]` to `heads[i].sth.epoch` —
+> deliberately, so a log cannot satisfy a witness with a valid proof for a
+> *different, earlier* range whose roots happen to line up. A
+> `SignedTreeHead.epoch` running ahead of `akd`'s epoch would therefore make
+> `/kt/v1/audit` (§9.2) unverifiable for every range containing an empty epoch.
+> §5.1's cadence and §9.2's audit endpoint are **jointly unsatisfiable** as
+> originally written, and this is where that is written down.
+>
+> **What a conforming log publishes instead.** Every epoch — with submissions or
+> without — carries exactly one **heartbeat insertion**:
+>
+> ```
+> AkdLabel = "free2z/kt/v1/heartbeat:"
+> AkdValue = H("free2z/kt/v1/heartbeat-value", uint64be(epoch))
+> ```
+>
+> The label is fixed, so each epoch commits the next version of one record. It is
+> deliberately **not** of §3.3's `"free2z/kt/v1/handle:" || handle` form, and the
+> bytes after the prefix are not a legal handle under §1.3, so no handle can
+> address it and no client resolving a handle can be served it. The trailing `:`
+> is load-bearing rather than cosmetic: without it the label is a proper prefix of
+> the value label and `H` has no separator, which is
+> [#602](https://github.com/free2z/zuu/issues/602)'s defect in miniature
+> ([`WIRE.md` §1.3](./WIRE.md#13-conventions); `scripts/check-hash-domain-labels.mjs`
+> enforces prefix-freeness over the union of every document's labels).
+>
+> **What was given up, precisely.** The published proof for an epoch with no
+> submissions is over **one** insertion, not zero. `tree_size` (§6.1) counts
+> heartbeats, because §6.1 defines it as total `(label, version)` insertions
+> committed and a heartbeat is one; §6.3 rule 4 requires only monotonicity and is
+> unaffected. The arithmetic a reader needs is that after epoch *e*,
+> **`tree_size − e` is the number of directory insertions**. The cost is one leaf
+> per epoch — about 52,000 a year at the proposed 600 s cadence, against a
+> directory sized in millions — and the append-only proof for an otherwise-empty
+> epoch stays O(1) rather than literally empty.
+>
+> **What was not given up.** The property the empty epoch existed for is
+> detection of silence, and the heartbeat delivers it rather than resembling it:
+> an epoch is published on cadence whether or not there is work, it increments
+> `epoch` by exactly 1, it is signed under §6.2, it is cosignable under §7, it
+> carries `published_at_ms`, and its absence is therefore a fault with a timestamp
+> attached instead of an ambiguity. Nothing in §5.2, §6.3, §7 or §8.3 depends on
+> an epoch having added nothing — only on there **being** one.
+>
+> **What an observer learns from a heartbeat: nothing new, and that is a
+> conclusion rather than an omission.** The heartbeat is a constant, publicly
+> known offset of exactly one insertion per epoch, and `epoch` and `tree_size` are
+> both already in the signed tree head, so the true directory-insertion count is
+> recovered exactly as `tree_size − epoch`. The same count was derivable from
+> `tree_size` before heartbeats existed; heartbeats neither conceal a quiet epoch
+> nor advertise a busy one. Inside the tree the heartbeat's node labels are
+> VRF-derived like every other label (§3.1) and are not distinguishable from a
+> directory entry by inspection — in an epoch with no submissions a witness can
+> of course identify the single new leaf by elimination, which tells it the count
+> it already had. `THREAT-MODEL.md` therefore gains **no** entry for this.
+>
+> **`akd`-imposed, not fundamental — so a future reader knows to re-check.** The
+> upstream capability that would restore the original text is a `publish` that
+> advances the epoch on an empty update set and emits a single-transition
+> `AppendOnlyProof` segment containing no insertions, with `audit_verify`
+> accepting it. Neither exists in `akd` 0.13. See §11.5.
 
 ### 5.2 Maximum merge delay
 
@@ -591,6 +679,35 @@ past, together with the cosigned `SignedTreeHead` chain covering that instant
 and a non-membership proof for `(handle, entry_version)` at the latest of those
 roots, is a self-contained, self-authenticating demonstration that the log broke
 a signed promise. It needs no trust in the complainant. Publish it.
+**That holds for `entry_version >= 2` and fails for a handle's first entry; see
+the correction below.**
+
+> **Correction (2026-08-24) — the demonstration is self-contained only for
+> `entry_version >= 2`.** A consequence of §8.1's correction, and it is the
+> sharpest one, so it is stated here rather than left to be derived.
+>
+> The proof the paragraph above needs is "`(handle, entry_version)` is not in the
+> tree at this root." For a handle that **already has** an entry, that is
+> producible and the mechanism is a **complete key-history proof** —
+> `/kt/v1/history` with the complete parameter, verified by
+> `akd_core::verify::history::key_history_verify` (§8.2) — from which the absence
+> of the promised version follows, because the proof is over the whole version
+> list. Name the mechanism, because "a non-membership proof" on its own does not
+> identify it.
+>
+> For `entry_version == 1` — a handle with **no** entry at all — there is nothing
+> to prove against: `akd` 0.13 has no proof for an unregistered label, so the
+> complaint degrades to the same unproved assertion §8.1's correction describes,
+> and a receipt for a handle's **first** entry cannot be turned into portable
+> evidence. The victim can still publish the receipt, which is signed by the log
+> and shows the promise; what they cannot supply is the other half — a checkable
+> demonstration that the entry is absent.
+>
+> This lands on the same case as
+> [§13-S](./ARCHITECTURE.md#13-open-questions): a handle's first entry is the one
+> §4.4 does not say how to authorize *and* the one whose non-inclusion cannot be
+> proved. Both are recorded rather than reconciled, because they close by
+> different means.
 
 **What it does not prove, stated because a receipt looks stronger than it is.**
 
@@ -633,6 +750,11 @@ struct {
     opaque            signature[64];   /* Ed25519 over tls_codec(sth) */
 } SignedTreeHead;
 ```
+
+`tree_size` counts §5.1's per-epoch heartbeat insertions, because they are
+`(label, version)` insertions and this field describes the tree rather than the
+directory. After epoch *e*, the number of **directory** insertions is
+`tree_size − e`. See §5.1's correction.
 
 `log_id` is derived from the log's **genesis** signing key and **never changes**,
 including across a signing-key rotation (§6.4). If it changed, every rotation
@@ -916,7 +1038,7 @@ it, because the difference decides what a report is worth.**
 | `kind` | Self-authenticating? |
 |---|---|
 | `rollback`, `fork`, `chain_break`, `bad_signature`, `vrf_key_change` | **Yes.** The evidence is two or more tree heads signed by the log's own key. Anyone with the log's public key checks it in milliseconds and needs to trust nobody. |
-| `merge_delay_exceeded` | **Yes**, given the `SubmissionReceipt` in `detail` plus a non-membership proof at the covering root — all log-signed. |
+| `merge_delay_exceeded` | **Yes for `entry_version >= 2`**, given the `SubmissionReceipt` in `detail` plus a complete key-history proof at the covering root showing the promised version absent — all log-signed. **No for `entry_version == 1`**: `akd` cannot prove non-membership for a handle with no entry, so the report is an accusation with a signed promise attached and no checkable second half (§5.3's correction, §8.1's correction). |
 | `append_only_failure` | **No.** The claim is "this proof does not verify," and a third party must re-run `audit_verify` on the bytes in `detail` to see it. A witness could report this falsely, and a log could serve a bad proof to one witness only. It is a **prompt to check**, not a verdict. |
 
 The witness's own signature on a `FaultReport` binds it to the accusation, which
@@ -1020,7 +1142,8 @@ To resolve `@alice`:
 7. Pin `(handle, identity_pk, entry_version, prev_entry_hash, epoch)`.
 
 **A handle that is not registered returns a proof of non-membership, not an
-error.** This is worth contrasting with
+error.** **That is the requirement and not the shipped property — read the
+correction below with it.** This is worth contrasting with
 [`WIRE.md` §10](./WIRE.md#10-error-codes)'s existence-oracle rule, which
 collapses "no such queue" and "not yours" into one code precisely so the relay
 cannot be probed. The opposite conclusion here is correct for the opposite
@@ -1029,6 +1152,61 @@ be public** — discovery is the directory's entire job. So "there is no such us
 is something the log should be made to *prove* rather than allowed to *assert*,
 and the zero-knowledge set is exactly what makes that provable without revealing
 the rest of the directory.
+
+> **Correction (2026-08-24) — the log does not prove absence, and a v1 lookup
+> answers an unregistered handle with an assertion that MUST be labelled
+> unproved.** Found by `f2z-kt` while implementing §9.2
+> ([#634](https://github.com/free2z/zuu/issues/634)). Everything above about
+> *why* absence should be proved is unchanged and is why this is recorded as a
+> limit rather than edited away. What does not hold is the word **returns**: as a
+> statement of what a conforming log serves today, the paragraph promises a proof
+> that cannot be produced.
+>
+> **`akd` 0.13 has no API that produces it.** `Directory::lookup` **errors** for
+> a label with no user state — `StorageError::NotFound` — and produces no proof
+> of anything. The `NonMembershipProof` that does exist inside a `LookupProof` is
+> about the **freshness marker** of a label that *is* in the tree: it proves that
+> a returned version is the current one, not that a label was never registered.
+> There is no public entry point that asks for the latter.
+>
+> **What a conforming v1 log serves, and the requirement that replaces the
+> promise.** The lookup response carries an explicit **presence discriminant**,
+> and its absent value is named for what it is: an **unproved assertion**.
+> Normatively, from this correction forward:
+>
+> - A log MUST distinguish present from absent on the wire, and MUST name the
+>   absent case in a way that says it is unproved. `f2z-kt-core` spells it
+>   `Presence::AbsentUnproved`.
+> - A log MUST NOT return the absent case with a populated proof field, and MUST
+>   NOT answer an unregistered handle with an error instead (§9.5 still has no
+>   unknown-handle code; its reason has changed — see its correction).
+> - A client MUST treat an absent answer as **unverified input**. It MAY show the
+>   user "no such handle". It MUST NOT record it as an established fact about the
+>   directory, MUST NOT conclude from it that a handle it has previously resolved
+>   has been removed, and MUST NOT let it weaken or discard a pin it already
+>   holds (step 7 above).
+> - A client that holds a pin for a handle and is then told that handle does not
+>   exist **MUST fail closed and alarm.** It must also be told plainly what it
+>   has: a contradiction it **cannot prove to anyone**. The log signs tree heads,
+>   not lookup responses, so an absent answer is not a signed statement, is not
+>   non-repudiable, and cannot be published as evidence the way §7.3's
+>   `rollback`, `fork` or `chain_break` reports can.
+>
+> **What this costs.** A log that can assert absence without proving it can deny
+> that a user exists and be indistinguishable from a log telling the truth —
+> which is the withholding attack the rest of this construction exists to bound,
+> arriving at the one point where the bound is missing. It is a downgrade against
+> **discovery** rather than against an established conversation: a peer already
+> pinned is unaffected, and a peer who has never been resolved can be made to
+> look like nobody. Recorded in
+> [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved),
+> listed in §12, and open as
+> [§13-T](./ARCHITECTURE.md#13-open-questions).
+>
+> **`akd`-imposed, not fundamental.** The upstream capability that would lift it
+> is a `Directory::lookup` variant returning a non-membership proof, against the
+> VRF-derived label, for a label with no user state — the tree can prove it, the
+> API cannot ask. See §11.5.
 
 ### 8.2 Self-audit
 
@@ -1202,6 +1380,11 @@ Request and response bodies are `tls_codec`, `Content-Type:
 application/octet-stream`, under [`WIRE.md` §3](./WIRE.md#3-serialization)'s
 rules including re-encode equality — with the §9.4 exception.
 
+`/kt/v1/lookup`'s response carries a **presence discriminant** whose absent value
+is an unproved assertion rather than a proof, per §8.1's correction. `entry` and
+`proof` are empty in that case, and a response that populates either while
+claiming absence — or claims presence with them empty — is malformed.
+
 `/kt/v1/cosign` is an inbound endpoint on the **log**, not on the witness: the
 witness pushes outbound, keeping §9.3's promise that a witness needs no inbound
 port, no certificate and no domain. The log then serves the cosignatures it
@@ -1276,7 +1459,30 @@ is never reused** — [`WIRE.md` §10](./WIRE.md#10-error-codes)'s rule, for
 
 **There is no "unknown handle" code**, deliberately: an unregistered handle is
 answered with a non-membership proof (§8.1). "No such user" is a claim the log
-must prove.
+must prove. **The absence of the code stands; the reason given for it does not —
+see the correction below.**
+
+> **Correction (2026-08-24) — the sentence above states the requirement, not the
+> property this specification delivers.** `akd` 0.13 cannot produce a
+> non-membership proof for a label that was never registered (§8.1's
+> correction), so what a v1 log actually serves for an unregistered handle is an
+> **unproved assertion of absence**, carried in the lookup response's presence
+> discriminant and required by §8.1 to be labelled as unproved.
+>
+> **There is still no unknown-handle error code**, and that decision is
+> unchanged — but it now rests on a weaker argument, and the weaker argument is
+> the honest one. An error code is indistinguishable from a fault, carries no
+> epoch and no tree head, and would let a log deny a user in a channel that
+> looks like an outage. The presence discriminant at least forces the log to
+> answer in-band, bundled with the cosigned `SignedTreeHead` it is standing on,
+> and forces the client to see the word *unproved*. That is strictly better than
+> an error code and strictly worse than a proof.
+>
+> **"No such user" is a claim the log must prove remains the requirement. It is
+> not, today, a property this specification delivers.**
+> [#634](https://github.com/free2z/zuu/issues/634), §11.5, §12,
+> [§13-T](./ARCHITECTURE.md#13-open-questions),
+> [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved).
 
 ---
 
@@ -1372,6 +1578,27 @@ per [ADR 0001](./decisions/0001-platform-priority.md). The verification code the
 witness runs and the verification code the log's tests run are the same code —
 which is §7.4's structural mitigation and is not merely tidy.
 
+### 11.5 What `akd` 0.13 cannot do, and what upstream would have to add
+
+§11.3 records one upstream wart. Two more surfaced when this document was first
+implemented, and unlike the wart they are not one-line fixes — they are missing
+capabilities, and each one caused a correction above. Collected here so a future
+reader on a newer `akd` knows exactly what to re-check, and so a reader on 0.13
+does not go looking for an API that is not there.
+
+| Missing capability | What it would restore | Where the correction is |
+|---|---|---|
+| A `publish` that **advances the epoch on an empty update set**, emitting a single-transition `AppendOnlyProof` segment containing no insertions, which `audit_verify` accepts. | §5.1's literal empty epoch. Today `publish` filters the batch, finds nothing, and returns the current `EpochHash` unchanged, so the transition does not exist. | §5.1 ([#633](https://github.com/free2z/zuu/issues/633)) |
+| A `Directory::lookup` variant returning a **non-membership proof for a label with no user state**, against the VRF-derived label. | §8.1's and §9.5's proved absence, and with it §5.3's evidence for a first entry. Today `lookup` errors with `StorageError::NotFound`; the `NonMembershipProof` inside a `LookupProof` is about a freshness marker for a label that is present, and is not this. | §8.1, §9.5, §5.3 ([#634](https://github.com/free2z/zuu/issues/634)) |
+
+Both are limits of the **adopted library**, not of the construction: a sparse
+Patricia tree over VRF-derived labels can prove that a label is absent, and an
+append-only proof over zero insertions is a well-defined object. `akd` 0.13 has
+no API that asks for either. Per
+[`AGENTS.md`](../../AGENTS.md)'s prime directive, upstream is the preferred shape
+for the second one in particular; it is materially larger than §11.3's one-line
+change, and nothing here should be read as a promise that it is in flight.
+
 ---
 
 ## 12. What this document leaves open
@@ -1392,6 +1619,18 @@ Deliberately, and listed rather than invented.
   implementation of §4.4 is incomplete by construction.**
   [#594](https://github.com/free2z/zuu/issues/594),
   [§13-S](./ARCHITECTURE.md#13-open-questions).
+- **Proving that a handle is unregistered — open, and the specification's
+  requirement stands unmet.** §8.1 and §9.5 require the log to *prove* absence;
+  `akd` 0.13 cannot, so a v1 log asserts it and MUST label the assertion
+  unproved. This is not a decision deferred but a property the adopted library
+  does not offer, and until it does, a log can deny that a user exists and be
+  indistinguishable from a log telling the truth. The option space is upstream
+  support (§11.5), a per-epoch signed presence commitment that bounds the lie to
+  one epoch rather than removing it, or continuing to serve a labelled
+  assertion. None is chosen here.
+  [#634](https://github.com/free2z/zuu/issues/634),
+  [§13-T](./ARCHITECTURE.md#13-open-questions),
+  [`THREAT-MODEL.md` §4.11](./THREAT-MODEL.md#411-an-unregistered-handle-is-asserted-not-proved).
 - **Epoch cadence and maximum merge delay values** —
   [§13-P](./ARCHITECTURE.md#13-open-questions). §5's 600 s / 3,600 s are
   placeholders chosen to make silence detectable, not measured answers.
