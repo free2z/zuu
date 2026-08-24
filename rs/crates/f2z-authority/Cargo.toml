@@ -1,0 +1,37 @@
+[package]
+name = "f2z-authority"
+version = "0.1.0"
+description = "Handle-ownership assertions for the free2z key-transparency log: the one non-cryptographic trust root, isolated so it can be read in full"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. Clients verify assertions too — a
+# handle whose vouching a client cannot check is a handle nobody vouched — so
+# this crate reaches the browser and the ZUULI app as well as the log. The
+# AGPL-3.0 boundary starts at the server binaries, not here. Stated literally
+# rather than inherited so it is visible to anyone opening the crate.
+# rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ed25519-dalek = { workspace = true }
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-codec = { path = "../f2z-codec", version = "0.1.0" }
+tls_codec = { workspace = true }
+
+# The example issuer. It is a `bin` in this package rather than a crate of its
+# own so that a self-hoster reading "how do I issue an assertion by hand" reads
+# the same source tree that defines what an assertion is. The library is
+# `no_std`; this target is not, and that is fine — `rs.yml`'s wasm job builds
+# `--lib`, so a browser never compiles it.
+[[bin]]
+name = "f2z-assert"
+path = "src/bin/f2z-assert.rs"

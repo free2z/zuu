@@ -76,7 +76,8 @@ jobs:
             --toolchain-file rs/rust-toolchain.toml \
             --manifest rs/crates/f2z-codec/Cargo.toml \
             --manifest rs/crates/f2z-relay-proto/Cargo.toml \
-            --manifest rs/crates/f2z-kt-core/Cargo.toml
+            --manifest rs/crates/f2z-kt-core/Cargo.toml \
+            --manifest rs/crates/f2z-authority/Cargo.toml
 
       - name: Detect changes under rs/
         id: filter
@@ -301,7 +302,8 @@ jobs:
           cargo build --locked --lib \
             --target "${{ steps.rust_toolchain.outputs.target }}" \
             -p f2z-codec \
-            -p f2z-relay-proto
+            -p f2z-relay-proto \
+            -p f2z-authority
 
       # KT.md §11.4: the log, the witness and the client link one crate. Only
       # the *client* half reaches the browser — `akd::auditor::audit_verify`
