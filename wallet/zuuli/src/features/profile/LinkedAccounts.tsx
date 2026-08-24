@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SocialButtons } from "@/components/common/SocialButtons";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import {
   LINK_STEP_META,
   useZcashAssociate,
@@ -43,7 +44,6 @@ import {
   type StepStatus,
 } from "@/features/auth/useZcashChallengeFlow";
 import { SeedReveal } from "@/features/auth/SeedReveal";
-import { truncateAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   SOCIAL_PROVIDERS,
@@ -181,12 +181,11 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
         <div>
           <p className="text-lg font-semibold">Zcash key linked</p>
           {address && (
-            <code
+            <BidiIdentifier
+              value={address}
+              shorten
               className="mono-id mt-1 block break-all font-mono text-xs text-muted-foreground"
-              title={address}
-            >
-              {truncateAddress(address)}
-            </code>
+            />
           )}
         </div>
         <Button className="w-full" onClick={onDone}>
@@ -202,12 +201,11 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
           <span className="eyebrow text-muted-foreground">Linking</span>
-          <code
+          <BidiIdentifier
+            value={address}
+            shorten
             className="mono-id font-mono text-xs text-foreground"
-            title={address}
-          >
-            {truncateAddress(address)}
-          </code>
+          />
         </div>
       )}
 
@@ -347,9 +345,13 @@ export function LinkedAccounts({ user }: { user: AuthUser }) {
           label="Zcash"
           detail={
             did && identity ? (
-              <code className="mono-id font-mono" title={did}>
-                did:zcash:{truncateAddress(identity, 6, 6)}
-              </code>
+              <BidiIdentifier
+                value={did}
+                shorten
+                head={16}
+                tail={6}
+                className="mono-id font-mono"
+              />
             ) : (
               "Not linked"
             )

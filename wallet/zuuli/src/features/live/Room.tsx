@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { auth, live, tuzi } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
 import { paidActionGate } from "@/lib/auth/paid-action";
@@ -38,7 +39,7 @@ import { preservePaidIntent } from "@/lib/auth/paid-intent";
 import { useAsync } from "@/hooks/useAsync";
 import { usePaidIntent } from "@/hooks/usePaidIntent";
 import { useSession } from "@/store/session";
-import { formatTuzis, timeAgo, initials, truncateAddress } from "@/lib/format";
+import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { DyteJoinTicket, Livestream, StreamKind } from "@/lib/api/types";
 import { coverTone } from "@/lib/cover";
 import {
@@ -1002,21 +1003,23 @@ function ConnectedDetails({
       <dl className="mt-3 space-y-2 text-xs">
         <div className="flex items-center justify-between gap-2">
           <dt className="text-muted-foreground">Meeting ID</dt>
-          <dd
-            className="min-w-0 break-all font-mono text-foreground"
-            title={ticket.meetingId}
-          >
-            {truncateAddress(ticket.meetingId)}
+          <dd className="min-w-0">
+            <BidiIdentifier
+              value={ticket.meetingId}
+              shorten
+              className="break-all font-mono text-foreground"
+            />
           </dd>
         </div>
         {ticket.roomName ? (
           <div className="flex items-center justify-between gap-2">
             <dt className="text-muted-foreground">Room</dt>
-            <dd
-              className="min-w-0 break-all font-mono text-foreground"
-              title={ticket.roomName}
-            >
-              {truncateAddress(ticket.roomName)}
+            <dd className="min-w-0">
+              <BidiIdentifier
+                value={ticket.roomName}
+                shorten
+                className="break-all font-mono text-foreground"
+              />
             </dd>
           </div>
         ) : null}

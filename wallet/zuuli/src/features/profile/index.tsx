@@ -211,6 +211,7 @@ function ProfileForm({ user }: { user: AuthUser }) {
             </Label>
             <Input
               id="profile-p2paddr"
+              dir="ltr"
               value={p2paddr}
               onChange={(e) => setP2paddr(e.target.value.slice(0, ADDR_MAX))}
               placeholder="Defaults to your account address if left blank"

@@ -4,11 +4,11 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import {
   formatDate,
   formatHeight,
   formatZecDisplay,
-  truncateAddress,
 } from "@/lib/format";
 import type { SyncStatus, TransactionEntry } from "@/lib/wallet/types";
 import { cn } from "@/lib/utils";
@@ -124,9 +124,11 @@ export function AddressCard({
         <div className="eyebrow text-muted-foreground">
           Your unified address
         </div>
-        <div className="mono-id break-all font-mono text-sm text-foreground">
-          {truncateAddress(address)}
-        </div>
+        <BidiIdentifier
+          value={address}
+          shorten
+          className="mono-id block break-all font-mono text-sm text-foreground"
+        />
         <div className="pt-1">
           <CopyButton
             value={address}
@@ -177,9 +179,11 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
             {tx.memo}
           </p>
         ) : (
-          <p className="mono-id break-all font-mono text-xs text-muted-foreground/70">
-            {truncateAddress(tx.txid)}
-          </p>
+          <BidiIdentifier
+            value={tx.txid}
+            shorten
+            className="mono-id block break-all font-mono text-xs text-muted-foreground/70"
+          />
         )}
       </div>
 

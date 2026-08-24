@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +28,6 @@ import {
   formatZecDisplay,
   MAX_ZEC_INPUT_LENGTH,
   parseZecToZatoshis,
-  truncateAddress,
 } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
 import {
@@ -322,7 +322,11 @@ export function Send() {
       if (result.status === "accepted") {
         setPendingSend(null);
         toast.success("Transaction sent", {
-          description: `txid ${truncateAddress(result.txid)}`,
+          description: (
+            <span>
+              txid <BidiIdentifier value={result.txid} shorten />
+            </span>
+          ),
         });
         await refreshBalance().catch(() => {
           if (mountedRef.current && generation === generationRef.current) {
@@ -369,7 +373,11 @@ export function Send() {
       if (result.status === "accepted") {
         setPendingSend(null);
         toast.success("Transaction broadcast confirmed", {
-          description: `txid ${truncateAddress(result.txid)}`,
+          description: (
+            <span>
+              txid <BidiIdentifier value={result.txid} shorten />
+            </span>
+          ),
         });
         await refreshBalance();
         navigate("/wallet/history");
@@ -434,7 +442,7 @@ export function Send() {
                   : "ZUULI recovered the exact transaction after restart. Retry it before creating another payment."}
               </p>
               <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
-                txid {pendingSend.txid}
+                txid <BidiIdentifier value={pendingSend.txid} />
               </p>
             </div>
           ) : null}
@@ -443,6 +451,7 @@ export function Send() {
             <Label htmlFor="to">Recipient address</Label>
             <Input
               id="to"
+              dir="ltr"
               value={to}
               onChange={(e) => onToChange(e.target.value)}
               placeholder="u1… / zs1… / t1… or paste a zcash: link"
@@ -657,12 +666,11 @@ export function Send() {
           {proposal ? (
             <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
               <Row label="To">
-                <span
+                <BidiIdentifier
+                  value={proposal.review.payments[0]?.recipient ?? ""}
                   className="mono-id min-w-0 break-all text-right font-mono text-xs"
                   data-testid="send-review-recipient"
-                >
-                  {proposal.review.payments[0]?.recipient ?? ""}
-                </span>
+                />
               </Row>
               <Row label="Amount">
                 <span className="tabular-nums" data-testid="send-review-amount">
@@ -729,7 +737,7 @@ export function Send() {
                 {broadcastResult.message}
               </p>
               <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
-                txid {broadcastResult.txid}
+                txid <BidiIdentifier value={broadcastResult.txid} />
               </p>
             </div>
           ) : null}
