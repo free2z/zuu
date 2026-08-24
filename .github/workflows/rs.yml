@@ -293,11 +293,18 @@ jobs:
       # prose and JSON, re-points both cited fix PRs, aliases both releases to
       # one source, and changes the real pinned partition body. Report evidence
       # is parsed with Node alone, including when PATH contains no host tools.
+      # Transport controls scope the Actions token to api.github.com, retry
+      # transient failures, and keep unavailability distinct from evidence
+      # drift; their self-test breaks each guard before trusting the live check.
       # Only then is the current documentation trusted.
       - name: Mutation-test AKD documentation evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/check-akd-doc-evidence.mjs --self-test
 
       - name: Verify AKD documentation against locked executable evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/check-akd-doc-evidence.mjs
 
       # `crash-injection` is off by default because it compiles an `abort()`

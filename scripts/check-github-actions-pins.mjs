@@ -389,6 +389,14 @@ const REQUIRED_JOB_DEFAULT_WORKING_DIRECTORIES = new Map([
 ]);
 const REQUIRED_STEP_ENVIRONMENTS = new Map([
   [
+    "rs_test\0Mutation-test AKD documentation evidence",
+    new Map([["GITHUB_TOKEN", "${{ github.token }}"]]),
+  ],
+  [
+    "rs_test\0Verify AKD documentation against locked executable evidence",
+    new Map([["GITHUB_TOKEN", "${{ github.token }}"]]),
+  ],
+  [
     "changes\0Detect release-impacting ZUULI changes",
     new Map([
       [
@@ -2091,7 +2099,8 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
       const step = matching[0];
       if (
         matching.length !== 1 ||
-        !hasExactKeys(step?.properties ?? new Map(), ["name", "run"]) ||
+        !hasExactKeys(step?.properties ?? new Map(), ["name", "env", "run"]) ||
+        stepEnvironment(relativeFile, lines, step, failures).get("GITHUB_TOKEN") !== "${{ github.token }}" ||
         step?.properties.get("run")?.value !== command
       ) {
         failures.push(
@@ -3362,6 +3371,8 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs"],
       ]) {
         const needle = "rs owner job rs_test must run exactly one unconditional";
+        const stepWithToken = `      - name: ${stepName}\n        env:\n          GITHUB_TOKEN: \${{ github.token }}\n        run: ${command}`;
+        const stepWithoutToken = `      - name: ${stepName}\n        run: ${command}`;
         assertWorkflowFailure(
           contract,
           source,
@@ -3381,6 +3392,25 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           source,
           `rs/rs_test rejects soft-failing ${stepName}`,
           (value) => mutateJob(value, "rs_test", `      - name: ${stepName}`, `      - name: ${stepName}\n        continue-on-error: true`),
+          needle,
+        );
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects unauthenticated ${stepName}`,
+          (value) => mutateJob(value, "rs_test", stepWithToken, stepWithoutToken),
+          needle,
+        );
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects a substituted token for ${stepName}`,
+          (value) => mutateJob(
+            value,
+            "rs_test",
+            stepWithToken,
+            stepWithToken.replace("\${{ github.token }}", "untrusted"),
+          ),
           needle,
         );
       }
