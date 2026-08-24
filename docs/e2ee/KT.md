@@ -50,7 +50,8 @@ The `DirectoryEntry` structure and its authorization — including, since
 signature (§4.5), the no-authority mode and its mandatory reporting (§4.6), and
 an accounting of what trusting an authority costs (§4.7). An earlier revision
 said this document fixed authorization "from the second entry onward" and
-deferred the first to §1.2; §4.4's third correction records the closure and what
+deferred the first to §1.2; §4.4's **closing** correction — the last of the four
+that section carries — records the closure and what
 an implementer working from that revision must add. The `SignedTreeHead` format
 and its signing transcript; log-key rotation; epoch cadence and the maximum merge
 delay; the submission receipt; the witness poll-verify-cosign protocol, its
@@ -450,8 +451,9 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
    **The `(or 1)` case is not an authorization rule and MUST NOT be read as one**
    — it fixes the version number and nothing else. What authorizes a handle's
    *first* entry is **rule 11** and §4.5. (Until 2026-08-24 this document said
-   the question was open and blocking; see the second and third corrections at
-   the end of this section.)
+   the question was open and blocking; the correction that said so, and the
+   closing correction that supersedes it, are the last two at the end of this
+   section.)
 4. `prev_entry_hash` matches the published previous entry, or is all-zero when
    `entry_version` is 1 (§4.2).
 5. `authorization.kind == entry.kind`, and the table above holds.
@@ -663,7 +665,7 @@ this paragraph be restated without its scope.
 
 ### 4.5 `HandleAssertion` — what authorizes a handle's first entry
 
-> **Invented in the sense §4.4's third correction describes: the *decision* is
+> **Invented in the sense §4.4's closing correction describes: the *decision* is
 > the owner decision on [#305](https://github.com/free2z/zuu/issues/305), and
 > the *encoding* is written down here for the first time.** Every structure,
 > transcript and rule below is transcribed from two implementations that already
