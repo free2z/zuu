@@ -29,6 +29,26 @@
 // list is therefore a deliberate act, and EXHAUSTIVE_VERIFIERS is short on
 // purpose.
 //
+// Two further properties are checked, because a gate can be perfectly wired to
+// the jobs it awaits and still not be the verdict branch protection thinks it
+// is:
+//
+//   3. UNIQUE CONTEXT. A job publishes its check-run name — `name:` when
+//      present, otherwise the job id — and branch protection matches required
+//      checks by that name. GitHub's own documentation says to "make sure that
+//      job names are unique across all workflows. Using the same job name in
+//      multiple workflows can cause ambiguous status check results and block
+//      pull requests from being merged." Two workflows answering to one name
+//      makes which run satisfies the context a function of report order rather
+//      than policy, so this rejects duplicates across the whole tree.
+//
+//   4. TOTAL COVERAGE. A gate's `needs:` must cover every job in its own file.
+//      The wiring rules above only prove `needs` / `env:` / `results=` agree
+//      *with each other*; a job added to the file and never added to `needs`
+//      satisfies all three and is invisible to the gate. That is the likeliest
+//      future regression, so `needs ⊇ {jobs in file} − {gate}` is asserted,
+//      with an explicit per-file opt-out for jobs deliberately left outside.
+//
 // Usage:
 //   node scripts/check-workflow-gates.mjs             judge every workflow
 //   node scripts/check-workflow-gates.mjs --self-test negative controls first
@@ -51,6 +71,40 @@ const CHANGE_DETECTOR = "changes";
 /// Commands that consume `toJSON(needs)` by iterating every entry. Each has been
 /// read and does. Adding one means reading the new verifier first.
 const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results"];
+
+/// Check-run names that more than one workflow is knowingly allowed to publish,
+/// mapped to the exact set of files allowed to publish them. Every entry is a
+/// documented exception, not a category: a *new* producer of one of these names
+/// still fails, because the value is the full file list rather than a wildcard.
+///
+/// Neither name below is a required status check, so neither can currently
+/// decide a merge — that is the whole reason they are tolerated rather than
+/// treated as the `gate` collision was. Renaming them is a follow-up, tracked
+/// in #567; adding to this map instead of fixing a collision needs the same.
+const TOLERATED_CONTEXT_COLLISIONS = new Map([
+  [
+    "build",
+    [
+      ".github/workflows/docs-about-free2z.yml",
+      ".github/workflows/ts-react-free2z.yml",
+      ".github/workflows/ts-svelte-free2z.yml",
+    ],
+  ],
+  [
+    "frontend",
+    [".github/workflows/zuuallet.yml", ".github/workflows/zuuli.yml"],
+  ],
+]);
+
+/// Jobs a gate is deliberately not required to await, per workflow file.
+///
+/// Empty on purpose: today both gates await every job in their own file, so
+/// nothing needs excusing. It exists because the excuse must be written down
+/// next to the rule when one is eventually needed — a scheduled canary that is
+/// not part of a PR verdict is the foreseeable case — rather than the rule
+/// being weakened to accommodate it. The self-test exercises this path with an
+/// injected map so the opt-out is not untested code.
+const GATE_EXEMPT_JOBS = new Map();
 
 const NEEDS_RESULT = /needs\.([A-Za-z0-9_-]+)\.result/g;
 const TO_JSON_NEEDS = /toJSON\(\s*needs\s*\)/;
@@ -105,6 +159,26 @@ function jobsIn(lines) {
   }
   if (current) current.end = lines.length;
   return jobs;
+}
+
+/// The check-run name a job publishes, which is what branch protection matches
+/// a required context against: the job's `name:` when it declares one, and the
+/// job id otherwise.
+///
+/// Conservative about matrix jobs on purpose. A job with a `strategy.matrix`
+/// publishes `<name> (<values>)` per leg, so two files sharing a base name are
+/// not literally the same context — but the resolution is still to give them
+/// distinct names, so the base name is what is compared.
+function publishedContext(lines, job) {
+  for (let index = job.start + 1; index < job.end; index += 1) {
+    const line = lines[index];
+    if (isBlank(line)) continue;
+    if (indentOf(line) <= 2) break;
+    if (indentOf(line) !== 4) continue;
+    const match = /^ {4}name:\s*(.+?)\s*$/.exec(line);
+    if (match) return match[1].replace(/^['"]|['"]$/g, "");
+  }
+  return job.name;
 }
 
 /// The job ids in a job's `needs:`, in any of the three shapes GitHub accepts.
@@ -182,7 +256,16 @@ function difference(left, right) {
 }
 
 /// Judge one `gate` job. Returns an array of human-readable failures.
-export function gateFailures(relativeFile, lines, job) {
+///
+/// `siblings` is every job id defined in the same file, and `exempt` the ids
+/// that file is allowed to leave outside the gate.
+export function gateFailures(
+  relativeFile,
+  lines,
+  job,
+  siblings = [],
+  exempt = new Set(),
+) {
   const failures = [];
   const needs = parseNeeds(lines, job);
   if (!needs) {
@@ -195,6 +278,21 @@ export function gateFailures(relativeFile, lines, job) {
       `${relativeFile}:${needs.index + 1}: gate must await ${CHANGE_DETECTOR}`,
     );
   }
+
+  // Coverage. Wiring the three sets to each other proves nothing about a job
+  // that was never wired at all, so require the gate to await every job its own
+  // workflow defines.
+  const unawaited = difference(
+    difference(new Set(siblings.filter((id) => id !== job.name)), exempt),
+    awaited,
+  );
+  if (unawaited.size) {
+    failures.push(
+      `${relativeFile}:${needs.index + 1}: gate does not await ${sorted(unawaited)}, ` +
+        "defined in the same workflow; a job outside the gate's needs is a job the gate cannot fail on",
+    );
+  }
+
   const judged = difference(awaited, new Set([CHANGE_DETECTOR]));
   if (judged.size === 0) {
     failures.push(
@@ -255,8 +353,47 @@ export function gateFailures(relativeFile, lines, job) {
   return failures;
 }
 
-export function scanRepository(root) {
+/// Reject two workflows answering to one check-run name.
+///
+/// Branch protection resolves a required context by name, so a duplicated name
+/// makes *which* run satisfies the context a function of report order. The
+/// tolerated map is keyed by the exact file list, so a new producer of an
+/// already-tolerated name still fails.
+///
+/// Triggers are deliberately not consulted. A name that is unique only because
+/// the two workflows happen to run on different events stops being unique the
+/// moment someone adds `pull_request:` to one of them, which is a one-line edit
+/// nobody would think of as touching branch protection.
+export function contextCollisionFailures(published, tolerated) {
   const failures = [];
+  const byContext = new Map();
+  for (const entry of published) {
+    if (!byContext.has(entry.context)) byContext.set(entry.context, []);
+    byContext.get(entry.context).push(entry);
+  }
+  for (const [context, entries] of [...byContext].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
+    if (entries.length < 2) continue;
+    const producers = [...new Set(entries.map((entry) => entry.file))].sort();
+    const allowed = tolerated.get(context);
+    if (allowed && [...allowed].sort().join("\0") === producers.join("\0")) {
+      continue;
+    }
+    failures.push(
+      `${producers.join(", ")}: ${entries.length} job(s) publish the status-check context "${context}" ` +
+        `(${entries.map((entry) => `${entry.file}#${entry.job}`).join(", ")}); ` +
+        "branch protection matches contexts by name, so a duplicate resolves by report order rather than policy",
+    );
+  }
+  return failures;
+}
+
+export function scanRepository(root, options = {}) {
+  const tolerated = options.tolerated ?? TOLERATED_CONTEXT_COLLISIONS;
+  const exemptions = options.exempt ?? GATE_EXEMPT_JOBS;
+  const failures = [];
+  const published = [];
   let gates = 0;
   const files = workflowFiles(root);
   for (const file of files) {
@@ -265,13 +402,22 @@ export function scanRepository(root) {
       .split(path.sep)
       .join("/");
     const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-    for (const job of jobsIn(lines)) {
+    const jobs = jobsIn(lines);
+    const siblings = jobs.map((job) => job.name);
+    const exempt = new Set(exemptions.get(relativeFile) ?? []);
+    for (const job of jobs) {
+      published.push({
+        file: relativeFile,
+        job: job.name,
+        context: publishedContext(lines, job),
+      });
       if (job.name !== "gate") continue;
       gates += 1;
-      failures.push(...gateFailures(relativeFile, lines, job));
+      failures.push(...gateFailures(relativeFile, lines, job, siblings, exempt));
     }
   }
-  return { failures, gates, files: files.length };
+  failures.push(...contextCollisionFailures(published, tolerated));
+  return { failures, gates, files: files.length, contexts: published.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -346,22 +492,79 @@ jobs:
         run: node scripts/check-github-actions-pins.mjs --verify-gate-results
 `;
 
+/// The same workflow as EXPLICIT_GATE, with every job carrying a display name.
+/// Its purpose is to be a second file in the tree that does *not* collide, which
+/// is what proves the collision detection reads `name:` and not the file count.
+const NAMED_GATE = `name: other fixture
+
+on:
+  pull_request:
+
+jobs:
+  changes:
+    name: other / changes
+    runs-on: ubuntu-latest
+    outputs:
+      selected: \${{ steps.filter.outputs.selected }}
+    steps:
+      - run: echo selected=true >> "$GITHUB_OUTPUT"
+
+  alpha:
+    name: other / alpha
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo alpha
+
+  gate:
+    name: other / gate
+    needs: [changes, alpha]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs succeeded or legitimately skipped
+        env:
+          CHANGES: \${{ needs.changes.result }}
+          ALPHA: \${{ needs.alpha.result }}
+        run: |
+          results="alpha=$ALPHA"
+          echo "$results"
+`;
+
+/// An extra job in the same file as a gate that never awaits it.
+const UNAWAITED_JOB = `  gamma:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo gamma
+
+  gate:`;
+
+/// `contents` is either one workflow's text, written as `fixture.yml`, or a
+/// `{ filename: text }` map when a case needs more than one workflow in a tree.
 function withFixture(contents, body) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "zuu-gate-self-test-"));
   try {
     const directory = path.join(root, ".github", "workflows");
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, "fixture.yml"), contents);
+    const files =
+      typeof contents === "string" ? { "fixture.yml": contents } : contents;
+    for (const [name, text] of Object.entries(files)) {
+      fs.writeFileSync(path.join(directory, name), text);
+    }
     return body(root);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
-function expectClean(label, contents) {
-  const result = withFixture(contents, (root) => scanRepository(root));
-  if (result.gates !== 1) {
-    throw new Error(`self-test FAILED: ${label} did not present exactly one gate`);
+function expectClean(label, contents, options = {}) {
+  const { gates = 1, ...scan } = options;
+  const result = withFixture(contents, (root) => scanRepository(root, scan));
+  if (result.gates !== gates) {
+    throw new Error(
+      `self-test FAILED: ${label} presented ${result.gates} gate(s), expected ${gates}`,
+    );
   }
   if (result.failures.length) {
     throw new Error(
@@ -371,8 +574,8 @@ function expectClean(label, contents) {
   console.log(`self-test: ${label} passes.`);
 }
 
-function expectDetected(label, contents, pattern) {
-  const result = withFixture(contents, (root) => scanRepository(root));
+function expectDetected(label, contents, pattern, options = {}) {
+  const result = withFixture(contents, (root) => scanRepository(root, options));
   const joined = result.failures.join("; ");
   if (!pattern.test(joined)) {
     throw new Error(
@@ -449,7 +652,54 @@ function selfTest() {
     ),
   );
 
-  console.log("check-workflow-gates self-test: 10 case(s) passed.");
+  // Coverage: a job the gate never awaits. It is well-formed and would run on
+  // every PR; the gate simply has no opinion about how it concluded.
+  expectDetected(
+    "a job in the file that the gate does not await",
+    EXPLICIT_GATE.replace("  gate:", UNAWAITED_JOB),
+    /gate does not await gamma, defined in the same workflow/,
+  );
+  // And the opt-out actually excuses it, which is the only way to know the
+  // escape hatch works before someone needs it under pressure.
+  expectClean(
+    "a job excused by the per-file opt-out",
+    EXPLICIT_GATE.replace("  gate:", UNAWAITED_JOB),
+    { exempt: new Map([[".github/workflows/fixture.yml", ["gamma"]]]) },
+  );
+
+  // Unique contexts: two workflows answering to one name. Both fixtures are
+  // individually well-formed gates, so nothing but the duplicate name differs.
+  expectDetected(
+    "two workflows publishing the same status-check context",
+    { "fixture.yml": EXPLICIT_GATE, "other.yml": EXPLICIT_GATE },
+    /2 job\(s\) publish the status-check context "gate"/,
+  );
+  expectClean(
+    "two gates in one tree with distinct display names",
+    { "fixture.yml": EXPLICIT_GATE, "other.yml": NAMED_GATE },
+    { gates: 2 },
+  );
+  // The tolerated map is keyed by the exact producing files, not by the name,
+  // so a third producer of a knowingly-duplicated name is still a failure.
+  expectDetected(
+    "a third producer of a tolerated duplicate context",
+    {
+      "fixture.yml": EXPLICIT_GATE,
+      "other.yml": EXPLICIT_GATE,
+      "third.yml": EXPLICIT_GATE,
+    },
+    /3 job\(s\) publish the status-check context "gate"/,
+    {
+      tolerated: new Map([
+        [
+          "gate",
+          [".github/workflows/fixture.yml", ".github/workflows/other.yml"],
+        ],
+      ]),
+    },
+  );
+
+  console.log("check-workflow-gates self-test: 15 case(s) passed.");
 }
 
 const mode = process.argv[2];
@@ -479,5 +729,7 @@ if (result.failures.length) {
   process.exit(1);
 }
 console.log(
-  `Every gate inspects every job it awaits: ${result.gates} gate(s) across ${result.files} workflow file(s).`,
+  `Every gate inspects every job it awaits and covers every job in its file, ` +
+    `and no two workflows publish one status-check context: ${result.gates} gate(s), ` +
+    `${result.contexts} job(s), ${result.files} workflow file(s).`,
 );
