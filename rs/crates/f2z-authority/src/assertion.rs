@@ -128,11 +128,21 @@ impl HandleAssertionTBS {
     /// authority while being signed by another, and naming one handle while
     /// being indexed under another.
     ///
+    /// It also refuses to *mint* what the log would refuse to admit: an
+    /// `account_epoch` at or above [`ACCOUNT_EPOCH_CEILING`] is a clock rather
+    /// than the durable counter `KT.md` §4.5.4 requires, and the failure this
+    /// crate exists to prevent is an issuer that reaches for `now / 1000`
+    /// because a counter was inconvenient. Refusing here means the issuer finds
+    /// out at its own keyboard rather than at somebody else's log.
+    ///
     /// # Errors
     ///
     /// [`AuthorityError::Malformed`] if the label does not fit `<0..255>`,
     /// which it always does — the check is there so the constructor has no
-    /// unwrap in it.
+    /// unwrap in it. [`AuthorityError::AccountEpochNotACounter`] for a
+    /// clock-shaped `account_epoch`.
+    ///
+    /// [`ACCOUNT_EPOCH_CEILING`]: crate::authority::ACCOUNT_EPOCH_CEILING
     // Nine arguments, and deliberately not a builder. Every one of them is a
     // field of a structure that is about to be signed, and a builder would make
     // each one omissible: forgetting `expires_ms` on a builder yields a
@@ -151,6 +161,9 @@ impl HandleAssertionTBS {
         expires_ms: u64,
         nonce: AssertionNonce,
     ) -> Result<Self> {
+        if account_epoch >= crate::authority::ACCOUNT_EPOCH_CEILING {
+            return Err(AuthorityError::AccountEpochNotACounter);
+        }
         let handle_id = handle.handle_id();
         Ok(Self {
             label: ShortBytes::new(LABEL_ASSERTION_TBS).map_err(AuthorityError::from)?,

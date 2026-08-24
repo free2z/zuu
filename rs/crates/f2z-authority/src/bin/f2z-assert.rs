@@ -64,6 +64,14 @@ NOTES:
   where an account has changed hands; the log refuses a reset on a handle's
   first entry and refuses a bind on any later one.
 
+  --account-epoch is the authority's DURABLE PER-ACCOUNT COUNTER (KT.md
+  §4.5.4). It is not a timestamp: a clock satisfies strictly-greater-than-the-
+  last-one forever, which deletes the rule that stops a reset assertion being
+  spent twice on one account-ownership event. It defaults to 0 for --intent
+  bind, which is the baseline a handle's first reset must exceed, and is
+  REQUIRED for --intent reset. A value at or above 1048576 is refused outright
+  as a clock.
+
   --validity-ms defaults to 900000 (15 minutes) and is ignored when --expires-ms
   is given. The LOG caps this independently: an assertion whose window exceeds
   the log's own cap is refused however it was signed.
@@ -184,9 +192,24 @@ fn issue(args: &[String]) -> Result<(), String> {
         Some("reset") => Intent::Reset,
         Some(other) => return Err(format!("--intent must be bind or reset, not `{other}`")),
     };
-    let account_epoch = match options.get("account-epoch") {
-        Some(value) => parse_u32(value, "--account-epoch")?,
-        None => 0,
+    // `bind` establishes the baseline a handle's first reset must exceed, and 0
+    // is the honest baseline for an account nothing has happened to yet. A
+    // `reset` is the opposite: its whole job is to be a *different* value from
+    // the last one, and a default there would be this tool inventing the number
+    // the authority is supposed to hold. KT.md §4.5.4 requires a durable
+    // per-account counter; this binary has no storage, so on the one path where
+    // the value carries the security property it asks rather than guesses.
+    let account_epoch = match (options.get("account-epoch"), intent) {
+        (Some(value), _) => parse_u32(value, "--account-epoch")?,
+        (None, Intent::Bind) => 0,
+        (None, Intent::Reset) => {
+            return Err(
+                "--account-epoch is required for --intent reset: it must be the \
+                        authority's durable per-account counter, read after the account-ownership \
+                        event that justifies the reset, and never a clock (KT.md §4.5.4)"
+                    .into(),
+            );
+        }
     };
 
     let issued_ms = match options.get("issued-ms") {

@@ -103,6 +103,25 @@ pub enum AuthorityError {
     /// `account_epoch` did not advance past the last admitted assertion for
     /// this handle.
     AccountEpochRegression,
+    /// `account_epoch` is too large to be a count of account-ownership events,
+    /// so it is a clock rather than the counter `KT.md` §4.5.4 requires.
+    ///
+    /// See [`ACCOUNT_EPOCH_CEILING`]. This is a *necessary* condition, not a
+    /// sufficient one: it refuses the specific non-conformance §4.5.4 names —
+    /// Unix time in a `uint32` — and cannot prove that a value below the
+    /// ceiling came from a durable counter.
+    ///
+    /// [`ACCOUNT_EPOCH_CEILING`]: crate::authority::ACCOUNT_EPOCH_CEILING
+    AccountEpochNotACounter,
+    /// `account_epoch` advanced past the predecessor's by more than one
+    /// assertion can account for.
+    ///
+    /// A counter increments once per account-ownership event, so the gap
+    /// between two admitted assertions for one handle is small. A clock's gap
+    /// is however much time passed. See [`MAX_ACCOUNT_EPOCH_STEP`].
+    ///
+    /// [`MAX_ACCOUNT_EPOCH_STEP`]: crate::authority::MAX_ACCOUNT_EPOCH_STEP
+    AccountEpochStepTooLarge,
     /// An initial bind or platform reset on a vouched log arrived without its
     /// platform assertion.
     MissingAssertion,
@@ -173,6 +192,8 @@ impl AuthorityError {
             | Self::UnexpectedPriorAccountEpoch
             | Self::IdentityUnchanged
             | Self::AccountEpochRegression
+            | Self::AccountEpochNotACounter
+            | Self::AccountEpochStepTooLarge
             | Self::MissingAssertion
             | Self::UnexpectedAssertion => ERR_BAD_AUTHORIZATION,
         }
@@ -219,6 +240,8 @@ impl AuthorityError {
             }
             Self::IdentityUnchanged => "a reset assertion was spent on an unchanged identity key",
             Self::AccountEpochRegression => "account_epoch did not advance",
+            Self::AccountEpochNotACounter => "account_epoch is a clock, not a counter",
+            Self::AccountEpochStepTooLarge => "account_epoch advanced by more than a counter can",
             Self::MissingAssertion => "this log requires an assertion and none was presented",
             Self::UnexpectedAssertion => "this entry kind must not carry a platform assertion",
             Self::EmptyAuthoritySet => "an authority set needs at least one key",

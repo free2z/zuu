@@ -415,6 +415,73 @@ pub fn empty_bundle() -> TreeHeadBundle {
     .unwrap()
 }
 
+/// What a test wants to say instead of the fixture's defaults, when the
+/// assertion's own fields are the thing under test.
+///
+/// [`Harness::envelope`] derives every field from the entry so that a test
+/// about §4.4 never accidentally trips over the assertion layer. The two rules
+/// that only a *badly issued* assertion can exercise — A17's
+/// `(authority_id, nonce)` ledger and §4.5.4's `account_epoch` — need the
+/// opposite, so they get this.
+#[derive(Clone, Copy, Default)]
+pub struct AssertionOverrides {
+    /// The 16-byte assertion nonce. Reusing one across two assertions is what
+    /// A17 exists to refuse, and it is not otherwise producible.
+    pub nonce: Option<[u8; 16]>,
+    /// `account_epoch`, so a test can supply the clock-derived value `KT.md`
+    /// §4.5.4 forbids.
+    pub account_epoch: Option<u32>,
+    /// `issued_ms`; defaults to the submission's `now_ms`.
+    pub issued_ms: Option<u64>,
+    /// `expires_ms`; defaults to `issued_ms + 60_000`.
+    pub expires_ms: Option<u64>,
+}
+
+/// Hand-written, and the workspace `Debug` scan is what insists on it: a
+/// derived `Debug` over `Option<[u8; 16]>` renders the nonce as a decimal byte
+/// dump, which is a dump.
+impl core::fmt::Debug for AssertionOverrides {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AssertionOverrides")
+            .field("nonce", &self.nonce.map(|_| "<redacted; 16 bytes>"))
+            .field("account_epoch", &self.account_epoch)
+            .field("issued_ms", &self.issued_ms)
+            .field("expires_ms", &self.expires_ms)
+            .finish()
+    }
+}
+
+impl AssertionOverrides {
+    /// Override only the nonce.
+    #[must_use]
+    pub const fn nonce(nonce: [u8; 16]) -> Self {
+        Self {
+            nonce: Some(nonce),
+            account_epoch: None,
+            issued_ms: None,
+            expires_ms: None,
+        }
+    }
+
+    /// Override only `account_epoch`.
+    #[must_use]
+    pub const fn account_epoch(epoch: u32) -> Self {
+        Self {
+            nonce: None,
+            account_epoch: Some(epoch),
+            issued_ms: None,
+            expires_ms: None,
+        }
+    }
+
+    /// Also override the nonce.
+    #[must_use]
+    pub const fn with_nonce(mut self, nonce: [u8; 16]) -> Self {
+        self.nonce = Some(nonce);
+        self
+    }
+}
+
 /// A whole log, in-process, with everything the acceptance tests need to drive
 /// it: keys, an authority, and a clock they control.
 pub struct Harness {
@@ -566,6 +633,29 @@ impl Harness {
         .unwrap()
     }
 
+    /// As [`Harness::envelope`], but with the assertion's own fields chosen by
+    /// the caller.
+    ///
+    /// The one way to produce a **badly issued** assertion: a reused nonce
+    /// (A17) or a clock-derived `account_epoch` (§4.5.4). Both rules are about
+    /// what the issuer *supplied*, and a fixture that always supplies a
+    /// conforming value cannot exercise either — which is exactly how both
+    /// defects survived review.
+    ///
+    /// # Panics
+    ///
+    /// If any part will not encode, or if the harness has no issuer.
+    #[must_use]
+    pub fn envelope_overriding(
+        &self,
+        entry: &DirectoryEntry,
+        identity: &Identity,
+        now_ms: u64,
+        overrides: AssertionOverrides,
+    ) -> Vec<u8> {
+        self.build_envelope(entry, identity, now_ms, true, overrides)
+    }
+
     /// As [`Harness::envelope`], but optionally omitting the assertion — the
     /// adversarial case zuu#594 is about.
     ///
@@ -578,6 +668,23 @@ impl Harness {
         identity: &Identity,
         now_ms: u64,
         with_assertion: bool,
+    ) -> Vec<u8> {
+        self.build_envelope(
+            entry,
+            identity,
+            now_ms,
+            with_assertion,
+            AssertionOverrides::default(),
+        )
+    }
+
+    fn build_envelope(
+        &self,
+        entry: &DirectoryEntry,
+        identity: &Identity,
+        now_ms: u64,
+        with_assertion: bool,
+        overrides: AssertionOverrides,
     ) -> Vec<u8> {
         let bytes = entry_bytes(entry);
         let digest = labels::entry_value(&bytes);
@@ -592,28 +699,41 @@ impl Harness {
                 } else {
                     f2z_authority::types::Intent::Reset
                 };
-                let tbs = f2z_authority::HandleAssertionTBS::new(
-                    &issuer.public_key(),
-                    f2z_authority::types::LogId::new(*self.log_id.as_bytes()),
-                    handle.clone(),
-                    entry.entry.identity_pk,
+                let issued_ms = overrides.issued_ms.unwrap_or(now_ms);
+                // Built field by field rather than through
+                // `HandleAssertionTBS::new`, which refuses a clock-shaped
+                // `account_epoch` outright — a real issuer should, and a test
+                // standing in for a non-conforming one must be able to mint
+                // what that issuer mints.
+                let tbs = f2z_authority::HandleAssertionTBS {
+                    label: ShortBytes::new(f2z_authority::labels::LABEL_ASSERTION_TBS.to_vec())
+                        .unwrap(),
+                    authority_id: f2z_authority::authority_id(&issuer.public_key()),
+                    log_id: f2z_authority::types::LogId::new(*self.log_id.as_bytes()),
+                    handle_id: handle.handle_id(),
+                    handle: handle.clone(),
+                    identity_pk: entry.entry.identity_pk,
                     intent,
                     // Strictly greater than the predecessor's retained epoch;
                     // a reset is a distinct account-ownership event.
-                    u32::from(entry.entry.entry_version > 1),
-                    now_ms,
-                    now_ms.saturating_add(60_000),
+                    account_epoch: overrides
+                        .account_epoch
+                        .unwrap_or_else(|| u32::from(entry.entry.entry_version > 1)),
+                    issued_ms,
+                    expires_ms: overrides
+                        .expires_ms
+                        .unwrap_or_else(|| issued_ms.saturating_add(60_000)),
                     // Derived from the handle and the identity key rather than
                     // from the clock: two registrations in one millisecond are
                     // ordinary, and a fixture that reused a nonce would be
                     // testing the nonce ledger instead of whatever the test is
                     // about. (It caught exactly that the first time.)
-                    f2z_authority::types::AssertionNonce::new(nonce_for(
-                        entry.entry.handle.as_slice(),
-                        &entry.entry.identity_pk,
-                    )),
-                )
-                .unwrap();
+                    nonce: f2z_authority::types::AssertionNonce::new(
+                        overrides.nonce.unwrap_or_else(|| {
+                            nonce_for(entry.entry.handle.as_slice(), &entry.entry.identity_pk)
+                        }),
+                    ),
+                };
                 Some(tbs.sign(issuer).unwrap())
             }
             _ => None,
