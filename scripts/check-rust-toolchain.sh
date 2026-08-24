@@ -453,32 +453,39 @@ check_toolchain_restatements() {
 # Ask the pinned Cargo itself whether a manifest is a package or a virtual
 # workspace.  TOML permits whitespace and quoted, inline, and dotted keys, so a
 # source grep for `[package]` is neither complete nor sound. `read-manifest`
-# succeeds only for a package and emits one exact diagnostic for a valid
-# virtual manifest; every other failure is a parse/classification failure and
-# must fail closed.
+# succeeds only for a package. When it fails, a second semantic command,
+# `metadata`, succeeds for a valid virtual workspace. Classification never
+# depends on Cargo/rustup diagnostic wording, ANSI colour, or startup prelude;
+# both commands failing is malformed or otherwise unclassifiable and fails
+# closed.
 CARGO_MANIFEST_KIND=
 classify_cargo_manifest() {
-  local root=$1 rel=$2 channel=$3 diagnostic_file diagnostic virtual_suffix
+  local root=$1 rel=$2 channel=$3
+  local read_diagnostic_file metadata_diagnostic_file read_diagnostic metadata_diagnostic
 
   CARGO_MANIFEST_KIND=
-  diagnostic_file=$(mktemp "${TMPDIR:-/tmp}/cargo-manifest-classification.XXXXXX")
+  read_diagnostic_file=$(mktemp "${TMPDIR:-/tmp}/cargo-read-manifest.XXXXXX")
+  metadata_diagnostic_file=$(mktemp "${TMPDIR:-/tmp}/cargo-metadata.XXXXXX")
   if cargo +"$channel" read-manifest --manifest-path "$root/$rel" \
-    >/dev/null 2>"$diagnostic_file"; then
+    >/dev/null 2>"$read_diagnostic_file"; then
     CARGO_MANIFEST_KIND=package
-    rm -f -- "$diagnostic_file"
+    rm -f -- "$read_diagnostic_file" "$metadata_diagnostic_file"
     return 0
   fi
 
-  diagnostic=$(cat "$diagnostic_file")
-  rm -f -- "$diagnostic_file"
-  virtual_suffix='` is a virtual manifest, but this command requires running against an actual package in this workspace'
-  if [[ $diagnostic == 'error: manifest path `'*"$virtual_suffix" ]]; then
+  if cargo +"$channel" metadata --no-deps --format-version 1 \
+    --manifest-path "$root/$rel" >/dev/null 2>"$metadata_diagnostic_file"; then
     CARGO_MANIFEST_KIND=virtual
+    rm -f -- "$read_diagnostic_file" "$metadata_diagnostic_file"
     return 0
   fi
 
-  diagnostic=${diagnostic//$'\n'/; }
-  fail "$rel could not be classified by pinned Cargo $channel: ${diagnostic:-no diagnostic}"
+  read_diagnostic=$(tail -n 3 "$read_diagnostic_file")
+  metadata_diagnostic=$(tail -n 3 "$metadata_diagnostic_file")
+  rm -f -- "$read_diagnostic_file" "$metadata_diagnostic_file"
+  read_diagnostic=${read_diagnostic//$'\n'/; }
+  metadata_diagnostic=${metadata_diagnostic//$'\n'/; }
+  fail "$rel could not be classified by pinned Cargo $channel (read-manifest: ${read_diagnostic:-no diagnostic}; metadata: ${metadata_diagnostic:-no diagnostic})"
   return 1
 }
 
@@ -903,6 +910,22 @@ self_test_census() {
       reject "$rel declares [package] but is registered nowhere" || failures=$((failures + 1))
   done
 
+  # Cargo and rustup may decorate stderr before Cargo's own diagnostic. CI
+  # deliberately sets CARGO_TERM_COLOR=always, and rustup may print a sync
+  # prelude on a cold runner. A real wrapper injects both shapes before the
+  # pinned Cargo commands: semantic command success must remain the only
+  # classifier, while a malformed manifest must still fail closed.
+  local cargo_noise_bin real_cargo
+  cargo_noise_bin=$scratch/cargo-classifier-noise-bin
+  real_cargo=$(command -v cargo)
+  mkdir -p "$cargo_noise_bin"
+  cat >"$cargo_noise_bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+printf '\033[1;33minfo: syncing channel updates for classifier fixture\033[0m\n' >&2
+exec "$CENSUS_REAL_CARGO" "$@"
+EOF
+  chmod +x "$cargo_noise_bin/cargo"
+
   tree=$scratch/census-invalid-manifest
   stage_tree "$tree"
   rel=wallet/census-invalid/Cargo.toml
@@ -910,8 +933,14 @@ self_test_census() {
   printf '[package\nname = "invalid"\nversion = "0.0.0"\n' >"$tree/$rel"
   printf 'pub fn invalid() {}\n' >"$tree/$(dirname "$rel")/src/lib.rs"
   git -C "$tree" add -- "$rel" "$(dirname "$rel")/src/lib.rs"
-  self_test_census_case "$tree" 'a malformed manifest that Cargo cannot classify' \
-    reject "$rel could not be classified by pinned Cargo" || failures=$((failures + 1))
+  (
+    export PATH="$cargo_noise_bin:$PATH"
+    export CENSUS_REAL_CARGO="$real_cargo"
+    export CARGO_TERM_COLOR=always
+    self_test_census_case "$tree" \
+      'a malformed manifest despite ANSI and rustup prelude diagnostics' \
+      reject "$rel could not be classified by pinned Cargo"
+  ) || failures=$((failures + 1))
 
   tree=$scratch/census-virtual-string
   stage_tree "$tree"
@@ -919,9 +948,14 @@ self_test_census() {
   mkdir -p "$tree/$(dirname "$rel")"
   printf 'note = """\n[package]\n"""\n[workspace]\nresolver = "3"\n' >"$tree/$rel"
   git -C "$tree" add -- "$rel"
-  self_test_census_case "$tree" \
-    'a valid virtual manifest whose multiline string mentions [package]' accept '' ||
-    failures=$((failures + 1))
+  (
+    export PATH="$cargo_noise_bin:$PATH"
+    export CENSUS_REAL_CARGO="$real_cargo"
+    export CARGO_TERM_COLOR=always
+    self_test_census_case "$tree" \
+      'a valid virtual manifest despite ANSI/rustup prelude and multiline [package] text' \
+      accept ''
+  ) || failures=$((failures + 1))
 
   tree=$scratch/census-registered-virtual
   stage_tree "$tree"
