@@ -399,6 +399,8 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     "pub(super) fn create_transactions<",
     "pub(super) fn propose_fixed_validated<",
     "pub(super) fn propose_send_all_validated<",
+    "pub(super) fn standard_minimum_fee(",
+    "pub(super) fn wallet_summary_with_policy<",
   ];
   // Comments are whitespace in Rust and are already masked above. Canonicalize
   // visibility token spacing before counting so `pub(super /* comment */)`
@@ -418,18 +420,48 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     occurrences(visibilityCanonical, "pub ") !== 0
   ) {
     errors.push(
-      "private native send policy module must expose only its three audited safe boundaries",
+      "private native send policy module must expose only its five audited safe boundaries",
     );
   }
   const lockHelper =
     "fn proposal_lock_request() -> Option<LockRequest> { None }";
   const versionHelper =
     "fn proposed_transaction_version() -> Option<TxVersion> { None }";
+  const confirmationsPolicyBody = rustFunctionBody(
+    send,
+    "confirmations_policy",
+  );
+  const walletSummaryPolicyBody = rustFunctionBody(
+    send,
+    "wallet_summary_with_policy",
+  );
+  const minimumFeeBody = rustFunctionBody(send, "standard_minimum_fee");
   if (
     occurrences(send, "fn proposal_lock_request()") !== 1 ||
     occurrences(send, lockHelper) !== 1
   ) {
     errors.push("proposal lock decision must remain one exact audited None helper");
+  }
+  if (confirmationsPolicyBody !== "ConfirmationsPolicy::default()") {
+    errors.push(
+      "confirmation depth must remain one shared native-send policy decision",
+    );
+  }
+  if (
+    walletSummaryPolicyBody !==
+    "db.get_wallet_summary(confirmations_policy())"
+  ) {
+    errors.push(
+      "send-all wallet summary must remain routed through the shared confirmation policy",
+    );
+  }
+  if (
+    minimumFeeBody !==
+    "let rule = Zip317FeeRule::standard(); (rule.marginal_fee() * rule.grace_actions()).map(u64::from)"
+  ) {
+    errors.push(
+      "send-all minimum fee must remain derived from the standard ZIP-317 fee rule",
+    );
   }
   if (
     occurrences(send, "fn proposed_transaction_version()") !== 1 ||
@@ -460,7 +492,7 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     "&input_selector,",
     "&change_strategy,",
     "request,",
-    "ConfirmationsPolicy::default(),",
+    "confirmations_policy(),",
     "spend_policy,",
     "proposal_lock_request(),",
     "proposed_transaction_version(),",
@@ -522,6 +554,39 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     orchestration,
     "create_production_recovery_route",
   );
+  const sendAllSpendableBody = rustFunctionBody(
+    orchestration,
+    "send_all_spendable_balance",
+  );
+  const sendAllStatefulBody = rustFunctionBody(
+    orchestration,
+    "propose_send_all_stateful_production_caller",
+  );
+  if (
+    occurrences(orchestration, "ConfirmationsPolicy") !== 0 ||
+    occurrences(
+      sendAllSpendableBody ?? "",
+      "self::native::wallet_summary_with_policy(db)",
+    ) !== 1 ||
+    occurrences(
+      orchestration,
+      "self::native::wallet_summary_with_policy(db)",
+    ) !== 1
+  ) {
+    errors.push(
+      "send-all spendable balance must consume the sole native confirmation policy",
+    );
+  }
+  if (
+    occurrences(
+      sendAllStatefulBody ?? "",
+      "let minimum_fee = self::native::standard_minimum_fee()",
+    ) !== 1
+  ) {
+    errors.push(
+      "send-all retry and minimum-balance guard must derive their estimate from the standard ZIP-317 fee authority",
+    );
+  }
   for (const [boundary, body] of [
     ["fixed-send", fixedProductionRouteBody],
     ["send-all", sendAllProductionRouteBody],
@@ -574,10 +639,7 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     ],
     [
       "send-all stateful caller",
-      rustFunctionBody(
-        orchestration,
-        "propose_send_all_stateful_production_caller",
-      ),
+      sendAllStatefulBody,
       "propose_send_all_production_route(",
     ],
     [
@@ -623,8 +685,9 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
       boundary: "send-all WalletState adapter",
       functionName: "propose_send_all_after_recipient_validation",
       transition: "proposal construction and exact pending-state installation",
-      digest: "6240360464b39a53bd5ba965df13861a98cbe9466995926c93fbd4ffdb67ccbf",
+      digest: "1f9d5942f8ec8cfeafa9c1f5bd8c43c64f88c1f97476cda42a5db11bed49fd00",
       orderedAnchors: [
+        "let spendable = { let db_guard = state.read_db.lock().await; let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?; send_all_spendable_balance(db)? };",
         "let (pending, public) = propose_send_all_stateful_production_caller( db, &state.network, &recipient, memo_bytes.as_ref(), network_label(&state.network), spendable, &wallet_id, &state.proposal_counter, state.send_session_id, )?;",
         "drop(db_guard);",
         "let mut pending_broadcast = state.pending_broadcast.lock().await;",
@@ -1123,7 +1186,7 @@ function runSelfTest() {
         "pub(super) fn propose_with_policy<",
         "private policy core becomes parent-visible",
       ),
-      "expose only its three audited safe boundaries",
+      "expose only its five audited safe boundaries",
     ],
     [
       "comment spacing cannot hide parent-visible policy core",
@@ -1134,7 +1197,7 @@ function runSelfTest() {
         "pub(super /* visibility mutant */) fn propose_with_policy<",
         "hide parent-visible policy core behind comment spacing",
       ),
-      "expose only its three audited safe boundaries",
+      "expose only its five audited safe boundaries",
     ],
     [
       "fixed safe boundary loses parent visibility",
@@ -1145,7 +1208,7 @@ function runSelfTest() {
         "fn propose_fixed_validated<",
         "fixed safe boundary loses parent visibility",
       ),
-      "expose only its three audited safe boundaries",
+      "expose only its five audited safe boundaries",
     ],
     [
       "policy module re-exports a policy type",
@@ -1156,7 +1219,7 @@ function runSelfTest() {
         "use zcash_client_backend::fees::DustOutputPolicy;\npub(super) use zcash_client_backend::data_api::wallet::input_selection::SpendPolicy as ExposedSpendPolicy;",
         "policy module re-exports a policy type",
       ),
-      "expose only its three audited safe boundaries",
+      "expose only its five audited safe boundaries",
     ],
     [
       "parent imports a forbidden policy type",
@@ -1626,6 +1689,72 @@ function runSelfTest() {
         "TxVersion helper drift",
       ),
       "transaction version decision",
+    ],
+    [
+      "shared confirmation policy drifts to minimum depth",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "    ConfirmationsPolicy::default()\n",
+        "    ConfirmationsPolicy::MIN\n",
+        "change the shared confirmation policy",
+      ),
+      "one shared native-send policy decision",
+    ],
+    [
+      "wallet summary bypasses the shared confirmation policy",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "    db.get_wallet_summary(confirmations_policy())\n",
+        "    db.get_wallet_summary(ConfirmationsPolicy::MIN)\n",
+        "bypass shared depth inside the wallet-summary boundary",
+      ),
+      "wallet summary must remain routed through the shared confirmation policy",
+    ],
+    [
+      "standard minimum fee becomes an independent literal",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "    (rule.marginal_fee() * rule.grace_actions()).map(u64::from)\n",
+        "    Some(10_000)\n",
+        "replace the fee-rule derivation with an independent literal",
+      ),
+      "derived from the standard ZIP-317 fee rule",
+    ],
+    [
+      "proposal construction bypasses the shared confirmation policy",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "        confirmations_policy(),\n",
+        "        ConfirmationsPolicy::default(),\n",
+        "bypass shared depth in proposal construction",
+      ),
+      "exact audited depth, spend, lock, and version decisions",
+    ],
+    [
+      "send-all balance bypasses the shared confirmation policy",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let summary = self::native::wallet_summary_with_policy(db)\n",
+        "    let summary = db\n        .get_wallet_summary(zcash_client_backend::data_api::wallet::ConfirmationsPolicy::default())\n",
+        "bypass shared depth in send-all balance",
+      ),
+      "sole native confirmation policy",
+    ],
+    [
+      "send-all retry revives the independent fee literal",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let minimum_fee = self::native::standard_minimum_fee()\n        .ok_or(Error::SendError(\"standard ZIP-317 fee overflow\".into()))?;\n",
+        "    let minimum_fee = 10_000;\n",
+        "replace the send-all fee authority with a literal",
+      ),
+      "standard ZIP-317 fee authority",
     ],
     [
       "shared proposal core is no longer recognizable",

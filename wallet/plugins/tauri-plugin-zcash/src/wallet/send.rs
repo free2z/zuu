@@ -11,7 +11,7 @@ use std::{
 use rand::{RngCore, rngs::OsRng};
 use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
-use zcash_client_backend::data_api::wallet::{ConfirmationsPolicy, SpendingKeys};
+use zcash_client_backend::data_api::wallet::SpendingKeys;
 use zcash_client_backend::data_api::{InputSource, WalletCommitmentTrees, WalletRead, WalletWrite};
 use zcash_client_backend::proto::service::{RawTransaction, TxFilter};
 use zcash_keys::address::Address;
@@ -1466,6 +1466,35 @@ enum SendAllRouteError {
     Other(Error),
 }
 
+/// Read the shielded value send-all may spend under the same confirmation
+/// policy that proposal construction enforces.
+fn send_all_spendable_balance<DbT>(db: &DbT) -> Result<u64>
+where
+    DbT: WalletRead,
+    <DbT as WalletRead>::Error: std::fmt::Display,
+{
+    let summary = self::native::wallet_summary_with_policy(db)
+        .map_err(|error| Error::DatabaseError(format!("{error}")))?
+        .ok_or(Error::SendError("no wallet summary available".into()))?;
+    let account_ids = db
+        .get_account_ids()
+        .map_err(|error| Error::DatabaseError(format!("{error}")))?;
+    let account_id = account_ids
+        .first()
+        .copied()
+        .ok_or(Error::SendError("no accounts found".into()))?;
+    let balance = summary
+        .account_balances()
+        .get(&account_id)
+        .ok_or(Error::SendError("no balance for account".into()))?;
+    let sapling = balance.sapling_balance();
+    let orchard = balance.orchard_balance();
+    let ironwood = balance.ironwood_balance();
+    Ok(u64::from(sapling.spendable_value())
+        + u64::from(orchard.spendable_value())
+        + u64::from(ironwood.spendable_value()))
+}
+
 /// The compiler-bound send-all attempt used by production and behavior tests.
 /// A successful return proves both the ordinary request reached native policy
 /// and the resulting proposal survived native review.
@@ -1543,9 +1572,12 @@ where
         .first()
         .copied()
         .ok_or(Error::SendError("no accounts found".into()))?;
-    let mut amount = spendable
-        .checked_sub(10_000)
-        .ok_or(Error::SendError("insufficient spendable balance".into()))?;
+    let minimum_fee = self::native::standard_minimum_fee()
+        .ok_or(Error::SendError("standard ZIP-317 fee overflow".into()))?;
+    if spendable <= minimum_fee {
+        return Err(Error::SendError("insufficient spendable balance".into()));
+    }
+    let mut amount = spendable - minimum_fee;
 
     for _ in 0..3 {
         match propose_send_all_production_route(
@@ -1702,36 +1734,8 @@ async fn propose_send_all_after_recipient_validation(
     let spendable = {
         let db_guard = state.read_db.lock().await;
         let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
-        let policy = ConfirmationsPolicy::default();
-        let summary = db
-            .get_wallet_summary(policy)
-            .map_err(|e| Error::DatabaseError(format!("{e}")))?
-            .ok_or(Error::SendError("no wallet summary available".into()))?;
-        let account_ids = db
-            .get_account_ids()
-            .map_err(|e| Error::DatabaseError(format!("{e}")))?;
-        let account_id = account_ids
-            .first()
-            .copied()
-            .ok_or(Error::SendError("no accounts found".into()))?;
-        let balance = summary
-            .account_balances()
-            .get(&account_id)
-            .ok_or(Error::SendError("no balance for account".into()))?;
-        let sapling = balance.sapling_balance();
-        let orchard = balance.orchard_balance();
-        // Ironwood is a third shielded pool (NU6.3); after activation, Orchard
-        // becomes spend-only and new shielded value lands in Ironwood, so it must
-        // be counted or the wallet will report a false "insufficient balance".
-        let ironwood = balance.ironwood_balance();
-        u64::from(sapling.spendable_value())
-            + u64::from(orchard.spendable_value())
-            + u64::from(ironwood.spendable_value())
+        send_all_spendable_balance(db)?
     };
-
-    if spendable <= 10000 {
-        return Err(Error::SendError("insufficient spendable balance".into()));
-    }
 
     let memo_bytes = match memo {
         Some(m) => {
@@ -2469,17 +2473,21 @@ async fn broadcast_record(
 #[doc(hidden)]
 pub mod production_route_probe {
     use super::*;
+    use std::collections::HashMap;
+    use zcash_client_backend::data_api::Account;
     use zcash_client_backend::data_api::testing::{
         orchard::OrchardPoolTester,
         pool::{ShieldedPoolTester, dsl::TestDsl},
     };
+    use zcash_client_backend::decrypt_transaction;
     use zcash_client_sqlite::testing::{BlockCache, db::TestDbFactory};
+    use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
+    use zcash_protocol::memo::Memo;
 
     pub fn assert_ordinary_stateful_shipping_routes() {
-        const NOTE_VALUE: u64 = 60_000;
+        const NOTE_VALUE: u64 = 90_000;
+        const EACH_NOTE_VALUE: u64 = 30_000;
         const FIXED_SEND_VALUE: u64 = 10_000;
-        const SEND_ALL_VALUE: u64 = 50_000;
-        const EXPECTED_FEE: u64 = 10_000;
         const PROPOSAL_ID: u32 = 41;
         const WALLET_ID: &str = "ordinary-route-wallet";
         const REVIEW_NETWORK: &str = "independent-test-network";
@@ -2488,14 +2496,17 @@ pub mod production_route_probe {
         let mut state =
             TestDsl::with_sapling_birthday_account(TestDbFactory::default(), BlockCache::new())
                 .build::<OrchardPoolTester>();
-        let (_, _, _) =
-            state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(NOTE_VALUE));
+        for _ in 0..3 {
+            let (_, _, _) =
+                state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(EACH_NOTE_VALUE));
+        }
 
         let recipient_key = OrchardPoolTester::sk(&[0xa7; 32]);
         let recipient = OrchardPoolTester::sk_default_address(&recipient_key);
         let network = *state.network();
         let recipient = recipient.to_zcash_address(&network);
         let account = state.get_account();
+        let account_id = account.id();
         let spending_keys = SpendingKeys::from_unified_spending_key(account.usk().clone());
         let proposal_counter = AtomicU32::new(PROPOSAL_ID);
 
@@ -2512,10 +2523,21 @@ pub mod production_route_probe {
         );
         assert!(
             immature.is_err(),
-            "one-confirmation Orchard value must not cross shipping policy"
+            "sub-ten-confirmation Orchard value must not cross shipping policy"
+        );
+        assert_eq!(
+            send_all_spendable_balance(state.wallet())
+                .expect("the shipping balance path must read the test wallet"),
+            0,
+            "the shared confirmation policy must exclude immature value from send-all",
         );
         assert_eq!(proposal_counter.load(Ordering::Relaxed), PROPOSAL_ID);
         state.add_empty_blocks(9);
+        let spendable = send_all_spendable_balance(state.wallet())
+            .expect("the shipping balance path must read mature value");
+        assert_eq!(spendable, NOTE_VALUE);
+        let minimum_fee = self::native::standard_minimum_fee()
+            .expect("the standard ZIP-317 minimum fee must be representable");
 
         let (fixed_pending, fixed_public) = propose_fixed_stateful_production_caller(
             state.wallet_mut(),
@@ -2538,8 +2560,8 @@ pub mod production_route_probe {
             recipient.encode()
         );
         assert_eq!(fixed_public.review.payments[0].amount, FIXED_SEND_VALUE);
-        assert_eq!(fixed_public.review.fee, EXPECTED_FEE);
-        assert_eq!(fixed_public.review.total, FIXED_SEND_VALUE + EXPECTED_FEE);
+        assert_eq!(fixed_public.review.fee, minimum_fee);
+        assert_eq!(fixed_public.review.total, FIXED_SEND_VALUE + minimum_fee);
         assert_eq!(fixed_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
         assert_eq!(fixed_proposal.input_count_in_pool(PoolType::SAPLING), 0);
         assert_eq!(
@@ -2557,13 +2579,32 @@ pub mod production_route_probe {
             0
         );
 
+        let guard_error = propose_send_all_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            None,
+            REVIEW_NETWORK,
+            minimum_fee,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        )
+        .err()
+        .expect("a balance equal to the minimum fee must be rejected by the production guard");
+        assert!(
+            matches!(guard_error, Error::SendError(message) if message == "insufficient spendable balance"),
+            "the exact send-all minimum-balance guard must reject before proposal construction",
+        );
+        assert_eq!(proposal_counter.load(Ordering::Relaxed), PROPOSAL_ID + 1);
+
         let (send_all_pending, send_all_public) = propose_send_all_stateful_production_caller(
             state.wallet_mut(),
             &network,
             &recipient,
             None,
             REVIEW_NETWORK,
-            NOTE_VALUE,
+            spendable,
             WALLET_ID,
             &proposal_counter,
             SESSION_ID,
@@ -2571,10 +2612,14 @@ pub mod production_route_probe {
         .expect("ordinary value must cross the stateful send-all shipping caller");
         let send_all_proposal = send_all_pending.native_proposal();
         assert_eq!(send_all_public.proposal_id, PROPOSAL_ID + 1);
-        assert_eq!(send_all_public.review.payments[0].amount, SEND_ALL_VALUE);
-        assert_eq!(send_all_public.review.fee, EXPECTED_FEE);
+        assert!(send_all_public.review.fee > minimum_fee);
+        assert_eq!(
+            send_all_public.review.payments[0].amount + send_all_public.review.fee,
+            spendable,
+            "fee convergence must retry from the minimum estimate to the real multi-input fee",
+        );
         assert_eq!(send_all_public.review.total, NOTE_VALUE);
-        assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
+        assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 3);
         assert_eq!(
             send_all_proposal
                 .steps()
@@ -2587,7 +2632,7 @@ pub mod production_route_probe {
             0
         );
 
-        let recovery_height = fixed_proposal.min_target_height().into();
+        let recovery_height: consensus::BlockHeight = fixed_proposal.min_target_height().into();
         let prover = LocalTxProver::bundled();
         let mut broadcast_slot = None;
         execute_send_creation_stateful_production_caller(
@@ -2621,6 +2666,27 @@ pub mod production_route_probe {
             .get_transaction(txid)
             .expect("the stateful creation caller must leave the wallet readable")
             .expect("the stateful creation caller must persist its transaction");
+        assert_eq!(
+            tx.expiry_height(),
+            recovery_height + DEFAULT_TX_EXPIRY_DELTA,
+            "shipping creation must retain the builder-derived expiry height",
+        );
+        let viewing_keys: HashMap<_, _> =
+            [(account_id, account.usk().to_unified_full_viewing_key())]
+                .into_iter()
+                .collect();
+        let decrypted =
+            decrypt_transaction(&network, None, Some(recovery_height), &tx, &viewing_keys);
+        let mut wallet_output_memos = Vec::new();
+        OrchardPoolTester::with_decrypted_pool_memos(&decrypted, |memo| {
+            wallet_output_memos
+                .push(Memo::try_from(memo).expect("shipping creation must encode a valid memo"));
+        });
+        assert_eq!(
+            wallet_output_memos,
+            vec![Memo::Empty, Memo::Empty],
+            "the shipping recipient is memo-free, so the other actual output proves change is empty",
+        );
         let mut persisted_transaction_bytes = Vec::new();
         tx.write(&mut persisted_transaction_bytes)
             .expect("the persisted transaction must serialize");
@@ -2660,10 +2726,9 @@ mod tests {
 
     #[test]
     fn ordinary_values_cross_each_complete_production_money_route() {
-        const NOTE_VALUE: u64 = 60_000;
+        const NOTE_VALUE: u64 = 90_000;
+        const EACH_NOTE_VALUE: u64 = 30_000;
         const FIXED_SEND_VALUE: u64 = 10_000;
-        const SEND_ALL_VALUE: u64 = 50_000;
-        const EXPECTED_FEE: u64 = 10_000;
         const PROPOSAL_ID: u32 = 41;
         const WALLET_ID: &str = "ordinary-route-wallet";
         const REVIEW_NETWORK: &str = "independent-test-network";
@@ -2671,8 +2736,10 @@ mod tests {
         let mut state =
             TestDsl::with_sapling_birthday_account(TestDbFactory::default(), BlockCache::new())
                 .build::<OrchardPoolTester>();
-        let (_, _, _) =
-            state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(NOTE_VALUE));
+        for _ in 0..3 {
+            let (_, _, _) =
+                state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(EACH_NOTE_VALUE));
+        }
 
         let recipient_key = OrchardPoolTester::sk(&[0xa7; 32]);
         let recipient = OrchardPoolTester::sk_default_address(&recipient_key);
@@ -2695,10 +2762,21 @@ mod tests {
         );
         assert!(
             immature.is_err(),
-            "an externally received Orchard note must not cross production policy after one confirmation"
+            "externally received Orchard notes must not cross production policy below ten confirmations"
+        );
+        assert_eq!(
+            send_all_spendable_balance(state.wallet())
+                .expect("the production balance path must read the test wallet"),
+            0,
+            "the shared confirmation policy must exclude immature value from send-all",
         );
         assert_eq!(proposal_counter.load(Ordering::Relaxed), PROPOSAL_ID);
         state.add_empty_blocks(9);
+        let spendable = send_all_spendable_balance(state.wallet())
+            .expect("the production balance path must read mature value");
+        assert_eq!(spendable, NOTE_VALUE);
+        let minimum_fee = self::native::standard_minimum_fee()
+            .expect("the standard ZIP-317 minimum fee must be representable");
 
         let (fixed_pending, fixed_public) = propose_fixed_stateful_production_caller(
             state.wallet_mut(),
@@ -2719,8 +2797,8 @@ mod tests {
         assert_eq!(fixed_review.payments.len(), 1);
         assert_eq!(fixed_review.payments[0].recipient, recipient.encode());
         assert_eq!(fixed_review.payments[0].amount, FIXED_SEND_VALUE);
-        assert_eq!(fixed_review.fee, EXPECTED_FEE);
-        assert_eq!(fixed_review.total, FIXED_SEND_VALUE + EXPECTED_FEE);
+        assert_eq!(fixed_review.fee, minimum_fee);
+        assert_eq!(fixed_review.total, FIXED_SEND_VALUE + minimum_fee);
         assert_eq!(fixed_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
         assert_eq!(fixed_proposal.input_count_in_pool(PoolType::SAPLING), 0);
         assert_eq!(
@@ -2738,13 +2816,32 @@ mod tests {
             0
         );
 
+        let guard_error = propose_send_all_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            None,
+            REVIEW_NETWORK,
+            minimum_fee,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        )
+        .err()
+        .expect("a balance equal to the minimum fee must be rejected by the production guard");
+        assert!(
+            matches!(guard_error, Error::SendError(message) if message == "insufficient spendable balance"),
+            "the exact send-all minimum-balance guard must reject before proposal construction",
+        );
+        assert_eq!(proposal_counter.load(Ordering::Relaxed), PROPOSAL_ID + 1);
+
         let (send_all_pending, send_all_public) = propose_send_all_stateful_production_caller(
             state.wallet_mut(),
             &network,
             &recipient,
             None,
             REVIEW_NETWORK,
-            NOTE_VALUE,
+            spendable,
             WALLET_ID,
             &proposal_counter,
             SESSION_ID,
@@ -2753,10 +2850,14 @@ mod tests {
         let send_all_proposal = send_all_pending.native_proposal();
         let send_all_review = &send_all_public.review;
         assert_eq!(send_all_public.proposal_id, PROPOSAL_ID + 1);
-        assert_eq!(send_all_review.payments[0].amount, SEND_ALL_VALUE);
-        assert_eq!(send_all_review.fee, EXPECTED_FEE);
+        assert!(send_all_review.fee > minimum_fee);
+        assert_eq!(
+            send_all_review.payments[0].amount + send_all_review.fee,
+            spendable,
+            "fee convergence must retry from the minimum estimate to the real multi-input fee",
+        );
         assert_eq!(send_all_review.total, NOTE_VALUE);
-        assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
+        assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 3);
         assert_eq!(
             send_all_proposal
                 .steps()
