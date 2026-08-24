@@ -113,11 +113,10 @@ afterEach(() => {
 
 describe("the implementation covers the contract", () => {
   it("has one bridge method per declared command and one schema per event", () => {
-    // CLIENT-CONTRACT.md §3 declares 46 commands and §5.1 declares 11 events.
-    // These literals are the document's numbers, not this module's: every
-    // other assertion in this file ranges over `Object.keys(RESULTS)`, so it
-    // compares the implementation against itself and a command added to the
-    // contract and wired nowhere would pass all of them.
+    // A tripwire on the module shrinking: deleting a bridge method fails here.
+    // It does NOT catch the contract growing — 46 === 46 stays green when the
+    // document reaches 47 and nothing is wired. `contract.test.ts` is what
+    // covers that direction, by reading the document and comparing sets.
     expect(bridgeMethods.length).toBe(46);
     expect(Object.keys(EVENTS).length).toBe(11);
   });
