@@ -42,6 +42,8 @@ jobs:
       # replace its own judge with a mutable external action, or mark a job the
       # required gate awaits as best-effort, then skip the full application
       # suite as an allegedly unrelated change.
+      # The workflow-gates half is a separate hazard — see the header of
+      # scripts/check-workflow-gates.mjs.
       - name: Verify immutable actions and fail-closed required jobs
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
