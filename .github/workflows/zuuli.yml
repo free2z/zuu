@@ -764,6 +764,8 @@ jobs:
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
           node scripts/check-github-actions-pins.mjs
+          node scripts/check-workflow-gates.mjs --self-test
+          node scripts/check-workflow-gates.mjs
 
       - name: Verify required jobs succeeded or legitimately skipped
         env:
