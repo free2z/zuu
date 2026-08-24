@@ -106,6 +106,34 @@ exceptions = []
 multiple-versions = "warn"
 wildcards = "deny"
 
+# -----------------------------------------------------------------------------
+# THE `akd` VERSION FLOOR. ADR 0013 decides this; the entry lives here because
+# nothing else can hold it.
+#
+# A reviewer who removes these entries has removed the floor. There is no second
+# line of defence — read the comment on the first one before touching either.
+# -----------------------------------------------------------------------------
+
+[[bans.deny]]
+# akd < 0.13.0 contains an auditor append-only bypass, facebook/akd#495, merged
+# 2026-08-12 and released in 0.13.0 on 2026-08-13: a malicious log can rewrite an
+# existing label's value while still producing a VALID append-only proof, which
+# defeats the witness role entirely (see docs/e2ee/KT.md §7).
+# There is no RustSec/OSV advisory — an OSV query for `akd` returns {} — so
+# `cargo audit` and `cargo deny advisories` will NOT catch a downgrade. This entry
+# is the floor. Do not remove it, and do not assume tooling is holding it.
+name = "akd"
+version = "<0.13.0"
+
+[[bans.deny]]
+name = "akd_core"
+version = "<0.13.0"
+
+[[bans.deny]]
+# akd_mysql's last release is 0.8.9 (2023-03-15) and it is not maintained.
+# The durable Database impl is ours (KT.md §11.2).
+name = "akd_mysql"
+
 # =============================================================================
 # Sources. Everything resolves to crates.io. Making that a rule rather than a
 # coincidence means a `git = "..."` dependency on someone's fork cannot appear

@@ -34,6 +34,35 @@ expect_used = "deny"
 [workspace.dependencies]
 blake2 = { version = "0.10", default-features = false }
 tls_codec = { version = "0.4", default-features = false, features = ["derive"] }
+
+# First-party. `f2z-kt-core` builds the transparency envelope on top of
+# `f2z-codec`'s canonical encoding, so the re-encode-equality rule of WIRE.md
+# §3.3 has exactly one implementation in this tree.
+#
+# `version` is carried alongside `path` even though nothing here is published:
+# a bare path dependency has no version requirement, and `rs/deny.toml` sets
+# `wildcards = "deny"` for every dependency including ours.
+f2z-codec = { path = "crates/f2z-codec", version = "0.1.0" }
+
+# Ed25519 verification for every signature KT.md §6.2's label table names. The
+# `vrf` feature of `akd_core` already pulls this crate, so naming it here costs
+# no new tree; `default-features = false` keeps `std` out of the wasm build.
+ed25519-dalek = { version = "2", default-features = false }
+
+# The append-only zero-knowledge set, ADR 0013.
+#
+# `>= 0.13.0` is a HARD FLOOR and it is NOT held by this line. A
+# `[patch.crates-io]`, a path dependency or a vendored copy all walk under a
+# manifest requirement without comment, and facebook/akd#495 — the auditor
+# append-only bypass this floor exists for — has no RustSec/OSV advisory, so
+# `cargo audit` passes on a vulnerable pin forever. The floor is the
+# `[[bans.deny]]` entry in rs/deny.toml. Do not remove it.
+#
+# `akd_core` is the client verifier and reaches wasm32-unknown-unknown; `akd`
+# is the server/witness crate and does not (KT.md §11.3).
+akd_core = { version = "0.13", default-features = false, features = ["vrf", "whatsapp_v1", "protobuf"] }
+protobuf = { version = "3", default-features = false }
+akd = { version = "0.13", default-features = false, features = ["whatsapp_v1", "public_auditing"] }
 # Dev-dependency only. It builds for the host test runner, never for
 # wasm32-unknown-unknown, so its `std` default costs this crate nothing: the
 # library itself is `no_std` and the wasm job builds `--lib`.
