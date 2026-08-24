@@ -58,10 +58,34 @@ async function rejectsCode(operation, code) {
   await assert.rejects(operation, (error) => error instanceof ScreenshotContractError && error.code === code);
 }
 
+// Keep every fixture `git` call strictly foreground. `git commit` otherwise runs
+// `git maintenance run --auto --detach`, which git deliberately daemonizes: it
+// outlives the child we await and then creates `.git/objects/maintenance.lock`
+// — measured at ~23ms after `git commit` had already returned (Linux, git
+// 2.43). The recursive teardown below is descending `.git/objects` at exactly
+// that moment, so its closing rmdir finds the directory non-empty and fails
+// ENOTEMPTY, reddening the required gate on a green change (issue #561).
+// GIT_CONFIG_COUNT applies the guard with no config file and no repo state, so
+// it covers `git init` before any repo exists. Do not simplify this env away.
+const GIT_FIXTURE_ENV = Object.freeze({
+  GIT_CONFIG_COUNT: "2",
+  GIT_CONFIG_KEY_0: "gc.auto",
+  GIT_CONFIG_VALUE_0: "0",
+  GIT_CONFIG_KEY_1: "maintenance.auto",
+  GIT_CONFIG_VALUE_1: "false",
+});
+
+// Backstop for the same failure class: `fs.rm` defaults to `maxRetries: 0`, and
+// `force` suppresses ENOENT, not ENOTEMPTY. Retrying absorbs any future
+// concurrent writer the env guard above does not already prevent.
+function removeGitFixture(root) {
+  return rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
 async function git(root, args) {
   const output = [];
   await new Promise((accept, reject) => {
-    const child = spawn("git", args, { cwd: root });
+    const child = spawn("git", args, { cwd: root, env: { ...process.env, ...GIT_FIXTURE_ENV } });
     child.stdout.on("data", (chunk) => output.push(chunk));
     child.on("error", reject);
     child.on("exit", (code) => code === 0 ? accept() : reject(new Error(`git ${args[0]} failed`)));
@@ -202,7 +226,7 @@ test("capture inputs cannot be symlinks", async (t) => {
 
 test("capture rejects every local Vite or npm override, including ignored npm config", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeGitFixture(root));
   await assertNoLocalCaptureOverrides(root);
   const cleanDigest = await computeCaptureSourceDigest(root);
   await git(root, ["init", "-q"]);
@@ -311,7 +335,7 @@ test("capture artifact commit preserves a concurrent manifest edit", async (t) =
 
 test("source comparison includes untracked render inputs", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeGitFixture(root));
   await git(root, ["init", "-q"]);
   await git(root, ["config", "user.name", "Capture Contract"]);
   await git(root, ["config", "user.email", "capture-contract@example.invalid"]);
