@@ -583,6 +583,25 @@ mod tests {
     }
 
     #[test]
+    fn configured_control_bytes_fail_before_the_relay_can_publish_them() {
+        let mut config = Config::default();
+        config.operator.name = "line\u{001f}break".to_owned();
+        assert!(matches!(
+            build(
+                &config,
+                &identity().public_key(),
+                Durability::FsyncPerAppend,
+                1_800_000_000_000,
+            ),
+            Err(CapabilitiesError::Invalid(
+                f2z_relay_proto::ProtoError::Refused(
+                    f2z_relay_proto::Refusal::CapabilitiesInconsistent
+                )
+            ))
+        ));
+    }
+
+    #[test]
     fn tls_publishes_the_exporter_binding_and_nothing_else_does() {
         let mut config = Config::default();
         assert_eq!(
@@ -666,9 +685,9 @@ mod tests {
     #[test]
     fn an_operator_string_cannot_break_the_document_it_appears_in() {
         let mut config = Config::default();
-        config.operator.name = "a \"quoted\" name\nwith a newline".to_owned();
+        config.operator.name = "a \"quoted\" name\\with a slash".to_owned();
         let published = publish(&identity(), document(&config)).unwrap();
         let json = to_json(&published);
-        assert!(json.contains("a \\\"quoted\\\" name\\nwith a newline"));
+        assert!(json.contains("a \\\"quoted\\\" name\\\\with a slash"));
     }
 }

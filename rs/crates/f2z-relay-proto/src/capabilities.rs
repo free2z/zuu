@@ -247,7 +247,7 @@ pub fn check_digest(capabilities: &Capabilities, expected: &Digest) -> Result<()
 ///   a frame cap below the relay's own largest padding bucket, a `none`
 ///   transport that still claims a channel binding, a `pow` creation mode with
 ///   no parameters, or contact queues offered without the proof of work §12.3
-///   requires.
+///   requires, or operator/provenance text outside printable ASCII.
 pub fn validate(capabilities: &Capabilities) -> Result<()> {
     let inconsistent = ProtoError::Refused(Refusal::CapabilitiesInconsistent);
 
@@ -308,6 +308,30 @@ pub fn validate(capabilities: &Capabilities) -> Result<()> {
     // work is one of them. Offering contact queues without it is offering an
     // unsigned, unmetered write endpoint to the whole internet.
     if contact_queues && !capabilities.contact_append_pow.is_required() {
+        return Err(inconsistent);
+    }
+
+    // §11.1: these are the eight human-facing strings a client surfaces. They
+    // are inert text, not markup, and arbitrary control/non-ASCII bytes are not
+    // a conforming capability document. Keep this scoped here: `ShortBytes`
+    // also carries challenge scopes, whose 32 address bytes are intentionally
+    // arbitrary.
+    let human_text = [
+        &capabilities.operator_name,
+        &capabilities.operator_contact,
+        &capabilities.operator_abuse_contact,
+        &capabilities.operator_jurisdiction,
+        &capabilities.operator_policy_url,
+        &capabilities.source_repo_url,
+        &capabilities.source_commit,
+        &capabilities.build_digest,
+    ];
+    if human_text.iter().any(|text| {
+        !text
+            .as_slice()
+            .iter()
+            .all(|byte| (0x20..=0x7e).contains(byte))
+    }) {
         return Err(inconsistent);
     }
 
@@ -548,6 +572,77 @@ mod tests {
 
     fn document() -> Capabilities {
         defaults(&identity().public_key(), 1_800_000_000_000).unwrap()
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum HumanTextField {
+        OperatorName,
+        OperatorContact,
+        OperatorAbuseContact,
+        OperatorJurisdiction,
+        OperatorPolicyUrl,
+        SourceRepoUrl,
+        SourceCommit,
+        BuildDigest,
+    }
+
+    const HUMAN_TEXT_FIELDS: [HumanTextField; 8] = [
+        HumanTextField::OperatorName,
+        HumanTextField::OperatorContact,
+        HumanTextField::OperatorAbuseContact,
+        HumanTextField::OperatorJurisdiction,
+        HumanTextField::OperatorPolicyUrl,
+        HumanTextField::SourceRepoUrl,
+        HumanTextField::SourceCommit,
+        HumanTextField::BuildDigest,
+    ];
+
+    fn set_human_text(capabilities: &mut Capabilities, field: HumanTextField, bytes: &[u8]) {
+        let value = ShortBytes::new(bytes.to_vec()).unwrap();
+        match field {
+            HumanTextField::OperatorName => capabilities.operator_name = value,
+            HumanTextField::OperatorContact => capabilities.operator_contact = value,
+            HumanTextField::OperatorAbuseContact => capabilities.operator_abuse_contact = value,
+            HumanTextField::OperatorJurisdiction => capabilities.operator_jurisdiction = value,
+            HumanTextField::OperatorPolicyUrl => capabilities.operator_policy_url = value,
+            HumanTextField::SourceRepoUrl => capabilities.source_repo_url = value,
+            HumanTextField::SourceCommit => capabilities.source_commit = value,
+            HumanTextField::BuildDigest => capabilities.build_digest = value,
+        }
+    }
+
+    #[test]
+    fn all_operator_and_provenance_fields_are_printable_ascii() {
+        for field in HUMAN_TEXT_FIELDS {
+            for accepted in [b"".as_slice(), b" ", b"~", b"\"", b"\\"] {
+                let mut capabilities = document();
+                set_human_text(&mut capabilities, field, accepted);
+                assert_eq!(validate(&capabilities), Ok(()), "{field:?}: {accepted:?}");
+            }
+            for rejected in [b"\x1f".as_slice(), b"\x7f", b"\x80"] {
+                let mut capabilities = document();
+                set_human_text(&mut capabilities, field, rejected);
+                assert_eq!(
+                    validate(&capabilities),
+                    Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent)),
+                    "{field:?}: {rejected:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_valid_signature_does_not_make_invalid_operator_text_acceptable() {
+        let key = identity();
+        let mut capabilities = document();
+        capabilities.operator_name = ShortBytes::new(b"line\x1fbreak".to_vec()).unwrap();
+        let signed = sign(&key, capabilities).unwrap();
+
+        assert_eq!(verify(&signed, &key.public_key()), Ok(()));
+        assert_eq!(
+            ClientPolicy::default().accept(&signed.capabilities),
+            Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
+        );
     }
 
     #[test]

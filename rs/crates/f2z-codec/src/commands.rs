@@ -14,7 +14,9 @@
 use alloc::format;
 use alloc::vec::Vec;
 
-use tls_codec::{TlsDeserializeBytes, TlsSerializeBytes, TlsSize};
+use tls_codec::{
+    DeserializeBytes, Error as TlsError, TlsDeserializeBytes, TlsSerializeBytes, TlsSize,
+};
 
 use crate::error::CodecError;
 use crate::pow::{PowParams, PowStamp};
@@ -434,12 +436,23 @@ pub struct QueuedMessage {
 }
 
 /// `READ` response (§6.2). `READ` never mutates.
-#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes)]
 pub struct ReadResponse {
     /// The messages, `<0..2^24-1>` bytes of them.
     pub messages: VecU24<QueuedMessage>,
-    /// Nonzero when more messages remain past the last one returned.
+    /// 1 when more messages remain past the last one returned; 0 otherwise.
     pub has_more: u8,
+}
+
+impl DeserializeBytes for ReadResponse {
+    fn tls_deserialize_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), TlsError> {
+        let (messages, rest) = VecU24::<QueuedMessage>::tls_deserialize_bytes(bytes)?;
+        let (has_more, rest) = u8::tls_deserialize_bytes(rest)?;
+        if has_more > 1 {
+            return Err(TlsError::UnknownValue(u64::from(has_more)));
+        }
+        Ok((Self { messages, has_more }, rest))
+    }
 }
 
 /// `ACK` request (§6.2). Cumulative, monotone, idempotent, never selective
@@ -772,6 +785,30 @@ mod tests {
             decode_canonical::<ReadResponse>(&bytes).unwrap().value(),
             &response
         );
+    }
+
+    #[test]
+    fn read_response_rejects_non_boolean_has_more_bytes() {
+        // An empty `VecU24` is three zero length bytes. Keep these bodies
+        // hand-authored so the expected value does not come from the encoder
+        // under test.
+        for valid in [0x00, 0x01] {
+            let body = [0x00, 0x00, 0x00, valid];
+            assert_eq!(
+                decode_canonical::<ReadResponse>(&body)
+                    .unwrap()
+                    .value()
+                    .has_more,
+                valid
+            );
+        }
+        for invalid in [0x02, 0xff] {
+            let body = [0x00, 0x00, 0x00, invalid];
+            assert_eq!(
+                decode_canonical::<ReadResponse>(&body).unwrap_err(),
+                CodecError::Decode
+            );
+        }
     }
 
     #[test]
