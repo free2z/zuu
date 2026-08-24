@@ -1544,6 +1544,11 @@ struct {
 } SignedCapabilities;
 ```
 
+The five operator fields and three provenance fields are inert human-readable
+text, not markup. Each byte MUST be printable ASCII (`0x20..0x7e`); the empty
+value remains valid. A renderer MUST display the bytes as text and MUST NOT
+interpret HTML, Markdown, terminal escapes, or any other embedded language.
+
 > **Correction (2026-08-24) — the two anti-replay fields were published as
 > independent values, but they are not.** Section 5.5 derives the required
 > relation and retention origin. A relay MUST publish
@@ -1950,6 +1955,8 @@ A stamp is valid iff
 `H("free2z/relay/v1/pow", challenge || salt || counter)` has at least
 `difficulty_bits` leading zero bits, the challenge is unconsumed and unexpired,
 and (for `contact_append`) the challenge was issued for that `contact_addr`.
+At this point of use, `counter` is exactly an eight-byte unsigned `uint64` in
+network (big-endian) order, concatenated directly with no length prefix.
 Verification is one hash; the relay marks the challenge consumed. The choice of a
 verify-cheap, GPU-friendly function and its consequences are argued in §12.4.
 
