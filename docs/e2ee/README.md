@@ -122,3 +122,17 @@ independence criterion and the default *t*, and the KT epoch cadence. All are
 listed in [`ARCHITECTURE.md` §13](./ARCHITECTURE.md#13-open-questions) and in
 [`KT.md` §12](./KT.md#12-what-this-document-leaves-open) rather than answered by
 invention.
+
+**Dating convention.** Corrections, closures and measurements in these documents
+are stamped with the **author's local date** — the local date of the commit
+that introduces them, not the UTC date. The dating is the whole reason a
+correction is worth anything to an auditor, so a stamp that runs ahead of its own
+commit is a defect: correct it, and say in the change that you corrected it
+rather than adjusting it quietly. One such fix is recorded in
+[`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured).
+
+**Scoping convention.** A claim in these documents is scoped by the section that
+states it, and the scope is part of the claim. Three corrections in
+[`THREAT-MODEL.md`](./THREAT-MODEL.md) exist because a property that holds under
+stated conditions was later restated without them; when restating a claim
+somewhere else, carry its qualifiers with it or do not carry the claim.
