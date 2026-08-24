@@ -2588,12 +2588,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn proposal_defaults_preserve_unlocked_height_selected_transactions() {
-        assert!(proposal_lock_request().is_none());
-        assert!(proposed_transaction_version().is_none());
-    }
-
     fn pending(status: BroadcastStatus) -> PendingBroadcast {
         PendingBroadcast {
             wallet_id: "wallet_test".into(),

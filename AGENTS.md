@@ -156,6 +156,20 @@ integrate, and move it forward alongside everything else.
   typecheck+build; Rust `cargo build` of the Tauri backend through the
   librustzcash path deps) on every change to the app, its deps, or the
   `z/zcash/librustzcash` submodule pointer. If a bump breaks us, CI says so.
+- **`scripts/check-librustzcash-compat.mjs` is a source-text change detector,
+  not send-path behavioural coverage.** It pins the reviewed librustzcash
+  gitlink, the exact versions of 11 Zcash packages in each of the 3 shipping
+  lockfiles that contain that graph, and the API-adaptation source shapes that
+  accompanied the pin. It does not compile or exercise a transaction; the
+  money-affecting behavioural coverage remains tracked in **#547**. To bump
+  librustzcash: move the submodule to reviewed upstream HEAD, regenerate all
+  three lockfiles on the pinned toolchain, and inspect the resolved graph before
+  changing any expected literal. Then update the reviewed SHA/package versions,
+  run `node scripts/check-librustzcash-compat.mjs --print-scope-digest`, and copy
+  that digest into both the checker and
+  `scripts/check-github-actions-pins.mjs` without reducing the fixed 3-lock /
+  11-package inventory. Finish with both scripts' `--self-test` and live modes,
+  plus clean `cargo build --locked` coverage for every affected shipping root.
 - The workflow's **weekly `upstream-canary`** job rebuilds against the *latest*
   librustzcash `main` + refreshed crates, so upstream drift surfaces as an early
   warning **before** we bump the submodule in a PR.
@@ -210,7 +224,7 @@ read a TOML file at the moment they need the value:
 
 | Restatement | Why it cannot just read the file |
 |---|---|
-| `rust-version` in the three `Cargo.toml` manifests | Cargo needs a literal, and it is the **two-component MSRV floor** (`X.Y`) of the three-component channel (`X.Y.Z`) — deliberately a different form, compared as such |
+| `rust-version` in every registered `Cargo.toml` manifest | Cargo needs a literal, and it is the **two-component MSRV floor** (`X.Y`) of the three-component channel (`X.Y.Z`) — deliberately a different form, compared as such |
 | `ZUULI_RUST_VERSION` in `zuuli-packaging.yml` and `zuuli-release.yml` | A workflow-level `env:` cannot be computed from a file, and the release jobs verify the installed compiler with `rustc --version \| grep -F "rustc $ZUULI_RUST_VERSION "` |
 | `dtolnay/rust-toolchain@<sha> # <version>` in packaging/release and target-native Zuuallet jobs | The action's **version branches hardcode the compiler in `action.yml` and do not declare a `toolchain` input at all** — a commit-pinned ref *is* the version pin, and the trailing comment is its only readable record |
 | `dtolnay/rust-toolchain@<sha> # stable` in source-derived gate/Zuuallet jobs | `uses:` cannot contain an expression, so the generic action implementation is commit-pinned while its `toolchain:` input still reads the version from `wallet/rust-toolchain.toml`; the upstream canary deliberately omits that input so only its compiler selection follows `stable` |

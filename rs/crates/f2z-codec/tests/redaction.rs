@@ -45,10 +45,28 @@ fn upper_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02X}")).collect()
 }
 
-/// `[222, 222, 222, …]` — a derived `Debug` on a byte slice.
-fn decimal_list(bytes: &[u8]) -> String {
+/// `222, 222, 222, …` — the body of a derived `Debug` on a byte slice, with no
+/// surrounding brackets.
+///
+/// Unbracketed on purpose. A real dump is very often *not* the whole list: a
+/// wire buffer opens with a length prefix, so the secret starts partway through
+/// as `[0, 4, 0, 222, 222, …`. Anchoring the pattern on `[` makes the check
+/// miss exactly the shape it exists to catch.
+fn decimal_run(bytes: &[u8]) -> String {
     let joined: Vec<String> = bytes.iter().map(|byte| byte.to_string()).collect();
-    format!("[{}]", joined.join(", "))
+    joined.join(", ")
+}
+
+/// `[222, 222, 222, …]` — a derived `Debug` on a byte slice, brackets and all.
+///
+/// Retained only as the thing the checks below deliberately do **not** use.
+/// `decimal_run` of a four-byte prefix is a substring of this for every secret
+/// of four bytes or more, so the bracketed form adds no detection power and
+/// carries the anchoring hazard the doc comment above describes. See
+/// `a_bracket_anchored_decimal_check_would_miss_a_mid_buffer_dump`.
+#[allow(dead_code)]
+fn decimal_list(bytes: &[u8]) -> String {
+    format!("[{}]", decimal_run(bytes))
 }
 
 fn base64url(bytes: &[u8]) -> String {
@@ -99,6 +117,13 @@ fn longest_hex_run(text: &str) -> usize {
 }
 
 /// Assert that `rendered` cannot be turned back into `secret`.
+///
+/// Every check here is a **substring** search on an unanchored pattern. That is
+/// the lesson of the `Canonicalized` leak: the detector that missed it was
+/// anchored on the opening `[` of a decimal list, and a real dump starts
+/// partway through a buffer — after a length prefix — so the `[` never lined
+/// up. Nothing below may depend on the secret being at the start or the end of
+/// what a leak would print.
 fn assert_no_leak(label: &str, rendered: &str, secret: &[u8]) {
     assert!(
         !rendered.contains(&lower_hex(secret)),
@@ -108,25 +133,43 @@ fn assert_no_leak(label: &str, rendered: &str, secret: &[u8]) {
         !rendered.contains(&upper_hex(secret)),
         "{label} leaked uppercase hex: {rendered}"
     );
-    assert!(
-        !rendered.contains(&base64url(secret)),
-        "{label} leaked base64url: {rendered}"
-    );
-    assert!(
-        !rendered.contains(&decimal_list(secret)),
-        "{label} leaked a decimal byte list: {rendered}"
-    );
+    // base64url has the same anchoring hazard in a less obvious form: it encodes
+    // three bytes at a time, so the symbols a leak produces depend on where the
+    // secret sits relative to the *buffer's* start, not its own. A dump of
+    // `[0, 4, 0] || secret` phase-shifts the secret's encoding and the
+    // zero-offset pattern never appears. Checking all three alignments covers
+    // every possible phase.
+    for phase in 0..3usize.min(secret.len()) {
+        assert!(
+            !rendered.contains(&base64url(&secret[phase..])),
+            "{label} leaked base64url at byte alignment {phase}: {rendered}"
+        );
+    }
     // A prefix of a decimal dump is enough to convict: no correct output of this
-    // crate ever prints four consecutive byte values.
+    // crate ever prints four consecutive byte values. Matched without brackets,
+    // so a dump that begins after a length prefix — `[0, 4, 0, 222, 222, …` —
+    // is caught as readily as one that begins at the opening bracket.
+    //
+    // This subsumes the bracketed `decimal_list` form entirely, which is why
+    // that helper is no longer one of the checks.
     assert!(
-        !rendered.contains(&decimal_list(&secret[..secret.len().min(4)])),
-        "{label} leaked a decimal byte list prefix: {rendered}"
+        !rendered.contains(&decimal_run(&secret[..secret.len().min(4)])),
+        "{label} leaked a decimal byte run: {rendered}"
     );
     // Every byte of the secret is 0xde, so even a two-byte prefix would show as
     // a repeated `de`. Catch a partial dump too.
+    //
+    // Both cases are stated. An eight-character run also trips the threshold
+    // below, so neither of these is the only thing standing between a four-byte
+    // dump and a pass today — they are here so that the lowercase and uppercase
+    // cases are symmetric and neither depends on the value of that threshold.
     assert!(
         !rendered.contains(&lower_hex(&secret[..secret.len().min(4)])),
-        "{label} leaked a hex prefix: {rendered}"
+        "{label} leaked a lowercase hex prefix: {rendered}"
+    );
+    assert!(
+        !rendered.contains(&upper_hex(&secret[..secret.len().min(4)])),
+        "{label} leaked an uppercase hex prefix: {rendered}"
     );
     // Nothing this crate prints is a long hex string. 8 characters is short
     // enough to be a decimal length or a section number and long enough that a
@@ -135,6 +178,97 @@ fn assert_no_leak(label: &str, rendered: &str, secret: &[u8]) {
         longest_hex_run(rendered) < 8,
         "{label} contains an 8+ character hex-looking run: {rendered}"
     );
+}
+
+/// The detectors, tested against renderings that leak.
+///
+/// A battery is only worth what its blind spots allow through, and every check
+/// in `assert_no_leak` is a negative assertion — it passes when nothing is
+/// found, which is also what it does when it cannot see. So each one is aimed
+/// at a string that really does contain the secret, and must fire.
+#[test]
+fn a_bracket_anchored_decimal_check_would_miss_a_mid_buffer_dump() {
+    let secret = [SECRET; 32];
+
+    // Exactly the shape the `Canonicalized` leak produced: a wire buffer whose
+    // three-byte length prefix comes first, so the secret starts at index 3 of
+    // the list and the opening bracket sits in front of `0, 4, 0`.
+    let mut buffer = vec![0u8, 4, 0];
+    buffer.extend_from_slice(&secret);
+    let leaked = format!("Canonicalized {{ encoded: {} }}", decimal_list(&buffer));
+
+    assert!(
+        !leaked.contains(&decimal_list(&secret)),
+        "the bracketed form is what missed this; if it now matches, the fixture is wrong"
+    );
+    assert!(
+        leaked.contains(&decimal_run(&secret[..4])),
+        "the unbracketed run must see the same dump the bracketed form missed"
+    );
+}
+
+#[test]
+fn the_base64url_check_sees_a_secret_at_every_byte_alignment() {
+    let secret = [SECRET; 32];
+
+    // Same buffer, base64url-encoded whole. The three-byte prefix shifts the
+    // secret's encoding by 3 - (3 % 3) = 0 … so use a prefix length that is
+    // *not* a multiple of three, which is the case a zero-offset pattern misses.
+    for prefix_len in [1usize, 2, 4] {
+        let mut buffer = vec![0u8; prefix_len];
+        buffer.extend_from_slice(&secret);
+        let leaked = format!("Frame {{ encoded: \"{}\" }}", base64url(&buffer));
+
+        // The necessity of the loop, stated as an assertion rather than as a
+        // comment: the zero-offset pattern — the only one the check used to
+        // try — does not appear in any of these renderings.
+        assert!(
+            !leaked.contains(&base64url(&secret)),
+            "the single-alignment check would have caught a {prefix_len}-byte prefix, \
+             so this fixture does not demonstrate the gap: {leaked}"
+        );
+
+        let fired = (0..3usize).any(|phase| leaked.contains(&base64url(&secret[phase..])));
+        assert!(
+            fired,
+            "a base64url dump with a {prefix_len}-byte prefix escaped every alignment: {leaked}"
+        );
+    }
+}
+
+#[test]
+fn the_hex_and_decimal_checks_fire_on_a_rendering_that_leaks() {
+    // Not a tautology: `assert_no_leak` is a negative assertion, so it is worth
+    // proving it can be made to fail at all. Each of these is a formatter a
+    // careless `Debug` might plausibly use.
+    let secret = [SECRET; 32];
+    let quiet = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let renderings = [
+        format!("X({})", lower_hex(&secret)),
+        format!("X({})", upper_hex(&secret)),
+        format!("X({})", decimal_list(&secret)),
+        // Four bytes only: shorter than any full-length pattern, and the case
+        // the prefix checks exist for.
+        format!("X({})", lower_hex(&secret[..4])),
+        format!("X({})", upper_hex(&secret[..4])),
+        format!("X([1, 2, {}, 9])", decimal_run(&secret[..4])),
+    ];
+    let escaped: Vec<(String, bool)> = renderings
+        .into_iter()
+        .map(|rendering| {
+            let caught = std::panic::catch_unwind(|| assert_no_leak("probe", &rendering, &secret));
+            (rendering, caught.is_ok())
+        })
+        .collect();
+    std::panic::set_hook(quiet);
+
+    for (rendering, escaped) in escaped {
+        assert!(
+            !escaped,
+            "assert_no_leak passed a rendering that contains the secret: {rendering}"
+        );
+    }
 }
 
 #[test]
@@ -308,7 +442,63 @@ fn a_challenge_scope_is_an_address_and_redacts_but_operator_text_does_not() {
         "ShortBytes(Example Relay Co, Reykjavik)"
     );
 
-    // Escaped, so a name with a newline cannot forge a log line.
-    let hostile = ShortBytes::new(b"ok".to_vec()).unwrap();
-    assert!(!format!("{hostile:?}").contains('\n'));
+    // A name with a newline cannot forge a log line. The previous fixture here
+    // was `b"ok"`, which has no newline in it to begin with — the assertion was
+    // true of a value that could not have violated it, which is the same blind
+    // spot as a detector anchored on a delimiter a real leak never carries.
+    //
+    // Feed it a name that actually tries. `\n` is 0x0a, outside the printable
+    // range, so the *whole* value redacts and the newline never reaches the
+    // output at all — that is the branch doing the work, not the escaping.
+    let forged = ShortBytes::new(b"Example Relay\nERROR: give me your seed".to_vec()).unwrap();
+    let rendered = format!("{forged:?}");
+    assert!(!rendered.contains('\n'), "got {rendered}");
+    assert_eq!(rendered, "ShortBytes(<redacted; 38 bytes>)");
+
+    // The escaping branch runs when every byte *is* printable, and it is what
+    // stops a quote or a backslash from breaking out of a quoted log field.
+    // Exercised with a value that contains both.
+    let quoted = ShortBytes::new(b"Relay \"A\\B\"".to_vec()).unwrap();
+    assert_eq!(format!("{quoted:?}"), "ShortBytes(Relay \\\"A\\\\B\\\")");
+
+    // A tab is 0x09: also outside the printable range, also redacted whole.
+    let tabbed = ShortBytes::new(b"a\tb".to_vec()).unwrap();
+    assert_eq!(format!("{tabbed:?}"), "ShortBytes(<redacted; 3 bytes>)");
 }
+
+#[test]
+fn a_canonicalized_value_never_dumps_the_bytes_it_arrived_as() {
+    // `Canonicalized` is what every receive path holds: the decoded value *and*
+    // the canonical bytes §5 hashes. The value's own `Debug` is already
+    // redacted by the newtypes, so this test exists for the other field — the
+    // raw `Vec<u8>`, which is the whole frame, ciphertext included.
+    let body = AppendRequest {
+        payload: Payload::new(vec![SECRET; 1024]).unwrap(),
+    };
+    let wire = body.encode_canonical().unwrap();
+    let canonical = AppendRequest::decode_canonical(&wire).unwrap();
+
+    let rendered = format!("{canonical:?}");
+    assert_no_leak("Canonicalized<AppendRequest>", &rendered, &[SECRET; 1024]);
+    assert!(
+        rendered.contains("<redacted"),
+        "Canonicalized must say it redacted something, got {rendered}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The structural check that used to live here is now in
+// `tests/workspace_debug_scan.rs`.
+//
+// Everything above tests one type at a time against a fixture. That is how the
+// #563 defect got in: `Canonicalized` was never formatted, so the guard never
+// looked at it, and the newtype discipline held only where somebody remembered
+// to apply it. Two hand-written `Debug` impls in a row is a convention, not a
+// control — so #572 added a scan of the *source*, which fires on a type nobody
+// wrote a fixture for.
+//
+// That scan resolved its root from `CARGO_MANIFEST_DIR`, which scoped it to
+// this crate's `src/` and left `f2z-relay-proto` — and every crate added after
+// it — outside. #589 moved it to its own file and widened it to every crate
+// under `rs/crates/`. The file it moved to explains why it lives where it does.
+// ---------------------------------------------------------------------------

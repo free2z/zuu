@@ -89,7 +89,11 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
   ([ADR 0001](./decisions/0001-platform-priority.md)).
 - A **handle** is `[a-z0-9_]{1,30}`, ASCII, per
   [`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved).
-  It is the log's label and it is why the log's labels are not homograph-attackable.
+  It is the log's label, and it is why a label cannot carry a **cross-script**
+  homograph: with one script and no case there is no `а`-for-`a` substitution to
+  encode. Same-script ASCII lookalikes (`1`/`l`, `0`/`o`) are in the label space
+  and are out of scope for the directory — see
+  [`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not).
 
 ---
 

@@ -555,7 +555,90 @@ read, ACK or delete, and a sender-side key that cannot drain the queue. It is
 simply not unlinkability, and the earlier text in this document that said
 otherwise was wrong.
 
+### 4.10 The platform username space contains homographs; messaging handles do not
+
+Stated in the present tense because it is a property of the product as it ships
+today, not a risk of a future one. free2z usernames are validated by Django's
+`UnicodeUsernameValidator`, confirmed against the model's migration history, so
+non-ASCII usernames are legal and — measured on production 2026-08-23 — **a
+small, non-zero number of accounts carry one today**
+([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured)).
+For a threat model the count is beside the point; that it is not zero is the
+point.
+`@аlice` with a Cyrillic а and `@alice` with a Latin a are two different,
+equally valid, equally registerable free2z accounts right now. **The homograph
+attack surface in the platform's handle space is present, not hypothetical.**
+
+Messaging handles are `[a-z0-9_]{1,30}` compared as bytes
+([`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved)),
+so the KT directory's label space contains no confusable pairs and homograph
+impersonation **does not exist inside the messenger** — that is why the charset
+was restricted, and it is what makes the log's labels not homograph-attackable
+([`KT.md` §1.3](./KT.md#13-conventions)). **That sentence over-claims; see the
+correction below.**
+
+> **Correction (2026-08-23) — the charset removes the cross-script class of
+> confusables, not every confusable.** The paragraph above is left standing
+> rather than edited away, so an auditor can see exactly what was claimed and
+> what replaced it. `[a-z0-9_]` **does** contain confusable pairs: `1`/`l` and
+> `0`/`o` are the canonical ASCII homoglyphs and are indistinguishable in most UI
+> sans-serif faces, so `@a1ice` and `@alice`, or `@b0b` and `@bob`, are two
+> handles a reader cannot separate by eye. "No confusable pairs" is false as
+> written, and "homograph impersonation does not exist inside the messenger" is
+> true only of the cross-script kind.
+>
+> The scoped claim is the one that survives, and it is the one
+> [`WIRE.md` §14.1](./WIRE.md#141-proposed-rule) already states — *"an entire
+> class of homograph and mixed-script impersonation"*: an entire class, not every
+> class. With one script and no case there is no `а`-for-`a` substitution to
+> make, so a mixed-script impersonation of a messaging handle cannot be encoded
+> at all and never reaches the directory. That is real and it is why the charset
+> was restricted. Same-script ASCII lookalikes are **out of scope for this
+> mechanism**: nothing in the protocol defends against them, and the defense is
+> whatever the client does at render time and at verification time
+> ([`CLIENT-CONTRACT.md` §11.3](./CLIENT-CONTRACT.md#113-the-handle-charset-and-accounts-that-cannot-have-a-handle)),
+> which this document does not specify.
+
+What that does **not** do is fix the platform. A profile page, a comment byline
+or a link on free2z can still carry a homograph username, and a user who copies
+a handle from one of those surfaces into a contact search is relying on the
+platform's charset, not on ours. The mitigation is narrow and worth stating
+exactly: such a string does not match the messaging charset, so the directory
+refuses to resolve it at all, which turns a silent impersonation into a lookup
+failure. Making free2z's own username space safe is backend and product work,
+out of scope for this design.
+
+The distinction that matters, since this document is read for what it claims:
+this section states two *factual* properties of the platform username space —
+that `UnicodeUsernameValidator` is the validator in use, and that accounts with a
+non-ASCII username exist today — because both are facts an adversary can act
+on, and both were measured. What it claims is **no safety property** of that
+space. Nothing here should be read as asserting that free2z's username space
+resists homograph or mixed-script impersonation. It does not, that is the
+finding, and no part of this design changes it.
+
+**The same mapping carries a second directory-integrity failure, and it involves
+no confusable at all.** Eligibility is evaluated on the *lowercased* username,
+platform case-insensitive uniqueness turns out to be an application convention in
+two serializers rather than a database constraint, and production holds
+case-variant duplicate accounts today. Within each colliding group, two distinct
+real accounts map to one messaging handle and the directory would have to pick a
+winner — the same outcome a successful homograph produces, reached without one.
+It is **blocking**: those accounts must be resolved before the mapping ships. The
+correction, the evidence and the intended end state (a database-level
+`UniqueConstraint(Lower("username"))`) are in
+[`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted), and the
+open question is
+[`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions).
+
 ## 5. Summary: what we claim, precisely
+
+**Every entry below is scoped by the section it cites, and the scope is part of
+the claim.** A **Yes** means yes under the conditions that section states, and
+nothing wider. Every correction this document carries has the same cause — a
+property that holds under stated conditions, later restated without them (§3.1,
+twice; §4.10, once) — so where a summary line and a section disagree, the
+section's narrower reading is the one intended.
 
 | Property | ZUULI (native) | Web (WASM) |
 |---|---|---|

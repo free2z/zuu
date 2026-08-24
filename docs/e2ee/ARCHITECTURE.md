@@ -1145,17 +1145,46 @@ deliberate.
   a memory-hard function is affordable at relay scale is undecided.
 - **O. Messaging-handle eligibility for existing accounts.** Opened 2026-08-23 by
   [`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved).
-  Messaging handles are `[a-z0-9_]{1,30}`, ASCII, so that homograph and
-  mixed-script impersonation does not exist. free2z usernames are broader
+  Messaging handles are `[a-z0-9_]{1,30}`, ASCII, so that **cross-script**
+  homograph and mixed-script impersonation does not exist — same-script ASCII
+  lookalikes such as `1`/`l` remain and are a client rendering problem
+  ([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
+  free2z usernames are broader
   (`^[\w.@+-]+$`, up to 150 characters), so some existing accounts are not
-  eligible. **How many is not known** — this repository holds no user data — and
-  it must be measured before the rule ships, because it is the difference between
-  a rounding error and a migration project. Two sub-questions are also open:
-  whether the `Creator` model uses Django's Unicode or ASCII username validator
-  (undeterminable from this repository, and it decides whether the platform's
-  existing handle space already contains the homograph surface); and whether the
-  excluded population is served by a separate opt-in messaging handle, which is
-  directory design and touches §13-K.
+  eligible. **Measured 2026-08-23 — and still open**, because measurement was
+  never the whole question. What the measurement settled:
+  - **What share, closed.** **Approximately 90% of existing accounts are eligible
+    after case-folding and approximately 10% are not** — overwhelmingly because
+    the username contains `.` `@` `+` or `-`; non-ASCII characters and
+    over-length names account for very few. It is not a set of dead rows:
+    **every ineligible account has logged in at least once and all but one is
+    still active.** Whether that is a rounding error or a migration project is a
+    question about the *absolute* count and not about the share, and absolute
+    counts are business data, deliberately not published in this repository; they
+    are recorded in the deployment repository. The earlier answer that it was
+    "neither" rested on a scale qualifier that the redaction to proportions
+    removed, and is withdrawn — see the correction in
+    [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted).
+  - **Which validator, closed.** `Creator(AbstractUser)` does not override
+    `username`; the field is recorded with
+    `UnicodeUsernameValidator`. **Non-ASCII usernames are legal on free2z today
+    and a small, non-zero number of accounts carry one** — so the platform's
+    existing handle space already contains the homograph surface, in the present
+    tense, as a property of the shipped product rather than a risk of a future one
+    ([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured),
+    [`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
+  - **Still open — and it is a product decision, not a measurement.** Is that
+    ~10% of real users simply excluded from messaging discovery in v1, or are
+    they served by a separate opt-in messaging handle? The latter is directory
+    design and touches §13-K. Nobody has decided, so this stays open.
+  - **Surfaced by the measurement, and blocking.** Case-insensitive username
+    uniqueness is enforced only in two serializers, not in the database, and
+    **production holds case-variant duplicate accounts today, in more than one
+    group**. Those must
+    be resolved before the handle mapping ships; the correction and the intended
+    end state (a database-level `UniqueConstraint(Lower("username"))`) are in
+    [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted). The
+    backend work is tracked in the deployment repository.
 - **P. KT epoch cadence and maximum merge delay.** Opened 2026-08-23 by
   [`KT.md` §5](./KT.md#5-epochs-and-the-merge-promise). The values there — a
   600-second epoch published whether or not there is work, and a 3,600-second

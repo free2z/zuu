@@ -1731,39 +1731,114 @@ messaging_handle = /^[a-z0-9_]{1,30}$/     ASCII only, NFC (trivially satisfied)
 Compared as bytes. **No normalization is performed at comparison time** — a
 handle either matches the pattern exactly or it is not a handle. That is the
 point: a normalization function is itself the attack surface (which forms fold to
-which? is `ﬁ` `fi`? is `ı` `i`?), and a charset with no case, no scripts and no
-confusable pairs makes an entire class of homograph and mixed-script impersonation
-**not exist** rather than be defended against.
+which? is `ﬁ` `fi`? is `ı` `i`?), and a charset with no case and a single
+script makes an entire class of homograph and mixed-script impersonation **not
+exist** rather than be defended against.
 
-### 14.2 Checked against free2z's real username rules
+**An entire class, not every class.** `[a-z0-9_]` is not free of confusable
+pairs: it contains `1`/`l` and `0`/`o`, which are indistinguishable in most UI
+sans-serif faces. What the restriction removes is the **cross-script** class —
+there is no `а`-for-`a` substitution to make when there is only one script —
+and that is the whole of what is claimed for it, here or anywhere in this set.
+Same-script ASCII lookalikes remain, are not defended against by anything in this
+document, and are a rendering and verification obligation on the client
+([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not),
+[`CLIENT-CONTRACT.md` §11.3](./CLIENT-CONTRACT.md#113-the-handle-charset-and-accounts-that-cannot-have-a-handle)).
+
+### 14.2 Checked against free2z's real username rules — measured
 
 **This was checked before being written down**, and the answer is that real
-usernames are considerably broader.
+usernames are considerably broader. The first revision of §14 flagged three
+things it could not settle from this repository — which username validator is
+attached (flagged here in §14.2), and whether case-insensitive uniqueness is a
+database property and how many existing accounts the rule excludes (both flagged
+in §14.3). **All three have since been measured**: the model and its migration
+history were read out of band, and the counts were run against the production
+database on **2026-08-23**. The findings below are facts, not conditionals.
+
+**On what this section reports.** No username or other user-identifying value
+appears here, and neither do free2z's absolute user metrics: this is a public
+repository, and account totals are business data rather than protocol data.
+Findings are given as **proportions and categories** — which is the form the
+design decision actually rests on, since what matters is *what fraction* of
+existing accounts the rule excludes, not how many accounts exist. The precise
+figures behind every proportion below are recorded in the deployment repository.
+
+> **Re-stamped 2026-08-23.** §14.2 and §14.3 were first published stamped
+> `2026-08-24` — the UTC date of a commit whose own local timestamp is
+> 2026-08-23. Nothing here was measured or written on the 24th, and a measurement
+> dated after the commit that carries it invites exactly the wrong reading in a
+> document whose corrections are only worth anything because they are dated. The
+> stamps in this section, in
+> [`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not),
+> [`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions) and
+> [`CLIENT-CONTRACT.md` §11.3](./CLIENT-CONTRACT.md#113-the-handle-charset-and-accounts-that-cannot-have-a-handle)
+> were corrected to the local date under
+> [#575](https://github.com/free2z/zuu/issues/575), and **no figure changed**.
+> The convention — local date, matching the commit — is now written down in
+> [`README.md`](./README.md#status) so it stops recurring.
 
 | Source | Finding |
 |---|---|
 | `py/dj/free2z/openapi/f2z.yaml` — `Registration`, `CreatorDetail`, `CreatorList`, `CommentAuthor` | `username` is `type: string`, **`pattern: ^[\w.@+-]+$`**, **`maxLength: 150`**, described as *"Letters, digits and @/./+/-/_ only."* This is Django's `AbstractUser.username` contract. |
-| `py/dj/free2z/settings.py:29` | `AUTH_USER_MODEL = 'g12f.Creator'`. **The `Creator` model itself is not present in this repository** — only serializers and views are — so which of Django's two username validators is attached **cannot be determined here**. |
-| `py/dj/apps/g12f/serializers/creator.py` | Uniqueness is enforced **case-insensitively** at the application layer (`Creator.objects.filter(username__iexact=...)`, in `RegistrationSerializer.validate_username` and `CreatorProfileUpdateSerializer.validate_username`). `FORBIDDEN_USERNAMES` additionally reserves route-shadowing names. |
+| `py/dj/free2z/settings.py:29` | `AUTH_USER_MODEL = 'g12f.Creator'`. The `Creator` model itself is not present in this repository — only serializers and views are — so the validator cannot be read *here*. **Determined out of band, 2026-08-23:** `Creator(AbstractUser)` does **not** override `username`; the initial migration records the field as `max_length=150, unique=True, validators=[django.contrib.auth.validators.UnicodeUsernameValidator()]`. **The Unicode validator is the one in use.** |
+| `py/dj/apps/g12f/serializers/creator.py` | Uniqueness is enforced **case-insensitively at the application layer only** (`Creator.objects.filter(username__iexact=...)`, in `RegistrationSerializer.validate_username` and `CreatorProfileUpdateSerializer.validate_username`). `FORBIDDEN_USERNAMES` additionally reserves route-shadowing names. **Determined out of band, 2026-08-23:** nothing backs this in the database — see the correction in §14.3. |
 | `py/dj/apps/g12f/views/creator.py` | Reads are `username__iexact` (`lookup_field = "username__iexact"`; `get_object_or_404(Creator, username__iexact=...)`). |
 | `ts/svelte/free2z/src/routes/[username]/+page.svelte` | Handles are rendered verbatim as `@{creator.username}` and URL-encoded into paths. The front end applies **no** narrower rule. |
 | `ts/svelte/free2z/src/routes/[username]/dashboard/billing/+page.server.ts` | Contains `USERNAME_PATTERN = /^[a-zA-Z0-9_]{1,64}$/`, but this validates a subscription-target parameter in one dashboard action — it is not the registration rule, and it is already **narrower than what registration accepts**, so accounts with `.`/`@`/`+`/`-` in their name cannot use that page today. |
+| Production database, 2026-08-23 | The eligibility proportions below. |
 
 Two things follow, and the second is the one that matters most:
 
 1. **The published contract is broader than `[a-z0-9_]{1,30}` on every axis**:
    uppercase is allowed, `.` `@` `+` `-` are allowed, and the length limit is 150
    rather than 30.
-2. **Whether non-ASCII is allowed is genuinely undetermined from this
-   repository.** `\w` in Python's `re` is Unicode-aware on `str` unless `re.ASCII`
-   is set. Django's `UnicodeUsernameValidator` (the default on `AbstractUser`)
-   leaves it Unicode-aware and therefore admits Cyrillic, Greek, full-width Latin
-   and mixed-script handles; `ASCIIUsernameValidator` does not. The OpenAPI
-   schema emits the same `^[\w.@+-]+$` for both, so the schema cannot settle it.
-   **This MUST be confirmed against the `Creator` model before the rule is
-   enforced.** If the Unicode validator is in use, the platform's handle space
-   today already contains the homograph attack surface, and that is a finding
-   about the existing product, not only about messaging.
+2. **Non-ASCII usernames are legal on free2z today, and accounts with one exist
+   in production.** `\w` in Python's `re` is Unicode-aware on `str` unless
+   `re.ASCII` is set, and
+   `UnicodeUsernameValidator` — confirmed above as the validator actually
+   attached — leaves it Unicode-aware. Cyrillic, Greek, full-width Latin and
+   mixed-script usernames are accepted at registration, and a small number of
+   accounts carry one today — the number is small but it is **not zero**, which
+   is the only part of it that matters.
+   **The platform's handle space already contains the homograph attack surface.**
+   This is stated in the present tense on purpose: it is a finding about the
+   existing product, not a conditional about messaging. `@аlice` with a Cyrillic
+   а and `@alice` with a Latin a are two different, equally valid, equally
+   registerable free2z accounts right now.
+
+#### Eligibility, measured on production 2026-08-23
+
+Eligibility is evaluated as `lowercase(username) matches /^[a-z0-9_]{1,30}$/`
+(§14.3).
+
+| Of all existing accounts | Share |
+|---|---:|
+| Eligible after case-folding | **~90%** |
+| **Ineligible** | **~10%** |
+
+Which properties the population carries — these overlap, and each share is of
+**all existing accounts**, not of the ineligible subset:
+
+| Property | Prevalence | Disqualifying? |
+|---|---|---|
+| Contains an uppercase letter | A little over half of all accounts | **No** — folded by the mapping |
+| Contains `.`, `@`, `+` or `-` | Just under a tenth of all accounts — **the dominant cause of ineligibility** | Yes |
+| Contains a non-ASCII character | A very small share of all accounts — small, and **not zero** | Yes |
+| Longer than 30 characters | Vanishingly rare | Yes |
+
+The three disqualifying properties overlap in only a single account, so their
+shares are effectively additive and the punctuation rule is the dominant term —
+by a wide margin, but **not the whole** of the exclusion: the non-ASCII and
+over-length shares are each tiny and neither of them is zero. Uppercase is by
+far the most common deviation from the messaging charset and it costs nobody a
+handle, which is the entire reason the mapping folds case — but see §14.3,
+where the *argument* originally given for folding case turns out to be false.
+
+**These are not abandoned rows.** **Every ineligible account has logged in at
+least once**, and all but one are **currently active**. Every account the rule
+excludes belongs to a real person who has used the product — which is the finding
+that turns this from a data-cleanup question into a product one.
 
 ### 14.3 The decision, and the cost accepted
 
@@ -1777,7 +1852,8 @@ lowercase(username) matches /^[a-z0-9_]{1,30}$/
 The lowercase mapping is included deliberately: because platform uniqueness is
 already enforced case-insensitively, folding case **cannot** introduce a
 collision between two distinct existing accounts — so uppercase costs nobody
-their handle and there is no reason to exclude it.
+their handle and there is no reason to exclude it. — **This argument is false as
+written; see the correction below.**
 
 **Caveat, and it must be checked before this is relied on:** that argument holds
 only if case-insensitive uniqueness actually holds *in the database*. It is
@@ -1788,18 +1864,86 @@ a social-login path that bypasses the serializer — **cannot be established fro
 this repository and must be settled with a query.** Any colliding pair must be
 resolved by hand before the mapping ships.
 
+> **Correction (2026-08-23) — the case-folding argument above is false, and the
+> property it rests on does not hold.** The two paragraphs above are left
+> standing rather than edited away, so an auditor can see exactly what was
+> claimed and what replaced it. The claim was that folding case *"cannot
+> introduce a collision between two distinct existing accounts"* **because**
+> platform uniqueness is already enforced case-insensitively. The caveat was
+> right to flag it and the query has now been run. It settles the question the
+> other way.
+>
+> **Case-insensitive uniqueness is not a database property.** The `username`
+> column carries a plain, case-**sensitive** `unique=True` and nothing else: no
+> migration adds a `Lower("username")` functional index, no `UniqueConstraint`,
+> no `citext` column. The case-insensitive check exists **only** in
+> `RegistrationSerializer.validate_username` and
+> `CreatorProfileUpdateSerializer.validate_username`. It is therefore an
+> application convention, not an invariant — any path that does not pass through
+> those two serializers (the admin, a data migration, a management command, a
+> social-login flow) can create a case-variant duplicate, and the database will
+> accept it.
+>
+> **And it has.** Measured on production 2026-08-23: **case-variant duplicate
+> accounts exist today, in more than one group.** The count is small and is
+> recorded in the deployment repository rather than here; the count is not the
+> finding. **The existence is the finding**, because a single colliding pair is
+> enough to make the claim above false. Folding case *does* collide two distinct
+> existing accounts.
+>
+> **What survives and what does not.** The *decision* is unchanged: messaging
+> handles use the restricted charset and eligibility is evaluated on the
+> lowercased username. Uppercase on its own still disqualifies nobody — a little
+> over half of all accounts carry an uppercase letter and none is excluded for
+> that reason (§14.2). What does not survive is the claim that the mapping is
+> free. It is not: **every account in those collision groups must be resolved by
+> hand before the mapping ships**, because within each group two distinct
+> accounts map to one messaging handle and the directory would otherwise have to
+> pick a winner — in the one mapping whose integrity the whole system rests on.
+> The clean end state is a database-level `UniqueConstraint(Lower("username"))`,
+> so that the property the serializers already assume is actually enforced where
+> it can be relied on. That constraint and the resolution of the colliding
+> accounts are tracked in the deployment repository; they are backend work and
+> are not specified here.
+
 **Accepted product cost, stated plainly.** Existing accounts whose username
 contains `.`, `@`, `+` or `-`, contains any non-ASCII character, or exceeds 30
 characters after lowercasing are **not eligible for a messaging handle in v1**.
 Those users can use free2z exactly as they do today; they cannot be discovered by
 handle in the messenger until they have a compliant handle.
 
-**How large is that population? We do not know.** This repository holds no user
-data and the count cannot be estimated from it. **The number MUST be measured
-before the rule ships**, because it is the difference between a rounding error
-and a migration project, and discovering which one it is at launch is not
-acceptable. Recorded as
-[`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions).
+**How large is that population? Measured 2026-08-23: approximately 10% of
+existing accounts.** The first revision of this section said the number "MUST be
+measured before the rule ships, because it is the difference between a rounding
+error and a migration project." **The share alone does not settle that question,
+and this document does not settle it.** Which of the two it is depends on the
+absolute count rather than the proportion: one account in ten of a user base of a
+few thousand is an afternoon of hand resolution, and one account in ten of a user
+base of a few million is a programme of work. The absolute count is business data
+and is deliberately not published here; it is recorded in the deployment
+repository, and whoever plans the work has to read it there.
+
+What the share *does* settle is the part the design turns on. This is **about
+one account in ten**, not a fringe, and **every ineligible account has logged in
+at least once, with all but one still active** — they are real users, not
+abandoned rows (§14.2). That is enough to force a *product* decision: exclude
+that ~10% from messaging discovery in v1, or serve them with the separate opt-in
+messaging handle deferred in §14.4. That decision is not made here, so
+[`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions) **stays open** —
+its measurement sub-questions are closed, its policy sub-question is not.
+
+> **Correction (2026-08-23) — the "neither a rounding error nor a migration
+> project" answer is withdrawn.** The first published version of the paragraph
+> above answered the rounding-error-or-migration-project question with *"The
+> answer is neither, and that is the awkward result."* What supported that answer
+> was a clause naming ~10% **of a small user base**, and that clause went away in
+> the same change that redacted absolute counts to proportions. The redaction was
+> right — this is a public repository and account totals are business data —
+> but it removed the evidence and left the conclusion standing. A bare proportion
+> cannot distinguish a rounding error from a migration project, so the conclusion
+> is withdrawn rather than re-derived from a number this repository should not
+> carry. The *product* consequence is unchanged and is what the share supports on
+> its own.
 
 ### 14.4 Alternatives rejected
 
@@ -1914,7 +2058,12 @@ Deliberately, and listed rather than invented:
 - **Proof-of-work function and calibration** —
   [§13-N](./ARCHITECTURE.md#13-open-questions), opened by §12.4.
 - **Messaging-handle eligibility for existing accounts** —
-  [§13-O](./ARCHITECTURE.md#13-open-questions), opened by §14.3.
+  [§13-O](./ARCHITECTURE.md#13-open-questions), opened by §14.3. **Measured
+  2026-08-23 and still open**: the measurement is in (approximately 10% of
+  existing accounts are ineligible, and all of them are real users), so the
+  measurement sub-question is closed; whether those users are simply excluded
+  from messaging discovery in v1 or given a separate opt-in messaging handle is a
+  product decision nobody has made.
 
 ---
 
