@@ -1201,6 +1201,34 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_seen_at_the_earliest_valid_instant_is_still_seen_at_the_latest() {
+        let key = SigningKey::from_seed(&[0x9a; 32]);
+        let signed = SignedCommand::<ops::Subscribe>::create(
+            &transcripts(),
+            2,
+            QueueAddress::new([0x9b; 32]),
+            NOW,
+            nonce(0x9c),
+            &key,
+            &Empty,
+        )
+        .unwrap();
+        let request = signed.request().unwrap();
+        let mut verifier = verifier();
+
+        assert!(
+            verifier
+                .verify::<ops::Subscribe>(NOW - 120_000, 2, &request)
+                .is_ok()
+        );
+        assert_eq!(
+            verifier.verify::<ops::Subscribe>(NOW + 120_000, 2, &request),
+            Err(ProtoError::Wire(ErrorCode::Replay)),
+            "the inclusive timestamp window must not outlive the seen-set entry"
+        );
+    }
+
+    #[test]
     fn the_timestamp_window_is_checked_before_the_signature() {
         let key = SigningKey::from_seed(&[5u8; 32]);
         let signed = SignedCommand::<ops::Subscribe>::create(
