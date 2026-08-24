@@ -979,6 +979,15 @@ fn check_account_epoch(account_epoch: u32, previous: Option<u32>) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_published_bounds_are_the_ones_this_crate_applies() {
+        // KT.md §4.5.4 states these to clients as fixed constants. A client
+        // that hard-codes the specification and a log that applies something
+        // else disagree about admissibility, not merely about an encoding.
+        assert_eq!(ACCOUNT_EPOCH_CEILING, 1 << 20, "KT.md §4.5.4 A18a");
+        assert_eq!(MAX_ACCOUNT_EPOCH_STEP, 16, "KT.md §4.5.4 A18b");
+    }
     use crate::assertion::HandleAssertionTBS;
     use crate::key::SigningKey;
     use crate::nonce::NonceLedger;

@@ -33,8 +33,8 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use f2z_authority::{
-    AssertionNonce, DEFAULT_MAX_VALIDITY_MS, Handle, HandleAssertionTBS, Intent, LogId, SigningKey,
-    authority_id,
+    ACCOUNT_EPOCH_CEILING, AssertionNonce, DEFAULT_MAX_VALIDITY_MS, Handle, HandleAssertionTBS,
+    Intent, LogId, SigningKey, authority_id,
 };
 use f2z_codec::canonical::Canonical as _;
 use f2z_codec::types::PublicKey;
@@ -69,7 +69,8 @@ NOTES:
   last-one forever, which deletes the rule that stops a reset assertion being
   spent twice on one account-ownership event. It defaults to 0 for --intent
   bind, which is the baseline a handle's first reset must exceed, and is
-  REQUIRED for --intent reset. A value at or above 1048576 is refused outright
+  REQUIRED for --intent reset. A value at or above \
+  {account_epoch_ceiling} is refused outright
   as a clock.
 
   --validity-ms defaults to 900000 (15 minutes) and is ignored when --expires-ms
@@ -77,9 +78,18 @@ NOTES:
   the log's own cap is refused however it was signed.
 ";
 
+fn usage_with_account_epoch_ceiling(account_epoch_ceiling: u32) -> String {
+    USAGE.replace(
+        "{account_epoch_ceiling}",
+        &account_epoch_ceiling.to_string(),
+    )
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
-    match run(&args) {
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock();
+    match run_published(&args, &mut stdout) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("f2z-assert: {message}");
@@ -88,9 +98,17 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &[String]) -> Result<(), String> {
+fn run_published(args: &[String], stdout: &mut impl std::io::Write) -> Result<(), String> {
+    run(args, ACCOUNT_EPOCH_CEILING, stdout)
+}
+
+fn run(
+    args: &[String],
+    account_epoch_ceiling: u32,
+    stdout: &mut impl std::io::Write,
+) -> Result<(), String> {
     let Some(command) = args.first() else {
-        print!("{USAGE}");
+        write_usage(stdout, account_epoch_ceiling)?;
         return Err("no subcommand given".into());
     };
     let rest = args.get(1..).unwrap_or_default();
@@ -99,11 +117,17 @@ fn run(args: &[String]) -> Result<(), String> {
         "authority" => authority(rest),
         "issue" => issue(rest),
         "-h" | "--help" | "help" => {
-            print!("{USAGE}");
+            write_usage(stdout, account_epoch_ceiling)?;
             Ok(())
         }
         other => Err(format!("unknown subcommand `{other}`; try --help")),
     }
+}
+
+fn write_usage(stdout: &mut impl std::io::Write, account_epoch_ceiling: u32) -> Result<(), String> {
+    stdout
+        .write_all(usage_with_account_epoch_ceiling(account_epoch_ceiling).as_bytes())
+        .map_err(|error| format!("writing usage: {error}"))
 }
 
 // ---------------------------------------------------------------- subcommands
@@ -454,6 +478,66 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    #[test]
+    fn usage_formats_the_supplied_epoch_ceiling() {
+        let rendered = usage_with_account_epoch_ceiling(42);
+        assert!(rendered.contains("A value at or above 42 is refused outright"));
+        assert!(!rendered.contains("{account_epoch_ceiling}"));
+    }
+
+    #[test]
+    fn every_dispatch_usage_path_formats_the_supplied_epoch_ceiling() {
+        let help = ["--help".to_owned()];
+        let no_args: [String; 0] = [];
+
+        for ceiling in [42, 2_000_000] {
+            let expected = usage_with_account_epoch_ceiling(ceiling);
+            let expected_threshold = format!(
+                "  REQUIRED for --intent reset. A value at or above {ceiling} is refused outright"
+            );
+            for (args, succeeds) in [(&help[..], true), (&no_args[..], false)] {
+                let mut stdout = Vec::new();
+                let result = run(args, ceiling, &mut stdout);
+                assert_eq!(result.is_ok(), succeeds);
+                let rendered = String::from_utf8(stdout).unwrap();
+                let threshold_lines: Vec<&str> = rendered
+                    .lines()
+                    .filter(|line| line.contains("A value at or above"))
+                    .collect();
+                assert_eq!(threshold_lines, [expected_threshold.as_str()]);
+                assert_eq!(rendered, expected);
+            }
+        }
+    }
+
+    struct RefusingWriter;
+
+    impl std::io::Write for RefusingWriter {
+        fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("refused"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn every_usage_path_propagates_write_failure() {
+        let help = ["--help".to_owned()];
+        let no_args: [String; 0] = [];
+        for args in [&help[..], &no_args[..]] {
+            assert_eq!(
+                run(args, 42, &mut RefusingWriter).unwrap_err(),
+                "writing usage: refused"
+            );
+            assert_eq!(
+                run_published(args, &mut RefusingWriter).unwrap_err(),
+                "writing usage: refused"
+            );
+        }
+    }
 
     fn unused_path(name: &str) -> std::path::PathBuf {
         let unique = SystemTime::now()

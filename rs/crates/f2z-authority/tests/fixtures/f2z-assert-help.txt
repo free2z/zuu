@@ -1,0 +1,35 @@
+f2z-assert — issue a free2z handle-ownership assertion (docs/e2ee/KT.md)
+
+USAGE:
+  f2z-assert keygen [--out FILE]
+      Generate an Ed25519 issuing key. Writes 64 hex characters.
+
+  f2z-assert authority --key FILE
+      Print the authority_id and public key for a key file, in the form an
+      AuthoritySet entry takes.
+
+  f2z-assert issue --key FILE --log-id HEX --handle NAME --identity-pk HEX
+                   [--intent bind|reset] [--account-epoch N]
+                   [--issued-ms N] [--expires-ms N] [--validity-ms N]
+                   [--nonce HEX] [--out FILE]
+      Sign an assertion. Writes hex to stdout, or raw bytes with --out.
+
+NOTES:
+  A key file holds 64 hex characters or 32 raw bytes. Surrounding whitespace is
+  ignored. It is a private key: mode 0600, and never in a repository.
+
+  --intent defaults to bind. Use reset only for ADR 0014's platform-reset path,
+  where an account has changed hands; the log refuses a reset on a handle's
+  first entry and refuses a bind on any later one.
+
+  --account-epoch is the authority's DURABLE PER-ACCOUNT COUNTER (KT.md
+  §4.5.4). It is not a timestamp: a clock satisfies strictly-greater-than-the-
+  last-one forever, which deletes the rule that stops a reset assertion being
+  spent twice on one account-ownership event. It defaults to 0 for --intent
+  bind, which is the baseline a handle's first reset must exceed, and is
+  REQUIRED for --intent reset. A value at or above 1048576 is refused outright
+  as a clock.
+
+  --validity-ms defaults to 900000 (15 minutes) and is ignored when --expires-ms
+  is given. The LOG caps this independently: an assertion whose window exceeds
+  the log's own cap is refused however it was signed.
