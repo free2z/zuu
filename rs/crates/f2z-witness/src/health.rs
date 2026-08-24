@@ -85,10 +85,50 @@ impl Health {
         matches!(self, Self::Following { .. })
     }
 
-    /// The process exit code.
+    /// Whether a **liveness** probe should pass: `healthz --liveness yes`.
+    ///
+    /// # Why this is a different question
+    ///
+    /// [`Self::is_healthy`] folds in two verdicts that are statements about the
+    /// **upstream log**, not about this process. [`Health::Stale`] means the log
+    /// is unreachable or has stopped publishing; [`Health::Unpinned`] means it
+    /// has not been reachable yet. Wiring either to a Kubernetes
+    /// `livenessProbe` couples this pod's lifetime to somebody else's
+    /// availability: DNS, TLS, egress or the log itself goes down, the probe
+    /// fails on a schedule, and the kubelet restarts the witness — during
+    /// exactly the incident in which its state file is the evidence a human
+    /// needs. The startup probe then cannot pass either, because it asks the
+    /// same stale-sensitive question, so the pod cycles for as long as the
+    /// dependency is down. A longer `--stale-after` delays that; it cannot
+    /// remove it, because any finite window expires.
+    ///
+    /// So a liveness probe asks only what a restart could possibly repair, and
+    /// the answer is: nothing here. **Staleness is an alert, not a restart** —
+    /// killing the observer does not fix the observed. Whether the witness is
+    /// actually cosigning is a monitoring signal over its metrics, and it must
+    /// stay one.
+    ///
+    /// [`Health::Halted`] still fails. Not so that the pod is restarted — §7.1
+    /// is emphatic that a halted witness must not be restarted blindly, and the
+    /// daemon already exits non-zero on its own when it halts — but so that a
+    /// halted witness is never reported as fine by the one check an operator
+    /// looks at first. A `0/1` pod with `HALTED` in its probe output is the
+    /// correct thing for a human to find.
+    #[must_use]
+    pub const fn is_alive(&self) -> bool {
+        !matches!(self, Self::Halted { .. })
+    }
+
+    /// The process exit code for a readiness/startup probe.
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         if self.is_healthy() { 0 } else { 1 }
+    }
+
+    /// The process exit code for a liveness probe. See [`Self::is_alive`].
+    #[must_use]
+    pub const fn liveness_exit_code(&self) -> u8 {
+        if self.is_alive() { 0 } else { 1 }
     }
 
     /// One line for the probe's output.
@@ -282,6 +322,49 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(health, Health::Halted { .. }));
+    }
+
+    #[test]
+    fn a_liveness_probe_ignores_the_upstream_log_and_not_a_local_fault() {
+        // The whole reason `--liveness yes` exists. STALE and UNPINNED are
+        // statements about the LOG: it is unreachable, or has not been reached
+        // yet. Restarting this pod cannot repair either, and doing it on a
+        // schedule during a KT outage destroys the state file that is the
+        // evidence somebody needs. HALTED is local and permanent, so it still
+        // fails and stays visible as `0/1`.
+        let dir = temp("liveness");
+
+        let unpinned = probe(&dir.join("absent.bin"), 1_000, DEFAULT_STALE_AFTER_MS).unwrap();
+        assert_eq!(unpinned, Health::Unpinned);
+        assert_eq!(unpinned.exit_code(), 1);
+        assert_eq!(unpinned.liveness_exit_code(), 0);
+
+        let stale_path = dir.join("stale.bin");
+        store(&stale_path, &state(1_000)).unwrap();
+        let stale = probe(
+            &stale_path,
+            1_000 + DEFAULT_STALE_AFTER_MS + 1,
+            DEFAULT_STALE_AFTER_MS,
+        )
+        .unwrap();
+        assert!(matches!(stale, Health::Stale { .. }));
+        assert_eq!(stale.exit_code(), 1);
+        assert_eq!(stale.liveness_exit_code(), 0);
+
+        let halted_path = dir.join("halted.bin");
+        let mut halted_state = state(1_000);
+        halted_state.halt(FaultKind::Fork, 1_000);
+        store(&halted_path, &halted_state).unwrap();
+        let halted = probe(&halted_path, 2_000, DEFAULT_STALE_AFTER_MS).unwrap();
+        assert!(matches!(halted, Health::Halted { .. }));
+        assert_eq!(halted.exit_code(), 1);
+        assert_eq!(halted.liveness_exit_code(), 1);
+
+        let following_path = dir.join("following.bin");
+        store(&following_path, &state(1_000)).unwrap();
+        let following = probe(&following_path, 2_000, DEFAULT_STALE_AFTER_MS).unwrap();
+        assert_eq!(following.exit_code(), 0);
+        assert_eq!(following.liveness_exit_code(), 0);
     }
 
     #[test]

@@ -30,6 +30,25 @@
 //! # `/metrics` has no labels
 //!
 //! See [`crate::metrics`]. No per-queue series, no per-IP series, no exceptions.
+//!
+//! # The health-only surface, and why it is allowed off loopback
+//!
+//! Kubernetes made the loopback rule above unsatisfiable for a *probe*: the
+//! kubelet dials the POD IP for an `httpGet`, and a Google Cloud load balancer
+//! health-checks the pod IP directly when the Service is backed by a NEG. A
+//! loopback listener is unreachable to both by construction, the image is
+//! distroless (no shell, no `wget`, no `curl`), and a `healthz` subcommand —
+//! which is what `f2z-kt` and `f2z-witness` use — answers the kubelet and does
+//! **nothing** for the load balancer. The result was a workload that could not
+//! be deployed: `Ready` in `kubectl get pod` and 502 at the hostname.
+//!
+//! So there is a second, narrower surface: [`Scope::HealthOnly`], which may
+//! bind any address and serves **`/healthz` alone**. `/metrics` on it is a 404,
+//! not a 200 — the thing the loopback rule protects is the metrics endpoint,
+//! and that protection is unchanged. What is exposed instead is a constant
+//! three-byte body that is already asserted to contain no digit
+//! ([`HEALTHZ_BODY`]), on a listener whose parser interprets no headers. The
+//! relay's existence at that address is not a secret; its queue depth is.
 
 use std::sync::Arc;
 
@@ -73,7 +92,16 @@ impl std::fmt::Display for AdminError {
 
 impl std::error::Error for AdminError {}
 
-/// Bind the admin listener.
+/// What an operational listener exposes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// `/healthz` and `/metrics`. Loopback only — see [`bind`].
+    Operator,
+    /// `/healthz` and nothing else. May bind any address — see [`bind_health`].
+    HealthOnly,
+}
+
+/// Bind the operator listener: `/healthz` and `/metrics`, loopback only.
 ///
 /// # Errors
 ///
@@ -86,8 +114,25 @@ pub async fn bind(addr: std::net::SocketAddr) -> Result<TcpListener, AdminError>
     TcpListener::bind(addr).await.map_err(AdminError::Io)
 }
 
+/// Bind the health-only listener. **No loopback check**, deliberately.
+///
+/// This is the one surface that may answer off-host, and the reason it may is
+/// that it answers a constant. See the module documentation.
+///
+/// # Errors
+///
+/// [`AdminError::Io`] if the socket cannot be bound.
+pub async fn bind_health(addr: std::net::SocketAddr) -> Result<TcpListener, AdminError> {
+    TcpListener::bind(addr).await.map_err(AdminError::Io)
+}
+
 /// Serve until `shutdown` flips.
-pub async fn serve(relay: Arc<Relay>, listener: TcpListener, mut shutdown: watch::Receiver<bool>) {
+pub async fn serve(
+    relay: Arc<Relay>,
+    listener: TcpListener,
+    scope: Scope,
+    mut shutdown: watch::Receiver<bool>,
+) {
     loop {
         let accepted = tokio::select! {
             biased;
@@ -99,16 +144,16 @@ pub async fn serve(relay: Arc<Relay>, listener: TcpListener, mut shutdown: watch
         };
         let relay = Arc::clone(&relay);
         tokio::spawn(async move {
-            let _ = answer(relay, stream).await;
+            let _ = answer(relay, scope, stream).await;
         });
     }
 }
 
-async fn answer(relay: Arc<Relay>, mut stream: TcpStream) -> std::io::Result<()> {
+async fn answer(relay: Arc<Relay>, scope: Scope, mut stream: TcpStream) -> std::io::Result<()> {
     let mut buffer = [0u8; MAX_REQUEST];
     let read = stream.read(&mut buffer).await?;
     let request = buffer.get(..read).unwrap_or_default();
-    let response = route(&relay, request);
+    let response = route(&relay, scope, request);
     stream.write_all(response.as_bytes()).await?;
     stream.flush().await?;
     // No keep-alive. One request per connection is all an operator's scraper
@@ -118,7 +163,7 @@ async fn answer(relay: Arc<Relay>, mut stream: TcpStream) -> std::io::Result<()>
 }
 
 /// The whole of the routing. Split out so it is testable without a socket.
-fn route(relay: &Arc<Relay>, request: &[u8]) -> String {
+fn route(relay: &Arc<Relay>, scope: Scope, request: &[u8]) -> String {
     let Some(line) = first_line(request) else {
         return response(400, "text/plain; charset=utf-8", "bad request\n");
     };
@@ -134,7 +179,11 @@ fn route(relay: &Arc<Relay>, request: &[u8]) -> String {
             // Constant and cheap: no store query, no counter read, no lock.
             response(200, "text/plain; charset=utf-8", HEALTHZ_BODY)
         }
-        ("GET" | "HEAD", "/metrics") => response(
+        // `/metrics` exists on the operator surface only. On the health-only
+        // surface it is a 404 rather than a 403: a 403 would confirm the
+        // endpoint is there and merely refused, which is one bit more than a
+        // listener whose whole claim is that it says nothing.
+        ("GET" | "HEAD", "/metrics") if scope == Scope::Operator => response(
             200,
             "text/plain; version=0.0.4; charset=utf-8",
             &relay.metrics().render(),
@@ -180,6 +229,14 @@ mod tests {
     async fn a_non_loopback_admin_bind_is_refused() {
         let addr: std::net::SocketAddr = "0.0.0.0:0".parse().unwrap();
         assert!(matches!(bind(addr).await, Err(AdminError::NotLoopback)));
+    }
+
+    #[tokio::test]
+    async fn the_health_only_listener_may_bind_off_loopback() {
+        // The whole point: the kubelet and the GCE load balancer both dial the
+        // pod IP, so this surface has to be bindable there.
+        let addr: std::net::SocketAddr = "0.0.0.0:0".parse().unwrap();
+        assert!(bind_health(addr).await.is_ok());
     }
 
     #[test]

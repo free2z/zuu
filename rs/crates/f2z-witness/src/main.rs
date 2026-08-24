@@ -30,6 +30,7 @@ USAGE:
                         [--max-audit-span N] [--allow-cleartext]
     f2z-witness poll    (same flags as run; performs exactly one poll)
     f2z-witness healthz --state FILE [--evidence DIR] [--stale-after SECONDS]
+                        [--liveness yes]
     f2z-witness keygen  [--out FILE]
     f2z-witness state   --state FILE
     f2z-witness --help
@@ -39,8 +40,14 @@ COMMANDS:
     poll      One iteration. Exits non-zero if the witness is halted.
     healthz   Read the state file and report whether this witness is
               following a log. Exits 0 only when it is. Intended for an
-              `exec` liveness probe: the image is distroless and there is no
-              inbound listener to dial.
+              `exec` probe: the image is distroless and there is no inbound
+              listener to dial.
+              `--liveness yes` answers the narrower question a LIVENESS probe
+              should ask — is there anything a restart could repair — so a
+              STALE or UNPINNED verdict, both of which are statements about
+              the upstream log rather than this process, exit 0. HALTED still
+              exits non-zero. Use it for the startup and liveness probes and
+              the default verdict for readiness.
     keygen    Generate this witness's Ed25519 signing key.
     state     Print what the witness currently holds.
 
@@ -209,7 +216,18 @@ fn daemon(args: &[String], once: bool) -> Result<u8, String> {
 }
 
 fn healthz(args: &[String]) -> Result<u8, String> {
-    let pairs = flags(args, &["--state", "--evidence", "--stale-after"])?;
+    let pairs = flags(
+        args,
+        &["--state", "--evidence", "--stale-after", "--liveness"],
+    )?;
+    // Takes an explicit value for the reason `--allow-cleartext` does: a
+    // single token that quietly weakens what a probe asserts is a token that
+    // ends up on a command line nobody re-read.
+    let liveness = match value(&pairs, "--liveness") {
+        Some("yes") => true,
+        Some(other) => return Err(format!("--liveness takes `yes`, not `{other}`")),
+        None => false,
+    };
     let state_path = PathBuf::from(required(&pairs, "--state")?);
     let evidence_dir = value(&pairs, "--evidence").map_or_else(
         || {
@@ -231,12 +249,20 @@ fn healthz(args: &[String]) -> Result<u8, String> {
     let health =
         health::probe(&state_path, now_ms(), stale_after_ms).map_err(|error| error.to_string())?;
     let message = health.message(&evidence_dir);
-    if health.is_healthy() {
+    let (code, passing) = if liveness {
+        (health.liveness_exit_code(), health.is_alive())
+    } else {
+        (health.exit_code(), health.is_healthy())
+    };
+    // The verdict is printed unchanged either way. A liveness probe that passes
+    // on STALE must still SAY `STALE`, or the one place an operator reads the
+    // witness's own account of itself would report a lie by omission.
+    if passing {
         println!("{message}");
     } else {
         eprintln!("{message}");
     }
-    Ok(health.exit_code())
+    Ok(code)
 }
 
 fn show_state(args: &[String]) -> Result<u8, String> {

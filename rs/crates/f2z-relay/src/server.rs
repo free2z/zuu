@@ -49,6 +49,8 @@ pub enum StartError {
     Listen(crate::listener::ListenError),
     /// The admin listener could not be bound.
     Admin(crate::admin::AdminError),
+    /// The health listener could not be bound.
+    Health(crate::admin::AdminError),
     /// A background thread could not be spawned.
     Spawn(std::io::Error),
     /// The operating system refused to provide randomness.
@@ -65,6 +67,7 @@ impl std::fmt::Display for StartError {
             Self::Tls(error) => write!(f, "{error}"),
             Self::Listen(error) => write!(f, "{error}"),
             Self::Admin(error) => write!(f, "{error}"),
+            Self::Health(error) => write!(f, "health: {error}"),
             Self::Spawn(error) => write!(f, "cannot start the commit writer: {error}"),
             Self::NoRandomness => f.write_str("the operating system refused to provide randomness"),
         }
@@ -78,6 +81,7 @@ pub struct Server {
     relay: Arc<Relay>,
     protocol_addr: std::net::SocketAddr,
     admin_addr: Option<std::net::SocketAddr>,
+    health_addr: Option<std::net::SocketAddr>,
     shutdown: watch::Sender<bool>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -87,6 +91,7 @@ impl std::fmt::Debug for Server {
         f.debug_struct("Server")
             .field("protocol_addr", &self.protocol_addr)
             .field("admin_addr", &self.admin_addr)
+            .field("health_addr", &self.health_addr)
             .finish_non_exhaustive()
     }
 }
@@ -192,6 +197,23 @@ impl Server {
             .as_ref()
             .and_then(|listener| listener.local_addr().ok());
 
+        // Bound AFTER the store and the identity, like everything else here: a
+        // relay that answers `/healthz` before it can serve is a relay whose
+        // readiness probe lies during exactly the window the probe exists for.
+        let health_listener = if config.health.enabled {
+            let health_configured = config.health_addr().map_err(StartError::Config)?;
+            Some(
+                crate::admin::bind_health(health_configured)
+                    .await
+                    .map_err(StartError::Health)?,
+            )
+        } else {
+            None
+        };
+        let health_addr = health_listener
+            .as_ref()
+            .and_then(|listener| listener.local_addr().ok());
+
         let relay = Arc::new(Relay::new(
             config,
             identity,
@@ -205,7 +227,7 @@ impl Server {
         ));
 
         let (shutdown, watcher) = watch::channel(false);
-        let mut tasks = Vec::with_capacity(3);
+        let mut tasks = Vec::with_capacity(4);
         tasks.push(tokio::spawn(crate::listener::serve(
             Arc::clone(&relay),
             listener,
@@ -216,6 +238,15 @@ impl Server {
             tasks.push(tokio::spawn(crate::admin::serve(
                 Arc::clone(&relay),
                 admin_listener,
+                crate::admin::Scope::Operator,
+                watcher.clone(),
+            )));
+        }
+        if let Some(health_listener) = health_listener {
+            tasks.push(tokio::spawn(crate::admin::serve(
+                Arc::clone(&relay),
+                health_listener,
+                crate::admin::Scope::HealthOnly,
                 watcher.clone(),
             )));
         }
@@ -229,6 +260,7 @@ impl Server {
             relay,
             protocol_addr,
             admin_addr,
+            health_addr,
             shutdown,
             tasks,
         })
@@ -244,6 +276,12 @@ impl Server {
     #[must_use]
     pub const fn admin_addr(&self) -> Option<std::net::SocketAddr> {
         self.admin_addr
+    }
+
+    /// The bound health address, if the health listener is enabled.
+    #[must_use]
+    pub const fn health_addr(&self) -> Option<std::net::SocketAddr> {
+        self.health_addr
     }
 
     /// The relay itself, for a test that wants to read its published document.

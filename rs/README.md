@@ -114,7 +114,7 @@ prevent.
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-store`](./crates/f2z-relay-store) | The relay's queue storage: a `RelayStore` trait that speaks addresses and bytes and never a wire frame, plus a durable `SqliteStore` (WAL, `synchronous = FULL`, `secure_delete = ON`, group commit) and a volatile `MemoryStore`. **Native only** — it links SQLite and is not on the wasm line. `std`, `#![forbid(unsafe_code)]`, no async runtime. |
 | [`crates/f2z-relay-testkit`](./crates/f2z-relay-testkit) | **FakeRelay**: a spec-conforming relay a client can develop against, over an in-process pipe *and* a real `ws://127.0.0.1:0` listener running the same implementation, plus fault injection and the conformance vector suite `f2z-relay` is run against unchanged. Also ships the `f2z-fakerelay` binary and `rs/deploy/docker-compose.dev.yml`. **Native only** — it opens sockets, spawns tasks and reads a clock, and is deliberately absent from the `wasm32` job. |
-| [`crates/f2z-relay`](./crates/f2z-relay) | **The relay daemon** — the server that runs in production. `wss://` listener, §4 framing, §5 signed-command verification with the TLS-exporter binding, the full §6 command set over `RelayStore`, a group-commit writer, TTL expiry, §13 anti-abuse, the signed capability document, and a loopback-only `/healthz` + `/metrics` admin listener. **AGPL-3.0**, native only, never on the wasm line. |
+| [`crates/f2z-relay`](./crates/f2z-relay) | **The relay daemon** — the server that runs in production. `wss://` listener, §4 framing, §5 signed-command verification with the TLS-exporter binding, the full §6 command set over `RelayStore`, a group-commit writer, TTL expiry, §13 anti-abuse, the signed capability document, a loopback-only `/healthz` + `/metrics` admin listener, and an opt-in health-only listener that may bind off loopback so a Kubernetes probe and a load-balancer health check can reach `/healthz` at all. **AGPL-3.0**, native only, never on the wasm line. |
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
 
@@ -283,6 +283,29 @@ has never completed a poll reports `UNPINNED` and exits 1 by design, so the prob
 must be given a `startupProbe` or an `initialDelaySeconds` wide enough to cover
 the first successful poll. `scripts/check-f2z-images.mjs --probe` asserts both
 behaviours against a real container after every build.
+
+Add `--liveness yes` on the **startup and liveness** probes and leave readiness
+on the default verdict. `STALE` and `UNPINNED` are statements about the upstream
+log, not about this process; wiring them to a `livenessProbe` restarts the
+witness on a schedule for as long as the log is unreachable, during exactly the
+incident in which its state file is the evidence somebody needs. `HALTED` still
+fails either way. See `f2z-witness/src/health.rs`.
+
+**`f2z-relay`'s probe is an `httpGet`, and needs `--health-listen`.** Its
+`/healthz` is on a listener that refuses to bind off loopback, and a kubelet and
+a GCE health check both dial the pod IP, so a deployed relay must be given a
+second, health-only listener:
+
+```yaml
+args: ["--listen", "0.0.0.0:8080", "--insecure-listen", "--health-listen", "0.0.0.0:8081"]
+readinessProbe:
+  httpGet: { path: /healthz, port: 8081 }
+```
+
+`scripts/check-f2z-images.mjs --probe-relay` starts the image with exactly that
+configuration and asserts that `/healthz` answers 200 on the health port, that
+`/metrics` is a 404 there, and that `/healthz` is *not* answerable on the
+protocol port.
 
 That script is the policy for all of the above, it runs `--self-test` first, and
 it is invoked unconditionally from `rs.yml` — not from the image workflow —
