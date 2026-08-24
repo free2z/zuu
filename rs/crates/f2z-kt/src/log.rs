@@ -154,19 +154,46 @@ impl core::fmt::Debug for Pending {
 /// first restart — the nonces were checked when they were first admitted, and
 /// the record of that decision *is* the journal.
 ///
+/// It does capture the nonce observation produced by that successful check.
+/// [`readmit`] moves the captured values into the separate live ledger only
+/// after admission succeeds, so startup both verifies its history without
+/// rejecting it and closes the replay window that history already spent.
+///
 /// It is a distinct type rather than a flag so that it cannot be reached from
 /// the live path: [`LogService::submit`] names [`NonceLedger`] and nothing
 /// else.
-struct ReplayLedger;
+struct ReplayedNonce {
+    now_ms: u64,
+    authority_id: f2z_authority::types::AuthorityId,
+    nonce: f2z_authority::types::AssertionNonce,
+    expires_ms: u64,
+}
+
+#[derive(Default)]
+struct ReplayLedger {
+    observed: Option<ReplayedNonce>,
+}
+
+impl ReplayLedger {
+    fn take_observed(&mut self) -> Option<ReplayedNonce> {
+        self.observed.take()
+    }
+}
 
 impl f2z_authority::nonce::NonceSeen for ReplayLedger {
     fn observe(
         &mut self,
-        _now_ms: u64,
-        _authority_id: f2z_authority::types::AuthorityId,
-        _nonce: f2z_authority::types::AssertionNonce,
-        _expires_ms: u64,
+        now_ms: u64,
+        authority_id: f2z_authority::types::AuthorityId,
+        nonce: f2z_authority::types::AssertionNonce,
+        expires_ms: u64,
     ) -> core::result::Result<(), f2z_authority::AuthorityError> {
+        self.observed = Some(ReplayedNonce {
+            now_ms,
+            authority_id,
+            nonce,
+            expires_ms,
+        });
         Ok(())
     }
 }
@@ -309,7 +336,7 @@ impl LogService {
     ///   rather than a log serving proofs against a root nobody cosigned.
     async fn replay(&self, journal: Journal) -> Result<()> {
         let mut state = self.state.lock().await;
-        let mut ledger = ReplayLedger;
+        let mut ledger = ReplayLedger::default();
 
         let mut cursor = 0usize;
         for stored in &journal.epochs {
@@ -922,11 +949,11 @@ impl core::fmt::Debug for LogService {
 /// It takes the same route a network submission takes — the journal holds the
 /// envelope exactly as it was canonicalised, so there is one admission path and
 /// not a second, laxer one for startup.
-fn readmit<S: f2z_authority::nonce::NonceSeen + ?Sized>(
+fn readmit(
     state: &mut State,
     service: &LogService,
     record: &crate::store::StoredSubmission,
-    ledger: &mut S,
+    replay: &mut ReplayLedger,
 ) -> Result<AdmittedSubmission> {
     let handle = peek_handle(record.envelope.as_slice())?;
     let previous = state.published.get(&handle).cloned();
@@ -945,9 +972,39 @@ fn readmit<S: f2z_authority::nonce::NonceSeen + ?Sized>(
         authority: &service.authority,
         retained,
     };
-    admit_submission(record.envelope.as_slice(), &context, ledger).map_err(|error| {
+    let admitted =
+        admit_submission(record.envelope.as_slice(), &context, replay).map_err(|error| {
+            LogError::Storage(format!(
+                "submissions.log: record {} no longer admits ({error})",
+                record.sequence
+            ))
+        })?;
+    restore_replayed_nonce(&mut state.nonces, record, replay)?;
+    Ok(admitted)
+}
+
+/// Restore a nonce that the canonical stored assertion presented while the
+/// replay ledger re-ran admission. Replay itself must accept the log's own
+/// history, but the separate live ledger must remember that history after
+/// startup.
+fn restore_replayed_nonce(
+    live: &mut NonceLedger,
+    record: &crate::store::StoredSubmission,
+    replay: &mut ReplayLedger,
+) -> Result<()> {
+    let Some(observed) = replay.take_observed() else {
+        return Ok(());
+    };
+    f2z_authority::nonce::NonceSeen::observe(
+        live,
+        observed.now_ms,
+        observed.authority_id,
+        observed.nonce,
+        observed.expires_ms,
+    )
+    .map_err(|error| {
         LogError::Storage(format!(
-            "submissions.log: record {} no longer admits ({error})",
+            "submissions.log: record {} cannot restore the nonce ledger ({error})",
             record.sequence
         ))
     })
