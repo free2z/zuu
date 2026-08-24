@@ -27,7 +27,12 @@
 
 use std::sync::Arc;
 
-use f2z_kt::testing::{EntryBuilder, Harness, Identity};
+use f2z_authority::types::{AssertionNonce, Handle as AuthorityHandle, Intent, LogId};
+use f2z_codec::Canonical as _;
+use f2z_kt::testing::{EntryBuilder, Harness, Identity, entry_bytes};
+use f2z_kt::wire::SubmissionEnvelope;
+use f2z_kt_core::entry::DirectoryEntry;
+use f2z_kt_core::labels;
 use f2z_kt_core::types::Handle;
 
 const NOW: u64 = 1_700_000_100_000;
@@ -48,6 +53,82 @@ async fn reopen(harness: &Harness) -> f2z_kt::Result<f2z_kt::LogService> {
         Vec::new(),
     )
     .await
+}
+
+/// Build a fully valid first-entry envelope whose assertion uses an explicit
+/// nonce. Each call constructs and signs a new assertion, so two returned
+/// envelopes sharing a nonce are not copies of one another.
+fn envelope_with_nonce(
+    harness: &Harness,
+    entry: &DirectoryEntry,
+    identity: &Identity,
+    nonce: AssertionNonce,
+) -> Vec<u8> {
+    let bytes = entry_bytes(entry);
+    let digest = labels::entry_value(&bytes);
+    let handle = AuthorityHandle::parse(entry.entry.handle.as_slice()).unwrap();
+    let issuer = harness.issuer.as_ref().unwrap();
+    let assertion = f2z_authority::HandleAssertionTBS::new(
+        &issuer.public_key(),
+        LogId::new(*harness.log_id.as_bytes()),
+        handle.clone(),
+        entry.entry.identity_pk,
+        Intent::Bind,
+        0,
+        NOW,
+        NOW + 60_000,
+        nonce,
+    )
+    .unwrap()
+    .sign(issuer)
+    .unwrap();
+    let binding = harness
+        .log
+        .authority()
+        .binding(&handle, &entry.entry.identity_pk, Some(&assertion), &digest)
+        .unwrap();
+    let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
+    SubmissionEnvelope::new(
+        &bytes,
+        Some(&assertion.encode_canonical().unwrap()),
+        identity_signature,
+    )
+    .unwrap()
+    .encode_canonical()
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_restart_does_not_reopen_an_admitted_assertion_nonce() {
+    let harness = Harness::vouched("dur-nonce-restart").await;
+    let alice = Identity::from_byte(1);
+    let bob = Identity::from_byte(2);
+    let nonce = AssertionNonce::new([0x77; 16]);
+
+    let alice_entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let bob_entry = EntryBuilder::first(harness.log_id, "bob", &bob).same_key(&bob.dak);
+    let alice_envelope = envelope_with_nonce(&harness, &alice_entry, &alice, nonce);
+    let bob_envelope = envelope_with_nonce(&harness, &bob_entry, &bob, nonce);
+
+    // The second assertion is independently signed for another handle and
+    // identity. On a fresh log it passes every chain, assertion and binding
+    // rule; the reused (authority_id, nonce) pair is its only defect.
+    let control = Harness::vouched("dur-nonce-control").await;
+    let control_bob = envelope_with_nonce(&control, &bob_entry, &bob, nonce);
+    control.log.submit(&control_bob, NOW).await.unwrap();
+
+    harness.log.submit(&alice_envelope, NOW).await.unwrap();
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let reopened = reopen(&harness).await.unwrap();
+    let error = reopened
+        .submit(&bob_envelope, NOW + 1_000)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        f2z_kt::LogError::Authority(f2z_authority::AuthorityError::ReplayedNonce)
+    ));
 }
 
 #[tokio::test]
