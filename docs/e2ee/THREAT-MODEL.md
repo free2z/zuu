@@ -555,6 +555,36 @@ read, ACK or delete, and a sender-side key that cannot drain the queue. It is
 simply not unlinkability, and the earlier text in this document that said
 otherwise was wrong.
 
+### 4.10 The platform username space contains homographs; messaging handles do not
+
+Stated in the present tense because it is a property of the product as it ships
+today, not a risk of a future one. free2z usernames are validated by Django's
+`UnicodeUsernameValidator`, confirmed against the model's migration history, so
+non-ASCII usernames are legal and — measured on production 2026-08-24 — **a
+small, non-zero number of accounts carry one today**
+([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured)).
+For a threat model the count is beside the point; that it is not zero is the
+point.
+`@аlice` with a Cyrillic а and `@alice` with a Latin a are two different,
+equally valid, equally registerable free2z accounts right now. **The homograph
+attack surface in the platform's handle space is present, not hypothetical.**
+
+Messaging handles are `[a-z0-9_]{1,30}` compared as bytes
+([`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved)),
+so the KT directory's label space contains no confusable pairs and homograph
+impersonation **does not exist inside the messenger** — that is why the charset
+was restricted, and it is what makes the log's labels not homograph-attackable
+([`KT.md` §1.3](./KT.md#13-conventions)).
+
+What that does **not** do is fix the platform. A profile page, a comment byline
+or a link on free2z can still carry a homograph username, and a user who copies
+a handle from one of those surfaces into a contact search is relying on the
+platform's charset, not on ours. The mitigation is narrow and worth stating
+exactly: such a string does not match the messaging charset, so the directory
+refuses to resolve it at all, which turns a silent impersonation into a lookup
+failure. Making free2z's own username space safe is backend and product work,
+out of scope for this design, and **no property of it is claimed here**.
+
 ## 5. Summary: what we claim, precisely
 
 | Property | ZUULI (native) | Web (WASM) |
