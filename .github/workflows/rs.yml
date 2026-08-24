@@ -67,15 +67,18 @@ jobs:
           node scripts/check-workflow-gates.mjs
 
       # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
-      # wallet/rust-toolchain.toml. Registering them here is what holds them to
-      # it; without the flags they would be a second, unpoliced source of truth.
+      # wallet/rust-toolchain.toml, and are registered in the script's own
+      # TOOLCHAIN_RESTATEMENTS/MANIFESTS arrays rather than by flags here. A
+      # flag in one workflow is not a registration: the bare invocation the
+      # required zuuli gate runs passes no flags, so anything registered only
+      # here would be unpoliced there. Registering in the script instead means
+      # its census — which enumerates every tracked manifest and toolchain file
+      # and fails on any that is unregistered — covers this tree from both
+      # workflows. See #553.
       - name: Verify the Rust toolchain pin has not drifted
         run: |
           scripts/check-rust-toolchain.sh --self-test
-          scripts/check-rust-toolchain.sh \
-            --toolchain-file rs/rust-toolchain.toml \
-            --manifest rs/crates/f2z-codec/Cargo.toml \
-            --manifest rs/crates/f2z-relay-proto/Cargo.toml
+          scripts/check-rust-toolchain.sh
 
       - name: Detect changes under rs/
         id: filter

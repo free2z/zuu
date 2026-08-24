@@ -174,9 +174,11 @@ integrate, and move it forward alongside everything else.
   librustzcash `main` + refreshed crates, so upstream drift surfaces as an early
   warning **before** we bump the submodule in a PR.
 - **`scripts/check-rust-toolchain.sh`** proves every Rust toolchain pin still
-  agrees with `wallet/rust-toolchain.toml`. The `wallet/zuuli` gate runs it on
-  every pull request, so a half-finished bump fails in review instead of in a
-  protected store release. See below.
+  agrees with `wallet/rust-toolchain.toml`, and — since #553 — that **every**
+  tracked `Cargo.toml` and `rust-toolchain.toml` outside `z/` is registered with
+  it, so a crate cannot escape the MSRV check by never being registered. The
+  `wallet/zuuli` gate runs it on every pull request, so a half-finished bump
+  fails in review instead of in a protected store release. See below.
 - **`scripts/check-rust-fmt.sh`**, **`scripts/check-rust-clippy.sh`** and
   **`scripts/check-rust-deny.sh`** hold every Rust crate under `wallet/` to
   rustfmt, `clippy -D warnings`, and the `wallet/deny.toml` supply-chain policy.
@@ -233,9 +235,21 @@ read a TOML file at the moment they need the value:
 A second top-level Rust tree does not get a decision of its own either. It needs
 its own `rust-toolchain.toml`, because Cargo picks the toolchain from the
 directory it runs in, and its crates carry their own `rust-version` — both are
-restatements. Register them with `scripts/check-rust-toolchain.sh
---toolchain-file <path>` and `--manifest <path>` and they are held to
-`wallet/rust-toolchain.toml` exactly like every row above.
+restatements. Register them in `scripts/check-rust-toolchain.sh`'s
+`TOOLCHAIN_RESTATEMENTS` and `MANIFESTS` arrays and they are held to
+`wallet/rust-toolchain.toml` exactly like every row above. (`--toolchain-file`
+and `--manifest` still register a path ad hoc for a local run, but a flag in one
+workflow is **not** a registration: the bare invocation the required gate runs
+passes no flags.)
+
+**Registration is enforced, not remembered.** The same script's **census**
+enumerates every `Cargo.toml` and `rust-toolchain.toml` git tracks outside `z/`
+and fails, naming the file, on any that declares `[package]` — or restates the
+toolchain — and is registered nowhere. Before that existed, an unregistered
+crate was simply invisible to the check and shipped with a wrong MSRV, or none,
+behind a green check identical to a registered crate's; it held only because
+people remembered (#553). A virtual workspace root is excused because it
+declares no `[package]`, recognised structurally rather than by a path list.
 
 The `wallet/zuuli` gate reads the channel out of the file (`--print-channel`) and
 feeds it to the toolchain action, so the required CI jobs hold **no literal at
