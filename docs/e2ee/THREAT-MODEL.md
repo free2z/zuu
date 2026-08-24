@@ -96,7 +96,9 @@ data it stores or relays.
 > [ADR 0013](./decisions/0013-key-transparency-log.md), the log is `akd`, whose
 > append-only proof is **O(entries added), not O(log n)** — 3.9 MB and 1–3
 > seconds for five epochs. A client verifies **inclusion**, **non-membership**
-> and **its own key history**, cheaply, against a root it has checked is signed
+> — of a *stale version* for a handle that is in the tree, and **not** of an
+> unregistered handle, which cannot be proved at all (§4.11) — and **its own key
+> history**, cheaply, against a root it has checked is signed
 > by the log and cosigned by *t* of its own configured witnesses. **Append-only
 > consistency is verified by witnesses only**, which is what the role is for
 > ([`ARCHITECTURE.md` §9.2](./ARCHITECTURE.md#92-the-directory), corrected;
@@ -166,6 +168,11 @@ data it stores or relays.
   message arrives to dangle a parent hash, is not detectable by the hash-link
   mechanism. Heartbeats carrying the sender's DAG head narrow the window; a full
   partition remains indistinguishable from the peer being offline.
+- **Denying that a handle exists.** The log can answer a lookup for a registered
+  handle with "not registered", and no client can check it: `akd` 0.13 produces
+  no proof of absence, so the answer is an assertion labelled as one
+  ([`KT.md` §8.1](./KT.md#81-lookup)'s correction). The label is what a client
+  gets instead of a defense. See §4.11.
 - **Directory lookup metadata.** See §4.1.
 - **Serving malicious JavaScript to the web client.** See §3.6. This is the big
   one, and it is not fixable at the protocol layer.
@@ -653,6 +660,67 @@ correction, the evidence and the intended end state (a database-level
 open question is
 [`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions).
 
+### 4.11 An unregistered handle is asserted, not proved
+
+**Added 2026-08-24.** [`KT.md` §8.1](./KT.md#81-lookup) and
+[§9.5](./KT.md#95-error-codes) require the directory to *prove* that a handle is
+unregistered — *"'No such user' is a claim the log must prove"* — and deliberately
+give the log no unknown-handle error code so it cannot dodge the requirement with
+a status line. **`akd` 0.13 cannot produce that proof.** `Directory::lookup`
+errors for a label with no user state, and the `NonMembershipProof` inside a
+`LookupProof` proves that a returned version is the current one for a label that
+*is* in the tree — a different statement. So a v1 log answers "not registered"
+with an **assertion**, which `KT.md` now requires to be **labelled unproved on
+the wire** ([#634](https://github.com/free2z/zuu/issues/634)).
+
+**What the adversary gets.** A log that can assert absence without proving it can
+deny that a user exists, and be indistinguishable from a log that is telling the
+truth. That is the withholding attack the rest of the construction exists to
+bound, arriving at the one point where the bound is missing. Concretely, a
+coerced or compromised log can make `@alice` unreachable to everyone who has not
+already resolved her — silently, per-victim, and with no artifact anyone can
+publish afterwards, because the log signs tree heads and not lookup responses.
+The absent answer is **not even non-repudiable**: a victim cannot prove they were
+told it.
+
+**What bounds it.** Three things, and none of them is the proof:
+
+- **The label.** A client is told, in the answer, that it received an assertion
+  rather than a proof, so a downgrade is *visible in the response* instead of
+  inferred from its absence. That is the whole of what §8.1's correction buys,
+  and it is worth having: the alternative is a client that believes it verified
+  something.
+- **Scope.** It is an attack on **discovery**, not on an established
+  conversation. A handle a client has already resolved and pinned is unaffected —
+  the pin holds, and §8.1 forbids an absent answer from weakening it. A client
+  told that a handle it holds a pin for does not exist MUST fail closed and
+  alarm.
+- **It is loud if used broadly.** Denying a handle to many clients is a
+  reputational and observable event as soon as two users compare notes out of
+  band; it is quiet only against a target who never compares.
+
+**What does not bound it: gossip and witnesses.** Both operate over tree heads
+and roots. An absent answer contradicts no root — the log is not equivocating
+about what is in the tree, it is declining to say — so §7's fault reports and
+§8.4's gossip have nothing to exchange.
+
+**The knock-on, because it is not obvious.** A `SubmissionReceipt` for a handle's
+**first** entry cannot be turned into portable evidence of a missed merge
+deadline either, for the same reason: the second half of that demonstration is a
+proof that the entry is absent
+([`KT.md` §5.3](./KT.md#53-the-submission-receipt)'s correction). For
+`entry_version >= 2` a complete key-history proof supplies it and the evidence is
+self-contained.
+
+**Whether this is permanent.** It is a limit of the adopted library, not of the
+construction — a sparse Patricia tree over VRF-derived labels *can* prove a label
+absent; `akd` has no API that asks. The upstream capability that would close it
+is named in [`KT.md` §11.5](./KT.md#115-what-akd-013-cannot-do-and-what-upstream-would-have-to-add),
+and the question is open as
+[`ARCHITECTURE.md` §13-T](./ARCHITECTURE.md#13-open-questions). Until it closes,
+this is a **No** row in §5 and must appear in user-facing documentation like every
+other entry in this section.
+
 ## 5. Summary: what we claim, precisely
 
 **Every entry below is scoped by the section it cites, and the scope is part of
@@ -667,6 +735,7 @@ section's narrower reading is the one intended.
 | Server cannot read content | **Yes**, unconditionally | **Only if the served bundle is honest** (§3.6) |
 | Server cannot forge messages | **Yes** | Same caveat |
 | Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's three corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, what authorizes the first one is undecided ([`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry)) and this row claims nothing. | Same caveat |
+| Server cannot deny that a handle exists | **No** (§4.11) — `akd` 0.13 cannot prove non-membership for an unregistered label, so absence is an assertion the log makes and the client is told is unproved. It cannot weaken a pin a client already holds. | Same |
 | Server cannot MITM WebRTC | **Yes** — in-band fingerprints | Same caveat |
 | Forward secrecy | **Yes** — MLS epochs | Yes, same caveat |
 | Post-compromise security | **Yes** — MLS Updates | Yes, same caveat |
