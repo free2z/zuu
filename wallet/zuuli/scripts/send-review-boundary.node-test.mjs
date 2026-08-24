@@ -2,6 +2,109 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+function rustCodeOnly(source) {
+  let output = "";
+  let state = "code";
+  let blockDepth = 0;
+  let rawTerminator = "";
+
+  const charLiteralLength = (offset) => {
+    if (source[offset] !== "'") return 0;
+    let cursor = offset + 1;
+    if (source[cursor] === "\\") {
+      cursor += 1;
+      if (source[cursor] === "u" && source[cursor + 1] === "{") {
+        const close = source.indexOf("}", cursor + 2);
+        if (close < 0) return 0;
+        cursor = close + 1;
+      } else if (source[cursor] === "x") {
+        cursor += 3;
+      } else {
+        cursor += 1;
+      }
+    } else {
+      cursor += 1;
+    }
+    return source[cursor] === "'" ? cursor - offset + 1 : 0;
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+
+    if (state === "line-comment") {
+      output += current === "\n" ? "\n" : " ";
+      if (current === "\n") state = "code";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (current === "/" && next === "*") {
+        blockDepth += 1;
+        output += "  ";
+        index += 1;
+      } else if (current === "*" && next === "/") {
+        blockDepth -= 1;
+        output += "  ";
+        index += 1;
+        if (blockDepth === 0) state = "code";
+      } else {
+        output += current === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+    if (state === "string") {
+      output += current === "\n" ? "\n" : " ";
+      if (current === "\\" && next !== undefined) {
+        output += next === "\n" ? "\n" : " ";
+        index += 1;
+      } else if (current === '"') {
+        state = "code";
+      }
+      continue;
+    }
+    if (state === "raw-string") {
+      if (source.startsWith(rawTerminator, index)) {
+        output += " ".repeat(rawTerminator.length);
+        index += rawTerminator.length - 1;
+        state = "code";
+      } else {
+        output += current === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    const charLength = charLiteralLength(index);
+    const rawStart = source
+      .slice(index)
+      .match(/^(?:br|cr|r)(#{0,255})"/);
+    if (charLength > 0) {
+      output += " ".repeat(charLength);
+      index += charLength - 1;
+    } else if (rawStart) {
+      rawTerminator = `"${rawStart[1]}`;
+      output += " ".repeat(rawStart[0].length);
+      index += rawStart[0].length - 1;
+      state = "raw-string";
+    } else if (current === "/" && next === "/") {
+      output += "  ";
+      index += 1;
+      state = "line-comment";
+    } else if (current === "/" && next === "*") {
+      output += "  ";
+      index += 1;
+      blockDepth = 1;
+      state = "block-comment";
+    } else if (current === '"') {
+      output += " ";
+      state = "string";
+    } else {
+      output += current;
+    }
+  }
+
+  return output;
+}
+
 const [
   send,
   bridge,
@@ -35,6 +138,45 @@ const [
     "../zuuallet/src-tauri/src/lib.rs",
   ].map((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8")),
 );
+
+test("Rust routing scan ignores comments and literals without hiding live code", () => {
+  const route = "propose_fixed_native_send(";
+  const hidden = [
+    ["line comment", `// ${route}\nlet live = true;`],
+    ["block comment", `/* ${route} */ let live = true;`],
+    ["nested block comment", `/* outer /* nested */ ${route} */ let live = true;`],
+    ["normal string", `let marker = "${route}";`],
+    ["byte string", `let marker = b"${route}";`],
+    ["escaped quote in string", String.raw`let marker = "escaped \" ${route}";`],
+    ["raw string with an embedded quote", `let marker = r#"embedded " ${route}"#;`],
+    ["byte raw string", `let marker = br##"embedded "# ${route}"##;`],
+  ];
+  for (const [name, source] of hidden) {
+    assert.equal(
+      rustCodeOnly(source).includes(route),
+      false,
+      `${name} cannot forge a native proposal route`,
+    );
+  }
+
+  const visible = [
+    ["ordinary code", `${route});`],
+    ["line comment termination", `// noise\n${route});`],
+    ["block comment termination", `/* noise */ ${route});`],
+    ["raw string termination", `let noise = r#"embedded " quote"#; ${route});`],
+    ["comment markers inside a string", `let noise = "// /*"; ${route});`],
+    ["double quote character literal", `let quote = b'"'; ${route});`],
+    ["apostrophe character literal", String.raw`let quote = '\''; ${route});`],
+    ["lifetime", `fn borrow<'a>(value: &'a str) { ${route}); }`],
+  ];
+  for (const [name, source] of visible) {
+    assert.equal(
+      rustCodeOnly(source).includes(route),
+      true,
+      `${name} must leave a real native proposal route visible`,
+    );
+  }
+});
 
 test("confirmation renders only the immutable native review", () => {
   assert.match(send, /proposal\.review\.payments/);
@@ -192,6 +334,7 @@ test("every stale UI path has an exact native discard boundary", () => {
 });
 
 test("ZIP-321 parsing is single-payment and bound to native network authority", () => {
+  const nativeSendCode = rustCodeOnly(nativeSend);
   const parseCommand = nativeCommands.match(
     /pub\(crate\) async fn parse_payment_uri[\s\S]*?(?=\n\/\/\/|\n#\[command\])/,
   )?.[0];
@@ -208,15 +351,29 @@ test("ZIP-321 parsing is single-payment and bound to native network authority", 
   assert.match(nativeSend, /zip321_requires_exactly_one_payment/);
   assert.match(nativeSend, /zip321_recipient_is_bound_to_the_active_network/);
   assert.match(nativeSend, /unified_address_requires_a_receiver_this_wallet_can_pay/);
-  for (const functionName of ["propose_send", "propose_send_all"]) {
-    const proposalFunction = nativeSend.match(
+  for (const [functionName, nativeProposalBoundary] of [
+    ["propose_send", "propose_fixed_native_send("],
+    ["propose_send_all", "propose_send_all_native_attempt("],
+  ]) {
+    const proposalFunction = nativeSendCode.match(
       new RegExp(`pub async fn ${functionName}\\([\\s\\S]*?(?=\\npub async fn )`),
     )?.[0];
     assert.ok(proposalFunction, `${functionName} must remain inspectable`);
     const validationIndex = proposalFunction.indexOf("parse_recipient(&state.network");
-    const proposalIndex = proposalFunction.indexOf("propose_transfer::<");
+    const proposalIndex = proposalFunction.indexOf(nativeProposalBoundary);
     assert.notEqual(validationIndex, -1, `${functionName} must validate its recipient`);
     assert.notEqual(proposalIndex, -1, `${functionName} must build a native proposal`);
+    for (const lowerLevelBoundary of [
+      "propose_native_send_with_policy(",
+      "propose_native_send(",
+      "propose_transfer::<",
+    ]) {
+      assert.equal(
+        proposalFunction.indexOf(lowerLevelBoundary),
+        -1,
+        `${functionName} must not bypass its dedicated native proposal boundary`,
+      );
+    }
     assert.ok(
       validationIndex < proposalIndex,
       `${functionName} must reject incompatible recipients before native proposal`,
