@@ -100,6 +100,9 @@
 // as the tests that use them.
 #![cfg_attr(test, allow(clippy::missing_panics_doc, clippy::missing_errors_doc))]
 
+/// `KT.md` §9.2's request and response envelopes — see the module note for why
+/// they live in the shared crate rather than in the server.
+pub mod api;
 pub mod cosign;
 pub mod descriptor;
 pub mod entry;
@@ -120,6 +123,10 @@ pub mod verify;
 #[cfg(test)]
 mod testing;
 
+pub use api::{
+    AuditResponse, ErrorBody, HistoryRequest, HistoryResponse, LookupRequest, LookupResponse,
+    Presence, SubmissionEnvelope, TreeHeadBundle,
+};
 pub use cosign::{WitnessCosignature, WitnessCosignatureTBS};
 pub use descriptor::{LogDescriptor, SignedLogDescriptor};
 pub use entry::{

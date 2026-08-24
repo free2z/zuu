@@ -1,5 +1,11 @@
 //! The request and response envelopes of `KT.md` §9.2.
 //!
+//! **In this crate rather than in the server, on §11.4's reasoning.** `KT.md`
+//! §11.4 is explicit that the log, the witness and the client link *one* crate,
+//! and these composites are exactly the kind of thing that must not have two
+//! implementations: a witness that decoded a tree-head bundle differently from
+//! the log that encoded it would cosign a root it did not actually read.
+//!
 //! §9.2 fixes the **paths, the methods and what each carries**; it does not
 //! give a byte layout for the composites ("`DirectoryEntry` + `LookupProof` +
 //! tree head + cosignatures"). These are those composites, in the TLS
@@ -14,7 +20,7 @@
 //! **same** `tls_codec` bytes, base64url-encoded, and a client verifies those
 //! bytes. Nothing is ever signed over a JSON rendering, nothing is ever
 //! reconstructed from JSON fields, and a JSON body that disagreed with its
-//! embedded bytes would change no signature's verdict. See [`crate::json`].
+//! embedded bytes would change no signature's verdict. See the log server's `json` module.
 //!
 //! **2. `akd`'s proof bytes are carried opaquely** (`KT.md` §9.4). They are
 //! protobuf, protobuf is not canonical, and `WIRE.md` §3.3's re-encode-equality
@@ -31,9 +37,10 @@
 
 use f2z_codec::types::{Payload, ShortBytes, Signature};
 use f2z_codec::vec::VecU24;
-use f2z_kt_core::sth::SignedTreeHead;
-use f2z_kt_core::types::{Handle, check_label, label_field};
-use f2z_kt_core::{KT_VERSION, KtError, WitnessCosignature};
+use crate::cosign::WitnessCosignature;
+use crate::sth::SignedTreeHead;
+use crate::types::{Handle, check_label, label_field};
+use crate::{KT_VERSION, KtError};
 use tls_codec::{TlsDeserializeBytes, TlsSerializeBytes, TlsSize};
 
 /// `SubmissionEnvelope`'s type tag.
@@ -85,7 +92,7 @@ pub const LABEL_ERROR: &[u8] = b"free2z/kt/v1/error";
 /// and on a no-authority log it is the whole of the check.
 ///
 /// `assertion` is empty exactly when the log has no authority
-/// ([`f2z_authority::AuthoritySet::none`]). Presenting one to a log that has no
+/// (`f2z_authority::AuthoritySet::none`). Presenting one to a log that has no
 /// authority is an error, and omitting one from a log that has an authority is
 /// an error; the log will not quietly do the other thing.
 ///
@@ -97,7 +104,7 @@ pub struct SubmissionEnvelope {
     /// `0x0001`.
     pub kt_version: u16,
     /// `tls_codec(DirectoryEntry)`, carried as bytes rather than as a decoded
-    /// structure so that [`f2z_kt_core::validate_submission`] receives **the
+    /// structure so that [`crate::validate_submission`] receives **the
     /// bytes that arrived** and applies re-encode equality itself. Decoding
     /// here and re-encoding for the validator would put a second codec between
     /// the wire and the rule, which is the parse-versus-verify gap `WIRE.md`
@@ -177,7 +184,7 @@ pub struct TreeHeadBundle {
     /// Every cosignature the log holds for exactly this
     /// `(log_id, epoch, tree_size, root_hash)`. The log does not filter by any
     /// client's witness set — it cannot know one — and a client applies
-    /// [`f2z_kt_core::verify_threshold`] against **its own** set.
+    /// [`crate::verify_threshold`] against **its own** set.
     pub cosignatures: VecU24<WitnessCosignature>,
 }
 
@@ -460,7 +467,7 @@ pub struct AuditResponse {
     /// `akd`'s `AppendOnlyProof`, protobuf, opaque (§9.4).
     pub proof: Payload,
     /// Every head from `from` to `to` inclusive, in ascending epoch order —
-    /// exactly the slice [`f2z_kt_core::auditor::verify_append_only`] wants,
+    /// exactly the slice `crate::auditor::verify_append_only` wants,
     /// with the already-accepted head at position 0.
     pub heads: VecU24<SignedTreeHead>,
 }
@@ -514,11 +521,14 @@ impl ErrorBody {
 mod tests {
     use f2z_codec::Canonical as _;
     use f2z_codec::types::Signature;
-    use f2z_kt_core::types::Handle;
 
     use super::{
         ErrorBody, HistoryRequest, LookupRequest, LookupResponse, Presence, SubmissionEnvelope,
+        TreeHeadBundle,
     };
+    use crate::KT_VERSION;
+    use crate::sth::{SignedTreeHead, SignedTreeHeadTBS};
+    use crate::types::{Handle, label_field};
 
     #[test]
     fn every_envelope_round_trips_canonically() {
@@ -580,10 +590,31 @@ mod tests {
         // The shape check exists so that a client cannot be handed
         // `presence = Present` with nothing to verify and quietly treat the
         // handle as resolved.
-        let bundle = crate::testing::empty_bundle();
+        let bundle = TreeHeadBundle::new(
+            SignedTreeHead {
+                sth: SignedTreeHeadTBS {
+                    label: label_field(crate::labels::LABEL_STH).unwrap(),
+                    kt_version: KT_VERSION,
+                    log_id: crate::types::LogId::zero(),
+                    epoch: 1,
+                    tree_size: 1,
+                    root_hash: f2z_codec::types::Digest::zero(),
+                    prev_sth_hash: f2z_codec::types::Digest::zero(),
+                    vrf_public_key: f2z_codec::types::PublicKey::zero(),
+                    published_at_ms: 1,
+                    reset_count: 0,
+                    epoch_interval_seconds: 600,
+                    max_merge_delay_seconds: 3_600,
+                    successor_log_pk: f2z_codec::types::PublicKey::zero(),
+                },
+                signature: Signature::zero(),
+            },
+            Vec::new(),
+        )
+        .unwrap();
         let mut response = LookupResponse {
-            label: f2z_kt_core::types::label_field(super::LABEL_LOOKUP_RESPONSE).unwrap(),
-            kt_version: f2z_kt_core::KT_VERSION,
+            label: label_field(super::LABEL_LOOKUP_RESPONSE).unwrap(),
+            kt_version: KT_VERSION,
             presence: Presence::Present.code(),
             entry: f2z_codec::types::Payload::new(Vec::new()).unwrap(),
             proof: f2z_codec::types::Payload::new(Vec::new()).unwrap(),

@@ -33,7 +33,7 @@ use f2z_kt_core::entry::{
 use f2z_kt_core::types::{Handle, KemPublicKey, LogId, label_field};
 use f2z_kt_core::{KT_VERSION, labels};
 
-use crate::wire::{SubmissionEnvelope, TreeHeadBundle};
+use f2z_kt_core::api::{SubmissionEnvelope, TreeHeadBundle};
 
 /// A unique scratch directory under the OS temporary directory.
 ///

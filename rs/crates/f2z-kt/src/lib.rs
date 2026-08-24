@@ -80,7 +80,10 @@ pub mod server;
 pub mod signer;
 pub mod store;
 pub mod vrf;
-pub mod wire;
+
+/// `KT.md` §9.2's envelopes, re-exported from the crate the log, the witness
+/// and the client all link (§11.4). One implementation, three consumers.
+pub use f2z_kt_core::api as wire;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -91,7 +94,7 @@ pub use error::{LogError, Result};
 pub use log::LogService;
 pub use policy::{SignedAuthorityPolicy, sign_policy};
 pub use signer::{FileSigner, LogSigner};
-pub use wire::{Presence, SubmissionEnvelope, TreeHeadBundle};
+pub use f2z_kt_core::api::{Presence, SubmissionEnvelope, TreeHeadBundle};
 
 /// The wall clock, in milliseconds since the Unix epoch.
 ///
