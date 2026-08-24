@@ -482,6 +482,7 @@ jobs:
         run: >-
           cargo test --locked
           --all-targets
+          --features production-route-probe
           --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
   rust_plugin:
@@ -536,7 +537,7 @@ jobs:
           key: zuuli-plugin
 
       - name: Build and test shared Zcash plugin
-        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+        run: cargo test --locked --all-targets --features production-route-probe --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
   # PR packaging builds only arm64 Android. Keep one cheap 32-bit type-check in
   # the required gate because libc's Android ABI types can differ on armv7; the

@@ -156,12 +156,25 @@ integrate, and move it forward alongside everything else.
   typecheck+build; Rust `cargo build` of the Tauri backend through the
   librustzcash path deps) on every change to the app, its deps, or the
   `z/zcash/librustzcash` submodule pointer. If a bump breaks us, CI says so.
-- **`scripts/check-librustzcash-compat.mjs` is a source-text change detector,
-  not send-path behavioural coverage.** It pins the reviewed librustzcash
+- **`scripts/check-librustzcash-compat.mjs` is a source-identity change detector,
+  not a transaction oracle.** It pins the reviewed librustzcash
   gitlink, the exact versions of 11 Zcash packages in each of the 3 shipping
   lockfiles that contain that graph, and the API-adaptation source shapes that
-  accompanied the pin. It does not compile or exercise a transaction; the
-  money-affecting behavioural coverage remains tracked in **#547**. To bump
+  accompanied the pin. It also keeps production orchestration compiler-bound
+  to the private native send routes, but it does not prove their behavior.
+  Money-affecting coverage lives in the Rust tests, including
+  `ordinary_values_cross_stateful_shipping_callers_and_exact_recovery_bytes`,
+  an integration test that compiles the plugin library without `cfg(test)` and
+  exercises ordinary fixed-send, send-all, and transaction-creation values
+  through the exact generic stateful production callers. It also proves the
+  returned retry bytes exactly equal the independently re-serialized persisted
+  transaction, rather than merely checking that both artifacts exist. Required
+  plugin test jobs enable its CI-only `production-route-probe` feature; default
+  shipping builds expose none of the private caller authority. The same checker
+  also binds each complete `WalletState` adapter body with a comment- and
+  literal-insensitive digest plus ordered transition anchors, so a feature-only
+  route, dead helper, early return, or post-helper mutation cannot leave the
+  behavior-tested private caller parked behind a green call count. To bump
   librustzcash: move the submodule to reviewed upstream HEAD, regenerate all
   three lockfiles on the pinned toolchain, and inspect the resolved graph before
   changing any expected literal. Then update the reviewed SHA/package versions,

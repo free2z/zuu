@@ -95,10 +95,11 @@ where
 }
 
 #[allow(clippy::type_complexity)]
-pub(super) fn propose_fixed<DbT, ParamsT>(
+pub(super) fn propose_fixed_validated<DbT, ParamsT>(
     db: &mut DbT,
     params: &ParamsT,
     account_id: <DbT as InputSource>::AccountId,
+    _validated_amount: u64,
     request: zip321::TransactionRequest,
 ) -> std::result::Result<
     Proposal<Zip317FeeRule, <DbT as InputSource>::NoteRef>,
@@ -113,10 +114,11 @@ where
 }
 
 #[allow(clippy::type_complexity)]
-pub(super) fn propose_send_all_attempt<DbT, ParamsT>(
+pub(super) fn propose_send_all_validated<DbT, ParamsT>(
     db: &mut DbT,
     params: &ParamsT,
     account_id: <DbT as InputSource>::AccountId,
+    _validated_amount: u64,
     request: zip321::TransactionRequest,
 ) -> std::result::Result<
     Proposal<Zip317FeeRule, <DbT as InputSource>::NoteRef>,
@@ -213,10 +215,11 @@ mod tests {
         let account_id = account.id();
         let network = *st.network();
 
-        let immature = propose_fixed(
+        let immature = propose_fixed_validated(
             st.wallet_mut(),
             &network,
             account_id,
+            FIXED_SEND_VALUE,
             payment_request(&network, &recipient, FIXED_SEND_VALUE),
         );
         assert!(
@@ -225,10 +228,11 @@ mod tests {
         );
 
         st.add_empty_blocks(9);
-        let proposal = propose_fixed(
+        let proposal = propose_fixed_validated(
             st.wallet_mut(),
             &network,
             account_id,
+            FIXED_SEND_VALUE,
             payment_request(&network, &recipient, FIXED_SEND_VALUE),
         )
         .expect("the same Orchard note must be spendable after ten confirmations");
@@ -254,10 +258,11 @@ mod tests {
             EXPECTED_FEE
         );
 
-        let send_all_proposal = propose_send_all_attempt(
+        let send_all_proposal = propose_send_all_validated(
             st.wallet_mut(),
             &network,
             account_id,
+            SEND_ALL_VALUE,
             payment_request(&network, &recipient, SEND_ALL_VALUE),
         )
         .expect("the send-all-shaped request must be proposed by the shared boundary");
