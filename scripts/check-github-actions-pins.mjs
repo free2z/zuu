@@ -183,6 +183,7 @@ const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
 ];
 const REQUIRED_FRONTEND_JOB_LINES = [
   "  frontend:",
+  "    name: zuuli / frontend",
   "    needs: changes",
   "    if: needs.changes.outputs.zuuli == 'true'",
   "    runs-on: ubuntu-latest",
@@ -2644,6 +2645,11 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle: `ZUULI selector must run the seed boundary for classic input ${input}`,
       source: source.replace(`|${input}`, ""),
     })),
+    {
+      name: "real workflow requires the unique frontend display context",
+      needle: "frontend must match the complete exact current-source execution program",
+      source: replaceFrontend("    name: zuuli / frontend\n", ""),
+    },
     {
       name: "real workflow rejects a dynamically dead frontend job",
       needle:

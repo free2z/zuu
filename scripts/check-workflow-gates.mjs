@@ -49,19 +49,16 @@
 //      future regression, so `needs ⊇ {jobs in file} − {gate}` is asserted,
 //      with an explicit per-file opt-out for jobs deliberately left outside.
 //
-//   5. PROTECTED CONTEXTS. The names branch protection actually requires get a
-//      stricter reading of both rules above. The tolerated-collision allowlist
-//      may not name one of them, so narrowing the guard to admit a duplicate
-//      `gate` fails on the allowlist edit itself rather than on the `name:`
-//      change that would follow it. And each required name must be published by
-//      exactly one job, which catches the opposite drift: a required context no
-//      workflow emits never reports at all, so PRs hang pending forever with
-//      nothing anywhere going red.
+//   5. PROTECTED AND EXPECTED CONTEXTS. Each branch-protected name must have one
+//      producer, five ambiguity fixes retain their exact reviewed display names,
+//      and the collision allowlist remains empty. The production configuration
+//      is digest-pinned independently from the workflows and fixture options.
 //
 // Usage:
 //   node scripts/check-workflow-gates.mjs             judge every workflow
 //   node scripts/check-workflow-gates.mjs --self-test negative controls first
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -110,33 +107,28 @@ const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results"];
 /// set, and the comment here is the place to record why.
 const PROTECTED_CONTEXTS = new Set(["gate", "rs / gate"]);
 
-/// Check-run names that more than one workflow is knowingly allowed to publish,
-/// mapped to the exact set of files allowed to publish them. Every entry is a
-/// documented exception, not a category: a *new* producer of one of these names
-/// still fails, because the value is the full file list rather than a wildcard.
-///
-/// Neither name below is a required status check, so neither can currently
-/// decide a merge — that is the whole reason they are tolerated rather than
-/// treated as the `gate` collision was. Renaming them is a follow-up, tracked
-/// in #567; adding to this map instead of fixing a collision needs the same.
-///
-/// "Cannot decide a merge" is not left to the reader's judgement: a key that is
-/// in `PROTECTED_CONTEXTS` is rejected outright, so this map can never be used
-/// to excuse the one collision that matters.
-const TOLERATED_CONTEXT_COLLISIONS = new Map([
-  [
-    "build",
-    [
-      ".github/workflows/docs-about-free2z.yml",
-      ".github/workflows/ts-react-free2z.yml",
-      ".github/workflows/ts-svelte-free2z.yml",
-    ],
-  ],
-  [
-    "frontend",
-    [".github/workflows/zuuallet.yml", ".github/workflows/zuuli.yml"],
-  ],
+/// Exact display contexts introduced by #567. These are a reviewed contract,
+/// not values derived from the workflow files under test: otherwise deleting a
+/// `name:` line would merely change both the input and its expected value.
+const EXPECTED_JOB_CONTEXTS = new Map([
+  [".github/workflows/docs-about-free2z.yml#build", "docs / build"],
+  [".github/workflows/ts-react-free2z.yml#build", "ts-react / build"],
+  [".github/workflows/ts-svelte-free2z.yml#build", "ts-svelte / build"],
+  [".github/workflows/zuuallet.yml#frontend", "zuuallet / frontend"],
+  [".github/workflows/zuuli.yml#frontend", "zuuli / frontend"],
 ]);
+
+/// Independently reviewed digest of the protected-context set and exact job
+/// context registry above. A change to either contract must update this second
+/// value deliberately; narrowing the expected set cannot make its own mutation
+/// tests disappear silently.
+const REQUIRED_CONTEXT_POLICY_DIGEST =
+  "cec99799db16a0b05e67a22359e9c69ed0707616ba7bbee34c4deb7cb33f3120";
+
+/// Retained as an explicit empty configuration so a future attempt to restore
+/// an exception has a direct red control. Duplicated contexts are no longer
+/// tolerable, protected or otherwise.
+const TOLERATED_CONTEXT_COLLISIONS = new Map();
 
 /// Jobs a gate is deliberately not required to await, per workflow file.
 ///
@@ -395,18 +387,73 @@ export function gateFailures(
   return failures;
 }
 
+export function contextPolicyIdentity(protectedContexts, expectedContexts) {
+  return [
+    ...[...protectedContexts]
+      .sort()
+      .map((context) => `protected\0${context}`),
+    ...[...expectedContexts]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([producer, context]) => `expected\0${producer}\0${context}`),
+  ].join("\n");
+}
+
+/// Pin the production configuration separately from the workflow scan. The
+/// self-test fixtures inject their own miniature contracts, so without this
+/// control deleting the real protected/expected set would leave every fixture
+/// green while silently blinding the live check.
+export function productionContextConfigurationFailures(
+  protectedContexts = PROTECTED_CONTEXTS,
+  expectedContexts = EXPECTED_JOB_CONTEXTS,
+  tolerated = TOLERATED_CONTEXT_COLLISIONS,
+) {
+  const failures = [];
+  if (tolerated.size !== 0) {
+    failures.push(
+      `TOLERATED_CONTEXT_COLLISIONS must remain empty, got ${tolerated.size} entr${tolerated.size === 1 ? "y" : "ies"}; give every producer a unique name instead`,
+    );
+  }
+  const digest = createHash("sha256")
+    .update(contextPolicyIdentity(protectedContexts, expectedContexts))
+    .digest("hex");
+  if (digest !== REQUIRED_CONTEXT_POLICY_DIGEST) {
+    failures.push(
+      `protected and expected status-check contexts differ from the independently reviewed registry digest: ${digest}`,
+    );
+  }
+  return failures;
+}
+
+/// Require the reviewed file#job producers to publish their exact display
+/// contexts. This complements global uniqueness: after all five collisions are
+/// fixed, deleting any one name leaves its fallback job id globally unique, so
+/// collision detection alone cannot prove that line remains present.
+export function expectedContextFailures(published, expectedContexts) {
+  const failures = [];
+  const byProducer = new Map(
+    published.map((entry) => [`${entry.file}#${entry.job}`, entry.context]),
+  );
+  for (const [producer, expected] of expectedContexts) {
+    const actual = byProducer.get(producer);
+    if (actual === expected) continue;
+    failures.push(
+      `${producer} must publish the exact status-check context ${JSON.stringify(expected)}, got ${actual === undefined ? "no job" : JSON.stringify(actual)}`,
+    );
+  }
+  return failures;
+}
+
 /// Reject two workflows answering to one check-run name.
 ///
 /// Branch protection resolves a required context by name, so a duplicated name
-/// makes *which* run satisfies the context a function of report order. The
-/// tolerated map is keyed by the exact file list, so a new producer of an
-/// already-tolerated name still fails.
+/// makes *which* run satisfies the context a function of report order. There is
+/// no exception path: every duplicate fails.
 ///
 /// Triggers are deliberately not consulted. A name that is unique only because
 /// the two workflows happen to run on different events stops being unique the
 /// moment someone adds `pull_request:` to one of them, which is a one-line edit
 /// nobody would think of as touching branch protection.
-export function contextCollisionFailures(published, tolerated) {
+export function contextCollisionFailures(published) {
   const failures = [];
   const byContext = new Map();
   for (const entry of published) {
@@ -418,34 +465,10 @@ export function contextCollisionFailures(published, tolerated) {
   )) {
     if (entries.length < 2) continue;
     const producers = [...new Set(entries.map((entry) => entry.file))].sort();
-    const allowed = tolerated.get(context);
-    if (allowed && [...allowed].sort().join("\0") === producers.join("\0")) {
-      continue;
-    }
     failures.push(
       `${producers.join(", ")}: ${entries.length} job(s) publish the status-check context "${context}" ` +
         `(${entries.map((entry) => `${entry.file}#${entry.job}`).join(", ")}); ` +
         "branch protection matches contexts by name, so a duplicate resolves by report order rather than policy",
-    );
-  }
-  return failures;
-}
-
-/// Reject an allowlist entry that covers a context branch protection requires.
-///
-/// This is a check on the checker's own configuration rather than on the tree,
-/// so it fails with no workflow needing to be wrong yet. That is the point:
-/// silencing the protected `gate` collision takes two edits — the allowlist
-/// entry and then the `name:` removal — and this makes the first one red, so
-/// the second is never reached and the tree is never briefly ambiguous.
-export function protectedToleranceFailures(tolerated, protectedContexts) {
-  const failures = [];
-  for (const context of [...tolerated.keys()].sort()) {
-    if (!protectedContexts.has(context)) continue;
-    failures.push(
-      `TOLERATED_CONTEXT_COLLISIONS names "${context}", which branch protection requires: ` +
-        "a duplicate producer of a required context resolves by report order rather than policy, " +
-        "so it can never be tolerated — remove the entry and give the colliding job a distinct name:",
     );
   }
   return failures;
@@ -482,8 +505,11 @@ export function protectedProducerFailures(published, protectedContexts) {
 }
 
 export function scanRepository(root, options = {}) {
-  const tolerated = options.tolerated ?? TOLERATED_CONTEXT_COLLISIONS;
   const protectedContexts = options.protectedContexts ?? PROTECTED_CONTEXTS;
+  const expectedContexts = options.expectedContexts ?? EXPECTED_JOB_CONTEXTS;
+  const tolerated = options.tolerated ?? TOLERATED_CONTEXT_COLLISIONS;
+  const enforceProductionConfiguration =
+    options.enforceProductionConfiguration ?? true;
   const exemptions = options.exempt ?? GATE_EXEMPT_JOBS;
   const failures = [];
   const published = [];
@@ -509,8 +535,17 @@ export function scanRepository(root, options = {}) {
       failures.push(...gateFailures(relativeFile, lines, job, siblings, exempt));
     }
   }
-  failures.push(...protectedToleranceFailures(tolerated, protectedContexts));
-  failures.push(...contextCollisionFailures(published, tolerated));
+  if (enforceProductionConfiguration) {
+    failures.push(
+      ...productionContextConfigurationFailures(
+        protectedContexts,
+        expectedContexts,
+        tolerated,
+      ),
+    );
+  }
+  failures.push(...expectedContextFailures(published, expectedContexts));
+  failures.push(...contextCollisionFailures(published));
   failures.push(...protectedProducerFailures(published, protectedContexts));
   return { failures, gates, files: files.length, contexts: published.length };
 }
@@ -654,14 +689,15 @@ function withFixture(contents, body) {
 }
 
 /// Fixtures are judged against fixture configuration, never the repository's
-/// live constants: the fixtures publish `gate` and not `rs / gate`, and an
-/// allowlist entry added for a real workflow must not change what a self-test
-/// case means. `gate` is protected unless a case says otherwise, so the
-/// exactly-one-producer rule is exercised by every case and not only by its own.
+/// live constants: the fixtures publish `gate` and not `rs / gate`, and do not
+/// contain the five production display-name contracts. `gate` is protected
+/// unless a case says otherwise, so the exactly-one-producer rule is exercised
+/// by every case and not only by its own.
 function fixtureOptions(options) {
   return {
     protectedContexts: new Set(["gate"]),
-    tolerated: new Map(),
+    expectedContexts: new Map(),
+    enforceProductionConfiguration: false,
     ...options,
   };
 }
@@ -695,7 +731,53 @@ function expectDetected(label, contents, pattern, options = {}) {
   console.log(`self-test: ${label} is detected.`);
 }
 
+function expectConfigurationDetected(label, overrides, pattern) {
+  const failures = productionContextConfigurationFailures(
+    overrides.protectedContexts ?? PROTECTED_CONTEXTS,
+    overrides.expectedContexts ?? EXPECTED_JOB_CONTEXTS,
+    overrides.tolerated ?? TOLERATED_CONTEXT_COLLISIONS,
+  );
+  const joined = failures.join("; ");
+  if (!pattern.test(joined)) {
+    throw new Error(
+      `self-test FAILED: ${label} was not detected. Failures: ${joined || "(none)"}`,
+    );
+  }
+  console.log(`self-test: ${label} is detected.`);
+}
+
 function selfTest() {
+  const productionConfigurationFailures =
+    productionContextConfigurationFailures();
+  if (productionConfigurationFailures.length) {
+    throw new Error(
+      `self-test FAILED: production context configuration is not a valid mutation base: ${productionConfigurationFailures.join("; ")}`,
+    );
+  }
+  console.log("self-test: production context configuration passes.");
+
+  // Exercise the production-configuration verdict through the live repository
+  // scan, rather than only testing the helper in isolation. Deleting or
+  // hard-coding that scan invocation must make this deliberately incomplete
+  // protected-context policy disappear and therefore fail the assertion.
+  const invalidProductionScan = scanRepository(REPO_ROOT, {
+    protectedContexts: new Set(["gate"]),
+  });
+  const productionScanDiagnostic =
+    /protected and expected status-check contexts differ from the independently reviewed registry digest/;
+  if (
+    !invalidProductionScan.failures.some((failure) =>
+      productionScanDiagnostic.test(failure),
+    )
+  ) {
+    throw new Error(
+      `self-test FAILED: the live repository scan did not enforce its injected production context configuration. Failures: ${invalidProductionScan.failures.join("; ") || "(none)"}`,
+    );
+  }
+  console.log(
+    "self-test: the live repository scan enforces injected production context configuration.",
+  );
+
   expectClean("an explicitly wired gate", EXPLICIT_GATE);
   expectClean("an exhaustively wired gate", EXHAUSTIVE_GATE);
 
@@ -789,53 +871,86 @@ function selfTest() {
     { "fixture.yml": EXPLICIT_GATE, "other.yml": NAMED_GATE },
     { gates: 2 },
   );
-  // The tolerated map is keyed by the exact producing files, not by the name,
-  // so a third producer of a knowingly-duplicated name is still a failure.
   expectDetected(
-    "a third producer of a tolerated duplicate context",
+    "a third producer of a duplicate context",
     {
       "fixture.yml": EXPLICIT_GATE,
       "other.yml": EXPLICIT_GATE,
       "third.yml": EXPLICIT_GATE,
     },
     /3 job\(s\) publish the status-check context "gate"/,
-    {
-      tolerated: new Map([
-        [
-          "gate",
-          [".github/workflows/fixture.yml", ".github/workflows/other.yml"],
-        ],
-      ]),
-    },
   );
 
-  // Protected contexts. The allowlist may not name one, and the failure must
-  // land on a tree where *nothing* collides yet: the whole point is that the
-  // allowlist edit alone is red, before the `name:` removal it would enable.
-  expectDetected(
-    "a protected context added to the tolerated-collision allowlist",
-    EXPLICIT_GATE,
-    /TOLERATED_CONTEXT_COLLISIONS names "gate", which branch protection requires/,
+  // Production configuration is independently pinned. Fixture self-tests use
+  // injected miniature sets, so mutate the real sets here as their own guards.
+  expectConfigurationDetected(
+    "a nonempty tolerated-collision map",
     {
       tolerated: new Map([
         [
-          "gate",
-          [".github/workflows/fixture.yml", ".github/workflows/other.yml"],
+          "build",
+          [".github/workflows/one.yml", ".github/workflows/two.yml"],
         ],
       ]),
     },
+    /TOLERATED_CONTEXT_COLLISIONS must remain empty/,
   );
-  // And the rule is about *which* name is on the allowlist, not about the
-  // allowlist existing: an entry for an unprotected context still passes.
-  expectClean(
-    "a tolerated collision on a context that is not protected",
-    EXPLICIT_GATE,
+  expectConfigurationDetected(
+    "the production protected-context set is emptied",
     {
-      tolerated: new Map([
-        ["build", [".github/workflows/one.yml", ".github/workflows/two.yml"]],
-      ]),
+      protectedContexts: new Set(),
     },
+    /differ from the independently reviewed registry digest/,
   );
+  expectConfigurationDetected(
+    "the production expected-context registry is emptied",
+    {
+      expectedContexts: new Map(),
+    },
+    /differ from the independently reviewed registry digest/,
+  );
+
+  // Exercise the actual five live workflow contracts, with expectations read
+  // only from the independent registry above. Global collision detection is
+  // insufficient here: deleting one of the now-unique names leaves its fallback
+  // job id unique, so both deletion and alteration need their own red controls.
+  const currentWorkflows = Object.fromEntries(
+    workflowFiles(REPO_ROOT).map((file) => [
+      path.basename(file),
+      fs.readFileSync(file, "utf8"),
+    ]),
+  );
+  for (const [producer, expected] of EXPECTED_JOB_CONTEXTS) {
+    const [relativeFile] = producer.split("#");
+    const filename = path.basename(relativeFile);
+    const source = currentWorkflows[filename];
+    const needle = `    name: ${expected}\n`;
+    const occurrences = source?.split(needle).length - 1;
+    if (occurrences !== 1) {
+      throw new Error(
+        `self-test FAILED: ${producer} expected exactly one ${JSON.stringify(needle)}, got ${occurrences}`,
+      );
+    }
+    for (const [mutation, replacement] of [
+      ["deletion", ""],
+      ["alteration", `    name: ${expected} mutant\n`],
+    ]) {
+      const contents = {
+        ...currentWorkflows,
+        [filename]: source.replace(needle, replacement),
+      };
+      const result = withFixture(contents, (root) => scanRepository(root));
+      const diagnostic = `${producer} must publish the exact status-check context`;
+      if (!result.failures.some((failure) => failure.includes(diagnostic))) {
+        throw new Error(
+          `self-test FAILED: ${producer} name ${mutation} was not detected. Failures: ${result.failures.join("; ") || "(none)"}`,
+        );
+      }
+      console.log(
+        `self-test: ${producer} name ${mutation} is detected.`,
+      );
+    }
+  }
 
   // The reverse drift: branch protection requiring a name no job publishes.
   // Both fixtures are well-formed, and with both names protected the tree is
@@ -860,7 +975,7 @@ function selfTest() {
     /requires the status-check context "gate", which 2 jobs publish/,
   );
 
-  console.log("check-workflow-gates self-test: 20 case(s) passed.");
+  console.log("check-workflow-gates self-test: 33 case(s) passed.");
 }
 
 const mode = process.argv[2];
