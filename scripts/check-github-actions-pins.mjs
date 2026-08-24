@@ -1040,9 +1040,11 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
       "Recheck immutable actions and fail-closed required jobs" ||
     policy.properties.get("id")?.value !== "policy" ||
     policy.properties.get("run")?.value !== "|" ||
-    policyCommands.length !== 2 ||
+    policyCommands.length !== 4 ||
     policyCommands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
-    policyCommands[1] !== GATE_POLICY_COMMAND
+    policyCommands[1] !== GATE_POLICY_COMMAND ||
+    policyCommands[2] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
+    policyCommands[3] !== WORKFLOW_GATES_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: gate policy recheck must be exact, unconditional, and non-soft-failing`,
@@ -2148,6 +2150,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+    `          ${WORKFLOW_GATES_COMMAND}`,
     "",
   ].join("\n");
   const verdictName =
@@ -2381,6 +2385,108 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         source,
         `          ${GATE_POLICY_SELF_TEST_COMMAND}\n`,
         "",
+      ),
+    },
+    {
+      name: "real workflow rejects a missing gate workflow-policy self-test",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n`,
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a missing gate workflow-policy verdict",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_COMMAND}\n`,
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a reordered gate workflow-policy self-test",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        [
+          `          ${GATE_POLICY_COMMAND}`,
+          `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+        ].join("\n"),
+        [
+          `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+          `          ${GATE_POLICY_COMMAND}`,
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a reordered gate workflow-policy verdict",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        [
+          `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+          `          ${WORKFLOW_GATES_COMMAND}`,
+        ].join("\n"),
+        [
+          `          ${WORKFLOW_GATES_COMMAND}`,
+          `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+        ].join("\n"),
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing workflow-policy self-test",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n`,
+        `          ${WORKFLOW_GATES_SELF_TEST_COMMAND} || true\n`,
+      ),
+    },
+    {
+      name: "real workflow rejects a dynamically dead workflow-policy verdict",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_COMMAND}\n`,
+        `          false && ${WORKFLOW_GATES_COMMAND}\n`,
+      ),
+    },
+    {
+      name: "real workflow rejects a dynamically dead workflow-policy self-test",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n`,
+        `          false && ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n`,
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing workflow-policy verdict",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_COMMAND}\n`,
+        `          ${WORKFLOW_GATES_COMMAND} || true\n`,
+      ),
+    },
+    {
+      name: "real workflow rejects an extra decorative gate policy command",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      source: replaceLast(
+        source,
+        `          ${WORKFLOW_GATES_COMMAND}\n`,
+        `          ${WORKFLOW_GATES_COMMAND}\n          echo checked\n`,
       ),
     },
     {
@@ -3049,6 +3155,8 @@ function runSelfTest(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+    `          ${WORKFLOW_GATES_COMMAND}`,
   ];
   const gateVerdictLines = [
     "      - name: Verify required jobs succeeded or legitimately skipped",
@@ -3102,6 +3210,8 @@ function runSelfTest(repoRoot) {
     ...gateVerdictLines,
     "",
   ].join("\n");
+  const withGatePolicyLines = (lines) =>
+    validGateWorkflow.replace(gatePolicyLines.join("\n"), lines.join("\n"));
   const reusableBuildJob = [
     "  build:",
     "    uses: ./.github/workflows/required-build.yml",
@@ -3656,6 +3766,51 @@ function runSelfTest(repoRoot) {
           gatePolicyLines[0],
           `${gatePolicyLines[0]}\n        continue-on-error: true`,
         ),
+      ),
+    },
+    {
+      name: "deleted gate workflow-policy self-test fails closed",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        withGatePolicyLines(
+          gatePolicyLines.filter(
+            (line) =>
+              line !== `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+          ),
+        ),
+      ),
+    },
+    {
+      name: "deleted gate workflow-policy verdict fails closed",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        withGatePolicyLines(
+          gatePolicyLines.filter(
+            (line) => line !== `          ${WORKFLOW_GATES_COMMAND}`,
+          ),
+        ),
+      ),
+    },
+    {
+      name: "reordered gate workflow-policy commands fail closed",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        withGatePolicyLines([
+          ...gatePolicyLines.slice(0, 5),
+          gatePolicyLines[6],
+          gatePolicyLines[5],
+        ]),
+      ),
+    },
+    {
+      name: "extra decorative gate policy command fails closed",
+      needle:
+        "gate policy recheck must be exact, unconditional, and non-soft-failing",
+      files: gateFixture(
+        withGatePolicyLines([...gatePolicyLines, "          echo checked"]),
       ),
     },
     {
