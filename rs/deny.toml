@@ -95,6 +95,13 @@ allow = [
   "Apache-2.0",
   "BSD-3-Clause",
   "Unicode-3.0",
+
+  # `webpki-roots` — Mozilla's CA root store, redistributed as *data* under the
+  # Community Data License Agreement, Permissive 2.0. It is a data licence
+  # rather than a code licence and imposes no condition on distributing this
+  # binary; it is here because a trust store has to come from somewhere and the
+  # alternative is trusting whatever the host image happens to carry.
+  "CDLA-Permissive-2.0",
   # Zlib arrives with SQLite: rusqlite -> hashlink -> hashbrown -> foldhash,
   # which is `Zlib` and is reached through hashbrown's default hasher rather
   # than by any choice of ours. It is permissive — OSI-approved, FSF Free/Libre,
@@ -107,9 +114,10 @@ allow = [
   "Zlib",
   # ISC arrives with TLS, and only with TLS: `rustls-webpki` and `untrusted`
   # are ISC, and `ring` is `Apache-2.0 AND ISC`. None of them is reached by any
-  # crate a client links — the wasm32 job builds `f2z-codec` and
-  # `f2z-relay-proto` and neither pulls rustls — so this entry widens the
-  # policy for the server side of the tree only.
+  # crate a client links — the wasm32 job builds `f2z-codec`,
+  # `f2z-relay-proto`, `f2z-authority` and `f2z-kt-core`'s verifier, and none
+  # pulls rustls — so this entry widens the policy for the server side of the
+  # tree only.
   #
   # ISC is the two-clause BSD licence with the redundant words removed:
   # OSI-approved, FSF Free/Libre, permissive, no copyleft, no
@@ -121,18 +129,31 @@ allow = [
   "ISC",
 ]
 
-# Per-crate escapes.
+# Per-crate escapes, **by name**, and this is the licence boundary being
+# crossed deliberately.
 #
-# This is where an AGPL-3.0 server binary goes, and nowhere else. Adding
-# "AGPL-3.0" to `allow` above instead would silently permit it for every crate
-# in the tree, including the ones the ZUULI client links, which is exactly the
-# drift this section exists to prevent.
+# Adding an AGPL identifier to `allow` above instead would silently permit it
+# for every crate in the tree, including the ones the ZUULI client links, which
+# is exactly the drift this section exists to prevent. Each entry below is one
+# server binary and nothing else; a library crate that appeared here would be a
+# review failure, because a client cannot link it.
 #
-# `f2z-relay` is the first one to land. It is a server binary by every test the
-# boundary applies: it opens a listening socket, it links tokio and SQLite, it
-# is deliberately absent from rs.yml's wasm32 line, and no client links it.
-# Adding this entry was the reviewed, one-line act the section above describes.
-exceptions = [{ name = "f2z-relay", allow = ["AGPL-3.0"] }]
+# Every entry passes the same test: it opens a listening socket or runs
+# unattended for other people, it links a runtime, it is deliberately absent
+# from rs.yml's wasm32 line, and no client links it.
+exceptions = [
+  # The relay daemon (#628, WIRE.md). The first to land.
+  { name = "f2z-relay", allow = ["AGPL-3.0"] },
+  # The key-transparency log server (KT.md §5, §6, §9). Owner decision on #305:
+  # THREAT-MODEL.md §4.5 concedes that server-side deletion is "auditable, not
+  # verifiable", and a copyleft obligation for network use is the only lever we
+  # have over an operator we do not run.
+  { name = "f2z-kt", allow = ["AGPL-3.0-only"] },
+  # The cosigning daemon (KT.md §7). A modified witness that skips §7.1 step 4
+  # is worthless in a way nobody can see from outside (§7.4), which is precisely
+  # the case for requiring the source of a running modification.
+  { name = "f2z-witness", allow = ["AGPL-3.0-only"] },
+]
 
 # =============================================================================
 # Bans.

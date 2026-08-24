@@ -1,0 +1,59 @@
+[package]
+name = "f2z-witness"
+version = "0.1.0"
+description = "The free2z key-transparency cosigning daemon (docs/e2ee/KT.md v1 §7): poll, verify, refuse and record, cosign — outbound only, one state file, no database"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# **AGPL-3.0** (owner decision on #305). A witness is a server binary in the
+# sense that matters: it is run for other people's benefit, and a modified
+# witness that skips `KT.md` §7.1 step 4 is worthless in a way nobody can see
+# from outside (§7.4). Copyleft for network use is the only lever there is.
+# The SPDX identifier is `AGPL-3.0-only`, not the deprecated bare `AGPL-3.0`:
+# cargo-deny parses this field as an SPDX expression and warns on the
+# deprecated form, and "-only" is the accurate statement — this is AGPL-3.0,
+# not "or any later version".
+license = "AGPL-3.0-only"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# `auditor` is not optional here and never should be. §7.4: a witness that does
+# not verify the append-only proof is worthless, and the structural defence is
+# that the log and the witness link the same `audit_verify`.
+f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0" }
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-codec = { workspace = true }
+
+ed25519-dalek = { workspace = true }
+tls_codec = { workspace = true }
+
+# The append-only verifier is `async` because `akd::auditor::audit_verify`
+# reaches `tokio::task::spawn` (`KT.md` §11.3). The daemon is otherwise
+# blocking, and drives that one call on a runtime it owns.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+# Outbound HTTPS, and nothing else. `KT.md` §9.3: no inbound port, no TLS
+# certificate, no domain. A blocking client is the right shape for a poll loop
+# and keeps the graph an order of magnitude smaller than an async one.
+ureq = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+# The acceptance test: a real log serving real proofs, and an equivocating-log
+# fixture this daemon must refuse. Both talk to the witness through the same
+# `Transport` trait the production client implements, so the test exercises the
+# loop rather than a mock of it.
+f2z-kt = { path = "../f2z-kt", version = "0.1.0", features = ["testing"] }
+f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
+akd_core = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[bin]]
+name = "f2z-witness"
+path = "src/main.rs"

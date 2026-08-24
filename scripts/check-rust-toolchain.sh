@@ -61,6 +61,13 @@ MANIFESTS=(
   rs/crates/f2z-codec/Cargo.toml
   rs/crates/f2z-relay-proto/Cargo.toml
   rs/crates/f2z-authority/Cargo.toml
+  rs/crates/f2z-kt-core/Cargo.toml
+  # The two AGPL-3.0-only server binaries. Registered here rather than by a
+  # workflow flag for #553's reason: the census runs in every invocation,
+  # including the bare one the required zuuli gate runs, and a manifest
+  # registered only in a workflow would be unpoliced there.
+  rs/crates/f2z-kt/Cargo.toml
+  rs/crates/f2z-witness/Cargo.toml
   rs/crates/f2z-relay-store/Cargo.toml
   rs/crates/f2z-relay-testkit/Cargo.toml
   rs/crates/f2z-relay/Cargo.toml
