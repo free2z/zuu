@@ -115,8 +115,9 @@ describe("the implementation covers the contract", () => {
   it("has one bridge method per declared command and one schema per event", () => {
     // A tripwire on the module shrinking: deleting a bridge method fails here.
     // It does NOT catch the contract growing — 46 === 46 stays green when the
-    // document reaches 47 and nothing is wired. `contract.test.ts` is what
-    // covers that direction, by reading the document and comparing sets.
+    // document reaches 47 and nothing is wired. That direction is covered by
+    // `scripts/messaging-contract.node-test.mjs`, which reads §3 and §5.1 out
+    // of CLIENT-CONTRACT.md and compares sets.
     expect(bridgeMethods.length).toBe(46);
     expect(Object.keys(EVENTS).length).toBe(11);
   });
