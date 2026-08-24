@@ -129,6 +129,11 @@ hardcodes `AzksParallelismConfig::default()` and reaches `tokio::task::spawn`, s
 it compiles for that target and then traps at runtime (`KT.md` §11.3). The wasm CI
 job builds `--no-default-features --features verifier` for exactly that reason.
 
+`f2z-kt-core::api` carries `KT.md` §9.2's request and response envelopes —
+`SubmissionEnvelope`, `TreeHeadBundle`, the lookup/history/audit shapes — for the
+same reason. A witness that decoded a tree-head bundle differently from the log
+that encoded it would cosign a root it did not actually read.
+
 **`rs/deny.toml` carries the `akd >= 0.13.0` floor and it is load-bearing.**
 [facebook/akd#495](https://github.com/facebook/akd/pull/495) — an auditor
 append-only bypass letting a malicious log rewrite a label's value while still
@@ -136,6 +141,37 @@ producing a *valid* append-only proof — has no RustSec or OSV advisory and nev
 will, so `cargo audit` passes on a vulnerable pin forever
 ([ADR 0013](../docs/e2ee/decisions/0013-key-transparency-log.md)). A reviewer who
 removes those `[[bans.deny]]` entries has removed the floor.
+
+
+## The server binaries
+
+| Binary | What it is |
+|---|---|
+| [`crates/f2z-kt`](./crates/f2z-kt) | The **key-transparency log server** ([`KT.md`](../docs/e2ee/KT.md) §5, §6, §9): durable append-only journals, the submission choke point, the `akd` tree and the epoch scheduler, `LogSigner` behind a trait with a file-backed default, and the proof-serving API. |
+| [`crates/f2z-witness`](./crates/f2z-witness) | The **cosigning daemon** (`KT.md` §7): poll, verify the tree-head signature, refuse and record evidence on rollback or fork, **verify the append-only proof**, cosign, and update one state file atomically. No inbound port, no TLS, no domain, no database. |
+
+**Both are AGPL-3.0-only**, and that is the licence boundary being crossed
+deliberately — owner decision on [#305](https://github.com/free2z/zuu/issues/305).
+`THREAT-MODEL.md` §4.5 concedes that server-side deletion is "auditable, not
+verifiable", and a copyleft obligation for network use is the only lever we have
+over an operator we do not run. `rs/deny.toml` names each binary in
+`[licenses] exceptions` — the *library* crates above stay MIT so clients and
+third-party implementations can link them, and a library crate appearing in that
+list would be a review failure.
+
+Neither is on the wasm line and neither ever should be: `f2z-kt` pulls tokio and
+axum, and `f2z-witness` links `f2z-kt-core`'s `auditor` feature, which reaches
+`akd::auditor::audit_verify` — it compiles for `wasm32-unknown-unknown` and then
+traps at runtime (`KT.md` §11.3).
+
+**The log and the witness link the same `audit_verify`, and that is structural
+rather than tidy.** `KT.md` §7.4: a witness that cosigns without verifying the
+append-only proof is worthless, and there is no way for a client to tell a lazy
+witness from a diligent one by inspecting cosignatures. What the design does
+about it is make "cosign without verifying" take *deleting a call* rather than
+forgetting one — `f2z_kt_core::auditor::WitnessState::advance` will not advance
+without the token `verify_append_only` returns, and neither has a public
+constructor.
 
 
 **The relay and the clients link these library crates.** That is the licence
@@ -161,6 +197,8 @@ reasons, and each is enforced by a test rather than by intent:
 ```bash
 cd rs
 cargo test
+# The client-linked crates only. `f2z-kt` and `f2z-witness` are native server
+# binaries and are deliberately absent from this line.
 cargo build --target wasm32-unknown-unknown --lib \
   -p f2z-codec -p f2z-relay-proto -p f2z-authority
 cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
