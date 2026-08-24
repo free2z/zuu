@@ -71,7 +71,7 @@ data it stores or relays.
 - **Cannot substitute an identity key undetectably.** The KT directory is an
   append-only log with inclusion and consistency proofs; every client self-audits
   its own handle every epoch and alarms on any key change it did not initiate.
-  An attempted substitution is visible **to the victim**. — **Three corrections
+  An attempted substitution is visible **to the victim**. — **Four corrections
   below narrow this bullet; read them with it.**
 - **Cannot equivocate on the directory without leaving evidence**, once an
   independent witness set exists. Witness cosigning plus client gossip means two
@@ -150,6 +150,34 @@ data it stores or relays.
 > narrowed to match. What closes the gap is a decision that has not been taken —
 > `KT.md` §4.4 states the option space and answers none of it — so this
 > correction records a limit rather than a fix.
+
+> **Correction (2026-08-24, later the same day) — the last sentence above is now
+> wrong, and the scoping it defends is still right.** The decision has been
+> taken: [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry)
+> specifies a short-lived, log-pinned, single-use handle-ownership assertion from
+> a configured authority, countersigned by the identity key it names, and §4.6
+> requires a log running without one to say so. **This changes what a *third
+> party* can do and does not change this section**, which is about the server.
+>
+> Two reasons the bullet stays scoped, and the second is the one an auditor
+> should hold on to. First, a compromised authority can still claim any
+> **unregistered** handle: it mints the assertion and produces the
+> countersignature because it chose the key, and nobody's self-audit fires
+> because the person whose name was taken is not a user
+> ([`KT.md` §4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do)).
+> Second, and independently of any compromise, **the assertion is not committed
+> to the tree and is never served to clients** — unlike a `RotationProof` or a
+> `ResetAuthorization`, it lives in the submission envelope, so it is admission
+> control the log performs on itself and no client, witness or auditor can check
+> that it happened. A log that skipped it entirely would publish entries
+> indistinguishable from ones that passed it.
+>
+> So `KT.md` §4.5 closes the first-entry hole **against strangers** and not
+> against this section's adversary. The bullet above remains scoped to a handle
+> that already has a directory entry, §5's row still claims nothing for
+> unregistered handles, and what would change that is a wire change filed in
+> [`KT.md` §12](./KT.md#12-what-this-document-leaves-open) rather than shipped.
+> [#594](https://github.com/free2z/zuu/issues/594).
 
 **Not defended.**
 
@@ -727,14 +755,14 @@ other entry in this section.
 the claim.** A **Yes** means yes under the conditions that section states, and
 nothing wider. Every correction this document carries has the same cause — a
 property that holds under stated conditions, later restated without them (§3.1,
-three times; §4.10, once) — so where a summary line and a section disagree, the
+four times; §4.10, once) — so where a summary line and a section disagree, the
 section's narrower reading is the one intended.
 
 | Property | ZUULI (native) | Web (WASM) |
 |---|---|---|
 | Server cannot read content | **Yes**, unconditionally | **Only if the served bundle is honest** (§3.6) |
 | Server cannot forge messages | **Yes** | Same caveat |
-| Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's three corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, what authorizes the first one is undecided ([`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry)) and this row claims nothing. | Same caveat |
+| Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's four corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry) now says what authorizes the first entry — against a *stranger*, not against the server, because the log checks it itself and nothing is committed to the tree ([§4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do)). **This row still claims nothing for a handle with no entry.** | Same caveat |
 | Server cannot deny that a handle exists | **No** (§4.11) — `akd` 0.13 cannot prove non-membership for an unregistered label, so absence is an assertion the log makes and the client is told is unproved. It cannot weaken a pin a client already holds. | Same |
 | Server cannot MITM WebRTC | **Yes** — in-band fingerprints | Same caveat |
 | Forward secrecy | **Yes** — MLS epochs | Yes, same caveat |
