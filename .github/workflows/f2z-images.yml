@@ -1,0 +1,250 @@
+name: f2z servers / images
+
+# The container supply chain for the three AGPL-3.0 E2EE server binaries:
+# `f2z-relay`, `f2z-kt` and `f2z-witness`.
+#
+# TWO PHASES, AND THE SPLIT IS THE POINT — the same shape
+# `.github/workflows/zuuli-linux-image.yml` uses. Publishing here changes what
+# is *available*; it changes what anything *consumes* not at all. The deployment
+# manifests pin an image by digest, and moving one of those pins is a separate,
+# human-reviewed pull request written against a digest this workflow printed.
+# A publish that could move a running deployment on its own would make "merged
+# to main" and "shipped to production" the same event, which is exactly the
+# property the digest pin exists to deny.
+#
+# So: nothing downstream reads `:main-<sha>`. Those tags are for a human to find
+# a build with; the digest is the artefact.
+
+on:
+  pull_request:
+    paths:
+      - rs/**
+      - .github/workflows/f2z-images.yml
+      - scripts/check-f2z-images.mjs
+      - scripts/check-rust-toolchain.sh
+      - wallet/rust-toolchain.toml
+  push:
+    branches: [main]
+    paths:
+      - rs/**
+      - .github/workflows/f2z-images.yml
+      - scripts/check-f2z-images.mjs
+      - scripts/check-rust-toolchain.sh
+      - wallet/rust-toolchain.toml
+  # A weekly rebuild. The base images are digest-pinned, so this does not drift
+  # them; what it does catch is a build that stopped working for a reason
+  # nobody's pull request touched — a yanked crate, a registry that moved.
+  schedule:
+    - cron: "41 7 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f2z-images-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The three image repositories are `${IMAGE_NAMESPACE}/<binary name>`. The
+  # binary name *is* the image name, deliberately: an operator reading a
+  # `livenessProbe` argv and an operator reading an image reference should not
+  # have to learn two vocabularies.
+  IMAGE_NAMESPACE: ghcr.io/free2z
+
+jobs:
+  f2z_image_policy:
+    name: f2z servers / image policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The self-test first, so the verdict that follows comes from a check that
+      # has just been watched fail on a deliberately broken copy of these files.
+      - name: Verify the image policy still fails on a broken image supply chain
+        run: node scripts/check-f2z-images.mjs --self-test
+
+      - name: Enforce the image policy
+        run: node scripts/check-f2z-images.mjs
+
+  f2z_image_pull_request:
+    name: f2z servers / build ${{ matrix.bin }}
+    if: github.event_name == 'pull_request'
+    needs: f2z_image_policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        bin: [f2z-relay, f2z-kt, f2z-witness]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      # The compiler version is decided in wallet/rust-toolchain.toml and read
+      # from it here. An action input cannot read TOML, and a version restated
+      # in this file would be one more thing to drift; rs/Dockerfile refuses to
+      # build if what arrives disagrees with the workspace's toolchain file.
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # linux/amd64 only, and that is a decision rather than an omission: it is
+      # what the target cluster runs. Multi-arch is for self-hosters, and adding
+      # it later publishes new digests beside the old ones — it cannot
+      # invalidate a digest anything already pinned.
+      - name: Build the reviewed amd64 image locally
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: rs
+          file: rs/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
+          build-args: |
+            BIN=${{ matrix.bin }}
+            RUST_CHANNEL=${{ steps.rust_toolchain.outputs.version }}
+
+      - name: Inspect the built image
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
+        run: node scripts/check-f2z-images.mjs --inspect "$IMAGE" "${{ matrix.bin }}"
+
+      # KT.md §9.3 and f2z-witness/src/health.rs: the deployment probes this
+      # daemon with `exec` because the image has no shell, no wget and no curl,
+      # and the witness has no inbound listener to dial. That contract is a
+      # property of the *image*, not only of the binary, so it is asserted
+      # against a container rather than against `cargo test`.
+      - name: Verify the witness exec liveness probe inside the image
+        if: matrix.bin == 'f2z-witness'
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
+        run: node scripts/check-f2z-images.mjs --probe "$IMAGE"
+
+  f2z_image_publish:
+    name: f2z servers / publish ${{ matrix.bin }}
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch')
+    needs: f2z_image_policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        bin: [f2z-relay, f2z-kt, f2z-witness]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # No `:latest`. A floating tag is a way to deploy something nobody chose,
+      # and the two tags below are both immutable in practice: one names the
+      # commit, the other names the build that produced it.
+      - name: Publish the amd64 image with OCI SBOM and provenance
+        id: publish
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: rs
+          file: rs/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.bin }}:main-${{ github.sha }}
+            ${{ env.IMAGE_NAMESPACE }}/${{ matrix.bin }}:build-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          build-args: |
+            BIN=${{ matrix.bin }}
+            RUST_CHANNEL=${{ steps.rust_toolchain.outputs.version }}
+          sbom: true
+          provenance: mode=max
+
+      # Provenance, not reproducibility. This says "this workflow, in this
+      # repository, built that digest from that commit" — it does not say that
+      # rebuilding the commit yields the same digest, and nothing here claims it
+      # does.
+      - name: Attest the published registry digest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.bin }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      # Re-verify by digest, from the registry, rather than trusting the local
+      # build cache: what a deployment will pull is the thing that has to work.
+      - name: Verify the published digest
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.bin }}
+          BIN: ${{ matrix.bin }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker buildx imagetools inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          docker pull "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          node scripts/check-f2z-images.mjs --inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" "$BIN"
+          if [[ "$BIN" == f2z-witness ]]; then
+            node scripts/check-f2z-images.mjs --probe "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          fi
+
+      # Phase two is a person's job. The line below is the whole handover: a
+      # digest, and a sentence saying that nothing consumes it yet.
+      - name: Record the digest for the follow-up pinning review
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.bin }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Published \`${IMAGE_REPOSITORY##*/}\`"
+            echo
+            echo "\`$IMAGE_REPOSITORY@$IMAGE_DIGEST\`"
+            echo
+            echo 'Nothing consumes this yet. A follow-up pull request against the'
+            echo 'private deployment manifests must review and pin this exact digest;'
+            echo 'publishing here never moves a running deployment on its own.'
+          } >> "$GITHUB_STEP_SUMMARY"
