@@ -168,7 +168,7 @@ proptest! {
 
         for (key_bytes, nonce_bytes) in pairs {
             let key = ReplayKey::new(PublicKey::new(key_bytes), Nonce::new(nonce_bytes));
-            match seen.observe(NOW, key) {
+            match seen.commit(NOW, key) {
                 Ok(()) => {
                     prop_assert!(!accepted.contains(&key));
                     accepted.push(key);

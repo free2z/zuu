@@ -46,6 +46,10 @@ jobs:
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
           node scripts/check-github-actions-pins.mjs
+          node scripts/check-workflow-gates.mjs --self-test
+          node scripts/check-workflow-gates.mjs
+          node scripts/check-librustzcash-compat.mjs --self-test
+          node scripts/check-librustzcash-compat.mjs
 
       # Runs on every event, including changes this job would otherwise skip,
       # because a toolchain pin can drift from any workflow or manifest. The
@@ -54,16 +58,6 @@ jobs:
         run: |
           scripts/check-rust-toolchain.sh --self-test
           scripts/check-rust-toolchain.sh
-
-      # A gate that awaits a job and never inspects its result is decorative
-      # for that job: GitHub waits, the gate goes green whatever the job
-      # concluded, and branch protection reports a passing required check over a
-      # failed build. This runs in the always-required job, over every workflow
-      # in the repository, so that hazard cannot be reintroduced anywhere.
-      - name: Verify every gate inspects every job it awaits
-        run: |
-          node scripts/check-workflow-gates.mjs --self-test
-          node scripts/check-workflow-gates.mjs
 
       # Public-repository boundaries should be mechanically enforced rather
       # than depending on every contributor remembering private repo names.
@@ -114,7 +108,9 @@ jobs:
             exit 0
           fi
 
-          if ! changed_files=$(git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA"); then
+          changed_files=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/zuuli-changed-files.XXXXXX")
+          trap 'rm -f -- "$changed_files"' EXIT
+          if ! git diff --name-only -z --no-renames "$BASE_SHA" "$GITHUB_SHA" > "$changed_files"; then
             echo "::warning::Diff failed; running the full ZUULI gate."
             echo "zuuli=true" >> "$GITHUB_OUTPUT"
             echo "zuuallet_schema=true" >> "$GITHUB_OUTPUT"
@@ -123,23 +119,24 @@ jobs:
 
           zuuli=false
           zuuallet_schema=false
-          while IFS= read -r file; do
+          while IFS= read -r -d '' file; do
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuli/*|wallet/plugins/*|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuli/*|wallet/plugins/*|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
                 zuuli=true
                 ;;
             esac
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
                 zuuallet_schema=true
                 ;;
             esac
-          done <<< "$changed_files"
+          done < "$changed_files"
 
           echo "zuuli=$zuuli" >> "$GITHUB_OUTPUT"
           echo "zuuallet_schema=$zuuallet_schema" >> "$GITHUB_OUTPUT"
 
   frontend:
+    name: zuuli / frontend
     needs: changes
     if: needs.changes.outputs.zuuli == 'true'
     runs-on: ubuntu-latest
@@ -223,8 +220,8 @@ jobs:
   # formatting failure no longer costs a full rebuild to re-check.
   #
   # It covers every crate under wallet/, including wallet/zuuallet/src-tauri,
-  # which this workflow's change filter does not select on its own; a
-  # Zuuallet-only pull request is covered by the matching job in zuuallet.yml.
+  # The root selector above deliberately selects every wallet/ path, including
+  # future crates and Zuuallet-only changes.
   rust_fmt:
     name: Rust / formatting
     needs: changes
@@ -256,7 +253,7 @@ jobs:
         run: scripts/check-rust-fmt.sh --self-test
 
       - name: Check formatting of every Rust crate under wallet/
-        run: scripts/check-rust-fmt.sh
+        run: scripts/check-rust-fmt.sh --root wallet
 
   # Supply chain: RustSec advisories, licences, and crate sources for all three
   # wallet lockfiles. Like rust_fmt this compiles nothing — cargo-deny works
@@ -301,7 +298,7 @@ jobs:
         run: scripts/check-rust-deny.sh --self-test
 
       - name: Check advisories, licences and sources
-        run: scripts/check-rust-deny.sh
+        run: scripts/check-rust-deny.sh --root wallet --config wallet/deny.toml
 
   # Lints, at `-D warnings`, for every crate under wallet/. Unlike rust_fmt and
   # rust_deny this one genuinely compiles — clippy is a rustc driver and needs
@@ -313,9 +310,8 @@ jobs:
   # artifacts into the same target directory names, so sharing a key would make
   # the two kinds of job evict each other's work on every run.
   #
-  # Like rust_fmt it covers wallet/zuuallet/src-tauri, which this workflow's
-  # change filter does not select on its own; the matching job in zuuallet.yml
-  # covers a Zuuallet-only pull request.
+  # Like rust_fmt it covers wallet/zuuallet/src-tauri through the exact wallet/
+  # root selector rather than a hand-maintained list of today's crates.
   rust_clippy:
     name: Rust / lints
     needs: changes
@@ -371,7 +367,7 @@ jobs:
           key: zuuli-clippy
 
       - name: Lint every Rust crate under wallet/ at -D warnings
-        run: scripts/check-rust-clippy.sh
+        run: scripts/check-rust-clippy.sh --root wallet
 
   # Linux cannot compile the target-specific Keychain, Credential Manager,
   # filesystem, and OAuth branches. Run the same all-wallet clippy verdict on
@@ -425,7 +421,68 @@ jobs:
 
       - name: Lint every Rust crate under wallet/ at -D warnings
         shell: bash
-        run: scripts/check-rust-clippy.sh
+        run: scripts/check-rust-clippy.sh --root wallet
+
+  # Native *execution*, not just compilation. `rust_native_clippy` above proves
+  # the macOS and Windows halves of the plugin compile; until #610 nothing that
+  # could fail a merge ever ran them. The Win32 file-identity helper the
+  # legacy-import preview relies on is reachable only from a Windows host, so a
+  # regression in it passed every required check — the plugin's Windows suite
+  # lived in the ungated .github/workflows/zuuallet.yml, which branch protection
+  # does not require and which does not even run for a pull request outside its
+  # `paths:` filter. That job moved here, where the required `gate` awaits it.
+  #
+  # Same selector and same matrix as the lint job deliberately: it is the same
+  # code on the same two hosts, and two selectors over one body of code drift.
+  rust_native_tests:
+    name: Rust / native tests (${{ matrix.target_os }})
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target_os: macos
+          - os: windows-latest
+            target_os: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      # Separate cache key from rust_native_clippy: clippy and rustc write
+      # different artifacts under the same target directory names, so a shared
+      # key has the two jobs evicting each other's work on every run.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: wallet/plugins/tauri-plugin-zcash
+          key: zuuli-native-tests-${{ matrix.target_os }}
+
+      # --all-targets so the integration and doc-adjacent targets build too;
+      # this is the exact command the retired zuuallet.yml custody job ran, now
+      # under a required context.
+      - name: Test the shared plugin on the native host
+        shell: bash
+        run: >-
+          cargo test --locked
+          --all-targets
+          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
   rust_plugin:
     name: Rust / shared plugin
@@ -756,7 +813,7 @@ jobs:
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
+    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -770,6 +827,8 @@ jobs:
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
           node scripts/check-github-actions-pins.mjs
+          node scripts/check-workflow-gates.mjs --self-test
+          node scripts/check-workflow-gates.mjs
 
       - name: Verify required jobs succeeded or legitimately skipped
         env:

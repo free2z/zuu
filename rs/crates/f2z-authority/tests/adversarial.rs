@@ -13,10 +13,10 @@
 //! of this crate can detect that, which makes each rule below the last place it
 //! can be caught.
 //!
-//! Every test starts from a submission that *is* valid — asserted by
-//! [`a_correct_submission_is_admitted`] — and breaks exactly one thing, so a
-//! passing negative is evidence about that rule and not about a fixture that
-//! stopped building.
+//! Assertion-path tests start from a submission that passes the experimental
+//! assertion-layer check and break exactly one thing. Routine-path tests are
+//! explicit that this crate does not verify §4.4's DirectoryAuthKey signature
+//! or RotationProof and that their result is partial.
 
 // Test code, run on the host by a person reading the failure. The workspace
 // denies these because a panic in the log's submission path is a remote denial
@@ -29,9 +29,9 @@
 )]
 
 use f2z_authority::{
-    AssertionNonce, AuthorityConfig, AuthorityError, AuthorityKey, AuthoritySet, Handle,
-    HandleAssertion, HandleAssertionTBS, Intent, LogId, NonceLedger, NonceSeen, SigningKey,
-    Submission, Vouch, VouchingStatus,
+    AssertionLayerCheck, AssertionNonce, AuthorityConfig, AuthorityError, AuthorityId,
+    AuthorityKey, AuthoritySet, EntryKind, Handle, HandleAssertion, HandleAssertionTBS, Intent,
+    LogId, NonceLedger, NonceSeen, SigningKey, Submission, Vouch, VouchingStatus,
 };
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::types::{Digest, PublicKey, Signature};
@@ -111,12 +111,14 @@ fn submission<'a>(
 ) -> Submission<'a> {
     Submission {
         assertion: Some(assertion),
+        kind: EntryKind::InitialBind,
         handle,
         identity_pk,
         entry_version: 1,
         entry_digest: &ENTRY_DIGEST,
         identity_signature,
         previous_identity_pk: None,
+        previous_vouch: None,
         previous_account_epoch: None,
     }
 }
@@ -125,30 +127,86 @@ static ENTRY_DIGEST: Digest = Digest::new([0x44; 32]);
 
 /// Run the default happy-path submission with one field of the assertion
 /// changed by `mutate`.
-fn admit_with(mutate: impl FnOnce(&mut HandleAssertionTBS)) -> Result<Vouch, AuthorityError> {
+fn check_assertion_with(
+    mutate: impl FnOnce(&mut HandleAssertionTBS),
+) -> Result<Vouch, AuthorityError> {
     let mut value = body();
     mutate(&mut value);
     let (bytes, signature) = present(value);
     let identity_pk = identity().public_key();
     let handle = handle();
     config()
-        .admit(
+        .check_assertion_layer(
             &submission(&bytes, &signature, &identity_pk, &handle),
             NOW_MS,
             &mut ledger(),
         )
-        .map(|admitted| admitted.vouch())
+        .map(|checked| checked.vouch())
+}
+
+fn checked_initial_vouch() -> Vouch {
+    let (bytes, signature) = present(body());
+    let identity_pk = identity().public_key();
+    let handle = handle();
+    config()
+        .check_assertion_layer(
+            &submission(&bytes, &signature, &identity_pk, &handle),
+            NOW_MS,
+            &mut ledger(),
+        )
+        .unwrap()
+        .vouch()
+}
+
+fn historical_vouch(marker: u8) -> Vouch {
+    let vouch = Vouch::By(AuthorityId::new([marker; 32]));
+    assert_ne!(
+        vouch,
+        Vouch::By(f2z_authority::authority_id(&authority().public_key())),
+        "the predecessor fixture must not be the currently configured authority",
+    );
+    vouch
+}
+
+fn check_key_change(
+    previous_vouch: Option<Vouch>,
+    previous_account_epoch: Option<u32>,
+) -> Result<AssertionLayerCheck, AuthorityError> {
+    let incoming = SigningKey::from_seed(&[0x77; 32]);
+    let incoming_pk = incoming.public_key();
+    let outgoing_pk = identity().public_key();
+    let handle = handle();
+    let binding = config()
+        .binding(&handle, &incoming_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let signature = binding.sign(&incoming).unwrap();
+    config().check_assertion_layer(
+        &Submission {
+            assertion: None,
+            kind: EntryKind::KeyChange,
+            handle: &handle,
+            identity_pk: &incoming_pk,
+            entry_version: 5,
+            entry_digest: &ENTRY_DIGEST,
+            identity_signature: &signature,
+            previous_identity_pk: Some(&outgoing_pk),
+            previous_vouch,
+            previous_account_epoch,
+        },
+        NOW_MS,
+        &mut ledger(),
+    )
 }
 
 // ----------------------------------------------------------------- the control
 
 #[test]
-fn a_correct_submission_is_admitted() {
+fn a_correct_asserted_submission_passes_the_partial_check() {
     let (bytes, signature) = present(body());
     let identity_pk = identity().public_key();
     let handle = handle();
-    let admitted = config()
-        .admit(
+    let checked = config()
+        .check_assertion_layer(
             &submission(&bytes, &signature, &identity_pk, &handle),
             NOW_MS,
             &mut ledger(),
@@ -156,17 +214,452 @@ fn a_correct_submission_is_admitted() {
         .unwrap();
 
     assert_eq!(
-        admitted.vouch(),
+        checked.vouch(),
         Vouch::By(f2z_authority::authority_id(&authority().public_key()))
     );
-    assert!(admitted.vouch().is_vouched());
-    assert_eq!(admitted.handle().as_str(), "alice");
-    assert_eq!(admitted.identity_pk(), &identity().public_key());
-    assert_eq!(admitted.intent(), Some(Intent::Bind));
-    assert_eq!(admitted.account_epoch(), Some(7));
+    assert!(checked.vouch().is_vouched());
+    assert_eq!(checked.handle().as_str(), "alice");
+    assert_eq!(checked.identity_pk(), &identity().public_key());
+    assert_eq!(checked.kind(), EntryKind::InitialBind);
+    assert_eq!(checked.intent(), Some(Intent::Bind));
+    assert_eq!(checked.account_epoch(), 7);
     assert_eq!(
         config().status(),
         VouchingStatus::Vouched { authorities: 1 }
+    );
+}
+
+#[test]
+fn asserted_bind_and_reset_preserve_each_signed_epoch_and_kind() {
+    for account_epoch in [3, 41] {
+        let mut asserted = body();
+        asserted.account_epoch = account_epoch;
+        let (bytes, signature) = present(asserted);
+        let identity_pk = identity().public_key();
+        let handle = handle();
+        let checked = config()
+            .check_assertion_layer(
+                &submission(&bytes, &signature, &identity_pk, &handle),
+                NOW_MS,
+                &mut ledger(),
+            )
+            .unwrap();
+
+        assert_eq!(checked.kind(), EntryKind::InitialBind);
+        assert_eq!(checked.account_epoch(), account_epoch);
+    }
+
+    for (previous_account_epoch, asserted_account_epoch) in [(5, 19), (53, 89)] {
+        let mut asserted = body();
+        asserted.intent = Intent::Reset;
+        asserted.account_epoch = asserted_account_epoch;
+        let (bytes, signature) = present(asserted);
+        let identity_pk = identity().public_key();
+        let handle = handle();
+        let outgoing = PublicKey::new([0x66; 32]);
+        let mut reset = submission(&bytes, &signature, &identity_pk, &handle);
+        reset.kind = EntryKind::PlatformReset;
+        reset.entry_version = 9;
+        reset.previous_identity_pk = Some(&outgoing);
+        reset.previous_vouch = Some(historical_vouch(0xf6));
+        reset.previous_account_epoch = Some(previous_account_epoch);
+
+        let checked = config()
+            .check_assertion_layer(&reset, NOW_MS, &mut ledger())
+            .unwrap();
+        assert_eq!(checked.kind(), EntryKind::PlatformReset);
+        assert_eq!(checked.account_epoch(), asserted_account_epoch);
+    }
+}
+
+#[test]
+fn initial_bind_refuses_a_predecessor_epoch_on_both_deployments() {
+    let (bytes, signature) = present(body());
+    let identity_pk = identity().public_key();
+    let handle = handle();
+    let mut asserted = submission(&bytes, &signature, &identity_pk, &handle);
+    asserted.previous_account_epoch = Some(91);
+    assert_eq!(
+        config()
+            .check_assertion_layer(&asserted, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::UnexpectedPriorAccountEpoch
+    );
+
+    let unvouched = AuthorityConfig::with_defaults(log_id(), AuthoritySet::none()).unwrap();
+    let unvouched_signature = unvouched
+        .binding(&handle, &identity_pk, None, &ENTRY_DIGEST)
+        .unwrap()
+        .sign(&identity())
+        .unwrap();
+    let bare = Submission {
+        assertion: None,
+        kind: EntryKind::InitialBind,
+        handle: &handle,
+        identity_pk: &identity_pk,
+        entry_version: 1,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &unvouched_signature,
+        previous_identity_pk: None,
+        previous_vouch: None,
+        previous_account_epoch: Some(37),
+    };
+    assert_eq!(
+        unvouched
+            .check_assertion_layer(&bare, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::UnexpectedPriorAccountEpoch
+    );
+}
+
+#[test]
+fn initial_bind_refuses_a_predecessor_vouch_on_both_deployments() {
+    let (bytes, signature) = present(body());
+    let identity_pk = identity().public_key();
+    let handle = handle();
+    let mut asserted = submission(&bytes, &signature, &identity_pk, &handle);
+    asserted.previous_vouch = Some(historical_vouch(0x71));
+    assert_eq!(
+        config()
+            .check_assertion_layer(&asserted, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::UnexpectedPriorVouch
+    );
+
+    let unvouched = AuthorityConfig::with_defaults(log_id(), AuthoritySet::none()).unwrap();
+    let unvouched_signature = unvouched
+        .binding(&handle, &identity_pk, None, &ENTRY_DIGEST)
+        .unwrap()
+        .sign(&identity())
+        .unwrap();
+    let bare = Submission {
+        assertion: None,
+        kind: EntryKind::InitialBind,
+        handle: &handle,
+        identity_pk: &identity_pk,
+        entry_version: 1,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &unvouched_signature,
+        previous_identity_pk: None,
+        previous_vouch: Some(Vouch::Unvouched),
+        previous_account_epoch: None,
+    };
+    assert_eq!(
+        unvouched
+            .check_assertion_layer(&bare, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::UnexpectedPriorVouch
+    );
+}
+
+#[test]
+fn same_key_check_needs_no_platform_assertion_and_preserves_prior_vouch() {
+    let identity = identity();
+    let identity_pk = identity.public_key();
+    let handle = handle();
+    let binding = config()
+        .binding(&handle, &identity_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let signature = binding.sign(&identity).unwrap();
+    let prior_vouch = historical_vouch(0xa1);
+    let submission = Submission {
+        assertion: None,
+        kind: EntryKind::SameKey,
+        handle: &handle,
+        identity_pk: &identity_pk,
+        entry_version: 5,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &signature,
+        previous_identity_pk: Some(&identity_pk),
+        previous_vouch: Some(prior_vouch),
+        previous_account_epoch: Some(7),
+    };
+
+    let checked = config()
+        .check_assertion_layer(&submission, NOW_MS, &mut ledger())
+        .unwrap();
+    assert_eq!(checked.kind(), EntryKind::SameKey);
+    assert_eq!(checked.vouch(), prior_vouch);
+    assert!(checked.vouch().is_vouched());
+    assert_eq!(checked.account_epoch(), 7);
+
+    let mut wrong_shape = submission;
+    let different = PublicKey::new([0x99; 32]);
+    wrong_shape.previous_identity_pk = Some(&different);
+    assert_eq!(
+        config()
+            .check_assertion_layer(&wrong_shape, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::EntryKindMismatch
+    );
+
+    let mut missing_history = submission;
+    missing_history.previous_vouch = None;
+    assert_eq!(
+        config()
+            .check_assertion_layer(&missing_history, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::MissingPriorVouch
+    );
+
+    let mut missing_epoch = submission;
+    missing_epoch.previous_account_epoch = None;
+    assert_eq!(
+        config()
+            .check_assertion_layer(&missing_epoch, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::MissingPriorAccountEpoch
+    );
+}
+
+#[test]
+fn current_authority_configuration_cannot_upgrade_an_unvouched_history() {
+    let identity = identity();
+    let identity_pk = identity.public_key();
+    let handle = handle();
+    let unvouched = AuthorityConfig::with_defaults(log_id(), AuthoritySet::none()).unwrap();
+    let initial_binding = unvouched
+        .binding(&handle, &identity_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let initial_signature = initial_binding.sign(&identity).unwrap();
+    let initial = Submission {
+        assertion: None,
+        kind: EntryKind::InitialBind,
+        handle: &handle,
+        identity_pk: &identity_pk,
+        entry_version: 1,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &initial_signature,
+        previous_identity_pk: None,
+        previous_vouch: None,
+        previous_account_epoch: None,
+    };
+    let prior = unvouched
+        .check_assertion_layer(&initial, NOW_MS, &mut ledger())
+        .unwrap()
+        .vouch();
+    assert_eq!(prior, Vouch::Unvouched);
+
+    let routine_binding = config()
+        .binding(&handle, &identity_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let routine_signature = routine_binding.sign(&identity).unwrap();
+    let routine = Submission {
+        assertion: None,
+        kind: EntryKind::SameKey,
+        handle: &handle,
+        identity_pk: &identity_pk,
+        entry_version: 2,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &routine_signature,
+        previous_identity_pk: Some(&identity_pk),
+        previous_vouch: Some(prior),
+        previous_account_epoch: Some(0),
+    };
+    let checked = config()
+        .check_assertion_layer(&routine, NOW_MS, &mut ledger())
+        .unwrap();
+    assert_eq!(checked.vouch(), Vouch::Unvouched);
+    assert!(!checked.vouch().is_vouched());
+    assert_eq!(checked.account_epoch(), 0);
+}
+
+#[test]
+fn attacker_controlled_incoming_key_gets_only_a_partial_key_change_check() {
+    let incoming = SigningKey::from_seed(&[0x77; 32]);
+    let incoming_pk = incoming.public_key();
+    let outgoing_pk = identity().public_key();
+    let handle = handle();
+    let binding = config()
+        .binding(&handle, &incoming_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let signature = binding.sign(&incoming).unwrap();
+    let prior_vouch = historical_vouch(0xb2);
+    let submission = Submission {
+        assertion: None,
+        kind: EntryKind::KeyChange,
+        handle: &handle,
+        identity_pk: &incoming_pk,
+        entry_version: 5,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &signature,
+        previous_identity_pk: Some(&outgoing_pk),
+        previous_vouch: Some(prior_vouch),
+        previous_account_epoch: Some(31),
+    };
+
+    // Deliberately no outgoing-key RotationProof or DirectoryAuthKey signature
+    // exists in this fixture. The incoming key can therefore obtain only the
+    // explicitly partial assertion-layer type, never a publish authorization.
+    let checked: AssertionLayerCheck = config()
+        .check_assertion_layer(&submission, NOW_MS, &mut ledger())
+        .unwrap();
+    assert_eq!(checked.kind(), EntryKind::KeyChange);
+    assert_eq!(checked.vouch(), prior_vouch);
+    assert_eq!(checked.account_epoch(), 31);
+
+    let mut wrong_shape = submission;
+    wrong_shape.previous_identity_pk = Some(&incoming_pk);
+    assert_eq!(
+        config()
+            .check_assertion_layer(&wrong_shape, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::IdentityUnchanged
+    );
+}
+
+#[test]
+fn key_change_preserves_distinct_predecessor_histories() {
+    for (previous_account_epoch, previous_vouch) in
+        [(11, historical_vouch(0xc3)), (47, historical_vouch(0xd4))]
+    {
+        let checked = check_key_change(Some(previous_vouch), Some(previous_account_epoch)).unwrap();
+        assert_eq!(checked.kind(), EntryKind::KeyChange);
+        assert_eq!(checked.vouch(), previous_vouch);
+        assert_eq!(checked.account_epoch(), previous_account_epoch);
+    }
+}
+
+#[test]
+fn key_change_requires_explicit_previous_vouch() {
+    assert_eq!(
+        check_key_change(None, Some(11)).unwrap_err(),
+        AuthorityError::MissingPriorVouch
+    );
+}
+
+#[test]
+fn key_change_requires_explicit_previous_account_epoch() {
+    assert_eq!(
+        check_key_change(Some(historical_vouch(0xe5)), None).unwrap_err(),
+        AuthorityError::MissingPriorAccountEpoch
+    );
+}
+
+#[test]
+fn experimental_unvouched_initial_check_refuses_the_identity_point_forgery() {
+    use ed25519_dalek::Verifier as _;
+
+    let mut identity_point = [0u8; 32];
+    identity_point[0] = 1;
+    let identity_pk = PublicKey::new(identity_point);
+    let mut signature_bytes = [0u8; 64];
+    signature_bytes[..32].copy_from_slice(&identity_point);
+    let forged = Signature::new(signature_bytes);
+
+    // Positive control: these are not merely bad-looking bytes. Plain dalek
+    // verification accepts this exact key/signature over the exact transcript
+    // that reaches the assertion-layer boundary, so the refusal below depends
+    // on strictness.
+    let config = AuthorityConfig::with_defaults(log_id(), AuthoritySet::none()).unwrap();
+    let handle = handle();
+    let binding = config
+        .binding(&handle, &identity_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let message = binding.signing_bytes().unwrap();
+    let raw = ed25519_dalek::VerifyingKey::from_bytes(&identity_point).unwrap();
+    let raw_signature = ed25519_dalek::Signature::from_bytes(forged.as_bytes());
+    assert!(raw.verify(&message, &raw_signature).is_ok());
+
+    let submission = Submission {
+        assertion: None,
+        kind: EntryKind::InitialBind,
+        handle: &handle,
+        identity_pk: &identity_pk,
+        entry_version: 1,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &forged,
+        previous_identity_pk: None,
+        previous_vouch: None,
+        previous_account_epoch: None,
+    };
+    assert_eq!(
+        config
+            .check_assertion_layer(&submission, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::BadIdentitySignature
+    );
+}
+
+#[test]
+fn routine_entry_checks_refuse_a_platform_assertion() {
+    let (bytes, signature) = present(body());
+    let identity_pk = identity().public_key();
+    let previous = identity_pk;
+    let handle = handle();
+    for kind in [EntryKind::SameKey, EntryKind::KeyChange] {
+        let mut value = submission(&bytes, &signature, &identity_pk, &handle);
+        value.kind = kind;
+        value.entry_version = 2;
+        value.previous_identity_pk = Some(&previous);
+        assert_eq!(
+            config()
+                .check_assertion_layer(&value, NOW_MS, &mut ledger())
+                .unwrap_err(),
+            AuthorityError::UnexpectedAssertion,
+            "{kind:?} accepted a platform assertion"
+        );
+    }
+}
+
+#[test]
+fn routine_entry_checks_still_require_the_identity_binding() {
+    let current = identity().public_key();
+    let prior = PublicKey::new([0x99; 32]);
+    let handle = handle();
+    for (kind, previous) in [
+        (EntryKind::SameKey, &current),
+        (EntryKind::KeyChange, &prior),
+    ] {
+        let submission = Submission {
+            assertion: None,
+            kind,
+            handle: &handle,
+            identity_pk: &current,
+            entry_version: 5,
+            entry_digest: &ENTRY_DIGEST,
+            identity_signature: &Signature::new([0u8; 64]),
+            previous_identity_pk: Some(previous),
+            previous_vouch: Some(Vouch::Unvouched),
+            previous_account_epoch: Some(7),
+        };
+        assert_eq!(
+            config()
+                .check_assertion_layer(&submission, NOW_MS, &mut ledger())
+                .unwrap_err(),
+            AuthorityError::BadIdentitySignature,
+            "{kind:?} bypassed the identity binding"
+        );
+    }
+}
+
+#[test]
+fn platform_reset_requires_its_platform_assertion() {
+    let incoming = SigningKey::from_seed(&[0x77; 32]);
+    let incoming_pk = incoming.public_key();
+    let outgoing_pk = identity().public_key();
+    let handle = handle();
+    let binding = config()
+        .binding(&handle, &incoming_pk, None, &ENTRY_DIGEST)
+        .unwrap();
+    let signature = binding.sign(&incoming).unwrap();
+    let submission = Submission {
+        assertion: None,
+        kind: EntryKind::PlatformReset,
+        handle: &handle,
+        identity_pk: &incoming_pk,
+        entry_version: 5,
+        entry_digest: &ENTRY_DIGEST,
+        identity_signature: &signature,
+        previous_identity_pk: Some(&outgoing_pk),
+        previous_vouch: Some(Vouch::Unvouched),
+        previous_account_epoch: Some(7),
+    };
+    assert_eq!(
+        config()
+            .check_assertion_layer(&submission, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::MissingAssertion
     );
 }
 
@@ -181,7 +674,7 @@ fn an_expired_assertion_is_rejected() {
     // `expires_ms` the assertion is already gone.
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 EXPIRES_MS,
                 &mut ledger(),
@@ -191,7 +684,7 @@ fn an_expired_assertion_is_rejected() {
     );
     assert!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 EXPIRES_MS - 1,
                 &mut ledger(),
@@ -203,7 +696,7 @@ fn an_expired_assertion_is_rejected() {
 #[test]
 fn an_assertion_for_another_log_is_rejected() {
     assert_eq!(
-        admit_with(|body| body.log_id = LogId::new([0x99; 32])).unwrap_err(),
+        check_assertion_with(|body| body.log_id = LogId::new([0x99; 32])).unwrap_err(),
         AuthorityError::WrongLog
     );
 }
@@ -216,10 +709,14 @@ fn a_replayed_nonce_is_rejected() {
     let mut ledger = ledger();
     let submission = submission(&bytes, &signature, &identity_pk, &handle);
 
-    assert!(config().admit(&submission, NOW_MS, &mut ledger).is_ok());
+    assert!(
+        config()
+            .check_assertion_layer(&submission, NOW_MS, &mut ledger)
+            .is_ok()
+    );
     assert_eq!(
         config()
-            .admit(&submission, NOW_MS, &mut ledger)
+            .check_assertion_layer(&submission, NOW_MS, &mut ledger)
             .unwrap_err(),
         AuthorityError::ReplayedNonce
     );
@@ -230,12 +727,12 @@ fn an_over_long_validity_is_rejected_by_the_log_not_the_issuer() {
     // The issuer signs whatever it likes; the cap is the log's.
     let over = f2z_authority::DEFAULT_MAX_VALIDITY_MS + 1;
     assert_eq!(
-        admit_with(|body| body.expires_ms = body.issued_ms + over).unwrap_err(),
+        check_assertion_with(|body| body.expires_ms = body.issued_ms + over).unwrap_err(),
         AuthorityError::ValidityTooLong
     );
     // Exactly at the cap is fine — the bound is inclusive.
     assert!(
-        admit_with(|body| {
+        check_assertion_with(|body| {
             body.issued_ms = NOW_MS;
             body.expires_ms = NOW_MS + f2z_authority::DEFAULT_MAX_VALIDITY_MS;
         })
@@ -256,7 +753,7 @@ fn an_over_long_validity_is_rejected_by_the_log_not_the_issuer() {
     let handle = handle();
     assert_eq!(
         strict
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -280,7 +777,7 @@ fn an_assertion_without_a_matching_identity_self_signature_is_rejected() {
     // 1. No signature to offer: 64 zero bytes is the best a thief can do.
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&stolen, &Signature::new([0u8; 64]), &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -297,7 +794,7 @@ fn an_assertion_without_a_matching_identity_self_signature_is_rejected() {
         .unwrap();
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(
                     &stolen,
                     &binding.sign(&thief).unwrap(),
@@ -324,7 +821,7 @@ fn an_assertion_without_a_matching_identity_self_signature_is_rejected() {
         .unwrap();
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(
                     &stolen,
                     &other.sign(&identity()).unwrap(),
@@ -350,7 +847,7 @@ fn an_assertion_without_a_matching_identity_self_signature_is_rejected() {
         .unwrap();
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(
                     &stolen,
                     &foreign.sign(&identity()).unwrap(),
@@ -430,7 +927,7 @@ fn an_assertion_from_an_unconfigured_authority_is_rejected() {
 
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -452,7 +949,7 @@ fn an_assertion_from_an_unconfigured_authority_is_rejected() {
     .unwrap();
     assert!(
         widened
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -478,7 +975,7 @@ fn an_assertion_the_authority_did_not_sign_is_rejected() {
 
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -491,12 +988,14 @@ fn an_assertion_the_authority_did_not_sign_is_rejected() {
 #[test]
 fn an_assertion_that_disagrees_with_itself_or_its_submission_is_rejected() {
     assert_eq!(
-        admit_with(|body| body.handle_id = handle().handle_id().as_bytes().map(|b| !b).into())
-            .unwrap_err(),
+        check_assertion_with(
+            |body| body.handle_id = handle().handle_id().as_bytes().map(|b| !b).into()
+        )
+        .unwrap_err(),
         AuthorityError::HandleIdMismatch
     );
     assert_eq!(
-        admit_with(|body| {
+        check_assertion_with(|body| {
             body.handle = Handle::parse(b"bob").unwrap();
             body.handle_id = body.handle.handle_id();
         })
@@ -504,11 +1003,11 @@ fn an_assertion_that_disagrees_with_itself_or_its_submission_is_rejected() {
         AuthorityError::HandleMismatch
     );
     assert_eq!(
-        admit_with(|body| body.identity_pk = PublicKey::new([0xcc; 32])).unwrap_err(),
+        check_assertion_with(|body| body.identity_pk = PublicKey::new([0xcc; 32])).unwrap_err(),
         AuthorityError::IdentityMismatch
     );
     assert_eq!(
-        admit_with(|body| {
+        check_assertion_with(|body| {
             body.label = f2z_codec::types::ShortBytes::new(b"free2z/kt/v1/entry").unwrap();
         })
         .unwrap_err(),
@@ -519,11 +1018,11 @@ fn an_assertion_that_disagrees_with_itself_or_its_submission_is_rejected() {
 #[test]
 fn a_backwards_or_empty_validity_window_is_rejected() {
     assert_eq!(
-        admit_with(|body| body.expires_ms = body.issued_ms).unwrap_err(),
+        check_assertion_with(|body| body.expires_ms = body.issued_ms).unwrap_err(),
         AuthorityError::EmptyValidity
     );
     assert_eq!(
-        admit_with(|body| body.expires_ms = body.issued_ms - 1).unwrap_err(),
+        check_assertion_with(|body| body.expires_ms = body.issued_ms - 1).unwrap_err(),
         AuthorityError::EmptyValidity
     );
 }
@@ -532,7 +1031,7 @@ fn a_backwards_or_empty_validity_window_is_rejected() {
 fn an_assertion_issued_too_far_in_the_future_is_rejected() {
     let skew = f2z_authority::DEFAULT_CLOCK_SKEW_MS;
     assert_eq!(
-        admit_with(|body| {
+        check_assertion_with(|body| {
             body.issued_ms = NOW_MS + skew + 1;
             body.expires_ms = body.issued_ms + 60_000;
         })
@@ -541,7 +1040,7 @@ fn an_assertion_issued_too_far_in_the_future_is_rejected() {
     );
     // Exactly at the skew is accepted: the allowance is inclusive.
     assert!(
-        admit_with(|body| {
+        check_assertion_with(|body| {
             body.issued_ms = NOW_MS + skew;
             body.expires_ms = body.issued_ms + 60_000;
         })
@@ -558,10 +1057,15 @@ fn intent_is_tied_to_the_position_in_the_entry_sequence() {
     // A bind assertion on anything but a first entry.
     let (bytes, signature) = present(body());
     let mut later = submission(&bytes, &signature, &identity_pk, &handle);
+    later.kind = EntryKind::PlatformReset;
     later.entry_version = 2;
     later.previous_identity_pk = Some(&previous);
+    later.previous_vouch = Some(checked_initial_vouch());
+    later.previous_account_epoch = Some(7);
     assert_eq!(
-        config().admit(&later, NOW_MS, &mut ledger()).unwrap_err(),
+        config()
+            .check_assertion_layer(&later, NOW_MS, &mut ledger())
+            .unwrap_err(),
         AuthorityError::IntentMismatch
     );
 
@@ -571,7 +1075,7 @@ fn intent_is_tied_to_the_position_in_the_entry_sequence() {
     let (reset_bytes, reset_signature) = present(reset_body);
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&reset_bytes, &reset_signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -584,16 +1088,23 @@ fn intent_is_tied_to_the_position_in_the_entry_sequence() {
     let mut zeroth = submission(&bytes, &signature, &identity_pk, &handle);
     zeroth.entry_version = 0;
     assert_eq!(
-        config().admit(&zeroth, NOW_MS, &mut ledger()).unwrap_err(),
-        AuthorityError::IntentMismatch
+        config()
+            .check_assertion_layer(&zeroth, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::EntryKindMismatch
     );
 
     // A reset that the log has no predecessor for.
     let mut orphan = submission(&reset_bytes, &reset_signature, &identity_pk, &handle);
+    orphan.kind = EntryKind::PlatformReset;
     orphan.entry_version = 2;
+    orphan.previous_vouch = Some(checked_initial_vouch());
+    orphan.previous_account_epoch = Some(7);
     assert_eq!(
-        config().admit(&orphan, NOW_MS, &mut ledger()).unwrap_err(),
-        AuthorityError::IntentMismatch
+        config()
+            .check_assertion_layer(&orphan, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::EntryKindMismatch
     );
 
     // A bind whose handle the log already has an entry for.
@@ -601,9 +1112,9 @@ fn intent_is_tied_to_the_position_in_the_entry_sequence() {
     squatted.previous_identity_pk = Some(&previous);
     assert_eq!(
         config()
-            .admit(&squatted, NOW_MS, &mut ledger())
+            .check_assertion_layer(&squatted, NOW_MS, &mut ledger())
             .unwrap_err(),
-        AuthorityError::IntentMismatch
+        AuthorityError::EntryKindMismatch
     );
 }
 
@@ -618,11 +1129,15 @@ fn a_reset_that_keeps_the_key_it_replaces_is_rejected() {
     let handle = handle();
 
     let mut no_op = submission(&bytes, &signature, &identity_pk, &handle);
+    no_op.kind = EntryKind::PlatformReset;
     no_op.entry_version = 2;
     no_op.previous_identity_pk = Some(&identity_pk);
+    no_op.previous_vouch = Some(checked_initial_vouch());
     no_op.previous_account_epoch = Some(7);
     assert_eq!(
-        config().admit(&no_op, NOW_MS, &mut ledger()).unwrap_err(),
+        config()
+            .check_assertion_layer(&no_op, NOW_MS, &mut ledger())
+            .unwrap_err(),
         AuthorityError::IdentityUnchanged
     );
 
@@ -630,7 +1145,10 @@ fn a_reset_that_keeps_the_key_it_replaces_is_rejected() {
     let outgoing = PublicKey::new([0xdd; 32]);
     let mut real = no_op;
     real.previous_identity_pk = Some(&outgoing);
-    assert!(config().admit(&real, NOW_MS, &mut ledger()).is_ok());
+    let checked = config()
+        .check_assertion_layer(&real, NOW_MS, &mut ledger())
+        .unwrap();
+    assert_eq!(checked.account_epoch(), 8);
 }
 
 #[test]
@@ -643,8 +1161,25 @@ fn an_account_epoch_that_does_not_advance_is_rejected() {
     let outgoing = PublicKey::new([0xdd; 32]);
 
     let mut base = submission(&bytes, &signature, &identity_pk, &handle);
+    base.kind = EntryKind::PlatformReset;
     base.entry_version = 2;
     base.previous_identity_pk = Some(&outgoing);
+    base.previous_vouch = Some(checked_initial_vouch());
+
+    assert_eq!(
+        config()
+            .check_assertion_layer(&base, NOW_MS, &mut ledger())
+            .unwrap_err(),
+        AuthorityError::MissingPriorAccountEpoch
+    );
+
+    let mut advancing = base;
+    advancing.previous_account_epoch = Some(6);
+    assert!(
+        config()
+            .check_assertion_layer(&advancing, NOW_MS, &mut ledger())
+            .is_ok()
+    );
 
     // The fixture asserts account_epoch 7. Anything already at or past it is a
     // spent assertion being presented again.
@@ -653,16 +1188,12 @@ fn an_account_epoch_that_does_not_advance_is_rejected() {
         replayed.previous_account_epoch = Some(previous);
         assert_eq!(
             config()
-                .admit(&replayed, NOW_MS, &mut ledger())
+                .check_assertion_layer(&replayed, NOW_MS, &mut ledger())
                 .unwrap_err(),
             AuthorityError::AccountEpochRegression,
             "previous epoch {previous} was accepted"
         );
     }
-
-    let mut advancing = base;
-    advancing.previous_account_epoch = Some(6);
-    assert!(config().admit(&advancing, NOW_MS, &mut ledger()).is_ok());
 }
 
 #[test]
@@ -675,7 +1206,7 @@ fn non_canonical_assertion_bytes_are_rejected() {
     trailing.push(0);
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&trailing, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -687,7 +1218,7 @@ fn non_canonical_assertion_bytes_are_rejected() {
     let truncated = &bytes[..bytes.len() - 1];
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(truncated, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -710,7 +1241,7 @@ fn a_failed_submission_never_burns_the_nonce() {
     // Fails at the identity binding, which runs before the ledger is touched.
     assert!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &Signature::new([0u8; 64]), &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger,
@@ -722,7 +1253,7 @@ fn a_failed_submission_never_burns_the_nonce() {
     // The genuine submission still works.
     assert!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger,
@@ -744,7 +1275,7 @@ fn a_reused_nonce_across_two_different_assertions_is_still_a_replay() {
     let (first, first_signature) = present(body());
     assert!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&first, &first_signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger,
@@ -758,7 +1289,7 @@ fn a_reused_nonce_across_two_different_assertions_is_still_a_replay() {
     assert_ne!(first, second);
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&second, &second_signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger,
@@ -776,7 +1307,7 @@ fn a_full_ledger_refuses_rather_than_forgetting() {
     let mut ledger = NonceLedger::new(0, f2z_authority::DEFAULT_CLOCK_SKEW_MS);
     assert_eq!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger,
@@ -789,7 +1320,7 @@ fn a_full_ledger_refuses_rather_than_forgetting() {
 // ---------------------------------------------------- the no-authority deployment
 
 #[test]
-fn a_log_with_no_authority_reports_that_and_still_demands_a_self_signature() {
+fn experimental_unvouched_mode_is_reported_and_still_demands_a_self_signature() {
     let config = AuthorityConfig::with_defaults(log_id(), AuthoritySet::none()).unwrap();
     assert_eq!(config.status(), VouchingStatus::Unvouched);
     assert!(
@@ -805,16 +1336,18 @@ fn a_log_with_no_authority_reports_that_and_still_demands_a_self_signature() {
         .sign(&identity())
         .unwrap();
 
-    let admitted = config
-        .admit(
+    let checked = config
+        .check_assertion_layer(
             &Submission {
                 assertion: None,
+                kind: EntryKind::InitialBind,
                 handle: &handle,
                 identity_pk: &identity_pk,
                 entry_version: 1,
                 entry_digest: &ENTRY_DIGEST,
                 identity_signature: &signature,
                 previous_identity_pk: None,
+                previous_vouch: None,
                 previous_account_epoch: None,
             },
             NOW_MS,
@@ -822,10 +1355,11 @@ fn a_log_with_no_authority_reports_that_and_still_demands_a_self_signature() {
         )
         .unwrap();
 
-    assert_eq!(admitted.vouch(), Vouch::Unvouched);
-    assert!(!admitted.vouch().is_vouched());
-    assert_eq!(admitted.vouch().authority(), None);
-    assert_eq!(admitted.vouch().to_string(), "UNVOUCHED");
+    assert_eq!(checked.vouch(), Vouch::Unvouched);
+    assert!(!checked.vouch().is_vouched());
+    assert_eq!(checked.vouch().authority(), None);
+    assert_eq!(checked.vouch().to_string(), "UNVOUCHED");
+    assert_eq!(checked.account_epoch(), 0);
 }
 
 #[test]
@@ -839,7 +1373,7 @@ fn the_two_deployments_do_not_leak_into_each_other() {
     // An assertion offered to a log that cannot judge it.
     assert_eq!(
         unvouched
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -852,7 +1386,9 @@ fn the_two_deployments_do_not_leak_into_each_other() {
     let mut bare = submission(&bytes, &signature, &identity_pk, &handle);
     bare.assertion = None;
     assert_eq!(
-        vouched.admit(&bare, NOW_MS, &mut ledger()).unwrap_err(),
+        vouched
+            .check_assertion_layer(&bare, NOW_MS, &mut ledger())
+            .unwrap_err(),
         AuthorityError::MissingAssertion
     );
 
@@ -865,7 +1401,7 @@ fn the_two_deployments_do_not_leak_into_each_other() {
         .unwrap();
     assert_eq!(
         vouched
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &zeroed, &identity_pk, &handle),
                 NOW_MS,
                 &mut ledger(),
@@ -907,7 +1443,7 @@ fn every_refusal_carries_a_kt_error_code_that_does_not_blame_the_wrong_party() {
 #[test]
 fn the_ledger_trait_is_what_a_durable_log_implements() {
     // A log keeps the ledger in its database; nothing here assumes otherwise.
-    // The property under test is that `admit` writes through the trait and
+    // The property under test is that the assertion-layer check writes through the trait and
     // through nothing else.
     struct Counting {
         inner: NonceLedger,
@@ -935,7 +1471,7 @@ fn the_ledger_trait_is_what_a_durable_log_implements() {
     let handle = handle();
     assert!(
         config()
-            .admit(
+            .check_assertion_layer(
                 &submission(&bytes, &signature, &identity_pk, &handle),
                 NOW_MS,
                 &mut counting,

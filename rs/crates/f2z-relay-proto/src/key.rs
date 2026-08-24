@@ -210,22 +210,89 @@ mod tests {
         assert!(refused, "no 32-byte string in the sample was refused");
     }
 
+    /// The universal-forgery fixture: a public key and one signature that
+    /// plain Ed25519 verification accepts for *every* message.
+    ///
+    /// # Deriving it
+    ///
+    /// The public key is the identity point, `y = 1` with a clear sign bit —
+    /// little-endian `0x01` followed by 31 zero bytes. The signature is
+    /// `R || S` with `R` that same encoding and `S = 0`.
+    ///
+    /// Non-strict verification recomputes `R' = [S]B - [k]A` and compares it
+    /// to the `R` on the wire. With `S = 0` the first term is the identity,
+    /// and with `A` the identity the second term is the identity *whatever
+    /// `k` is* — and `k` is the only place the message enters. So `R'` is the
+    /// identity for every message, it equals the `R` on the wire, and the
+    /// signature verifies. Nobody knows a private key for it; nobody needs to.
+    ///
+    /// `verify_strict` rejects it because it refuses a small-order `A` and a
+    /// small-order `R` before doing any of that arithmetic.
+    ///
+    /// The order-1-ness is not asserted from this comment: `is_weak` below is
+    /// curve25519-dalek's own answer, and [`FORGED_MESSAGES`] re-derives the
+    /// "every message" half by trying many of them rather than trusting the
+    /// algebra. Surveying all eight small-order encodings against all eight
+    /// choices of `R` in ed25519-dalek 3.0.0 / curve25519-dalek 5.0.0, the
+    /// identity is the only `A` that gives a *universal* forgery: the
+    /// order-2, order-4 and order-8 points also slip past plain `verify`, but
+    /// only for the fraction of messages whose `k` happens to land in the
+    /// right residue class (measured 7/64 to 31/64). A fixture built on one
+    /// of those would pass or fail on the message it was handed, which is
+    /// what the constant this replaced was doing.
+    const FORGERY_KEY: [u8; 32] = [
+        0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0,
+    ];
+
+    /// How many distinct messages the forgery is exercised against. Every one
+    /// of them must be accepted by plain verification and refused by ours.
+    const FORGED_MESSAGES: u8 = 64;
+
     #[test]
     fn small_order_keys_are_rejected_by_strict_verification() {
-        // The canonical small-order point of order 8. Under non-strict
-        // verification a signature can be made to verify under a key like
-        // this; §5.1 step 5 then reads a queue as authorized by a key nobody
-        // possesses.
-        let small_order = PublicKey::new([
-            0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10,
-            0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77,
-            0x92, 0xac, 0x03, 0x7a,
-        ]);
-        let key = VerifyingKey::from_public_key(&small_order).unwrap();
-        assert_eq!(
-            key.verify(b"anything", &Signature::new([0u8; 64])),
-            Err(ProtoError::Wire(ErrorCode::BadSignature))
-        );
+        use ed25519_dalek::Verifier as _;
+
+        let forged = {
+            let mut signature = [0u8; 64];
+            signature
+                .get_mut(..32)
+                .unwrap()
+                .copy_from_slice(&FORGERY_KEY);
+            Signature::new(signature)
+        };
+        let wire = PublicKey::new(FORGERY_KEY);
+        let ours = VerifyingKey::from_public_key(&wire).unwrap();
+
+        // It is a curve point — so `from_public_key` cannot be the thing that
+        // saves us — and it is genuinely small-order, per the curve library
+        // rather than per this test's say-so.
+        let raw = ed25519_dalek::VerifyingKey::from_bytes(&FORGERY_KEY).unwrap();
+        assert!(raw.is_weak(), "the fixture is not a small-order point");
+
+        let dalek_signature = ed25519_dalek::Signature::from_bytes(forged.as_bytes());
+        for byte in 0..FORGED_MESSAGES {
+            let message = [byte; 7];
+
+            // Half one: plain Ed25519 accepts this signature over this
+            // message. Without this the test would pass for an unrelated
+            // reason — which is exactly how the fixture it replaced passed.
+            assert!(
+                raw.verify(&message, &dalek_signature).is_ok(),
+                "message {byte}: plain verification refused the forgery, so this \
+                 fixture no longer demonstrates the distinction strict \
+                 verification exists to make"
+            );
+
+            // Half two: ours refuses it. This is the half that goes red if
+            // `verify_strict` is ever swapped for `verify`, or if a non-strict
+            // fallback is added beside it.
+            assert_eq!(
+                ours.verify(&message, &forged),
+                Err(ProtoError::Wire(ErrorCode::BadSignature)),
+                "message {byte}: a universal-forgery key was accepted"
+            );
+        }
     }
 
     #[test]

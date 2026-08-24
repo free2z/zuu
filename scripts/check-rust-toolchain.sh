@@ -26,6 +26,14 @@
 #
 #   scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
 #                                   --manifest rs/relay/Cargo.toml
+#
+# Registration used to be a discipline: this script only ever looked at the
+# arrays below plus whatever flags a caller passed, so a crate nobody remembered
+# to register was simply invisible to it and shipped with a wrong MSRV, or none,
+# behind a green check identical to the one a registered crate gets. The
+# registration census (check_census) closes that: it enumerates the manifests and
+# toolchain files git actually tracks and fails on any that is not registered.
+# See #553.
 
 set -euo pipefail
 
@@ -37,19 +45,39 @@ TOOLCHAIN_FILE=wallet/rust-toolchain.toml
 # Crate manifests. These carry the two-component MSRV form (1.88) of the
 # three-component channel (1.88.0) — Cargo's `rust-version` is a floor, not an
 # exact toolchain, so the forms are deliberately different and compared as such.
+#
+# This array is the registry, and check_census makes it exhaustive: every
+# tracked Cargo.toml outside z/ that declares a [package] table must appear
+# here. `--manifest` still works for an ad-hoc or not-yet-committed manifest,
+# but a workflow flag is not a registration — the census runs in every
+# invocation, including the bare one the required gate runs, which passes no
+# flags at all and would fail on anything registered only elsewhere.
 MANIFESTS=(
   wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
+  rs/crates/f2z-codec/Cargo.toml
+  rs/crates/f2z-relay-proto/Cargo.toml
+  rs/crates/f2z-authority/Cargo.toml
+  rs/crates/f2z-kt-core/Cargo.toml
+  # The two AGPL-3.0-only server binaries. Registered here rather than by a
+  # workflow flag for #553's reason: the census runs in every invocation,
+  # including the bare one the required zuuli gate runs, and a manifest
+  # registered only in a workflow would be unpoliced there.
+  rs/crates/f2z-kt/Cargo.toml
+  rs/crates/f2z-witness/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
 # it runs in, so a second Rust tree needs its own copy — but a copy is a
 # restatement, never a second source of truth, and every entry here must repeat
-# TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file.
-TOOLCHAIN_RESTATEMENTS=()
+# TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file. check_census
+# holds this array to the tracked tree the same way it holds MANIFESTS.
+TOOLCHAIN_RESTATEMENTS=(
+  rs/rust-toolchain.toml
+)
 
 # Workflows whose jobs verify the installed compiler with
 # `rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "`. GitHub cannot
@@ -89,6 +117,21 @@ ACCEPTED_EXPRESSIONS=(
 )
 
 WASM_TARGET=wasm32-unknown-unknown
+
+# Vendored ecosystem sources. Their MSRVs are upstream's decision, not ours, so
+# the census stops at this prefix. They are submodules, so the superproject
+# index does not list their contents in the first place — this is belt and
+# braces for the day something under z/ stops being a submodule.
+VENDORED_PREFIX=z/
+
+# Every first-party Cargo manifest, including a virtual workspace manifest,
+# belongs to exactly one of these independently gated Rust trees.  This is a
+# path boundary, not a package registry: adding a third top-level Rust tree is
+# therefore a policy change that must add both its root and its owner workflow.
+POLICED_RUST_ROOTS=(
+  wallet
+  rs
+)
 
 # These are implementation identities, not alternate version decisions. The
 # generic branch commit accepts the source-derived `toolchain:` input; the
@@ -415,6 +458,144 @@ check_toolchain_restatements() {
   done
 }
 
+# Ask the pinned Cargo itself whether a manifest is a package or a virtual
+# workspace.  TOML permits whitespace and quoted, inline, and dotted keys, so a
+# source grep for `[package]` is neither complete nor sound. `read-manifest`
+# succeeds only for a package. When it fails, a second semantic command,
+# `metadata`, succeeds for a valid virtual workspace. Classification never
+# depends on Cargo/rustup diagnostic wording, ANSI colour, or startup prelude;
+# both commands failing is malformed or otherwise unclassifiable and fails
+# closed.
+CARGO_MANIFEST_KIND=
+classify_cargo_manifest() {
+  local root=$1 rel=$2 channel=$3
+  local read_diagnostic_file metadata_diagnostic_file read_diagnostic metadata_diagnostic
+
+  CARGO_MANIFEST_KIND=
+  read_diagnostic_file=$(mktemp "${TMPDIR:-/tmp}/cargo-read-manifest.XXXXXX")
+  metadata_diagnostic_file=$(mktemp "${TMPDIR:-/tmp}/cargo-metadata.XXXXXX")
+  if cargo +"$channel" read-manifest --manifest-path "$root/$rel" \
+    >/dev/null 2>"$read_diagnostic_file"; then
+    CARGO_MANIFEST_KIND=package
+    rm -f -- "$read_diagnostic_file" "$metadata_diagnostic_file"
+    return 0
+  fi
+
+  if cargo +"$channel" metadata --no-deps --format-version 1 \
+    --manifest-path "$root/$rel" >/dev/null 2>"$metadata_diagnostic_file"; then
+    CARGO_MANIFEST_KIND=virtual
+    rm -f -- "$read_diagnostic_file" "$metadata_diagnostic_file"
+    return 0
+  fi
+
+  read_diagnostic=$(tail -n 3 "$read_diagnostic_file")
+  metadata_diagnostic=$(tail -n 3 "$metadata_diagnostic_file")
+  rm -f -- "$read_diagnostic_file" "$metadata_diagnostic_file"
+  read_diagnostic=${read_diagnostic//$'\n'/; }
+  metadata_diagnostic=${metadata_diagnostic//$'\n'/; }
+  fail "$rel could not be classified by pinned Cargo $channel (read-manifest: ${read_diagnostic:-no diagnostic}; metadata: ${metadata_diagnostic:-no diagnostic})"
+  return 1
+}
+
+# --- the registration census -------------------------------------------------
+#
+# Everything above verifies what it was *told about*. This is what makes the
+# telling mandatory: the tracked tree is the input, so a crate cannot escape the
+# MSRV check by never being mentioned. Without it, `check_manifests` and
+# `check_toolchain_restatements` return the same green verdict whether a new
+# crate was registered or forgotten, and only a reviewer noticing tells the two
+# apart.
+
+# The census input: every Cargo.toml and rust-toolchain.toml git tracks.
+# `git ls-files` rather than a filesystem walk, so build artefacts, scratch
+# checkouts and target/ directories cannot inflate or distract it.
+census_tracked_files() {
+  local root=$1 output=$2
+  git -C "$root" ls-files -z -- '*Cargo.toml' '*rust-toolchain.toml' >"$output"
+}
+
+# Consume the NUL-delimited inventory directly. Shell variables never hold the
+# complete stream, so tabs and newlines in a tracked path remain data rather
+# than becoming record separators (and Bash 3.2 does not need mapfile).
+check_census_inventory() {
+  local root=$1 inventory=$2 channel=$3
+  local rel base seen=0 owner owner_count
+  local registered_toolchains=("$TOOLCHAIN_FILE")
+
+  if (( ${#TOOLCHAIN_RESTATEMENTS[@]} > 0 )); then
+    registered_toolchains+=("${TOOLCHAIN_RESTATEMENTS[@]}")
+  fi
+
+  while IFS= read -r -d '' rel; do
+    if [[ $rel == "$VENDORED_PREFIX"* ]]; then
+      continue
+    fi
+
+    base=${rel##*/}
+    seen=$((seen + 1))
+
+    if [[ $base == Cargo.toml ]]; then
+      owner_count=0
+      for owner in "${POLICED_RUST_ROOTS[@]}"; do
+        if [[ $rel == "$owner/"* ]]; then
+          owner_count=$((owner_count + 1))
+        fi
+      done
+      if (( owner_count != 1 )); then
+        fail "$rel belongs to $owner_count policed Rust roots; every first-party Cargo.toml must belong to exactly one of: ${POLICED_RUST_ROOTS[*]}"
+      fi
+    fi
+
+    if [[ $base == rust-toolchain.toml ]]; then
+      if contains "$rel" "${registered_toolchains[@]}"; then
+        continue
+      fi
+      fail "$rel is an unregistered Rust toolchain file; nothing holds it to $TOOLCHAIN_FILE. Add it to TOOLCHAIN_RESTATEMENTS in scripts/check-rust-toolchain.sh"
+      continue
+    fi
+
+    # Registered paths are checked for existence by check_manifests; a listed
+    # path absent from this root is the staged-tree case, not a finding.
+    if [[ ! -f "$root/$rel" ]]; then
+      continue
+    fi
+
+    # Let the pinned Cargo parse and classify the manifest. This recognizes
+    # every Cargo-valid spelling of the package table and cannot be vouched for
+    # by a comment or multiline string containing `[package]`.
+    if ! classify_cargo_manifest "$root" "$rel" "$channel"; then
+      continue
+    fi
+    if [[ $CARGO_MANIFEST_KIND == virtual ]]; then
+      if contains "$rel" "${MANIFESTS[@]}"; then
+        fail "$rel is registered in MANIFESTS as a package, but pinned Cargo $channel classifies it as a virtual manifest"
+      fi
+      continue
+    fi
+
+    if contains "$rel" "${MANIFESTS[@]}"; then
+      continue
+    fi
+    fail "$rel declares [package] but is registered nowhere, so nothing holds its rust-version to $TOOLCHAIN_FILE. Add it to MANIFESTS in scripts/check-rust-toolchain.sh"
+  done <"$inventory"
+
+  (( seen > 0 )) ||
+    fail "no tracked crate manifests or toolchain files were enumerated; the registration census has gone blind"
+}
+
+check_census() {
+  local root=$1 channel=$2 inventory
+
+  inventory=$(mktemp "${TMPDIR:-/tmp}/rust-census.XXXXXX")
+  if ! census_tracked_files "$root" "$inventory" 2>/dev/null; then
+    rm -f -- "$inventory"
+    fail "git could not enumerate tracked files; the registration census has gone blind"
+    return
+  fi
+  check_census_inventory "$root" "$inventory" "$channel"
+  rm -f -- "$inventory"
+}
+
 check_docs() {
   local root=$1 channel=$2 msrv=$3
   local entry rel needle
@@ -455,6 +636,7 @@ run_checks() {
   check_workflows "$root" "$channel"
   check_manifests "$root" "$channel" "$msrv"
   check_toolchain_restatements "$root" "$channel"
+  check_census "$root" "$channel"
   check_docs "$root" "$channel" "$msrv"
   check_wasm_target "$root"
 
@@ -509,7 +691,7 @@ staged_paths() {
 }
 
 stage_tree() {
-  local dest=$1 rel
+  local dest=$1 rel manifest_dir target
   while IFS= read -r rel; do
     [[ -e "$dest/$rel" ]] && continue
     # A registered path that does not exist yet is the check's own finding to
@@ -518,6 +700,34 @@ stage_tree() {
     mkdir -p "$dest/$(dirname "$rel")"
     cp "$REPO_ROOT/$rel" "$dest/$rel"
   done < <(staged_paths)
+
+  # Include virtual workspace manifests in the census even though they are not
+  # package registrations, then make the scratch tree a real Git index so the
+  # self-test exercises the production producer end to end.
+  while IFS= read -r -d '' rel; do
+    [[ -e "$dest/$rel" ]] && continue
+    mkdir -p "$dest/$(dirname "$rel")"
+    cp "$REPO_ROOT/$rel" "$dest/$rel"
+  done < <(git -C "$REPO_ROOT" ls-files -z -- '*Cargo.toml' '*rust-toolchain.toml')
+
+  # Cargo's semantic package classifier also verifies that a package has a
+  # target. Preserve the conventional tracked targets in the staged tree so
+  # classification exercises the manifest, rather than failing because the
+  # deliberately minimal fixture omitted src/lib.rs or src/main.rs.
+  while IFS= read -r -d '' rel; do
+    manifest_dir=$(dirname "$rel")
+    for target in \
+      "$manifest_dir/src/lib.rs" \
+      "$manifest_dir/src/main.rs" \
+      "$manifest_dir/build.rs"; do
+      [[ -e "$REPO_ROOT/$target" ]] || continue
+      mkdir -p "$dest/$(dirname "$target")"
+      cp "$REPO_ROOT/$target" "$dest/$target"
+    done
+  done < <(git -C "$REPO_ROOT" ls-files -z -- '*Cargo.toml')
+
+  git -C "$dest" init -q
+  git -C "$dest" add -A
 }
 
 apply_sed() {
@@ -588,6 +798,7 @@ self_test() {
     printf 'self-test: caught drift when %s.\n' "$description"
   done
 
+  self_test_census "$scratch" || failures=$((failures + $?))
   self_test_second_tree "$scratch" "$channel" "$msrv" || failures=$((failures + $?))
 
   if (( failures > 0 )); then
@@ -595,6 +806,208 @@ self_test() {
     return 1
   fi
   printf 'self-test: %d drift case(s) caught.\n' "${#SELF_TEST_MUTATIONS[@]}"
+}
+
+# --- self-test: the registration census --------------------------------------
+#
+# Every census case mutates a real staged Git index and enters through
+# run_checks. This proves the filename producer, NUL boundary, ownership rule,
+# and registration verdict together rather than testing a synthetic parser.
+self_test_census_case() {
+  local root=$1 description=$2 expect=$3 needle=$4
+  local output
+
+  output=$(run_checks "$root" 2>&1) && {
+    if [[ $expect == reject ]]; then
+      printf 'self-test FAILED: the census accepted %s.\n' "$description" >&2
+      return 1
+    fi
+    printf 'self-test: the census accepts %s.\n' "$description"
+    return 0
+  }
+
+  if [[ $expect == accept ]]; then
+    printf 'self-test FAILED: the census rejected %s:\n%s\n' "$description" "$output" >&2
+    return 1
+  fi
+  if [[ $output != *"$needle"* ]]; then
+    printf 'self-test FAILED: the census rejected %s without naming the expected finding (%s):\n%s\n' \
+      "$description" "$needle" "$output" >&2
+    return 1
+  fi
+  printf 'self-test: the census rejects %s.\n' "$description"
+}
+
+self_test_census() {
+  local scratch=$1
+  local tree rel case_index=0
+  local failures=0
+  local saved_roots=("${POLICED_RUST_ROOTS[@]}")
+  local saved_manifests=("${MANIFESTS[@]}")
+
+  for rel in \
+    outside/ordinary/Cargo.toml \
+    outside/wallet/nested/Cargo.toml \
+    walletish/Cargo.toml \
+    rs-other/Cargo.toml \
+    zebra/Cargo.toml \
+    ' leading/Cargo.toml' \
+    'outside/trailing /Cargo.toml' \
+    'outside/space root/Cargo.toml' \
+    $'outside/tab\troot/Cargo.toml' \
+    $'outside/back\\slash/Cargo.toml' \
+    $'outside/newline\nroot/Cargo.toml'; do
+    case_index=$((case_index + 1))
+    tree=$scratch/census-path-$case_index
+    stage_tree "$tree"
+    mkdir -p "$tree/$(dirname "$rel")"
+    printf '[workspace]\nresolver = "3"\n' >"$tree/$rel"
+    git -C "$tree" add -- "$rel"
+    self_test_census_case "$tree" "an unowned Cargo manifest named $(printf '%q' "$rel")" \
+      reject "drift: $rel belongs to 0 policed Rust roots" || failures=$((failures + 1))
+  done
+
+  tree=$scratch/census-overlapping-owner
+  stage_tree "$tree"
+  rel=wallet/nested/Cargo.toml
+  mkdir -p "$tree/$(dirname "$rel")"
+  printf '[workspace]\nresolver = "3"\n' >"$tree/$rel"
+  git -C "$tree" add -- "$rel"
+  POLICED_RUST_ROOTS+=(wallet/nested)
+  self_test_census_case "$tree" 'a manifest claimed by overlapping Rust roots' \
+    reject "$rel belongs to 2 policed Rust roots" || failures=$((failures + 1))
+  POLICED_RUST_ROOTS=("${saved_roots[@]}")
+
+  tree=$scratch/census-unregistered
+  stage_tree "$tree"
+  rel=rs/crates/scratch/Cargo.toml
+  mkdir -p "$tree/$(dirname "$rel")/src"
+  printf '[package]\nname = "scratch"\nversion = "0.0.0"\n' >"$tree/$rel"
+  printf 'pub fn scratch() {}\n' >"$tree/$(dirname "$rel")/src/lib.rs"
+  git -C "$tree" add -- "$rel" "$(dirname "$rel")/src/lib.rs"
+  self_test_census_case "$tree" 'a new crate under rs/ that nobody registered' \
+    reject "$rel declares [package] but is registered nowhere" || failures=$((failures + 1))
+
+  # Cargo accepts many TOML spellings of the package table. Each fixture is a
+  # real staged path with a real target, and must reach the same registration
+  # verdict; a source grep for the canonical `[package]` spelling misses all
+  # but the first control.
+  local package_form description manifest package_case=0
+  local package_forms=(
+    $'canonical table\t[package]\nname = "census-form-%INDEX%"\nversion = "0.0.0"\nedition = "2024"'
+    $'space inside table brackets\t[ package ]\nname = "census-form-%INDEX%"\nversion = "0.0.0"\nedition = "2024"'
+    $'space before closing table bracket\t[package ]\nname = "census-form-%INDEX%"\nversion = "0.0.0"\nedition = "2024"'
+    $'double-quoted table key\t["package"]\nname = "census-form-%INDEX%"\nversion = "0.0.0"\nedition = "2024"'
+    $'single-quoted table key\t[\'package\']\nname = "census-form-%INDEX%"\nversion = "0.0.0"\nedition = "2024"'
+    $'inline package table\tpackage = { name = "census-form-%INDEX%", version = "0.0.0", edition = "2024" }'
+    $'dotted package keys\tpackage.name = "census-form-%INDEX%"\npackage.version = "0.0.0"\npackage.edition = "2024"'
+  )
+  for package_form in "${package_forms[@]}"; do
+    package_case=$((package_case + 1))
+    description=${package_form%%$'\t'*}
+    manifest=${package_form#*$'\t'}
+    manifest=${manifest//%INDEX%/$package_case}
+    tree=$scratch/census-package-form-$package_case
+    stage_tree "$tree"
+    rel=wallet/census-package-form-$package_case/Cargo.toml
+    mkdir -p "$tree/$(dirname "$rel")/src"
+    printf '%s\n' "$manifest" >"$tree/$rel"
+    printf 'pub fn package_form() {}\n' >"$tree/$(dirname "$rel")/src/lib.rs"
+    git -C "$tree" add -- "$rel" "$(dirname "$rel")/src/lib.rs"
+    self_test_census_case "$tree" "an unregistered Cargo-valid package using $description" \
+      reject "$rel declares [package] but is registered nowhere" || failures=$((failures + 1))
+  done
+
+  # Cargo and rustup may decorate stderr before Cargo's own diagnostic. CI
+  # deliberately sets CARGO_TERM_COLOR=always, and rustup may print a sync
+  # prelude on a cold runner. A real wrapper injects both shapes before the
+  # pinned Cargo commands: semantic command success must remain the only
+  # classifier, while a malformed manifest must still fail closed.
+  local cargo_noise_bin real_cargo
+  cargo_noise_bin=$scratch/cargo-classifier-noise-bin
+  real_cargo=$(command -v cargo)
+  mkdir -p "$cargo_noise_bin"
+  cat >"$cargo_noise_bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+printf '\033[1;33minfo: syncing channel updates for classifier fixture\033[0m\n' >&2
+exec "$CENSUS_REAL_CARGO" "$@"
+EOF
+  chmod +x "$cargo_noise_bin/cargo"
+
+  tree=$scratch/census-invalid-manifest
+  stage_tree "$tree"
+  rel=wallet/census-invalid/Cargo.toml
+  mkdir -p "$tree/$(dirname "$rel")/src"
+  printf '[package\nname = "invalid"\nversion = "0.0.0"\n' >"$tree/$rel"
+  printf 'pub fn invalid() {}\n' >"$tree/$(dirname "$rel")/src/lib.rs"
+  git -C "$tree" add -- "$rel" "$(dirname "$rel")/src/lib.rs"
+  (
+    export PATH="$cargo_noise_bin:$PATH"
+    export CENSUS_REAL_CARGO="$real_cargo"
+    export CARGO_TERM_COLOR=always
+    self_test_census_case "$tree" \
+      'a malformed manifest despite ANSI and rustup prelude diagnostics' \
+      reject "$rel could not be classified by pinned Cargo"
+  ) || failures=$((failures + 1))
+
+  tree=$scratch/census-virtual-string
+  stage_tree "$tree"
+  rel=wallet/census-virtual-string/Cargo.toml
+  mkdir -p "$tree/$(dirname "$rel")"
+  printf 'note = """\n[package]\n"""\n[workspace]\nresolver = "3"\n' >"$tree/$rel"
+  git -C "$tree" add -- "$rel"
+  (
+    export PATH="$cargo_noise_bin:$PATH"
+    export CENSUS_REAL_CARGO="$real_cargo"
+    export CARGO_TERM_COLOR=always
+    self_test_census_case "$tree" \
+      'a valid virtual manifest despite ANSI/rustup prelude and multiline [package] text' \
+      accept ''
+  ) || failures=$((failures + 1))
+
+  tree=$scratch/census-registered-virtual
+  stage_tree "$tree"
+  rel=wallet/census-registered-virtual/Cargo.toml
+  local registered_msrv
+  registered_msrv=$(read_channel "$tree")
+  registered_msrv=${registered_msrv%.*}
+  mkdir -p "$tree/$(dirname "$rel")"
+  printf 'note = """\nrust-version = "%s"\n"""\n[workspace]\nresolver = "3"\n' \
+    "$registered_msrv" >"$tree/$rel"
+  git -C "$tree" add -- "$rel"
+  MANIFESTS+=("$rel")
+  self_test_census_case "$tree" \
+    'a virtual manifest cannot masquerade as a registered package through string text' \
+    reject "$rel is registered in MANIFESTS as a package" || failures=$((failures + 1))
+  MANIFESTS=("${saved_manifests[@]}")
+
+  tree=$scratch/census-third-root
+  stage_tree "$tree"
+  rel=third/Cargo.toml
+  mkdir -p "$tree/third"
+  printf '[workspace]\nresolver = "3"\n' >"$tree/$rel"
+  git -C "$tree" add -- "$rel"
+  self_test_census_case "$tree" 'a virtual manifest introduces a third Rust root' \
+    reject "$rel belongs to 0 policed Rust roots" || failures=$((failures + 1))
+
+  tree=$scratch/census-z
+  stage_tree "$tree"
+  rel=z/Cargo.toml
+  mkdir -p "$tree/z"
+  printf '[package]\nname = "vendored"\nversion = "0.0.0"\n' >"$tree/$rel"
+  git -C "$tree" add -- "$rel"
+  self_test_census_case "$tree" 'the exact vendored z/ boundary' accept '' ||
+    failures=$((failures + 1))
+
+  tree=$scratch/census-empty
+  stage_tree "$tree"
+  while IFS= read -r -d '' rel; do
+    git -C "$tree" rm --cached -q -- "$rel"
+  done < <(git -C "$tree" ls-files -z -- '*Cargo.toml' '*rust-toolchain.toml')
+  self_test_census_case "$tree" 'an empty tracked Rust inventory' reject 'gone blind' ||
+    failures=$((failures + 1))
+
+  return "$failures"
 }
 
 # --- self-test: a second Rust tree -------------------------------------------
@@ -614,12 +1027,15 @@ self_test_second_tree() {
     saved_restatements=("${TOOLCHAIN_RESTATEMENTS[@]}")
 
   stage_tree "$tree"
-  mkdir -p "$tree/rs/relay/src"
+  mkdir -p "$tree/rs/crates/relay/src"
   printf '[toolchain]\nchannel = "%s"\n' "$channel" > "$tree/rs/rust-toolchain.toml"
   printf '[package]\nname = "relay"\nversion = "0.0.0"\nedition = "2024"\nrust-version = "%s"\n' \
-    "$msrv" > "$tree/rs/relay/Cargo.toml"
+    "$msrv" > "$tree/rs/crates/relay/Cargo.toml"
+  printf 'pub fn relay() {}\n' > "$tree/rs/crates/relay/src/lib.rs"
+  git -C "$tree" add -- \
+    rs/rust-toolchain.toml rs/crates/relay/Cargo.toml rs/crates/relay/src/lib.rs
 
-  MANIFESTS+=(rs/relay/Cargo.toml)
+  MANIFESTS+=(rs/crates/relay/Cargo.toml)
   TOOLCHAIN_RESTATEMENTS+=(rs/rust-toolchain.toml)
 
   if run_checks "$tree" >/dev/null; then
@@ -636,7 +1052,7 @@ self_test_second_tree() {
 
   self_test_second_tree_case "$tree" \
     "a second tree's crate MSRV drifts" \
-    rs/relay/Cargo.toml "s|rust-version = \"$msrv\"|rust-version = \"9.99\"|" ||
+    rs/crates/relay/Cargo.toml "s|rust-version = \"$msrv\"|rust-version = \"9.99\"|" ||
     failures=$((failures + 1))
 
   rm -f "$tree/rs/rust-toolchain.toml"

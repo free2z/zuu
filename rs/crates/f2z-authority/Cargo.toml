@@ -4,15 +4,15 @@ version = "0.1.0"
 description = "Handle-ownership assertions for the free2z key-transparency log: the one non-cryptographic trust root, isolated so it can be read in full"
 edition.workspace = true
 # A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
-# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
-# drift. Not inherited from the workspace: that check reads this literal line.
+# registered in `scripts/check-rust-toolchain.sh`'s `MANIFESTS` auto-census so
+# it cannot drift. Not inherited: that check reads this literal line.
 rust-version = "1.97"
-# Permissive, deliberately and explicitly. Clients verify assertions too — a
-# handle whose vouching a client cannot check is a handle nobody vouched — so
-# this crate reaches the browser and the ZUULI app as well as the log. The
-# AGPL-3.0 boundary starts at the server binaries, not here. Stated literally
-# rather than inherited so it is visible to anyone opening the crate.
-# rs/deny.toml enforces it.
+# Permissive, deliberately and explicitly, so clients and third-party relays
+# can eventually share the same assertion verifier. This experimental crate is
+# currently a standalone leaf: no browser, ZUULI, or log package depends on it
+# yet. The AGPL-3.0 boundary starts at server binaries, not here. Stated
+# literally rather than inherited so it is visible to anyone opening the
+# crate; rs/deny.toml enforces it.
 license = "MIT"
 repository.workspace = true
 publish.workspace = true

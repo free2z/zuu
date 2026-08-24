@@ -163,7 +163,7 @@ fn a_whole_assertion_renders_no_key_and_no_handle() {
 }
 
 #[test]
-fn an_admitted_handle_renders_no_handle_and_no_key() {
+fn an_assertion_layer_check_renders_no_handle_and_no_key() {
     let authority = SigningKey::from_seed(&[MARKER; 32]);
     let identity = SigningKey::from_seed(&[0xad; 32]);
     let log_id = LogId::new([0x11; 32]);
@@ -201,16 +201,18 @@ fn an_admitted_handle_renders_no_handle_and_no_key() {
         .sign(&identity)
         .unwrap();
 
-    let admitted = config
-        .admit(
+    let checked = config
+        .check_assertion_layer(
             &Submission {
                 assertion: Some(&bytes),
+                kind: f2z_authority::EntryKind::InitialBind,
                 handle: &handle,
                 identity_pk: &identity.public_key(),
                 entry_version: 1,
                 entry_digest: &entry_digest,
                 identity_signature: &signature,
                 previous_identity_pk: None,
+                previous_vouch: None,
                 previous_account_epoch: None,
             },
             1_500,
@@ -218,7 +220,7 @@ fn an_admitted_handle_renders_no_handle_and_no_key() {
         )
         .unwrap();
 
-    let rendered = format!("{admitted:?}");
+    let rendered = format!("{checked:?}");
     assert!(!rendered.contains("alice"), "{rendered}");
     assert_absent(&rendered, identity.public_key().as_bytes(), "identity_pk");
     // The verdict itself must be readable: it is the thing an operator is
@@ -254,12 +256,14 @@ fn a_submission_renders_neither_the_assertion_bytes_nor_the_signature() {
 
     let submission = Submission {
         assertion: Some(&assertion),
+        kind: f2z_authority::EntryKind::InitialBind,
         handle: &handle,
         identity_pk: &identity_pk,
         entry_version: 1,
         entry_digest: &entry_digest,
         identity_signature: &signature,
         previous_identity_pk: None,
+        previous_vouch: None,
         previous_account_epoch: None,
     };
     let rendered = format!("{submission:?}");

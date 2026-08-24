@@ -685,6 +685,36 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_cap_below_the_relays_own_largest_bucket_is_refused() {
+        // A relay advertising a bucket its frame cap cannot carry has
+        // published a size no client can ever send it: the padding is the
+        // §9 privacy mechanism, so a client that trims to fit is a client
+        // whose message length is informative again.
+        //
+        // The boundary is asserted from `largest()` rather than from a
+        // literal, so the test cannot drift away from the default bucket set
+        // it is describing.
+        let largest = PaddingBuckets::new(document().padding_sizes.as_slice().to_vec())
+            .unwrap()
+            .largest();
+
+        let mut capabilities = document();
+        capabilities.max_frame_bytes = largest - 1;
+        assert_eq!(
+            validate(&capabilities),
+            Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
+        );
+
+        // Equality is the accepted edge: the check is `<`, and a frame that
+        // is exactly one bucket long is the necessary condition. It is not a
+        // sufficient one — the frame also carries an auth block and a body
+        // length prefix — which is why this is the boundary the document
+        // states and not the one a relay should actually publish.
+        capabilities.max_frame_bytes = largest;
+        assert!(validate(&capabilities).is_ok());
+    }
+
+    #[test]
     fn a_client_refuses_a_relay_that_cannot_carry_its_own_sizes() {
         let capabilities = document();
         let finer = ClientPolicy {

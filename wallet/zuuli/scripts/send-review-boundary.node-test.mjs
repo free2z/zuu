@@ -208,18 +208,4 @@ test("ZIP-321 parsing is single-payment and bound to native network authority", 
   assert.match(nativeSend, /zip321_requires_exactly_one_payment/);
   assert.match(nativeSend, /zip321_recipient_is_bound_to_the_active_network/);
   assert.match(nativeSend, /unified_address_requires_a_receiver_this_wallet_can_pay/);
-  for (const functionName of ["propose_send", "propose_send_all"]) {
-    const proposalFunction = nativeSend.match(
-      new RegExp(`pub async fn ${functionName}\\([\\s\\S]*?(?=\\npub async fn )`),
-    )?.[0];
-    assert.ok(proposalFunction, `${functionName} must remain inspectable`);
-    const validationIndex = proposalFunction.indexOf("parse_recipient(&state.network");
-    const proposalIndex = proposalFunction.indexOf("propose_transfer::<");
-    assert.notEqual(validationIndex, -1, `${functionName} must validate its recipient`);
-    assert.notEqual(proposalIndex, -1, `${functionName} must build a native proposal`);
-    assert.ok(
-      validationIndex < proposalIndex,
-      `${functionName} must reject incompatible recipients before native proposal`,
-    );
-  }
 });

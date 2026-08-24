@@ -79,33 +79,36 @@ pub enum AuthorityError {
     /// The nonce ledger is full of unexpired entries. A refusal, never an
     /// eviction — see [`crate::nonce`].
     LedgerFull,
-    /// `intent` does not match the position in the handle's entry sequence:
-    /// `bind` anywhere but the first entry, `reset` at the first, or a
-    /// predecessor that disagrees with either.
+    /// An assertion's `intent` does not match the declared entry kind:
+    /// `bind` is for the initial claim and `reset` is for `platform_reset`.
     IntentMismatch,
+    /// The declared entry kind disagrees with its sequence position or with
+    /// whether it retains or changes the published identity key.
+    EntryKindMismatch,
+    /// A non-initial entry did not carry the predecessor's vouching state.
+    MissingPriorVouch,
+    /// An initial entry claimed a predecessor vouching state it cannot have.
+    UnexpectedPriorVouch,
+    /// A non-initial entry did not carry its predecessor's `account_epoch`.
+    MissingPriorAccountEpoch,
+    /// An initial entry claimed a predecessor `account_epoch` it cannot have.
+    UnexpectedPriorAccountEpoch,
     /// A `reset` assertion was presented for a submission that keeps the
     /// identity key it is replacing.
     ///
-    /// **This is the stricter reading of `KT.md` §4.4, adopted deliberately.**
-    /// §4.4's numbered rules never require a `same_key` entry to leave
-    /// `identity_pk` alone, so as enumerated a party holding only the previous
-    /// `directory_auth_pk` could publish a `same_key` entry carrying a new
-    /// identity key — a key change with one signature, which ADR 0014 says the
-    /// log MUST reject. The same hole viewed from this crate is an assertion
-    /// admitted for an entry that changes nothing, which is an assertion spent
-    /// on a no-op and therefore an assertion that was really being used for
-    /// something else. Reported in the pull request rather than worked around.
+    /// The same refusal also covers a `key_change` entry that keeps its key:
+    /// both exceptional cases claim a key transition and therefore have to
+    /// replace the predecessor.
     IdentityUnchanged,
     /// `account_epoch` did not advance past the last admitted assertion for
     /// this handle.
     AccountEpochRegression,
-    /// The log has an authority set and the submission arrived without an
-    /// assertion.
+    /// An initial bind or platform reset on a vouched log arrived without its
+    /// platform assertion.
     MissingAssertion,
-    /// The log is configured with **no** authority and the submission arrived
-    /// carrying an assertion. Refused rather than ignored: a log that quietly
-    /// dropped it would report the handle as unvouched while its operator
-    /// believed otherwise.
+    /// An assertion appeared where none can be judged: either the log has no
+    /// authority, or a routine user-authorized entry carried a platform
+    /// assertion. Refused rather than ignored.
     UnexpectedAssertion,
     /// An [`AuthoritySet`] was built with no entries. Not the same thing as
     /// having no authority, which has to be spelled — see [`AuthoritySet`].
@@ -163,6 +166,11 @@ impl AuthorityError {
             | Self::Expired
             | Self::ReplayedNonce
             | Self::IntentMismatch
+            | Self::EntryKindMismatch
+            | Self::MissingPriorVouch
+            | Self::UnexpectedPriorVouch
+            | Self::MissingPriorAccountEpoch
+            | Self::UnexpectedPriorAccountEpoch
             | Self::IdentityUnchanged
             | Self::AccountEpochRegression
             | Self::MissingAssertion
@@ -198,10 +206,21 @@ impl AuthorityError {
             Self::ReplayedNonce => "this (authority_id, nonce) has been admitted before",
             Self::LedgerFull => "the nonce ledger is full of unexpired entries",
             Self::IntentMismatch => "intent does not match the entry sequence position",
+            Self::EntryKindMismatch => {
+                "the entry kind does not match its version or predecessor identity key"
+            }
+            Self::MissingPriorVouch => "a non-initial entry is missing its prior vouching state",
+            Self::UnexpectedPriorVouch => "an initial entry cannot have a prior vouching state",
+            Self::MissingPriorAccountEpoch => {
+                "a non-initial entry is missing its prior account_epoch"
+            }
+            Self::UnexpectedPriorAccountEpoch => {
+                "an initial entry cannot have a prior account_epoch"
+            }
             Self::IdentityUnchanged => "a reset assertion was spent on an unchanged identity key",
             Self::AccountEpochRegression => "account_epoch did not advance",
             Self::MissingAssertion => "this log requires an assertion and none was presented",
-            Self::UnexpectedAssertion => "this log has no authority and cannot judge an assertion",
+            Self::UnexpectedAssertion => "this entry kind must not carry a platform assertion",
             Self::EmptyAuthoritySet => "an authority set needs at least one key",
             Self::DuplicateAuthority => "two authority keys share an authority_id",
             Self::AuthorityIdNotDerived => "authority_id is not the digest of the key",

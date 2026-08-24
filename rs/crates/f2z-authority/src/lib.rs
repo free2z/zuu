@@ -1,5 +1,11 @@
 //! Handle-ownership assertions for the free2z key-transparency log.
 //!
+//! **Experimental proposal.** `KT.md` v1 does not define `HandleAssertion`,
+//! its binding transcript, or the no-authority behavior implemented here.
+//! Issue #594 keeps first-entry authorization explicitly unresolved. This
+//! crate is an implementation candidate for review, not a claim that those
+//! choices are ratified protocol.
+//!
 //! # Why this is a crate and not a module
 //!
 //! Everything else in the directory is cryptographic. `akd` proves the tree is
@@ -24,7 +30,7 @@
 //!   ┌──────────────┐   the assertion, plus the identity key's own
 //!   │ f2z-authority│   signature over the submission it accompanies
 //!   └──────────────┘
-//!         │  AdmittedHandle — or a refusal with a KT.md §9.5 code
+//!         │  AssertionLayerCheck (partial) — or a refusal
 //!         ▼
 //!   the log's §4.4 submission path, then akd, then the witnesses
 //! ```
@@ -35,25 +41,26 @@
 //! the authority said, so if holding it were enough to submit under the handle
 //! it names, intercepting one would be a takeover.
 //!
-//! `KT.md` requires that the submission carrying an assertion **also** be signed
-//! by the identity private key the assertion is *about*. That is what makes a
-//! stolen assertion worthless: producing the second signature needs the very
-//! key the thief was trying to replace.
+//! This proposal requires that the submission carrying an assertion **also** be
+//! signed by the identity private key the assertion is *about*. That is what
+//! makes a stolen assertion worthless: producing the second signature needs
+//! the very key the thief was trying to replace.
 //!
-//! This crate makes it impossible to skip rather than important to remember.
-//! [`AuthorityConfig::admit`] is the only public verification path; it takes
-//! [`Submission::identity_signature`] on every branch, including the branch for
-//! a log with no authority at all; and there is no `verify_assertion` beside it
-//! to reach a half-checked result through. The negative is tested
-//! (`tests/adversarial.rs`).
+//! [`AuthorityConfig::check_assertion_layer`] takes
+//! [`Submission::identity_signature`] on every branch, including the proposed
+//! no-authority branch; and there is no `verify_assertion` beside it that could
+//! skip the binding. Its result is intentionally named [`AssertionLayerCheck`]:
+//! it does **not** prove §4.4's directory authorization and must never be used
+//! alone as permission to publish an entry.
 //!
 //! # What it enforces
 //!
 //! Authority membership and signature, `log_id`, timestamps, **a validity cap
 //! the log holds rather than the issuer**, nonce freshness, `handle_id`
-//! agreement, the `[a-z0-9_]{1,30}` charset, intent against the entry sequence,
-//! and `account_epoch` monotonicity. [`AuthorityConfig::admit`]'s documentation
-//! lists all seventeen rules in the order they run.
+//! agreement, the `[a-z0-9_]{1,30}` charset, entry-kind shape, assertion intent,
+//! and `account_epoch` monotonicity. [`AuthorityConfig::check_assertion_layer`]'s documentation
+//! lists all seventeen asserted-path rules in the order they run, and names the
+//! smaller routine assertion-layer path explicitly.
 //!
 //! # What it deliberately does not do
 //!
@@ -73,8 +80,8 @@
 //!
 //! ```
 //! use f2z_authority::{
-//!     AssertionNonce, AuthorityConfig, AuthoritySet, Handle, HandleAssertionTBS, Intent,
-//!     LogId, NonceLedger, SigningKey, Submission, Vouch,
+//!     AssertionNonce, AuthorityConfig, AuthoritySet, EntryKind, Handle, HandleAssertionTBS,
+//!     Intent, LogId, NonceLedger, SigningKey, Submission, Vouch,
 //! };
 //! use f2z_codec::types::Digest;
 //!
@@ -109,23 +116,25 @@
 //! let identity_signature = binding.sign(&identity)?;
 //!
 //! let mut ledger = NonceLedger::new(4096, config.clock_skew_ms());
-//! let admitted = config.admit(
+//! let checked = config.check_assertion_layer(
 //!     &Submission {
 //!         assertion: Some(&f2z_codec::canonical::encode(&assertion)?),
+//!         kind: EntryKind::InitialBind,
 //!         handle: &handle,
 //!         identity_pk: &identity.public_key(),
 //!         entry_version: 1,
 //!         entry_digest: &entry_digest,
 //!         identity_signature: &identity_signature,
 //!         previous_identity_pk: None,
+//!         previous_vouch: None,
 //!         previous_account_epoch: None,
 //!     },
 //!     2_000,
 //!     &mut ledger,
 //! )?;
 //!
-//! assert!(admitted.vouch().is_vouched());
-//! assert_ne!(admitted.vouch(), Vouch::Unvouched);
+//! assert!(checked.vouch().is_vouched());
+//! assert_ne!(checked.vouch(), Vouch::Unvouched);
 //! # Ok(())
 //! # }
 //! ```
@@ -158,8 +167,8 @@ pub mod types;
 
 pub use assertion::{AssertionBindingTBS, HandleAssertion, HandleAssertionTBS};
 pub use authority::{
-    AdmittedHandle, AuthorityConfig, AuthorityKey, AuthoritySet, DEFAULT_CLOCK_SKEW_MS,
-    DEFAULT_MAX_VALIDITY_MS, Submission, Vouch, VouchingStatus,
+    AssertionLayerCheck, AuthorityConfig, AuthorityKey, AuthoritySet, DEFAULT_CLOCK_SKEW_MS,
+    DEFAULT_MAX_VALIDITY_MS, EntryKind, Submission, Vouch, VouchingStatus,
 };
 pub use error::{AuthorityError, Result};
 pub use key::{SigningKey, VerifyingKey};

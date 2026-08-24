@@ -1,6 +1,11 @@
 //! The two signed structures: what an authority says, and what the identity
 //! key it names says back.
 //!
+//! **Experimental proposal, not `KT.md` v1 wire format.** `KT.md` leaves
+//! first-entry authorization unresolved in #594 and defines none of these
+//! structures or no-authority semantics. The presentation below and the byte
+//! vectors in this module pin this crate's candidate layout for review only.
+//!
 //! ```text
 //! struct {
 //!     opaque label<0..255>;      /* exactly "free2z/kt/v1/handle-assertion" */
@@ -27,7 +32,7 @@
 //!     opaque handle<1..30>;
 //!     opaque identity_pk[32];
 //!     opaque assertion_digest[32];  /* H(".../assertion-digest", tls_codec(HandleAssertion));
-//!                                      all-zero when the log has no authority */
+//!                                      all-zero when this entry carries none */
 //!     opaque entry_digest[32];      /* the submission's AkdValue, KT.md §3.3 */
 //! } AssertionBindingTBS;
 //! ```
@@ -49,7 +54,7 @@
 //! which is the key the thief was trying to replace. The stolen assertion is
 //! worthless.
 //!
-//! `KT.md` requires this pairing. This crate makes it structural: there is no
+//! This proposal requires this pairing. This crate makes it structural: there is no
 //! function here or in [`crate::authority`] that checks an authority's
 //! signature without also checking the binding, so a caller cannot arrive at a
 //! verified assertion by a route that skipped it.
@@ -77,7 +82,7 @@ use crate::types::{AssertionNonce, AuthorityId, Handle, HandleId, Intent, LogId,
 
 /// What an authority signs.
 ///
-/// Every field is checked by [`AuthorityConfig::admit`] — the type carries no
+/// Every field is checked by [`AuthorityConfig::check_assertion_layer`] — the type carries no
 /// invariant of its own beyond decoding, deliberately, so that a decoded
 /// assertion is *data* until a policy has judged it.
 ///
@@ -85,7 +90,7 @@ use crate::types::{AssertionNonce, AuthorityId, Handle, HandleId, Intent, LogId,
 /// the redacting newtypes; `label` renders because [`ShortBytes`] prints
 /// printable ASCII and that is the field's entire purpose.
 ///
-/// [`AuthorityConfig::admit`]: crate::authority::AuthorityConfig::admit
+/// [`AuthorityConfig::check_assertion_layer`]: crate::authority::AuthorityConfig::check_assertion_layer
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
 pub struct HandleAssertionTBS {
     /// Exactly [`LABEL_ASSERTION_TBS`]. The domain-separated signing prefix.
@@ -215,10 +220,9 @@ impl HandleAssertion {
 /// What the identity key signs: this assertion, for this submission, on this
 /// log.
 ///
-/// See the module note. `assertion_digest` is 32 zero bytes when the log has no
-/// authority — the "absent value is all-zero" idiom `WIRE.md` §5.1 already
-/// uses — so that a log with no directory still requires the submitter to
-/// answer for itself, and so that one transcript covers both configurations.
+/// See the module note. `assertion_digest` is 32 zero bytes when the entry
+/// carries no assertion — the proposed unvouched mode and routine entries — so
+/// the submitter still answers for this exact entry.
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
 pub struct AssertionBindingTBS {
     /// Exactly [`LABEL_ASSERTION_BINDING_TBS`].
@@ -303,6 +307,146 @@ mod tests {
     use super::*;
     use f2z_codec::canonical::decode_canonical;
 
+    struct Field {
+        bytes: Vec<u8>,
+    }
+
+    fn declared_encoded_width(declaration: &str, bytes: &[u8]) -> usize {
+        if let Some(bits) = declaration
+            .split_whitespace()
+            .next()
+            .and_then(|kind| kind.strip_prefix("uint"))
+        {
+            let bits: usize = bits.parse().unwrap();
+            assert_eq!(bits % 8, 0, "`{declaration}` is not byte-aligned");
+            return bits / 8;
+        }
+
+        if let Some((_, width)) = declaration
+            .strip_suffix(']')
+            .and_then(|without_close| without_close.rsplit_once('['))
+        {
+            assert!(
+                declaration.starts_with("opaque "),
+                "unsupported fixed-width declaration `{declaration}`"
+            );
+            return width.parse().unwrap();
+        }
+
+        if let Some((_, bounds)) = declaration
+            .strip_suffix('>')
+            .and_then(|without_close| without_close.rsplit_once('<'))
+        {
+            assert!(
+                declaration.starts_with("opaque "),
+                "unsupported variable-width declaration `{declaration}`"
+            );
+            let (min, max) = bounds.split_once("..").unwrap();
+            let min: usize = min.parse().unwrap();
+            let max: usize = max.parse().unwrap();
+            let (&encoded_len, payload) = bytes.split_first().unwrap();
+            assert_eq!(
+                usize::from(encoded_len),
+                payload.len(),
+                "`{declaration}` length prefix says {encoded_len} bytes but the literal supplies {}",
+                payload.len()
+            );
+            assert!(
+                (min..=max).contains(&payload.len()),
+                "`{declaration}` permits {min}..{max} bytes but the literal supplies {}",
+                payload.len()
+            );
+            return bytes.len();
+        }
+
+        assert_eq!(
+            declaration, "HandleAssertionTBS assertion",
+            "unsupported wire declaration `{declaration}`"
+        );
+        bytes.len()
+    }
+
+    fn field(declaration: &'static str, bytes: impl AsRef<[u8]>) -> Field {
+        let bytes = bytes.as_ref().to_vec();
+        let width = declared_encoded_width(declaration, &bytes);
+        assert_eq!(
+            bytes.len(),
+            width,
+            "`{declaration}` says {width} bytes but the literal supplies {}",
+            bytes.len()
+        );
+        Field { bytes }
+    }
+
+    fn fill(byte: u8, width: usize) -> Vec<u8> {
+        alloc::vec![byte; width]
+    }
+
+    fn hand_derived(fields: &[Field]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for value in fields {
+            bytes.extend_from_slice(&value.bytes);
+        }
+        bytes
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "`opaque authority_id[31]` says 31 bytes but the literal supplies 32"
+    )]
+    fn the_wire_declaration_width_is_a_live_guard() {
+        let _ = field("opaque authority_id[31]", fill(0x11, 32));
+    }
+
+    #[test]
+    #[should_panic(expected = "`uint64 account_epoch` says 8 bytes but the literal supplies 4")]
+    fn the_integer_declaration_drives_its_encoded_width() {
+        let _ = field("uint64 account_epoch", [0u8; 4]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "`opaque handle<1..30>` length prefix says 4 bytes but the literal supplies 5"
+    )]
+    fn the_variable_opaque_declaration_checks_its_length_prefix() {
+        let _ = field("opaque handle<1..30>", b"\x04alice");
+    }
+
+    fn vector_tbs() -> HandleAssertionTBS {
+        HandleAssertionTBS {
+            label: ShortBytes::new(b"free2z/kt/v1/handle-assertion").unwrap(),
+            authority_id: AuthorityId::new([0x11; 32]),
+            log_id: LogId::new([0x22; 32]),
+            handle: Handle::parse(b"alice").unwrap(),
+            handle_id: HandleId::new([0x33; 32]),
+            identity_pk: PublicKey::new([0x44; 32]),
+            intent: Intent::Bind,
+            account_epoch: 0x0102_0304,
+            issued_ms: 0x0102_0304_0506_0708,
+            expires_ms: 0x1112_1314_1516_1718,
+            nonce: AssertionNonce::new([0x55; 16]),
+        }
+    }
+
+    fn tbs_fields() -> Vec<Field> {
+        alloc::vec![
+            field("opaque label<0..255>", b"\x1dfree2z/kt/v1/handle-assertion",),
+            field("opaque authority_id[32]", fill(0x11, 32)),
+            field("opaque log_id[32]", fill(0x22, 32)),
+            field("opaque handle<1..30>", b"\x05alice"),
+            field("opaque handle_id[32]", fill(0x33, 32)),
+            field("opaque identity_pk[32]", fill(0x44, 32)),
+            field("uint8 intent", [0x01]),
+            field("uint32 account_epoch", [0x01, 0x02, 0x03, 0x04]),
+            field("uint64 issued_ms", [1, 2, 3, 4, 5, 6, 7, 8]),
+            field(
+                "uint64 expires_ms",
+                [0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18],
+            ),
+            field("opaque nonce[16]", fill(0x55, 16)),
+        ]
+    }
+
     fn tbs() -> HandleAssertionTBS {
         let authority = SigningKey::from_seed(&[1u8; 32]);
         HandleAssertionTBS::new(
@@ -354,6 +498,53 @@ mod tests {
     }
 
     #[test]
+    fn proposal_handle_assertion_tbs_has_the_literal_candidate_field_order() {
+        assert_eq!(
+            vector_tbs().signing_bytes().unwrap(),
+            hand_derived(&tbs_fields())
+        );
+    }
+
+    #[test]
+    fn proposal_signed_assertion_has_the_literal_candidate_field_order() {
+        let actual = HandleAssertion {
+            assertion: vector_tbs(),
+            signature: Signature::new([0x66; 64]),
+        }
+        .encode_canonical()
+        .unwrap();
+        let fields = alloc::vec![
+            field("HandleAssertionTBS assertion", hand_derived(&tbs_fields()),),
+            field("opaque signature[64]", fill(0x66, 64)),
+        ];
+        assert_eq!(actual, hand_derived(&fields));
+    }
+
+    #[test]
+    fn proposal_binding_tbs_has_the_literal_candidate_field_order() {
+        let binding = AssertionBindingTBS {
+            label: ShortBytes::new(b"free2z/kt/v1/assertion-binding").unwrap(),
+            log_id: LogId::new([0x22; 32]),
+            handle: Handle::parse(b"alice").unwrap(),
+            identity_pk: PublicKey::new([0x44; 32]),
+            assertion_digest: Digest::new([0x77; 32]),
+            entry_digest: Digest::new([0x88; 32]),
+        };
+        let fields = alloc::vec![
+            field(
+                "opaque label<0..255>",
+                b"\x1efree2z/kt/v1/assertion-binding",
+            ),
+            field("opaque log_id[32]", fill(0x22, 32)),
+            field("opaque handle<1..30>", b"\x05alice"),
+            field("opaque identity_pk[32]", fill(0x44, 32)),
+            field("opaque assertion_digest[32]", fill(0x77, 32)),
+            field("opaque entry_digest[32]", fill(0x88, 32)),
+        ];
+        assert_eq!(binding.signing_bytes().unwrap(), hand_derived(&fields));
+    }
+
+    #[test]
     fn the_digest_covers_the_signature_too() {
         let body = tbs();
         let one = body
@@ -363,6 +554,60 @@ mod tests {
         let mut two = one.clone();
         two.signature = Signature::new([0u8; 64]);
         assert_ne!(one.digest().unwrap(), two.digest().unwrap());
+    }
+
+    #[test]
+    fn assertion_digest_matches_the_independent_nonuniform_canonical_vector() {
+        // This is the literal tls_codec byte sequence for one signed
+        // assertion. Its BLAKE2b-256 expectation was derived independently as
+        // b2sum -l 256(label || these 265 bytes), not by this crate's hash or
+        // encoding helpers.
+        let mut canonical = b"\x1dfree2z/kt/v1/handle-assertion".to_vec();
+        canonical.extend_from_slice(&[
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
+            0x1c, 0x1d, 0x1e, 0x1f,
+        ]);
+        canonical.extend_from_slice(&[
+            0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
+            0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b,
+            0x3c, 0x3d, 0x3e, 0x3f,
+        ]);
+        canonical.extend_from_slice(b"\x05a1_b2");
+        canonical.extend_from_slice(&[
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d,
+            0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b,
+            0x5c, 0x5d, 0x5e, 0x5f,
+        ]);
+        canonical.extend_from_slice(&[
+            0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d,
+            0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x7b,
+            0x7c, 0x7d, 0x7e, 0x7f,
+        ]);
+        canonical.extend_from_slice(&[
+            0x02, 0x01, 0x23, 0x45, 0x67, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x11,
+            0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+        ]);
+        canonical.extend_from_slice(&[
+            0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d,
+            0x8e, 0x8f,
+        ]);
+        canonical.extend(0x90..=0xcf);
+        assert_eq!(canonical.len(), 265);
+
+        let assertion = decode_canonical::<HandleAssertion>(&canonical)
+            .unwrap()
+            .value()
+            .clone();
+        assert_eq!(assertion.encode_canonical().unwrap(), canonical);
+        assert_eq!(
+            assertion.digest().unwrap().as_bytes(),
+            &[
+                0x1e, 0x3f, 0x8c, 0x54, 0x9c, 0x81, 0x6a, 0xbd, 0x45, 0x0a, 0xe7, 0x9a, 0xbb, 0xac,
+                0x86, 0xcc, 0xa7, 0xda, 0x04, 0xd9, 0x3e, 0x47, 0x89, 0x1e, 0xc8, 0x6a, 0x5c, 0x1e,
+                0x1e, 0xc1, 0x00, 0x67,
+            ]
+        );
     }
 
     #[test]

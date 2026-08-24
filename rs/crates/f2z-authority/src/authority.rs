@@ -2,17 +2,18 @@
 //!
 //! # The whole of it, in one function
 //!
-//! [`AuthorityConfig::admit`] is the only public verification path in this
-//! crate. There is no `verify_assertion`, no `check_authority_signature`, no
-//! `is_expired` — not because those would be hard to write, but because each
-//! one would be a route to a *partly* verified assertion, and a caller that
-//! reached the end of such a route would have something that looks like a
-//! result and is not one. The single door is the design.
+//! [`AuthorityConfig::check_assertion_layer`] is the only public verification
+//! path for this experimental assertion proposal. There is no
+//! `verify_assertion`, no `check_authority_signature`, and no `is_expired`:
+//! those narrower helpers would make it easy to mistake one successful rule
+//! for the complete assertion-layer check. The single assertion-layer door is
+//! the design. Even its result is explicitly partial with respect to the
+//! directory's separate entry-authorization rules.
 //!
 //! In particular, **there is no path that checks an assertion without also
 //! checking that the identity key it names signed for itself.** An assertion is
 //! a bearer document (see [`crate::assertion`]); the binding signature is what
-//! makes a stolen copy worthless. `admit` takes both or refuses.
+//! makes a stolen copy worthless. `check_assertion_layer` takes both or refuses.
 //!
 //! # Rotation is set membership
 //!
@@ -25,12 +26,12 @@
 //!
 //! # "No authority" is a configuration, and it is reported
 //!
-//! A self-hoster running a log with no user directory has nobody to vouch for
-//! handles. That is a legitimate deployment, and [`AuthoritySet::none`] is how
-//! it is spelled — *spelled*, not reached by leaving the set empty, which is
+//! This proposal models a self-hosted log with no user directory through
+//! [`AuthoritySet::none`]. `KT.md` does not ratify that behavior; #594 remains
+//! open. It is *spelled*, not reached by leaving the set empty, which is
 //! [`AuthorityError::EmptyAuthoritySet`] instead.
 //!
-//! It is not silent. Every admission on such a log returns
+//! It is not silent. Every successful assertion-layer check on such a log returns
 //! [`Vouch::Unvouched`], and [`AuthoritySet::status`] answers the same question
 //! before a single submission arrives, so a client connecting to the log can
 //! learn that `@alice` there means "whoever got there first" rather than
@@ -204,10 +205,11 @@ impl AuthoritySet {
         Self::new(alloc::vec![AuthorityKey::new(key)])
     }
 
-    /// **This log has no user directory.** Handles on it are unvouched.
+    /// **Experimental proposal:** this log has no user directory, so handles
+    /// on it are unvouched. `KT.md` has not ratified this mode (#594).
     ///
     /// See the module note: this must be chosen, and it is reported on every
-    /// admission.
+    /// assertion-layer check.
     #[must_use]
     pub const fn none() -> Self {
         Self(SetInner::NoAuthority)
@@ -246,7 +248,12 @@ impl AuthoritySet {
     }
 }
 
-/// Who vouched for an admitted handle — or that nobody did.
+/// The vouching state carried by this assertion-layer check.
+///
+/// For a routine entry this value is copied from [`Submission::previous_vouch`]
+/// and is **not verified by this crate**. The directory integration must derive
+/// it from the verified predecessor history; current authority configuration
+/// is not evidence that this particular handle was ever vouched.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[must_use]
 pub enum Vouch {
@@ -283,24 +290,45 @@ impl fmt::Display for Vouch {
     }
 }
 
-/// A handle whose claim has been fully checked.
+/// Why this directory entry exists.
 ///
-/// The only way to obtain one is [`AuthorityConfig::admit`], and it has no
-/// public constructor and no public fields, so a value of this type in hand is
-/// the argument that every rule below ran. It is the same shape `KT.md`'s own
-/// implementation uses for `AcceptedSubmission`: the type *is* the proof, so
-/// that a later step cannot be reached without it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[must_use]
-pub struct AdmittedHandle {
-    handle: Handle,
-    identity_pk: PublicKey,
-    vouch: Vouch,
-    intent: Option<Intent>,
-    account_epoch: Option<u32>,
+/// The last three variants are `KT.md`'s `EntryKind`. [`InitialBind`] names
+/// this crate's **unratified candidate** for the first-entry case that `KT.md`
+/// and #594 deliberately leave open. It must not be read as merged protocol.
+///
+/// [`InitialBind`]: Self::InitialBind
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryKind {
+    /// The handle's first entry.
+    InitialBind,
+    /// A routine update that retains the identity key.
+    SameKey,
+    /// A user-authorized identity-key rotation.
+    KeyChange,
+    /// The exceptional platform-authorized reset path.
+    PlatformReset,
 }
 
-impl AdmittedHandle {
+/// The result of checking only this crate's experimental assertion layer.
+///
+/// This is deliberately **not** an authorization-to-publish token. In
+/// particular, for `same_key` and `key_change` this crate does not parse or
+/// verify `KT.md` §4.4's `EntryAuthorization`, the prior DirectoryAuthKey
+/// signature, or a `RotationProof`. The directory integration must verify
+/// those independently before accepting the entry. The type name keeps that
+/// partial boundary visible at every call site.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[must_use]
+pub struct AssertionLayerCheck {
+    handle: Handle,
+    identity_pk: PublicKey,
+    kind: EntryKind,
+    vouch: Vouch,
+    intent: Option<Intent>,
+    account_epoch: u32,
+}
+
+impl AssertionLayerCheck {
     /// The handle.
     #[must_use]
     pub const fn handle(&self) -> &Handle {
@@ -313,9 +341,18 @@ impl AdmittedHandle {
         &self.identity_pk
     }
 
+    /// The directory entry kind whose assertion-layer subset was checked.
+    #[must_use]
+    pub const fn kind(&self) -> EntryKind {
+        self.kind
+    }
+
     /// Who vouched — **check this.** [`Vouch::Unvouched`] is a normal, valid
     /// outcome on a log configured without an authority, and it means something
     /// materially weaker than [`Vouch::By`].
+    ///
+    /// On a routine entry this is the exact predecessor value supplied by the
+    /// caller, not a fresh verdict from this crate.
     ///
     /// No `#[must_use]` here: [`Vouch`] already carries one, and clippy's
     /// `double_must_use` is right that repeating it says nothing new.
@@ -323,17 +360,18 @@ impl AdmittedHandle {
         self.vouch
     }
 
-    /// The assertion's intent, when there was an assertion.
+    /// The assertion's intent, when this entry required a platform assertion.
     #[must_use]
     pub const fn intent(&self) -> Option<Intent> {
         self.intent
     }
 
-    /// The `account_epoch` to record against this handle, when there was an
-    /// assertion. Feed it back as [`Submission::previous_account_epoch`] next
-    /// time.
+    /// The `account_epoch` to retain for this handle. A platform assertion
+    /// advances it; a routine entry carries the required previous value
+    /// forward. The experimental unvouched initial path starts at zero. Feed
+    /// it back as [`Submission::previous_account_epoch`] next time.
     #[must_use]
-    pub const fn account_epoch(&self) -> Option<u32> {
+    pub const fn account_epoch(&self) -> u32 {
         self.account_epoch
     }
 }
@@ -349,10 +387,13 @@ pub struct Submission<'a> {
     /// The canonical `tls_codec` bytes of the [`HandleAssertion`], as they
     /// arrived.
     ///
-    /// `None` only on a log configured [`AuthoritySet::none`]. On a log with an
-    /// authority it is [`AuthorityError::MissingAssertion`]; on a log without
-    /// one, `Some` is [`AuthorityError::UnexpectedAssertion`].
+    /// Present only for [`EntryKind::InitialBind`] or
+    /// [`EntryKind::PlatformReset`] on a vouched log. Routine
+    /// [`EntryKind::SameKey`] and [`EntryKind::KeyChange`] entries are
+    /// user-authorized and reject a platform assertion as a category error.
     pub assertion: Option<&'a [u8]>,
+    /// The authorization case this submission's directory entry declares.
+    pub kind: EntryKind,
     /// The `handle` of the accompanying `DirectoryEntry`.
     pub handle: &'a Handle,
     /// The `identity_pk` of the accompanying `DirectoryEntry`.
@@ -376,8 +417,15 @@ pub struct Submission<'a> {
     /// uses to refuse an assertion spent on an entry that changes nothing —
     /// see [`AuthorityError::IdentityUnchanged`].
     pub previous_identity_pk: Option<&'a PublicKey>,
-    /// The `account_epoch` of the last assertion admitted for this handle, or
-    /// `None` if this is the first.
+    /// The vouching state recorded with the verified predecessor, or `None`
+    /// only for the first entry.
+    ///
+    /// This crate checks presence and preserves the exact value on routine
+    /// entries; it cannot verify predecessor history itself.
+    pub previous_vouch: Option<Vouch>,
+    /// The predecessor's retained `account_epoch`, or `None` only if this is
+    /// the first entry. Every non-initial entry must carry it, including an
+    /// unvouched history whose experimental baseline is zero.
     pub previous_account_epoch: Option<u32>,
 }
 
@@ -409,10 +457,12 @@ impl fmt::Debug for Submission<'_> {
             )
             .field("handle", &self.handle)
             .field("identity_pk", &self.identity_pk)
+            .field("kind", &self.kind)
             .field("entry_version", &self.entry_version)
             .field("entry_digest", &self.entry_digest)
             .field("identity_signature", &self.identity_signature)
             .field("previous_identity_pk", &self.previous_identity_pk)
+            .field("previous_vouch", &self.previous_vouch)
             .field("previous_account_epoch", &self.previous_account_epoch)
             .finish()
     }
@@ -514,8 +564,9 @@ impl AuthorityConfig {
     /// The transcript the submitter's identity key must sign, built from this
     /// policy so that the signer and the verifier cannot disagree about it.
     ///
-    /// Pass the assertion the submission carries, or `None` on a log with no
-    /// authority.
+    /// Pass the assertion the submission carries, or `None` for an unvouched
+    /// initial bind and for `same_key`/`key_change`; their separate user
+    /// authorization is outside this crate.
     ///
     /// # Errors
     ///
@@ -540,13 +591,23 @@ impl AuthorityConfig {
         )
     }
 
-    /// Judge a submission. **The only verification path in this crate.**
+    /// Check this crate's experimental assertion layer.
+    ///
+    /// The returned [`AssertionLayerCheck`] is partial, not permission to
+    /// publish a directory entry. `same_key` and `key_change` still require the
+    /// caller to verify all of `KT.md` §4.4, including the prior
+    /// DirectoryAuthKey signature and (for `key_change`) the outgoing identity
+    /// key's `RotationProof`. This crate has neither structure and cannot judge
+    /// either one.
     ///
     /// The rules, in the order they run — cheap and flood-resistant first,
     /// signatures next, and the one rule that mutates state last, so that a
     /// submission which fails anything never burns a nonce:
     ///
-    /// 1. An assertion is present iff this log has an authority.
+    /// 1. An assertion is present iff this is an initial bind or platform
+    ///    reset on a vouched log. `same_key` and `key_change` must be
+    ///    authorized separately under `KT.md` §4.4 and must not require the
+    ///    platform here.
     /// 2. The bytes decode **and re-encode identically** (`WIRE.md` §3.3).
     /// 3. `label` is exactly `free2z/kt/v1/handle-assertion`.
     /// 4. `log_id` is this log's.
@@ -565,42 +626,62 @@ impl AuthorityConfig {
     /// 12. `authority_id` is in the configured set.
     /// 13. The authority's signature verifies, strictly, over the re-encoded
     ///     body.
-    /// 14. `intent` matches the sequence position: `bind` iff
-    ///     `entry_version == 1` and there is no predecessor, `reset` iff
-    ///     `entry_version > 1` and there is one — **and a `reset` actually
-    ///     replaces the predecessor's `identity_pk`.** That last clause is the
-    ///     stricter reading of `KT.md` §4.4; see
-    ///     [`AuthorityError::IdentityUnchanged`].
-    /// 15. `account_epoch` is strictly greater than the last one admitted for
-    ///     this handle.
+    /// 14. `intent` matches the entry kind: `bind` for an initial claim and
+    ///     `reset` for `platform_reset`; the discriminator's separate shape
+    ///     check holds both to the sequence and predecessor, including that a
+    ///     reset actually replaces the predecessor's `identity_pk`.
+    /// 15. Every non-initial entry supplies its predecessor's retained
+    ///     `account_epoch`; a platform assertion's epoch is strictly greater.
     /// 16. **The identity key signed the binding.** Without this a stolen
     ///     assertion is usable by the thief; with it, it is useless.
     /// 17. `(authority_id, nonce)` has not been admitted before.
     ///
-    /// On a log with no authority, rules 2–15 and 17 have nothing to run
-    /// against and rule 16 is the whole check — the submitter proves it holds
-    /// the identity key, and the result says [`Vouch::Unvouched`].
+    /// On a path without an assertion, rules 2–15 and 17 have nothing to run
+    /// against and rule 16 is the whole check in this layer — the submitter
+    /// proves it holds the identity key. The caller remains responsible for
+    /// `KT.md` §4.4's directory signature and rotation proof on routine entries.
     ///
     /// # Errors
     ///
     /// One [`AuthorityError`] per rule; see that type for the `KT.md` §9.5 code
     /// each travels as.
-    pub fn admit<S: NonceSeen + ?Sized>(
+    pub fn check_assertion_layer<S: NonceSeen + ?Sized>(
         &self,
         submission: &Submission<'_>,
         now_ms: u64,
         ledger: &mut S,
-    ) -> Result<AdmittedHandle> {
-        // 1. Presence, both directions.
+    ) -> Result<AssertionLayerCheck> {
+        // 1. Presence, both directions, selected by entry kind rather than by
+        //    the mere existence of an authority configuration.
         let Some(bytes) = submission.assertion else {
-            if self.authorities.vouches() {
-                return Err(AuthorityError::MissingAssertion);
-            }
-            return self.admit_unvouched(submission);
+            return match submission.kind {
+                EntryKind::SameKey | EntryKind::KeyChange => {
+                    self.check_routine_assertion_layer(submission)
+                }
+                EntryKind::InitialBind if !self.authorities.vouches() => {
+                    let _ = self.check_entry_shape(submission)?;
+                    self.check_unvouched_initial(submission)
+                }
+                EntryKind::InitialBind | EntryKind::PlatformReset => {
+                    Err(AuthorityError::MissingAssertion)
+                }
+            };
         };
-        if !self.authorities.vouches() {
+        if matches!(submission.kind, EntryKind::SameKey | EntryKind::KeyChange)
+            || !self.authorities.vouches()
+        {
             return Err(AuthorityError::UnexpectedAssertion);
         }
+
+        let previous_account_epoch = self.check_entry_shape(submission)?;
+
+        let expected_intent = match submission.kind {
+            EntryKind::InitialBind => Intent::Bind,
+            EntryKind::PlatformReset => Intent::Reset,
+            EntryKind::SameKey | EntryKind::KeyChange => {
+                return Err(AuthorityError::EntryKindMismatch);
+            }
+        };
 
         // 2. Re-encode equality. The re-encoded bytes — never the received
         //    ones — are what the signature is checked over.
@@ -653,38 +734,15 @@ impl AuthorityConfig {
             AuthorityError::BadAuthoritySignature,
         )?;
 
-        // 14. Intent against the sequence position, and against the
-        //     predecessor the log is holding.
-        let expected = match submission.entry_version {
-            0 => return Err(AuthorityError::IntentMismatch),
-            1 => Intent::Bind,
-            _ => Intent::Reset,
-        };
-        if body.intent != expected {
+        // 14. Intent against the declared authorization case.
+        if body.intent != expected_intent {
             return Err(AuthorityError::IntentMismatch);
-        }
-        match (expected, submission.previous_identity_pk) {
-            // A first entry has no predecessor. If the log is holding one, the
-            // version and the state disagree and nothing here can say which is
-            // right.
-            (Intent::Bind, None) => {}
-            (Intent::Bind, Some(_)) | (Intent::Reset, None) => {
-                return Err(AuthorityError::IntentMismatch);
-            }
-            // ADR 0014's reset replaces a key. One that does not is an
-            // assertion spent on a no-op — the §4.4 boundary this crate takes
-            // the stricter reading of.
-            (Intent::Reset, Some(previous)) => {
-                if *previous == body.identity_pk {
-                    return Err(AuthorityError::IdentityUnchanged);
-                }
-            }
         }
 
         // 15. Account-epoch monotonicity. Strict: a reset is a distinct
         //     account-ownership event, so an assertion for an epoch already
         //     seen is one that has already been spent.
-        if let Some(previous) = submission.previous_account_epoch
+        if let Some(previous) = previous_account_epoch
             && body.account_epoch <= previous
         {
             return Err(AuthorityError::AccountEpochRegression);
@@ -696,27 +754,104 @@ impl AuthorityConfig {
         // 17. Last, and the only step that writes.
         ledger.observe(now_ms, body.authority_id, body.nonce, body.expires_ms)?;
 
-        Ok(AdmittedHandle {
+        Ok(AssertionLayerCheck {
             handle: body.handle.clone(),
             identity_pk: body.identity_pk,
+            kind: submission.kind,
             vouch: Vouch::By(body.authority_id),
             intent: Some(body.intent),
-            account_epoch: Some(body.account_epoch),
+            account_epoch: body.account_epoch,
         })
+    }
+
+    /// The assertion-layer subset for two routine §4.4 paths. This is not the
+    /// routine authorization verdict; the caller still verifies §4.4 itself.
+    fn check_routine_assertion_layer(
+        &self,
+        submission: &Submission<'_>,
+    ) -> Result<AssertionLayerCheck> {
+        let Some(previous_account_epoch) = self.check_entry_shape(submission)? else {
+            // `check_entry_shape` returns `None` only for InitialBind, which
+            // cannot reach this routine-only helper.
+            return Err(AuthorityError::EntryKindMismatch);
+        };
+        let previous_vouch = submission
+            .previous_vouch
+            .ok_or(AuthorityError::MissingPriorVouch)?;
+        self.verify_binding(submission, None)?;
+        Ok(AssertionLayerCheck {
+            handle: submission.handle.clone(),
+            identity_pk: *submission.identity_pk,
+            kind: submission.kind,
+            vouch: previous_vouch,
+            intent: None,
+            account_epoch: previous_account_epoch,
+        })
+    }
+
+    /// Hold the `EntryKind` discriminator to the sequence and predecessor.
+    fn check_entry_shape(&self, submission: &Submission<'_>) -> Result<Option<u32>> {
+        match (submission.kind, submission.previous_vouch) {
+            (EntryKind::InitialBind, Some(_)) => {
+                return Err(AuthorityError::UnexpectedPriorVouch);
+            }
+            (EntryKind::PlatformReset, None) => {
+                return Err(AuthorityError::MissingPriorVouch);
+            }
+            _ => {}
+        }
+        if matches!(submission.kind, EntryKind::InitialBind)
+            && submission.previous_account_epoch.is_some()
+        {
+            return Err(AuthorityError::UnexpectedPriorAccountEpoch);
+        }
+        let previous_account_epoch = match submission.kind {
+            EntryKind::InitialBind => None,
+            EntryKind::SameKey | EntryKind::KeyChange | EntryKind::PlatformReset => Some(
+                submission
+                    .previous_account_epoch
+                    .ok_or(AuthorityError::MissingPriorAccountEpoch)?,
+            ),
+        };
+        match (
+            submission.kind,
+            submission.entry_version,
+            submission.previous_identity_pk,
+        ) {
+            (EntryKind::InitialBind, 1, None) => Ok(previous_account_epoch),
+            (EntryKind::SameKey, version, Some(previous)) if version > 1 => {
+                if previous == submission.identity_pk {
+                    Ok(previous_account_epoch)
+                } else {
+                    Err(AuthorityError::EntryKindMismatch)
+                }
+            }
+            (EntryKind::KeyChange | EntryKind::PlatformReset, version, Some(previous))
+                if version > 1 =>
+            {
+                if previous != submission.identity_pk {
+                    Ok(previous_account_epoch)
+                } else {
+                    Err(AuthorityError::IdentityUnchanged)
+                }
+            }
+            _ => Err(AuthorityError::EntryKindMismatch),
+        }
     }
 
     /// The no-authority path. Private, and reachable only when
     /// [`AuthoritySet::none`] was configured *and* no assertion was presented,
     /// so it is not a bypass of the vouched path — it is the other half of rule
     /// 1.
-    fn admit_unvouched(&self, submission: &Submission<'_>) -> Result<AdmittedHandle> {
+    fn check_unvouched_initial(&self, submission: &Submission<'_>) -> Result<AssertionLayerCheck> {
         self.verify_binding(submission, None)?;
-        Ok(AdmittedHandle {
+        Ok(AssertionLayerCheck {
             handle: submission.handle.clone(),
             identity_pk: *submission.identity_pk,
+            kind: submission.kind,
             vouch: Vouch::Unvouched,
             intent: None,
-            account_epoch: None,
+            account_epoch: 0,
         })
     }
 
@@ -732,21 +867,27 @@ impl AuthorityConfig {
             assertion,
             submission.entry_digest,
         )?;
-        VerifyingKey::from_public_key(submission.identity_pk, AuthorityError::BadIdentitySignature)?
-            .verify(
-                &binding.signing_bytes()?,
-                submission.identity_signature,
-                AuthorityError::BadIdentitySignature,
-            )
+        let identity_key = VerifyingKey::from_public_key(
+            submission.identity_pk,
+            AuthorityError::BadIdentitySignature,
+        )?;
+        identity_key.verify(
+            &binding.signing_bytes()?,
+            submission.identity_signature,
+            AuthorityError::BadIdentitySignature,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assertion::HandleAssertionTBS;
     use crate::key::SigningKey;
     use crate::nonce::NonceLedger;
-    use crate::types::AuthorityId;
+    use crate::types::{AssertionNonce, AuthorityId, HandleId};
+    use f2z_codec::canonical::Canonical as _;
+    use f2z_codec::types::ShortBytes;
 
     #[test]
     fn an_empty_set_is_not_no_authority() {
@@ -806,6 +947,91 @@ mod tests {
     }
 
     #[test]
+    fn binding_maps_every_nonuniform_input_to_the_literal_canonical_transcript() {
+        const CONFIG_LOG_ID: [u8; 32] = [
+            0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd,
+            0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb,
+            0xec, 0xed, 0xee, 0xef,
+        ];
+        const MAPPED_IDENTITY_PK: [u8; 32] = [
+            0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d,
+            0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b,
+            0x4c, 0x4d, 0x4e, 0x4f,
+        ];
+        const ENTRY_DIGEST_BYTES: [u8; 32] = [
+            0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d,
+            0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b,
+            0x6c, 0x6d, 0x6e, 0x6f,
+        ];
+        // This independently hashed 265-byte vector is built field-by-field,
+        // so the mapper test does not depend on signing or verification as its
+        // oracle.
+        let assertion = HandleAssertion {
+            assertion: HandleAssertionTBS {
+                label: ShortBytes::new(LABEL_ASSERTION_TBS).unwrap(),
+                authority_id: AuthorityId::new([
+                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+                    0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+                    0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+                ]),
+                log_id: LogId::new([
+                    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c,
+                    0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+                    0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+                ]),
+                handle: Handle::parse(b"a1_b2").unwrap(),
+                handle_id: HandleId::new([
+                    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c,
+                    0x4d, 0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+                    0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+                ]),
+                identity_pk: PublicKey::new([
+                    0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c,
+                    0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79,
+                    0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
+                ]),
+                intent: Intent::Reset,
+                account_epoch: 0x0123_4567,
+                issued_ms: 0x0102_0304_0506_0708,
+                expires_ms: 0x1112_1314_1516_1718,
+                nonce: AssertionNonce::new([
+                    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c,
+                    0x8d, 0x8e, 0x8f,
+                ]),
+            },
+            signature: Signature::new([
+                0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d,
+                0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab,
+                0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+                0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
+                0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf,
+            ]),
+        };
+
+        let config =
+            AuthorityConfig::with_defaults(LogId::new(CONFIG_LOG_ID), AuthoritySet::none())
+                .unwrap();
+        let handle = Handle::parse(b"map_7").unwrap();
+        let identity_pk = PublicKey::new(MAPPED_IDENTITY_PK);
+        let entry_digest = Digest::new(ENTRY_DIGEST_BYTES);
+        let binding = config
+            .binding(&handle, &identity_pk, Some(&assertion), &entry_digest)
+            .unwrap();
+
+        let mut expected = b"\x1efree2z/kt/v1/assertion-binding".to_vec();
+        expected.extend_from_slice(&CONFIG_LOG_ID);
+        expected.extend_from_slice(b"\x05map_7");
+        expected.extend_from_slice(&MAPPED_IDENTITY_PK);
+        expected.extend_from_slice(&[
+            0x1e, 0x3f, 0x8c, 0x54, 0x9c, 0x81, 0x6a, 0xbd, 0x45, 0x0a, 0xe7, 0x9a, 0xbb, 0xac,
+            0x86, 0xcc, 0xa7, 0xda, 0x04, 0xd9, 0x3e, 0x47, 0x89, 0x1e, 0xc8, 0x6a, 0x5c, 0x1e,
+            0x1e, 0xc1, 0x00, 0x67,
+        ]);
+        expected.extend_from_slice(&ENTRY_DIGEST_BYTES);
+        assert_eq!(binding.encode_canonical().unwrap(), expected);
+    }
+
+    #[test]
     fn a_log_with_no_authority_refuses_an_assertion_rather_than_ignoring_it() {
         let config =
             AuthorityConfig::with_defaults(LogId::new([1u8; 32]), AuthoritySet::none()).unwrap();
@@ -814,16 +1040,20 @@ mod tests {
         let mut ledger = NonceLedger::new(8, DEFAULT_CLOCK_SKEW_MS);
         let submission = Submission {
             assertion: Some(&[0u8; 4]),
+            kind: EntryKind::InitialBind,
             handle: &handle,
             identity_pk: &identity.public_key(),
             entry_version: 1,
             entry_digest: &Digest::new([7u8; 32]),
             identity_signature: &Signature::new([0u8; 64]),
             previous_identity_pk: None,
+            previous_vouch: None,
             previous_account_epoch: None,
         };
         assert_eq!(
-            config.admit(&submission, 0, &mut ledger).unwrap_err(),
+            config
+                .check_assertion_layer(&submission, 0, &mut ledger)
+                .unwrap_err(),
             AuthorityError::UnexpectedAssertion
         );
     }
@@ -841,16 +1071,20 @@ mod tests {
         let mut ledger = NonceLedger::new(8, DEFAULT_CLOCK_SKEW_MS);
         let submission = Submission {
             assertion: None,
+            kind: EntryKind::InitialBind,
             handle: &handle,
             identity_pk: &identity.public_key(),
             entry_version: 1,
             entry_digest: &Digest::new([7u8; 32]),
             identity_signature: &Signature::new([0u8; 64]),
             previous_identity_pk: None,
+            previous_vouch: None,
             previous_account_epoch: None,
         };
         assert_eq!(
-            config.admit(&submission, 0, &mut ledger).unwrap_err(),
+            config
+                .check_assertion_layer(&submission, 0, &mut ledger)
+                .unwrap_err(),
             AuthorityError::MissingAssertion
         );
     }
@@ -869,38 +1103,42 @@ mod tests {
             .unwrap();
         let signature = binding.sign(&identity).unwrap();
 
-        let admitted = config
-            .admit(
+        let checked = config
+            .check_assertion_layer(
                 &Submission {
                     assertion: None,
+                    kind: EntryKind::InitialBind,
                     handle: &handle,
                     identity_pk: &identity.public_key(),
                     entry_version: 1,
                     entry_digest: &entry_digest,
                     identity_signature: &signature,
                     previous_identity_pk: None,
+                    previous_vouch: None,
                     previous_account_epoch: None,
                 },
                 0,
                 &mut ledger,
             )
             .unwrap();
-        assert_eq!(admitted.vouch(), Vouch::Unvouched);
-        assert!(!admitted.vouch().is_vouched());
-        assert_eq!(admitted.intent(), None);
+        assert_eq!(checked.vouch(), Vouch::Unvouched);
+        assert!(!checked.vouch().is_vouched());
+        assert_eq!(checked.intent(), None);
 
         // …and a wrong signature is still fatal there.
         assert_eq!(
             config
-                .admit(
+                .check_assertion_layer(
                     &Submission {
                         assertion: None,
+                        kind: EntryKind::InitialBind,
                         handle: &handle,
                         identity_pk: &identity.public_key(),
                         entry_version: 1,
                         entry_digest: &entry_digest,
                         identity_signature: &Signature::new([0u8; 64]),
                         previous_identity_pk: None,
+                        previous_vouch: None,
                         previous_account_epoch: None,
                     },
                     0,

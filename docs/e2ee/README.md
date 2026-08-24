@@ -35,7 +35,7 @@ deliberately and can be reviewed by a third party.
 | [`THREAT-MODEL.md`](./THREAT-MODEL.md) | Adversaries, what each can do, and for each one the defense — or a plain statement that there is none. Includes the known, accepted limits. |
 | [`WIRE.md`](./WIRE.md) | The relay protocol, specified for a second implementer: transport, framing, canonical serialization, the command set with request/response shapes and stable error codes, the signing transcript, anti-replay, queue lifecycle, ACK semantics, TTLs, padding enforcement, the capability document, first contact, and anti-abuse. Also carries the two resolved pre-checks — the messaging handle charset (§14) and the SimpleX clean-room posture (§15). |
 | [`CLIENT-CONTRACT.md`](./CLIENT-CONTRACT.md) | The client interface, specified for a frontend developer who will not read any Rust: the Tauri command surface (`plugin:f2zmsg\|<cmd>`), why enrollment lives in the app crate rather than the plugin, the `types.ts` / `bridge.ts` / `mock.ts` / `events.ts` boundary and the mechanical mock-covers-bridge parity test, the event set and its ordering guarantees, the engine and four-delivery-state machines, the ordering rule, the closed `ErrorCode` union, the rules that must not be broken, what is deliberately not in v1, and the browser client's durability and handle-eligibility obligations. Field shapes are marked provisional; the backend is being implemented now. |
-| [`KT.md`](./KT.md) | The key-transparency protocol — `WIRE.md`'s analogue for the directory, specified for a second implementer: the `DirectoryEntry` structure and what authorizes it, `SignedTreeHead` and its signing transcript, log-key rotation, epoch cadence and maximum merge delay, the submission receipt, the witness poll-verify-cosign protocol and its fault evidence, the `WitnessCosignature` format, the client threshold rule and fail-closed behaviour, the proof-serving API, and where `akd`'s types sit underneath ours. |
+| [`KT.md`](./KT.md) | The key-transparency protocol — `WIRE.md`'s analogue for the directory, specified for a second implementer: the `DirectoryEntry` structure and what authorizes it — **after the first entry**; what authorizes a handle's first one is named as an open, blocking gap rather than invented — `SignedTreeHead` and its signing transcript, log-key rotation, epoch cadence and maximum merge delay, the submission receipt, the witness poll-verify-cosign protocol and its fault evidence, the `WitnessCosignature` format, the client threshold rule and fail-closed behaviour, the proof-serving API, and where `akd`'s types sit underneath ours. |
 | [`decisions/`](./decisions/) | One ADR per decision, `0001`–`0014`. |
 
 ## The binding decisions
@@ -116,7 +116,35 @@ witnesses can**), with the consequences carried into
 [`THREAT-MODEL.md` §3.1](./THREAT-MODEL.md#31-malicious-or-compromised-free2z-server)
 and [§3.9](./THREAT-MODEL.md#39-malicious-directory-witness).
 
-Still open above the relay: `KeyPackage` publication, push notifications, padding
+A Phase 1 constant has since been corrected the same way:
+[`KT.md` §6.1](./KT.md#61-structure) (2026-08-24) **renames the tree-head digest
+label to `free2z/kt/v1/tree-head-hash`**, because the name it shipped with was a
+proper extension of `free2z/kt/v1/sth` and `H` has no separator, so the two
+domains were not separated at all. `WIRE.md` §1.3 now states prefix-freeness as a
+normative requirement on the **union** of every document's labels, and
+`scripts/check-hash-domain-labels.mjs` enforces it on every pull request
+([#602](https://github.com/free2z/zuu/issues/602)).
+
+Two further corrections landed on 2026-08-24, both against
+[`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry)'s authorization rules and
+both found by implementing against them
+([#594](https://github.com/free2z/zuu/issues/594)). The first is **closed**: the
+numbered rules never required a `same_key` entry to leave `identity_pk`
+unchanged, so as enumerated they admitted an identity-key change on **one**
+signature, and that is now rule 6. The second is **open, blocking, and
+deliberately not answered here**: nothing in §4.4 says what authorizes a handle's
+**first** entry, so the rules as written accept a first entry for an unregistered
+handle from whoever submits one. Who may vouch for handle ownership is a
+product-and-trust decision of the same weight as ADR 0014's reset authority —
+which is what [#551](https://github.com/free2z/zuu/issues/551) is open about — so
+§4.4 states the option space, names the unratified candidate *as* a candidate,
+and settles none of it.
+[`THREAT-MODEL.md` §3.1](./THREAT-MODEL.md#31-malicious-or-compromised-free2z-server)
+carries the scoping consequence, and it is
+[`ARCHITECTURE.md` §13-S](./ARCHITECTURE.md#13-open-questions).
+
+Still open above the relay: **what authorizes a handle's first directory entry**,
+`KeyPackage` publication, push notifications, padding
 bucket sizes, the redundancy factor *k*, the client gossip protocol, the witness
 independence criterion and the default *t*, and the KT epoch cadence. All are
 listed in [`ARCHITECTURE.md` §13](./ARCHITECTURE.md#13-open-questions) and in

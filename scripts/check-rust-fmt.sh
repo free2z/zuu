@@ -106,16 +106,21 @@ fi
 if [[ $mode == self-test ]]; then
   fixture=$(mktemp -d "${TMPDIR:-/tmp}/zuuli-fmt-self-test.XXXXXX")
   trap 'rm -rf -- "$fixture"' EXIT
+  cases=0
+
+  # Install the required toolchain declaration before the empty-tree control.
+  # Otherwise the child can fail early for a missing pin and never exercise
+  # the manifest-count guard that this case claims to prove.
+  printf '[toolchain]\nchannel = "%s"\n' "$channel" > "$fixture/rust-toolchain.toml"
 
   if "$SELF" --root "$fixture" >/dev/null 2>&1; then
     printf 'self-test FAILED: --root accepted a tree holding no Cargo manifests.\n' >&2
     exit 1
   fi
+  cases=$((cases + 1))
   printf 'self-test: --root refuses a tree with no crates to judge.\n'
 
   mkdir -p "$fixture/relay/src"
-  # The second tree restates the pinned channel so rustup selects it here too.
-  printf '[toolchain]\nchannel = "%s"\n' "$channel" > "$fixture/rust-toolchain.toml"
   cat > "$fixture/relay/Cargo.toml" <<'EOF'
 [package]
 name = "zuuli-fmt-self-test"
@@ -130,7 +135,36 @@ EOF
     printf 'self-test FAILED: --root rejected a correctly formatted second tree.\n' >&2
     exit 1
   fi
+  cases=$((cases + 1))
   printf 'self-test: --root accepts a formatted second tree.\n'
+
+  # A depth limit is a future-crate escape: the ownership census permits Rust
+  # roots to grow at any depth, so formatting discovery must do the same.
+  mkdir -p "$fixture/future/depth/four/src"
+  cat > "$fixture/future/depth/four/Cargo.toml" <<'EOF'
+[package]
+name = "zuuli-fmt-deep-control"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+EOF
+  printf 'pub fn deep(  value:bool )->bool{value}\n' \
+    > "$fixture/future/depth/four/src/lib.rs"
+  if "$SELF" --root "$fixture" >/dev/null 2>&1; then
+    printf 'self-test FAILED: --root missed an unformatted crate below depth three.\n' >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+  printf 'self-test: --root discovers crates below depth three.\n'
+
+  "$SELF" --root "$fixture" --fix >/dev/null
+  if ! "$SELF" --root "$fixture" >/dev/null; then
+    printf 'self-test FAILED: --fix missed a crate below depth three.\n' >&2
+    exit 1
+  fi
+  cases=$((cases + 1))
+  printf 'self-test: --fix formats crates below depth three.\n'
 
   # Negative control: the same tree, unformatted.
   printf 'pub fn negate(  value:bool )->bool{!value}\n' > "$fixture/relay/src/lib.rs"
@@ -138,6 +172,7 @@ EOF
     printf 'self-test FAILED: --root accepted an unformatted crate.\n' >&2
     exit 1
   fi
+  cases=$((cases + 1))
   printf 'self-test: --root rejects an unformatted crate.\n'
 
   "$SELF" --root "$fixture" --fix >/dev/null
@@ -145,17 +180,20 @@ EOF
     printf 'self-test FAILED: --fix did not reach the crate under --root.\n' >&2
     exit 1
   fi
+  cases=$((cases + 1))
   printf 'self-test: --fix formats crates under --root.\n'
 
-  printf 'self-test: 4 case(s) passed; rustfmt from %s.\n' "$channel"
+  printf 'self-test: %d case(s) passed; rustfmt from %s.\n' "$cases" "$channel"
   exit 0
 fi
 
 # Tracked, buildable crates only: target/ holds vendored and generated
 # manifests, node_modules/ holds npm packages that ship Rust sources.
 manifests=()
+manifest_count=0
 while IFS= read -r manifest; do
   manifests+=("${manifest#./}")
+  manifest_count=$((manifest_count + 1))
 done < <(
   find . -name Cargo.toml \
     -not -path './target/*' \
@@ -164,38 +202,42 @@ done < <(
     LC_ALL=C sort
 )
 
-if [[ ${#manifests[@]} -eq 0 ]]; then
+if (( manifest_count == 0 )); then
   printf 'no Cargo manifests found under %s/; this check has gone blind.\n' "$LABEL" >&2
   exit 1
 fi
 
 failed=()
-for manifest in "${manifests[@]}"; do
-  crate=$(dirname "$manifest")
-  if [[ $mode == fix ]]; then
-    printf '==> formatting %s/%s\n' "$LABEL" "$crate"
-    cargo fmt --all --manifest-path "$manifest"
-    continue
-  fi
+failed_count=0
+if (( manifest_count > 0 )); then
+  for manifest in "${manifests[@]}"; do
+    crate=$(dirname "$manifest")
+    if [[ $mode == fix ]]; then
+      printf '==> formatting %s/%s\n' "$LABEL" "$crate"
+      cargo fmt --all --manifest-path "$manifest"
+      continue
+    fi
 
-  printf '==> checking %s/%s\n' "$LABEL" "$crate"
-  if cargo fmt --all --check --manifest-path "$manifest"; then
-    continue
-  fi
-  failed+=("$LABEL/$crate")
-done
+    printf '==> checking %s/%s\n' "$LABEL" "$crate"
+    if cargo fmt --all --check --manifest-path "$manifest"; then
+      continue
+    fi
+    failed+=("$LABEL/$crate")
+    failed_count=$((failed_count + 1))
+  done
+fi
 
 if [[ $mode == fix ]]; then
   printf 'Formatted %d crate(s) with rustfmt from the pinned %s toolchain.\n' \
-    "${#manifests[@]}" "$channel"
+    "$manifest_count" "$channel"
   exit 0
 fi
 
-if [[ ${#failed[@]} -gt 0 ]]; then
-  printf '\n%d crate(s) are not formatted: %s\n' "${#failed[@]}" "${failed[*]}" >&2
+if (( failed_count > 0 )); then
+  printf '\n%d crate(s) are not formatted: %s\n' "$failed_count" "${failed[*]}" >&2
   printf 'Run `scripts/check-rust-fmt.sh --fix` and commit the result; do not hand-edit.\n' >&2
   exit 1
 fi
 
 printf 'All %d Rust crate(s) under %s/ are formatted (rustfmt from %s).\n' \
-  "${#manifests[@]}" "$LABEL" "$channel"
+  "$manifest_count" "$LABEL" "$channel"

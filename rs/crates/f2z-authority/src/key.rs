@@ -117,6 +117,15 @@ mod tests {
     use super::*;
     use alloc::format;
 
+    /// The canonical Ed25519 identity point. With `R = A` and `s = 0`, plain
+    /// verification accepts every message while strict verification rejects
+    /// the small-order public key. Other small-order encodings accept only
+    /// message-dependent residue classes and are therefore softer fixtures.
+    const FORGERY_KEY: [u8; 32] = [
+        0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0,
+    ];
+
     #[test]
     fn a_signature_verifies_only_over_the_message_it_covers() {
         let key = SigningKey::from_seed(&[7u8; 32]);
@@ -144,21 +153,35 @@ mod tests {
     }
 
     #[test]
-    fn a_small_order_key_verifies_nothing() {
-        // The canonical order-1 point. `verify_strict` rejects it outright;
-        // plain verification would let it stand in for any signer.
-        let mut small_order = [0u8; 32];
-        small_order[0] = 1;
-        let key = PublicKey::new(small_order);
-        let verifier = VerifyingKey::from_public_key(&key, AuthorityError::BadIdentitySignature);
-        if let Ok(verifier) = verifier {
+    fn the_identity_point_forgery_is_plainly_accepted_and_strictly_refused() {
+        use ed25519_dalek::Verifier as _;
+
+        let mut signature = [0u8; 64];
+        signature
+            .get_mut(..32)
+            .unwrap()
+            .copy_from_slice(&FORGERY_KEY);
+        let forged = Signature::new(signature);
+        let key = PublicKey::new(FORGERY_KEY);
+        let verifier =
+            VerifyingKey::from_public_key(&key, AuthorityError::BadIdentitySignature).unwrap();
+        let raw = ed25519_dalek::VerifyingKey::from_bytes(&FORGERY_KEY).unwrap();
+        assert!(
+            raw.is_weak(),
+            "the fixture stopped being a small-order point"
+        );
+        let dalek_signature = ed25519_dalek::Signature::from_bytes(forged.as_bytes());
+
+        for byte in 0..64u8 {
+            let message = [byte; 7];
+            assert!(
+                raw.verify(&message, &dalek_signature).is_ok(),
+                "message {byte}: plain verification refused the fixture, so the test no longer proves strictness matters"
+            );
             assert_eq!(
-                verifier.verify(
-                    b"anything",
-                    &Signature::new([0u8; 64]),
-                    AuthorityError::BadIdentitySignature
-                ),
-                Err(AuthorityError::BadIdentitySignature)
+                verifier.verify(&message, &forged, AuthorityError::BadIdentitySignature),
+                Err(AuthorityError::BadIdentitySignature),
+                "message {byte}: strict verification accepted a universal forgery"
             );
         }
     }

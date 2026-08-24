@@ -12,17 +12,9 @@ use rand::{RngCore, rngs::OsRng};
 use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
 use zcash_client_backend::data_api::WalletRead;
-use zcash_client_backend::data_api::wallet::{
-    ConfirmationsPolicy, LockRequest, SpendingKeys, create_proposed_transactions,
-    input_selection::{GreedyInputSelector, SpendPolicy},
-    propose_transfer,
-};
-use zcash_client_backend::fees::DustOutputPolicy;
-use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
+use zcash_client_backend::data_api::wallet::{ConfirmationsPolicy, SpendingKeys};
 use zcash_client_backend::proto::service::{RawTransaction, TxFilter};
-use zcash_client_backend::wallet::OvkPolicy;
 use zcash_keys::address::Address;
-use zcash_primitives::transaction::TxVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::PoolType;
 use zcash_protocol::memo::{Memo, MemoBytes};
@@ -37,6 +29,10 @@ use crate::models::{
 use crate::wallet::client::connect_to_lightwalletd;
 use crate::wallet::keys;
 use crate::wallet::{WalletProposal, WalletState};
+
+mod native;
+
+use native::{create_transactions, propose_fixed, propose_send_all_attempt};
 
 /// A transaction that has already been created in the wallet database.
 /// Retrying this record always rebroadcasts `raw_transaction`; it never signs
@@ -71,19 +67,6 @@ const SEND_CONFIRMATION_TOKEN_DOMAIN: &[u8] = b"ZUULI_SEND_CONFIRMATION_TOKEN\0"
 const SEND_FEE_POLICY: &str = "zip317-standard";
 const SEND_CHANGE_POLICY: &str = "zip317-shielded-auto";
 const SEND_CONFIRMATION_TTL: Duration = Duration::from_secs(2 * 60);
-
-fn proposal_lock_request() -> Option<LockRequest> {
-    // The process-local send state machine already serializes proposal and
-    // execution. Preserve the pre-locking API behavior until durable owner and
-    // unlock recovery semantics are designed together.
-    None
-}
-
-fn proposed_transaction_version() -> Option<TxVersion> {
-    // Let librustzcash select the consensus transaction version for the target
-    // height, matching the behavior before this argument was introduced.
-    None
-}
 
 #[derive(Clone, Copy)]
 struct ConfirmationClock {
@@ -1403,29 +1386,7 @@ pub async fn propose_send(
         .copied()
         .ok_or(Error::SendError("no accounts found".into()))?;
 
-    let input_selector = GreedyInputSelector::new();
-    let change_strategy = SingleOutputChangeStrategy::new(
-        zcash_primitives::transaction::fees::zip317::FeeRule::standard(),
-        None,
-        ShieldedPool::Orchard,
-        DustOutputPolicy::default(),
-    );
-
-    let policy = ConfirmationsPolicy::default();
-
-    let proposal =
-        propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
-            db,
-            &state.network,
-            account_id,
-            &input_selector,
-            &change_strategy,
-            request,
-            policy,
-            &SpendPolicy::default(),
-            proposal_lock_request(),
-            proposed_transaction_version(),
-        )
+    let proposal = propose_fixed(db, &state.network, account_id, request)
         .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")));
 
     drop(db_guard);
@@ -1561,29 +1522,7 @@ pub async fn propose_send_all(
             .copied()
             .ok_or(Error::SendError("no accounts found".into()))?;
 
-        let input_selector = GreedyInputSelector::new();
-        let change_strategy = SingleOutputChangeStrategy::new(
-            zcash_primitives::transaction::fees::zip317::FeeRule::standard(),
-            None,
-            ShieldedPool::Orchard,
-            DustOutputPolicy::default(),
-        );
-
-        let policy = ConfirmationsPolicy::default();
-
-        let result =
-            propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
-                db,
-                &state.network,
-                account_id,
-                &input_selector,
-                &change_strategy,
-                request,
-                policy,
-                &SpendPolicy::default(),
-                proposal_lock_request(),
-                proposed_transaction_version(),
-            );
+        let result = propose_send_all_attempt(db, &state.network, account_id, request);
 
         drop(db_guard);
 
@@ -1809,28 +1748,17 @@ pub async fn execute_send(
 
     let mut transaction_created = false;
     let created = (|| -> Result<PendingBroadcast> {
-        let txids = create_proposed_transactions::<
-            _,
-            _,
-            std::convert::Infallible,
-            _,
-            std::convert::Infallible,
-            _,
-        >(
+        let txids = create_transactions(
             db,
             &state.network,
             prover,
-            prover,
             &spending_keys,
-            OvkPolicy::Sender,
             &pending_proposal.proposal,
-            // `expiry_height: None` keeps the builder-derived expiry for every step.
-            None,
         )
         .map_err(|e| Error::SendError(format!("failed to create transaction: {e:?}")))?;
         transaction_created = true;
 
-        // `create_proposed_transactions` returns `NonEmpty<TxId>`.
+        // The native creation boundary returns `NonEmpty<TxId>`.
         let txid = *txids.first();
         let tx = db
             .get_transaction(txid)
@@ -2295,12 +2223,6 @@ mod tests {
     const WALLET_ID: &str = "wallet-a";
     const SESSION_ID: [u8; 32] = [0x11; 32];
     const OTHER_SESSION_ID: [u8; 32] = [0x22; 32];
-
-    #[test]
-    fn proposal_defaults_preserve_unlocked_height_selected_transactions() {
-        assert!(proposal_lock_request().is_none());
-        assert!(proposed_transaction_version().is_none());
-    }
 
     fn pending(status: BroadcastStatus) -> PendingBroadcast {
         PendingBroadcast {

@@ -5,6 +5,7 @@ import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { setTimeout as wait } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
   CAPTURE_CONFIG_PATH,
@@ -58,16 +59,142 @@ async function rejectsCode(operation, code) {
   await assert.rejects(operation, (error) => error instanceof ScreenshotContractError && error.code === code);
 }
 
-async function git(root, args) {
+// Keep every fixture `git` call strictly foreground. `git commit` otherwise runs
+// `git maintenance run --auto --detach`, which git deliberately daemonizes: it
+// outlives the child we await and then creates `.git/objects/maintenance.lock`
+// — measured at ~23ms after `git commit` had already returned (Linux, git
+// 2.43). The recursive teardown below is descending `.git/objects` at exactly
+// that moment, so its closing rmdir finds the directory non-empty and fails
+// ENOTEMPTY, reddening the required gate on a green change (issue #561).
+// GIT_CONFIG_COUNT applies the guard with no config file and no repo state, so
+// it covers `git init` before any repo exists. Do not simplify this env away.
+const GIT_FIXTURE_ENV = Object.freeze({
+  GIT_CONFIG_COUNT: "2",
+  GIT_CONFIG_KEY_0: "gc.auto",
+  GIT_CONFIG_VALUE_0: "0",
+  GIT_CONFIG_KEY_1: "maintenance.auto",
+  GIT_CONFIG_VALUE_1: "false",
+});
+
+// Backstop for the same failure class: `fs.rm` defaults to `maxRetries: 0`, and
+// `force` suppresses ENOENT, not ENOTEMPTY. Retrying absorbs any future
+// concurrent writer the env guard above does not already prevent.
+async function removeGitFixture(root, { remove = rm, pause = wait } = {}) {
+  let retries = 0;
+  for (;;) {
+    try {
+      await remove(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (error?.code !== "ENOTEMPTY" || retries >= 10) throw error;
+      retries += 1;
+      await pause(50 * retries);
+    }
+  }
+}
+
+async function git(root, args, baseEnv = process.env) {
   const output = [];
   await new Promise((accept, reject) => {
-    const child = spawn("git", args, { cwd: root });
+    const child = spawn("git", args, { cwd: root, env: { ...baseEnv, ...GIT_FIXTURE_ENV } });
     child.stdout.on("data", (chunk) => output.push(chunk));
     child.on("error", reject);
     child.on("exit", (code) => code === 0 ? accept() : reject(new Error(`git ${args[0]} failed`)));
   });
   return Buffer.concat(output).toString("utf8").trim();
 }
+
+test("fixture git children disable automatic gc and maintenance", async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-git-config-contract-"));
+  t.after(() => removeGitFixture(root));
+  const emptyGlobalConfig = resolve(root, "empty-global-gitconfig");
+  await writeFile(emptyGlobalConfig, "");
+  const isolatedEnv = {
+    ...process.env,
+    GIT_CONFIG_COUNT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: emptyGlobalConfig,
+  };
+
+  await git(root, ["init", "-q"], isolatedEnv);
+  assert.equal(await git(root, ["config", "--default", "missing", "--get", "gc.auto"], isolatedEnv), "0");
+  assert.equal(await git(root, ["config", "--default", "missing", "--get", "maintenance.auto"], isolatedEnv), "false");
+});
+
+test("git fixture teardown exhausts deterministic ENOTEMPTY races before succeeding", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "zuuli-git-remove-contract-"));
+  await writeFile(resolve(root, "fixture"), "present\n");
+  let attempts = 0;
+  const pauses = [];
+
+  await removeGitFixture(root, {
+    remove: async (...args) => {
+      attempts += 1;
+      if (attempts <= 10) {
+        const error = new Error(`injected directory race on attempt ${attempts}`);
+        error.code = "ENOTEMPTY";
+        throw error;
+      }
+      await rm(...args);
+    },
+    pause: async (milliseconds) => pauses.push(milliseconds),
+  });
+
+  assert.equal(attempts, 11);
+  assert.deepEqual(pauses, [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]);
+  await assert.rejects(() => readFile(resolve(root, "fixture")), { code: "ENOENT" });
+});
+
+test("git fixture teardown rejects a non-ENOTEMPTY error immediately and unchanged", async () => {
+  const injectedError = new Error("injected permission failure");
+  injectedError.code = "EACCES";
+  let attempts = 0;
+  const pauses = [];
+
+  await assert.rejects(
+    () => removeGitFixture("unused", {
+      remove: async () => {
+        attempts += 1;
+        throw injectedError;
+      },
+      pause: async (milliseconds) => pauses.push(milliseconds),
+    }),
+    (error) => {
+      assert.equal(error, injectedError);
+      return true;
+    },
+  );
+
+  assert.equal(attempts, 1);
+  assert.deepEqual(pauses, []);
+});
+
+test("git fixture teardown rejects the eleventh consecutive ENOTEMPTY after ten pauses", async () => {
+  const injectedError = new Error("injected persistent directory race");
+  injectedError.code = "ENOTEMPTY";
+  let attempts = 0;
+  const pauses = [];
+
+  await assert.rejects(
+    () => removeGitFixture("unused", {
+      remove: async () => {
+        attempts += 1;
+        throw injectedError;
+      },
+      pause: async (milliseconds) => {
+        pauses.push(milliseconds);
+        assert.ok(pauses.length <= 10, "retry limit allowed an eleventh pause");
+      },
+    }),
+    (error) => {
+      assert.equal(error, injectedError);
+      return true;
+    },
+  );
+
+  assert.equal(attempts, 11);
+  assert.deepEqual(pauses, [50, 100, 150, 200, 250, 300, 350, 400, 450, 500]);
+});
 
 async function preflight(env) {
   await new Promise((accept, reject) => {
@@ -202,7 +329,7 @@ test("capture inputs cannot be symlinks", async (t) => {
 
 test("capture rejects every local Vite or npm override, including ignored npm config", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeGitFixture(root));
   await assertNoLocalCaptureOverrides(root);
   const cleanDigest = await computeCaptureSourceDigest(root);
   await git(root, ["init", "-q"]);
@@ -311,7 +438,7 @@ test("capture artifact commit preserves a concurrent manifest edit", async (t) =
 
 test("source comparison includes untracked render inputs", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => removeGitFixture(root));
   await git(root, ["init", "-q"]);
   await git(root, ["config", "user.name", "Capture Contract"]);
   await git(root, ["config", "user.email", "capture-contract@example.invalid"]);

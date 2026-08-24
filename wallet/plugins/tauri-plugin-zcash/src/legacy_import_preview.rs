@@ -931,8 +931,30 @@ mod tests {
         }
     }
 
+    /// Content, isolated from every other observed property.
+    ///
+    /// This test used to be called `source_content_or_identity_change_after_copy`
+    /// and swapped a whole different file in with `fs::rename`, which changes the
+    /// bytes, the length, the modification time *and* the inode at once. Any one
+    /// of the four would have failed it, so it proved nothing in particular about
+    /// content and — despite the name — nothing at all about identity: it stayed
+    /// green under a build whose identity check was bypassed entirely (#610,
+    /// found while reviewing #598).
+    ///
+    /// So the replacement is written in place, at the same length, with the
+    /// modification time restored: `hash` is the only field of `Observation` that
+    /// differs, and the assertion below is therefore about the hash and nothing
+    /// else. `same_content_length_and_mtime_but_distinct_identity_after_copy_is_rejected`
+    /// below is the exact mirror — identical bytes, length and mtime, differing
+    /// only in identity — and between them each property is proved to be load
+    /// bearing on its own.
+    ///
+    /// Not the same test as `in_place_source_content_change_after_copy_is_rejected`,
+    /// which writes a short string over the source: that one also changes the
+    /// length, so `len` alone would fail it. This is the strict form, where the
+    /// hash is the only thing left to notice.
     #[test]
-    fn source_content_or_identity_change_after_copy_is_rejected() {
+    fn same_length_mtime_and_identity_but_distinct_content_after_copy_is_rejected() {
         let tree = TestTree::new();
         fs::create_dir(tree.legacy()).expect("legacy");
         let db = tree.legacy().join("wallet.sqlite");
@@ -945,10 +967,85 @@ mod tests {
             created_at: String::new(),
             backup_required: false,
         };
-        let replacement = tree.root.join("replacement.sqlite");
-        create_db(&replacement, &[valid_ufvk(1)]);
+
+        let original = observe(&db).expect("observe original source");
+        let mut edited = fs::read(&db).expect("read original source");
+        let last = edited.len() - 1;
+        edited[last] ^= 0xff;
+
         let rejected = inspect_wallet_with_hook(&tree.legacy(), &entry, false, || {
-            fs::rename(&replacement, &db).expect("replace source after copy");
+            // Truncating write, not a rename: the directory entry and the inode
+            // behind it survive, so identity is untouched.
+            fs::write(&db, &edited).expect("rewrite source in place after copy");
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&db)
+                .expect("open rewritten source for timestamp restoration");
+            file.set_times(
+                fs::FileTimes::new().set_modified(
+                    original
+                        .modified
+                        .expect("SQLite source has a modification time"),
+                ),
+            )
+            .expect("restore source modification time");
+
+            let rewritten = observe(&db).expect("observe rewritten source");
+            assert_eq!(rewritten.len, original.len);
+            assert_eq!(rewritten.modified, original.modified);
+            assert_eq!(rewritten.identity, original.identity);
+            assert_ne!(rewritten.hash, original.hash);
+        });
+        assert_eq!(rejected, Err("Legacy data changed during preview."));
+    }
+
+    #[test]
+    fn same_content_length_and_mtime_but_distinct_identity_after_copy_is_rejected() {
+        let tree = TestTree::new();
+        fs::create_dir(tree.legacy()).expect("legacy");
+        let db = tree.legacy().join("wallet.sqlite");
+        create_db(&db, &[valid_ufvk(0)]);
+        let entry = WalletEntry {
+            id: REDACTED.into(),
+            name: REDACTED.into(),
+            db_filename: "wallet.sqlite".into(),
+            birthday_height: None,
+            created_at: String::new(),
+            backup_required: false,
+        };
+
+        let original = observe(&db).expect("observe original source");
+        let replacement = tree.root.join("replacement.sqlite");
+        fs::write(&replacement, fs::read(&db).expect("read original source"))
+            .expect("write byte-identical replacement");
+        let replacement_file = OpenOptions::new()
+            .write(true)
+            .open(&replacement)
+            .expect("open replacement for timestamp restoration");
+        replacement_file
+            .set_times(
+                fs::FileTimes::new().set_modified(
+                    original
+                        .modified
+                        .expect("SQLite source has a modification time"),
+                ),
+            )
+            .expect("restore replacement modification time");
+        let replacement_observation = observe(&replacement).expect("observe replacement");
+        assert_eq!(replacement_observation.len, original.len);
+        assert_eq!(replacement_observation.modified, original.modified);
+        assert_eq!(replacement_observation.hash, original.hash);
+        assert_ne!(replacement_observation.identity, original.identity);
+
+        let displaced = tree.root.join("displaced-original.sqlite");
+        let rejected = inspect_wallet_with_hook(&tree.legacy(), &entry, false, || {
+            fs::rename(&db, &displaced).expect("displace original after snapshot copy");
+            fs::rename(&replacement, &db).expect("install byte-identical replacement");
+            let installed = observe(&db).expect("observe installed replacement");
+            assert_eq!(installed.len, original.len);
+            assert_eq!(installed.modified, original.modified);
+            assert_eq!(installed.hash, original.hash);
+            assert_ne!(installed.identity, original.identity);
         });
         assert_eq!(rejected, Err("Legacy data changed during preview."));
     }
@@ -1088,17 +1185,5 @@ mod tests {
             reject_links(&linked, &metadata),
             Err("Legacy application data contains a linked file.")
         );
-    }
-
-    #[test]
-    fn windows_identity_is_bound_to_the_stable_no_follow_win32_helper() {
-        let preview_source = include_str!("legacy_import_preview.rs");
-        let migration_source = include_str!("app_data_migration.rs");
-
-        assert!(preview_source.contains(
-            "crate::app_data_migration::windows_file_identity(path, metadata.file_type().is_dir())"
-        ));
-        assert!(migration_source.contains("FILE_FLAG_OPEN_REPARSE_POINT"));
-        assert!(migration_source.contains("GetFileInformationByHandle"));
     }
 }

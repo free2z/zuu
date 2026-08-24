@@ -27,8 +27,8 @@
 //! the failure nobody would notice.
 
 use std::env;
-use std::fs;
-use std::io::Read as _;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write as _;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -104,11 +104,11 @@ fn keygen(args: &[String]) -> Result<(), String> {
     let options = Options::parse(args)?;
     options.reject_unknown(&["out"])?;
     let mut seed = [0u8; 32];
-    fill_random(&mut seed)?;
+    fill_os_random(&mut seed)?;
     let hex = to_hex(&seed);
     match options.get("out") {
         Some(path) => {
-            fs::write(path, hex.as_bytes()).map_err(|error| format!("writing {path}: {error}"))?;
+            write_new_private_key(path, hex.as_bytes())?;
             eprintln!("wrote a new issuing key to {path}");
             eprintln!(
                 "authority_id {}",
@@ -118,6 +118,30 @@ fn keygen(args: &[String]) -> Result<(), String> {
         None => println!("{hex}"),
     }
     Ok(())
+}
+
+/// Create the issuing-key file atomically with its final permissions.
+///
+/// `create_new` is the no-clobber guard. On Unix, `mode` is applied by the
+/// opening syscall itself, so there is no interval in which another process
+/// can read a newly-created 0644 private key before a later chmod.
+fn open_private_key(path: &str) -> Result<File, String> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options
+        .open(path)
+        .map_err(|error| format!("creating new private key {path}: {error}"))
+}
+
+fn write_new_private_key(path: &str, bytes: &[u8]) -> Result<(), String> {
+    let mut file = open_private_key(path)?;
+    file.write_all(bytes)
+        .map_err(|error| format!("writing {path}: {error}"))
 }
 
 fn authority(args: &[String]) -> Result<(), String> {
@@ -189,7 +213,7 @@ fn issue(args: &[String]) -> Result<(), String> {
         Some(value) => AssertionNonce::new(fixed_hex::<16>(value, "--nonce")?),
         None => {
             let mut bytes = [0u8; 16];
-            fill_random(&mut bytes)?;
+            fill_os_random(&mut bytes)?;
             AssertionNonce::new(bytes)
         }
     };
@@ -388,14 +412,122 @@ fn now_ms() -> Result<u64, String> {
 /// requirement, and a dependency in an issuing tool is a dependency in the
 /// trust root. See the module note on why an unavailable source is a refusal
 /// rather than a fallback.
-fn fill_random(buffer: &mut [u8]) -> Result<(), String> {
+fn fill_os_random(buffer: &mut [u8]) -> Result<(), String> {
     let mut source = fs::File::open("/dev/urandom").map_err(|error| {
         format!(
             "no random source (/dev/urandom: {error}). \
              Pass --nonce explicitly, and generate keys on a platform that has one."
         )
     })?;
-    source
-        .read_exact(buffer)
-        .map_err(|error| format!("reading /dev/urandom: {error}"))
+    fill_random(&mut source, buffer).map_err(|error| format!("reading /dev/urandom: {error}"))
+}
+
+fn fill_random(source: &mut impl std::io::Read, buffer: &mut [u8]) -> std::io::Result<()> {
+    source.read_exact(buffer)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    fn unused_path(name: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "f2z-authority-{name}-{}-{unique}",
+            std::process::id()
+        ))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_key_is_mode_0600_at_the_open_boundary() {
+        use std::process::Command;
+
+        let key_path = unused_path("mode");
+        let probe_path = unused_path("umask-probe");
+        let status = Command::new("/bin/sh")
+            .args(["-c", "umask 000; exec \"$@\"", "f2z-authority-mode-test"])
+            .arg(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::private_key_mode_subprocess",
+                "--nocapture",
+            ])
+            .env("F2Z_AUTHORITY_MODE_TEST_KEY", &key_path)
+            .env("F2Z_AUTHORITY_MODE_TEST_PROBE", &probe_path)
+            .status()
+            .unwrap();
+
+        let key_created = key_path.is_file();
+        let probe_created = probe_path.is_file();
+        let _ = fs::remove_file(key_path);
+        let _ = fs::remove_file(probe_path);
+        assert!(status.success(), "the isolated mode-at-open check failed");
+        assert!(
+            key_created && probe_created,
+            "the isolated mode-at-open helper did not create both fixtures"
+        );
+    }
+
+    /// Subprocess half of `private_key_is_mode_0600_at_the_open_boundary`.
+    ///
+    /// The probe proves the parent installed a zero umask before this process
+    /// started. That makes a relaxed production mode observable even when the
+    /// shell which launched Cargo has a restrictive umask such as 077.
+    #[cfg(unix)]
+    #[test]
+    fn private_key_mode_subprocess() {
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+        let Ok(key_path) = env::var("F2Z_AUTHORITY_MODE_TEST_KEY") else {
+            return;
+        };
+        let probe_path = env::var("F2Z_AUTHORITY_MODE_TEST_PROBE").unwrap();
+        let probe = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o666)
+            .open(&probe_path)
+            .unwrap();
+        let probe_mode = probe.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            probe_mode, 0o666,
+            "the isolated subprocess did not start with umask 000"
+        );
+
+        let file = open_private_key(&key_path).unwrap();
+        let mode = file.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the file was visible with mode {mode:o} at open"
+        );
+    }
+
+    #[test]
+    fn private_key_creation_never_clobbers_an_existing_file() {
+        let path = unused_path("clobber");
+        let path_text = path.to_str().unwrap();
+        fs::write(&path, b"existing sentinel").unwrap();
+
+        assert!(write_new_private_key(path_text, b"replacement").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"existing sentinel");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn successful_random_reads_preserve_every_nonzero_source_byte() {
+        let expected = [
+            0x81, 0x02, 0x93, 0x14, 0xa5, 0x26, 0xb7, 0x38, 0xc9, 0x4a, 0xdb, 0x5c, 0xed, 0x6e,
+            0xff, 0x70,
+        ];
+        let mut source = std::io::Cursor::new(expected);
+        let mut actual = [0xa5; 16];
+        fill_random(&mut source, &mut actual).unwrap();
+        assert_eq!(actual, expected);
+    }
 }

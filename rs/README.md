@@ -74,17 +74,15 @@ here. It is **not a second source of truth.** The one place the version is
 decided is `wallet/rust-toolchain.toml`, and
 
 ```
-scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
-                                --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
-                                --manifest rs/crates/f2z-kt-core/Cargo.toml \
-                                --manifest rs/crates/f2z-authority/Cargo.toml \
-                                --manifest rs/crates/f2z-kt/Cargo.toml \
-                                --manifest rs/crates/f2z-witness/Cargo.toml
+scripts/check-rust-toolchain.sh
 ```
 
 fails the pull request the moment the two disagree. `.github/workflows/rs.yml`
-runs exactly that. Bumping the compiler means editing
+runs exactly that. `rs/rust-toolchain.toml` and every `rs/crates/*/Cargo.toml`
+are registered in the script's own `TOOLCHAIN_RESTATEMENTS` and `MANIFESTS`
+arrays — not by `--manifest` flags in this workflow, because the bare invocation
+the required ZUULI gate runs passes no flags and would be blind to anything
+registered only here. Bumping the compiler means editing
 `wallet/rust-toolchain.toml` and running `scripts/check-rust-toolchain.sh`,
 which names every restatement that still needs updating — this one included.
 
@@ -114,7 +112,7 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
-| [`crates/f2z-authority`](./crates/f2z-authority) | The directory's **non-cryptographic trust root**, isolated on purpose: the `HandleAssertion` an authority signs to say who owns a handle, the verifier that admits one, the `AuthoritySet` (including an explicit, *reported*, no-authority mode), and `f2z-assert` for issuing by hand. Same constraints, and it reaches WASM because clients verify assertions too. |
+| [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
 
 `f2z-kt-core` is the **one** crate the log server, the witness and the client all
@@ -179,6 +177,13 @@ boundary in practice: every crate above is MIT because a third-party relay, ZUUL
 and the WASM web client all compile the same rules, and a rule that two implementations
 disagree about is how ciphertext gets deleted before it is read.
 
+The current dependency graph is narrower than that intended architecture:
+`f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
+standalone experimental leaf and no workspace package depends on it. Wiring the
+authority candidate into a relay or client is future integration work, not a
+property this README claims today. All three remain MIT so downstream relays and
+clients can share the rules once that integration exists.
+
 `f2z-codec` is separate from everything that sits on top of it for three
 reasons, and each is enforced by a test rather than by intent:
 
@@ -208,41 +213,41 @@ cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
 The gates are the repository's shared scripts, pointed here with `--root`:
 
 ```bash
-scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
-                                --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
-                                --manifest rs/crates/f2z-kt-core/Cargo.toml \
-                                --manifest rs/crates/f2z-authority/Cargo.toml \
-                                --manifest rs/crates/f2z-kt/Cargo.toml \
-                                --manifest rs/crates/f2z-witness/Cargo.toml
+scripts/check-rust-toolchain.sh
 scripts/check-rust-fmt.sh    --root rs
 scripts/check-rust-clippy.sh --root rs
 scripts/check-rust-deny.sh   --root rs --config rs/deny.toml
 ```
 
-**Three of the four discover crates; the toolchain check does not.**
+**All four now discover crates, by two different mechanisms.**
 `check-rust-fmt.sh`, `check-rust-clippy.sh` and `check-rust-deny.sh` find every
 `Cargo.toml` under `--root`, so a new crate under `rs/` is formatted, linted and
-supply-chain-gated from its first commit. `check-rust-toolchain.sh` reads a
-hardcoded manifest list plus the explicit `--manifest` flags above, so **a second
-crate under `rs/crates/` would ship with a wrong MSRV, or none, and still pass.**
+supply-chain-gated from its first commit.
 
-Proved by adding a throwaway `rs/crates/scratch/Cargo.toml` with no
-`rust-version` and no `license`, then running all four with the flags above
-unchanged:
+`check-rust-toolchain.sh` still verifies a *registry* — it has to, because an
+MSRV is a value to compare, not a tree to walk — but registration is no longer a
+discipline. Its **census** enumerates every `Cargo.toml` and `rust-toolchain.toml`
+git tracks outside `z/` and fails on any that declares `[package]` (or restates
+the toolchain) and is registered nowhere. Proved by adding a throwaway
+`rs/crates/scratch/Cargo.toml` with no `rust-version` and no `license`:
 
 | Script | Sees it? | Verdict |
 |---|---|---|
-| `check-rust-fmt.sh --root rs` | yes | RED — `3 crate(s) are not formatted: … rs/crates/scratch` |
+| `check-rust-fmt.sh --root rs` | yes | RED — `4 crate(s) are not formatted: … rs/crates/scratch` |
 | `check-rust-clippy.sh --root rs` | yes | RED — `2 crate(s) failed the clippy gate: … rs/crates/scratch` |
 | `check-rust-deny.sh --root rs --config rs/deny.toml` | yes | RED — `error[unlicensed]: scratch = 0.0.0 is unlicensed` |
-| `check-rust-toolchain.sh --toolchain-file … --manifest …/f2z-codec/Cargo.toml` | **no** | **GREEN** |
+| `check-rust-toolchain.sh` | yes | RED — `rs/crates/scratch/Cargo.toml declares [package] but is registered nowhere` |
 
-So **every new crate in this tree needs another `--manifest` flag added to
-`rs.yml`** in the same commit that creates it, until
-[#553](https://github.com/free2z/zuu/issues/553) makes that check discover
-manifests too. `.github/workflows/rs.yml` runs all four, plus `cargo test` and
-the WASM build, behind its own `gate`.
+Before [#553](https://github.com/free2z/zuu/issues/553) that last row was
+**GREEN and blind**, and every new crate in this tree needed a `--manifest` flag
+added to `rs.yml` by hand. It now needs a line in `MANIFESTS` instead — and the
+check names the file and says so, rather than a reviewer having to notice.
+`.github/workflows/rs.yml` runs all four, plus `cargo test` and the WASM build,
+behind its own `gate`.
+
+A virtual workspace root like `rs/Cargo.toml` is excused because it declares no
+`[package]` and so has no `rust-version` to pin — recognised by that structure,
+not by a path exclusion list that could later be widened to excuse a real crate.
 
 ### Workspace lints
 
