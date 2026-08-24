@@ -75,7 +75,8 @@ jobs:
           scripts/check-rust-toolchain.sh \
             --toolchain-file rs/rust-toolchain.toml \
             --manifest rs/crates/f2z-codec/Cargo.toml \
-            --manifest rs/crates/f2z-relay-proto/Cargo.toml
+            --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+            --manifest rs/crates/f2z-relay-store/Cargo.toml
 
       - name: Detect changes under rs/
         id: filter
@@ -254,6 +255,18 @@ jobs:
         working-directory: rs
         run: cargo test --locked --doc
 
+      # `crash-injection` is off by default because it compiles an `abort()`
+      # into f2z-relay-store's commit path, so the default run above skips
+      # `tests/crash_safety.rs` entirely. Those cases are the only evidence that
+      # delete-on-ack's two invariants survive an unplanned stop — nothing
+      # acked-but-undeleted, nothing accepted-but-lost — and they prove it by
+      # killing a real child process, which an in-process caught panic cannot.
+      # A step of their own, so a run that skipped them is visible rather than
+      # inferred.
+      - name: Run the crash-safety suite, which kills real processes
+        working-directory: rs
+        run: cargo test --locked -p f2z-relay-store --features crash-injection --test crash_safety
+
   rs_wasm:
     name: rs / wasm32
     needs: changes
@@ -293,6 +306,11 @@ jobs:
       # rather than `--workspace` so that a future server binary — which will be
       # AGPL, will pull tokio, and will never reach a browser — does not
       # silently join the wasm build and then fail it.
+      #
+      # `f2z-relay-store` is deliberately **absent** and must stay absent: it
+      # links SQLite through `rusqlite`'s bundled C amalgamation, which is a
+      # native build by construction. It is a relay-side crate; no client links
+      # it.
       - name: Build the client-linked crates for the browser target
         working-directory: rs
         run: |

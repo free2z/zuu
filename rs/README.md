@@ -76,7 +76,8 @@ decided is `wallet/rust-toolchain.toml`, and
 ```
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+                                --manifest rs/crates/f2z-relay-store/Cargo.toml
 ```
 
 fails the pull request the moment the two disagree. `.github/workflows/rs.yml`
@@ -110,6 +111,7 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
+| [`crates/f2z-relay-store`](./crates/f2z-relay-store) | The relay's queue storage: a `RelayStore` trait that speaks addresses and bytes and never a wire frame, plus a durable `SqliteStore` (WAL, `synchronous = FULL`, `secure_delete = ON`, group commit) and a volatile `MemoryStore`. **Native only** — it links SQLite and is not on the wasm line. `std`, `#![forbid(unsafe_code)]`, no async runtime. |
 
 **The relay and the clients link both.** That is the licence boundary in
 practice: everything here is MIT because a third-party relay, ZUULI and the WASM
@@ -135,14 +137,26 @@ reasons, and each is enforced by a test rather than by intent:
 cd rs
 cargo test
 cargo build --target wasm32-unknown-unknown --lib -p f2z-codec -p f2z-relay-proto
+
+# f2z-relay-store's crash-safety suite is behind a default-off feature, because
+# the feature compiles an abort() into the commit path. It kills real child
+# processes; `cargo test` alone does not run it.
+cargo test -p f2z-relay-store --features crash-injection --test crash_safety
 ```
+
+**Not every crate here reaches the browser, and the wasm line is the record of
+which do.** `f2z-relay-store` links SQLite through `rusqlite`'s bundled C
+amalgamation and is relay-side only, so it is deliberately absent from
+`rs.yml`'s `rs_wasm` job. Adding a crate to that line is a claim that a client
+links it.
 
 The gates are the repository's shared scripts, pointed here with `--root`:
 
 ```bash
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
-                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml \
+                                --manifest rs/crates/f2z-relay-store/Cargo.toml
 scripts/check-rust-fmt.sh    --root rs
 scripts/check-rust-clippy.sh --root rs
 scripts/check-rust-deny.sh   --root rs --config rs/deny.toml
