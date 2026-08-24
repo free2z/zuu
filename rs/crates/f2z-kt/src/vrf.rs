@@ -124,7 +124,23 @@ impl core::fmt::Debug for FileVrf {
 
 #[cfg(test)]
 mod tests {
+    use akd_core::ecvrf::VRFKeyStorage as _;
+
     use super::{FileVrf, HARDCODED_TEST_VRF_SEED};
+
+    #[tokio::test]
+    async fn the_copied_seed_still_matches_akd_cores_own() {
+        let library = akd_core::ecvrf::HardCodedAkdVRF
+            .retrieve()
+            .await
+            .expect("akd_core's hardcoded VRF key is retrievable");
+        assert_eq!(
+            library.as_slice(),
+            &HARDCODED_TEST_VRF_SEED,
+            "akd_core changed its hardcoded test key; forbid_hardcoded is now refusing a key \
+             nobody ships and permitting the one that makes every label public",
+        );
+    }
 
     #[test]
     fn the_libraries_hardcoded_test_key_is_refused_at_startup() {
