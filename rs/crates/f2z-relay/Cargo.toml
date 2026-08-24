@@ -1,0 +1,29 @@
+[package]
+name = "f2z-relay"
+version = "0.1.0"
+description = "The free2z relay daemon: WIRE.md v1 over WebSocket, backed by f2z-relay-store"
+edition.workspace = true
+rust-version = "1.97"
+license = "AGPL-3.0"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+f2z-codec = { path = "../f2z-codec", version = "0.1.0" }
+f2z-relay-proto = { path = "../f2z-relay-proto", version = "0.1.0" }
+f2z-relay-store = { path = "../f2z-relay-store", version = "0.1.0" }
+tls_codec = { workspace = true }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = "0.30"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rand = { version = "0.9", default-features = false, features = ["os_rng"] }
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+
+[dev-dependencies]
+f2z-relay-testkit = { path = "../f2z-relay-testkit", version = "0.1.0" }
+tokio = { version = "1", features = ["test-util"] }

@@ -1,0 +1,56 @@
+[package]
+name = "f2z-relay-testkit"
+version = "0.1.0"
+description = "FakeRelay: a spec-conforming, fault-injecting free2z relay for client development (docs/e2ee/WIRE.md v1)"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. A test harness is linked by client
+# test suites — ZUULI's, the web client's, and any third party's — so it sits on
+# the same side of the boundary as the crates it exercises. The AGPL-3.0
+# boundary starts at the real server binaries, and `f2z-fakerelay` is not one:
+# it stores nothing durably, it is refused a non-loopback bind, and it exists to
+# be linked into other people's tests. Stated literally rather than inherited so
+# it is visible to anyone opening the crate. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+f2z-codec = { path = "../f2z-codec", version = "0.1.0" }
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-relay-proto = { path = "../f2z-relay-proto", version = "0.1.0" }
+tls_codec = { workspace = true }
+# Native-only, on purpose. This crate is NOT on rs.yml's wasm32 line: it opens
+# sockets, spawns tasks and reads a clock, none of which a browser build of the
+# client core may ever pull in. Keeping it off that line is what stops a testkit
+# dependency from leaking into the shipped WASM bundle.
+tokio = { version = "1", features = [
+  "io-util",
+  "macros",
+  "net",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+# The real WebSocket half of `WIRE.md` §2. The in-process transport cannot
+# exercise framing, ordering or reconnection, so the same relay is also served
+# over a real listener, and that needs a real RFC 6455 implementation rather
+# than one of ours.
+tokio-tungstenite = "0.30"
+# `BoxFuture` for the object-safe transport trait, and `SinkExt`/`StreamExt` for
+# the WebSocket stream. Already in tokio-tungstenite's graph.
+futures-util = { version = "0.3", default-features = false, features = [
+  "sink",
+  "std",
+] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
