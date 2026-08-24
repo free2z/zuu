@@ -49,6 +49,15 @@
 //      future regression, so `needs ⊇ {jobs in file} − {gate}` is asserted,
 //      with an explicit per-file opt-out for jobs deliberately left outside.
 //
+//   5. PROTECTED CONTEXTS. The names branch protection actually requires get a
+//      stricter reading of both rules above. The tolerated-collision allowlist
+//      may not name one of them, so narrowing the guard to admit a duplicate
+//      `gate` fails on the allowlist edit itself rather than on the `name:`
+//      change that would follow it. And each required name must be published by
+//      exactly one job, which catches the opposite drift: a required context no
+//      workflow emits never reports at all, so PRs hang pending forever with
+//      nothing anywhere going red.
+//
 // Usage:
 //   node scripts/check-workflow-gates.mjs             judge every workflow
 //   node scripts/check-workflow-gates.mjs --self-test negative controls first
@@ -72,6 +81,35 @@ const CHANGE_DETECTOR = "changes";
 /// read and does. Adding one means reading the new verifier first.
 const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results"];
 
+/// The check-run names branch protection requires on `main`. Source of truth:
+///
+///   gh api repos/free2z/zuu/branches/main/protection/required_status_checks \
+///     --jq '{contexts,strict}'
+///   {"contexts":["gate","rs / gate"],"strict":true}
+///
+/// These are the contexts that can decide a merge, which makes them different in
+/// kind from every other name in the tree, in two directions:
+///
+///   * A collision on one of them is exactly the #562 defect — two producers
+///     means the required check resolves by report order rather than by policy —
+///     so it can never be tolerated. `TOLERATED_CONTEXT_COLLISIONS` may not
+///     contain any of these names, and saying so makes the *allowlist edit*
+///     fail rather than the `name:` removal that would follow it.
+///
+///   * The reverse drift is just as bad and quieter: a required context that no
+///     job publishes never reports, so every PR waits on it forever. Nothing in
+///     the tree goes red — the check simply sits pending — and the first person
+///     to notice is whoever tries to merge. So each of these must be published
+///     by exactly one job.
+///
+/// The second rule assumes every required context comes from a job in this
+/// repository's `.github/workflows`, which is true today: both are Actions
+/// check runs from `zuuli.yml` and `rs.yml`. If branch protection ever requires
+/// a context from something this script cannot see — a third-party app, or a
+/// workflow living in another repository — that entry does not belong in this
+/// set, and the comment here is the place to record why.
+const PROTECTED_CONTEXTS = new Set(["gate", "rs / gate"]);
+
 /// Check-run names that more than one workflow is knowingly allowed to publish,
 /// mapped to the exact set of files allowed to publish them. Every entry is a
 /// documented exception, not a category: a *new* producer of one of these names
@@ -81,6 +119,10 @@ const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results"];
 /// decide a merge — that is the whole reason they are tolerated rather than
 /// treated as the `gate` collision was. Renaming them is a follow-up, tracked
 /// in #567; adding to this map instead of fixing a collision needs the same.
+///
+/// "Cannot decide a merge" is not left to the reader's judgement: a key that is
+/// in `PROTECTED_CONTEXTS` is rejected outright, so this map can never be used
+/// to excuse the one collision that matters.
 const TOLERATED_CONTEXT_COLLISIONS = new Map([
   [
     "build",
@@ -389,8 +431,59 @@ export function contextCollisionFailures(published, tolerated) {
   return failures;
 }
 
+/// Reject an allowlist entry that covers a context branch protection requires.
+///
+/// This is a check on the checker's own configuration rather than on the tree,
+/// so it fails with no workflow needing to be wrong yet. That is the point:
+/// silencing the protected `gate` collision takes two edits — the allowlist
+/// entry and then the `name:` removal — and this makes the first one red, so
+/// the second is never reached and the tree is never briefly ambiguous.
+export function protectedToleranceFailures(tolerated, protectedContexts) {
+  const failures = [];
+  for (const context of [...tolerated.keys()].sort()) {
+    if (!protectedContexts.has(context)) continue;
+    failures.push(
+      `TOLERATED_CONTEXT_COLLISIONS names "${context}", which branch protection requires: ` +
+        "a duplicate producer of a required context resolves by report order rather than policy, " +
+        "so it can never be tolerated — remove the entry and give the colliding job a distinct name:",
+    );
+  }
+  return failures;
+}
+
+/// Require each protected context to be published by exactly one job.
+///
+/// The zero case is the silent one — branch protection waiting on a name no job
+/// emits blocks every PR with nothing to look at — and it is what a rename of a
+/// gate job without the matching branch-protection update looks like. The
+/// many case is already reported as a collision; it is repeated here because
+/// "exactly one" is the property being asserted, and a required context with two
+/// producers is worth saying twice.
+export function protectedProducerFailures(published, protectedContexts) {
+  const failures = [];
+  for (const context of [...protectedContexts].sort()) {
+    const producers = published.filter((entry) => entry.context === context);
+    if (producers.length === 1) continue;
+    if (producers.length === 0) {
+      failures.push(
+        `branch protection requires the status-check context "${context}", which no job publishes; ` +
+          "a required context nothing reports leaves every pull request pending forever " +
+          "(fix the job's name: or update PROTECTED_CONTEXTS to match branch protection)",
+      );
+      continue;
+    }
+    failures.push(
+      `branch protection requires the status-check context "${context}", which ${producers.length} jobs publish ` +
+        `(${producers.map((entry) => `${entry.file}#${entry.job}`).join(", ")}); ` +
+        "a required context must have exactly one producer",
+    );
+  }
+  return failures;
+}
+
 export function scanRepository(root, options = {}) {
   const tolerated = options.tolerated ?? TOLERATED_CONTEXT_COLLISIONS;
+  const protectedContexts = options.protectedContexts ?? PROTECTED_CONTEXTS;
   const exemptions = options.exempt ?? GATE_EXEMPT_JOBS;
   const failures = [];
   const published = [];
@@ -416,7 +509,9 @@ export function scanRepository(root, options = {}) {
       failures.push(...gateFailures(relativeFile, lines, job, siblings, exempt));
     }
   }
+  failures.push(...protectedToleranceFailures(tolerated, protectedContexts));
   failures.push(...contextCollisionFailures(published, tolerated));
+  failures.push(...protectedProducerFailures(published, protectedContexts));
   return { failures, gates, files: files.length, contexts: published.length };
 }
 
@@ -558,8 +653,21 @@ function withFixture(contents, body) {
   }
 }
 
+/// Fixtures are judged against fixture configuration, never the repository's
+/// live constants: the fixtures publish `gate` and not `rs / gate`, and an
+/// allowlist entry added for a real workflow must not change what a self-test
+/// case means. `gate` is protected unless a case says otherwise, so the
+/// exactly-one-producer rule is exercised by every case and not only by its own.
+function fixtureOptions(options) {
+  return {
+    protectedContexts: new Set(["gate"]),
+    tolerated: new Map(),
+    ...options,
+  };
+}
+
 function expectClean(label, contents, options = {}) {
-  const { gates = 1, ...scan } = options;
+  const { gates = 1, ...scan } = fixtureOptions(options);
   const result = withFixture(contents, (root) => scanRepository(root, scan));
   if (result.gates !== gates) {
     throw new Error(
@@ -575,7 +683,9 @@ function expectClean(label, contents, options = {}) {
 }
 
 function expectDetected(label, contents, pattern, options = {}) {
-  const result = withFixture(contents, (root) => scanRepository(root, options));
+  const result = withFixture(contents, (root) =>
+    scanRepository(root, fixtureOptions(options)),
+  );
   const joined = result.failures.join("; ");
   if (!pattern.test(joined)) {
     throw new Error(
@@ -699,7 +809,58 @@ function selfTest() {
     },
   );
 
-  console.log("check-workflow-gates self-test: 15 case(s) passed.");
+  // Protected contexts. The allowlist may not name one, and the failure must
+  // land on a tree where *nothing* collides yet: the whole point is that the
+  // allowlist edit alone is red, before the `name:` removal it would enable.
+  expectDetected(
+    "a protected context added to the tolerated-collision allowlist",
+    EXPLICIT_GATE,
+    /TOLERATED_CONTEXT_COLLISIONS names "gate", which branch protection requires/,
+    {
+      tolerated: new Map([
+        [
+          "gate",
+          [".github/workflows/fixture.yml", ".github/workflows/other.yml"],
+        ],
+      ]),
+    },
+  );
+  // And the rule is about *which* name is on the allowlist, not about the
+  // allowlist existing: an entry for an unprotected context still passes.
+  expectClean(
+    "a tolerated collision on a context that is not protected",
+    EXPLICIT_GATE,
+    {
+      tolerated: new Map([
+        ["build", [".github/workflows/one.yml", ".github/workflows/two.yml"]],
+      ]),
+    },
+  );
+
+  // The reverse drift: branch protection requiring a name no job publishes.
+  // Both fixtures are well-formed, and with both names protected the tree is
+  // clean; dropping the gate's display name is the rs.yml mutation in miniature.
+  expectClean(
+    "two protected contexts, each published by exactly one job",
+    { "fixture.yml": EXPLICIT_GATE, "other.yml": NAMED_GATE },
+    { gates: 2, protectedContexts: new Set(["gate", "other / gate"]) },
+  );
+  expectDetected(
+    "a protected context that no job publishes",
+    {
+      "fixture.yml": EXPLICIT_GATE,
+      "other.yml": NAMED_GATE.replace("    name: other / gate\n", ""),
+    },
+    /requires the status-check context "other \/ gate", which no job publishes/,
+    { protectedContexts: new Set(["gate", "other / gate"]) },
+  );
+  expectDetected(
+    "a protected context published by two jobs",
+    { "fixture.yml": EXPLICIT_GATE, "other.yml": EXPLICIT_GATE },
+    /requires the status-check context "gate", which 2 jobs publish/,
+  );
+
+  console.log("check-workflow-gates self-test: 20 case(s) passed.");
 }
 
 const mode = process.argv[2];
@@ -730,6 +891,7 @@ if (result.failures.length) {
 }
 console.log(
   `Every gate inspects every job it awaits and covers every job in its file, ` +
-    `and no two workflows publish one status-check context: ${result.gates} gate(s), ` +
-    `${result.contexts} job(s), ${result.files} workflow file(s).`,
+    `no two workflows publish one status-check context, and each protected context ` +
+    `(${[...PROTECTED_CONTEXTS].sort().join(", ")}) has exactly one producer and no allowlist entry: ` +
+    `${result.gates} gate(s), ${result.contexts} job(s), ${result.files} workflow file(s).`,
 );
