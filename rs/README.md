@@ -215,6 +215,80 @@ reasons, and each is enforced by a test rather than by intent:
    `wasm32-unknown-unknown` on every change, because "we kept it portable" is a
    claim that stops being true the first week nobody checks.
 
+## The server images
+
+The three AGPL binaries above ship as three container images, built from one
+`rs/Dockerfile` and published by `.github/workflows/f2z-images.yml`:
+
+| Image | Entrypoint | Built with |
+|---|---|---|
+| `ghcr.io/free2z/f2z-relay` | `/f2z-relay` | `--build-arg BIN=f2z-relay` |
+| `ghcr.io/free2z/f2z-kt` | `/f2z-kt` | `--build-arg BIN=f2z-kt` |
+| `ghcr.io/free2z/f2z-witness` | `/f2z-witness` | `--build-arg BIN=f2z-witness` |
+
+```bash
+docker build -f rs/Dockerfile rs \
+  --build-arg BIN=f2z-witness \
+  --build-arg RUST_CHANNEL="$(scripts/check-rust-toolchain.sh --print-channel)" \
+  -t f2z-witness:local
+```
+
+One Dockerfile rather than three, because what must not drift between them is
+exactly the shared part: the pinned compiler, the pinned base images, the uid,
+and the absence of a shell. The runtime is
+`gcr.io/distroless/cc-debian12:nonroot`, digest-pinned, running as uid 65532 —
+`cc` and not `static` because `rusqlite` bundles SQLite and all three link libc.
+The builder is `rust:1-slim-bookworm`, also digest-pinned, and **bookworm is
+load-bearing**: a builder on a newer Debian links a newer glibc and produces a
+binary that starts on the build host and dies on the cluster.
+
+The compiler version appears nowhere in the Dockerfile or the workflow. It
+arrives as `RUST_CHANNEL` from `scripts/check-rust-toolchain.sh --print-channel`,
+and the Dockerfile refuses to compile anything if what arrives disagrees with
+`rs/rust-toolchain.toml` in the build context.
+
+**Publishing is phase one of two, and the split is the point.** The workflow
+pushes `:main-<sha>` and a build-scoped tag — never `:latest` — attaches an OCI
+SBOM and `provenance: mode=max`, attests the registry digest with
+`actions/attest --push-to-registry`, re-verifies by digest, and then prints that
+digest into the job summary. Nothing consumes it. Moving a deployment onto a new
+image is a separate, human-reviewed pull request against the deployment
+manifests that pins the exact digest. A publish that could move a running
+deployment on its own would make "merged to `main`" and "shipped to production"
+the same event.
+
+**Reproducible builds are not claimed.** The attestation proves *provenance* —
+that this workflow, in this repository, built that digest from that commit. It
+does not prove that rebuilding the commit yields the same digest, and nothing
+here tries to: `cargo build` embeds paths and timestamps, and the base images are
+pinned rather than rebuilt. Provenance is the property the deployment relies on.
+
+`platforms: linux/amd64` only. That is what the target cluster runs. Multi-arch
+is for self-hosters and can be added later without invalidating anything already
+pinned: another platform publishes new digests beside the existing ones.
+
+**`f2z-witness healthz` is a contract with the image, not only with the binary.**
+The manifests probe it with `exec` because distroless has no shell, no `wget` and
+no `curl`, and `KT.md` §9.3 promises the witness has no inbound listener to dial:
+
+```yaml
+livenessProbe:
+  exec:
+    command: ["/f2z-witness", "healthz", "--state", "/var/lib/f2z-witness/state.bin"]
+```
+
+`--state` is **required** — a probe written as `["/f2z-witness", "healthz"]`
+fails permanently rather than reporting an unhealthy witness. And a witness that
+has never completed a poll reports `UNPINNED` and exits 1 by design, so the probe
+must be given a `startupProbe` or an `initialDelaySeconds` wide enough to cover
+the first successful poll. `scripts/check-f2z-images.mjs --probe` asserts both
+behaviours against a real container after every build.
+
+That script is the policy for all of the above, it runs `--self-test` first, and
+it is invoked unconditionally from `rs.yml` — not from the image workflow —
+because the image workflow's own `paths:` filter is one of the things it checks,
+and a drifted filter is a workflow that has silently stopped publishing.
+
 ## Working in this tree
 
 ```bash
