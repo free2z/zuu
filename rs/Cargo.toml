@@ -35,6 +35,20 @@ expect_used = "deny"
 [workspace.dependencies]
 blake2 = { version = "0.10", default-features = false }
 tls_codec = { version = "0.4", default-features = false, features = ["derive"] }
+# Ed25519, `WIRE.md` §5. `default-features = false` drops `std` and `fast`:
+# `fast` is curve25519-dalek's precomputed-tables, which trades roughly 30 KiB
+# of table for signing speed, and this graph reaches wasm32 for the browser
+# client (ADR 0001) where the bundle is the scarce resource and the workload is
+# a handful of signatures per connection, not a batch verifier. `zeroize` is
+# kept: it is the only feature that touches what happens to a secret key's
+# bytes when it is dropped.
+ed25519-dalek = { version = "3", default-features = false, features = [
+  "zeroize",
+] }
+# `WIRE.md` §10: the existence-oracle rule requires key comparisons to be
+# constant time. Already in the graph beneath ed25519-dalek; named here so the
+# dependency is a decision rather than an accident of resolution.
+subtle = { version = "2", default-features = false }
 # Dev-dependency only. It builds for the host test runner, never for
 # wasm32-unknown-unknown, so its `std` default costs this crate nothing: the
 # library itself is `no_std` and the wasm job builds `--lib`.

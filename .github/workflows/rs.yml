@@ -74,7 +74,8 @@ jobs:
           scripts/check-rust-toolchain.sh --self-test
           scripts/check-rust-toolchain.sh \
             --toolchain-file rs/rust-toolchain.toml \
-            --manifest rs/crates/f2z-codec/Cargo.toml
+            --manifest rs/crates/f2z-codec/Cargo.toml \
+            --manifest rs/crates/f2z-relay-proto/Cargo.toml
 
       - name: Detect changes under rs/
         id: filter
@@ -283,17 +284,23 @@ jobs:
           key: rs-wasm
 
       # ADR 0001 requires one Rust core shared by ZUULI and the web client, so
-      # f2z-codec reaching wasm32 is a protocol-level requirement rather than a
-      # nice property. It is enforced by this job and not by convention, because
-      # "we kept it portable" stops being true the first week nobody checks. The
-      # first accidental `use std::` or tokio dependency fails here.
-      - name: Build f2z-codec for the browser target
+      # these crates reaching wasm32 is a protocol-level requirement rather than
+      # a nice property. It is enforced by this job and not by convention,
+      # because "we kept it portable" stops being true the first week nobody
+      # checks. The first accidental `use std::` or tokio dependency fails here.
+      #
+      # Every crate the clients link belongs on this line. It is spelled out
+      # rather than `--workspace` so that a future server binary — which will be
+      # AGPL, will pull tokio, and will never reach a browser — does not
+      # silently join the wasm build and then fail it.
+      - name: Build the client-linked crates for the browser target
         working-directory: rs
         run: |
           set -euo pipefail
           cargo build --locked --lib \
             --target "${{ steps.rust_toolchain.outputs.target }}" \
-            -p f2z-codec
+            -p f2z-codec \
+            -p f2z-relay-proto
 
   # Branch protection should require this stable context, `rs / gate`. It
   # succeeds only when the change detector and every applicable rs job
