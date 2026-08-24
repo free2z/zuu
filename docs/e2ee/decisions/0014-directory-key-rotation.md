@@ -6,9 +6,13 @@
 [ADR 0006](./0006-zcash-coupling.md) ·
 **Relates to:** [`../ARCHITECTURE.md` §13-K](../ARCHITECTURE.md#13-open-questions)
 (handle rename and transfer — still open) ·
-**Depends on:** the key-transparency log construction, **ADR 0013**, which is
-**deliberately not in this change** — it is blocked on
-[#544](https://github.com/free2z/zuu/issues/544).
+**Depends on:** the key-transparency log construction, **ADR 0013**, which was
+**deliberately not in this change** — it was blocked on
+[#544](https://github.com/free2z/zuu/issues/544), and landed on 2026-08-23 as
+[ADR 0013](./0013-key-transparency-log.md) with
+[`../KT.md`](../KT.md). The encodings that carry the rules below are
+[`../KT.md` §4.4](../KT.md#44-what-authorizes-an-entry); nothing in this ADR
+changed to accommodate them.
 
 > **Invented here.** [`../ARCHITECTURE.md` §9.2](../ARCHITECTURE.md#92-the-directory)
 > specifies an append-only log of `(handle → IdentitySigningKey.public, epoch,
@@ -129,7 +133,9 @@ posture and it costs nothing to offer.
   undetectably." That remains true with this decision — the reset is maximally
   detectable — but the sentence is doing more work than it looks like it is, and
   the reset path is the reason. It should be annotated when the KT documents land,
-  not left to be discovered.
+  not left to be discovered. **Done 2026-08-23**: §3.1 now carries a dated
+  correction stating that the reset converts an undetectable substitution into a
+  loud, delayed, permanently recorded one, and does not prevent it.
 
 ## Alternatives rejected
 

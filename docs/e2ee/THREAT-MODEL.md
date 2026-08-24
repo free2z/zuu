@@ -1,8 +1,8 @@
 # free2z E2EE — Threat model
 
 **Status:** Phase 0 design. Nothing described here is implemented.
-**Companion:** [`ARCHITECTURE.md`](./ARCHITECTURE.md),
-[`decisions/`](./decisions/). **Refs:**
+**Companion:** [`ARCHITECTURE.md`](./ARCHITECTURE.md), [`WIRE.md`](./WIRE.md),
+[`KT.md`](./KT.md), [`decisions/`](./decisions/). **Refs:**
 [#305](https://github.com/free2z/zuu/issues/305).
 
 This document names the adversaries and, for each, states the defense — or
@@ -71,7 +71,8 @@ data it stores or relays.
 - **Cannot substitute an identity key undetectably.** The KT directory is an
   append-only log with inclusion and consistency proofs; every client self-audits
   its own handle every epoch and alarms on any key change it did not initiate.
-  An attempted substitution is visible **to the victim**.
+  An attempted substitution is visible **to the victim**. — **Two corrections
+  below narrow this bullet; read them with it.**
 - **Cannot equivocate on the directory without leaving evidence**, once an
   independent witness set exists. Witness cosigning plus client gossip means two
   conflicting signed roots for one epoch are non-repudiable, publishable proof of
@@ -88,6 +89,43 @@ data it stores or relays.
   parents produce a detectable gap.
 - **Cannot retain ciphertext it has deleted.** For its *own* relay we control the
   code; see the honest limit below.
+
+> **Correction (2026-08-23) — who verifies what, in "inclusion and consistency
+> proofs."** The identity-substitution bullet above reads as though a client
+> checks both. It does not, and cannot. Per
+> [ADR 0013](./decisions/0013-key-transparency-log.md), the log is `akd`, whose
+> append-only proof is **O(entries added), not O(log n)** — 3.9 MB and 1–3
+> seconds for five epochs. A client verifies **inclusion**, **non-membership**
+> and **its own key history**, cheaply, against a root it has checked is signed
+> by the log and cosigned by *t* of its own configured witnesses. **Append-only
+> consistency is verified by witnesses only**, which is what the role is for
+> ([`ARCHITECTURE.md` §9.2](./ARCHITECTURE.md#92-the-directory), corrected;
+> [`KT.md` §8.5](./KT.md#85-what-a-client-cannot-verify)).
+>
+> The bullet's conclusion survives — a substitution is still visible to the
+> victim, because self-audit over its own key history is exactly the check that
+> catches it, and that check is the cheap one. What does **not** survive is any
+> reading in which a client independently establishes that the log never rewrote
+> anything. Against a log that equivocates rather than appends, the client has
+> only the cosignatures, gossip, and manual safety-number verification — and
+> §3.9 plus [§9.3](./ARCHITECTURE.md#93-anti-equivocation-without-a-blockchain)
+> say what those are worth before independent witnesses exist, which is: at
+> launch, nothing but gossip and manual verification.
+
+> **Correction (2026-08-23) — the platform reset path is a stated exception.**
+> [ADR 0014](./decisions/0014-directory-key-rotation.md) introduced a platform-authority
+> reset for a user who has lost the key that would authorize a key change, and
+> flagged that this bullet would need annotating when the KT documents landed.
+> A reset **does** substitute an identity key on the platform's authority alone.
+> It is not undetectable — it is published in the log, counted per epoch in the
+> tree head, raises a non-dismissible alarm on every peer holding the old key,
+> and is delayed by a multi-day cooldown during which conforming clients keep
+> using the old key. But "cannot substitute an identity key undetectably" is
+> doing precise work here and should be read precisely: the reset converts an
+> undetectable substitution into a **loud, delayed, permanently recorded** one.
+> It does not prevent it. A user who ignores the alarm is MITM'd, and a user who
+> set `no_reset` has foreclosed the path entirely at the cost of permanent handle
+> loss on a lost seed.
 
 **Not defended.**
 
@@ -361,13 +399,36 @@ one yields no message data.
 **Defended.** A client requires *t* cosignatures from **its own configured**
 witness set, so a single malicious witness cannot validate a forged root. A
 witness that signs a root conflicting with another root it signed produces
-non-repudiable evidence against itself.
+non-repudiable evidence against itself — which is why a cosignature signs the
+*contents* of a tree head (log id, epoch, tree size, root hash) rather than the
+log's signature over them: the contradiction is then checkable by anyone, without
+the log's public key and without ever having seen the log's own signature
+([`KT.md` §7.2](./KT.md#72-witnesscosignature)). A client that requires *t*
+cosignatures also **fails closed** when it cannot get them
+([`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed)).
 
 **Not defended.** Collusion of the directory operator with *t* witnesses defeats
 the scheme entirely. The property is only as strong as the independence of the
 witness set, and independence is a social fact we cannot verify
 cryptographically. Clients should default to a witness set that is not all
 free2z-operated, and the UI should make the configured set inspectable.
+
+**Not defended, and added 2026-08-23: a lazy witness is indistinguishable from a
+working one.** A witness's whole job is to verify the **append-only proof**
+between consecutive roots — the check
+[`ARCHITECTURE.md` §9.2](./ARCHITECTURE.md#92-the-directory) establishes that no
+client can perform for itself. A witness that skips it and cosigns anyway is
+attesting only that the log signed something, which the log's own signature
+already proved. Such a witness produces cosignatures that are valid, timely,
+countable, and **worth nothing**, and no client can tell the difference by
+inspecting them. Nothing in the protocol detects this; the mitigations are that
+the witness daemon and the log link the same verification code so that "cosign
+without verifying" is not a state a conforming implementation can be in, that
+witnesses publish their own cosignature history so a third party can re-derive
+the proofs they claim to have checked, and that the operator set is small enough
+to be known. A malicious witness that *wants* to be useless simply patches the
+check out, and we would not know
+([`KT.md` §7.4](./KT.md#74-a-witness-that-does-not-verify-the-append-only-proof-is-worthless)).
 
 ### 3.10 Lost or stolen device (no active malware)
 
@@ -500,7 +561,7 @@ otherwise was wrong.
 |---|---|---|
 | Server cannot read content | **Yes**, unconditionally | **Only if the served bundle is honest** (§3.6) |
 | Server cannot forge messages | **Yes** | Same caveat |
-| Server cannot MITM the identity | **Yes** — KT + self-audit + witnesses | Same caveat |
+| Server cannot MITM the identity | **Yes, and read §3.1's two corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. | Same caveat |
 | Server cannot MITM WebRTC | **Yes** — in-band fingerprints | Same caveat |
 | Forward secrecy | **Yes** — MLS epochs | Yes, same caveat |
 | Post-compromise security | **Yes** — MLS Updates | Yes, same caveat |

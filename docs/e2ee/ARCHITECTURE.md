@@ -7,7 +7,7 @@
 [#133](https://github.com/free2z/zuu/issues/133),
 [#134](https://github.com/free2z/zuu/issues/134).
 **Companion:** [`THREAT-MODEL.md`](./THREAT-MODEL.md), [`WIRE.md`](./WIRE.md),
-[`decisions/`](./decisions/).
+[`KT.md`](./KT.md), [`decisions/`](./decisions/).
 
 This document is written to be read by a third-party security auditor. Where
 something is undecided, it is listed in [§13 Open questions](#13-open-questions)
@@ -756,7 +756,8 @@ A CONIKS / SEEMless / Parakeet-lineage **append-only log** of
   reveal the rest of the directory and unqueried entries stay private.
 - **Consistency proofs** between successive epoch roots
   ([RFC 6962](https://datatracker.ietf.org/doc/html/rfc6962)-style), so a client
-  can verify the log is append-only across every root it has ever seen.
+  can verify the log is append-only across every root it has ever seen. — **This
+  bullet is wrong as written; see the correction below.**
 - **Self-audit:** every client monitors its own handle each epoch and raises a
   loud, non-dismissible alarm on any key change it did not initiate. This is
   what makes an attempted MITM *detectable by the victim*, which is the whole
@@ -776,13 +777,56 @@ A CONIKS / SEEMless / Parakeet-lineage **append-only log** of
   authenticated, private, *remote* out-of-band channel, which is genuinely
   unusual (see [ADR 0006](./decisions/0006-zcash-coupling.md)).
 
-> **Deliberately still unspecified: the log construction itself.** The
-> `SignedTreeHead` format, the epoch cadence, the inclusion- and
-> consistency-proof encodings, the full `DirectoryEntry` structure and the
-> witness-cosignature message format land in a companion `KT.md` with **ADR
-> 0013**, both of which are blocked on spike
-> [#544](https://github.com/free2z/zuu/issues/544). The gap in the ADR numbering
-> is intentional, so that its absence is visible rather than silent.
+> **Correction (2026-08-23) — the consistency-proof bullet above overpromises,
+> and a client cannot do what it says.** The claim that a client "can verify the
+> log is append-only across every root it has ever seen" is **false**, and it is
+> left standing above rather than edited away so that an auditor can see exactly
+> what was claimed and what replaced it. It is false for the construction this
+> section specifies, and for the implementation
+> [ADR 0013](./decisions/0013-key-transparency-log.md) adopts. `akd`'s
+> `AppendOnlyProof` carries every node inserted between the two roots plus its
+> sibling path, so it is **O(entries added), not O(log n)** as an RFC 6962
+> consistency proof would be — measured by
+> [#544](https://github.com/free2z/zuu/issues/544) at **3.9 MB and 1–3 seconds
+> for five epochs** on a 100,000-entry directory. A phone on cellular data cannot
+> verify consistency across every root it has seen, and no amount of engineering
+> makes it able to. This is the price of the privacy property in the second
+> bullet, not a defect: the tree is a sparse Patricia tree keyed by VRF output
+> rather than a chronological Merkle tree, and the cheap consistency proof is
+> exactly what is given up to get privacy-preserving lookups.
+>
+> **The architecture is unaffected.** §9.3 already assigns append-only
+> verification to **witnesses**, which are native daemons polling over outbound
+> HTTPS and have all day. What each party can actually verify is:
+>
+> | Party | Can verify |
+> |---|---|
+> | **Client** | Inclusion for a queried handle (`lookup_verify`, ~1.1 ms in WASM) and its own key history (`key_history_verify`, ~2.6 ms), **against a root it has checked is signed by the log and cosigned by *t* of its own configured witnesses**. Non-membership, so "no such handle" is proved rather than asserted. |
+> | **Witness** | Append-only consistency between consecutive roots — **the reason the role exists.** |
+>
+> **The consequence, stated plainly because the text above under-states it: a
+> client cannot substitute its own consistency check for a witness's.** There is
+> no cheap check for it to run, so there is no fallback if the witness set is
+> absent, unreachable, or not independent. Read that together with §9.3's
+> statement that witnesses free2z operates are not independent witnesses, and the
+> honest position at launch is that **nothing establishes append-only-ness to a
+> client except client gossip and manual safety-number verification.** The
+> witness set is more load-bearing than the merged text implies, not less, and
+> recruiting independent witnesses is correspondingly more urgent.
+>
+> [`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed) specifies the
+> threshold rule and the fail-closed behaviour this forces, and
+> [`KT.md` §8.5](./KT.md#85-what-a-client-cannot-verify) restates the limit at
+> the point of use.
+
+> **The log construction is now specified.** The `SignedTreeHead` format, the
+> epoch cadence and maximum merge delay, the proof encodings, the full
+> `DirectoryEntry` structure, the witness poll-verify-cosign protocol and the
+> cosignature format are in [`KT.md`](./KT.md), with
+> [ADR 0013](./decisions/0013-key-transparency-log.md) recording the choice of
+> construction. Both were blocked on spike
+> [#544](https://github.com/free2z/zuu/issues/544) and landed on 2026-08-23 when
+> it closed.
 
 ### 9.3 Anti-equivocation without a blockchain
 
@@ -790,11 +834,16 @@ The residual attack on any KT log is **equivocation**: showing different
 directories to different users. The fix is Certificate Transparency's, not a
 chain's:
 
-- **Witness cosigning.** A witness observes the KT log root for each epoch and
+- **Witness cosigning.** A witness observes the KT log root for each epoch,
+  **verifies the append-only proof from the previous root it cosigned**, and
   signs what it saw. A client accepts a root only if it carries at least *t*
   cosignatures from its own configured witness set. Two conflicting signed roots
   for the same epoch are **non-repudiable cryptographic evidence of
-  misbehavior**, publishable by anyone.
+  misbehavior**, publishable by anyone. The append-only check is not an optional
+  extra: a witness that cosigns without performing it attests only that the log
+  signed something, which the log's own signature already proves, so such a
+  witness is worthless while looking exactly like a working one
+  ([`KT.md` §7.4](./KT.md#74-a-witness-that-does-not-verify-the-append-only-proof-is-worthless)).
 - **Client gossip.** Clients cross-check roots with each other over the
   messaging channel itself — CONIKS's original design, and free because we
   already have an authenticated channel.
@@ -1107,6 +1156,33 @@ deliberate.
   existing handle space already contains the homograph surface); and whether the
   excluded population is served by a separate opt-in messaging handle, which is
   directory design and touches §13-K.
+- **P. KT epoch cadence and maximum merge delay.** Opened 2026-08-23 by
+  [`KT.md` §5](./KT.md#5-epochs-and-the-merge-promise). The values there — a
+  600-second epoch published whether or not there is work, and a 3,600-second
+  maximum merge delay — are **proposed placeholders**, chosen so that silence is
+  a detectable fault rather than an ambiguity. What they should actually be
+  depends on the submission rate, on how much append-only-proof volume a
+  volunteer witness will tolerate per day, and on how long a user should wait to
+  see their own device addition land. None of the three is measured, and the
+  first cannot be until there are users.
+- **Q. Witness-set independence criterion and the default *t*.** Opened
+  2026-08-23 by [`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed).
+  §9.3 states that witnesses free2z operates are not independent witnesses; it
+  does not say what *does* make one independent, who decides, or what a client
+  ships with on day one when the honest answer is that no independent witness
+  exists. The threshold rule is specified and fails closed; the **default** value
+  of *t*, the shipped witness list, and the rule by which a witness is counted as
+  independent are not decided, and choosing them badly would let a reassuring
+  number stand in for a property we do not have.
+- **R. Client gossip wire format.** Opened 2026-08-23 by
+  [`KT.md` §8.4](./KT.md#84-gossip). §9.3 and
+  [#311](https://github.com/free2z/zuu/issues/311) both make client gossip
+  load-bearing — it is the *only* anti-equivocation that functions before
+  independent witnesses exist — and neither specifies a message. What a client
+  gossips, how often, what it does on a mismatch, and how a disagreement becomes
+  portable evidence rather than a local error dialog are all unspecified.
+  `KT.md` defines the evidence structures but deliberately does not invent the
+  protocol that exchanges them.
 
 ### 13.1 Closed
 
