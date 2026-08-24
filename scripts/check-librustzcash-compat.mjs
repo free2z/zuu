@@ -87,74 +87,155 @@ function scopeErrors(scope) {
   return errors;
 }
 
-function stripRustComments(source) {
-  let output = "";
-  let state = "code";
-  let blockDepth = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    const current = source[index];
-    const next = source[index + 1];
+function rustCodeOnly(source, stripLiterals = true) {
+  const masked = (value) => value.replace(/[^\r\n]/g, " ");
+  const projectedLiteral = (value) =>
+    stripLiterals ? masked(value) : value;
+  const identifier = (value) => /[A-Za-z0-9_]/.test(value ?? "");
+  const rawStringAt = (index) => {
+    if (identifier(source[index - 1])) return null;
+    let prefixLength = 0;
+    if (source[index] === "r") prefixLength = 1;
+    if (
+      (source[index] === "b" || source[index] === "c") &&
+      source[index + 1] === "r"
+    ) {
+      prefixLength = 2;
+    }
+    if (prefixLength === 0) return null;
 
-    if (state === "line") {
-      if (current === "\n") {
-        output += current;
-        state = "code";
-      } else {
-        output += " ";
-      }
-      continue;
+    let cursor = index + prefixLength;
+    while (source[cursor] === "#") cursor += 1;
+    if (source[cursor] !== '"') return null;
+    const hashes = cursor - index - prefixLength;
+    if (hashes > 255) {
+      throw new Error(
+        `malformed Rust raw string at byte ${index}: more than 255 hashes`,
+      );
     }
-    if (state === "block") {
-      if (current === "/" && next === "*") {
-        blockDepth += 1;
-        output += "  ";
-        index += 1;
-      } else if (current === "*" && next === "/") {
-        blockDepth -= 1;
-        output += "  ";
-        index += 1;
-        if (blockDepth === 0) state = "code";
-      } else {
-        output += current === "\n" ? "\n" : " ";
-      }
-      continue;
-    }
-    if (state === "string" || state === "char") {
-      output += current;
-      if (current === "\\") {
-        if (next !== undefined) {
-          output += next;
-          index += 1;
+    return { content: cursor + 1, hashes };
+  };
+  const quotedEnd = (quote, label) => {
+    for (let cursor = quote + 1; cursor < source.length; cursor += 1) {
+      if (source[cursor] === "\\") {
+        if (cursor + 1 >= source.length) {
+          throw new Error(`unterminated Rust ${label} at byte ${quote}`);
         }
-      } else if (
-        (state === "string" && current === '"') ||
-        (state === "char" && current === "'")
-      ) {
-        state = "code";
+        cursor += 1;
+      } else if (source[cursor] === '"') {
+        return cursor + 1;
       }
+    }
+    throw new Error(`unterminated Rust ${label} at byte ${quote}`);
+  };
+  const characterEnd = (quote, label, required) => {
+    let cursor = quote + 1;
+    if (source[cursor] === "\\") {
+      cursor += 1;
+      if (source[cursor] === "x") {
+        cursor += 3;
+      } else if (source[cursor] === "u" && source[cursor + 1] === "{") {
+        const brace = source.indexOf("}", cursor + 2);
+        if (brace < 0) {
+          throw new Error(`unterminated Rust ${label} at byte ${quote}`);
+        }
+        cursor = brace + 1;
+      } else {
+        cursor += 1;
+      }
+    } else {
+      const point = source.codePointAt(cursor);
+      if (point !== undefined) cursor += point > 0xffff ? 2 : 1;
+    }
+    if (source[cursor] === "'") return cursor + 1;
+    if (required) {
+      throw new Error(`malformed Rust ${label} at byte ${quote}`);
+    }
+    return null;
+  };
+
+  let output = "";
+  let index = 0;
+  while (index < source.length) {
+    if (source.startsWith("//", index)) {
+      const end = source.indexOf("\n", index + 2);
+      const boundary = end < 0 ? source.length : end;
+      output += masked(source.slice(index, boundary));
+      index = boundary;
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      let depth = 1;
+      let cursor = index + 2;
+      while (cursor < source.length && depth > 0) {
+        if (source.startsWith("/*", cursor)) {
+          depth += 1;
+          cursor += 2;
+        } else if (source.startsWith("*/", cursor)) {
+          depth -= 1;
+          cursor += 2;
+        } else {
+          cursor += 1;
+        }
+      }
+      if (depth !== 0) {
+        throw new Error(`unterminated Rust block comment at byte ${index}`);
+      }
+      output += masked(source.slice(index, cursor));
+      index = cursor;
       continue;
     }
 
-    if (current === "/" && next === "/") {
-      state = "line";
-      output += "  ";
-      index += 1;
-    } else if (current === "/" && next === "*") {
-      state = "block";
-      blockDepth = 1;
-      output += "  ";
-      index += 1;
-    } else {
-      output += current;
-      if (current === '"') state = "string";
-      if (current === "'") state = "char";
+    const raw = rawStringAt(index);
+    if (raw !== null) {
+      const closing = `"${"#".repeat(raw.hashes)}`;
+      const close = source.indexOf(closing, raw.content);
+      if (close < 0) {
+        throw new Error(`unterminated Rust raw string at byte ${index}`);
+      }
+      const end = close + closing.length;
+      output += projectedLiteral(source.slice(index, end));
+      index = end;
+      continue;
     }
+
+    const prefixedLiteral =
+      !identifier(source[index - 1]) &&
+      (source[index] === "b" || source[index] === "c");
+    if (source[index] === '"' || (prefixedLiteral && source[index + 1] === '"')) {
+      const quote = source[index] === '"' ? index : index + 1;
+      const end = quotedEnd(quote, "string");
+      output += projectedLiteral(source.slice(index, end));
+      index = end;
+      continue;
+    }
+    if (prefixedLiteral && source[index + 1] === "'") {
+      const end = characterEnd(index + 1, "byte character", true);
+      output += projectedLiteral(source.slice(index, end));
+      index = end;
+      continue;
+    }
+    if (source[index] === "'") {
+      const end = characterEnd(index, "character", false);
+      if (end !== null) {
+        output += projectedLiteral(source.slice(index, end));
+        index = end;
+        continue;
+      }
+    }
+
+    output += source[index];
+    index += 1;
   }
   return output;
 }
 
 function normalizedRust(source) {
-  return stripRustComments(source).replace(/\s+/g, " ").trim();
+  return rustCodeOnly(source).replace(/\s+/g, " ").trim();
+}
+
+function normalizedRustWithLiterals(source) {
+  return rustCodeOnly(source, false).replace(/\s+/g, " ").trim();
 }
 
 function occurrences(source, needle) {
@@ -168,12 +249,30 @@ function occurrences(source, needle) {
 }
 
 function rustFunctionBody(source, name) {
-  const marker = `fn ${name}<`;
-  if (occurrences(source, marker) !== 1) return null;
+  const markers = [`fn ${name}<`, `fn ${name}(`];
+  const declarations = [];
+  for (const marker of markers) {
+    let offset = 0;
+    while ((offset = source.indexOf(marker, offset)) !== -1) {
+      declarations.push({ offset, marker });
+      offset += marker.length;
+    }
+  }
+  if (declarations.length !== 1) return null;
 
-  const declaration = source.indexOf(marker);
+  const [{ offset: declaration, marker }] = declarations;
   const bodyStart = source.indexOf("{", declaration + marker.length);
   if (bodyStart < 0) return null;
+  let bracketDepth = 0;
+  for (
+    let index = declaration + marker.length;
+    index < bodyStart;
+    index += 1
+  ) {
+    if (source[index] === "[") bracketDepth += 1;
+    if (source[index] === "]") bracketDepth -= 1;
+    if (source[index] === ";" && bracketDepth === 0) return null;
+  }
 
   let depth = 1;
   for (let index = bodyStart + 1; index < source.length; index += 1) {
@@ -182,6 +281,43 @@ function rustFunctionBody(source, name) {
     if (depth === 0) return source.slice(bodyStart + 1, index).trim();
   }
   return null;
+}
+
+function rustBodyDigest(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
+
+function exactAdapterControlFlowErrors(body, contract) {
+  const errors = [];
+  if (body === null) {
+    return [`${contract.boundary} must remain a unique Rust function body`];
+  }
+  if (/\bcfg\s*!?\s*\(/.test(body)) {
+    errors.push(
+      `${contract.boundary} must compile one control-flow body in tests, probes, and shipping builds`,
+    );
+  }
+
+  let cursor = 0;
+  for (const anchor of contract.orderedAnchors) {
+    const count = occurrences(body, anchor);
+    const index = body.indexOf(anchor, cursor);
+    if (count !== 1 || index < cursor) {
+      errors.push(
+        `${contract.boundary} must preserve its ordered ${contract.transition} control flow`,
+      );
+      break;
+    }
+    cursor = index + anchor.length;
+  }
+
+  const digest = rustBodyDigest(body);
+  if (digest !== contract.digest) {
+    errors.push(
+      `${contract.boundary} complete control-flow body must remain ${contract.digest}, got ${digest}`,
+    );
+  }
+  return errors;
 }
 
 function packageVersions(lock, expectedPackages) {
@@ -207,15 +343,32 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
 
   const orchestrationSource = snapshot.files[SEND_SOURCE];
   const nativePolicySource = snapshot.files[NATIVE_SEND_POLICY_SOURCE];
+  let malformedRust = false;
+  const normalize = (relative, source, keepLiterals = false) => {
+    try {
+      return keepLiterals
+        ? normalizedRustWithLiterals(source)
+        : normalizedRust(source);
+    } catch (error) {
+      malformedRust = true;
+      errors.push(`${relative}: ${error.message}`);
+      return "";
+    }
+  };
+  const send = normalize(NATIVE_SEND_POLICY_SOURCE, nativePolicySource);
+  const orchestration = normalize(SEND_SOURCE, orchestrationSource);
   const outsidePolicySource = snapshot.policyAuthorityPeers
-    .map((relative) => snapshot.files[relative])
+    .map((relative) => normalize(relative, snapshot.files[relative]))
     .join("\n");
-  const send = normalizedRust(nativePolicySource);
-  const orchestration = normalizedRust(orchestrationSource);
+  if (malformedRust) return errors;
 
+  const nativeModuleDeclarations = rustCodeOnly(orchestrationSource)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\bmod\s+native\s*;/.test(line));
   if (
-    occurrences(orchestrationSource, "mod native;") !== 1 ||
-    occurrences(orchestrationSource, "pub mod native;") !== 0
+    nativeModuleDeclarations.length !== 1 ||
+    nativeModuleDeclarations[0] !== "mod native;"
   ) {
     errors.push(
       "native send policy must remain in one private child module",
@@ -244,15 +397,25 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
   }
   const allowedPolicyExports = [
     "pub(super) fn create_transactions<",
-    "pub(super) fn propose_fixed<",
-    "pub(super) fn propose_send_all_attempt<",
+    "pub(super) fn propose_fixed_validated<",
+    "pub(super) fn propose_send_all_validated<",
   ];
+  // Comments are whitespace in Rust and are already masked above. Canonicalize
+  // visibility token spacing before counting so `pub(super /* comment */)`
+  // cannot make a parent-visible policy function look private to this guard.
+  const visibilityCanonical = send
+    .replace(/\bpub\s*\(\s*super\s*\)/g, "pub(super)")
+    .replace(/\bpub\s*\(\s*crate\s*\)/g, "pub(crate)")
+    .replace(/\bpub\s*\(\s*in\s+/g, "pub(in ");
   if (
-    occurrences(send, "pub(super)") !== allowedPolicyExports.length ||
-    allowedPolicyExports.some((declaration) => occurrences(send, declaration) !== 1) ||
-    occurrences(send, "pub(crate)") !== 0 ||
-    occurrences(send, "pub(in ") !== 0 ||
-    occurrences(send, "pub ") !== 0
+    occurrences(visibilityCanonical, "pub(super)") !==
+      allowedPolicyExports.length ||
+    allowedPolicyExports.some(
+      (declaration) => occurrences(visibilityCanonical, declaration) !== 1,
+    ) ||
+    occurrences(visibilityCanonical, "pub(crate)") !== 0 ||
+    occurrences(visibilityCanonical, "pub(in ") !== 0 ||
+    occurrences(visibilityCanonical, "pub ") !== 0
   ) {
     errors.push(
       "private native send policy module must expose only its three audited safe boundaries",
@@ -281,18 +444,31 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     "propose_with_policy",
   );
   const defaultProposalBoundary = rustFunctionBody(send, "propose_default");
-  const fixedSendBoundary = rustFunctionBody(send, "propose_fixed");
+  const fixedSendBoundary = rustFunctionBody(send, "propose_fixed_validated");
   const sendAllBoundary = rustFunctionBody(
     send,
-    "propose_send_all_attempt",
+    "propose_send_all_validated",
   );
-  const auditedTail =
-    "request, ConfirmationsPolicy::default(), spend_policy, proposal_lock_request(), proposed_transaction_version(),";
+  // Bind the sole authority token to the complete audited invocation. Counting
+  // `propose_transfer::<` and its argument tail independently would let a live
+  // function-item reference vouch for a separate aliased call.
+  const auditedDirectProposalCall = [
+    "propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
+    "db,",
+    "params,",
+    "account_id,",
+    "&input_selector,",
+    "&change_strategy,",
+    "request,",
+    "ConfirmationsPolicy::default(),",
+    "spend_policy,",
+    "proposal_lock_request(),",
+    "proposed_transaction_version(),",
+    ")",
+  ].join(" ");
   if (
-    sharedProposalCore === null ||
     occurrences(send, "propose_transfer::<") !== 1 ||
-    occurrences(sharedProposalCore ?? "", "propose_transfer::<") !== 1 ||
-    occurrences(sharedProposalCore ?? "", auditedTail) !== 1
+    occurrences(sharedProposalCore ?? "", auditedDirectProposalCall) !== 1
   ) {
     errors.push(
       "the shared proposal core must remain the only direct propose_transfer authority and consume the exact audited depth, spend, lock, and version decisions",
@@ -312,10 +488,8 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
   const sharedDefaultCall =
     "propose_default(db, params, account_id, request)";
   if (
-    fixedSendBoundary === null ||
-    sendAllBoundary === null ||
-    occurrences(fixedSendBoundary ?? "", sharedDefaultCall) !== 1 ||
-    occurrences(sendAllBoundary ?? "", sharedDefaultCall) !== 1 ||
+    fixedSendBoundary !== sharedDefaultCall ||
+    sendAllBoundary !== sharedDefaultCall ||
     occurrences(send, sharedDefaultCall) !== 2
   ) {
     errors.push(
@@ -323,12 +497,12 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
     );
   }
   for (const [boundary, call] of [
-    ["fixed send", "propose_fixed(db, &state.network, account_id, request)"],
+    ["fixed send", "self::native::propose_fixed_validated("],
     [
       "send-all",
-      "propose_send_all_attempt(db, &state.network, account_id, request)",
+      "self::native::propose_send_all_validated(",
     ],
-    ["transaction creation", "create_transactions("],
+    ["transaction creation", "self::native::create_transactions("],
   ]) {
     if (occurrences(orchestration, call) !== 1) {
       errors.push(
@@ -336,8 +510,192 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
       );
     }
   }
+  const fixedProductionRouteBody = rustFunctionBody(
+    orchestration,
+    "propose_fixed_production_route",
+  );
+  const sendAllProductionRouteBody = rustFunctionBody(
+    orchestration,
+    "propose_send_all_production_route",
+  );
+  const creationProductionRouteBody = rustFunctionBody(
+    orchestration,
+    "create_production_recovery_route",
+  );
+  for (const [boundary, body] of [
+    ["fixed-send", fixedProductionRouteBody],
+    ["send-all", sendAllProductionRouteBody],
+    ["transaction-creation", creationProductionRouteBody],
+  ]) {
+    if (body === null || /\bcfg\s*!?\s*\(/.test(body)) {
+      errors.push(
+        `${boundary} production route must compile identically in behavior tests and shipping builds`,
+      );
+    }
+  }
+  const fixedNativeRoute =
+    "let proposal = self::native::propose_fixed_validated(db, params, account_id, amount, request) .map_err";
+  if (
+    occurrences(fixedProductionRouteBody ?? "", fixedNativeRoute) !== 1 ||
+    occurrences(orchestration, fixedNativeRoute) !== 1
+  ) {
+    errors.push(
+      "the behavior-tested fixed-send production route must own its only native proposal call",
+    );
+  }
+  const sendAllNativeRoute =
+    "match self::native::propose_send_all_validated(db, params, account_id, amount, request) {";
+  if (
+    occurrences(sendAllProductionRouteBody ?? "", sendAllNativeRoute) !== 1 ||
+    occurrences(orchestration, sendAllNativeRoute) !== 1
+  ) {
+    errors.push(
+      "the behavior-tested send-all production route must own its only native proposal call",
+    );
+  }
+  const creationNativeRoute =
+    "let txids = self::native::create_transactions(db, params, prover, spending_keys, proposal) .map_err";
+  if (
+    occurrences(creationProductionRouteBody ?? "", creationNativeRoute) !== 1 ||
+    occurrences(orchestration, creationNativeRoute) !== 1
+  ) {
+    errors.push(
+      "the behavior-tested transaction-creation production route must own its only native creation call",
+    );
+  }
+  for (const [boundary, body, route] of [
+    [
+      "fixed-send stateful caller",
+      rustFunctionBody(
+        orchestration,
+        "propose_fixed_stateful_production_caller",
+      ),
+      "propose_fixed_production_route(",
+    ],
+    [
+      "send-all stateful caller",
+      rustFunctionBody(
+        orchestration,
+        "propose_send_all_stateful_production_caller",
+      ),
+      "propose_send_all_production_route(",
+    ],
+    [
+      "transaction-creation stateful caller",
+      rustFunctionBody(
+        orchestration,
+        "execute_send_creation_stateful_production_caller",
+      ),
+      "create_production_recovery_route(",
+    ],
+  ]) {
+    if (
+      occurrences(body ?? "", route) !== 1 ||
+      /\bcfg\s*!?\s*\(/.test(body ?? "")
+    ) {
+      errors.push(
+        `${boundary} must be compiler-bound exactly once to its behavior-tested production route`,
+      );
+    }
+  }
+  // These are independently reviewed identities of the complete normalized
+  // Rust bodies, not values derived from the live source into their expected
+  // result. The ordered anchors make the money/state transitions readable;
+  // the digest closes every unlisted control-flow gap before or after them.
+  const adapterContracts = [
+    {
+      boundary: "fixed-send WalletState adapter",
+      functionName: "propose_send_after_recipient_validation",
+      transition: "proposal construction and accepted-state installation",
+      digest: "a0606b0e0b3e8dcbec2c1a4fc322b36dd14296960fec98ca9023020e7cb6c7ca",
+      orderedAnchors: [
+        "let candidate = propose_fixed_stateful_production_caller( db, &state.network, &recipient, amount, memo_bytes.as_ref(), network_label(&state.network), &wallet_id, &state.proposal_counter, state.send_session_id, );",
+        "drop(db_guard);",
+        "let mut pending_broadcast = state.pending_broadcast.lock().await;",
+        "ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;",
+        "let mut proposal_guard = state.pending_proposal.lock().await;",
+        "let result = install_accepted_proposal(&mut *proposal_guard, candidate);",
+        "match result {",
+        "*pending_broadcast = None; Ok(output)",
+      ],
+    },
+    {
+      boundary: "send-all WalletState adapter",
+      functionName: "propose_send_all_after_recipient_validation",
+      transition: "proposal construction and exact pending-state installation",
+      digest: "6240360464b39a53bd5ba965df13861a98cbe9466995926c93fbd4ffdb67ccbf",
+      orderedAnchors: [
+        "let (pending, public) = propose_send_all_stateful_production_caller( db, &state.network, &recipient, memo_bytes.as_ref(), network_label(&state.network), spendable, &wallet_id, &state.proposal_counter, state.send_session_id, )?;",
+        "drop(db_guard);",
+        "let mut pending_broadcast = state.pending_broadcast.lock().await;",
+        "ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;",
+        "*state.pending_proposal.lock().await = Some(pending);",
+        "*pending_broadcast = None;",
+        "Ok(public)",
+      ],
+    },
+    {
+      boundary: "transaction execution WalletState adapter",
+      functionName: "execute_send",
+      transition: "creation, exact-byte persistence, and broadcast",
+      digest: "f36decbe6b267c738c564a748f4ef4802b23cc6895123d3cc8b6f5cda5728913",
+      orderedAnchors: [
+        "persist_pending_broadcast(&state.data_dir, &intent)?;",
+        "*broadcast_guard = Some(intent);",
+        "let spending_keys = SpendingKeys::from_unified_spending_key(usk);",
+        "execute_send_creation_stateful_production_caller( db, &state.network, prover, &spending_keys, &pending_proposal.proposal, &wallet_id, proposal_id, &mut broadcast_guard, || clear_pending_broadcast(&state.data_dir, &wallet_id), )?;",
+        "let record = broadcast_guard .as_ref() .ok_or_else",
+        "persist_pending_broadcast(&state.data_dir, record)?;",
+        "drop(db_guard);",
+        "drop(prover_guard);",
+        "let record = broadcast_guard .as_mut() .ok_or_else",
+        "broadcast_record(state, record).await",
+      ],
+    },
+  ];
+  for (const contract of adapterContracts) {
+    errors.push(
+      ...exactAdapterControlFlowErrors(
+        rustFunctionBody(orchestration, contract.functionName),
+        contract,
+      ),
+    );
+  }
+  const fixedOrchestrationBody = rustFunctionBody(
+    orchestration,
+    "propose_send",
+  );
+  const sendAllOrchestrationBody = rustFunctionBody(
+    orchestration,
+    "propose_send_all",
+  );
+  for (const [boundary, body, expectedBody] of [
+    [
+      "fixed send",
+      fixedOrchestrationBody,
+      [
+        "let (recipient, _) = parse_recipient(&state.network, to)?;",
+        "propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+      ].join(" "),
+    ],
+    [
+      "send-all",
+      sendAllOrchestrationBody,
+      [
+        "let (recipient, _) = parse_recipient(&state.network, to)?;",
+        "propose_send_all_after_recipient_validation(state, recipient, memo).await",
+      ].join(" "),
+    ],
+  ]) {
+    if (body !== expectedBody) {
+      errors.push(
+        `${boundary} must validate its recipient as the sole path into proposal orchestration`,
+      );
+    }
+  }
 
-  const wallet = normalizedRust(snapshot.files[WALLET_SOURCE]);
+  const wallet = normalize(WALLET_SOURCE, snapshot.files[WALLET_SOURCE], true);
+  if (malformedRust) return errors;
   const birthdayFormatter = [
     "pub(crate) fn format_birthday_error(error: BirthdayError) -> String {",
     "match error {",
@@ -486,7 +844,116 @@ function requireFailure(name, snapshot, expected, scope) {
   process.stdout.write(`self-test: killed ${name}\n`);
 }
 
+function runRustLexerSelfTest() {
+  const route = "propose_transfer::<";
+  const fixture = [
+    `// ${route} line comment`,
+    `/* ${route} outer /* ${route} nested */ comment */`,
+    `let normal = "${route}";`,
+    String.raw`let escaped = "escaped quote: \" ${route}";`,
+    `let bytes = b"${route}";`,
+    `let c_string = c"${route}";`,
+    `let raw = r#"${route}"#;`,
+    `let raw_hashes = r###"quote " and hash ## ${route}"###;`,
+    `let raw_bytes = br##"quote " before ${route}"##;`,
+    `let raw_c_string = cr#"quote " before ${route}"#;`,
+    "let character = '{';",
+    "let byte_character = b'}';",
+    String.raw`let escaped_character = '\'';`,
+    String.raw`let escaped_backslash = '\\';`,
+    String.raw`let hex_byte_character = b'\x7b';`,
+    String.raw`let unicode_character = '\u{7b}';`,
+    "let astral_character = '🦀';",
+    `fn visible<'a>(value: &'a str) { ${route}Visible>(); }`,
+  ].join("\n");
+  const projected = normalizedRust(fixture);
+  if (occurrences(projected, route) !== 1) {
+    throw new Error(
+      `Rust lexical projection must retain only the live route, got ${JSON.stringify(projected)}`,
+    );
+  }
+  if (occurrences(projected, "fn visible<'a>(value: &'a str)") !== 1) {
+    throw new Error(
+      "Rust lexical projection corrupted a lifetime while stripping characters",
+    );
+  }
+  for (const literal of ["\\x7b", "\\u{7b}", "🦀"]) {
+    if (projected.includes(literal)) {
+      throw new Error(
+        `Rust lexical projection failed to strip character literal ${JSON.stringify(literal)}`,
+      );
+    }
+  }
+
+  const malformed = [
+    ['let value = "unterminated', "unterminated Rust string"],
+    ['let value = r##"unterminated"#;', "unterminated Rust raw string"],
+    ['let value = br#"unterminated', "unterminated Rust raw string"],
+    ["let value = b'x;", "malformed Rust byte character"],
+    ["/* unterminated", "unterminated Rust block comment"],
+    [
+      `let value = r${"#".repeat(256)}"invalid"${"#".repeat(256)};`,
+      "more than 255 hashes",
+    ],
+  ];
+  for (const [source, expected] of malformed) {
+    let message = "";
+    try {
+      normalizedRust(source);
+    } catch (error) {
+      message = error.message;
+    }
+    if (!message.includes(expected)) {
+      throw new Error(
+        `malformed Rust must fail closed with ${JSON.stringify(expected)}, got ${JSON.stringify(message)}`,
+      );
+    }
+  }
+  process.stdout.write(
+    `self-test: Rust lexical projection stripped comments/literals and rejected ${malformed.length} malformed inputs\n`,
+  );
+}
+
+function runRustFunctionBodySelfTest() {
+  const fixture = normalizedRust(`
+    async fn plain() { before(); if ready() { nested(); } after(); }
+    fn generic<T>() { direct(); }
+    fn array(value: [u8; 32]) { exact(value); }
+  `);
+  if (
+    rustFunctionBody(fixture, "plain") !==
+      "before(); if ready() { nested(); } after();" ||
+    rustFunctionBody(fixture, "generic") !== "direct();" ||
+    rustFunctionBody(fixture, "array") !== "exact(value);"
+  ) {
+    throw new Error(
+      "Rust function extraction must support plain/generic functions, array types, and nested blocks",
+    );
+  }
+  if (rustFunctionBody(`${fixture} fn plain() { duplicate(); }`, "plain") !== null) {
+    throw new Error("duplicate Rust function declarations must fail closed");
+  }
+  const declarationOnly = normalizedRust(
+    "trait Contract { fn missing(); } fn later() { live(); }",
+  );
+  if (rustFunctionBody(declarationOnly, "missing") !== null) {
+    throw new Error("a declaration without a body must fail closed");
+  }
+  if (rustFunctionBody("fn unbalanced() { live();", "unbalanced") !== null) {
+    throw new Error("an unbalanced Rust function body must fail closed");
+  }
+  const missingBodyAfterPrior = normalizedRust("} fn missing()");
+  if (rustFunctionBody(missingBodyAfterPrior, "missing") !== null) {
+    throw new Error("a Rust function without any body delimiter must fail closed");
+  }
+  process.stdout.write(
+    "self-test: Rust function extraction handled both declaration shapes and failed closed\n",
+  );
+}
+
 function runSelfTest() {
+  runRustLexerSelfTest();
+  runRustFunctionBodySelfTest();
   const baseline = liveSnapshot();
   const baselineErrors = validate(baseline);
   if (baselineErrors.length) {
@@ -569,6 +1036,39 @@ function runSelfTest() {
       },
     ],
   ];
+  const fixedAdapterCall = `    let candidate = propose_fixed_stateful_production_caller(
+        db,
+        &state.network,
+        &recipient,
+        amount,
+        memo_bytes.as_ref(),
+        network_label(&state.network),
+        &wallet_id,
+        &state.proposal_counter,
+        state.send_session_id,
+    );`;
+  const sendAllAdapterCall = `    let (pending, public) = propose_send_all_stateful_production_caller(
+        db,
+        &state.network,
+        &recipient,
+        memo_bytes.as_ref(),
+        network_label(&state.network),
+        spendable,
+        &wallet_id,
+        &state.proposal_counter,
+        state.send_session_id,
+    )?;`;
+  const executeAdapterCall = `    execute_send_creation_stateful_production_caller(
+        db,
+        &state.network,
+        prover,
+        &spending_keys,
+        &pending_proposal.proposal,
+        &wallet_id,
+        proposal_id,
+        &mut broadcast_guard,
+        || clear_pending_broadcast(&state.data_dir, &wallet_id),
+    )?;`;
   const cases = [
     [
       "native send policy module becomes public",
@@ -578,6 +1078,39 @@ function runSelfTest() {
         "mod native;",
         "pub mod native;",
         "native send policy module becomes public",
+      ),
+      "one private child module",
+    ],
+    ...["pub(crate)", "pub(super)", "pub(in crate)"].map((visibility) => [
+      `native send policy module gains ${visibility} visibility`,
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "mod native;",
+        `${visibility} mod native;`,
+        `native send policy module gains ${visibility} visibility`,
+      ),
+      "one private child module",
+    ]),
+    [
+      "native send policy module declaration is duplicated",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "mod native;",
+        "mod native;\nmod native;",
+        "duplicate native send policy module declaration",
+      ),
+      "one private child module",
+    ],
+    [
+      "native send policy module declaration disappears",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "mod native;",
+        "// native module declaration removed",
+        "remove native send policy module declaration",
       ),
       "one private child module",
     ],
@@ -593,12 +1126,23 @@ function runSelfTest() {
       "expose only its three audited safe boundaries",
     ],
     [
+      "comment spacing cannot hide parent-visible policy core",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "fn propose_with_policy<",
+        "pub(super /* visibility mutant */) fn propose_with_policy<",
+        "hide parent-visible policy core behind comment spacing",
+      ),
+      "expose only its three audited safe boundaries",
+    ],
+    [
       "fixed safe boundary loses parent visibility",
       mutated(
         baseline,
         NATIVE_SEND_POLICY_SOURCE,
-        "pub(super) fn propose_fixed<",
-        "fn propose_fixed<",
+        "pub(super) fn propose_fixed_validated<",
+        "fn propose_fixed_validated<",
         "fixed safe boundary loses parent visibility",
       ),
       "expose only its three audited safe boundaries",
@@ -619,8 +1163,8 @@ function runSelfTest() {
       mutated(
         baseline,
         SEND_SOURCE,
-        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};",
-        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};\nuse zcash_client_backend::data_api::wallet::input_selection::SpendPolicy;",
+        "mod native;",
+        "mod native;\nuse zcash_client_backend::data_api::wallet::input_selection::SpendPolicy;",
         "parent imports a forbidden policy type",
       ),
       "SpendPolicy must remain inaccessible",
@@ -630,8 +1174,8 @@ function runSelfTest() {
       mutated(
         baseline,
         SEND_SOURCE,
-        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};",
-        "use native::{create_transactions, propose_fixed, propose_send_all_attempt};\nuse zcash_client_backend::data_api::wallet::propose_transfer as aliased_proposal;",
+        "mod native;",
+        "mod native;\nuse zcash_client_backend::data_api::wallet::propose_transfer as aliased_proposal;",
         "parent aliases direct proposal authority",
       ),
       "propose_transfer must remain inaccessible",
@@ -641,8 +1185,8 @@ function runSelfTest() {
       mutated(
         baseline,
         SEND_SOURCE,
-        "propose_fixed(db, &state.network, account_id, request)",
-        "propose_send_all_attempt(db, &state.network, account_id, request)",
+        "self::native::propose_fixed_validated(",
+        "self::native::propose_send_all_validated(",
         "fixed orchestration drops its only safe boundary",
       ),
       "fixed send orchestration",
@@ -652,11 +1196,414 @@ function runSelfTest() {
       mutated(
         baseline,
         SEND_SOURCE,
-        "propose_send_all_attempt(db, &state.network, account_id, request)",
-        "propose_fixed(db, &state.network, account_id, request)",
+        "self::native::propose_send_all_validated(",
+        "self::native::propose_fixed_validated(",
         "send-all orchestration drops its only safe boundary",
       ),
       "send-all orchestration",
+    ],
+    [
+      "fixed validated route gates ordinary requests behind maximum amount",
+      mutatedOccurrence(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "    propose_default(db, params, account_id, request)",
+        "    if _validated_amount == u64::MAX {\n        propose_default(db, params, account_id, request)\n    } else {\n        panic!(\"mutant\")\n    }",
+        0,
+        2,
+        "gate fixed validated route behind maximum amount",
+      ),
+      "fixed send and send-all must each delegate exactly once",
+    ],
+    [
+      "send-all validated route gates ordinary requests behind maximum amount",
+      mutatedOccurrence(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "    propose_default(db, params, account_id, request)",
+        "    if _validated_amount == u64::MAX {\n        propose_default(db, params, account_id, request)\n    } else {\n        panic!(\"mutant\")\n    }",
+        1,
+        2,
+        "gate send-all validated route behind maximum amount",
+      ),
+      "fixed send and send-all must each delegate exactly once",
+    ],
+    [
+      "fixed production call gates ordinary requests behind maximum amount",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let proposal =\n        self::native::propose_fixed_validated(db, params, account_id, amount, request)\n            .map_err(|error| Error::SendError(format!(\"failed to propose transfer: {error:?}\")))?;",
+        "    let proposal = if amount == u64::MAX {\n        self::native::propose_fixed_validated(db, params, account_id, amount, request)\n            .map_err(|error| Error::SendError(format!(\"failed to propose transfer: {error:?}\")))?\n    } else {\n        panic!(\"mutant blocked ordinary fixed request\")\n    };",
+        "gate fixed production call behind maximum amount",
+      ),
+      "behavior-tested fixed-send production route",
+    ],
+    [
+      "fixed production route behaves differently under the test compiler",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let request = single_payment_request(recipient, amount, memo)?;",
+        "    if !cfg!(test) { panic!(\"shipping-only mutant\"); }\n    let request = single_payment_request(recipient, amount, memo)?;",
+        "split fixed production behavior with cfg!(test)",
+      ),
+      "fixed-send production route must compile identically",
+    ],
+    [
+      "fixed production helper is shadowed by a maximum-only function item",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let proposal =\n        self::native::propose_fixed_validated(db, params, account_id, amount, request)\n            .map_err(|error| Error::SendError(format!(\"failed to propose transfer: {error:?}\")))?;",
+        "    let propose_fixed = self::native::propose_fixed_validated;\n    let proposal = propose_fixed(db, params, account_id, amount, request)\n        .map_err(|error| Error::SendError(format!(\"failed to propose transfer: {error:?}\")))?;",
+        "shadow fixed production helper with maximum-only function item",
+      ),
+      "fixed send orchestration must enter its only accessible native send boundary",
+    ],
+    [
+      "send-all production call gates ordinary requests behind maximum amount",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    match self::native::propose_send_all_validated(db, params, account_id, amount, request) {",
+        "    match if amount == u64::MAX {\n        self::native::propose_send_all_validated(db, params, account_id, amount, request)\n    } else {\n        panic!(\"mutant blocked ordinary send-all request\")\n    } {",
+        "gate send-all production call behind maximum amount",
+      ),
+      "behavior-tested send-all production route",
+    ],
+    [
+      "send-all production helper is shadowed by a maximum-only function item",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    match self::native::propose_send_all_validated(db, params, account_id, amount, request) {",
+        "    let propose_send_all = self::native::propose_send_all_validated;\n    match propose_send_all(db, params, account_id, amount, request) {",
+        "shadow send-all production helper with maximum-only function item",
+      ),
+      "send-all orchestration must enter its only accessible native send boundary",
+    ],
+    [
+      "fixed stateful caller disconnects from its behavior-tested route",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (proposal, review) = propose_fixed_production_route(",
+        "    let (proposal, review) = disconnected_fixed_route(",
+        "disconnect fixed stateful caller from its behavior-tested route",
+      ),
+      "fixed-send stateful caller must be compiler-bound exactly once",
+    ],
+    [
+      "send-all stateful caller disconnects from its behavior-tested route",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "        match propose_send_all_production_route(",
+        "        match disconnected_send_all_route(",
+        "disconnect send-all stateful caller from its behavior-tested route",
+      ),
+      "send-all stateful caller must be compiler-bound exactly once",
+    ],
+    [
+      "transaction-creation stateful caller disconnects from its behavior-tested route",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    match create_production_recovery_route(",
+        "    match disconnected_creation_route(",
+        "disconnect stateful creation caller from its behavior-tested route",
+      ),
+      "transaction-creation stateful caller must be compiler-bound exactly once",
+    ],
+    [
+      "fixed WalletState adapter hides its caller behind the probe feature",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        fixedAdapterCall,
+        `    let candidate = if cfg!(feature = "production-route-probe") {
+        propose_fixed_stateful_production_caller(
+            db,
+            &state.network,
+            &recipient,
+            amount,
+            memo_bytes.as_ref(),
+            network_label(&state.network),
+            &wallet_id,
+            &state.proposal_counter,
+            state.send_session_id,
+        )
+    } else {
+        panic!("shipping fixed-send adapter bypassed its tested caller");
+    };`,
+        "feature-split fixed WalletState adapter",
+      ),
+      "fixed-send WalletState adapter must compile one control-flow body",
+    ],
+    [
+      "send-all WalletState adapter hides its caller behind the probe feature",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        sendAllAdapterCall,
+        `    let (pending, public) = if cfg!(feature = "production-route-probe") {
+        propose_send_all_stateful_production_caller(
+            db,
+            &state.network,
+            &recipient,
+            memo_bytes.as_ref(),
+            network_label(&state.network),
+            spendable,
+            &wallet_id,
+            &state.proposal_counter,
+            state.send_session_id,
+        )
+    } else {
+        return Err(Error::SendError("shipping send-all adapter bypassed its tested caller".into()));
+    }?;`,
+        "feature-split send-all WalletState adapter",
+      ),
+      "send-all WalletState adapter must compile one control-flow body",
+    ],
+    [
+      "execute WalletState adapter hides its caller behind the probe feature",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        executeAdapterCall,
+        `    if cfg!(feature = "production-route-probe") {
+        execute_send_creation_stateful_production_caller(
+            db,
+            &state.network,
+            prover,
+            &spending_keys,
+            &pending_proposal.proposal,
+            &wallet_id,
+            proposal_id,
+            &mut broadcast_guard,
+            || clear_pending_broadcast(&state.data_dir, &wallet_id),
+        )?;
+    } else {
+        return Err(Error::SendError("shipping execute adapter bypassed its tested caller".into()));
+    }`,
+        "feature-split execute WalletState adapter",
+      ),
+      "transaction execution WalletState adapter must compile one control-flow body",
+    ],
+    [
+      "fixed WalletState adapter parks its caller in a dead branch",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        fixedAdapterCall,
+        `    let candidate = if false {
+        propose_fixed_stateful_production_caller(
+            db,
+            &state.network,
+            &recipient,
+            amount,
+            memo_bytes.as_ref(),
+            network_label(&state.network),
+            &wallet_id,
+            &state.proposal_counter,
+            state.send_session_id,
+        )
+    } else {
+        return Err(Error::SendError("fixed-send adapter parked its tested caller".into()));
+    };`,
+        "dead fixed WalletState adapter call",
+      ),
+      "fixed-send WalletState adapter complete control-flow body",
+    ],
+    [
+      "send-all WalletState adapter parks its caller in a dead branch",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        sendAllAdapterCall,
+        `    let (pending, public) = if false {
+        propose_send_all_stateful_production_caller(
+            db,
+            &state.network,
+            &recipient,
+            memo_bytes.as_ref(),
+            network_label(&state.network),
+            spendable,
+            &wallet_id,
+            &state.proposal_counter,
+            state.send_session_id,
+        )
+    } else {
+        return Err(Error::SendError("send-all adapter parked its tested caller".into()));
+    }?;`,
+        "dead send-all WalletState adapter call",
+      ),
+      "send-all WalletState adapter complete control-flow body",
+    ],
+    [
+      "execute WalletState adapter parks its caller before an early error",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        executeAdapterCall,
+        `    if false {
+        execute_send_creation_stateful_production_caller(
+            db,
+            &state.network,
+            prover,
+            &spending_keys,
+            &pending_proposal.proposal,
+            &wallet_id,
+            proposal_id,
+            &mut broadcast_guard,
+            || clear_pending_broadcast(&state.data_dir, &wallet_id),
+        )?;
+    } else {
+        return Err(Error::SendError("execute adapter parked its tested caller".into()));
+    }`,
+        "dead execute WalletState adapter call",
+      ),
+      "transaction execution WalletState adapter complete control-flow body",
+    ],
+    [
+      "fixed WalletState adapter corrupts the reviewed fee after its caller",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        fixedAdapterCall,
+        `${fixedAdapterCall.replace("let candidate =", "let mut candidate =")}
+    if let Ok((_, public)) = &mut candidate {
+        public.review.fee = 0;
+    }`,
+        "fixed WalletState adapter post-call fee corruption",
+      ),
+      "fixed-send WalletState adapter complete control-flow body",
+    ],
+    [
+      "send-all WalletState adapter corrupts the reviewed fee after its caller",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        sendAllAdapterCall,
+        `${sendAllAdapterCall.replace("let (pending, public)", "let (pending, mut public)")}
+    public.review.fee = 0;`,
+        "send-all WalletState adapter post-call fee corruption",
+      ),
+      "send-all WalletState adapter complete control-flow body",
+    ],
+    [
+      "execute WalletState adapter corrupts retry bytes before persistence",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        executeAdapterCall,
+        `${executeAdapterCall}
+    if let Some(record) = broadcast_guard.as_mut() {
+        record.raw_transaction[0] ^= 1;
+    }`,
+        "execute WalletState adapter post-call retry-byte corruption",
+      ),
+      "transaction execution WalletState adapter complete control-flow body",
+    ],
+    [
+      "creation production helper is replaced by a local function item",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let txids = self::native::create_transactions(db, params, prover, spending_keys, proposal)",
+        "    let create = self::native::create_transactions;\n    let txids = create(db, params, prover, spending_keys, proposal)",
+        "replace creation production helper with local function item",
+      ),
+      "transaction creation orchestration must enter its only accessible native send boundary",
+    ],
+    [
+      "fixed send validates its recipient after proposal authority",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    let result = propose_send_after_recipient_validation(state, recipient, amount, memo).await;\n    let _ = parse_recipient(&state.network, to)?;\n    result",
+        "move fixed-send recipient validation after proposal authority",
+      ),
+      "fixed send must validate its recipient as the sole path",
+    ],
+    [
+      "fixed send drops recipient validation",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "drop fixed-send recipient validation",
+      ),
+      "fixed send must validate its recipient as the sole path",
+    ],
+    [
+      "fixed send inverts recipient validation",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "    if parse_recipient(&state.network, to).is_ok() {\n        return Err(Error::AddressError(\"mutant rejected valid recipient\".into()));\n    }\n    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "invert fixed-send recipient validation",
+      ),
+      "fixed send must validate its recipient as the sole path",
+    ],
+    [
+      "fixed send parks recipient validation in a dead branch",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "    if false { let _ = parse_recipient(&state.network, to)?; }\n    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    propose_send_after_recipient_validation(state, recipient, amount, memo).await",
+        "park fixed-send recipient validation in a dead branch",
+      ),
+      "fixed send must validate its recipient as the sole path",
+    ],
+    [
+      "send-all validates its recipient after proposal authority",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    let result = propose_send_all_after_recipient_validation(state, recipient, memo).await;\n    let _ = parse_recipient(&state.network, to)?;\n    result",
+        "move send-all recipient validation after proposal authority",
+      ),
+      "send-all must validate its recipient as the sole path",
+    ],
+    [
+      "send-all drops recipient validation",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "drop send-all recipient validation",
+      ),
+      "send-all must validate its recipient as the sole path",
+    ],
+    [
+      "send-all inverts recipient validation",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "    if parse_recipient(&state.network, to).is_ok() {\n        return Err(Error::AddressError(\"mutant rejected valid recipient\".into()));\n    }\n    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "invert send-all recipient validation",
+      ),
+      "send-all must validate its recipient as the sole path",
+    ],
+    [
+      "send-all parks recipient validation in a dead branch",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "    let (recipient, _) = parse_recipient(&state.network, to)?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "    if false { let _ = parse_recipient(&state.network, to)?; }\n    let recipient = zcash_address::ZcashAddress::try_from_encoded(to).map_err(|_| Error::AddressError(\"invalid Zcash address\".into()))?;\n    propose_send_all_after_recipient_validation(state, recipient, memo).await",
+        "park send-all recipient validation in a dead branch",
+      ),
+      "send-all must validate its recipient as the sole path",
     ],
     [
       "LockRequest helper drift",
@@ -699,6 +1646,34 @@ function runSelfTest() {
         "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
         "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(\n    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
         "a duplicated direct proposal path revives the old split authority",
+      ),
+      "only direct propose_transfer authority",
+    ],
+    [
+      "an aliased proposal call cannot be vouched for by an inert string",
+      mutated(
+        mutated(
+          baseline,
+          NATIVE_SEND_POLICY_SOURCE,
+          "    propose_transfer,",
+          "    propose_transfer as routed_proposal,",
+          "alias the real proposal import",
+        ),
+        NATIVE_SEND_POLICY_SOURCE,
+        "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
+        "    let _inert_route = \"propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(\";\n    routed_proposal::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
+        "replace the real proposal call with an alias and inert string",
+      ),
+      "only direct propose_transfer authority",
+    ],
+    [
+      "a live function-item reference cannot vouch for an aliased proposal call",
+      mutated(
+        baseline,
+        NATIVE_SEND_POLICY_SOURCE,
+        "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
+        "    let routed_proposal = propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>;\n    routed_proposal(",
+        "replace the direct proposal call with a local function-item alias",
       ),
       "only direct propose_transfer authority",
     ],
