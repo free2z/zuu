@@ -58,9 +58,33 @@
 //! Authority membership and signature, `log_id`, timestamps, **a validity cap
 //! the log holds rather than the issuer**, nonce freshness, `handle_id`
 //! agreement, the `[a-z0-9_]{1,30}` charset, entry-kind shape, assertion intent,
-//! and `account_epoch` monotonicity. [`AuthorityConfig::check_assertion_layer`]'s documentation
-//! lists all seventeen asserted-path rules in the order they run, and names the
+//! and `account_epoch` monotonicity — together with the rule that keeps that
+//! last one from being satisfiable unconditionally, which is the whole of the
+//! next paragraph. [`AuthorityConfig::check_assertion_layer`]'s documentation
+//! lists all eighteen asserted-path rules in the order they run, and names the
 //! smaller routine assertion-layer path explicitly.
+//!
+//! # The rule that could not fail, and what was done about it
+//!
+//! `account_epoch` (`KT.md` §4.5.4) is the authority's counter for the account
+//! behind a handle, and A15 requires each assertion's value to be strictly
+//! greater than the last one admitted for that handle. That is a real rule
+//! **only if the value is a counter.** Derived from a clock — Unix seconds, say
+//! — "strictly greater than the last one" holds unconditionally and forever, so
+//! the field is present, the check runs, and it enforces nothing. A control
+//! that is visibly present and functionally absent is worse than a missing one,
+//! because it stops anybody looking.
+//!
+//! [`ACCOUNT_EPOCH_CEILING`] and [`MAX_ACCOUNT_EPOCH_STEP`] are what this crate
+//! can check from the bytes it holds, and [`check_assertion_layer`]'s rule 18
+//! applies them. Neither proves the value came from durable storage, and rule
+//! 18's own documentation says exactly which clocks still slip through and what
+//! the issuer must therefore guarantee instead. The issuing
+//! side of this crate — `f2z-assert` — refuses to mint a clock-shaped value at
+//! all, and requires the counter explicitly rather than defaulting it on the
+//! one path where the value carries the security property.
+//!
+//! [`check_assertion_layer`]: crate::authority::AuthorityConfig::check_assertion_layer
 //!
 //! # What it deliberately does not do
 //!
@@ -167,8 +191,9 @@ pub mod types;
 
 pub use assertion::{AssertionBindingTBS, HandleAssertion, HandleAssertionTBS};
 pub use authority::{
-    AssertionLayerCheck, AuthorityConfig, AuthorityKey, AuthoritySet, DEFAULT_CLOCK_SKEW_MS,
-    DEFAULT_MAX_VALIDITY_MS, EntryKind, Submission, Vouch, VouchingStatus,
+    ACCOUNT_EPOCH_CEILING, AssertionLayerCheck, AuthorityConfig, AuthorityKey, AuthoritySet,
+    DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_VALIDITY_MS, EntryKind, MAX_ACCOUNT_EPOCH_STEP, Submission,
+    Vouch, VouchingStatus,
 };
 pub use error::{AuthorityError, Result};
 pub use key::{SigningKey, VerifyingKey};

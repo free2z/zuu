@@ -676,6 +676,27 @@ this paragraph be restated without its scope.
 > must survive a restart. Each is a case where the weaker behaviour leaves a
 > field or a rule in place that looks like it is doing work it is not.
 
+> **Correction (2026-08-24) — neither of those two is still a gap between this
+> document and the Rust log, and the `account_epoch` rule has grown a rule a
+> verifier can actually apply.**
+> [#650](https://github.com/free2z/zuu/issues/650),
+> [#651](https://github.com/free2z/zuu/issues/651).
+>
+> - **A17's ledger durability was a code defect, not a specification one**, and
+>   is fixed: the log rebuilt an empty ledger on startup, so every restart
+>   reopened the replay window for every assertion still inside its validity cap,
+>   while the trait it wrote through said in its own documentation that a restart
+>   must not do that. It now restores each admitted
+>   `(authority_id, nonce, expires_ms)` into the live ledger during journal
+>   replay. §4.5.5's sentence is unchanged because it was right.
+> - **`account_epoch`'s rule is now checkable, within a stated limit.** §4.5.4
+>   carries **A18** and says exactly which clocks it still cannot see and what the
+>   issuer must therefore guarantee. The issuing endpoint operated by the party
+>   that runs the user directory still derives the value from Unix seconds where
+>   no counter is supplied and remains **non-conforming**; that is tracked on
+>   their side, and A18 means a log now refuses those assertions rather than
+>   publishing entries authorized by a rule that could not fail.
+
 An assertion is a short-lived, single-use, log-pinned statement by a configured
 authority that a named handle belongs to a named identity key. It is **not** part
 of the `DirectoryEntry`; it accompanies one, in the submission envelope of §9.2,
@@ -837,6 +858,56 @@ baseline the handle's first `reset` must exceed.
 > event. A `u32` seconds counter also exhausts the field in 2106, which is a
 > second reason not to put a clock in it.
 
+> **Correction (2026-08-24) — the MUST above is now a rule a log applies, and
+> the honest limit of that rule is stated with it.**
+> [#651](https://github.com/free2z/zuu/issues/651). As first published this
+> section stated the issuer's obligation and stopped there, which left A15 in the
+> position the paragraph above describes: a rule that **cannot fail** against a
+> clock-derived value, in a document that says so. A requirement no verifier
+> checks is a requirement, not a rule, and this one had already been disregarded
+> by a shipped issuer.
+>
+> A log therefore now applies **A18** (§4.5.5), and it has two halves because one
+> is not enough:
+>
+> - **A18a — a ceiling.** `account_epoch` **MUST** be less than `2^20`
+>   (1,048,576). This is what a count of account-ownership events can plausibly
+>   reach: an account that changed hands or was recovered a million times is not
+>   an account. Unix time in whole seconds has exceeded it since 1970-01-13, and
+>   Unix milliseconds do not fit `uint32` at all, so the exact non-conformance
+>   named above is refused **on the value's face** — including at a first `bind`,
+>   where there is no retained value and A15 has nothing to compare against at
+>   all.
+> - **A18b — a step bound.** Where a value is retained for the handle,
+>   `account_epoch` **MUST NOT** exceed it by more than **16**. A counter
+>   increments once per ownership event, and only events whose assertion never
+>   reached the log accumulate slack, so the gap between two admitted assertions
+>   is a handful. A clock's gap is however much time passed. This is what catches
+>   a clock too coarse to trip the ceiling — days since the epoch is about
+>   20,700.
+>
+> Both are **fixed constants, not published policy numbers**, unlike A9's
+> validity cap: the same bound on every log is one a client can apply without
+> first fetching §4.6's document, and there is no operational reason for two logs
+> to disagree about a counter's shape.
+>
+> **What A18 cannot do, said plainly.** No check on a single `uint32` can prove
+> the value came from durable storage. A clock fine enough to tick between two
+> issuances but coarse enough to tick at most sixteen times, and small enough in
+> absolute terms to stay under the ceiling, is indistinguishable from a counter
+> in the value alone. A18 is therefore **necessary and not sufficient**, and the
+> MUST above is not weakened to match what a verifier can see. What the issuer
+> must guarantee instead, and what this document requires of it:
+>
+> - `account_epoch` is read from and written to a **per-account column that
+>   survives a process restart**;
+> - it is incremented **only** on the events that justify invalidating
+>   outstanding assertions — account recovery and account transfer — and once per
+>   such event, not once per assertion issued;
+> - an issuer that cannot read that column **MUST refuse to issue**
+>   `intent = reset` rather than substitute a clock, a timestamp, or any other
+>   value that happens to be increasing.
+
 #### 4.5.5 The rules, in the order a log applies them
 
 These are §4.4 rule 11, expanded. They run **after** §4.4's rules 1–10, for the
@@ -907,6 +978,13 @@ a log MUST apply all of them.
     replay, while the pair also catches an issuer that reused a nonce across two
     *different* assertions — an issuer bug, or a compromised issuer trying to
     make two claims look like one, which is the case worth failing on.
+18. **A18 — `account_epoch` moved like a counter, not like a clock.** It is
+    below `2^20`, and where a value is retained for this handle it exceeds that
+    value by at most 16. §4.5.4 states both bounds, why they are fixed rather
+    than published, and exactly what they cannot prove. Applied **with A15**
+    rather than after A17: it costs nothing, and a submission that fails it must
+    not burn a nonce. Numbered last because it was added last
+    ([#651](https://github.com/free2z/zuu/issues/651)); it is not run last.
 
 **On A17's ledger.** A log MUST refuse rather than evict: discarding an unexpired
 entry to make room silently reopens the replay window at exactly the moment the
@@ -928,7 +1006,7 @@ There is no new error code. §9.5's table is unchanged and the mapping is:
 | A2 decode, re-encode mismatch, charset | `ERR_MALFORMED` (1) |
 | A4 wrong `log_id` | `ERR_UNSUPPORTED_VERSION` (2) — "a `log_id` this server does not serve" |
 | A13, A16 signature failures | `ERR_BAD_SIGNATURE` (3) |
-| A1, A3, A5–A12, A14, A15, and A17 **as a replay** | `ERR_BAD_AUTHORIZATION` (4) |
+| A1, A3, A5–A12, A14, A15, A18, and A17 **as a replay** | `ERR_BAD_AUTHORIZATION` (4) |
 | A17 refused because the ledger is **full of unexpired entries** | `ERR_RATE_LIMITED` (9) |
 | the log's own authority set is misconfigured | `ERR_INTERNAL` (11) |
 
@@ -2312,9 +2390,13 @@ Deliberately, and listed rather than invented.
   session theft the first step of a handle takeover (§4.7). This is an
   account-security decision rather than a wire encoding, which is why §4.5 does
   not invent one, and it is a real gap rather than a tidy deferral. The two
-  conformance rules §4.5 states more strictly than a shipped implementation are
+  conformance rules §4.5 states more strictly than a shipped implementation were
   tracked as [#651](https://github.com/free2z/zuu/issues/651) (`account_epoch`)
-  and [#650](https://github.com/free2z/zuu/issues/650) (A17's ledger).
+  and [#650](https://github.com/free2z/zuu/issues/650) (A17's ledger); **both
+  are closed on the log side** — A17's ledger now survives a restart, and A18
+  refuses a clock-shaped `account_epoch`. What is left is not a specification
+  gap but an issuer that must hold a durable per-account counter, which A18 can
+  bound but cannot verify (§4.5.4).
 - **The authority key's own distribution and rotation.** §4.6 publishes the
   authority set in a document signed by the log, which is not a trust root —
   exactly the caveat §9.1 states for `reset_authority_pk`, and the same

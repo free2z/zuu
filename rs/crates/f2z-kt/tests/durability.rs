@@ -325,3 +325,111 @@ async fn a_journal_signed_by_another_key_refuses_to_start() {
     .unwrap_err();
     assert!(format!("{error}").contains("does not verify"));
 }
+
+// ------------------------------- the ledger's retention, at the log's own cap
+//
+// `a_restart_does_not_reopen_an_admitted_assertion_nonce` (#650) proves the
+// ledger survives a restart at all. This is the neighbouring property, and it
+// is the one an attacker would aim at: **retention must cover the longest
+// assertion the log will accept, not the typical one.**
+
+#[tokio::test]
+async fn the_recovered_ledger_covers_the_longest_assertion_the_log_will_accept() {
+    // Retention is derived from the *assertion's* own `expires_ms` plus the
+    // clock skew, not from a fixed window, and `expires_ms - issued_ms` is
+    // capped at `max_validity_ms` on admission — so raising the cap widens the
+    // ledger's retention automatically and cannot leave it short. A ledger
+    // sized to the fixture's usual minute would come back from a restart
+    // already having forgotten the atypical assertion, which is exactly the one
+    // worth stealing.
+    use f2z_kt::testing::AssertionOverrides;
+
+    let harness = Harness::vouched("dur-nonce-cap").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let cap = harness.log.authority().max_validity_ms();
+    let at_the_cap = AssertionOverrides {
+        nonce: Some([0x5a; 16]),
+        account_epoch: None,
+        issued_ms: Some(NOW),
+        expires_ms: Some(NOW + cap),
+    };
+
+    let alice = Identity::from_byte(1);
+    let alice_entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    harness
+        .log
+        .submit(
+            &harness.envelope_overriding(&alice_entry, &alice, NOW, at_the_cap),
+            NOW,
+        )
+        .await
+        .unwrap();
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    // A second, independently signed assertion for another handle and identity,
+    // whose only defect is the reused `(authority_id, nonce)` pair.
+    let bob = Identity::from_byte(2);
+    let bob_entry = EntryBuilder::first(harness.log_id, "bob", &bob).same_key(&bob.dak);
+    let replay = harness.envelope_overriding(&bob_entry, &bob, NOW, at_the_cap);
+
+    // Restart, then present it at the last instant the stolen assertion is
+    // still inside its own window.
+    let reopened = reopen(&harness).await.unwrap();
+    let error = reopened.submit(&replay, NOW + cap - 1).await.unwrap_err();
+    assert!(
+        matches!(
+            error,
+            f2z_kt::LogError::Authority(f2z_authority::AuthorityError::ReplayedNonce)
+        ),
+        "the ledger aged the entry out while the assertion it covers was still acceptable: {error}",
+    );
+}
+
+// ------------------------------------------- zuu#651: an epoch that is a clock
+
+#[tokio::test]
+async fn the_log_refuses_a_clock_derived_account_epoch_end_to_end() {
+    // The whole pipeline, not just the crate that owns the rule: a submission
+    // whose assertion carries Unix seconds where §4.5.4 requires a durable
+    // counter never reaches the tree. Under the old behaviour it was admitted
+    // and published, because "strictly greater than the last one" is what a
+    // clock is best at.
+    use f2z_kt::testing::AssertionOverrides;
+
+    let harness = Harness::vouched("dur-clock-epoch").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let clock_seconds = u32::try_from(NOW / 1_000).unwrap();
+    let alice = Identity::from_byte(1);
+    let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    let error = harness
+        .log
+        .submit(
+            &harness.envelope_overriding(
+                &entry,
+                &alice,
+                NOW,
+                AssertionOverrides::account_epoch(clock_seconds),
+            ),
+            NOW,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        f2z_kt::LogError::Authority(f2z_authority::AuthorityError::AccountEpochNotACounter)
+    ));
+    assert_eq!(harness.log.pending_count().await, 0);
+
+    // The same submission with a counter is admitted, so the refusal is about
+    // the value and nothing else.
+    harness
+        .log
+        .submit(
+            &harness.envelope_overriding(&entry, &alice, NOW, AssertionOverrides::account_epoch(0)),
+            NOW,
+        )
+        .await
+        .unwrap();
+}

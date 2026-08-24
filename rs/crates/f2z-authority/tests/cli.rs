@@ -525,3 +525,124 @@ fn every_subcommand_rejects_positional_arguments_before_doing_work() {
     );
     assert!(issue.stdout.is_empty());
 }
+
+// ------------------------------------------------------------------- zuu#651
+
+#[test]
+fn issue_refuses_a_reset_without_an_explicit_account_epoch() {
+    // `--account-epoch` defaults to 0 for a bind, which is the honest baseline
+    // for an account nothing has happened to yet. On a reset the value carries
+    // the whole of A15: it must be the authority's durable per-account counter,
+    // read after the ownership event, and this binary holds no such counter. So
+    // it asks. Defaulting here — or, worse, reaching for a clock — is what
+    // zuu#651 is about.
+    let directory = TestDirectory::new("issue-reset-epoch");
+    let (key_path, _) = fixed_key_file(&directory);
+    let output = command(&[
+        "issue",
+        "--key",
+        path_text(&key_path),
+        "--log-id",
+        &independent_hex(&LOG_ID_BYTES),
+        "--handle",
+        "alice",
+        "--identity-pk",
+        &independent_hex(&IDENTITY_PK_BYTES),
+        "--intent",
+        "reset",
+        "--issued-ms",
+        "1000",
+        "--expires-ms",
+        "2000",
+        "--nonce",
+        &independent_hex(&EXPLICIT_NONCE_BYTES),
+    ]);
+    assert!(
+        !output.status.success(),
+        "a reset was issued with no counter"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--account-epoch is required for --intent reset"),
+        "refused for an unrelated reason: {stderr}"
+    );
+    assert!(
+        stderr.contains("never a clock"),
+        "the reason is not stated: {stderr}"
+    );
+    assert!(output.stdout.is_empty(), "an assertion was written anyway");
+
+    // The same command with the counter supplied is fine, and a bind with no
+    // counter at all is still fine.
+    let with_counter = command(&[
+        "issue",
+        "--key",
+        path_text(&key_path),
+        "--log-id",
+        &independent_hex(&LOG_ID_BYTES),
+        "--handle",
+        "alice",
+        "--identity-pk",
+        &independent_hex(&IDENTITY_PK_BYTES),
+        "--intent",
+        "reset",
+        "--account-epoch",
+        "3",
+        "--issued-ms",
+        "1000",
+        "--expires-ms",
+        "2000",
+        "--nonce",
+        &independent_hex(&EXPLICIT_NONCE_BYTES),
+    ]);
+    assert!(
+        with_counter.status.success(),
+        "issue failed: {}",
+        String::from_utf8_lossy(&with_counter.stderr)
+    );
+    let assertion = decode_assertion(&independent_unhex(
+        with_counter.stdout.strip_suffix(b"\n").unwrap(),
+    ));
+    assert_eq!(assertion.assertion.intent, Intent::Reset);
+    assert_eq!(assertion.assertion.account_epoch, 3);
+}
+
+#[test]
+fn issue_refuses_a_clock_shaped_account_epoch() {
+    // Unix time in whole seconds is the exact value a non-conforming issuer
+    // substitutes when the counter is unavailable. It is refused at the
+    // keyboard rather than at somebody else's log.
+    let directory = TestDirectory::new("issue-clock-epoch");
+    let (key_path, _) = fixed_key_file(&directory);
+    let output = command(&[
+        "issue",
+        "--key",
+        path_text(&key_path),
+        "--log-id",
+        &independent_hex(&LOG_ID_BYTES),
+        "--handle",
+        "alice",
+        "--identity-pk",
+        &independent_hex(&IDENTITY_PK_BYTES),
+        "--intent",
+        "reset",
+        "--account-epoch",
+        "1787000000",
+        "--issued-ms",
+        "1000",
+        "--expires-ms",
+        "2000",
+        "--nonce",
+        &independent_hex(&EXPLICIT_NONCE_BYTES),
+    ]);
+    assert!(
+        !output.status.success(),
+        "a clock was minted into an assertion"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("account_epoch is a clock, not a counter"),
+        "refused for an unrelated reason: {stderr}"
+    );
+    assert!(output.stdout.is_empty());
+}

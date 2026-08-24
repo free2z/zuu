@@ -249,7 +249,7 @@ fn asserted_bind_and_reset_preserve_each_signed_epoch_and_kind() {
         assert_eq!(checked.account_epoch(), account_epoch);
     }
 
-    for (previous_account_epoch, asserted_account_epoch) in [(5, 19), (53, 89)] {
+    for (previous_account_epoch, asserted_account_epoch) in [(5, 19), (53, 61)] {
         let mut asserted = body();
         asserted.intent = Intent::Reset;
         asserted.account_epoch = asserted_account_epoch;
@@ -1479,4 +1479,197 @@ fn the_ledger_trait_is_what_a_durable_log_implements() {
             .is_ok()
     );
     assert_eq!(counting.writes, 1);
+}
+
+// ------------------------------------------------ zuu#651: A15 could not fail
+//
+// A15 requires `account_epoch` to be strictly greater than the value retained
+// for the handle, and `KT.md` §4.5.4 requires the value to be a **durable
+// per-account counter, never a clock**. The rule is only a rule if the value is
+// a counter: a monotonic clock satisfies "strictly greater than the last one"
+// unconditionally and forever, which does not weaken A15 — it deletes it, while
+// leaving a field in place that looks like it is doing the work.
+//
+// Everything above tests the rule. Nothing above tested the *supply* of the
+// value, which is where it goes wrong, and that is precisely why a clock-derived
+// epoch survived review: the happy path is indistinguishable.
+
+/// Exactly what a non-conforming issuer reaches for when no counter is at hand:
+/// Unix time in whole seconds.
+fn clock_derived_epoch(now_ms: u64) -> u32 {
+    u32::try_from(now_ms / 1_000).expect("Unix seconds fit a u32 until 2106 — see zuu#651")
+}
+
+/// Present a `platform_reset` assertion carrying `asserted` against a handle for
+/// which the log retains `previous`, and report what the log decided.
+fn spend_reset(previous: u32, asserted: u32, now_ms: u64) -> Result<u32, AuthorityError> {
+    let mut value = HandleAssertionTBS {
+        label: body().label,
+        authority_id: f2z_authority::authority_id(&authority().public_key()),
+        log_id: log_id(),
+        handle: handle(),
+        handle_id: handle().handle_id(),
+        identity_pk: identity().public_key(),
+        intent: Intent::Reset,
+        account_epoch: asserted,
+        issued_ms: now_ms - 1_000,
+        expires_ms: now_ms + 60_000,
+        nonce: AssertionNonce::new([0x55; 16]),
+    };
+    // A distinct nonce per issuance, so nothing here can be mistaken for A17.
+    value.nonce = AssertionNonce::new([u8::try_from(asserted % 251).unwrap_or(0); 16]);
+
+    let (bytes, signature) = present(value);
+    let identity_pk = identity().public_key();
+    let handle = handle();
+    let outgoing = PublicKey::new([0x66; 32]);
+    let mut reset = submission(&bytes, &signature, &identity_pk, &handle);
+    reset.kind = EntryKind::PlatformReset;
+    reset.entry_version = 9;
+    reset.previous_identity_pk = Some(&outgoing);
+    reset.previous_vouch = Some(historical_vouch(0xf6));
+    reset.previous_account_epoch = Some(previous);
+
+    config()
+        .check_assertion_layer(&reset, now_ms, &mut ledger())
+        .map(|checked| checked.account_epoch())
+}
+
+#[test]
+fn two_reset_assertions_from_one_ownership_event_cannot_both_be_spent() {
+    // ONE account recovery, asked about twice a minute apart.
+    let retained = 4u32;
+    let first_ms = NOW_MS;
+    let second_ms = NOW_MS + 60_000;
+
+    // A conforming issuer increments its durable counter **once**, because one
+    // thing happened, so both assertions carry the same value and the second is
+    // a spent assertion. That is A15 working, and it is what A15 is for.
+    assert_eq!(
+        spend_reset(retained, retained + 1, first_ms),
+        Ok(retained + 1)
+    );
+    assert_eq!(
+        spend_reset(retained + 1, retained + 1, second_ms).unwrap_err(),
+        AuthorityError::AccountEpochRegression,
+    );
+
+    // The clock-derived issuer, at the same two moments. The second value is
+    // larger than the first for no reason other than that time passed, so there
+    // is nothing left for A15 to refuse — one ownership event, two spendable
+    // assertions. A18 is what refuses, and it refuses on the value's face,
+    // before any predecessor exists to compare against.
+    let first = clock_derived_epoch(first_ms);
+    let second = clock_derived_epoch(second_ms);
+    assert!(
+        second > first,
+        "the fixture is only interesting because the clock moved: {first} -> {second}",
+    );
+    assert!(
+        second > first && first > f2z_authority::ACCOUNT_EPOCH_CEILING,
+        "and because Unix seconds are nowhere near a count of account events",
+    );
+    assert_eq!(
+        spend_reset(retained, first, first_ms).unwrap_err(),
+        AuthorityError::AccountEpochNotACounter,
+    );
+    assert_eq!(
+        spend_reset(first, second, second_ms).unwrap_err(),
+        AuthorityError::AccountEpochNotACounter,
+    );
+}
+
+#[test]
+fn a_clock_coarse_enough_to_clear_the_ceiling_is_caught_by_the_step_bound() {
+    // Days since the Unix epoch is about 20,700 — comfortably under the
+    // ceiling, so rule 18a cannot see it. It is still a clock, and it still
+    // makes every instant a distinct ownership event.
+    let day = 20_700u32;
+    assert!(day < f2z_authority::ACCOUNT_EPOCH_CEILING);
+    assert_eq!(
+        spend_reset(day, day + 30, NOW_MS).unwrap_err(),
+        AuthorityError::AccountEpochStepTooLarge,
+        "a month between two resets is not thirty account-ownership events",
+    );
+
+    // And the residue, stated rather than hidden. Inside the step bound a clock
+    // is indistinguishable from a counter *in the value alone*, which is why
+    // §4.5.4 states the issuer's obligation as a normative MUST instead of
+    // leaving the log to infer it: what a log can check is necessary, not
+    // sufficient.
+    assert_eq!(
+        spend_reset(day, day + 1, NOW_MS),
+        Ok(day + 1),
+        "no check on a single u32 can prove the value came from durable storage",
+    );
+    assert_eq!(
+        spend_reset(day, day + f2z_authority::MAX_ACCOUNT_EPOCH_STEP, NOW_MS),
+        Ok(day + f2z_authority::MAX_ACCOUNT_EPOCH_STEP),
+    );
+    assert_eq!(
+        spend_reset(day, day + f2z_authority::MAX_ACCOUNT_EPOCH_STEP + 1, NOW_MS).unwrap_err(),
+        AuthorityError::AccountEpochStepTooLarge,
+    );
+}
+
+#[test]
+fn a_clock_derived_epoch_is_refused_at_a_first_bind_too() {
+    // The first entry is where every handle starts and where a clock-derived
+    // issuer shows itself first — there is no retained value, so A15 has
+    // nothing to compare and cannot refuse anything at all.
+    assert_eq!(
+        check_assertion_with(|body| body.account_epoch = clock_derived_epoch(NOW_MS)).unwrap_err(),
+        AuthorityError::AccountEpochNotACounter,
+    );
+    assert_eq!(
+        check_assertion_with(|body| body.account_epoch = f2z_authority::ACCOUNT_EPOCH_CEILING)
+            .unwrap_err(),
+        AuthorityError::AccountEpochNotACounter,
+    );
+    // The bound is exclusive at the top and permissive everywhere a counter
+    // lives, including the zero baseline `intent = bind` normally carries.
+    assert!(
+        check_assertion_with(|body| {
+            body.account_epoch = f2z_authority::ACCOUNT_EPOCH_CEILING - 1;
+        })
+        .is_ok()
+    );
+    assert!(check_assertion_with(|body| body.account_epoch = 0).is_ok());
+}
+
+#[test]
+fn the_issuing_constructor_refuses_to_mint_a_clock() {
+    // The verifying side is the last place this can be caught; the issuing side
+    // is the first. A tool that will not mint the value is a tool whose
+    // operator finds out at their own keyboard.
+    let error = HandleAssertionTBS::new(
+        &authority().public_key(),
+        log_id(),
+        handle(),
+        identity().public_key(),
+        Intent::Reset,
+        clock_derived_epoch(NOW_MS),
+        ISSUED_MS,
+        EXPIRES_MS,
+        AssertionNonce::new([0x55; 16]),
+    )
+    .unwrap_err();
+    assert_eq!(error, AuthorityError::AccountEpochNotACounter);
+    assert_eq!(error.kt_error_code(), 4, "ERR_BAD_AUTHORIZATION");
+    assert!(!error.is_configuration_fault());
+
+    assert!(
+        HandleAssertionTBS::new(
+            &authority().public_key(),
+            log_id(),
+            handle(),
+            identity().public_key(),
+            Intent::Reset,
+            f2z_authority::ACCOUNT_EPOCH_CEILING - 1,
+            ISSUED_MS,
+            EXPIRES_MS,
+            AssertionNonce::new([0x55; 16]),
+        )
+        .is_ok()
+    );
 }
