@@ -274,11 +274,18 @@ interface HandleEligibility {
   candidate: string | null;        // lowercase(username), if it matches
   reason:
     | null
-    | "charset"                    // contains . @ + - or non-ASCII
+    | "punctuation"                // contains . @ + or - — the dominant cause (§11.3)
+    | "non-ascii"                  // contains a non-ASCII character
     | "too-long"                   // > 30 chars after lowercasing
     | "not-signed-in";
 }
 ```
+
+`reason` distinguishes the causes because they are wildly different in
+prevalence and the UI should say the true specific thing: punctuation accounts
+for almost the whole of the ineligible population, non-ASCII and over-length for
+very little (§11.3). A single "invalid handle" string would be accurate and
+useless.
 
 `f2zmsg_unenroll` takes a typed confirmation string, in the shape
 `discard_unrecoverable_send` already uses (`"I CHECKED WALLET HISTORY"`), because
@@ -1327,7 +1334,7 @@ should be designed around speculatively.
 | **Groups larger than 2** | 1:1 is one MLS group like any other, so the model generalizes; fan-out is O(members × devices) and the scale limit is unanswered ([§13-M](./ARCHITECTURE.md#13-open-questions)). `Conversation` deliberately carries `peerHandle` rather than a member list — that is the v1 shape, and it will change. |
 | **Handle rename and transfer** | A change of *owner* rather than of *key*, creating a MITM window of a different shape. Still open ([§13-K](./ARCHITECTURE.md#13-open-questions)); [ADR 0014](./decisions/0014-directory-key-rotation.md) settles key rotation only. |
 | **Client gossip** | The only anti-equivocation that functions before independent witnesses exist, and **its wire format does not exist** ([`KT.md` §8.4](./KT.md#84-gossip), [§13-R](./ARCHITECTURE.md#13-open-questions)). No UI for it in v1. |
-| **A separate opt-in messaging handle** | The clean answer for accounts excluded by the charset rule, deferred as directory design ([`WIRE.md` §14.4](./WIRE.md#144-alternatives-rejected)). §11.3 is what v1 does instead. |
+| **A separate opt-in messaging handle** | The clean answer for the ~10% of real, active accounts the charset rule excludes (§11.3), deferred as directory design ([`WIRE.md` §14.4](./WIRE.md#144-alternatives-rejected)). Whether v1 simply excludes them or serves them this way is **an undecided product question**, not a settled omission ([§13-O](./ARCHITECTURE.md#13-open-questions)) — the one row in this table that may still move before v1. |
 | **P2P (WebRTC) transport for messages** | An optimization, not a dependency ([`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-p2p-webrtc--an-optimization-not-a-dependency)). Not in the v1 command surface. |
 
 ---
@@ -1422,30 +1429,73 @@ characters — so **existing accounts containing `.`, `@`, `+`, `-`, any non-ASC
 character, or exceeding 30 characters after lowercasing are not eligible for a
 messaging handle in v1.**
 
-> **How many accounts that is has not been measured.** `WIRE.md` §14.3 says so
-> explicitly and [§13-O](./ARCHITECTURE.md#13-open-questions) tracks it as a
-> blocking pre-check: the count must be measured before the rule ships, because
-> it is the difference between a rounding error and a migration project. A
-> working planning figure of *roughly ten percent* has been used in discussion;
-> **it is an estimate, not a measurement**, and no UI copy, metric, or capacity
-> plan may present it as a number we know. Design the ineligible state as though
-> it were common.
+**How many accounts that is, is now measured, and the answer is the reason this
+screen matters.** Measured against production on 2026-08-24
+([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured),
+[§13-O](./ARCHITECTURE.md#13-open-questions)):
+
+| Of all existing accounts | Share |
+|---|---:|
+| Eligible after case-folding | **~90%** |
+| **Ineligible** | **~10%** |
+
+Ineligibility is overwhelmingly caused by `.` `@` `+` or `-` in the username —
+just under a tenth of all accounts. Non-ASCII characters and over-length names
+account for very few, and uppercase disqualifies nobody because the mapping
+folds case. **Every ineligible account has logged in at least once and all but
+one is still active**: this is not a set of dead rows, it is roughly a tenth of
+real, current users. Design the ineligible state as a state a tenth of users
+will see, because it is one.
+
+Two things the frontend must not infer from that number:
+
+- **It is not a temporary gap awaiting a migration.** Whether that ~10% is
+  excluded from messaging discovery in v1 or served by a separate opt-in
+  messaging handle is an **undecided product question**
+  ([§13-O](./ARCHITECTURE.md#13-open-questions), §13-K). Do not write copy that
+  promises either outcome.
+- **`lowercase(username)` is not yet a unique key.** Case-insensitive username
+  uniqueness lives in two serializers and **not in the database**, and
+  production holds case-variant duplicate accounts today, in more than one
+  group ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
+  Those must be resolved before the mapping ships — backend work, tracked
+  elsewhere — but the client consequence is now: never derive a messaging handle
+  from a username locally, and never assume two accounts that fold to the same
+  string are the same account. Always ask `check_handle_eligibility`.
+
+Note also that the platform's *own* username space already contains the
+homograph surface — `UnicodeUsernameValidator` is the validator actually
+attached, non-ASCII usernames are legal on free2z today, and a small non-zero
+number of accounts carry one
+([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
+The messaging charset does not fix that and must not be presented as fixing it.
+Its mitigation is narrow and exact: a homograph string does not match the
+messaging charset, so the directory refuses to resolve it at all, turning a
+silent impersonation into a **lookup failure**. That means a user pasting a
+handle copied from a free2z profile page or a comment byline may get
+`handle-ineligible` or `handle-not-found` for a username that visibly exists —
+and the UI must explain that rather than look broken.
 
 So the ineligible state is **a first-class screen, not an error dialog**:
 
 - `check_handle_eligibility` is callable **before** enrollment and before the
   engine runs, so the UI can decide what to render without provoking a failure.
 - `EngineState: "ineligible"` renders an explanatory state that says what
-  *specifically* disqualifies the username (`reason` distinguishes `charset`
-  from `too-long`), and that the account works exactly as it does today —
+  *specifically* disqualifies the username (`reason` distinguishes
+  `punctuation` from `non-ascii` from `too-long`), and that the account works
+  exactly as it does today —
   it simply cannot be discovered by handle in the messenger yet.
 - It must **not** be apologetic-and-empty, must not offer a rename flow (handle
   rename and transfer are unsolved — [§13-K](./ARCHITECTURE.md#13-open-questions)),
-  and must not imply the restriction is temporary or arbitrary. Say what it buys:
-  nobody can register `@аlice` with a Cyrillic а.
-- Ineligible users must still be able to **receive** nothing and **see** nothing
-  broken: no empty inbox that looks like a bug, no perpetual spinner, no
-  notification badge.
+  and must not imply the restriction is temporary or arbitrary. Say what it buys,
+  precisely: `@аlice` with a Cyrillic а cannot exist as a **messaging handle**.
+  It can and does exist as a free2z username — that is exactly the surface the
+  charset excludes from the messenger, and overstating it into "nobody can
+  register that" is false (§11.3 above,
+  [`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
+- Nothing about the ineligible state may look broken: no empty inbox that reads
+  as a bug, no perpetual spinner, no notification badge, no navigation entry
+  that leads somewhere dead.
 
 The mock's `ineligible-handle` scenario (§5.4) exists so this screen is built
 and reviewed rather than discovered at launch.
@@ -1503,7 +1553,9 @@ transfer ([§13-K](./ARCHITECTURE.md#13-open-questions)), group scale
 ([§13-M](./ARCHITECTURE.md#13-open-questions)), proof-of-work calibration
 ([§13-N](./ARCHITECTURE.md#13-open-questions)) — which directly sets how slow
 first contact feels on a phone — messaging-handle eligibility
-([§13-O](./ARCHITECTURE.md#13-open-questions)), KT epoch cadence
+([§13-O](./ARCHITECTURE.md#13-open-questions): the *measurement* is closed as of
+2026-08-24 and is in §11.3, but the **product** question of whether the ~10% is
+excluded in v1 or served by a separate opt-in handle is not), KT epoch cadence
 ([§13-P](./ARCHITECTURE.md#13-open-questions)), witness independence and the
 default *t* ([§13-Q](./ARCHITECTURE.md#13-open-questions)), the client gossip
 wire format ([§13-R](./ARCHITECTURE.md#13-open-questions)), and MLS `KeyPackage`
