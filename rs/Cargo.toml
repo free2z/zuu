@@ -1,0 +1,40 @@
+# The `rs/` workspace — one [workspace], one Cargo.lock.
+#
+# See rs/README.md for why this tree exists, why it is named `rs/`, and why the
+# decision recorded here deliberately does not decide #341.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+# Deliberately minimal. `rust-version` and `license` are NOT inherited from
+# here: `scripts/check-rust-toolchain.sh --manifest` reads the literal
+# `rust-version` line out of each crate's own manifest, and the licence boundary
+# of rs/README.md is worth stating in the file a reader of that crate opens. Both
+# are restated per crate and both are machine-checked there.
+[workspace.package]
+edition = "2024"
+repository = "https://github.com/free2z/zuu"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# The relay's parser is the unauthenticated attack surface. A panic there is a
+# remote denial of service, so the arithmetic and unwrap families are denied in
+# the workspace rather than remembered per crate.
+arithmetic_side_effects = "deny"
+indexing_slicing = "deny"
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+
+[workspace.dependencies]
+blake2 = { version = "0.10", default-features = false }
+tls_codec = { version = "0.4", default-features = false, features = ["derive"] }
+# Dev-dependency only. It builds for the host test runner, never for
+# wasm32-unknown-unknown, so its `std` default costs this crate nothing: the
+# library itself is `no_std` and the wasm job builds `--lib`.
+proptest = "1"
