@@ -21,11 +21,24 @@
 //!   another, and [`HASH_LABELS`] exists so a test can check that mechanically
 //!   rather than by inspection.
 //!
-//! A signing label is never handed to `H` and a hash label never appears in a
-//! signed structure, which is why `"free2z/kt/v1/sth"` being a prefix of
-//! `"free2z/kt/v1/sth-hash"` is not a collision: only the second is ever a
-//! `H` argument. The test asserts prefix-freeness **within** [`HASH_LABELS`],
-//! and distinctness within [`SIGNING_LABELS`], and nothing across the two.
+//! # Prefix-freeness is a property of the whole set, and it has no owner
+//!
+//! `H(label, x) = BLAKE2b-256(label || x)` has **no separator**, so if one
+//! label is a proper prefix of another the two domains are not separated at
+//! all: an attacker-chosen message can complete the shorter label into the
+//! longer one and produce a bit-identical digest.
+//!
+//! That is not hypothetical here. `KT.md` originally derived the tree-head
+//! chain hash under a label formed by appending `-hash` to the signing-label
+//! for a `SignedTreeHeadTBS`, which made the signing label a proper prefix of
+//! it — [zuu#602]. The corrected spelling is [`LABEL_TREE_HEAD_HASH`], and it
+//! shares no prefix with anything. [`HASH_LABELS`] exists so a test can check
+//! the crate's own set mechanically rather than by inspection, and
+//! `scripts/check-hash-domain-labels.mjs` holds the **union** across every
+//! tracked file — specifications and Rust alike — because the pair that
+//! actually collided lived in a document no crate read.
+//!
+//! [zuu#602]: https://github.com/free2z/zuu/issues/602
 
 use f2z_codec::hash::hash;
 use f2z_codec::types::{Digest, PublicKey};
@@ -99,13 +112,13 @@ pub const LABEL_VALUE: &[u8] = b"free2z/kt/v1/value";
 /// (§4.2).
 pub const LABEL_PREV: &[u8] = b"free2z/kt/v1/prev";
 
-/// `prev_sth_hash = H("free2z/kt/v1/sth-hash", tls_codec(prev SignedTreeHeadTBS))`
+/// `prev_sth_hash = H("free2z/kt/v1/tree-head-hash", tls_codec(prev SignedTreeHeadTBS))`
 /// (§6.1).
-pub const LABEL_STH_HASH: &[u8] = b"free2z/kt/v1/sth-hash";
+pub const LABEL_TREE_HEAD_HASH: &[u8] = b"free2z/kt/v1/tree-head-hash";
 
 /// Every label this crate hands to `H`, so a test can assert the set is
 /// prefix-free. See the module note on `H`'s missing separator.
-pub const HASH_LABELS: [&[u8]; 4] = [LABEL_LOG_ID, LABEL_VALUE, LABEL_PREV, LABEL_STH_HASH];
+pub const HASH_LABELS: [&[u8]; 4] = [LABEL_LOG_ID, LABEL_VALUE, LABEL_PREV, LABEL_TREE_HEAD_HASH];
 
 /// The `AkdLabel` prefix: `"free2z/kt/v1/handle:" || handle` (§3.3).
 ///
@@ -147,13 +160,13 @@ pub fn prev_entry_hash(canonical_entry: &[u8]) -> Digest {
     hash(LABEL_PREV, canonical_entry)
 }
 
-/// `H("free2z/kt/v1/sth-hash", tls_codec(SignedTreeHeadTBS))` (§6.1).
+/// `H("free2z/kt/v1/tree-head-hash", tls_codec(SignedTreeHeadTBS))` (§6.1).
 ///
 /// Note the argument is the **`SignedTreeHeadTBS`**, not the `SignedTreeHead`:
 /// the chain link covers the signed contents, not the signature over them.
 #[must_use]
 pub fn sth_hash(canonical_sth_tbs: &[u8]) -> Digest {
-    hash(LABEL_STH_HASH, canonical_sth_tbs)
+    hash(LABEL_TREE_HEAD_HASH, canonical_sth_tbs)
 }
 
 /// `AkdLabel = "free2z/kt/v1/handle:" || handle` (§3.3).

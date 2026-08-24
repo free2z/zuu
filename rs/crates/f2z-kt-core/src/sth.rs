@@ -47,7 +47,7 @@ pub struct SignedTreeHeadTBS {
     pub tree_size: u64,
     /// The `akd` `Azks` root at this epoch.
     pub root_hash: Digest,
-    /// `H("free2z/kt/v1/sth-hash", tls_codec(prev SignedTreeHeadTBS))`.
+    /// `H("free2z/kt/v1/tree-head-hash", tls_codec(prev SignedTreeHeadTBS))`.
     pub prev_sth_hash: Digest,
     /// The ECVRF key labels are derived under. **MUST NOT** change within a
     /// `log_id` (§6.1).
@@ -90,7 +90,7 @@ impl SignedTreeHeadTBS {
         encode(self).map_err(KtError::from)
     }
 
-    /// `H("free2z/kt/v1/sth-hash", tls_codec(self))` — what the **next** head's
+    /// `H("free2z/kt/v1/tree-head-hash", tls_codec(self))` — what the **next** head's
     /// `prev_sth_hash` must equal (§6.1).
     ///
     /// # Errors
@@ -218,7 +218,7 @@ impl LogView {
         &self.root_hash
     }
 
-    /// `H("free2z/kt/v1/sth-hash", …)` of the last accepted head.
+    /// `H("free2z/kt/v1/tree-head-hash", …)` of the last accepted head.
     #[must_use]
     pub const fn sth_hash(&self) -> &Digest {
         &self.sth_hash
@@ -438,7 +438,7 @@ pub struct LogKeyTransitionTBS {
     pub log_id: LogId,
     /// The epoch of the announcing tree head.
     pub announce_epoch: u64,
-    /// `H("free2z/kt/v1/sth-hash", tls_codec(announcing sth))`.
+    /// `H("free2z/kt/v1/tree-head-hash", tls_codec(announcing sth))`.
     pub announce_sth_hash: Digest,
     /// The key being retired.
     pub outgoing_log_pk: PublicKey,

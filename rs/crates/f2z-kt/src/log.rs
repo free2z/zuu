@@ -90,7 +90,13 @@ use crate::wire::{
 /// Deliberately **not** of the form `"free2z/kt/v1/handle:" || handle`, so no
 /// handle can ever address it and no client resolving a handle can ever be
 /// served it.
-pub const HEARTBEAT_LABEL: &[u8] = b"free2z/kt/v1/heartbeat";
+/// The trailing `:` mirrors `KT.md` §3.3's `free2z/kt/v1/handle:` and is not
+/// decoration: without it this label is a proper prefix of
+/// [`HEARTBEAT_VALUE_LABEL`], and `H(label, x) = BLAKE2b-256(label || x)` has no
+/// separator — so `H("…/heartbeat", "-value" || y)` would be bit-identical to
+/// `H("…/heartbeat-value", y)`. That is zuu#602's defect in miniature, and
+/// `scripts/check-hash-domain-labels.mjs` caught it here before it shipped.
+pub const HEARTBEAT_LABEL: &[u8] = b"free2z/kt/v1/heartbeat:";
 
 /// The domain-separation label for a heartbeat's value.
 const HEARTBEAT_VALUE_LABEL: &[u8] = b"free2z/kt/v1/heartbeat-value";

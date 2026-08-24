@@ -76,7 +76,7 @@ pub struct WitnessState {
     pub tree_size: u64,
     /// Its `root_hash`.
     pub root_hash: Digest,
-    /// `H("free2z/kt/v1/sth-hash", tls_codec(that sth))`.
+    /// `H("free2z/kt/v1/tree-head-hash", tls_codec(that sth))`.
     pub sth_hash: Digest,
     /// The VRF key it carried. §6.1: a change within a `log_id` is a fork, not
     /// an update, so the last value seen has to be remembered to see a change
