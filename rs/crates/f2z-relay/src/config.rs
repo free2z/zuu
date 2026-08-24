@@ -39,6 +39,7 @@ use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use f2z_relay_proto::SeenSet;
 use serde::Deserialize;
 
 use crate::log::Level;
@@ -883,8 +884,8 @@ impl Config {
         // specification permits the hole; this relay refuses to open it, which
         // is why the corresponding conformance vector is one it cannot satisfy
         // by construction rather than one it fails.
-        if u64::from(self.limits.antireplay_window_ms)
-            < u64::from(self.limits.clock_skew_ms).saturating_mul(2)
+        if !SeenSet::new(u64::from(self.limits.antireplay_window_ms), 1)
+            .retention_is_sound(u64::from(self.limits.clock_skew_ms))
         {
             return Err(ConfigError::Invalid(
                 "limits.antireplay_window_ms",
@@ -1339,15 +1340,23 @@ mod tests {
     }
 
     #[test]
-    fn a_short_antireplay_window_is_refused_rather_than_published() {
+    fn antireplay_window_pins_the_shared_soundness_boundary() {
         // Issue #586: the specification as written *permits* this document, and
         // a client that checks refuses it. This relay declines to be that
         // relay, which is why the corresponding conformance vector is
         // unsatisfiable here by construction.
         let mut config = Config::default();
-        config.limits.antireplay_window_ms = config.limits.clock_skew_ms;
+        let sound_boundary = config
+            .limits
+            .clock_skew_ms
+            .checked_mul(2)
+            .expect("the u32 configuration boundary fits");
+        config.limits.antireplay_window_ms = sound_boundary - 1;
         let error = config.check().unwrap_err();
         assert!(format!("{error}").contains("antireplay_window_ms"));
+
+        config.limits.antireplay_window_ms = sound_boundary;
+        assert!(config.check().is_ok());
     }
 
     #[test]
