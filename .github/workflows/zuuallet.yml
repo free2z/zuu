@@ -181,6 +181,7 @@ jobs:
   # Frontend: TypeScript typecheck + production bundle.
   # ---------------------------------------------------------------------------
   frontend:
+    name: zuuallet / frontend
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:

@@ -8,6 +8,7 @@ on:
 
 jobs:
   build:
+    name: ts-svelte / build
     runs-on: ubuntu-latest
 
     steps:
