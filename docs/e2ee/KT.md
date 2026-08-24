@@ -1120,6 +1120,8 @@ rather than to the full entry digest to avoid the circularity that would
 otherwise create. That is a wire change to a structure two implementations have
 already frozen, it is filed rather than done here, and until it lands this
 section describes a property that does not hold.
+[#649](https://github.com/free2z/zuu/issues/649),
+[§13-S′](./ARCHITECTURE.md#13-open-questions), §12.
 
 ---
 
@@ -2300,6 +2302,7 @@ Deliberately, and listed rather than invented.
   it means moving the assertion and its binding signature into
   `EntryAuthorization`, which is a wire change to a structure two
   implementations have frozen. Filed, not invented here.
+  [#649](https://github.com/free2z/zuu/issues/649),
   [#594](https://github.com/free2z/zuu/issues/594).
 - **What authorizes the *issuance* of a `HandleAssertion`.** §4.5 fixes
   everything a log does with an assertion and nothing about how a user gets one.
@@ -2308,7 +2311,10 @@ Deliberately, and listed rather than invented.
   identity key — is unspecified, and an issuer that treats them alike makes
   session theft the first step of a handle takeover (§4.7). This is an
   account-security decision rather than a wire encoding, which is why §4.5 does
-  not invent one, and it is a real gap rather than a tidy deferral.
+  not invent one, and it is a real gap rather than a tidy deferral. The two
+  conformance rules §4.5 states more strictly than a shipped implementation are
+  tracked as [#651](https://github.com/free2z/zuu/issues/651) (`account_epoch`)
+  and [#650](https://github.com/free2z/zuu/issues/650) (A17's ledger).
 - **The authority key's own distribution and rotation.** §4.6 publishes the
   authority set in a document signed by the log, which is not a trust root —
   exactly the caveat §9.1 states for `reset_authority_pk`, and the same
