@@ -920,17 +920,23 @@ fn registration_matches(entry: &VerifyFn, file: &str, name: &str, occurrence: us
     entry.file == file && entry.name == name && entry.occurrence == occurrence
 }
 
-fn delegation_reaches_strict_base(mut target: &str) -> bool {
-    for _ in 0..WORKSPACE_VERIFY_FNS.len() {
+fn delegation_reaches_strict_base(mut target: &str, registry: &[VerifyFn]) -> bool {
+    for _ in 0..registry.len() {
         let Some((target_file, target_name)) = target.rsplit_once("::") else {
             return false;
         };
-        let Some(entry) = WORKSPACE_VERIFY_FNS
+        let mut matching = registry
             .iter()
-            .find(|entry| entry.file == target_file && entry.name == target_name)
-        else {
+            .filter(|entry| entry.file == target_file && entry.name == target_name);
+        let Some(entry) = matching.next() else {
             return false;
         };
+        // A delegation target names only file and function. If that pair has
+        // multiple registered occurrences, choosing either one would let one
+        // body vouch for another; ambiguity is therefore a refusal.
+        if matching.next().is_some() {
+            return false;
+        }
         match entry.strictness {
             Strictness::CallsVerifyStrict { .. } => return true,
             Strictness::DelegatesTo {
@@ -1146,6 +1152,159 @@ fn duplicate_verify_definitions_cannot_share_one_registry_row() {
 }
 
 #[test]
+fn a_delegation_chain_that_terminates_in_strict_verification_is_accepted() {
+    let registry = [
+        VerifyFn {
+            file: "fixture/src/wrapper.rs",
+            name: "verify",
+            occurrence: 0,
+            strictness: Strictness::DelegatesTo {
+                target: "fixture/src/middle.rs::verify",
+                receiver: "middle",
+                method: "verify",
+            },
+        },
+        VerifyFn {
+            file: "fixture/src/middle.rs",
+            name: "verify",
+            occurrence: 0,
+            strictness: Strictness::DelegatesToFn {
+                target: "fixture/src/base.rs::verify",
+                call: "base::verify",
+            },
+        },
+        VerifyFn {
+            file: "fixture/src/base.rs",
+            name: "verify",
+            occurrence: 0,
+            strictness: Strictness::CallsVerifyStrict { receiver: "key" },
+        },
+    ];
+
+    assert!(delegation_reaches_strict_base(
+        "fixture/src/wrapper.rs::verify",
+        &registry,
+    ));
+}
+
+#[test]
+fn a_delegation_chain_that_terminates_in_a_nonsignature_check_is_refused() {
+    let registry = [VerifyFn {
+        file: "fixture/src/proof.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "proof.verify",
+        },
+    }];
+
+    assert!(!delegation_reaches_strict_base(
+        "fixture/src/proof.rs::verify",
+        &registry,
+    ));
+}
+
+#[test]
+fn a_delegation_target_in_an_unregistered_file_is_refused() {
+    let registry = [VerifyFn {
+        file: "fixture/src/base.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "key" },
+    }];
+
+    assert!(!delegation_reaches_strict_base(
+        "fixture/src/missing.rs::verify",
+        &registry,
+    ));
+}
+
+#[test]
+fn an_unregistered_function_in_a_registered_file_is_refused() {
+    let registry = [VerifyFn {
+        file: "fixture/src/base.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "key" },
+    }];
+
+    assert!(!delegation_reaches_strict_base(
+        "fixture/src/base.rs::verify_missing",
+        &registry,
+    ));
+}
+
+#[test]
+fn a_delegation_target_with_multiple_registered_occurrences_is_refused() {
+    let registry = [
+        VerifyFn {
+            file: "fixture/src/base.rs",
+            name: "verify",
+            occurrence: 0,
+            strictness: Strictness::CallsVerifyStrict { receiver: "key" },
+        },
+        VerifyFn {
+            file: "fixture/src/base.rs",
+            name: "verify",
+            occurrence: 1,
+            strictness: Strictness::NotASignatureCheck {
+                via: "proof.verify",
+            },
+        },
+    ];
+
+    assert!(!delegation_reaches_strict_base(
+        "fixture/src/base.rs::verify",
+        &registry,
+    ));
+}
+
+#[test]
+fn a_malformed_delegation_target_is_refused() {
+    let registry = [VerifyFn {
+        file: "fixture/src/base.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "key" },
+    }];
+
+    assert!(!delegation_reaches_strict_base(
+        "not-a-file-and-function",
+        &registry,
+    ));
+}
+
+#[test]
+fn a_mixed_delegation_cycle_is_refused() {
+    let registry = [
+        VerifyFn {
+            file: "fixture/src/cycle-a.rs",
+            name: "verify",
+            occurrence: 0,
+            strictness: Strictness::DelegatesTo {
+                target: "fixture/src/cycle-b.rs::verify",
+                receiver: "cycle_b",
+                method: "verify",
+            },
+        },
+        VerifyFn {
+            file: "fixture/src/cycle-b.rs",
+            name: "verify",
+            occurrence: 0,
+            strictness: Strictness::DelegatesToFn {
+                target: "fixture/src/cycle-a.rs::verify",
+                call: "cycle_a::verify",
+            },
+        },
+    ];
+
+    assert!(!delegation_reaches_strict_base(
+        "fixture/src/cycle-a.rs::verify",
+        &registry,
+    ));
+}
+
+#[test]
 fn no_crate_verifies_ed25519_signatures_non_strictly() {
     let sources = source_files();
     let mut crates_reached: Vec<String> = Vec::new();
@@ -1313,7 +1472,7 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
             }
             Strictness::DelegatesTo { target, .. } => {
                 assert!(
-                    delegation_reaches_strict_base(target),
+                    delegation_reaches_strict_base(target, WORKSPACE_VERIFY_FNS),
                     "{}::{} delegates to {target}, whose registered chain does not terminate in \
                      a strict verifier",
                     entry.file,
