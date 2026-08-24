@@ -121,10 +121,23 @@ calls the other through a shared IPC-visible surface. Path (a) puts the mnemonic
 in the webview's JavaScript heap — where it is a string in a garbage-collected
 heap that nothing can zeroize, visible to any XSS, any devtools session, and any
 future dependency compromise. Path (b) is the same exposure with more steps. The
-seed is currently reachable from the frontend only through
-`get_seed_phrase(token)`, which is gated behind a single-use sensitive-display
-lease **precisely so that it is displayed to a human and nothing else** — using
-that lease as an enrollment transport would defeat the reason it exists.
+seed is currently reachable from the frontend through exactly **two** commands —
+`get_seed_phrase` and `get_backup_seed_phrase`
+(`wallet/plugins/tauri-plugin-zcash/src/commands.rs:1058` and `:1085`, both
+`-> Result<String>`, both listed in that plugin's `build.rs` `COMMANDS`) — and
+**both** are gated behind a single-use sensitive-display lease
+(`consume_sensitive_display`, at `:1072` and `:1098`) **precisely so that the
+phrase is displayed to a human and nothing else**. Using either lease as an
+enrollment transport would defeat the reason it exists.
+
+The count widens that argument rather than weakening it: there is no ungated
+path at all, and the two commands differ only in what they are for and where they
+are granted. `get_backup_seed_phrase` additionally requires the wallet to be the
+exact active wallet with a backup acknowledgement still pending, and it is the
+**only** one of the two granted to the mobile webview —
+`wallet/zuuli/src-tauri/capabilities/mobile.json` lists
+`zcash:allow-get-backup-seed-phrase` and deliberately does not list
+`zcash:allow-get-seed-phrase`.
 
 So: **enrollment is an app-crate Tauri command.** The app crate depends on both
 plugins as ordinary Rust crates, reads the seed **in process** from the Zcash
@@ -134,6 +147,16 @@ never becomes JSON, never crosses the IPC boundary, and never enters the
 webview. The frontend calls these the way it already calls `oauth_loopback_start`
 — `invoke("f2zmsg_enroll", …)` with **no** `plugin:` prefix — which is the
 existing precedent in `wallet/zuuli/src-tauri/src/oauth.rs`.
+
+**That precedent covers the prefix and nothing else.** It is not a precedent for
+§3's `args` rule, and saying so matters because the nearest neighbour contradicts
+that rule: `wallet/zuuli/src/lib/oauth/transport.ts` passes arguments **flat**
+for the loopback commands (`oauth_loopback_wait` at `:203`,
+`oauth_loopback_cancel` at `:222`) and **nested under `args`** for the mobile ones
+(`oauth_mobile_claim` at `:286`, `oauth_mobile_arm` at `:351`,
+`oauth_mobile_finish` at `:625`). Take the prefix from `oauth.rs`; take the
+argument shape from §3, which is uniform and settled. Whether `transport.ts`
+should be normalised is a separate question, and not this document's to answer.
 
 Two consequences the frontend must know:
 
@@ -561,7 +584,7 @@ delete-on-ack matters more than in a retaining messenger.
 | Command | `args` | Returns |
 |---|---|---|
 | `get_retention_policy` | `{ conversationId? }` | `RetentionPolicy` |
-| `set_retention_policy` | `{ conversationId, mode, ttlSeconds }` | `RetentionPolicy` |
+| `set_retention_policy` | `{ scope, conversationId?, mode, ttlSeconds }` | `RetentionPolicy` |
 
 ```ts
 interface RetentionPolicy {
@@ -571,6 +594,24 @@ interface RetentionPolicy {
   effectiveFrom: number;         // forward only — never retroactive
 }
 ```
+
+**`scope` is an argument, not only a result.** The global policy is the primary
+case — it is the setting a user changes once — so it must be settable, and
+`scope` is what says which one is being written:
+
+- `set_retention_policy({ scope: "global", … })` takes **no** `conversationId`;
+  passing one is a client bug and is rejected.
+- `set_retention_policy({ scope: "conversation", conversationId, … })` requires
+  it, and overrides the global policy for that conversation only.
+- `get_retention_policy()` with no `conversationId` returns the global policy.
+  With one, it returns the **effective** policy for that conversation, and
+  `scope` in the result says which of the two produced the answer — that is the
+  field's whole purpose on a read.
+
+Nothing here is protocol: retention is entirely local to this device
+([ADR 0007](./decisions/0007-retention-per-user.md)), so a precedence rule
+between the global and the per-conversation policy settles a client question and
+nothing else.
 
 Retention is a **per-user local choice**. One participant keeps five minutes,
 another keeps forever; both are legitimate and neither constrains the other
@@ -659,6 +700,7 @@ Both counts are in the payload so there is no reason to write anything else.
 interface DirectoryResolution {
   handle: string;
   found: boolean;                // false is a PROVED non-membership, not an error
+                                 // — the ONLY representation of it; see below
   identityFingerprint: string | null;
   deviceCount: number;
   entryVersion: number | null;
@@ -712,6 +754,19 @@ type AlarmKind =
   | "witness-threshold-unmet"    // KT.md §8.3
   | "directory-fork-evidence";   // KT.md §6.3 monotonicity failure
 ```
+
+**Non-membership has exactly one representation, and it is `found: false`.**
+`resolve_handle` on an unregistered handle **succeeds** and returns
+`DirectoryResolution` with `found: false`; it never fails, and there is no
+`ErrorCode` for an unknown handle. That is not a client convention — it follows
+from the protocol: [`KT.md` §9.5](./KT.md#95-error-codes) has **no "unknown
+handle" code**, deliberately, because *"an unregistered handle is answered with a
+non-membership proof … 'No such user' is a claim the log must prove."* A code
+would let a log assert absence; a proof makes it demonstrate absence. Routing
+that into an error path would discard the proof, so the UI renders "no such
+handle" as an **answer** — same success path, different content — and never as a
+failure. `handle-ineligible` (§11.3) is a different thing entirely: the string
+cannot be a handle at all, so no lookup is made and no proof exists.
 
 Self-audit is the whole point of the directory: every client monitors its own
 handle every epoch and **raises a loud, non-dismissible alarm on any key change
@@ -780,8 +835,7 @@ type RelayWarning =
   | "volatile-antireplay"        // WIRE.md §5.5
   | "token-gated"                // WIRE.md §13.1 — a token is an IDENTIFIER
   | "non-durable"                // WIRE.md §8.4 durability_mode
-  | "suspicious-padding-set"     // WIRE.md §9
-  | "capability-digest-mismatch";// WIRE.md §11.2
+  | "suspicious-padding-set";    // WIRE.md §9
 
 interface RelayCapabilities {
   paddingSizes: number[];
@@ -793,8 +847,15 @@ interface RelayCapabilities {
   operator: RelayOperator;
 }
 
+interface WitnessInput {         // set_witness_set's `witnesses` element
+  witnessId: string;             // hex `witness_pk` — the Ed25519 key a
+                                 // cosignature verifies under (KT.md §7.2).
+                                 // This is the identity; the name is not.
+  name: string;                  // display only, and the user's to choose
+}
+
 interface WitnessConfig {
-  witnessId: string;
+  witnessId: string;             // the same hex `witness_pk`
   name: string;
   independent: boolean;          // NOT self-asserted — see below
   lastCosignedEpoch: number | null;
@@ -820,6 +881,31 @@ against the `.well-known` copy, and **refuses on digest mismatch**. It also
 refuses a relay whose `padding_sizes` is not a superset of what this client
 emits, or is implausibly fine-grained. Those refusals are `ErrorCode`s, not
 warnings.
+
+**So a capability-digest mismatch is never a `RelayWarning`, and there is
+deliberately no member for it.** A warning is something a *configured, usable*
+relay carries; `WIRE.md` §11.2 says a client that detects the divergence **MUST
+refuse**, so there is no such relay to carry it. The one code path is
+`relay-capability-mismatch` (§8): at `add_relay` the relay is never added at all,
+and if the check fails later for a relay already configured — on first use of a
+session or on `NOTICE(3)`, per
+[`WIRE.md` §11.3](./WIRE.md#113-what-a-client-does-with-it) — the relay moves to
+`connection: "refused"` and raises the same error rather than degrading into a
+warning banner. Encoding it both ways would give an implementer a warning state
+that the protocol forbids reaching, and the first implementer to render it would
+be shipping a relay the spec says must not be used.
+
+`set_witness_set` replaces the **whole** set — it is a set operation, not an
+append — and `WitnessInput` deliberately carries **no** `independent` field:
+independence is not something a witness or a user asserts, it is computed by a
+rule that does not exist yet (below). It also carries no URL, because a client
+never contacts a witness: the witness pushes to `/kt/v1/cosign` on the log and
+the log serves what it collected
+([`KT.md` §9.2](./KT.md#92-endpoints)) — which is exactly why the identity that
+matters is a **key**, not an address. A cosignature from any witness not in this
+set is ignored entirely: *"not weighed, not counted, not displayed as
+reassurance"*
+([`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed)).
 
 `bootstrapDisclaimer` is `true` while `independent === 0`, and while it is true
 the UI **must state plainly that no independent witness exists** rather than
@@ -985,13 +1071,24 @@ Names are `f2zmsg://…`, matching `zcash://sync-progress`'s existing scheme.
 ### 5.3 The `events.ts` boundary
 
 One module, two implementations behind one signature, so no component knows
-which runtime it is in:
+which runtime it is in. Each event in §5.1 gets one named payload type in
+`types.ts`; `message-received`'s is the one used below, and it is the §5.1 table
+row written as a type:
 
 ```ts
+interface MessageReceivedEvent {
+  conversationId: string;
+  message: Message;              // §3.4 — already durably written (§5.2)
+}
+
 export function onMessageReceived(
   handler: (e: MessageReceivedEvent) => void,
 ): Promise<UnlistenFn>;
 ```
+
+`conversationId` is redundant with `message.conversationId` and is carried anyway,
+so a subscriber can route without parsing the message. The two are always equal;
+a payload where they differ is an engine bug, not a case to handle.
 
 Under Tauri it wraps `listen()`; under mock it registers against the mock's
 emitter. Both return the same `Promise<UnlistenFn>`, and **every caller must
@@ -1018,8 +1115,11 @@ The default mock conversation has an **echo peer**. On `send_message` the mock:
    is exercised by real data rather than by a fixture that happens to be sorted.
 
 Scenarios are selected exactly the way the wallet mock already does it — a
-`localStorage` key read behind a try/catch, so production and native behavior
-cannot observe it — mirroring `zuuli.mock.wallet-scenario`:
+`localStorage` key read behind **both** a `try`/`catch` **and** optional chaining
+on the accessor itself (`globalThis.localStorage?.getItem(...)`,
+`wallet/zuuli/src/lib/wallet/mock.ts:58-70`), so an absent `localStorage` and a
+throwing one both yield `null` rather than an exception, and production and
+native behavior cannot observe it — mirroring `zuuli.mock.wallet-scenario`:
 
 ```
 zuuli.mock.f2zmsg-scenario      // the scenario switch
@@ -1068,8 +1168,10 @@ uninitialized ──(wallet present, handle eligible)──► not-enrolled
                                                      stop_engine      │
                                                           ▼           │
                                                        stopped ◄──────┘
-                                                          │
-                                                       faulted
+
+  starting / running / degraded ──(unrecoverable fault)──► faulted
+                    ▲                                         │
+                    └──────────────── start_engine ───────────┘
 ```
 
 ```ts
@@ -1094,6 +1196,14 @@ them ([`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed)). What i
 refused in `degraded` is resolving a *new* handle and accepting a *key change* —
 §6.4.
 
+`faulted` is entered from `starting`, `running` or `degraded` — the three states
+in which the engine is actually doing something that can fail unrecoverably — and
+it carries `lastError`. **It is not entered from `stopped`**: a stopped engine has
+closed its relay connections and emits nothing, so there is no work left to fault.
+Leaving `faulted` takes an explicit `start_engine` after the user has acted on
+`lastError`; nothing retries out of it on a timer, because the codes that reach it
+are the ones §8 marks non-retryable.
+
 `locked` exists because the local encrypted history is wrapped under a
 seed-derived key
 ([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-proposed)). Note what
@@ -1111,6 +1221,19 @@ pending ──► accepted ──► queue-delivered ──► device-delivered 
    │            │               │
    ▼            ▼               ▼
  failed      expired         (relay has now deleted its copy)
+```
+
+```ts
+type DeliveryState =
+  // from the protocol — each is evidence of exactly one thing; see the table
+  | "accepted"
+  | "queue-delivered"
+  | "device-delivered"
+  | "delivered"
+  // client-local bookkeeping — no protocol event corresponds to these
+  | "pending"
+  | "failed"
+  | "expired";
 ```
 
 | State | Source | Evidence of **exactly** this | Explicitly NOT evidence of |
@@ -1215,10 +1338,12 @@ Practical consequences for the transcript component:
 
 ## 8. `ErrorCode`
 
-A **closed union**. Every rejected command and every `DeliveryStatus.failure`
-carries exactly one of these, and adding a member is a contract change. The
-bridge maps `WIRE.md` §10 and `KT.md` §9.5 wire codes onto it; the frontend
-never sees a numeric wire code.
+A **closed union**, and §8.1 is what makes the word honest rather than
+aspirational: every code in [`WIRE.md` §10](./WIRE.md#10-error-codes) and
+[`KT.md` §9.5](./KT.md#95-error-codes) is mapped there by name, and a stated
+default covers whatever a later protocol version adds. Every rejected command and
+every `DeliveryStatus.failure` carries exactly one member; adding a member is a
+contract change; the frontend never sees a numeric wire code.
 
 ```ts
 type ErrorCode =
@@ -1242,13 +1367,15 @@ type ErrorCode =
   | "directory-proof-invalid"
   | "directory-version-conflict"
   | "directory-cooldown"
+  | "directory-epoch-unavailable"
+  | "directory-protocol-violation"
   | "witness-threshold-unmet"
-  | "handle-not-found"
   | "handle-ineligible"
   // local
   | "not-enrolled"
   | "engine-locked"
   | "engine-not-running"
+  | "device-clock-skew"
   | "durability-unavailable"
   | "storage-full"
   | "gap-unrecoverable"
@@ -1276,12 +1403,14 @@ type ErrorCode =
 | `directory-proof-invalid` | | **Fatal.** An inclusion proof, a monotonicity check, or an entry authorization failed. This is **fork evidence**, not a network glitch ([`KT.md` §8.1](./KT.md#81-lookup), [§6.3](./KT.md#63-monotonicity)). Raise `directory-fork-evidence`; do not retry, do not "try another server". |
 | `directory-version-conflict` | ● | Someone (probably another of the user's own attempts) submitted for this handle in this epoch. Refresh the published state and retry once ([`KT.md` §4.3](./KT.md#43-uniqueness-within-an-epoch--a-must-that-comes-from-the-audit)). |
 | `directory-cooldown` | | A platform reset is pending and its cooldown has not elapsed. Show the cooldown end, and state that the old key remains in force and can still cancel the reset ([ADR 0014](./decisions/0014-directory-key-rotation.md)). |
+| `directory-epoch-unavailable` | | The epoch or audit range asked for is outside the horizon the log still serves; it has been pruned ([`KT.md` §9.3](./KT.md#93-sizes-are-a-rate-limit-input-not-a-footnote)). This is the log answering honestly that it no longer holds those bytes — **not** a network failure and **not** fork evidence. Do not retry the same range and do not "try another server". |
+| `directory-protocol-violation` | | The log rejected our request as malformed, unsupported, unauthorized-by-construction or over-wide, or answered something we cannot parse. **This is a bug in one of the two implementations**, exactly as `relay-protocol-violation` is for the relay. Surface it as a defect with a report affordance; never silently retry. Deliberately **not** `directory-proof-invalid`: that one is a *cryptographic* failure and is fork evidence, and collapsing the two would turn every one of our own encoding bugs into an accusation. |
 | `witness-threshold-unmet` | | **Fail closed, per §6.4's matrix.** Never "proceed anyway", never a silent degrade. Offer manual safety-number verification, which is always available and is the strongest check. |
-| `handle-not-found` | | Not an error condition — a **proved** non-membership ([`KT.md` §8.1](./KT.md#81-lookup)). Render "no such handle" as an answer, not as a failure. |
 | `handle-ineligible` | | The account's username is not a valid messaging handle. §11.3 — this must be a first-class, non-apologetic state. |
 | `not-enrolled` | | Route to enrollment. |
 | `engine-locked` | | The seed is unavailable, so local history cannot be decrypted. Prompt to unlock. Never auto-unlock. |
 | `engine-not-running` | ● | Call `start_engine` once, then retry once. |
+| `device-clock-skew` | ● | **This device's clock is wrong**, not the relay's: `timestamp_ms` fell outside the relay's published `clock_skew_ms` window ([`WIRE.md` §5.5](./WIRE.md#55-anti-replay-a-bounded-window-plus-a-seen-set)). Re-learn the relay's time from `HELLO` / `GET_CHALLENGE`, apply the offset **locally**, retry once. If it persists, say plainly that the device clock is off and by roughly how much — never that the relay misbehaved, and never a defect-report affordance. **Never set the system clock from a relay-supplied time**: `WIRE.md` §5.5 forbids it, and a relay that could move this device's clock could move the anti-replay window with it. |
 | `durability-unavailable` | | Browser only: storage durability was refused. Enter **no-ACK mode** (§11.2) and say what is degraded. **Do not ACK.** |
 | `storage-full` | | Local storage exhausted. Inbound stops being acknowledged — which is correct, because an un-ACKed message is still on the relay. Offer to reduce retention. |
 | `gap-unrecoverable` | | The sender no longer holds the plaintext. Render the `{ kind: "unrecoverable" }` marker in place ([`ARCHITECTURE.md` §8.4](./ARCHITECTURE.md#84-short-local-retention-and-gap-repair)). Never a silent hole. |
@@ -1292,6 +1421,94 @@ type ErrorCode =
 Everything unmarked requires a user decision or is a defect; retrying it
 automatically converts a signal into noise, which for the four fatal codes means
 converting an attack indicator into a flaky-network indicator.
+
+### 8.1 The wire-code mapping, in full
+
+The bridge does this translation and the frontend never sees a number. It is
+tabulated in full because "closed" is only a real property if every code has a
+target — a union that quietly drops six codes into the nearest-looking member is
+how a wrong device clock ends up rendered as a relay defect.
+
+**[`WIRE.md` §10](./WIRE.md#10-error-codes) → `ErrorCode`**
+
+| Wire | Name | `ErrorCode` |
+|---:|---|---|
+| 1 | `ERR_MALFORMED` | `relay-protocol-violation` |
+| 2 | `ERR_UNSUPPORTED_VERSION` | `relay-version-unsupported` |
+| 3 | `ERR_FRAME_TYPE` | `relay-protocol-violation` |
+| 4 | `ERR_TOO_MANY_INFLIGHT` | `relay-backpressure` |
+| 5 | `ERR_UNKNOWN_COMMAND` | `relay-protocol-violation` |
+| 6 | `ERR_BAD_SIGNATURE` | `relay-protocol-violation` |
+| 7 | `ERR_STALE_TIMESTAMP` | **`device-clock-skew`** |
+| 8 | `ERR_REPLAY` | `relay-protocol-violation` — a repeated `(signer_key, nonce)` is our CSPRNG's fault |
+| 9 | `ERR_CHANNEL_BINDING` | `relay-protocol-violation` — reserved and unused in v1, so receiving it *is* the violation |
+| 10 | `ERR_NO_ACCESS` | `send-unavailable` on a send-side command; `relay-protocol-violation` on a recv-side one. **See the note below: the source contradicts itself here and this row is not a resolution of it.** |
+| 11 | `ERR_ALREADY_BOUND` | `send-address-stolen` on a first bind for a freshly advertised address (§3.3); `relay-protocol-violation` on any later bind, because we should not have tried |
+| 12 | `ERR_BAD_SIZE` | `relay-capability-mismatch` — our emitted size is not in the relay's `padding_sizes` |
+| 13 | `ERR_ACK_TOO_HIGH` | `relay-protocol-violation` — an `ACK` past the head is a client bug |
+| 14 | `ERR_QUOTA` | `relay-quota` |
+| 15 | `ERR_UNAVAILABLE` | `send-unavailable` |
+| 16 | `ERR_POW_REQUIRED` | `pow-required` |
+| 17 | `ERR_POW_INVALID` | `pow-failed` |
+| 18 | `ERR_BACKPRESSURE` | `relay-backpressure` |
+| 19 | `ERR_RATE_LIMITED` | `relay-rate-limited` |
+| 20 | `ERR_NOT_PERMITTED` | `relay-protocol-violation` — the wrong command for this queue kind is a client bug |
+| 21 | `ERR_INTERNAL` | `internal` |
+
+**[`KT.md` §9.5](./KT.md#95-error-codes) → `ErrorCode`**
+
+| Wire | Name | `ErrorCode` |
+|---:|---|---|
+| 1 | `ERR_MALFORMED` | `directory-protocol-violation` |
+| 2 | `ERR_UNSUPPORTED_VERSION` | `directory-protocol-violation` |
+| 3 | `ERR_BAD_SIGNATURE` | `directory-protocol-violation` — the log rejecting **our** submission's signature |
+| 4 | `ERR_BAD_AUTHORIZATION` | `directory-protocol-violation` — e.g. a key change we submitted with one signature |
+| 5 | `ERR_VERSION_CONFLICT` | `directory-version-conflict` |
+| 6 | `ERR_COOLDOWN` | `directory-cooldown` |
+| 7 | `ERR_EPOCH_UNAVAILABLE` | **`directory-epoch-unavailable`** |
+| 8 | `ERR_RANGE_TOO_WIDE` | `directory-protocol-violation` |
+| 9 | `ERR_RATE_LIMITED` | `directory-rate-limited` |
+| 10 | `ERR_NOT_A_WITNESS` | `directory-protocol-violation` — a client never calls `/kt/v1/cosign`, so seeing this means we sent a request we had no business sending |
+| 11 | `ERR_INTERNAL` | `internal` |
+
+**Note what is not in either table.** `directory-proof-invalid`,
+`witness-threshold-unmet`, `relay-identity-mismatch`, `relay-unreachable`,
+`relay-refused-insecure`, `handle-ineligible` and the whole local group are
+**client-side outcomes, not wire codes**: the client computes them and no server
+sends them. Keeping them out of the mapping is deliberate — a code a relay or a
+log chooses can never, on its own, produce one of the codes that mean an
+attack.
+
+And there is **no unknown-handle code, in either direction**.
+[`KT.md` §9.5](./KT.md#95-error-codes) has none deliberately, and §3.10's
+`found: false` is this document's single representation of non-membership.
+
+**The default rule, so the union stays closed as the protocol grows.** A code
+neither table names — one from a protocol version newer than this client, or a
+known code returned in a context these tables do not give it — maps to
+`relay-protocol-violation` if a relay returned it, and
+`directory-protocol-violation` if the log did. It is never mapped to `internal`,
+which means *our own engine* faulted, and it is never dropped. That is what
+"closed" buys a frontend: the set of values a component can receive is fixed, so
+a protocol that grows a code produces a defect report instead of an `undefined`
+branch.
+
+**`ERR_NO_ACCESS` (10) — the mapping is chosen so the client does not depend on
+an open question, and is not an answer to it.**
+[`WIRE.md` §5.1](./WIRE.md#51-construction) step 5 of the relay's verification
+order says a command whose `signer_key` does not authorize the address fails with
+`ERR_NO_ACCESS` (10);
+[`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key) and §10
+say every send-side refusal that would distinguish queue state collapses to
+`ERR_UNAVAILABLE` (15). Those contradict for a send-side command, and the
+contradiction is [#550](https://github.com/free2z/zuu/issues/550) item 1 —
+**open as of 2026-08-23**, and not settled by this document, which decides
+nothing about the protocol. Mapping *both* codes to `send-unavailable` on the
+send side makes the client behave identically whichever way #550 lands, and shows
+the user the same thing either way — which is independently what §10's
+existence-oracle rule wants, since a sender that could tell an absent queue from
+an unauthorized one is the oracle. If #550 resolves the other way, this row is
+where the change goes and nothing else moves.
 
 ---
 
@@ -1551,8 +1768,8 @@ Its mitigation is narrow and exact: a homograph string does not match the
 messaging charset, so the directory refuses to resolve it at all, turning a
 silent impersonation into a **lookup failure**. That means a user pasting a
 handle copied from a free2z profile page or a comment byline may get
-`handle-ineligible` or `handle-not-found` for a username that visibly exists —
-and the UI must explain that rather than look broken.
+`handle-ineligible`, or a proved `found: false` (§3.10), for a username that
+visibly exists — and the UI must explain that rather than look broken.
 
 So the ineligible state is **a first-class screen, not an error dialog**:
 
