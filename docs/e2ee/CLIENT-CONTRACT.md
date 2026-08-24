@@ -1415,11 +1415,36 @@ A messaging handle is:
 /^[a-z0-9_]{1,30}$/     ASCII only, compared as bytes, no normalization
 ```
 
-The restriction is not tidiness. A charset with no case, no scripts and no
-confusable pairs makes an entire class of homograph and mixed-script
-impersonation **not exist**, rather than be defended against — and a
-normalization function is itself the attack surface
+The restriction is not tidiness. A charset with no case and a single script makes
+an entire class of homograph and mixed-script impersonation **not exist**, rather
+than be defended against — `@аlice` with a Cyrillic а cannot be encoded as a
+messaging handle at all — and a normalization function is itself the attack
+surface
 ([`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved)).
+
+**An entire class, not every class — and the remainder is your job, not the
+protocol's.** `[a-z0-9_]` still contains `1`/`l` and `0`/`o`, indistinguishable
+in most UI sans-serif faces: `@a1ice` and `@alice`, or `@b0b` and `@bob`, are
+pairs a user cannot separate by reading them. Nothing below the UI defends
+against that. Three build rules follow.
+
+- **Render handles in a face that disambiguates** — monospace, or a text face
+  with a slashed or dotted zero and a distinguishable `1`/`l`. A handle set in
+  the same proportional sans as body copy cannot be checked by eye, and every
+  surface that shows a handle counts: search results, invites, message headers,
+  profile links.
+- **Never write copy that sells the charset as a safety property.** "Handles are
+  ASCII, so they can't be faked" is false and must not ship. What is true, and
+  is the most a string of copy may claim, is that a handle cannot contain
+  characters from another script.
+- **Point the user at the check that is real.** Who a peer *is*, is established
+  by safety-number verification — always available, and the strongest check in
+  the system regardless of directory state
+  ([§6.3](#63-verification-state),
+  [§6.4](#64-witness-threshold--the-fail-closed-matrix)). A handle is an
+  address, not an authentication, and first-contact copy should say so rather
+  than implying the handle did the work.
+
 An account is eligible iff `lowercase(username)` matches the pattern; case
 folding is safe because platform uniqueness is already enforced
 case-insensitively.
@@ -1430,7 +1455,7 @@ character, or exceeding 30 characters after lowercasing are not eligible for a
 messaging handle in v1.**
 
 **How many accounts that is, is now measured, and the answer is the reason this
-screen matters.** Measured against production on 2026-08-24
+screen matters.** Measured against production on 2026-08-23
 ([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured),
 [§13-O](./ARCHITECTURE.md#13-open-questions)):
 
@@ -1554,7 +1579,7 @@ transfer ([§13-K](./ARCHITECTURE.md#13-open-questions)), group scale
 ([§13-N](./ARCHITECTURE.md#13-open-questions)) — which directly sets how slow
 first contact feels on a phone — messaging-handle eligibility
 ([§13-O](./ARCHITECTURE.md#13-open-questions): the *measurement* is closed as of
-2026-08-24 and is in §11.3, but the **product** question of whether the ~10% is
+2026-08-23 and is in §11.3, but the **product** question of whether the ~10% is
 excluded in v1 or served by a separate opt-in handle is not), KT epoch cadence
 ([§13-P](./ARCHITECTURE.md#13-open-questions)), witness independence and the
 default *t* ([§13-Q](./ARCHITECTURE.md#13-open-questions)), the client gossip
