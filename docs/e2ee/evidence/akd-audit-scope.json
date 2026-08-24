@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "report": {
+    "publisher": "NCC Group Cryptography Services",
+    "url": "https://www.nccgroup.com/media/phzpm0qv/_ncc_group_metaplatforms_e008327_report_2023-11-14_v10.pdf",
+    "sha256": "42f793909b900eb2e6eefb1825284bd92f90849dd9de8ec6a71ac2199030073e",
+    "finding": "NCC-E008327-Q3U",
+    "report_pages": "4-5",
+    "figure": "Figure 2: recursive_batch_insert_nodes() in akd/src/append_only_zks.rs"
+  },
+  "upstream": {
+    "repository": "https://github.com/facebook/akd",
+    "path": "akd/src/append_only_zks.rs",
+    "audited": {
+      "release": "v0.9.0",
+      "commit": "be1055ee8a2b5291d84206592d8f46b7f042bbe1",
+      "git_blob_sha1": "aabc19e75d3eca08d2d70ebdf9fb00a356b195ce",
+      "raw_sha256": "da233bd03845252627614dff21caa887262ca72a58b33012ae7a1fdb6aa1f83a"
+    },
+    "selected": {
+      "release": "v0.13.0",
+      "commit": "43a60ccf7dfdd8f4b628186410e871192adaf65b",
+      "git_blob_sha1": "3b5009321c8d6bba3ff5da24e73851e26b622144",
+      "raw_sha256": "bca38d27748aa19969d8f4ccae77d793ecb0557649ee1f0754f850e50db61e85"
+    },
+    "partition_signature": "pub(crate) fn partition(self, prefix_label: NodeLabel) -> (AzksElementSet, AzksElementSet)",
+    "partition_body_sha256": "d86b7a60e9d95699256f11ff1a003885fd68dc0989f8906442953f5f708658a1"
+  },
+  "fixes": {
+    "q3u_publish_only": {
+      "url": "https://github.com/facebook/akd/pull/400",
+      "number": 400,
+      "node_id": "PR_kwDOFr0TCM5ZYVLW",
+      "head_commit": "cd4fd180cd2774dba64dc2ec5ec46890f985a163",
+      "merge_commit": "b9e97b49a514e24736fbe91f825f40cb8a36ca3f",
+      "patch_sha256": "c507b382007954a243fc467a92a457df69ebacdcef5cfe27f1dcd9e3b8e1a891"
+    },
+    "auditor_residual": {
+      "url": "https://github.com/facebook/akd/pull/495",
+      "number": 495,
+      "node_id": "PR_kwDOFr0TCM79zPta",
+      "head_commit": "685e2a77e253fe49fad1ea191e75b5482f677e38",
+      "merge_commit": "2e99b036d6d2435775ec4e10cf560d01f341ec01",
+      "patch_sha256": "ff1387d4a349e840ffe2cd8d1ee39d59b11009097f2d7526e0b30a2d86a4f3a6"
+    }
+  }
+}
