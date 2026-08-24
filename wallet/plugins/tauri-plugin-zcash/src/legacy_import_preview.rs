@@ -948,6 +948,11 @@ mod tests {
     /// below is the exact mirror — identical bytes, length and mtime, differing
     /// only in identity — and between them each property is proved to be load
     /// bearing on its own.
+    ///
+    /// Not the same test as `in_place_source_content_change_after_copy_is_rejected`,
+    /// which writes a short string over the source: that one also changes the
+    /// length, so `len` alone would fail it. This is the strict form, where the
+    /// hash is the only thing left to notice.
     #[test]
     fn same_length_mtime_and_identity_but_distinct_content_after_copy_is_rejected() {
         let tree = TestTree::new();
