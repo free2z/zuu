@@ -14,6 +14,11 @@
 [0012](./decisions/0012-anti-abuse-v1.md),
 [0014](./decisions/0014-directory-key-rotation.md).
 
+> **Correction (2026-08-24) — the implementation claim above is no longer
+> true.** `f2z-codec` and `f2z-relay-proto` now implement the canonical wire
+> structures and the shared, side-effect-free protocol rules. There is still no
+> relay or client binary and no deployment; this remains a Phase 1 specification.
+
 This document is written to be read by a third-party security auditor and by an
 independent implementer. It fixes the wire encodings that
 [`ARCHITECTURE.md`](./ARCHITECTURE.md) deliberately left as *proposed*
@@ -106,6 +111,14 @@ construction #544 selects.
   ([ADR 0001](./decisions/0001-platform-priority.md)).
 - A **fatal** error means: send the response, then close the WebSocket
   connection. A non-fatal error means: send the response, keep the connection.
+
+> **Correction (2026-08-24) — a response is possible only when a request id is
+> recoverable.** The rule above assumes that the relay can recover a nonzero
+> `request_id` from the fixed five-byte binary header. When it can, it MUST send
+> the fatal error on that id and then close. When it cannot — including a binary
+> message shorter than five bytes, a zero id, and every text message that §4.2
+> forbids the relay to decode — it MUST close without a protocol response. It
+> MUST NOT invent id zero for a response, because §4.3 reserves zero for pushes.
 
 ---
 
@@ -469,6 +482,27 @@ Steps 2 and 3 precede signature verification because they are cheap and they are
 the flood-resistant filters; step 5 follows verification so that an unsigned
 guess cannot probe the address space.
 
+> **Correction (2026-08-24) — step 5 is not one rule for every signed
+> command.** It applies literally only to `SUBSCRIBE`, `UNSUBSCRIBE`, `READ`,
+> `ACK`, and `DELETE_QUEUE`: `signer_key` MUST equal the queue's registered
+> `recv_key`, and failure is `ERR_NO_ACCESS`. The other signed commands use these
+> rules:
+>
+> - `CREATE_QUEUE` and `CREATE_CONTACT_QUEUE` have no address yet. Their
+>   transcript address is zero, and `signer_key` MUST equal the `recv_key` in
+>   the body. Failure is `ERR_NO_ACCESS`.
+> - `BIND_SEND` acts on an unbound side, so there is no registered send key to
+>   compare. `signer_key` MUST equal the `send_key` in the body. Failure is
+>   `ERR_NO_ACCESS`. This frame-internal check reveals no relay state.
+> - `APPEND` requires `signer_key` to equal the bound `send_key`, but every
+>   state-dependent failure, including a missing address and a wrong or absent
+>   bound key, is `ERR_UNAVAILABLE` (§6.3 and §10's correction).
+>
+> Requiring the `BIND_SEND` self-check is security-significant. Without it, a
+> caller that learned `send_addr` could sign with a disposable key while binding
+> an unrelated key it does not possess. The bind-once theft described by §7.4
+> would cost the caller no write capability at all.
+
 ### 5.2 Relay identity binding — the attack it closes
 
 ```
@@ -537,6 +571,10 @@ Therefore:
 
 - Such a relay MUST set `channel_binding_mode: "none"` in its capability
   document and MUST use **32 zero bytes** in the transcript.
+- A relay in `tls-exporter` mode whose exporter output is 32 zero bytes MUST
+  treat that as failure to obtain a binding and refuse the connection. Zero is
+  the `none` sentinel; accepting it in both modes would make them identical in
+  the signed transcript.
 - A client MAY refuse such a relay outright, and the reference client SHOULD make
   this a user-visible setting with a strict mode that refuses.
 - **In `none` mode the restart argument of §5.5 does not hold**, so the relay
@@ -585,6 +623,42 @@ Two mechanisms, together:
    `timestamp_ms + clock_skew_ms`. A half-open seen-set would forget it at that
    same instant when the two published windows are equal.
 
+> **Correction (2026-08-24) — “observed within the window” did not define a
+> retention origin, duration, or client check.** For a frame stamped `t`, let
+> `skew = clock_skew_ms`. The inclusive timestamp rule accepts it throughout
+>
+> ```text
+> [t - skew, t + skew]
+> ```
+>
+> whose earliest-to-latest span is `2 * skew`. An attacker may first present the
+> frame at the left endpoint and replay it at the right endpoint. Therefore the
+> relay MUST record an authenticated `(signer_key, nonce)` using its own clock,
+> only after the signature, frame-internal checks, and relay-state
+> authorization succeed. Quota and operational policy remain step 6 above and
+> may refuse after replay commitment without mutating queue state. The shared
+> verifier's `verify_authorized` path binds the relay-state authorization
+> callback before replay commitment; its narrower `verify` method proves only
+> the frame-local half and MUST NOT be used by itself to admit a stateful relay
+> command. The relay MUST retain the recorded entry through the inclusive instant
+> `recorded_at_ms + antireplay_window_ms`. The duration is measured from this
+> relay-controlled recording time, never from attacker-chosen `timestamp_ms`.
+>
+> Consequently, after widening before multiplication so overflow cannot make an
+> unsafe pair look small:
+>
+> ```text
+> antireplay_window_ms >= 2 * clock_skew_ms
+> ```
+>
+> A relay MUST NOT publish values that violate this invariant. A client MUST
+> compare the two signed capability fields and MUST refuse such a relay by
+> default (§11.3). This is a client policy refusal, not a decode or signature
+> failure: the client retains the validly signed document as evidence of the
+> operator's nonconforming policy. An override MAY exist only as an explicit,
+> surfaced, per-relay choice; it MUST NOT be a global “ignore relay policy”
+> switch.
+
 **The seen-set is fail-closed.** It is bounded (`antireplay_seen_max`, published)
 and when the bound is reached the relay returns `ERR_BACKPRESSURE` and refuses new
 signed commands until entries age out. It MUST NOT evict live entries to make
@@ -606,6 +680,11 @@ does not hold, because the binding is a constant. Such a relay MUST persist the
 seen-set or declare `antireplay_persistence: "volatile"` and accept that a
 restart reopens a replay window of `clock_skew_ms` for any frame an adversary
 captured. Clients read that field and may refuse.
+
+> **Correction (2026-08-24) — the restart exposure above used the half-width.**
+> With the inclusive two-sided timestamp window, a captured frame may remain
+> acceptable for up to `2 * clock_skew_ms` between its earliest and latest valid
+> presentations. The persist-or-declare requirement is unchanged.
 
 ### 5.6 The residual, stated
 
@@ -652,6 +731,13 @@ to error codes.
 | `0x0021` | `APPEND` | send key | `send_addr` |
 | `0x0030` | `CREATE_CONTACT_QUEUE` | recv key | zeros |
 | `0x0031` | `CONTACT_APPEND` | none (PoW) | — |
+
+The last two columns are normative. A command listed as signed that arrives
+without `SignedAuth` is non-fatal `ERR_BAD_SIGNATURE`; a command listed as
+unsigned that arrives with `SignedAuth` is fatal `ERR_MALFORMED`, because v1 has
+no transcript with which to verify it. A creation command with a nonzero
+transcript address, or any other signed command with a zero transcript address,
+is fatal `ERR_MALFORMED`.
 
 ### 6.1 Unsigned commands
 
@@ -706,6 +792,12 @@ struct {
 } ChallengeResponse;
 ```
 
+For `clock` and `queue_create`, `scope` MUST be empty. For `contact_append`, it
+MUST be exactly the target `contact_addr`. A purpose byte not defined by the
+negotiated protocol version is fatal `ERR_MALFORMED`; a later version can assign
+new values only after negotiating that version. A challenge is spendable only by
+a command matching its purpose and, for `contact_append`, its scope.
+
 Three jobs, and each is a real reason for the command to exist:
 
 1. It gives a client with an unreliable clock the relay's current time, so it can
@@ -752,6 +844,10 @@ The transcript's `address` field is 32 zero bytes (no address exists yet) and
 `signer_key` MUST equal `recv_key`, so the request is self-authenticating: it
 proves possession of the key that the new queue will be bound to.
 
+> **Correction (2026-08-24) — `PowStamp` is fixed-width, so “empty” had no
+> encoding.** In `open` mode every field of `stamp` is zero; the field is never
+> omitted.
+
 **Both addresses are generated by the relay from its own CSPRNG** (§7.1).
 
 `flags` is reserved and is **not** a credential hook: it is a `uint16` that MUST
@@ -761,10 +857,10 @@ correction there.
 
 #### `SUBSCRIBE` — `0x0011` / `UNSUBSCRIBE` — `0x0012`
 
-Empty bodies. `SUBSCRIBE` registers the connection to receive `MSG` pushes (§6.4)
-for `recv_addr` and returns the current `next_index` so the client can decide
-whether to `READ` first. A subscription is scoped to the connection and dies with
-it.
+Both request bodies are empty. `SUBSCRIBE` registers the connection to receive
+`MSG` pushes (§6.4) for `recv_addr` and returns the current `next_index` so the
+client can decide whether to `READ` first. `UNSUBSCRIBE` has an empty response.
+A subscription is scoped to the connection and dies with it.
 
 ```
 struct {
@@ -773,9 +869,22 @@ struct {
 } SubscribeResponse;
 ```
 
+Queue indices start at **0**. An empty queue has `next_index = 0`; the first
+accepted append receives index 0, and each later accepted append increments it.
+Expiry and acknowledgement never reuse an index.
+
 `pending` is disclosed to the **reader** only. The reader is the recipient; it is
 about to learn this by reading. No equivalent is ever disclosed to a sender
 (§6.3).
+
+> **Correction (2026-08-24) — the field comment above is too strong.** In v1,
+> `pending` is the number of assigned, unacknowledged indices:
+> `next_index - first_unacked`, where `first_unacked` is zero before any ACK and
+> one greater than the ACK watermark afterward. TTL expiry can remove stored
+> messages without changing either value, so `pending` is an upper bound on
+> messages actually present, not an exact storage count. A client MAY use it as
+> a conservative backlog hint, but MUST NOT treat it as an index or derive a
+> `READ.from_index` from it.
 
 #### `READ` — `0x0013`
 
@@ -804,6 +913,14 @@ watermark; the relay MUST NOT resurrect deleted messages and MUST NOT error, so
 that a client recovering from a crash can simply ask for everything it might have
 missed.
 
+`max_messages` and `max_bytes` are pagination preferences; zero means “no
+preference” for that dimension. The relay returns messages in increasing index
+order and MUST set `has_more` to 1 exactly when another matching stored message
+remains after the page (0 otherwise). If a positive `max_bytes` is smaller than
+the first eligible encoded message, the relay returns that one message anyway:
+returning an empty page would make the queue impossible to drain. The hard
+`max_frame_bytes` limit still applies to every response.
+
 #### `ACK` — `0x0014`
 
 ```
@@ -826,6 +943,12 @@ Empty request, empty response. Deletes the queue, both addresses, and every
 message it holds, acknowledged or not. Irreversible. The relay MUST subsequently
 answer both addresses with `ERR_NO_ACCESS` — the same code an address that never
 existed gets (§10).
+
+> **Correction (2026-08-24) — “both addresses” assigns the send address the
+> wrong code.** After deletion, recv-side commands return `ERR_NO_ACCESS`, while
+> `BIND_SEND` and `APPEND` on the former send address return
+> `ERR_UNAVAILABLE`. That is the same collapsed answer as an absent, expired,
+> full, or backpressured send side (§6.3), so deletion reveals no extra state.
 
 The sender, if any, learns nothing except that its next `APPEND` fails with
 `ERR_UNAVAILABLE` (§6.3). Telling the peer that a queue was retired is the
@@ -874,6 +997,15 @@ queue's state by filling it. Therefore **every send-side refusal that would
 distinguish queue state collapses to the single code `ERR_UNAVAILABLE`**: absent
 queue, deleted queue, expired queue, queue at its message cap, queue at its byte
 cap, relay in global backpressure. See §10.
+
+> **Correction (2026-08-24) — the collapse list omitted authorization and bind
+> lookup failures.** `APPEND` also returns `ERR_UNAVAILABLE` when `signer_key`
+> is not the bound `send_key`, when the send side is unbound, and when the
+> address lookup fails. A distinguishable wrong-key result would itself reveal
+> that the address exists. `BIND_SEND` uses `ERR_UNAVAILABLE` for an absent,
+> deleted, or expired ordinary send address; `ERR_ALREADY_BOUND` remains the
+> deliberate loud signal from §7.4, and `ERR_NOT_PERMITTED` remains the answer
+> for a published contact address (§12.2).
 
 Two honest consequences:
 
@@ -966,6 +1098,10 @@ chose.
 
 A relay never sees a `queue_advert`; it sees an opaque MLS `PrivateMessage` like
 every other payload.
+
+The object above deliberately has no `tls_codec` encoding in this document. Its
+application-layer encoding belongs to the MLS message schema; inventing a relay
+wire encoding for an object no relay parses would create a second contract.
 
 ### 7.3 `BIND_SEND` — once-only and irreversible
 
@@ -1083,6 +1219,11 @@ Two independent timers. Both are per-queue, both are requested at creation, both
 are clamped by relay policy, and both granted values are returned in
 `CreateQueueResponse` so the client knows what it actually got.
 
+A requested TTL of `0` means “no preference” and selects the relay's published
+default. A nonzero request is clamped to the published minimum and maximum. The
+message-TTL ceiling of 2 592 000 seconds applies last and unconditionally: no
+operator default, maximum, or client request may grant more.
+
 | Timer | Field | Default | Ceiling | Resets on |
 |---|---|---|---|---|
 | Message TTL | `message_ttl_seconds` | 604 800 (7 days) | **2 592 000 (30 days)** | — (per message, from append) |
@@ -1137,6 +1278,10 @@ relay deletes them and advances the queue's acked watermark.
 
 `up_to_index` greater than the highest index the relay has ever appended to that
 queue is `ERR_ACK_TOO_HIGH`, and the watermark does not move.
+
+Precisely, an ACK is in range iff `up_to_index < next_index`. Therefore every ACK
+on a never-written queue (`next_index = 0`) is `ERR_ACK_TOO_HIGH`; a drained queue
+still accepts an idempotent ACK only for an index that was previously assigned.
 
 The reason is specific and it is not tidiness. Without this rule a reader could
 **pre-ack** — set the watermark to a very large value — after which every future
@@ -1269,6 +1414,21 @@ a bug report from two years ago must all still mean the same thing.
 | 20 | `ERR_NOT_PERMITTED` | | The command is not valid for this queue kind — e.g. `BIND_SEND` on a contact queue (§12.2). |
 | 21 | `ERR_INTERNAL` | | Relay fault. Carries no detail, ever. |
 
+> **Correction (2026-08-24) — rows 10 and 15 both assigned the send-side
+> “absent” case.** Section 6.3's security rule governs: state-dependent
+> send-side refusals collapse to `ERR_UNAVAILABLE` (15). In particular:
+>
+> - `APPEND` never returns code 10. An absent, deleted, expired, unbound, full,
+>   backpressured, or wrong-key send side returns code 15.
+> - `BIND_SEND` returns code 15 for an absent, deleted, or expired ordinary send
+>   address. Its frame-internal `signer_key == send_key` failure remains code 10
+>   because it is decidable from the request without looking up relay state.
+> - `ERR_ALREADY_BOUND` (11) remains §7.4's deliberate signal that a first bind
+>   lost the race. `ERR_NOT_PERMITTED` (20) remains the answer for `BIND_SEND`
+>   on a contact address, which is public by design.
+> - `CONTACT_APPEND` is unsigned, but its absent, full, expired, or
+>   backpressured cases likewise collapse to code 15.
+
 ### The existence-oracle rule
 
 **"No such queue" and "exists, but your key does not authorize it" MUST return
@@ -1280,6 +1440,12 @@ space is not sweepable by brute force, but an oracle is also useful against
 addresses obtained by other means — a leaked log line, a partially-observed
 advert, a database from a decommissioned relay — and there is no reason to
 provide it.
+
+> **Correction (2026-08-24) — the MUST above is receive-side only.** For a
+> recv-key-signed command, “no such receive address” and “wrong receive key” are
+> both `ERR_NO_ACCESS` (10), and the timing mitigations below apply. Send-side
+> commands follow the code-15 collapse above; applying code 10 to them would
+> recreate the state oracle §6.3 forbids.
 
 **And the honest limit: this is not constant time, and we do not claim it is.**
 The two paths do different amounts of work. The absent path is an index miss. The
@@ -1326,9 +1492,9 @@ struct {
     uint16   ws_ping_interval_seconds;
     uint32   handshake_timeout_ms;
 
-    /* anti-replay */
-    uint32   clock_skew_ms;
-    uint32   antireplay_window_ms;
+    /* anti-replay — these values are related by §5.5 */
+    uint32   clock_skew_ms;                /* default 120000 */
+    uint32   antireplay_window_ms;         /* >= 2 * clock_skew_ms; default 240000 */
     uint8    antireplay_persistence;      /* 0 = volatile, 1 = durable (§5.3, §5.5) */
 
     /* padding */
@@ -1378,6 +1544,12 @@ struct {
 } SignedCapabilities;
 ```
 
+> **Correction (2026-08-24) — the two anti-replay fields were published as
+> independent values, but they are not.** Section 5.5 derives the required
+> relation and retention origin. A relay MUST publish
+> `antireplay_window_ms >= 2 * clock_skew_ms`, with entries live through their
+> inclusive expiration instant. The defaults are `120000` and `240000`.
+
 Note what the last two blocks are for. `operator_jurisdiction` and the contact
 fields are not decoration: a user choosing among *k* relays
 ([ADR 0005](./decisions/0005-federation.md)) is making a jurisdictional choice
@@ -1417,13 +1589,24 @@ On first use of a relay, and on `NOTICE(3)`:
 1. Fetch, verify the signature against the `relay_identity_pk` proven in `HELLO`.
 2. Refuse if `transport_security = none` without explicit user opt-in (§2.3).
 3. Refuse if `channel_binding_mode = none` and the user's policy is strict
-   (§5.3).
-4. Refuse if `padding_sizes` is not a superset of what this client emits, or is
+   (§5.3), and apply the user's durable-seen-set policy (§5.5).
+4. Compare `antireplay_window_ms` with twice `clock_skew_ms` in a wider integer
+   type and refuse by default if the anti-replay window is shorter (§5.5).
+5. Refuse if `padding_sizes` is not a superset of what this client emits, or is
    implausibly fine-grained (§9).
-5. Refuse if `max_message_ttl_seconds > 2592000` — the relay is claiming a policy
+6. Refuse if `max_message_ttl_seconds > 2592000` — the relay is claiming a policy
    the architecture forbids.
-6. Record `queue_creation_mode`, quotas and PoW parameters for §13.
-7. Surface operator name, jurisdiction and contact in the relay-picker UI.
+7. Refuse an internally unusable document: `contact_queues_enabled = 1`
+   requires nonzero `contact_append_pow`, and `max_frame_bytes` must be large
+   enough for the largest advertised padding bucket. The latter is necessary,
+   not sufficient: framing and authentication add overhead beyond the payload.
+8. Record `queue_creation_mode`, quotas and PoW parameters for §13.
+9. Surface operator name, jurisdiction and contact in the relay-picker UI.
+
+Step 4 is a client policy refusal, not a capability decoding or signature
+failure. The client retains the signed document so the policy violation remains
+attributable to that relay and publication time. An override, if offered, must
+be explicit, surfaced, and scoped to one relay (§5.5's correction).
 
 ---
 
@@ -1485,6 +1668,11 @@ struct {
     PowStamp  stamp;                /* over a relay-issued challenge (§6.1) */
 } ContactAppendRequest;
 ```
+
+Like `CREATE_QUEUE`, `CREATE_CONTACT_QUEUE` is self-authenticating: its
+transcript address MUST be 32 zero bytes and `signer_key` MUST equal the
+`recv_key` in the request body. A mismatch is `ERR_NO_ACCESS` and is decided
+without consulting relay state.
 
 `CONTACT_APPEND`'s response is **empty**, for the same reason `APPEND`'s is
 (§6.3): a stranger writing to Bob's contact queue must learn nothing about how

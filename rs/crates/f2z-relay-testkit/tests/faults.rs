@@ -241,6 +241,7 @@ async fn expire_a_ttl_early() {
 
     relay.faults().set_policy(PolicyFaults {
         expire_messages_after: Some(Duration::ZERO),
+        max_queue_messages: Some(1),
         ..PolicyFaults::default()
     });
     let read = recv
@@ -250,6 +251,24 @@ async fn expire_a_ttl_early() {
     assert_eq!(read.messages.len(), 0, "§7.7: the message TTL fired");
     let event = recv.next_queue_event().await.expect("QUEUE_EVENT push");
     assert_eq!(event.reason, 3, "reason 3 is 'messages TTL-expired'");
+
+    // Expiry removed storage, not queue history. A fresh subscription sees the
+    // next assigned index and the unacknowledged index span, exactly as the
+    // production relay does; neither value is derived from the now-empty read.
+    let mut again = relay.client().await.expect("reconnects");
+    let state = again
+        .subscribe(&recv_key, created.recv_addr)
+        .await
+        .expect("re-SUBSCRIBE");
+    assert_eq!(state.next_index, 1);
+    assert_eq!(state.pending, 1);
+
+    // The wire backlog is an index span, but storage quota is not. Expiring
+    // the only stored ciphertext frees the one-message cap even though the
+    // unacknowledged historical index remains pending.
+    send.append(&send_key, created.send_addr, b"replacement")
+        .await
+        .expect("TTL expiry frees stored-message quota");
 }
 
 #[tokio::test(flavor = "multi_thread")]

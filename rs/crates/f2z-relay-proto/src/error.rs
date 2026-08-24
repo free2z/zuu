@@ -136,27 +136,25 @@ pub enum Refusal {
     /// client policy.
     NoChannelBinding,
     /// §5.5: `antireplay_persistence = volatile` under a strict client policy —
-    /// a restart reopens a replay window of `clock_skew_ms`.
+    /// a restart reopens a replay window of up to `2 * clock_skew_ms`.
     VolatileAntiReplay,
     /// §5.5 / §11.1: `antireplay_window_ms` is shorter than `2 ×
     /// clock_skew_ms`, so seen-set entries age out while the frames they cover
     /// are still inside the timestamp window.
     ///
-    /// **`WIRE.md` does not state this relation and it should** — see
-    /// [`SeenSet::retention_is_sound`]. Reported as a client-side refusal
-    /// rather than as a document-validity failure, because the document is
-    /// exactly what the specification permits; it is the specification that is
-    /// missing the constraint.
+    /// See [`SeenSet::retention_is_sound`]. Reported as a client-side policy
+    /// refusal rather than as a decoding or signature failure so the validly
+    /// signed, nonconforming policy remains available as evidence.
     ///
     /// [`SeenSet::retention_is_sound`]: crate::replay::SeenSet::retention_is_sound
     AntiReplayWindowTooShort,
-    /// §11.3 step 4: the relay's `padding_sizes` is not a superset of the
+    /// §11.3 step 5: the relay's `padding_sizes` is not a superset of the
     /// sizes this client emits.
     PaddingNotSuperset,
-    /// §9 / §11.3 step 4: the relay's `padding_sizes` is fine-grained enough
+    /// §9 / §11.3 step 5: the relay's `padding_sizes` is fine-grained enough
     /// to be indistinguishable from a covert length channel.
     PaddingImplausible,
-    /// §11.3 step 5: `max_message_ttl_seconds` exceeds the architecture's
+    /// §11.3 step 6: `max_message_ttl_seconds` exceeds the architecture's
     /// 30-day ceiling. The relay is claiming a policy the architecture forbids.
     TtlCeilingExceeded,
     /// §11.1: the capability document is internally inconsistent — a mode byte

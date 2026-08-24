@@ -306,14 +306,15 @@ impl ChallengePurpose {
 /// `GET_CHALLENGE` request (§6.1).
 ///
 /// `purpose` is a raw `u8` for the same reason command codes are raw: `(255)`
-/// fixes the width, and a purpose this build does not know is the relay's to
-/// refuse with a code, not the decoder's to reject as malformed. Resolve it
+/// fixes the width, and preserving the value lets the relay answer an unknown
+/// purpose with §6.1's fatal `ERR_MALFORMED` on the request's id. Resolve it
 /// with [`ChallengeRequest::purpose`].
 #[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
 pub struct ChallengeRequest {
     /// The `ChallengePurpose` byte.
     pub purpose: u8,
-    /// For `contact_append`: the target `contact_addr`. Empty otherwise.
+    /// For `contact_append`: exactly the 32-byte target `contact_addr`. Empty
+    /// for `clock` and `queue_create`.
     pub scope: ShortBytes,
 }
 

@@ -456,6 +456,26 @@ proptest! {
 }
 
 #[test]
+fn pending_remains_an_index_span_after_ttl_expiry() {
+    both(|store, name| {
+        let _ = store
+            .create_queue(&spec(QueueKind::Standard, generous(), 1, 31_536_000))
+            .unwrap();
+        let _ = store.bind_send(&SEND, &SEND_KEY, 1_000).unwrap();
+        let payload = Payload::new(vec![0x5a; 64]).unwrap();
+        append_at(store, &payload, 10_000).unwrap();
+
+        let _ = store.expire(11_000).unwrap();
+        let record = store.queue_by_recv(&RECV, &RECV_KEY).unwrap();
+        assert_eq!(record.state.next_index(), 1, "{name}");
+        assert_eq!(record.state.acked_through(), None, "{name}");
+        assert_eq!(record.state.pending(), 1, "{name}");
+        assert_eq!(record.stored_messages, 0, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
 fn the_idle_timer_retires_the_queue_and_activity_resets_it() {
     both(|store, name| {
         // 60-second idle TTL, created at 1_000 ms.

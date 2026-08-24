@@ -35,8 +35,8 @@
 //! **In `channel_binding_mode: none` that argument fails**, because the binding
 //! is a constant: such a relay MUST persist the set or publish
 //! `antireplay_persistence: volatile` and accept a replay window of
-//! `clock_skew_ms` across a restart. This type is in-memory either way; the
-//! persistence decision belongs to the relay that owns it.
+//! up to `2 * clock_skew_ms` across a restart. This type is in-memory either
+//! way; the persistence decision belongs to the relay that owns it.
 
 use alloc::collections::BTreeMap;
 use core::fmt;
@@ -181,17 +181,11 @@ impl SeenSet {
     /// Whether the published `(antireplay_window_ms, clock_skew_ms)` pair
     /// actually closes the window.
     ///
-    /// **This is a check `WIRE.md` does not state, and it should.** §11.1
-    /// publishes the two values independently and nothing relates them, but a
-    /// frame is replayable for as long as its timestamp stays inside the
-    /// window: a command stamped `clock_skew_ms` in the future is still
-    /// acceptable `clock_skew_ms` *after* the relay first saw it, so an entry
-    /// must be retained for `2 × clock_skew_ms` from the moment it was
-    /// observed. A relay publishing `antireplay_window_ms < 2 ×
-    /// clock_skew_ms` ages entries out while their frames are still valid and
-    /// has no seen-set at all for the gap, which is §5.5's stated protection
-    /// silently absent. Reported as a specification defect rather than
-    /// implemented around.
+    /// `WIRE.md` §5.5 derives the relation: a frame can remain acceptable over
+    /// the inclusive interval from `timestamp_ms - clock_skew_ms` through
+    /// `timestamp_ms + clock_skew_ms`. A relay publishing
+    /// `antireplay_window_ms < 2 × clock_skew_ms` ages entries out while their
+    /// frames are still valid and has no seen-set at all for the gap.
     #[must_use]
     pub const fn retention_is_sound(&self, clock_skew_ms: u64) -> bool {
         match clock_skew_ms.checked_mul(2) {

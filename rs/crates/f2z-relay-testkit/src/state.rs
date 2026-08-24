@@ -107,14 +107,20 @@ pub struct Queue {
 }
 
 impl Queue {
-    /// Messages present and not yet acknowledged — §6.2's `pending`.
+    /// Assigned indices not yet acknowledged — §6.2's `pending`.
     ///
-    /// Counted from storage rather than from the index arithmetic, because TTL
-    /// expiry removes messages without moving the watermark and the index-space
-    /// count is only an upper bound. `f2z-relay-proto::queue` says so and hands
-    /// the decision here, which is where the storage is.
+    /// This deliberately delegates to the shared queue state rather than
+    /// counting stored messages. TTL expiry removes ciphertext without moving
+    /// `next_index` or the ACK watermark, so the wire value remains an
+    /// index-span upper bound after expiry.
     #[must_use]
-    pub fn pending(&self) -> u64 {
+    pub const fn pending(&self) -> u64 {
+        self.state.pending()
+    }
+
+    /// Ciphertexts currently occupying storage and quota.
+    #[must_use]
+    fn stored_messages(&self) -> u64 {
         u64::try_from(self.messages.len()).unwrap_or(u64::MAX)
     }
 
@@ -392,7 +398,7 @@ impl RelayState {
             return Err(ProtoError::Wire(ErrorCode::Unavailable));
         };
         let quota = queue.effective_quota(faults);
-        let admitted = quota.admit(queue.pending(), queue.bytes, payload_bytes);
+        let admitted = quota.admit(queue.stored_messages(), queue.bytes, payload_bytes);
         if admitted.is_err() {
             self.notify_queue_event(recv_addr, QUEUE_EVENT_QUOTA);
         }

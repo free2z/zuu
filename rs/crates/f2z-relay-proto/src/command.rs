@@ -6,8 +6,9 @@
 //!
 //! # The verification order is the security argument
 //!
-//! §5.1 fixes an order and says "it matters". [`CommandVerifier::verify`]
-//! implements exactly it:
+//! §5.1 fixes an order and says "it matters".
+//! [`CommandVerifier::verify_authorized`] implements authenticated admission
+//! through relay-state authorization:
 //!
 //! 1. Decode and re-encode-compare (§3.3). The frame half is `f2z-codec`'s and
 //!    has already happened by the time a [`Request`] exists; the *body* half
@@ -19,7 +20,8 @@
 //!    `ERR_REPLAY`, without inserting it.
 //! 4. Rebuild the transcript **from the relay's own `relay_id` and its own
 //!    `channel_binding`** and verify the signature → `ERR_BAD_SIGNATURE`.
-//! 5. Address and self-authentication rules (§6.2, §6.3) → `ERR_NO_ACCESS`.
+//! 5. Address, self-authentication, and caller-supplied relay-state
+//!    authorization rules (§6.2, §6.3).
 //! 6. Policy — the payload's padding bucket (§9).
 //! 7. Commit the authenticated `(signer_key, nonce)` with insert-if-absent
 //!    semantics. A competing commit loses as `ERR_REPLAY`.
@@ -30,9 +32,13 @@
 //! which is why the whole sequence lives in one function instead of being
 //! composed by each call site.
 //!
-//! What this module does **not** do is look anything up. Steps 5's *second*
+//! What this module does **not** do is look anything up. Step 5's relay-state
 //! half — "the address exists and `signer_key` is the key registered for it" —
-//! and step 6's quotas are relay state; they live in [`crate::queue`] and above.
+//! lives in [`crate::queue`] and above. The caller supplies that lookup as the
+//! authorization closure, and the verifier commits the replay key only after
+//! it succeeds. [`CommandVerifier::verify`] is the narrower frame-local path;
+//! it is not complete admission for a command whose authorization depends on
+//! relay state.
 
 use core::fmt;
 use core::marker::PhantomData;
@@ -41,8 +47,8 @@ use alloc::vec::Vec;
 
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
-    AckRequest, AckResponse, AppendRequest, Auth, BindSendRequest, ChallengeRequest,
-    ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
+    AckRequest, AckResponse, AppendRequest, Auth, BindSendRequest, ChallengePurpose,
+    ChallengeRequest, ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
     CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
     HelloResponse, ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
     TranscriptAddress,
@@ -152,11 +158,12 @@ pub trait RelayCommand: Sized {
 /// is ever constructed.
 pub mod ops {
     use super::{
-        AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengeRequest,
-        ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
-        CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, Empty, ErrorCode,
-        HelloRequest, HelloResponse, Payload, ProtoError, ReadRequest, ReadResponse, RelayCommand,
-        Result, SignedAuth, SignedCapabilities, SubscribeResponse, keys_equal,
+        AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose,
+        ChallengeRequest, ChallengeResponse, Command, ContactAppendRequest,
+        CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
+        CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse, Payload, ProtoError,
+        QueueAddress, ReadRequest, ReadResponse, RelayCommand, Result, SignedAuth,
+        SignedCapabilities, SubscribeResponse, keys_equal,
     };
 
     macro_rules! command {
@@ -191,14 +198,29 @@ pub mod ops {
         Empty,
         SignedCapabilities
     );
-    command!(
-        /// `0x0003` (§6.1). Clock, single-use challenge, and current PoW
-        /// parameters.
-        GetChallenge,
-        GetChallenge,
-        ChallengeRequest,
-        ChallengeResponse
-    );
+    /// `0x0003` (§6.1). Clock, single-use challenge, and current PoW
+    /// parameters.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct GetChallenge;
+
+    impl RelayCommand for GetChallenge {
+        const COMMAND: Command = Command::GetChallenge;
+        type Request = ChallengeRequest;
+        type Response = ChallengeResponse;
+
+        fn check(request: &Self::Request, auth: Option<&SignedAuth>) -> Result<()> {
+            let _ = auth;
+            let scope_is_valid = match request.purpose()? {
+                ChallengePurpose::Clock | ChallengePurpose::QueueCreate => request.scope.is_empty(),
+                ChallengePurpose::ContactAppend => request.scope.len() == QueueAddress::LEN,
+            };
+            if scope_is_valid {
+                Ok(())
+            } else {
+                Err(ProtoError::Wire(ErrorCode::Malformed))
+            }
+        }
+    }
     command!(
         /// `0x0004` (§6.1). Application-level liveness, distinct from §2.4's
         /// WebSocket Ping, which a browser client cannot send.
@@ -290,12 +312,10 @@ pub mod ops {
         type Request = CreateContactQueueRequest;
         type Response = CreateContactQueueResponse;
 
-        /// §12.2 does not restate `CREATE_QUEUE`'s self-authentication rule,
-        /// but the command has the same shape — a `recv_key` in the body, a
-        /// zero address in the transcript, and no existing queue to look the
-        /// signer up against — so the same rule is the only one that
-        /// authenticates it at all. Applied here, and listed as an
-        /// interpretation.
+        /// §12.2 applies `CREATE_QUEUE`'s self-authentication rule: a `recv_key`
+        /// in the body, a zero address in the transcript, and no existing queue
+        /// to look the signer up against. Requiring the signer to own that key is
+        /// the only thing that authenticates the request.
         fn check(request: &Self::Request, auth: Option<&SignedAuth>) -> Result<()> {
             let auth = auth.ok_or(ProtoError::Wire(ErrorCode::BadSignature))?;
             if keys_equal(&auth.signer_key, &request.recv_key) {
@@ -490,14 +510,16 @@ impl<C: RelayCommand> SignedCommand<C> {
 /// A command accepted through every check prescribed for `C`.
 ///
 /// There is no public constructor. The only way to hold one is to have run
-/// [`CommandVerifier::verify`] for a signed command, or
-/// [`CommandVerifier::accept_unsigned`] for an unsigned command. The signed
-/// path proves §5.1, including the timestamp window, signature, command policy,
-/// and a replay key committed to that verifier's process-local [`SeenSet`]. It
-/// does not attest that a relay also committed external, durable, or
-/// cross-worker state. The unsigned path has no authenticator, timestamp, or
-/// replay key to verify; it proves canonical encoding plus that command's own
-/// rules and stores zero values in the authentication-only accessors below.
+/// [`CommandVerifier::verify`] or [`CommandVerifier::verify_authorized`] for a
+/// signed command, or [`CommandVerifier::accept_unsigned`] for an unsigned
+/// command. The signed path proves §5.1, including the timestamp window,
+/// signature, command policy, and a replay key committed to that verifier's
+/// process-local [`SeenSet`]. Only `verify_authorized` also proves the caller's
+/// relay-state authorization closure. Neither path attests that a relay
+/// committed external, durable, or cross-worker state. The unsigned path has
+/// no authenticator, timestamp, or replay key to verify; it proves canonical
+/// encoding plus that command's own rules and stores zero values in the
+/// authentication-only accessors below.
 /// Holding this type therefore proves the checks for `C`'s prescribed path,
 /// not that an arbitrary `Verified<C>` was authenticated.
 #[derive(Debug)]
@@ -562,8 +584,10 @@ impl<C: RelayCommand> Verified<C> {
     }
 
     /// For a signed command, its nonce after the corresponding replay key was
-    /// committed to the seen-set. [`Nonce::zero`] for an unsigned command,
-    /// which carries no nonce and does not touch the seen-set.
+    /// committed to the seen-set. While a candidate is borrowed by
+    /// `verify_authorized`'s authorization closure, commitment has not happened
+    /// yet; the returned value has passed it. [`Nonce::zero`] for an unsigned
+    /// command, which carries no nonce and does not touch the seen-set.
     #[must_use]
     pub const fn nonce(&self) -> Nonce {
         self.nonce
@@ -632,7 +656,13 @@ impl CommandVerifier {
         &self.padding
     }
 
-    /// Verify a signed command, in §5.1's order.
+    /// Verify only the frame-local half of a signed command.
+    ///
+    /// This compatibility path does not perform a queue lookup or any other
+    /// relay-state authorization. A relay admitting a command MUST use
+    /// [`Self::verify_authorized`] so the replay key is not committed before
+    /// that authorization succeeds. This method remains useful for clients,
+    /// tests, and frame-local protocol checks that have no admission decision.
     ///
     /// `now_ms` is the relay's clock. `request_id` is the frame's, not the
     /// body's — it is covered by the transcript, so a relay that passes a
@@ -662,6 +692,36 @@ impl CommandVerifier {
         request_id: u32,
         request: &Request,
     ) -> Result<Verified<C>> {
+        self.verify_authorized(now_ms, request_id, request, |_| Ok(()))
+    }
+
+    /// Verify a signed command and its relay-state authorization as one
+    /// admission path.
+    ///
+    /// The closure runs after the signature and frame-internal command checks
+    /// but before the replay key is committed. It receives the authenticated
+    /// address and signer through [`Verified`], so a relay can perform the
+    /// exact queue lookup and [`crate::queue::QueueState`] authorization the
+    /// command requires. If it refuses, the seen-set is unchanged. The closure
+    /// MUST be a read-only authorization/policy check: replay commitment can
+    /// still lose a race, so durable command state is mutated only after this
+    /// method returns `Ok`.
+    ///
+    /// # Errors
+    ///
+    /// The errors documented on [`Self::verify`], or the closure's
+    /// relay-state refusal.
+    pub fn verify_authorized<C, F>(
+        &mut self,
+        now_ms: u64,
+        request_id: u32,
+        request: &Request,
+        authorize: F,
+    ) -> Result<Verified<C>>
+    where
+        C: RelayCommand,
+        F: FnOnce(&Verified<C>) -> Result<()>,
+    {
         if request.command != C::COMMAND.code() {
             return Err(ProtoError::Wire(ErrorCode::Internal));
         }
@@ -702,8 +762,23 @@ impl CommandVerifier {
         check_transcript_address(C::COMMAND, &auth.address)?;
         C::check(body.value(), Some(auth))?;
 
-        // Step 6.
-        if let Some(payload) = C::payload(body.value()) {
+        let verified = Verified {
+            address: auth.address,
+            signer_key: auth.signer_key,
+            timestamp_ms: auth.timestamp_ms,
+            nonce: auth.nonce,
+            body: body.into_value(),
+        };
+
+        // Step 5's relay-state half. This must precede replay commitment: a
+        // correctly signed request under an unrelated key is authenticated but
+        // unauthorized, and must not consume the bounded seen-set.
+        authorize(&verified)?;
+
+        // Step 6. Policy follows relay-state authorization: otherwise a
+        // correctly signed APPEND under an unrelated key could distinguish an
+        // invalid padding size from the collapsed send-side refusal.
+        if let Some(payload) = C::payload(verified.body()) {
             self.padding.validate_payload(payload)?;
         }
 
@@ -712,13 +787,7 @@ impl CommandVerifier {
         // that both won preflight cannot both accept the same pair.
         self.seen.commit(now_ms, replay_key)?;
 
-        Ok(Verified {
-            address: auth.address,
-            signer_key: auth.signer_key,
-            timestamp_ms: auth.timestamp_ms,
-            nonce: auth.nonce,
-            body: body.into_value(),
-        })
+        Ok(verified)
     }
 
     /// Accept an unsigned command (§6.1, §12.2).
@@ -829,7 +898,9 @@ mod tests {
     use super::*;
     use alloc::vec;
     use f2z_codec::pow::PowStamp;
-    use f2z_codec::types::{ChannelBinding, RelayId};
+    use f2z_codec::types::{ChannelBinding, RelayId, ShortBytes};
+
+    use crate::queue::{QueueKind, QueueState};
 
     fn transcripts() -> TranscriptBuilder {
         TranscriptBuilder::new(
@@ -976,6 +1047,192 @@ mod tests {
                 .map(|_| ()),
             Err(ProtoError::Wire(ErrorCode::NoAccess))
         );
+    }
+
+    #[test]
+    fn verify_refuses_a_contact_queue_whose_signer_is_not_the_key_it_registers() {
+        let caller = SigningKey::from_seed(&[0x28; 32]);
+        let stranger = SigningKey::from_seed(&[0x29; 32]);
+        let body = |recv_key| CreateContactQueueRequest {
+            recv_key,
+            req_message_ttl_seconds: 0,
+            req_idle_ttl_seconds: 0,
+            stamp: PowStamp::empty(),
+        };
+
+        let honest = hostile_request::<ops::CreateContactQueue>(
+            5,
+            QueueAddress::zero(),
+            nonce(0x28),
+            &caller,
+            &body(caller.public_key()),
+        );
+        assert!(
+            verifier()
+                .verify::<ops::CreateContactQueue>(NOW, 5, &honest)
+                .is_ok()
+        );
+
+        let hijacked = hostile_request::<ops::CreateContactQueue>(
+            5,
+            QueueAddress::zero(),
+            nonce(0x29),
+            &caller,
+            &body(stranger.public_key()),
+        );
+        assert_eq!(
+            verifier()
+                .verify::<ops::CreateContactQueue>(NOW, 5, &hijacked)
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::NoAccess))
+        );
+    }
+
+    #[test]
+    fn relay_state_authorization_precedes_replay_commit() {
+        let owner = SigningKey::from_seed(&[0x31; 32]);
+        let stranger = SigningKey::from_seed(&[0x32; 32]);
+        let address = QueueAddress::new([0x33; 32]);
+        let queue = QueueState::create(QueueKind::Standard, owner.public_key());
+
+        let honest = hostile_request::<ops::Subscribe>(6, address, nonce(0x31), &owner, &Empty);
+        let mut accepted = verifier();
+        assert!(
+            accepted
+                .verify_authorized::<ops::Subscribe, _>(NOW, 6, &honest, |candidate| {
+                    queue.authorize_recv(&candidate.signer_key())
+                })
+                .is_ok()
+        );
+        assert_eq!(accepted.seen_set().len(), 1);
+
+        let hostile = hostile_request::<ops::Subscribe>(7, address, nonce(0x32), &stranger, &Empty);
+        let mut refused = verifier();
+        assert_eq!(
+            refused
+                .verify_authorized::<ops::Subscribe, _>(NOW, 7, &hostile, |candidate| {
+                    queue.authorize_recv(&candidate.signer_key())
+                })
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::NoAccess))
+        );
+        assert!(
+            refused.seen_set().is_empty(),
+            "an authenticated but unauthorized command must not consume replay capacity"
+        );
+    }
+
+    #[test]
+    fn relay_state_authorization_precedes_padding_policy() {
+        let receiver = SigningKey::from_seed(&[0x34; 32]);
+        let sender = SigningKey::from_seed(&[0x35; 32]);
+        let stranger = SigningKey::from_seed(&[0x36; 32]);
+        let address = QueueAddress::new([0x37; 32]);
+        let mut queue = QueueState::create(QueueKind::Standard, receiver.public_key());
+        queue.bind_send(&sender.public_key()).unwrap();
+
+        let body = AppendRequest {
+            // One byte below the default 1024-byte bucket. This reaches
+            // padding policy only after the signed queue identity is accepted.
+            payload: Payload::new(vec![0u8; 1023]).unwrap(),
+        };
+
+        let unauthorized =
+            hostile_request::<ops::Append>(8, address, nonce(0x36), &stranger, &body);
+        let mut refused = verifier();
+        assert_eq!(
+            refused
+                .verify_authorized::<ops::Append, _>(NOW, 8, &unauthorized, |candidate| {
+                    queue.authorize_send(&candidate.signer_key())
+                })
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::Unavailable)),
+            "step 5 must collapse the send-side refusal before step 6 reveals padding policy"
+        );
+        assert!(refused.seen_set().is_empty());
+
+        let authorized = hostile_request::<ops::Append>(9, address, nonce(0x35), &sender, &body);
+        let mut accepted_identity = verifier();
+        assert_eq!(
+            accepted_identity
+                .verify_authorized::<ops::Append, _>(NOW, 9, &authorized, |candidate| {
+                    queue.authorize_send(&candidate.signer_key())
+                })
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::BadSize)),
+            "an authorized sender must still reach the padding policy"
+        );
+        assert!(accepted_identity.seen_set().is_empty());
+    }
+
+    fn challenge(body: &ChallengeRequest) -> Request {
+        Request::new(
+            Command::GetChallenge.code(),
+            CommandAuth::Unsigned,
+            body.encode_canonical().unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn get_challenge_rejects_an_unknown_purpose() {
+        let request = challenge(&ChallengeRequest {
+            purpose: 3,
+            scope: ShortBytes::default(),
+        });
+        assert_eq!(
+            verifier()
+                .accept_unsigned::<ops::GetChallenge>(&request)
+                .map(|_| ()),
+            Err(ProtoError::Wire(ErrorCode::Malformed))
+        );
+    }
+
+    #[test]
+    fn get_challenge_enforces_the_purposes_scope_shape() {
+        let empty = ShortBytes::default();
+        for purpose in [ChallengePurpose::Clock, ChallengePurpose::QueueCreate] {
+            let valid = challenge(&ChallengeRequest {
+                purpose: purpose.code(),
+                scope: empty.clone(),
+            });
+            assert!(
+                verifier()
+                    .accept_unsigned::<ops::GetChallenge>(&valid)
+                    .is_ok()
+            );
+
+            let invalid = challenge(&ChallengeRequest {
+                purpose: purpose.code(),
+                scope: ShortBytes::new(vec![0x41; QueueAddress::LEN]).unwrap(),
+            });
+            assert_eq!(
+                verifier()
+                    .accept_unsigned::<ops::GetChallenge>(&invalid)
+                    .map(|_| ()),
+                Err(ProtoError::Wire(ErrorCode::Malformed))
+            );
+        }
+
+        let contact = |length| {
+            challenge(&ChallengeRequest {
+                purpose: ChallengePurpose::ContactAppend.code(),
+                scope: ShortBytes::new(vec![0x42; length]).unwrap(),
+            })
+        };
+        assert!(
+            verifier()
+                .accept_unsigned::<ops::GetChallenge>(&contact(QueueAddress::LEN))
+                .is_ok()
+        );
+        for wrong_length in [0, QueueAddress::LEN - 1, QueueAddress::LEN + 1] {
+            assert_eq!(
+                verifier()
+                    .accept_unsigned::<ops::GetChallenge>(&contact(wrong_length))
+                    .map(|_| ()),
+                Err(ProtoError::Wire(ErrorCode::Malformed))
+            );
+        }
     }
 
     #[test]

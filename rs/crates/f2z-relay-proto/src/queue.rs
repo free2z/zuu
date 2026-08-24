@@ -172,11 +172,9 @@ impl QueueState {
 
     /// The index the next appended message will receive.
     ///
-    /// Indices start at zero and only ever increase. `WIRE.md` does not name a
-    /// first index; zero is chosen because §8.2's rule is stated as "greater
-    /// than the highest index the relay has **ever** appended", which is a
-    /// clean total order from zero and needs no sentinel for "nothing yet" —
-    /// `next_index == 0` says it.
+    /// Indices start at zero and only ever increase, as `WIRE.md` §6.2 now
+    /// states. `next_index == 0` is the unambiguous sentinel for “nothing has
+    /// ever been appended”.
     #[must_use]
     pub const fn next_index(&self) -> u64 {
         self.next_index
@@ -338,11 +336,12 @@ impl QueueState {
 ///
 /// `acknowledged` is zero for the idempotent case — a retry after a lost
 /// response, or a replay (§5.6 lists `ACK` as a no-op for exactly this reason).
-/// A relay deletes `acknowledged` messages and nothing else.
+/// It counts index-space advancement, not stored rows: TTL expiry may already
+/// have removed some of those rows. A relay deletes every stored message at or
+/// below the accepted watermark and nothing above it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AckOutcome {
-    /// How many indices the watermark advanced by, i.e. how many messages this
-    /// `ACK` authorizes the relay to delete.
+    /// How many indices the watermark advanced by.
     pub acknowledged: u64,
     /// `AckResponse.next_index`.
     pub next_index: u64,
