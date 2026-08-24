@@ -67,15 +67,14 @@ use f2z_authority::nonce::NonceLedger;
 use f2z_codec::hash::hash;
 use f2z_codec::types::{Digest, Payload, PublicKey};
 use f2z_kt_core::sth::{SignedTreeHead, SignedTreeHeadTBS};
-use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext, validate_submission};
+use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext};
 use f2z_kt_core::types::{Handle, LogId, label_field};
 use f2z_kt_core::{
-    DirectoryEntry, KT_VERSION, KtError, SubmissionReceipt, SubmissionReceiptTBS,
-    WitnessCosignature, labels,
+    KT_VERSION, KtError, SubmissionReceipt, SubmissionReceiptTBS, WitnessCosignature, labels,
 };
 use protobuf::Message as _;
 
-use crate::admit::{AdmissionContext, AdmittedSubmission, admit_submission};
+use crate::admit::{AdmissionContext, AdmittedSubmission, HandleVouch, admit_submission};
 use crate::config::LogSettings;
 use crate::error::{LogError, Result};
 use crate::signer::LogSigner;
@@ -102,7 +101,7 @@ pub type Configuration = f2z_kt_core::verify::Configuration;
 type Tree = Directory<Configuration, AsyncInMemoryDatabase, FileVrf>;
 
 /// A submission that has been admitted and is waiting for an epoch.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct Pending {
     canonical: Vec<u8>,
     akd_label: Vec<u8>,
@@ -111,6 +110,59 @@ struct Pending {
     entry_version: u32,
     is_reset: bool,
     published: PublishedEntry,
+    retained: HandleVouch,
+}
+
+/// Hand-written, and the workspace `Debug` scan is what insists on it.
+///
+/// `canonical` is a whole `DirectoryEntry` and `akd_label` embeds the handle; a
+/// derived `Debug` renders both as decimal byte dumps. Worse, this is the type
+/// that holds a submission **between acceptance and publication** — the one
+/// window in which an entry is not yet public — so a dump here is a preview of
+/// directory changes, including advance notice that a named handle is about to
+/// change hands under `platform_reset`.
+impl core::fmt::Debug for Pending {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Pending")
+            .field("handle", &"<redacted>")
+            .field("entry_version", &self.entry_version)
+            .field("is_reset", &self.is_reset)
+            .field(
+                "canonical",
+                &format_args!("<redacted; {} bytes>", self.canonical.len()),
+            )
+            .field(
+                "akd_label",
+                &format_args!("<redacted; {} bytes>", self.akd_label.len()),
+            )
+            .field("akd_value", &self.akd_value)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A [`NonceSeen`] that accepts everything, for replay only.
+///
+/// A restart re-runs [`admit_submission`] over the whole journal, which means
+/// it re-presents every assertion the log has ever admitted. Judging those
+/// against a fresh ledger would make the log refuse its own history on the
+/// first restart — the nonces were checked when they were first admitted, and
+/// the record of that decision *is* the journal.
+///
+/// It is a distinct type rather than a flag so that it cannot be reached from
+/// the live path: [`LogService::submit`] names [`NonceLedger`] and nothing
+/// else.
+struct ReplayLedger;
+
+impl f2z_authority::nonce::NonceSeen for ReplayLedger {
+    fn observe(
+        &mut self,
+        _now_ms: u64,
+        _authority_id: f2z_authority::types::AuthorityId,
+        _nonce: f2z_authority::types::AssertionNonce,
+        _expires_ms: u64,
+    ) -> core::result::Result<(), f2z_authority::AuthorityError> {
+        Ok(())
+    }
 }
 
 /// Everything about the log that changes, behind one lock.
@@ -118,6 +170,9 @@ struct State {
     store: Store,
     /// Handle bytes → the state a next submission is judged against.
     published: BTreeMap<Vec<u8>, PublishedEntry>,
+    /// Handle bytes → the vouch and `account_epoch` `f2z-authority` requires
+    /// back on every non-initial submission.
+    retained: BTreeMap<Vec<u8>, HandleVouch>,
     /// Handle bytes → canonical bytes of the newest published entry.
     latest_entry: BTreeMap<Vec<u8>, Vec<u8>>,
     /// (handle bytes, entry_version) → canonical entry bytes, for history.
@@ -203,6 +258,7 @@ impl LogService {
         let state = State {
             store,
             published: BTreeMap::new(),
+            retained: BTreeMap::new(),
             latest_entry: BTreeMap::new(),
             entries: BTreeMap::new(),
             pending: Vec::new(),
@@ -231,8 +287,23 @@ impl LogService {
     }
 
     /// Rebuild the tree from the journals and check every recorded root.
+    ///
+    /// **The replay re-runs the whole admission**, not just the tree. Every
+    /// stored envelope goes back through [`admit_submission`] — §4.4 and the
+    /// assertion layer both — in the order it was accepted and at the clock it
+    /// was accepted at. Three things fall out of that and each is worth having:
+    ///
+    /// - the per-handle `PublishedEntry` and [`HandleVouch`] are *re-derived*
+    ///   rather than stored, so there is no second representation of the
+    ///   directory's state to drift from the entries themselves;
+    /// - a journal that has been edited fails here, loudly, at startup;
+    /// - and the reconstructed `akd` root is compared to the root the log
+    ///   signed at the time, so a divergence — corruption, an `akd` that is no
+    ///   longer deterministic for our configuration — is a refusal to start
+    ///   rather than a log serving proofs against a root nobody cosigned.
     async fn replay(&self, journal: Journal) -> Result<()> {
         let mut state = self.state.lock().await;
+        let mut ledger = ReplayLedger;
 
         let mut cursor = 0usize;
         for stored in &journal.epochs {
@@ -257,29 +328,12 @@ impl LogService {
 
             let mut updates = vec![heartbeat_update(head.sth.epoch)];
             for record in batch {
-                let entry = decode_entry(record.entry.as_slice())?;
-                let published = PublishedEntry::from_entry(&entry).map_err(|_| {
-                    LogError::Storage(
-                        "submissions.log: a published entry no longer validates".to_owned(),
-                    )
-                })?;
-                let handle = entry.entry.handle.as_slice().to_vec();
+                let admitted = readmit(&mut state, self, record, &mut ledger)?;
                 updates.push((
-                    AkdLabel(labels::akd_label(&entry.entry.handle)),
-                    AkdValue(
-                        labels::entry_value(record.entry.as_slice())
-                            .as_bytes()
-                            .to_vec(),
-                    ),
+                    AkdLabel(admitted.accepted().akd_label().to_vec()),
+                    AkdValue(admitted.accepted().akd_value().as_bytes().to_vec()),
                 ));
-                state.entries.insert(
-                    (handle.clone(), entry.entry.entry_version),
-                    record.entry.as_slice().to_vec(),
-                );
-                state
-                    .latest_entry
-                    .insert(handle.clone(), record.entry.as_slice().to_vec());
-                state.published.insert(handle, published);
+                commit_published(&mut state, &admitted)?;
             }
 
             let inserted = u64::try_from(updates.len()).unwrap_or(0);
@@ -314,44 +368,15 @@ impl LogService {
         }
 
         // Anything past the last watermark was admitted and never published.
-        // Re-run the choke point on it: a published entry is protected by the
-        // root-hash comparison above, and a *pending* one has no signed root to
-        // be checked against, so the only thing standing between an edited
-        // journal and the tree is §4.4 applied again.
+        // It is re-admitted the same way, and then queued: §5.2's merge promise
+        // is signed, so a submission the log accepted and then forgot across a
+        // restart is a broken promise with the victim holding the evidence.
         let Some(tail) = journal.submissions.get(cursor..) else {
             return Err(LogError::Storage("submissions.log: short read".to_owned()));
         };
         for record in tail {
-            let entry = decode_entry(record.entry.as_slice())?;
-            let handle = entry.entry.handle.as_slice().to_vec();
-            let previous = state.published.get(&handle).cloned();
-            let context = SubmissionContext {
-                policy: &self.kt_policy,
-                previous: previous.as_ref(),
-                pending_in_epoch: state.pending_handles.contains(&handle),
-                // The entry was admitted at `received_at_ms`; judging it again
-                // at that instant is what makes the replay a re-run of the
-                // original decision rather than a new one at a different time.
-                now_ms: record.received_at_ms,
-            };
-            let accepted =
-                validate_submission(record.entry.as_slice(), &context).map_err(|_| {
-                    LogError::Storage(
-                        "submissions.log: a pending entry no longer satisfies KT.md §4.4"
-                            .to_owned(),
-                    )
-                })?;
-            let published = accepted.published().map_err(LogError::Kt)?;
-            state.pending_handles.insert(handle.clone());
-            state.pending.push(Pending {
-                canonical: accepted.canonical_bytes().to_vec(),
-                akd_label: accepted.akd_label().to_vec(),
-                akd_value: *accepted.akd_value(),
-                handle,
-                entry_version: entry.entry.entry_version,
-                is_reset: matches!(entry.entry.kind, f2z_kt_core::EntryKind::PlatformReset),
-                published,
-            });
+            let admitted = readmit(&mut state, self, record, &mut ledger)?;
+            enqueue_pending(&mut state, &admitted)?;
         }
 
         for cosignature in journal.cosignatures {
@@ -433,6 +458,7 @@ impl LogService {
         // point so that re-encode equality is applied to what arrived.
         let handle = peek_handle(envelope)?;
         let previous = state.published.get(&handle).cloned();
+        let retained = state.retained.get(&handle).copied();
         let pending_in_epoch = state.pending_handles.contains(&handle);
 
         let context = AdmissionContext {
@@ -443,54 +469,42 @@ impl LogService {
                 now_ms,
             },
             authority: &self.authority,
+            retained,
         };
         let admitted = admit_submission(envelope, &context, &mut state.nonces)?;
-        self.enqueue(&mut state, admitted, now_ms)
+        self.journal_and_receipt(&mut state, &admitted, envelope, now_ms)
     }
 
     /// Journal an admitted submission and sign its receipt.
     ///
     /// Private, and takes an [`AdmittedSubmission`] rather than bytes: this is
-    /// where the type-level guarantee is cashed in.
-    fn enqueue(
+    /// where the type-level guarantee is cashed in. The receipt is signed
+    /// **after** the `fsync`, never before — a receipt handed out ahead of the
+    /// durable write would be a signed promise about an entry a crash could
+    /// still erase, which is the exact failure the receipt exists to make
+    /// provable.
+    fn journal_and_receipt(
         &self,
         state: &mut State,
-        admitted: AdmittedSubmission,
+        admitted: &AdmittedSubmission,
+        envelope: &[u8],
         now_ms: u64,
     ) -> Result<SubmissionReceipt> {
         let accepted = admitted.accepted();
         let entry = accepted.entry();
-        let handle_bytes = entry.entry.handle.as_slice().to_vec();
-        let published = accepted.published().map_err(LogError::Kt)?;
 
-        state
-            .store
-            .append_submission(accepted.canonical_bytes(), now_ms)?;
-
-        state.pending_handles.insert(handle_bytes.clone());
-        state.pending.push(Pending {
-            canonical: accepted.canonical_bytes().to_vec(),
-            akd_label: accepted.akd_label().to_vec(),
-            akd_value: *accepted.akd_value(),
-            handle: handle_bytes,
-            entry_version: entry.entry.entry_version,
-            is_reset: matches!(entry.entry.kind, f2z_kt_core::EntryKind::PlatformReset),
-            published,
-        });
+        state.store.append_submission(envelope, now_ms)?;
+        enqueue_pending(state, admitted)?;
 
         // The log is public by construction, so this is logged normally — but
-        // never the entry bytes and never a key. A handle and a version is what
-        // an operator needs to correlate a complaint with an epoch.
+        // never the entry bytes, never the assertion and never a key. A handle,
+        // a version and who vouched is what an operator needs to correlate a
+        // complaint with an epoch.
         log::info!(
             "admitted {}@v{} ({})",
-            String::from_utf8_lossy(
-                &state
-                    .pending
-                    .last()
-                    .map_or_else(Vec::new, |p| p.handle.clone())
-            ),
+            String::from_utf8_lossy(entry.entry.handle.as_slice()),
             entry.entry.entry_version,
-            admitted.vouch()
+            admitted.vouch().vouch
         );
 
         let merge_by_ms = now_ms
@@ -604,7 +618,13 @@ impl LogService {
             state
                 .latest_entry
                 .insert(pending.handle.clone(), pending.canonical);
-            state.published.insert(pending.handle, pending.published);
+            state
+                .published
+                .insert(pending.handle.clone(), pending.published);
+            // Carried forward, never re-derived: a routine update inherits the
+            // vouch its first entry earned rather than silently upgrading or
+            // dropping it.
+            state.retained.insert(pending.handle, pending.retained);
         }
         state.heads.push(head.clone());
 
@@ -891,6 +911,79 @@ impl core::fmt::Debug for LogService {
     }
 }
 
+/// Re-run a stored submission through the choke point during replay.
+///
+/// It takes the same route a network submission takes — the journal holds the
+/// envelope exactly as it was canonicalised, so there is one admission path and
+/// not a second, laxer one for startup.
+fn readmit<S: f2z_authority::nonce::NonceSeen + ?Sized>(
+    state: &mut State,
+    service: &LogService,
+    record: &crate::store::StoredSubmission,
+    ledger: &mut S,
+) -> Result<AdmittedSubmission> {
+    let handle = peek_handle(record.envelope.as_slice())?;
+    let previous = state.published.get(&handle).cloned();
+    let retained = state.retained.get(&handle).copied();
+    let context = AdmissionContext {
+        kt: SubmissionContext {
+            policy: &service.kt_policy,
+            previous: previous.as_ref(),
+            pending_in_epoch: state.pending_handles.contains(&handle),
+            // Judged at the instant it was accepted, so the replay re-runs the
+            // original decision rather than taking a new one at a different
+            // time — which for a `platform_reset`'s `effective_at_ms` and for
+            // an assertion's validity window would be a different decision.
+            now_ms: record.received_at_ms,
+        },
+        authority: &service.authority,
+        retained,
+    };
+    admit_submission(record.envelope.as_slice(), &context, ledger).map_err(|error| {
+        LogError::Storage(format!(
+            "submissions.log: record {} no longer admits ({error})",
+            record.sequence
+        ))
+    })
+}
+
+/// Record a submission as published: it becomes the predecessor for the next.
+fn commit_published(state: &mut State, admitted: &AdmittedSubmission) -> Result<()> {
+    let accepted = admitted.accepted();
+    let entry = accepted.entry();
+    let handle = entry.entry.handle.as_slice().to_vec();
+    let published = accepted.published().map_err(LogError::Kt)?;
+    state.entries.insert(
+        (handle.clone(), entry.entry.entry_version),
+        accepted.canonical_bytes().to_vec(),
+    );
+    state
+        .latest_entry
+        .insert(handle.clone(), accepted.canonical_bytes().to_vec());
+    state.published.insert(handle.clone(), published);
+    state.retained.insert(handle, admitted.vouch());
+    Ok(())
+}
+
+/// Queue an admitted submission for the next epoch.
+fn enqueue_pending(state: &mut State, admitted: &AdmittedSubmission) -> Result<()> {
+    let accepted = admitted.accepted();
+    let entry = accepted.entry();
+    let handle = entry.entry.handle.as_slice().to_vec();
+    state.pending_handles.insert(handle.clone());
+    state.pending.push(Pending {
+        canonical: accepted.canonical_bytes().to_vec(),
+        akd_label: accepted.akd_label().to_vec(),
+        akd_value: *accepted.akd_value(),
+        handle,
+        entry_version: entry.entry.entry_version,
+        is_reset: matches!(entry.entry.kind, f2z_kt_core::EntryKind::PlatformReset),
+        published: accepted.published().map_err(LogError::Kt)?,
+        retained: admitted.vouch(),
+    });
+    Ok(())
+}
+
 /// The heartbeat insertion for an epoch. See the module note.
 fn heartbeat_update(epoch: u64) -> (AkdLabel, AkdValue) {
     let value = hash(HEARTBEAT_VALUE_LABEL, &epoch.to_be_bytes());
@@ -905,10 +998,6 @@ fn head_at(state: &State, epoch: u64) -> Option<SignedTreeHead> {
     state.heads.get(index).cloned()
 }
 
-fn decode_entry(bytes: &[u8]) -> Result<DirectoryEntry> {
-    Ok(f2z_codec::decode_canonical::<DirectoryEntry>(bytes)?.into_value())
-}
-
 /// Read just the handle out of a submission envelope, for routing.
 ///
 /// This decodes; it does not decide. Everything it learns is re-derived inside
@@ -918,6 +1007,8 @@ fn decode_entry(bytes: &[u8]) -> Result<DirectoryEntry> {
 /// accepts.
 fn peek_handle(envelope: &[u8]) -> Result<Vec<u8>> {
     let decoded = f2z_codec::decode_canonical::<crate::wire::SubmissionEnvelope>(envelope)?;
-    let entry = f2z_codec::decode_canonical::<DirectoryEntry>(decoded.value().entry.as_slice())?;
+    let entry = f2z_codec::decode_canonical::<f2z_kt_core::DirectoryEntry>(
+        decoded.value().entry.as_slice(),
+    )?;
     Ok(entry.value().entry.handle.as_slice().to_vec())
 }

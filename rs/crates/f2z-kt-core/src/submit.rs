@@ -218,12 +218,33 @@ pub struct SubmissionContext<'a> {
 /// public constructor, no `From`, no field access — because the point of this
 /// crate is that a server holding a `DirectoryEntry` cannot get to `publish()`
 /// without going through [`validate_submission`] first.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AcceptedSubmission {
     entry: DirectoryEntry,
     canonical: Vec<u8>,
     akd_value: Digest,
     akd_label: Vec<u8>,
+}
+
+/// Hand-written: `canonical` is a whole `DirectoryEntry` and `akd_label`
+/// embeds the handle, and a derived `Debug` renders each as a decimal byte
+/// dump. One log line per submission, each carrying the full entry, is a
+/// directory reconstructed out of a trace log.
+impl core::fmt::Debug for AcceptedSubmission {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AcceptedSubmission")
+            .field("entry", &self.entry)
+            .field(
+                "canonical",
+                &format_args!("<redacted; {} bytes>", self.canonical.len()),
+            )
+            .field("akd_value", &self.akd_value)
+            .field(
+                "akd_label",
+                &format_args!("<redacted; {} bytes>", self.akd_label.len()),
+            )
+            .finish()
+    }
 }
 
 impl AcceptedSubmission {

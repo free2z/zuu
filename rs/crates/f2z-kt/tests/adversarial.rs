@@ -107,7 +107,7 @@ async fn a_first_entry_with_an_assertion_for_a_different_handle_is_refused() {
     let bob_entry = EntryBuilder::first(harness.log_id, "bob", &alice).same_key(&alice.dak);
     let alice_entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
 
-    let bob_envelope = harness.first_envelope(&bob_entry, &alice, NOW);
+    let bob_envelope = harness.envelope(&bob_entry, &alice, NOW);
     let decoded = f2z_codec::decode_canonical::<SubmissionEnvelope>(&bob_envelope)
         .unwrap()
         .into_value();
@@ -141,7 +141,7 @@ async fn a_stolen_assertion_is_useless_without_the_identity_key() {
 
     let alice = Identity::from_byte(1);
     let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
-    let honest = harness.first_envelope(&entry, &alice, NOW);
+    let honest = harness.envelope(&entry, &alice, NOW);
     let decoded = f2z_codec::decode_canonical::<SubmissionEnvelope>(&honest)
         .unwrap()
         .into_value();
@@ -164,19 +164,25 @@ async fn a_stolen_assertion_is_useless_without_the_identity_key() {
 }
 
 #[tokio::test]
-async fn an_assertion_presented_above_version_one_is_refused_rather_than_ignored() {
-    // The log admits an assertion at exactly `entry_version == 1`. Admitting one
-    // later would give the platform a second way to authorize a change to a
-    // live handle, which is the power ADR 0014 spent a cooldown and an alarm to
-    // constrain.
-    let harness = Harness::vouched("adv-late-assertion").await;
+async fn a_platform_assertion_on_a_user_authorized_entry_is_a_category_error() {
+    // The boundary `f2z-authority` draws, and the reason it matters: `same_key`
+    // and `key_change` are authorized under `KT.md` §4.4 by the user's own keys
+    // — the previously published `directory_auth_pk`, plus the outgoing
+    // identity key for a rotation. Admitting a platform assertion here would
+    // give the platform a *second* way to authorize a change to a live handle,
+    // which is exactly the power ADR 0014 spent a cooldown, an alarm and a
+    // per-epoch counter to constrain on the one path where it is unavoidable.
+    //
+    // So it is refused, not ignored. A field the log skips reading is a field
+    // that eventually gets read.
+    let harness = Harness::vouched("adv-category-error").await;
     harness.log.publish_epoch(NOW).await.unwrap();
 
     let alice = Identity::from_byte(1);
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&first, &alice, NOW), NOW)
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -187,22 +193,64 @@ async fn an_assertion_presented_above_version_one_is_refused_rather_than_ignored
         .prev_entry_hash(prev_hash)
         .same_key(&alice.dak);
 
-    // A correct v2 submission, plus claim fields that have no business being
-    // there.
-    let with_claim = harness.first_envelope(&second, &alice, NOW);
+    // A correct `same_key` update in every respect, carrying a valid assertion
+    // from the log's own authority and a correctly derived binding signature.
+    // The only thing wrong is that the assertion is there at all.
+    let with_assertion = harness.envelope_forcing_assertion(&second, &alice, NOW);
     assert_eq!(
-        refusal(harness.log.submit(&with_claim, NOW).await),
+        refusal(harness.log.submit(&with_assertion, NOW).await),
         ErrorCode::BadAuthorization
     );
+    assert_eq!(publish_and_count(&harness).await, 0);
 
-    // And the same entry with the claim fields absent is accepted, so the test
-    // is about the claim fields and nothing else.
+    // The same entry without it is accepted, so the test is about the assertion
+    // and nothing else.
     harness
         .log
-        .submit(&envelope_without_claim(&second), NOW)
+        .submit(&harness.envelope(&second, &alice, NOW), NOW)
         .await
         .unwrap();
     assert_eq!(publish_and_count(&harness).await, 1);
+}
+
+#[tokio::test]
+async fn a_routine_update_carries_its_predecessors_vouch_forward_unchanged() {
+    // A handle vouched at its first entry stays vouched by that authority
+    // through every routine update, and a log that re-derived the vouch on each
+    // entry could silently upgrade an unvouched handle — or drop a vouch and
+    // make a real one look unattested. `f2z-authority` requires the predecessor
+    // value back on every non-initial submission for exactly this reason, and
+    // this is the test that the log actually retains and returns it.
+    let harness = Harness::vouched("adv-vouch-carry").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let alice = Identity::from_byte(1);
+    let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
+    harness
+        .log
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
+        .await
+        .unwrap();
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    // Three routine updates in a row. Each one needs the retained vouch and
+    // account epoch from the last, so if the log ever failed to carry them the
+    // second submission would be refused.
+    let mut previous = first;
+    for version in 2..=4u32 {
+        let next = EntryBuilder::first(harness.log_id, "alice", &alice)
+            .version(version)
+            .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&previous)))
+            .created_at_ms(NOW + u64::from(version))
+            .same_key(&alice.dak);
+        harness
+            .log
+            .submit(&harness.envelope(&next, &alice, NOW), NOW)
+            .await
+            .unwrap();
+        assert_eq!(publish_and_count(&harness).await, 1);
+        previous = next;
+    }
 }
 
 #[tokio::test]
@@ -246,7 +294,7 @@ async fn an_unvouched_log_reports_itself_as_unvouched_and_still_demands_the_iden
 
     harness
         .log
-        .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
         .await
         .unwrap();
     assert_eq!(publish_and_count(&harness).await, 1);
@@ -268,7 +316,7 @@ async fn a_wrong_prev_entry_hash_is_refused() {
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&first, &alice, NOW), NOW)
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -282,7 +330,7 @@ async fn a_wrong_prev_entry_hash_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&envelope_without_claim(&second), NOW)
+                .submit(&harness.envelope(&second, &alice, NOW), NOW)
                 .await
         ),
         ErrorCode::VersionConflict
@@ -303,7 +351,7 @@ async fn a_key_change_carrying_only_one_of_the_two_signatures_is_refused() {
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&first, &alice, NOW), NOW)
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -325,7 +373,7 @@ async fn a_key_change_carrying_only_one_of_the_two_signatures_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&envelope_without_claim(&rotation), NOW)
+                .submit(&harness.envelope(&rotation, &attacker, NOW), NOW)
                 .await
         ),
         ErrorCode::BadSignature
@@ -343,7 +391,7 @@ async fn a_key_change_carrying_only_one_of_the_two_signatures_is_refused() {
         .key_change(&alice.isk, alice.isk.public, &attacker.dak);
     harness
         .log
-        .submit(&envelope_without_claim(&honest), NOW)
+        .submit(&harness.envelope(&honest, &attacker, NOW), NOW)
         .await
         .unwrap();
     assert_eq!(publish_and_count(&harness).await, 1);
@@ -362,7 +410,7 @@ async fn a_platform_reset_before_its_cooldown_is_refused() {
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&first, &alice, NOW), NOW)
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -388,7 +436,7 @@ async fn a_platform_reset_before_its_cooldown_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&envelope_without_claim(&too_soon), NOW)
+                .submit(&harness.envelope(&too_soon, &recovered, NOW), NOW)
                 .await
         ),
         ErrorCode::Cooldown
@@ -414,7 +462,7 @@ async fn a_platform_reset_before_its_cooldown_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&envelope_without_claim(&not_yet), NOW)
+                .submit(&harness.envelope(&not_yet, &recovered, NOW), NOW)
                 .await
         ),
         ErrorCode::Cooldown
@@ -426,7 +474,7 @@ async fn a_platform_reset_before_its_cooldown_is_refused() {
     let later = NOW + 130_000;
     harness
         .log
-        .submit(&envelope_without_claim(&not_yet), later)
+        .submit(&harness.envelope(&not_yet, &recovered, later), later)
         .await
         .unwrap();
     let head = harness.log.publish_epoch(later).await.unwrap();
@@ -442,7 +490,7 @@ async fn a_reset_signed_by_anyone_but_the_pinned_authority_is_refused() {
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&first, &alice, NOW), NOW)
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -463,7 +511,10 @@ async fn a_reset_signed_by_anyone_but_the_pinned_authority_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&envelope_without_claim(&forged), NOW + 130_000)
+                .submit(
+                    &harness.envelope(&forged, &recovered, NOW + 130_000),
+                    NOW + 130_000
+                )
                 .await
         ),
         ErrorCode::BadSignature
@@ -491,7 +542,7 @@ async fn a_device_credential_signed_by_the_wrong_identity_key_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+                .submit(&harness.envelope(&entry, &alice, NOW), NOW)
                 .await
         ),
         ErrorCode::BadSignature
@@ -515,7 +566,7 @@ async fn a_second_entry_for_one_handle_in_one_epoch_is_refused() {
     let first = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&first, &alice, NOW), NOW)
+        .submit(&harness.envelope(&first, &alice, NOW), NOW)
         .await
         .unwrap();
 
@@ -527,7 +578,7 @@ async fn a_second_entry_for_one_handle_in_one_epoch_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&harness.first_envelope(&again, &alice, NOW), NOW)
+                .submit(&harness.envelope(&again, &alice, NOW), NOW)
                 .await
         ),
         ErrorCode::VersionConflict
@@ -556,7 +607,7 @@ async fn an_entry_for_another_log_is_refused() {
         refusal(
             harness
                 .log
-                .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+                .submit(&harness.envelope(&entry, &alice, NOW), NOW)
                 .await
         ),
         ErrorCode::UnsupportedVersion
@@ -624,7 +675,7 @@ async fn a_receipt_is_issued_only_for_an_accepted_submission_and_it_verifies() {
     let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     let receipt = harness
         .log
-        .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
         .await
         .unwrap();
 

@@ -154,7 +154,7 @@ fn register(runtime: &tokio::runtime::Runtime, harness: &Harness, handle: &str, 
             .same_key(&identity.dak);
         harness
             .log
-            .submit(&harness.first_envelope(&entry, &identity, NOW), NOW)
+            .submit(&harness.envelope(&entry, &identity, NOW), NOW)
             .await
             .unwrap();
         harness.log.publish_epoch(NOW).await.unwrap();

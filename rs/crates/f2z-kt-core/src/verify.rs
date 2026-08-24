@@ -57,12 +57,32 @@ pub type Configuration = WhatsAppV1Configuration;
 /// **authorized**."* [`VerifiedEntry::verify_authorization`] is the second half,
 /// and it runs the same §4.4 code the log runs — there is not a second
 /// implementation to disagree with the first.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VerifiedEntry {
     entry: DirectoryEntry,
     canonical: Vec<u8>,
     epoch: u64,
     version: u64,
+}
+
+/// Hand-written, for [`AcceptedSubmission`]'s reason: `canonical` is a whole
+/// `DirectoryEntry` and a derived `Debug` renders it as a decimal byte dump.
+/// This one runs on the **client**, where a verbose log is a user's contact
+/// graph rather than a server's.
+///
+/// [`AcceptedSubmission`]: crate::submit::AcceptedSubmission
+impl core::fmt::Debug for VerifiedEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VerifiedEntry")
+            .field("entry", &self.entry)
+            .field(
+                "canonical",
+                &format_args!("<redacted; {} bytes>", self.canonical.len()),
+            )
+            .field("epoch", &self.epoch)
+            .field("version", &self.version)
+            .finish()
+    }
 }
 
 impl VerifiedEntry {

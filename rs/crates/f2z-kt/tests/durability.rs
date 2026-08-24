@@ -63,7 +63,7 @@ async fn a_restart_reproduces_every_root_the_log_signed() {
             .same_key(&identity.dak);
         harness
             .log
-            .submit(&harness.first_envelope(&entry, &identity, NOW), NOW)
+            .submit(&harness.envelope(&entry, &identity, NOW), NOW)
             .await
             .unwrap();
         expected.push(harness.log.publish_epoch(NOW).await.unwrap());
@@ -104,7 +104,7 @@ async fn a_submission_accepted_but_not_yet_published_survives_a_restart() {
     let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     let receipt = harness
         .log
-        .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
         .await
         .unwrap();
     assert_eq!(harness.log.pending_count().await, 1);
@@ -143,7 +143,7 @@ async fn an_edited_journal_refuses_to_start() {
     let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -155,12 +155,15 @@ async fn an_edited_journal_refuses_to_start() {
     bytes[index] ^= 0xff;
     std::fs::write(&path, &bytes).unwrap();
 
+    // Any of these is a correct refusal, and which one fires depends on which
+    // byte the flip landed on — the record framing, §4.4, the assertion layer,
+    // or the recomputed root. What must never happen is a log that starts.
     let error = reopen(&harness).await.unwrap_err();
     let rendered = format!("{error}");
     assert!(
         rendered.contains("does not decode")
+            || rendered.contains("no longer admits")
             || rendered.contains("different root hash")
-            || rendered.contains("no longer validates")
             || rendered.contains("tree_size"),
         "unexpected: {rendered}"
     );
@@ -181,7 +184,7 @@ async fn a_truncated_epoch_journal_refuses_rather_than_reordering_the_history() 
     let entry = EntryBuilder::first(harness.log_id, "alice", &alice).same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
         .await
         .unwrap();
     harness.log.publish_epoch(NOW).await.unwrap();
@@ -199,7 +202,9 @@ async fn a_truncated_epoch_journal_refuses_rather_than_reordering_the_history() 
         Err(error) => {
             let rendered = format!("{error}");
             assert!(
-                rendered.contains("does not decode") || rendered.contains("watermark"),
+                rendered.contains("does not decode")
+                    || rendered.contains("no longer admits")
+                    || rendered.contains("watermark"),
                 "unexpected: {rendered}"
             );
         }

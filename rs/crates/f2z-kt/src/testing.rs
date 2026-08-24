@@ -364,8 +364,12 @@ pub fn entry_bytes(entry: &DirectoryEntry) -> Vec<u8> {
     entry.encode_canonical().unwrap()
 }
 
-/// Wrap an entry in a submission envelope with no claim fields — the shape
-/// every submission above `entry_version == 1` must have.
+/// Wrap an entry in a submission envelope with **no** assertion and an all-zero
+/// identity signature.
+///
+/// The shape a `same_key` or `key_change` submission has above version 1, and
+/// simultaneously the adversarial shape for a first entry — which is exactly
+/// zuu#594's hole, and is why this is one function rather than two.
 ///
 /// # Panics
 ///
@@ -484,28 +488,91 @@ impl Harness {
         }
     }
 
-    /// Build a first-entry submission envelope, with the assertion and identity
-    /// binding this log requires.
+    /// Build a submission envelope for `entry`, with whatever the assertion
+    /// layer requires of it.
+    ///
+    /// An assertion is attached for a first entry and for a `platform_reset` on
+    /// a vouched log, and for nothing else — `same_key` and `key_change` are
+    /// user-authorized under `KT.md` §4.4 and reject a platform assertion as a
+    /// category error. The identity binding is signed on **every** path.
     ///
     /// # Panics
     ///
     /// If any part will not encode.
-    pub fn first_envelope(
+    pub fn envelope(&self, entry: &DirectoryEntry, identity: &Identity, now_ms: u64) -> Vec<u8> {
+        self.envelope_with(entry, identity, now_ms, true)
+    }
+
+    /// Attach an assertion **regardless of entry kind**, with a correctly
+    /// derived binding signature.
+    ///
+    /// For the adversarial case where the only thing wrong is that a platform
+    /// assertion is present on a user-authorized entry — `f2z-authority` calls
+    /// that a category error, and this is how a test produces one without also
+    /// breaking the binding.
+    ///
+    /// # Panics
+    ///
+    /// If any part will not encode.
+    pub fn envelope_forcing_assertion(
         &self,
         entry: &DirectoryEntry,
         identity: &Identity,
         now_ms: u64,
     ) -> Vec<u8> {
-        self.first_envelope_with(entry, identity, now_ms, true)
+        let bytes = entry_bytes(entry);
+        let digest = labels::entry_value(&bytes);
+        let handle = f2z_authority::types::Handle::parse(entry.entry.handle.as_slice()).unwrap();
+        let issuer = self
+            .issuer
+            .as_ref()
+            .expect("envelope_forcing_assertion needs a vouched harness");
+        let intent = if entry.entry.entry_version == 1 {
+            f2z_authority::types::Intent::Bind
+        } else {
+            f2z_authority::types::Intent::Reset
+        };
+        let assertion = f2z_authority::HandleAssertionTBS::new(
+            &issuer.public_key(),
+            f2z_authority::types::LogId::new(*self.log_id.as_bytes()),
+            handle.clone(),
+            entry.entry.identity_pk,
+            intent,
+            u32::from(entry.entry.entry_version > 1),
+            now_ms,
+            now_ms.saturating_add(60_000),
+            f2z_authority::types::AssertionNonce::new(nonce_for(
+                entry.entry.handle.as_slice(),
+                &entry.entry.identity_pk,
+            )),
+        )
+        .unwrap()
+        .sign(issuer)
+        .unwrap();
+
+        let binding = self
+            .log
+            .authority()
+            .binding(&handle, &entry.entry.identity_pk, Some(&assertion), &digest)
+            .unwrap();
+        let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
+        SubmissionEnvelope::new(
+            &bytes,
+            Some(&assertion.encode_canonical().unwrap()),
+            identity_signature,
+        )
+        .unwrap()
+        .encode_canonical()
+        .unwrap()
     }
 
-    /// As [`Harness::first_envelope`], but optionally omitting the assertion —
-    /// which is the adversarial case zuu#594 is about.
+    /// As [`Harness::envelope`], but optionally omitting the assertion — the
+    /// adversarial case zuu#594 is about.
     ///
     /// # Panics
     ///
     /// If any part will not encode.
-    pub fn first_envelope_with(
+    pub fn envelope_with(
         &self,
         entry: &DirectoryEntry,
         identity: &Identity,
@@ -516,15 +583,24 @@ impl Harness {
         let digest = labels::entry_value(&bytes);
         let handle = f2z_authority::types::Handle::parse(entry.entry.handle.as_slice()).unwrap();
 
-        let assertion = match (&self.issuer, with_assertion) {
+        let wants_assertion =
+            entry.entry.entry_version == 1 || matches!(entry.entry.kind, EntryKind::PlatformReset);
+        let assertion = match (&self.issuer, with_assertion && wants_assertion) {
             (Some(issuer), true) => {
+                let intent = if entry.entry.entry_version == 1 {
+                    f2z_authority::types::Intent::Bind
+                } else {
+                    f2z_authority::types::Intent::Reset
+                };
                 let tbs = f2z_authority::HandleAssertionTBS::new(
                     &issuer.public_key(),
                     f2z_authority::types::LogId::new(*self.log_id.as_bytes()),
                     handle.clone(),
                     entry.entry.identity_pk,
-                    f2z_authority::types::Intent::Bind,
-                    0,
+                    intent,
+                    // Strictly greater than the predecessor's retained epoch;
+                    // a reset is a distinct account-ownership event.
+                    u32::from(entry.entry.entry_version > 1),
                     now_ms,
                     now_ms.saturating_add(60_000),
                     // Derived from the handle and the identity key rather than

@@ -83,10 +83,18 @@ pub struct StoredSubmission {
     /// `received_at_ms` (`KT.md` §5.3), kept so that a restart can still tell
     /// whether a merge promise was broken.
     pub received_at_ms: u64,
-    /// `tls_codec(DirectoryEntry)`, canonical, exactly as
-    /// [`f2z_kt_core::submit::AcceptedSubmission::canonical_bytes`] produced
-    /// it. Never the bytes that arrived.
-    pub entry: Payload,
+    /// The canonical `tls_codec(SubmissionEnvelope)` — the **whole** envelope,
+    /// entry and handle assertion and identity binding together.
+    ///
+    /// The envelope rather than the entry, because a restart re-runs the whole
+    /// admission and the assertion layer is half of it. Storing only the entry
+    /// would leave the log unable to re-derive who vouched for a handle, which
+    /// is exactly the state `f2z-authority` requires back on the next
+    /// submission.
+    ///
+    /// Canonical, never the bytes that arrived: re-encode equality (`WIRE.md`
+    /// §3.3) has already run, and the canonical form is what was hashed.
+    pub envelope: Payload,
 }
 
 /// One published epoch, as it is written to `epochs.log`.
@@ -208,11 +216,11 @@ impl Store {
     /// # Errors
     ///
     /// [`LogError::Storage`] on any write or sync failure, and
-    /// [`LogError::Malformed`] if the entry will not fit a `u24` length —
+    /// [`LogError::Malformed`] if the envelope will not fit a `u24` length —
     /// which the submission path has already excluded.
     pub fn append_submission(
         &mut self,
-        entry: &[u8],
+        envelope: &[u8],
         received_at_ms: u64,
     ) -> Result<StoredSubmission> {
         let record = StoredSubmission {
@@ -220,7 +228,7 @@ impl Store {
             kt_version: KT_VERSION,
             sequence: self.next_sequence,
             received_at_ms,
-            entry: Payload::new(entry.to_vec()).map_err(|_| LogError::Malformed)?,
+            envelope: Payload::new(envelope.to_vec()).map_err(|_| LogError::Malformed)?,
         };
         let bytes = record.encode_canonical().map_err(|_| LogError::Malformed)?;
         append_record(&mut self.submissions, &bytes, &self.dir)?;
@@ -355,7 +363,7 @@ mod tests {
         }
         let (_store, journal) = Store::open(&dir).unwrap();
         assert_eq!(journal.submissions.len(), 2);
-        assert_eq!(journal.submissions[0].entry.as_slice(), b"first");
+        assert_eq!(journal.submissions[0].envelope.as_slice(), b"first");
         assert_eq!(journal.submissions[0].sequence, 0);
         assert_eq!(journal.submissions[1].received_at_ms, 2_000);
     }
@@ -387,7 +395,7 @@ mod tests {
             2,
             "the append after a truncation is a whole record, not an extension of the torn one"
         );
-        assert_eq!(journal.submissions[1].entry.as_slice(), b"after");
+        assert_eq!(journal.submissions[1].envelope.as_slice(), b"after");
     }
 
     #[test]

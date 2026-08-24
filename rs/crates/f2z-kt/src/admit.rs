@@ -14,6 +14,17 @@
 //! to have gone through [`f2z_kt_core::validate_submission`]. This module adds
 //! the second half and keeps the same shape.
 //!
+//! # Two checks, and neither is sufficient alone
+//!
+//! | Layer | What it decides | What it explicitly does **not** |
+//! |---|---|---|
+//! | [`f2z_kt_core::validate_submission`] | every rule in `KT.md` §4.4 — the chain, the signatures, the rotation proof, the reset cooldown, the device credentials, §4.3's uniqueness | who is allowed to claim a handle that has no previous entry (zuu#594) |
+//! | [`f2z_authority::AuthorityConfig::check_assertion_layer`] | the handle-ownership assertion, its authority, validity window, intent, nonce, and the identity key's signature over the binding | §4.4 itself — the crate's own documentation calls its result *"deliberately **not** an authorization-to-publish token"* |
+//!
+//! [`AdmittedSubmission`] is the conjunction, and it is the only thing
+//! [`crate::log::LogService`] will publish. Running one check without the other
+//! is not a state this server can reach by omission.
+//!
 //! # zuu#594 — what authorizes a handle's *first* entry
 //!
 //! §4.4's table authorizes `same_key` by *"the `directory_auth_pk` published in
@@ -27,47 +38,60 @@
 //! ship it.**
 //!
 //! [`admit_submission`] requires a `HandleAssertion` from a configured
-//! authority for `entry_version == 1`, verified by [`f2z_authority`], which is
-//! the crate proposal offered against #594 rather than ratified specification.
-//! Self-hosters who have no authority configure
-//! [`f2z_authority::AuthoritySet::none`] — and that mode is **reported**, in
-//! the signed policy document [`crate::policy`] serves, so a client connecting
-//! to such a log can see that handles there are unvouched rather than having to
-//! infer it.
+//! authority for a first entry. That is `f2z-authority`'s **unratified
+//! candidate**, offered against #594 rather than merged protocol — the crate
+//! says so of its own `EntryKind::InitialBind`, and this server says so too, in
+//! the signed policy document [`crate::policy`] serves. Self-hosters who have
+//! no authority configure [`f2z_authority::AuthoritySet::none`], and that mode
+//! is **reported**, so a client connecting to such a log can see that handles
+//! there are unvouched rather than having to infer it.
 //!
-//! # Where the assertion is admitted, and where it is refused
+//! # Where an assertion is required, and where it is a category error
 //!
-//! Exactly at `entry_version == 1`, and nowhere else.
+//! The boundary is `f2z-authority`'s, and this module's job is to hand it the
+//! right [`AuthorityEntryKind`] rather than to re-decide it:
 //!
-//! Every later entry is authorized by §4.4's own chain: `same_key` by the
-//! previously published `directory_auth_pk`, `key_change` by two signatures,
-//! `platform_reset` by the pinned reset authority. Those rules are complete,
-//! they are the user's own keys rather than the platform's, and admitting an
-//! authority assertion alongside them would give the platform a second way to
-//! authorize a change to a live handle — which is the power ADR 0014 spent a
-//! cooldown, an alarm and a per-epoch counter to constrain. So a submission at
-//! `entry_version > 1` carrying assertion bytes is **refused**, not ignored.
-//!
-//! The same rule runs in the other direction: the envelope's claim fields must
-//! be *absent* — an empty assertion and an all-zero signature — above version 1.
-//! A field the log skips reading is a field that eventually gets read.
+//! | Entry | Assertion on a vouched log |
+//! |---|---|
+//! | first entry (`entry_version == 1`) | **required** — zuu#594's gap |
+//! | `same_key`, `key_change` | **refused.** These are user-authorized under §4.4 by the previous `directory_auth_pk` and, for a rotation, the outgoing identity key. Admitting a platform assertion here would give the platform a second way to authorize a change to a live handle — the power ADR 0014 spent a cooldown, an alarm and a per-epoch counter to constrain. |
+//! | `platform_reset` | **required**, alongside §4.4's `ResetAuthorization`. |
 //!
 //! [zuu#594]: https://github.com/free2z/zuu/issues/594
 
-use f2z_authority::authority::{AuthorityConfig, Submission, Vouch};
+use f2z_authority::authority::{
+    AuthorityConfig, EntryKind as AuthorityEntryKind, Submission, Vouch,
+};
 use f2z_authority::nonce::NonceSeen;
 use f2z_codec::decode_canonical;
 use f2z_codec::types::PublicKey;
+use f2z_kt_core::api::SubmissionEnvelope;
+use f2z_kt_core::entry::EntryKind;
 use f2z_kt_core::submit::{
     AcceptedSubmission, PublishedEntry, SubmissionContext, validate_submission,
 };
 use f2z_kt_core::{KtError, sig};
 
 use crate::error::{LogError, Result};
-use crate::wire::SubmissionEnvelope;
 
-/// A submission that satisfied `KT.md` §4.4 **and** whatever authorizes its
-/// handle.
+/// What the log retains about a handle between entries, beyond §4.4's own
+/// `PublishedEntry`.
+///
+/// `f2z-authority` requires both of these back on every non-initial submission
+/// — `previous_vouch` so that a routine entry carries its predecessor's
+/// vouching state forward rather than silently upgrading it, and
+/// `previous_account_epoch` so that a platform assertion cannot be spent twice
+/// on one account-ownership event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HandleVouch {
+    /// Who vouched for this handle, recorded at its first entry and carried
+    /// forward unchanged by every routine update.
+    pub vouch: Vouch,
+    /// The `account_epoch` retained for this handle.
+    pub account_epoch: u32,
+}
+
+/// A submission that satisfied `KT.md` §4.4 **and** the handle-assertion layer.
 ///
 /// No public constructor, no `From`, no field access, no bypass flag. The
 /// storage layer's publish path takes one of these and nothing else, so
@@ -76,7 +100,7 @@ use crate::wire::SubmissionEnvelope;
 #[derive(Clone, Debug)]
 pub struct AdmittedSubmission {
     accepted: AcceptedSubmission,
-    vouch: Vouch,
+    vouch: HandleVouch,
     received_at_ms: u64,
 }
 
@@ -88,12 +112,11 @@ impl AdmittedSubmission {
         &self.accepted
     }
 
-    /// Who vouched for this handle, if anyone.
-    ///
-    /// [`Vouch::Unvouched`] on a log configured with no authority, and on every
-    /// entry after the first — where the vouch that matters was recorded at
-    /// version 1 and the chain has carried it since.
-    pub const fn vouch(&self) -> Vouch {
+    /// What to retain for this handle, to be fed back as
+    /// [`Submission::previous_vouch`] and
+    /// [`Submission::previous_account_epoch`] next time.
+    #[must_use]
+    pub const fn vouch(&self) -> HandleVouch {
         self.vouch
     }
 
@@ -108,12 +131,15 @@ impl AdmittedSubmission {
 /// Everything [`admit_submission`] needs that is not in the submitted bytes.
 pub struct AdmissionContext<'a> {
     /// §4.4's policy: the log id, the pinned reset authority key, the published
-    /// cooldown.
+    /// cooldown, and what the log has already published for this handle.
     pub kt: SubmissionContext<'a>,
-    /// Who may vouch for a handle's first entry, and for how long an assertion
-    /// stays valid. [`f2z_authority::AuthoritySet::none`] is the explicit
-    /// no-authority mode.
+    /// Who may vouch for a handle, and for how long an assertion stays valid.
+    /// [`f2z_authority::AuthoritySet::none`] is the explicit no-authority mode.
     pub authority: &'a AuthorityConfig,
+    /// What the log retained for this handle, or `None` if it has never been
+    /// registered. Must agree with [`SubmissionContext::previous`]: both are
+    /// derived from the same published entry.
+    pub retained: Option<HandleVouch>,
 }
 
 /// **Admit a submission, or refuse it.** The only producer of
@@ -126,16 +152,14 @@ pub struct AdmissionContext<'a> {
 /// 2. `KT.md` §4.4, in full, via [`f2z_kt_core::validate_submission`] — nine
 ///    numbered rules over the **bytes that arrived**, not over a structure this
 ///    module decoded and handed on.
-/// 3. The claim fields are populated exactly at `entry_version == 1`.
-/// 4. At `entry_version == 1`, [`f2z_authority::AuthorityConfig::admit`] — the
-///    assertion, its authority, its validity window, its intent, its nonce, and
-///    the identity key's own signature over the binding, which is what makes a
-///    stolen assertion useless.
+/// 3. The assertion layer, via
+///    [`f2z_authority::AuthorityConfig::check_assertion_layer`], against the
+///    entry kind and predecessor state **as validated**, never as claimed.
 ///
-/// Step 2 before step 4 matters: the assertion is checked against
-/// `entry_version` and `identity_pk` *as validated*, never as claimed, and a
-/// submission that fails §4.4 never reaches the nonce ledger and so cannot burn
-/// somebody else's nonce.
+/// Step 2 before step 3 matters twice over: the assertion is checked against an
+/// `entry_version`, an `identity_pk` and a predecessor that §4.4 has already
+/// agreed to, and a submission that fails §4.4 never reaches the nonce ledger
+/// and so cannot burn somebody else's nonce.
 ///
 /// # Errors
 ///
@@ -143,9 +167,9 @@ pub struct AdmissionContext<'a> {
 ///   identically.
 /// - [`LogError::Kt`] — any of §4.4's rules. The §9.5 code is
 ///   `f2z-kt-core`'s.
-/// - [`LogError::AssertionOutOfPlace`] — claim fields above version 1, or
-///   missing at version 1 on a log that has an authority.
 /// - [`LogError::Authority`] — the assertion, its binding, or its nonce.
+/// - [`LogError::Config`] — the log's own retained state disagrees with what it
+///   published, which is a bug here rather than a fault of the submitter.
 pub fn admit_submission<S: NonceSeen + ?Sized>(
     envelope_bytes: &[u8],
     context: &AdmissionContext<'_>,
@@ -159,62 +183,76 @@ pub fn admit_submission<S: NonceSeen + ?Sized>(
     // 2. KT.md §4.4, over the bytes that arrived.
     let accepted = validate_submission(envelope.entry.as_slice(), &context.kt)?;
     let entry = accepted.entry();
-    let entry_version = entry.entry.entry_version;
 
-    // 3. The claim fields are populated exactly at version 1 — checked in both
-    //    directions, so neither a smuggled assertion nor a silently skipped one
-    //    is reachable.
-    let has_assertion = envelope.assertion_bytes().is_some();
-    let has_signature = !envelope.identity_signature.is_zero();
-    if entry_version != 1 {
-        if has_assertion || has_signature {
-            return Err(LogError::AssertionOutOfPlace);
-        }
-        // §4.4's chain is the authorization from here on. The vouch recorded at
-        // version 1 is what the chain has been carrying forward.
-        return Ok(AdmittedSubmission {
-            accepted,
-            vouch: Vouch::Unvouched,
-            received_at_ms: context.kt.now_ms,
-        });
+    // The two views of "what came before" must agree. They are both derived
+    // from the same published entry, so a disagreement is this server losing
+    // track of its own state — never something a submitter can cause, and
+    // never something to resolve by picking one.
+    if context.kt.previous.is_some() != context.retained.is_some() {
+        return Err(LogError::Config(
+            "the retained vouch and the published predecessor disagree about whether this handle \
+             exists"
+                .to_owned(),
+        ));
     }
 
-    // 4. Version 1 — the case KT.md does not specify (zuu#594).
+    // 3. The assertion layer. The kind it is told is the kind §4.4 validated,
+    //    and `entry_version == 1` is what makes it an initial bind — the case
+    //    KT.md does not specify (zuu#594).
+    let kind = if entry.entry.entry_version == 1 {
+        AuthorityEntryKind::InitialBind
+    } else {
+        match entry.entry.kind {
+            EntryKind::SameKey => AuthorityEntryKind::SameKey,
+            EntryKind::KeyChange => AuthorityEntryKind::KeyChange,
+            EntryKind::PlatformReset => AuthorityEntryKind::PlatformReset,
+            // `EntryKind` is `#[non_exhaustive]`. A kind added to KT.md §4.4
+            // later must not silently fall through to the routine path, which
+            // is the one that requires no platform assertion — so it is a
+            // refusal until this match is updated deliberately.
+            _ => return Err(LogError::Kt(KtError::BadAuthorization)),
+        }
+    };
+
     let handle = f2z_authority::types::Handle::parse(entry.entry.handle.as_slice())
         .map_err(|_| LogError::Kt(KtError::BadHandle))?;
     let identity_pk = entry.entry.identity_pk;
     let entry_digest = *accepted.akd_value();
+    let previous_identity_pk = context.kt.previous.map(PublishedEntry::identity_pk);
+
     let submission = Submission {
         assertion: envelope.assertion_bytes(),
+        kind,
         handle: &handle,
         identity_pk: &identity_pk,
-        entry_version,
+        entry_version: entry.entry.entry_version,
         entry_digest: &entry_digest,
         identity_signature: &envelope.identity_signature,
-        // A first entry has no predecessor, and `validate_submission` has
-        // already refused the case where the log is holding one — rule 3's
-        // "`entry_version` is `previous + 1` (or 1)". Passing `None` here is a
-        // consequence of that check, not an assumption alongside it.
-        previous_identity_pk: None,
-        previous_account_epoch: None,
+        previous_identity_pk,
+        previous_vouch: context.retained.map(|retained| retained.vouch),
+        previous_account_epoch: context.retained.map(|retained| retained.account_epoch),
     };
-    let admitted = context
-        .authority
-        .admit(&submission, context.kt.now_ms, ledger)?;
+    let checked =
+        context
+            .authority
+            .check_assertion_layer(&submission, context.kt.now_ms, ledger)?;
 
     Ok(AdmittedSubmission {
         accepted,
-        vouch: admitted.vouch(),
+        vouch: HandleVouch {
+            vouch: checked.vouch(),
+            account_epoch: checked.account_epoch(),
+        },
         received_at_ms: context.kt.now_ms,
     })
 }
 
-/// Build the binding an `identity_pk` must sign for a first-entry submission.
+/// Build the binding an `identity_pk` must sign for a submission.
 ///
 /// A client needs this to *construct* a submission and the log needs it to
 /// check one, so it is derived from the same [`AuthorityConfig`] on both sides
-/// rather than restated. `assertion` is the decoded assertion, or `None` on a
-/// log with no authority.
+/// rather than restated. `assertion` is the decoded assertion, or `None` where
+/// the entry kind does not carry one.
 ///
 /// # Errors
 ///
@@ -232,10 +270,10 @@ pub fn binding_bytes(
 
 /// Verify that `identity_pk` really signed the binding for this submission.
 ///
-/// Not used on the admission path — [`f2z_authority::AuthorityConfig::admit`]
-/// does it there, and doing it twice would invite the two to drift. It is here
-/// for the *client* half and for tests, which need to check a binding they did
-/// not construct.
+/// Not used on the admission path — `check_assertion_layer` does it there, on
+/// every path, and doing it twice would invite the two to drift. It is here for
+/// the *client* half and for tests, which need to check a binding they did not
+/// construct.
 ///
 /// # Errors
 ///

@@ -114,7 +114,7 @@ async fn the_log_service_never_renders_a_pending_submission_or_a_key() {
         .same_key(&alice.dak);
     harness
         .log
-        .submit(&harness.first_envelope(&entry, &alice, NOW), NOW)
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
         .await
         .unwrap();
     assert_eq!(harness.log.pending_count().await, 1);
