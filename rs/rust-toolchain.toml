@@ -1,0 +1,16 @@
+# A restatement, never a second decision.
+#
+# Cargo selects a toolchain from the directory it runs in, so a second
+# top-level Rust tree needs its own copy of this file for rustup to pick the
+# pinned channel when `scripts/check-rust-*.sh --root rs` runs cargo from here.
+# The one place the version is decided is `wallet/rust-toolchain.toml`;
+# `scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml`
+# fails the pull request the moment this file stops repeating it.
+#
+# Do not bump this on its own. Bump wallet/rust-toolchain.toml and run
+# `scripts/check-rust-toolchain.sh`, which names every restatement to update.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

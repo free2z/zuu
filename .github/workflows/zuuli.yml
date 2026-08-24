@@ -57,6 +57,16 @@ jobs:
           scripts/check-rust-toolchain.sh --self-test
           scripts/check-rust-toolchain.sh
 
+      # A gate that awaits a job and never inspects its result is decorative
+      # for that job: GitHub waits, the gate goes green whatever the job
+      # concluded, and branch protection reports a passing required check over a
+      # failed build. This runs in the always-required job, over every workflow
+      # in the repository, so that hazard cannot be reintroduced anywhere.
+      - name: Verify every gate inspects every job it awaits
+        run: |
+          node scripts/check-workflow-gates.mjs --self-test
+          node scripts/check-workflow-gates.mjs
+
       # Public-repository boundaries should be mechanically enforced rather
       # than depending on every contributor remembering private repo names.
       - name: Reject references to the private backend repository
