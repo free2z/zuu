@@ -95,84 +95,9 @@ struct DerivedDebugItem {
     body: String,
 }
 
-/// `rs/crates/`, resolved from this crate's manifest rather than from the
-/// process CWD so the test does not depend on where cargo was invoked.
-fn crates_root() -> std::path::PathBuf {
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let root = manifest.parent().unwrap().to_path_buf();
-    assert!(
-        root.join("f2z-codec").join("Cargo.toml").is_file(),
-        "{root:?} is not rs/crates/; this test's idea of the workspace layout is stale"
-    );
-    root
-}
+mod common;
 
-/// Every crate directory under `rs/crates/`, by name.
-///
-/// This is the list the scan must cover, and it is read off the filesystem
-/// rather than written down here — a crate added tomorrow appears in it
-/// without anyone editing this file, which is the whole point. `rs/Cargo.toml`
-/// declares `members = ["crates/*"]`, so the glob and this walk agree by
-/// construction.
-fn workspace_crates() -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(crates_root())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.join("Cargo.toml").is_file())
-        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    assert!(
-        names.len() >= 2,
-        "found {} crate(s) under rs/crates/, which is too few to be real: {names:?}",
-        names.len()
-    );
-    names
-}
-
-/// Every `.rs` file under every workspace crate's `src/`, labelled
-/// `<crate>/<file>` so a violation names the crate it is in.
-fn source_files() -> Vec<(String, String)> {
-    fn walk(krate: &str, dir: &std::path::Path, out: &mut Vec<(String, String)>) {
-        let read = std::fs::read_dir(dir);
-        assert!(read.is_ok(), "could not read {dir:?}");
-        let entries = read.unwrap();
-        for entry in entries {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                walk(krate, &path, out);
-            } else if path.extension().is_some_and(|ext| ext == "rs") {
-                let name = path.file_name().unwrap().to_string_lossy().into_owned();
-                out.push((
-                    format!("{krate}/{name}"),
-                    std::fs::read_to_string(&path).unwrap(),
-                ));
-            }
-        }
-    }
-    let root = crates_root();
-    let mut out = Vec::new();
-    for krate in workspace_crates() {
-        let src = root.join(&krate).join("src");
-        assert!(
-            src.is_dir(),
-            "{krate} has a Cargo.toml but no src/, so the scan cannot see it"
-        );
-        walk(&krate, &src, &mut out);
-    }
-    assert!(!out.is_empty(), "found no source files to scan");
-    out
-}
-
-/// Strip a line comment, so a brace inside a doc comment does not confuse the
-/// depth count. Struct bodies contain no string literals, so a naive cut is
-/// safe here and a real parser is not worth the dependency.
-fn without_comment(line: &str) -> &str {
-    match line.find("//") {
-        Some(index) => &line[..index],
-        None => line,
-    }
-}
+use common::{source_files, without_comment, workspace_crates};
 
 /// Collect every `struct`/`enum` in `source` whose derive list contains `Debug`.
 fn derived_debug_items(file: &str, source: &str) -> Vec<DerivedDebugItem> {
@@ -284,16 +209,15 @@ fn no_type_derives_debug_while_holding_raw_bytes() {
     // `f2z-codec`'s `frame.rs` may be typed with an alias declared in its
     // `types.rs`, and a field in another crate may be typed with either.
     let mut spellings: Vec<String> = RAW_BYTE_TYPES.iter().map(|raw| (*raw).to_owned()).collect();
-    for (_, source) in &sources {
-        spellings.extend(raw_byte_aliases(source));
+    for file in &sources {
+        spellings.extend(raw_byte_aliases(&file.source));
     }
 
-    for (file, source) in &sources {
-        let krate = file.split('/').next().unwrap().to_owned();
-        if !crates_reached.contains(&krate) {
-            crates_reached.push(krate);
+    for file in &sources {
+        if !crates_reached.contains(&file.krate) {
+            crates_reached.push(file.krate.clone());
         }
-        for item in derived_debug_items(file, source) {
+        for item in derived_debug_items(&file.label, &file.source) {
             for raw in &spellings {
                 // The declaration line itself is excluded from the search only
                 // for the tuple-struct case, where it *is* the body; matching
