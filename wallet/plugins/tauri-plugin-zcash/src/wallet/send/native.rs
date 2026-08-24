@@ -4,7 +4,9 @@ use zcash_client_backend::data_api::wallet::{
     input_selection::{GreedyInputSelector, SpendPolicy},
     propose_transfer,
 };
-use zcash_client_backend::data_api::{InputSource, WalletCommitmentTrees, WalletRead, WalletWrite};
+use zcash_client_backend::data_api::{
+    InputSource, WalletCommitmentTrees, WalletRead, WalletSummary, WalletWrite,
+};
 use zcash_client_backend::fees::DustOutputPolicy;
 use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::proposal::Proposal;
@@ -25,6 +27,34 @@ fn proposed_transaction_version() -> Option<TxVersion> {
     // Let librustzcash select the consensus transaction version for the target
     // height, matching the behavior before this argument was introduced.
     None
+}
+
+/// The one confirmation-depth decision used by proposal construction and the
+/// send-all spendable-balance read.
+fn confirmations_policy() -> ConfirmationsPolicy {
+    ConfirmationsPolicy::default()
+}
+
+/// Apply the shared depth decision without making the policy type or value
+/// available to orchestration.
+pub(super) fn wallet_summary_with_policy<DbT>(
+    db: &DbT,
+) -> std::result::Result<
+    Option<WalletSummary<<DbT as WalletRead>::AccountId>>,
+    <DbT as WalletRead>::Error,
+>
+where
+    DbT: WalletRead,
+{
+    db.get_wallet_summary(confirmations_policy())
+}
+
+/// Derive the minimum standard ZIP-317 fee from the fee rule itself. Returning
+/// `None` keeps an impossible future arithmetic overflow on the ordinary error
+/// path instead of turning a send request into a process panic.
+pub(super) fn standard_minimum_fee() -> Option<u64> {
+    let rule = Zip317FeeRule::standard();
+    (rule.marginal_fee() * rule.grace_actions()).map(u64::from)
 }
 
 type NativeSendChangeStrategy<DbT> = SingleOutputChangeStrategy<Zip317FeeRule, DbT>;
@@ -69,7 +99,7 @@ where
         &input_selector,
         &change_strategy,
         request,
-        ConfirmationsPolicy::default(),
+        confirmations_policy(),
         spend_policy,
         proposal_lock_request(),
         proposed_transaction_version(),
@@ -170,6 +200,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use transparent::{
         bundle::{OutPoint, TxOut},
         keys::TransparentKeyScope,
@@ -180,9 +211,12 @@ mod tests {
         pool::{ShieldedPoolTester, dsl::TestDsl},
     };
     use zcash_client_backend::data_api::wallet::input_selection::TransparentSpendPolicy;
+    use zcash_client_backend::decrypt_transaction;
     use zcash_client_backend::wallet::WalletTransparentOutput;
     use zcash_client_sqlite::testing::{BlockCache, db::TestDbFactory};
+    use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
     use zcash_protocol::PoolType;
+    use zcash_protocol::memo::Memo;
     use zcash_protocol::value::Zatoshis;
 
     fn payment_request(
@@ -197,12 +231,21 @@ mod tests {
         .expect("the independently fixed test payment is valid")
     }
 
+    fn independently_derived_standard_minimum_fee() -> u64 {
+        let rule = Zip317FeeRule::standard();
+        u64::from(
+            (rule.marginal_fee() * rule.grace_actions())
+                .expect("the standard ZIP-317 fee constants fit in the monetary range"),
+        )
+    }
+
     #[test]
     fn production_send_boundaries_preserve_pool_depth_fee_and_sender_recovery() {
         const NOTE_VALUE: u64 = 60_000;
         const FIXED_SEND_VALUE: u64 = 10_000;
         const SEND_ALL_VALUE: u64 = 50_000;
-        const EXPECTED_FEE: u64 = 10_000;
+        let expected_fee = independently_derived_standard_minimum_fee();
+        assert_eq!(standard_minimum_fee(), Some(expected_fee));
 
         let mut st =
             TestDsl::with_sapling_birthday_account(TestDbFactory::default(), BlockCache::new())
@@ -255,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             u64::from(proposal.steps().head.balance().fee_required()),
-            EXPECTED_FEE
+            expected_fee
         );
 
         let send_all_proposal = propose_send_all_validated(
@@ -269,7 +312,7 @@ mod tests {
         assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
         assert_eq!(
             u64::from(send_all_proposal.steps().head.balance().fee_required()),
-            EXPECTED_FEE
+            expected_fee
         );
         assert_eq!(
             send_all_proposal
@@ -285,7 +328,7 @@ mod tests {
 
         let spending_keys = SpendingKeys::from_unified_spending_key(account.usk().clone());
         let prover = LocalTxProver::bundled();
-        let recovery_height = proposal.min_target_height().into();
+        let recovery_height: consensus::BlockHeight = proposal.min_target_height().into();
         let txids = create_transactions(
             st.wallet_mut(),
             &network,
@@ -299,6 +342,29 @@ mod tests {
             .get_transaction(txids.head)
             .expect("the test wallet database remains readable")
             .expect("the created transaction is persisted");
+        assert_eq!(
+            tx.expiry_height(),
+            recovery_height + DEFAULT_TX_EXPIRY_DELTA,
+            "the created transaction must retain the builder-derived expiry height",
+        );
+
+        let viewing_keys: HashMap<_, _> =
+            [(account_id, account.usk().to_unified_full_viewing_key())]
+                .into_iter()
+                .collect();
+        let decrypted =
+            decrypt_transaction(&network, None, Some(recovery_height), &tx, &viewing_keys);
+        let mut wallet_output_memos = Vec::new();
+        OrchardPoolTester::with_decrypted_pool_memos(&decrypted, |memo| {
+            wallet_output_memos.push(
+                Memo::try_from(memo).expect("a transaction built by the wallet has a valid memo"),
+            );
+        });
+        assert_eq!(
+            wallet_output_memos,
+            vec![Memo::Empty, Memo::Empty],
+            "the recipient fixture is memo-free, so the other decrypted output proves change is empty",
+        );
         let sender_fvk = OrchardPoolTester::test_account_fvk(&st);
         let (_, recovered_recipient, _) =
             OrchardPoolTester::try_output_recovery(&network, recovery_height, &tx, &sender_fvk)
