@@ -62,6 +62,7 @@ MANIFESTS=(
   rs/crates/f2z-relay-proto/Cargo.toml
   rs/crates/f2z-authority/Cargo.toml
   rs/crates/f2z-relay-store/Cargo.toml
+  rs/crates/f2z-relay-testkit/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory

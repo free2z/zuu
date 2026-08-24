@@ -112,15 +112,15 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
-| [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-relay-store`](./crates/f2z-relay-store) | The relay's queue storage: a `RelayStore` trait that speaks addresses and bytes and never a wire frame, plus a durable `SqliteStore` (WAL, `synchronous = FULL`, `secure_delete = ON`, group commit) and a volatile `MemoryStore`. **Native only** — it links SQLite and is not on the wasm line. `std`, `#![forbid(unsafe_code)]`, no async runtime. |
+| [`crates/f2z-relay-testkit`](./crates/f2z-relay-testkit) | **FakeRelay**: a spec-conforming relay a client can develop against, over an in-process pipe *and* a real `ws://127.0.0.1:0` listener running the same implementation, plus fault injection and a conformance vector suite a real relay is run against unchanged. Also ships the `f2z-fakerelay` binary and `rs/deploy/docker-compose.dev.yml`. **Native only** — it opens sockets, spawns tasks and reads a clock, and is deliberately absent from the `wasm32` job. |
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 
 The current dependency graph is narrower than that intended architecture:
 `f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
 standalone experimental leaf and no workspace package depends on it. Wiring the
 authority candidate into a relay or client is future integration work, not a
-property this README claims today. All three remain MIT so downstream relays and
+property this README claims today. All remain MIT so downstream relays and
 clients can share the rules once that integration exists.
 
 `f2z-codec` is separate from everything that sits on top of it for three
@@ -148,13 +148,17 @@ cargo build --target wasm32-unknown-unknown --lib \
 # the feature compiles an abort() into the commit path. It kills real child
 # processes; `cargo test` alone does not run it.
 cargo test -p f2z-relay-store --features crash-injection --test crash_safety
+
+# A relay endpoint for a client developer, in one command.
+cargo run -p f2z-relay-testkit --bin f2z-fakerelay
 ```
 
 **Not every crate here reaches the browser, and the wasm line is the record of
 which do.** `f2z-relay-store` links SQLite through `rusqlite`'s bundled C
-amalgamation and is relay-side only, so it is deliberately absent from
-`rs.yml`'s `rs_wasm` job. Adding a crate to that line is a claim that a client
-links it.
+amalgamation and is relay-side only; `f2z-relay-testkit` opens sockets, spawns
+tasks and reads a clock, and a test harness that could reach the browser build
+could end up in the shipped bundle. Both are deliberately absent from `rs.yml`'s
+`rs_wasm` job. Adding a crate to that line is a claim that a client links it.
 
 The gates are the repository's shared scripts, pointed here with `--root`:
 
