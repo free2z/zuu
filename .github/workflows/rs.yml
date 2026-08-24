@@ -10,9 +10,13 @@ name: rs
 # workflow demonstrated both directions: an rs/-only diff yields zuuli=false,
 # and a wallet/-only diff yields rs=false.
 #
-# The `gate` job at the end is what branch protection should require. Adding it
-# as a required status check is a repository-settings change and cannot be made
-# in this file.
+# The `gate` job at the end publishes the context `rs / gate`, and that is what
+# branch protection should require alongside the wallet's `gate`. Every job here
+# carries an `rs / ` display name so none of them collides with a job id in
+# another workflow: check-run names are the only thing branch protection matches
+# on, and a name two workflows both publish resolves by report order rather than
+# by policy. Adding `rs / gate` as a required status check is a
+# repository-settings change and cannot be made in this file.
 
 on:
   pull_request:
@@ -36,6 +40,7 @@ env:
 
 jobs:
   changes:
+    name: rs / changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -290,15 +295,23 @@ jobs:
             --target "${{ steps.rust_toolchain.outputs.target }}" \
             -p f2z-codec
 
-  # Branch protection should require this stable context. It succeeds only when
-  # the change detector and every applicable rs job succeeded; a legitimate
-  # non-rs skip reports success rather than remaining pending.
+  # Branch protection should require this stable context, `rs / gate`. It
+  # succeeds only when the change detector and every applicable rs job
+  # succeeded; a legitimate non-rs skip reports success rather than remaining
+  # pending.
+  #
+  # The `name:` is not cosmetic. Without it this job would publish its job id,
+  # `gate`, which is the context zuuli.yml's full-stack gate already publishes
+  # and the one branch protection requires — two producers for one name, with
+  # the winner decided by report order (#562).
   #
   # Every job in `needs:` below is bound into `env:` AND named on the `results=`
   # line. scripts/check-workflow-gates.mjs enforces that the three sets are
   # equal, so a job that is awaited but never inspected fails review instead of
-  # quietly making this gate decorative.
+  # quietly making this gate decorative. It also requires this `needs:` to cover
+  # every job in this file, so adding a job without wiring it here fails.
   gate:
+    name: rs / gate
     needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm]
     if: always()
     runs-on: ubuntu-latest
