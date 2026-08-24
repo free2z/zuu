@@ -1,7 +1,8 @@
 # The `rs/` workspace — one [workspace], one Cargo.lock.
 #
-# See rs/README.md for why this tree exists, why it is named `rs/`, and why the
-# decision recorded here deliberately does not decide #341.
+# See rs/README.md for why this tree exists, why it is named `rs/`, and why a
+# fourth package root here sits inside the workspace boundary decided for #341
+# in docs/architecture/CARGO-WORKSPACE.md rather than cutting across it.
 
 [workspace]
 resolver = "3"

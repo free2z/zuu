@@ -39,6 +39,7 @@ TOOLCHAIN_FILE=wallet/rust-toolchain.toml
 # exact toolchain, so the forms are deliberately different and compared as such.
 MANIFESTS=(
   wallet/zuuli/wasm-spike/Cargo.toml
+  wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
