@@ -66,16 +66,33 @@ jobs:
           node scripts/check-workflow-gates.mjs --self-test
           node scripts/check-workflow-gates.mjs
 
+      # Deliberately in this always-running job and not behind the rs/ filter.
+      # The labels it judges live in docs/e2ee/*.md as much as in rs/, and the
+      # collision it exists to catch (#602) arrived in a docs-only pull request
+      # — a diff for which `filter` below sets rs=false and every rs job skips.
+      # A check that only runs when Rust changes would not have run on the
+      # commit that broke the invariant. Its own step rather than a line added
+      # to one above, so the exact ordered command assertion that
+      # scripts/check-github-actions-pins.mjs holds over the required workflow's
+      # policy step stays a single reviewed unit.
+      - name: Verify hash-domain labels are prefix-free across the tree
+        run: |
+          node scripts/check-hash-domain-labels.mjs --self-test
+          node scripts/check-hash-domain-labels.mjs
+
       # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
-      # wallet/rust-toolchain.toml. Registering them here is what holds them to
-      # it; without the flags they would be a second, unpoliced source of truth.
+      # wallet/rust-toolchain.toml, and are registered in the script's own
+      # TOOLCHAIN_RESTATEMENTS/MANIFESTS arrays rather than by flags here. A
+      # flag in one workflow is not a registration: the bare invocation the
+      # required zuuli gate runs passes no flags, so anything registered only
+      # here would be unpoliced there. Registering in the script instead means
+      # its census — which enumerates every tracked manifest and toolchain file
+      # and fails on any that is unregistered — covers this tree from both
+      # workflows. See #553.
       - name: Verify the Rust toolchain pin has not drifted
         run: |
           scripts/check-rust-toolchain.sh --self-test
-          scripts/check-rust-toolchain.sh \
-            --toolchain-file rs/rust-toolchain.toml \
-            --manifest rs/crates/f2z-codec/Cargo.toml \
-            --manifest rs/crates/f2z-relay-proto/Cargo.toml
+          scripts/check-rust-toolchain.sh
 
       - name: Detect changes under rs/
         id: filter
@@ -329,6 +346,12 @@ jobs:
       # Re-run the workflow policy here so that even a job-level
       # continue-on-error on `changes` cannot turn that job's deliberately
       # failing policy verdict into the `success` conclusion this gate consumes.
+      #
+      # The label check is re-run here for the same reason, and this is how it
+      # reaches the required context: this step's `outcome` is bound below as
+      # POLICY_OUTCOME and the verdict refuses to pass unless it is `success`.
+      # `needs:` a job without reading its result is the defect of #512 and
+      # #515–#518; a step whose outcome is read is not that shape.
       - name: Recheck the workflow policy
         id: policy
         run: |
@@ -336,6 +359,8 @@ jobs:
           node scripts/check-github-actions-pins.mjs
           node scripts/check-workflow-gates.mjs --self-test
           node scripts/check-workflow-gates.mjs
+          node scripts/check-hash-domain-labels.mjs --self-test
+          node scripts/check-hash-domain-labels.mjs
 
       - name: Verify required jobs succeeded or legitimately skipped
         shell: bash
