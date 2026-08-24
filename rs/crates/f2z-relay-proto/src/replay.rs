@@ -157,7 +157,7 @@ impl fmt::Debug for ReplayKey {
 /// but they are not independent. See [`SeenSet::retention_is_sound`].
 #[derive(Clone, Debug)]
 pub struct SeenSet {
-    /// Value is the instant at which the entry may be dropped.
+    /// Value is the final instant at which the entry must remain live.
     entries: BTreeMap<ReplayKey, u64>,
     retention_ms: u64,
     max_entries: usize,
@@ -226,6 +226,9 @@ impl SeenSet {
     }
 
     /// Drop every entry whose retention has elapsed, and report how many went.
+    /// An entry whose expiration equals `now_ms` is still live: the timestamp
+    /// window is inclusive at both ends, so the seen-set must cover its own
+    /// final millisecond too.
     ///
     /// Called by [`SeenSet::preflight`] and [`SeenSet::commit`] before anything
     /// else, so a relay never
@@ -234,7 +237,7 @@ impl SeenSet {
     /// forever, and an operator may want to reclaim that.
     pub fn expire(&mut self, now_ms: u64) -> usize {
         let before = self.entries.len();
-        self.entries.retain(|_, expires_at| *expires_at > now_ms);
+        self.entries.retain(|_, expires_at| *expires_at >= now_ms);
         before.saturating_sub(self.entries.len())
     }
 
@@ -369,20 +372,46 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_survives_for_exactly_its_retention() {
-        // Half-open: an entry observed at `t` is held over `[t, t +
-        // retention_ms)`. Which end is closed does not matter to the security
-        // property, because soundness comes from `retention_ms >= 2 *
-        // clock_skew_ms` (`SeenSet::retention_is_sound`) and not from a single
-        // millisecond at the boundary; it is pinned by a test so it cannot
-        // change unnoticed.
+    fn an_entry_survives_through_its_expiration_instant() {
+        // Closed: an entry observed at `t` is held over `[t, t +
+        // retention_ms]`. This final instant is security-significant when
+        // retention equals twice the inclusive timestamp skew: the original
+        // frame is still valid there and must still be recognized as a replay.
         let mut seen = SeenSet::new(1_000, 8);
         seen.commit(0, key(1)).unwrap();
         assert_eq!(
             seen.commit(999, key(1)),
             Err(ProtoError::Wire(ErrorCode::Replay))
         );
-        assert!(seen.commit(1_000, key(1)).is_ok());
+        assert_eq!(
+            seen.commit(1_000, key(1)),
+            Err(ProtoError::Wire(ErrorCode::Replay))
+        );
+        assert!(seen.commit(1_001, key(1)).is_ok());
+    }
+
+    #[test]
+    fn zero_retention_still_rejects_a_replay_at_the_same_instant() {
+        let mut seen = SeenSet::new(0, 8);
+        seen.commit(500, key(1)).unwrap();
+        assert_eq!(
+            seen.commit(500, key(1)),
+            Err(ProtoError::Wire(ErrorCode::Replay))
+        );
+        assert!(seen.commit(501, key(1)).is_ok());
+    }
+
+    #[test]
+    fn expiration_overflow_fails_closed() {
+        let mut seen = SeenSet::new(10, 8);
+        let near_end_of_time = u64::MAX - 4;
+        seen.commit(near_end_of_time, key(1)).unwrap();
+        assert_eq!(
+            seen.commit(near_end_of_time, key(1)),
+            Err(ProtoError::Wire(ErrorCode::Replay)),
+            "expiration arithmetic must not wrap behind the observation time"
+        );
+        assert_eq!(seen.expire(u64::MAX), 0);
     }
 
     #[test]

@@ -68,6 +68,7 @@ MANIFESTS=(
   # registered only in a workflow would be unpoliced there.
   rs/crates/f2z-kt/Cargo.toml
   rs/crates/f2z-witness/Cargo.toml
+  rs/crates/f2z-relay-store/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory

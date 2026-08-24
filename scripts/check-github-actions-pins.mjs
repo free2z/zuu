@@ -187,6 +187,7 @@ const REQUIRED_NATIVE_TESTS_JOB_LINES = [
   "        run: >-",
   "          cargo test --locked",
   "          --all-targets",
+  "          --features production-route-probe",
   "          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml",
 ];
 const REQUIRED_CRYPTO_TARGET_JOB_LINES = [
@@ -4108,8 +4109,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "required job rust_plugin step Build and test shared Zcash plugin working-directory differs from its exact reviewed value",
       source: source.replace(
-        "      - name: Build and test shared Zcash plugin\n        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
-        "      - name: Build and test shared Zcash plugin\n        working-directory: bypass\n        run: cargo test --locked --all-targets --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
+        "      - name: Build and test shared Zcash plugin\n        run: cargo test --locked --all-targets --features production-route-probe --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
+        "      - name: Build and test shared Zcash plugin\n        working-directory: bypass\n        run: cargo test --locked --all-targets --features production-route-probe --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml\n",
       ),
     },
     {

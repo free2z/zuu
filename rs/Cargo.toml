@@ -134,3 +134,16 @@ log = { version = "0.4", default-features = false }
 # depending on it is a decision rather than an accident of resolution, exactly
 # as `subtle` is above.
 async-trait = { version = "0.1", default-features = false }
+# **0.37 is a repository-wide singleton and this line is not free to move.**
+# `libsqlite3-sys` declares `links = "sqlite3"`, and Cargo refuses outright to
+# build a graph containing two versions of a `links` package — a hard error, not
+# a warning. Everything under `wallet/` reaches SQLite through
+# `wallet/plugins/tauri-plugin-zcash`'s `rusqlite = "0.37"`, so any crate
+# anywhere in this repository that wants SQLite must resolve to the same
+# version (`AGENTS.md`, "What NOT to do"). `bundled` compiles SQLite from the
+# vendored amalgamation rather than linking whatever the host happens to ship:
+# a relay's durability depends on `PRAGMA journal_mode`, `synchronous` and
+# `secure_delete` behaving exactly as `f2z-relay-store` verifies at open, and a
+# distro's build flags are not ours to assume. Native only — `rs_wasm` in
+# `.github/workflows/rs.yml` deliberately does not name the crate that uses it.
+rusqlite = { version = "0.37", features = ["bundled"] }

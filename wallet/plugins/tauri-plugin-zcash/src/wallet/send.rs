@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{
     fmt::Write as _,
@@ -11,12 +11,13 @@ use std::{
 use rand::{RngCore, rngs::OsRng};
 use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
-use zcash_client_backend::data_api::WalletRead;
 use zcash_client_backend::data_api::wallet::{ConfirmationsPolicy, SpendingKeys};
+use zcash_client_backend::data_api::{InputSource, WalletCommitmentTrees, WalletRead, WalletWrite};
 use zcash_client_backend::proto::service::{RawTransaction, TxFilter};
 use zcash_keys::address::Address;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::PoolType;
+use zcash_protocol::consensus;
 use zcash_protocol::memo::{Memo, MemoBytes};
 use zcash_protocol::value::Zatoshis;
 use zcash_protocol::{ShieldedPool, TxId};
@@ -31,8 +32,6 @@ use crate::wallet::keys;
 use crate::wallet::{WalletProposal, WalletState};
 
 mod native;
-
-use native::{create_transactions, propose_fixed, propose_send_all_attempt};
 
 /// A transaction that has already been created in the wallet database.
 /// Retrying this record always rebroadcasts `raw_transaction`; it never signs
@@ -220,6 +219,12 @@ impl ProposalAuthorization {
 }
 
 impl PendingProposal {
+    /// Native proposal retained behind the public review credential.
+    #[cfg(any(test, feature = "production-route-probe"))]
+    fn native_proposal(&self) -> &WalletProposal {
+        &self.proposal
+    }
+
     fn verify_native_review(&self) -> Result<()> {
         let expected_digest = send_review_digest(
             &self.review,
@@ -1015,6 +1020,30 @@ pub(crate) fn ensure_wallet_has_no_unknown_send(data_dir: &Path, wallet_id: &str
 }
 
 impl PendingBroadcast {
+    /// Exact bytes retained for retry and broadcast.
+    #[cfg(any(test, feature = "production-route-probe"))]
+    fn raw_transaction_bytes(&self) -> &[u8] {
+        &self.raw_transaction
+    }
+
+    /// Transaction identifier bytes paired with the retained transaction.
+    #[cfg(any(test, feature = "production-route-probe"))]
+    fn transaction_id_bytes(&self) -> &[u8] {
+        &self.txid_bytes
+    }
+
+    /// Wallet identifier bound to this recovery record.
+    #[cfg(any(test, feature = "production-route-probe"))]
+    fn recovery_wallet_id(&self) -> &str {
+        &self.wallet_id
+    }
+
+    /// Proposal identifier bound to this recovery record.
+    #[cfg(any(test, feature = "production-route-probe"))]
+    fn recovery_proposal_id(&self) -> u32 {
+        self.proposal_id
+    }
+
     fn public_status(&self) -> PendingSendStatus {
         PendingSendStatus {
             proposal_id: self.proposal_id,
@@ -1324,10 +1353,259 @@ pub async fn ensure_sapling_params(state: &WalletState) -> Result<SaplingParamsS
     Ok(SaplingParamsStatus { ready: true })
 }
 
+fn single_payment_request(
+    recipient: &zcash_address::ZcashAddress,
+    amount: u64,
+    memo: Option<&MemoBytes>,
+) -> Result<zip321::TransactionRequest> {
+    let zatoshis =
+        Zatoshis::from_u64(amount).map_err(|_| Error::SendError("invalid amount".into()))?;
+    let payment = zip321::Payment::new(
+        recipient.clone(),
+        Some(zatoshis),
+        memo.cloned(),
+        None,
+        None,
+        vec![],
+    )
+    .map_err(|error| Error::SendError(format!("failed to create payment: {error:?}")))?;
+    zip321::TransactionRequest::new(vec![payment]).map_err(|error| {
+        Error::SendError(format!("failed to create transaction request: {error:?}"))
+    })
+}
+
+/// The compiler-bound fixed-send route used by production and behavior tests.
+/// It owns request construction, native proposal authority, and derivation of
+/// the immutable review returned to the caller.
+fn propose_fixed_production_route<DbT, ParamsT>(
+    db: &mut DbT,
+    params: &ParamsT,
+    account_id: <DbT as InputSource>::AccountId,
+    recipient: &zcash_address::ZcashAddress,
+    amount: u64,
+    memo: Option<&MemoBytes>,
+    review_network: &str,
+) -> Result<(WalletProposal, SendReview)>
+where
+    DbT: WalletWrite
+        + InputSource<
+            AccountId = <DbT as WalletRead>::AccountId,
+            NoteRef = zcash_client_sqlite::ReceivedNoteId,
+            Error = <DbT as WalletRead>::Error,
+        >,
+    <DbT as InputSource>::NoteRef: Copy + Eq + Ord,
+    <DbT as WalletRead>::Error: std::fmt::Debug,
+    ParamsT: consensus::Parameters + Clone,
+{
+    let request = single_payment_request(recipient, amount, memo)?;
+    let proposal =
+        self::native::propose_fixed_validated(db, params, account_id, amount, request)
+            .map_err(|error| Error::SendError(format!("failed to propose transfer: {error:?}")))?;
+    let review = review_from_native_proposal(review_network, &proposal)?;
+    Ok((proposal, review))
+}
+
+/// The stateful fixed-send caller shared by the WalletState adapter and the
+/// shipping-mode integration test. Proposal construction and installation are
+/// deliberately one compiler-bound operation so a test-only route cannot
+/// vouch for a different shipping caller.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the production caller binds every reviewed and stateful input explicitly"
+)]
+fn propose_fixed_stateful_production_caller<DbT, ParamsT>(
+    db: &mut DbT,
+    params: &ParamsT,
+    recipient: &zcash_address::ZcashAddress,
+    amount: u64,
+    memo: Option<&MemoBytes>,
+    review_network: &str,
+    wallet_id: &str,
+    proposal_counter: &AtomicU32,
+    session_id: [u8; 32],
+) -> Result<(PendingProposal, SendProposal)>
+where
+    DbT: WalletWrite
+        + InputSource<
+            AccountId = <DbT as WalletRead>::AccountId,
+            NoteRef = zcash_client_sqlite::ReceivedNoteId,
+            Error = <DbT as WalletRead>::Error,
+        >,
+    <DbT as InputSource>::NoteRef: Copy + Eq + Ord,
+    <DbT as WalletRead>::Error: std::fmt::Debug + std::fmt::Display,
+    ParamsT: consensus::Parameters + Clone,
+{
+    let account_ids = db
+        .get_account_ids()
+        .map_err(|error| Error::DatabaseError(format!("{error}")))?;
+    let account_id = account_ids
+        .first()
+        .copied()
+        .ok_or(Error::SendError("no accounts found".into()))?;
+    let (proposal, review) = propose_fixed_production_route(
+        db,
+        params,
+        account_id,
+        recipient,
+        amount,
+        memo,
+        review_network,
+    )?;
+    let id = proposal_counter.fetch_add(1, Ordering::Relaxed);
+    Ok(create_pending_proposal(
+        id,
+        proposal,
+        review,
+        wallet_id.to_owned(),
+        session_id,
+    ))
+}
+
+enum SendAllRouteError {
+    InsufficientFunds { required: u64 },
+    Other(Error),
+}
+
+/// The compiler-bound send-all attempt used by production and behavior tests.
+/// A successful return proves both the ordinary request reached native policy
+/// and the resulting proposal survived native review.
+fn propose_send_all_production_route<DbT, ParamsT>(
+    db: &mut DbT,
+    params: &ParamsT,
+    account_id: <DbT as InputSource>::AccountId,
+    recipient: &zcash_address::ZcashAddress,
+    amount: u64,
+    memo: Option<&MemoBytes>,
+    review_network: &str,
+) -> std::result::Result<(WalletProposal, SendReview), SendAllRouteError>
+where
+    DbT: WalletWrite
+        + InputSource<
+            NoteRef = zcash_client_sqlite::ReceivedNoteId,
+            Error = <DbT as WalletRead>::Error,
+        >,
+    <DbT as InputSource>::NoteRef: Copy + Eq + Ord,
+    <DbT as WalletRead>::Error: std::fmt::Debug,
+    ParamsT: consensus::Parameters + Clone,
+{
+    let request =
+        single_payment_request(recipient, amount, memo).map_err(SendAllRouteError::Other)?;
+    match self::native::propose_send_all_validated(db, params, account_id, amount, request) {
+        Ok(proposal) => {
+            let review = review_from_native_proposal(review_network, &proposal)
+                .map_err(SendAllRouteError::Other)?;
+            Ok((proposal, review))
+        }
+        Err(zcash_client_backend::data_api::error::Error::InsufficientFunds {
+            required, ..
+        }) => Err(SendAllRouteError::InsufficientFunds {
+            required: u64::from(required),
+        }),
+        Err(error) => Err(SendAllRouteError::Other(Error::SendError(format!(
+            "failed to propose transfer: {error:?}"
+        )))),
+    }
+}
+
+/// The stateful send-all caller shared by the WalletState adapter and the
+/// shipping-mode integration test. It owns account selection, every retry,
+/// fee convergence, and installation of the reviewed native proposal.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the production caller binds every reviewed and stateful input explicitly"
+)]
+fn propose_send_all_stateful_production_caller<DbT, ParamsT>(
+    db: &mut DbT,
+    params: &ParamsT,
+    recipient: &zcash_address::ZcashAddress,
+    memo: Option<&MemoBytes>,
+    review_network: &str,
+    spendable: u64,
+    wallet_id: &str,
+    proposal_counter: &AtomicU32,
+    session_id: [u8; 32],
+) -> Result<(PendingProposal, SendProposal)>
+where
+    DbT: WalletWrite
+        + InputSource<
+            AccountId = <DbT as WalletRead>::AccountId,
+            NoteRef = zcash_client_sqlite::ReceivedNoteId,
+            Error = <DbT as WalletRead>::Error,
+        >,
+    <DbT as InputSource>::NoteRef: Copy + Eq + Ord,
+    <DbT as WalletRead>::Error: std::fmt::Debug + std::fmt::Display,
+    ParamsT: consensus::Parameters + Clone,
+{
+    let account_ids = db
+        .get_account_ids()
+        .map_err(|error| Error::DatabaseError(format!("{error}")))?;
+    let account_id = account_ids
+        .first()
+        .copied()
+        .ok_or(Error::SendError("no accounts found".into()))?;
+    let mut amount = spendable
+        .checked_sub(10_000)
+        .ok_or(Error::SendError("insufficient spendable balance".into()))?;
+
+    for _ in 0..3 {
+        match propose_send_all_production_route(
+            db,
+            params,
+            account_id,
+            recipient,
+            amount,
+            memo,
+            review_network,
+        ) {
+            Ok((proposal, review)) => {
+                let actual_fee: u64 = proposal
+                    .steps()
+                    .iter()
+                    .map(|step| u64::from(step.balance().fee_required()))
+                    .sum();
+                if amount + actual_fee <= spendable {
+                    let id = proposal_counter.fetch_add(1, Ordering::Relaxed);
+                    return Ok(create_pending_proposal(
+                        id,
+                        proposal,
+                        review,
+                        wallet_id.to_owned(),
+                        session_id,
+                    ));
+                }
+                amount = spendable - actual_fee;
+            }
+            Err(SendAllRouteError::InsufficientFunds { required }) => {
+                let computed_fee = required.saturating_sub(amount);
+                if spendable > computed_fee {
+                    amount = spendable - computed_fee;
+                    continue;
+                }
+                return Err(Error::SendError("insufficient funds to cover fee".into()));
+            }
+            Err(SendAllRouteError::Other(error)) => return Err(error),
+        }
+    }
+
+    Err(Error::SendError(
+        "could not converge on send-all amount after retries".into(),
+    ))
+}
+
 /// Propose a send transaction and return the actual ZIP-317 fee.
 pub async fn propose_send(
     state: &WalletState,
     to: &str,
+    amount: u64,
+    memo: Option<&str>,
+) -> Result<SendProposal> {
+    let (recipient, _) = parse_recipient(&state.network, to)?;
+    propose_send_after_recipient_validation(state, recipient, amount, memo).await
+}
+
+async fn propose_send_after_recipient_validation(
+    state: &WalletState,
+    recipient: zcash_address::ZcashAddress,
     amount: u64,
     memo: Option<&str>,
 ) -> Result<SendProposal> {
@@ -1345,13 +1623,6 @@ pub async fn propose_send(
     }
     *state.pending_proposal.lock().await = None;
 
-    // Parse the recipient and require it to match this wallet's network.
-    let (recipient, _) = parse_recipient(&state.network, to)?;
-
-    // Build the payment request
-    let zatoshis =
-        Zatoshis::from_u64(amount).map_err(|_| Error::SendError("invalid amount".into()))?;
-
     let memo_bytes = match memo {
         Some(m) => {
             Some(MemoBytes::from(Memo::from_str(m).map_err(|e| {
@@ -1361,49 +1632,24 @@ pub async fn propose_send(
         None => None,
     };
 
-    let payment = zip321::Payment::new(
-        recipient.clone(),
-        Some(zatoshis),
-        memo_bytes,
-        None,
-        None,
-        vec![],
-    )
-    .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
-
-    let request = zip321::TransactionRequest::new(vec![payment])
-        .map_err(|e| Error::SendError(format!("failed to create transaction request: {e:?}")))?;
-
     // Propose the transfer (no prover needed)
     let mut db_guard = state.db.lock().await;
     let db = db_guard.as_mut().ok_or(Error::WalletNotInitialized)?;
 
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|e| Error::DatabaseError(format!("{e}")))?;
-    let account_id = account_ids
-        .first()
-        .copied()
-        .ok_or(Error::SendError("no accounts found".into()))?;
-
-    let proposal = propose_fixed(db, &state.network, account_id, request)
-        .map_err(|e| Error::SendError(format!("failed to propose transfer: {e:?}")));
+    let candidate = propose_fixed_stateful_production_caller(
+        db,
+        &state.network,
+        &recipient,
+        amount,
+        memo_bytes.as_ref(),
+        network_label(&state.network),
+        &wallet_id,
+        &state.proposal_counter,
+        state.send_session_id,
+    );
 
     drop(db_guard);
 
-    let candidate = proposal.and_then(|proposal| {
-        let id = state.proposal_counter.fetch_add(1, Ordering::Relaxed);
-        // Derive the displayed and authorized details back from the executable
-        // native proposal, never from the renderer request kept above.
-        let review = review_from_native_proposal(network_label(&state.network), &proposal)?;
-        Ok(create_pending_proposal(
-            id,
-            proposal,
-            review,
-            wallet_id.clone(),
-            state.send_session_id,
-        ))
-    });
     let mut pending_broadcast = state.pending_broadcast.lock().await;
     ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;
     let mut proposal_guard = state.pending_proposal.lock().await;
@@ -1427,6 +1673,15 @@ pub async fn propose_send(
 pub async fn propose_send_all(
     state: &WalletState,
     to: &str,
+    memo: Option<&str>,
+) -> Result<SendProposal> {
+    let (recipient, _) = parse_recipient(&state.network, to)?;
+    propose_send_all_after_recipient_validation(state, recipient, memo).await
+}
+
+async fn propose_send_all_after_recipient_validation(
+    state: &WalletState,
+    recipient: zcash_address::ZcashAddress,
     memo: Option<&str>,
 ) -> Result<SendProposal> {
     let _send_operation = state.send_operation.lock().await;
@@ -1478,9 +1733,6 @@ pub async fn propose_send_all(
         return Err(Error::SendError("insufficient spendable balance".into()));
     }
 
-    // Parse recipient once and require it to match this wallet's network.
-    let (recipient, _) = parse_recipient(&state.network, to)?;
-
     let memo_bytes = match memo {
         Some(m) => {
             Some(MemoBytes::from(Memo::from_str(m).map_err(|e| {
@@ -1490,103 +1742,29 @@ pub async fn propose_send_all(
         None => None,
     };
 
-    // Start with optimistic estimate: spendable - minimum fee
-    let mut amount = spendable - 10000;
+    let mut db_guard = state.db.lock().await;
+    let db = db_guard.as_mut().ok_or(Error::WalletNotInitialized)?;
+    let (pending, public) = propose_send_all_stateful_production_caller(
+        db,
+        &state.network,
+        &recipient,
+        memo_bytes.as_ref(),
+        network_label(&state.network),
+        spendable,
+        &wallet_id,
+        &state.proposal_counter,
+        state.send_session_id,
+    )?;
+    drop(db_guard);
 
-    for _ in 0..3 {
-        let zatoshis =
-            Zatoshis::from_u64(amount).map_err(|_| Error::SendError("invalid amount".into()))?;
-
-        let payment = zip321::Payment::new(
-            recipient.clone(),
-            Some(zatoshis),
-            memo_bytes.clone(),
-            None,
-            None,
-            vec![],
-        )
-        .map_err(|e| Error::SendError(format!("failed to create payment: {e:?}")))?;
-
-        let request = zip321::TransactionRequest::new(vec![payment]).map_err(|e| {
-            Error::SendError(format!("failed to create transaction request: {e:?}"))
-        })?;
-
-        let mut db_guard = state.db.lock().await;
-        let db = db_guard.as_mut().ok_or(Error::WalletNotInitialized)?;
-
-        let account_ids = db
-            .get_account_ids()
-            .map_err(|e| Error::DatabaseError(format!("{e}")))?;
-        let account_id = account_ids
-            .first()
-            .copied()
-            .ok_or(Error::SendError("no accounts found".into()))?;
-
-        let result = propose_send_all_attempt(db, &state.network, account_id, request);
-
-        drop(db_guard);
-
-        match result {
-            Ok(proposal) => {
-                if proposal.steps().len() != 1 {
-                    return Err(Error::SendError(
-                        "multi-transaction send proposals are not supported safely".into(),
-                    ));
-                }
-                let actual_fee: u64 = proposal
-                    .steps()
-                    .iter()
-                    .map(|s| u64::from(s.balance().fee_required()))
-                    .sum();
-
-                if amount + actual_fee <= spendable {
-                    // This proposal works — store it
-                    let id = state.proposal_counter.fetch_add(1, Ordering::Relaxed);
-                    let mut pending_broadcast = state.pending_broadcast.lock().await;
-                    ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;
-                    if let Some(record) = pending_broadcast.as_ref() {
-                        clear_pending_broadcast(&state.data_dir, &record.wallet_id)?;
-                    }
-                    let review =
-                        review_from_native_proposal(network_label(&state.network), &proposal)?;
-                    let (pending, public) = create_pending_proposal(
-                        id,
-                        proposal,
-                        review,
-                        wallet_id.clone(),
-                        state.send_session_id,
-                    );
-                    *state.pending_proposal.lock().await = Some(pending);
-                    *pending_broadcast = None;
-                    return Ok(public);
-                }
-
-                // Fee was higher than expected — adjust and retry
-                amount = spendable - actual_fee;
-            }
-            Err(zcash_client_backend::data_api::error::Error::InsufficientFunds {
-                required,
-                ..
-            }) => {
-                let required_u64 = u64::from(required);
-                let computed_fee = required_u64.saturating_sub(amount);
-                if spendable > computed_fee {
-                    amount = spendable - computed_fee;
-                    continue;
-                }
-                return Err(Error::SendError("insufficient funds to cover fee".into()));
-            }
-            Err(e) => {
-                return Err(Error::SendError(format!(
-                    "failed to propose transfer: {e:?}"
-                )));
-            }
-        }
+    let mut pending_broadcast = state.pending_broadcast.lock().await;
+    ensure_no_unresolved_broadcast(pending_broadcast.as_ref())?;
+    if let Some(record) = pending_broadcast.as_ref() {
+        clear_pending_broadcast(&state.data_dir, &record.wallet_id)?;
     }
-
-    Err(Error::SendError(
-        "could not converge on send-all amount after retries".into(),
-    ))
+    *state.pending_proposal.lock().await = Some(pending);
+    *pending_broadcast = None;
+    Ok(public)
 }
 
 /// Validate the renderer's exact proposal credential and return the immutable
@@ -1669,6 +1847,127 @@ pub async fn take_send_proposal(
     })
 }
 
+enum CreationRouteError {
+    BeforeCreation(Error),
+    AfterCreation(Error),
+}
+
+/// The compiler-bound transaction-creation route used by production and
+/// behavior tests. It spans native signing and the complete extraction of the
+/// exact recovery bytes that must exist before broadcast can begin.
+fn create_production_recovery_route<DbT, ParamsT>(
+    db: &mut DbT,
+    params: &ParamsT,
+    prover: &LocalTxProver,
+    spending_keys: &SpendingKeys,
+    proposal: &WalletProposal,
+    wallet_id: &str,
+    proposal_id: u32,
+) -> std::result::Result<PendingBroadcast, CreationRouteError>
+where
+    DbT: WalletWrite
+        + WalletCommitmentTrees
+        + InputSource<NoteRef = zcash_client_sqlite::ReceivedNoteId>,
+    <DbT as WalletRead>::Error: std::fmt::Display,
+    ParamsT: consensus::Parameters + Clone,
+{
+    let txids = self::native::create_transactions(db, params, prover, spending_keys, proposal)
+        .map_err(|error| {
+            CreationRouteError::BeforeCreation(Error::SendError(format!(
+                "failed to create transaction: {error:?}"
+            )))
+        })?;
+    let txid = *txids.first();
+    let tx = db
+        .get_transaction(txid)
+        .map_err(|error| {
+            CreationRouteError::AfterCreation(Error::SendError(format!(
+                "failed to read transaction: {error}"
+            )))
+        })?
+        .ok_or_else(|| {
+            CreationRouteError::AfterCreation(Error::SendError(
+                "transaction not found in wallet DB after creation".into(),
+            ))
+        })?;
+    let mut raw_transaction = Vec::new();
+    tx.write(&mut raw_transaction).map_err(|error| {
+        CreationRouteError::AfterCreation(Error::SendError(format!(
+            "failed to serialize transaction: {error}"
+        )))
+    })?;
+
+    Ok(PendingBroadcast {
+        wallet_id: wallet_id.to_owned(),
+        proposal_id,
+        txid: format!("{txid}"),
+        txid_bytes: txid.as_ref().to_vec(),
+        raw_transaction,
+        status: BroadcastStatus::Unknown,
+        message: None,
+        attempts: 0,
+        had_ambiguous_attempt: false,
+        recovery_error: None,
+    })
+}
+
+/// The stateful creation caller shared by `execute_send` and the shipping-mode
+/// integration test. It owns the before/after-creation distinction and only
+/// installs a broadcast record after exact recovery bytes exist.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the production caller binds native creation and recovery state explicitly"
+)]
+fn execute_send_creation_stateful_production_caller<DbT, ParamsT, ClearIntent>(
+    db: &mut DbT,
+    params: &ParamsT,
+    prover: &LocalTxProver,
+    spending_keys: &SpendingKeys,
+    proposal: &WalletProposal,
+    wallet_id: &str,
+    proposal_id: u32,
+    broadcast_slot: &mut Option<PendingBroadcast>,
+    clear_intent: ClearIntent,
+) -> Result<()>
+where
+    DbT: WalletWrite
+        + WalletCommitmentTrees
+        + InputSource<NoteRef = zcash_client_sqlite::ReceivedNoteId>,
+    <DbT as WalletRead>::Error: std::fmt::Display,
+    ParamsT: consensus::Parameters + Clone,
+    ClearIntent: FnOnce() -> Result<()>,
+{
+    match create_production_recovery_route(
+        db,
+        params,
+        prover,
+        spending_keys,
+        proposal,
+        wallet_id,
+        proposal_id,
+    ) {
+        Ok(record) => {
+            *broadcast_slot = Some(record);
+            Ok(())
+        }
+        Err(CreationRouteError::BeforeCreation(error)) => {
+            match clear_intent() {
+                Ok(()) => *broadcast_slot = None,
+                Err(clear_error) => tracing::error!(
+                    "transaction creation failed and its fail-closed intent could not be cleared: {clear_error}"
+                ),
+            }
+            Err(error)
+        }
+        Err(CreationRouteError::AfterCreation(error)) => {
+            tracing::error!(
+                "transaction was created but exact recovery bytes could not be prepared; leaving the fail-closed intent in place"
+            );
+            Err(error)
+        }
+    }
+}
+
 /// Execute a previously-authorized send transaction. The proposal has already
 /// been consumed, so all failures from this point require a new review.
 pub async fn execute_send(
@@ -1746,64 +2045,17 @@ pub async fn execute_send(
     // Create the transaction
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
-    let mut transaction_created = false;
-    let created = (|| -> Result<PendingBroadcast> {
-        let txids = create_transactions(
-            db,
-            &state.network,
-            prover,
-            &spending_keys,
-            &pending_proposal.proposal,
-        )
-        .map_err(|e| Error::SendError(format!("failed to create transaction: {e:?}")))?;
-        transaction_created = true;
-
-        // The native creation boundary returns `NonEmpty<TxId>`.
-        let txid = *txids.first();
-        let tx = db
-            .get_transaction(txid)
-            .map_err(|e| Error::SendError(format!("failed to read transaction: {e}")))?
-            .ok_or_else(|| {
-                Error::SendError("transaction not found in wallet DB after creation".into())
-            })?;
-        let mut raw_transaction = Vec::new();
-        tx.write(&mut raw_transaction)
-            .map_err(|e| Error::SendError(format!("failed to serialize transaction: {e}")))?;
-
-        Ok(PendingBroadcast {
-            wallet_id: wallet_id.clone(),
-            proposal_id,
-            txid: format!("{txid}"),
-            txid_bytes: txid.as_ref().to_vec(),
-            raw_transaction,
-            // Until a complete lightwalletd response arrives, delivery is unknown.
-            status: BroadcastStatus::Unknown,
-            message: None,
-            attempts: 0,
-            had_ambiguous_attempt: false,
-            recovery_error: None,
-        })
-    })();
-
-    let record = match created {
-        Ok(record) => record,
-        Err(error) => {
-            if transaction_created {
-                tracing::error!(
-                    "transaction was created but exact recovery bytes could not be prepared; leaving the fail-closed intent in place"
-                );
-            } else {
-                match clear_pending_broadcast(&state.data_dir, &wallet_id) {
-                    Ok(()) => *broadcast_guard = None,
-                    Err(clear_error) => tracing::error!(
-                        "transaction creation failed and its fail-closed intent could not be cleared: {clear_error}"
-                    ),
-                }
-            }
-            return Err(error);
-        }
-    };
-    *broadcast_guard = Some(record);
+    execute_send_creation_stateful_production_caller(
+        db,
+        &state.network,
+        prover,
+        &spending_keys,
+        &pending_proposal.proposal,
+        &wallet_id,
+        proposal_id,
+        &mut broadcast_guard,
+        || clear_pending_broadcast(&state.data_dir, &wallet_id),
+    )?;
     // Replace the intent with complete retry bytes before any network I/O.
     // If this fails, the in-memory record remains retryable and the durable
     // intent remains fail-closed after restart.
@@ -2209,10 +2461,192 @@ async fn broadcast_record(
     ))
 }
 
+/// CI-only semantic probe compiled as part of the library without `cfg(test)`.
+/// The integration target calls this module with `production-route-probe`, so
+/// test-only branches inside the exact production callers take their shipping
+/// side and become observable failures.
+#[cfg(feature = "production-route-probe")]
+#[doc(hidden)]
+pub mod production_route_probe {
+    use super::*;
+    use zcash_client_backend::data_api::testing::{
+        orchard::OrchardPoolTester,
+        pool::{ShieldedPoolTester, dsl::TestDsl},
+    };
+    use zcash_client_sqlite::testing::{BlockCache, db::TestDbFactory};
+
+    pub fn assert_ordinary_stateful_shipping_routes() {
+        const NOTE_VALUE: u64 = 60_000;
+        const FIXED_SEND_VALUE: u64 = 10_000;
+        const SEND_ALL_VALUE: u64 = 50_000;
+        const EXPECTED_FEE: u64 = 10_000;
+        const PROPOSAL_ID: u32 = 41;
+        const WALLET_ID: &str = "ordinary-route-wallet";
+        const REVIEW_NETWORK: &str = "independent-test-network";
+        const SESSION_ID: [u8; 32] = [0x11; 32];
+
+        let mut state =
+            TestDsl::with_sapling_birthday_account(TestDbFactory::default(), BlockCache::new())
+                .build::<OrchardPoolTester>();
+        let (_, _, _) =
+            state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(NOTE_VALUE));
+
+        let recipient_key = OrchardPoolTester::sk(&[0xa7; 32]);
+        let recipient = OrchardPoolTester::sk_default_address(&recipient_key);
+        let network = *state.network();
+        let recipient = recipient.to_zcash_address(&network);
+        let account = state.get_account();
+        let spending_keys = SpendingKeys::from_unified_spending_key(account.usk().clone());
+        let proposal_counter = AtomicU32::new(PROPOSAL_ID);
+
+        let immature = propose_fixed_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            FIXED_SEND_VALUE,
+            None,
+            REVIEW_NETWORK,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        );
+        assert!(
+            immature.is_err(),
+            "one-confirmation Orchard value must not cross shipping policy"
+        );
+        assert_eq!(proposal_counter.load(Ordering::Relaxed), PROPOSAL_ID);
+        state.add_empty_blocks(9);
+
+        let (fixed_pending, fixed_public) = propose_fixed_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            FIXED_SEND_VALUE,
+            None,
+            REVIEW_NETWORK,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        )
+        .expect("ordinary fixed value must cross the stateful shipping caller");
+        let fixed_proposal = fixed_pending.native_proposal();
+        assert_eq!(fixed_public.proposal_id, PROPOSAL_ID);
+        assert_eq!(fixed_public.review.network, REVIEW_NETWORK);
+        assert_eq!(fixed_public.review.payments.len(), 1);
+        assert_eq!(
+            fixed_public.review.payments[0].recipient,
+            recipient.encode()
+        );
+        assert_eq!(fixed_public.review.payments[0].amount, FIXED_SEND_VALUE);
+        assert_eq!(fixed_public.review.fee, EXPECTED_FEE);
+        assert_eq!(fixed_public.review.total, FIXED_SEND_VALUE + EXPECTED_FEE);
+        assert_eq!(fixed_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
+        assert_eq!(fixed_proposal.input_count_in_pool(PoolType::SAPLING), 0);
+        assert_eq!(
+            fixed_proposal
+                .steps()
+                .head
+                .change_count_in_pool(PoolType::ORCHARD),
+            1
+        );
+        assert_eq!(
+            fixed_proposal
+                .steps()
+                .head
+                .change_count_in_pool(PoolType::SAPLING),
+            0
+        );
+
+        let (send_all_pending, send_all_public) = propose_send_all_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            None,
+            REVIEW_NETWORK,
+            NOTE_VALUE,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        )
+        .expect("ordinary value must cross the stateful send-all shipping caller");
+        let send_all_proposal = send_all_pending.native_proposal();
+        assert_eq!(send_all_public.proposal_id, PROPOSAL_ID + 1);
+        assert_eq!(send_all_public.review.payments[0].amount, SEND_ALL_VALUE);
+        assert_eq!(send_all_public.review.fee, EXPECTED_FEE);
+        assert_eq!(send_all_public.review.total, NOTE_VALUE);
+        assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
+        assert_eq!(
+            send_all_proposal
+                .steps()
+                .head
+                .balance()
+                .proposed_change()
+                .iter()
+                .map(|change| u64::from(change.value()))
+                .sum::<u64>(),
+            0
+        );
+
+        let recovery_height = fixed_proposal.min_target_height().into();
+        let prover = LocalTxProver::bundled();
+        let mut broadcast_slot = None;
+        execute_send_creation_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &prover,
+            &spending_keys,
+            fixed_proposal,
+            WALLET_ID,
+            PROPOSAL_ID,
+            &mut broadcast_slot,
+            || Ok(()),
+        )
+        .expect("ordinary proposal must cross the stateful creation shipping caller");
+        let record = broadcast_slot
+            .as_ref()
+            .expect("successful creation must install exact retry state");
+        assert_eq!(record.recovery_wallet_id(), WALLET_ID);
+        assert_eq!(record.recovery_proposal_id(), PROPOSAL_ID);
+        assert_eq!(record.transaction_id_bytes().len(), 32);
+        assert!(!record.raw_transaction_bytes().is_empty());
+
+        let txid = TxId::from_bytes(
+            record
+                .transaction_id_bytes()
+                .try_into()
+                .expect("32-byte txid"),
+        );
+        let tx = state
+            .wallet()
+            .get_transaction(txid)
+            .expect("the stateful creation caller must leave the wallet readable")
+            .expect("the stateful creation caller must persist its transaction");
+        let mut persisted_transaction_bytes = Vec::new();
+        tx.write(&mut persisted_transaction_bytes)
+            .expect("the persisted transaction must serialize");
+        assert_eq!(
+            record.raw_transaction_bytes(),
+            persisted_transaction_bytes,
+            "returned retry bytes must exactly equal the persisted transaction"
+        );
+
+        let sender_fvk = OrchardPoolTester::test_account_fvk(&state);
+        let (_, recovered_recipient, _) =
+            OrchardPoolTester::try_output_recovery(&network, recovery_height, &tx, &sender_fvk)
+                .expect("shipping creation must retain sender output recovery");
+        assert_eq!(recovered_recipient.to_zcash_address(&network), recipient);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use zcash_address::unified::{Address as UnifiedAddress, Encoding, Receiver};
+    use zcash_client_backend::data_api::testing::{
+        orchard::OrchardPoolTester,
+        pool::{ShieldedPoolTester, dsl::TestDsl},
+    };
+    use zcash_client_sqlite::testing::{BlockCache, db::TestDbFactory};
     use zcash_protocol::consensus::{Network, NetworkType};
 
     const MAINNET_TADDR: &str = "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs";
@@ -2223,6 +2657,167 @@ mod tests {
     const WALLET_ID: &str = "wallet-a";
     const SESSION_ID: [u8; 32] = [0x11; 32];
     const OTHER_SESSION_ID: [u8; 32] = [0x22; 32];
+
+    #[test]
+    fn ordinary_values_cross_each_complete_production_money_route() {
+        const NOTE_VALUE: u64 = 60_000;
+        const FIXED_SEND_VALUE: u64 = 10_000;
+        const SEND_ALL_VALUE: u64 = 50_000;
+        const EXPECTED_FEE: u64 = 10_000;
+        const PROPOSAL_ID: u32 = 41;
+        const WALLET_ID: &str = "ordinary-route-wallet";
+        const REVIEW_NETWORK: &str = "independent-test-network";
+
+        let mut state =
+            TestDsl::with_sapling_birthday_account(TestDbFactory::default(), BlockCache::new())
+                .build::<OrchardPoolTester>();
+        let (_, _, _) =
+            state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(NOTE_VALUE));
+
+        let recipient_key = OrchardPoolTester::sk(&[0xa7; 32]);
+        let recipient = OrchardPoolTester::sk_default_address(&recipient_key);
+        let network = *state.network();
+        let recipient = recipient.to_zcash_address(&network);
+        let account = state.get_account();
+        let spending_keys = SpendingKeys::from_unified_spending_key(account.usk().clone());
+        let proposal_counter = AtomicU32::new(PROPOSAL_ID);
+
+        let immature = propose_fixed_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            FIXED_SEND_VALUE,
+            None,
+            REVIEW_NETWORK,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        );
+        assert!(
+            immature.is_err(),
+            "an externally received Orchard note must not cross production policy after one confirmation"
+        );
+        assert_eq!(proposal_counter.load(Ordering::Relaxed), PROPOSAL_ID);
+        state.add_empty_blocks(9);
+
+        let (fixed_pending, fixed_public) = propose_fixed_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            FIXED_SEND_VALUE,
+            None,
+            REVIEW_NETWORK,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        )
+        .expect("an ordinary fixed-send value must traverse the complete production route");
+        let fixed_proposal = fixed_pending.native_proposal();
+        let fixed_review = &fixed_public.review;
+        assert_eq!(fixed_public.proposal_id, PROPOSAL_ID);
+        assert_eq!(fixed_review.network, REVIEW_NETWORK);
+        assert_eq!(fixed_review.payments.len(), 1);
+        assert_eq!(fixed_review.payments[0].recipient, recipient.encode());
+        assert_eq!(fixed_review.payments[0].amount, FIXED_SEND_VALUE);
+        assert_eq!(fixed_review.fee, EXPECTED_FEE);
+        assert_eq!(fixed_review.total, FIXED_SEND_VALUE + EXPECTED_FEE);
+        assert_eq!(fixed_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
+        assert_eq!(fixed_proposal.input_count_in_pool(PoolType::SAPLING), 0);
+        assert_eq!(
+            fixed_proposal
+                .steps()
+                .head
+                .change_count_in_pool(PoolType::ORCHARD),
+            1
+        );
+        assert_eq!(
+            fixed_proposal
+                .steps()
+                .head
+                .change_count_in_pool(PoolType::SAPLING),
+            0
+        );
+
+        let (send_all_pending, send_all_public) = propose_send_all_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &recipient,
+            None,
+            REVIEW_NETWORK,
+            NOTE_VALUE,
+            WALLET_ID,
+            &proposal_counter,
+            SESSION_ID,
+        )
+        .expect("an ordinary send-all value must traverse the complete production route");
+        let send_all_proposal = send_all_pending.native_proposal();
+        let send_all_review = &send_all_public.review;
+        assert_eq!(send_all_public.proposal_id, PROPOSAL_ID + 1);
+        assert_eq!(send_all_review.payments[0].amount, SEND_ALL_VALUE);
+        assert_eq!(send_all_review.fee, EXPECTED_FEE);
+        assert_eq!(send_all_review.total, NOTE_VALUE);
+        assert_eq!(send_all_proposal.input_count_in_pool(PoolType::ORCHARD), 1);
+        assert_eq!(
+            send_all_proposal
+                .steps()
+                .head
+                .balance()
+                .proposed_change()
+                .iter()
+                .map(|change| u64::from(change.value()))
+                .sum::<u64>(),
+            0
+        );
+
+        let recovery_height = fixed_proposal.min_target_height().into();
+        let prover = LocalTxProver::bundled();
+        let mut broadcast_slot = None;
+        execute_send_creation_stateful_production_caller(
+            state.wallet_mut(),
+            &network,
+            &prover,
+            &spending_keys,
+            fixed_proposal,
+            WALLET_ID,
+            PROPOSAL_ID,
+            &mut broadcast_slot,
+            || Ok(()),
+        )
+        .expect("an ordinary proposal ID must traverse creation through recovery serialization");
+        let record = broadcast_slot
+            .as_ref()
+            .expect("successful creation must install exact retry state");
+        assert_eq!(record.recovery_wallet_id(), WALLET_ID);
+        assert_eq!(record.recovery_proposal_id(), PROPOSAL_ID);
+        assert_eq!(record.transaction_id_bytes().len(), 32);
+        assert!(!record.raw_transaction_bytes().is_empty());
+
+        let txid = TxId::from_bytes(
+            record
+                .transaction_id_bytes()
+                .try_into()
+                .expect("32-byte txid"),
+        );
+        let tx = state
+            .wallet()
+            .get_transaction(txid)
+            .expect("the production route leaves the wallet readable")
+            .expect("the production route persists its created transaction");
+        let mut persisted_transaction_bytes = Vec::new();
+        tx.write(&mut persisted_transaction_bytes)
+            .expect("the persisted transaction must serialize");
+        assert_eq!(
+            record.raw_transaction_bytes(),
+            persisted_transaction_bytes,
+            "the exact returned retry bytes must equal the persisted transaction"
+        );
+        let sender_fvk = OrchardPoolTester::test_account_fvk(&state);
+        let (_, recovered_recipient, _) =
+            OrchardPoolTester::try_output_recovery(&network, recovery_height, &tx, &sender_fvk)
+                .expect("the production route must retain sender output recovery");
+        let recovered_recipient = recovered_recipient.to_zcash_address(&network);
+        assert_eq!(recovered_recipient, recipient);
+    }
 
     fn pending(status: BroadcastStatus) -> PendingBroadcast {
         PendingBroadcast {

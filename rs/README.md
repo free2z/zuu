@@ -113,6 +113,7 @@ prevent.
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
+| [`crates/f2z-relay-store`](./crates/f2z-relay-store) | The relay's queue storage: a `RelayStore` trait that speaks addresses and bytes and never a wire frame, plus a durable `SqliteStore` (WAL, `synchronous = FULL`, `secure_delete = ON`, group commit) and a volatile `MemoryStore`. **Native only** — it links SQLite and is not on the wasm line. `std`, `#![forbid(unsafe_code)]`, no async runtime. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
 
 `f2z-kt-core` is the **one** crate the log server, the witness and the client all
@@ -179,10 +180,12 @@ disagree about is how ciphertext gets deleted before it is read.
 
 The current dependency graph is narrower than that intended architecture:
 `f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
-standalone experimental leaf and no workspace package depends on it. Wiring the
-authority candidate into a relay or client is future integration work, not a
-property this README claims today. All three remain MIT so downstream relays and
-clients can share the rules once that integration exists.
+standalone experimental leaf. Wiring the authority candidate into a relay or
+client is future integration work, not a property this README claims today.
+`f2z-kt` and `f2z-witness` **do** depend on it, and on `f2z-kt-core` — they are
+the server binaries below, and they are the reason that layer exists. Every
+library crate above remains MIT so downstream relays and clients can share the
+rules.
 
 `f2z-codec` is separate from everything that sits on top of it for three
 reasons, and each is enforced by a test rather than by intent:
@@ -208,7 +211,18 @@ cargo build --target wasm32-unknown-unknown --lib \
   -p f2z-codec -p f2z-relay-proto -p f2z-authority
 cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
             --no-default-features --features verifier
+
+# f2z-relay-store's crash-safety suite is behind a default-off feature, because
+# the feature compiles an abort() into the commit path. It kills real child
+# processes; `cargo test` alone does not run it.
+cargo test -p f2z-relay-store --features crash-injection --test crash_safety
 ```
+
+**Not every crate here reaches the browser, and the wasm line is the record of
+which do.** `f2z-relay-store` links SQLite through `rusqlite`'s bundled C
+amalgamation and is relay-side only, so it is deliberately absent from
+`rs.yml`'s `rs_wasm` job. Adding a crate to that line is a claim that a client
+links it.
 
 The gates are the repository's shared scripts, pointed here with `--root`:
 

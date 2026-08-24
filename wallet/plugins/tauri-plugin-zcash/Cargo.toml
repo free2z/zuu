@@ -9,6 +9,15 @@ publish = false
 description = "Tauri plugin for Zcash wallet operations"
 links = "tauri-plugin-zcash"
 
+[features]
+# CI-only semantic probe. It compiles the library without cfg(test) while
+# enabling librustzcash's real TestDb support, so shipping/test route splits are
+# executable failures instead of source-shape assertions.
+production-route-probe = [
+    "zcash_client_backend/test-dependencies",
+    "zcash_client_sqlite/test-dependencies",
+]
+
 [dependencies]
 tauri = "2"
 tauri-plugin-dialog = "2"
@@ -87,6 +96,10 @@ tauri-build = "2"
 zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["test-dependencies"] }
 zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["test-dependencies"] }
 transparent = { package = "zcash_transparent", path = "../../../z/zcash/librustzcash/zcash_transparent", features = ["transparent-inputs"] }
+
+[[test]]
+name = "send_production_routes"
+required-features = ["production-route-probe"]
 
 # ---------------------------------------------------------------------------
 # Build profiles. DO NOT DELETE — see the identical blocks in

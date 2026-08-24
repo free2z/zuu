@@ -1,0 +1,42 @@
+[package]
+name = "f2z-relay-store"
+version = "0.1.0"
+description = "Queue storage for the free2z relay: addresses and bytes, never wire frames (docs/e2ee/WIRE.md §7, §8)"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. The relay *binary* will be AGPL-3.0;
+# this is a library, and a third party writing its own relay against
+# docs/e2ee/WIRE.md should be able to link the storage layer that the reference
+# implementation's crash tests actually exercise. Stated literally rather than
+# inherited so it is visible to anyone opening the crate. rs/deny.toml enforces
+# it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Off by default, and it must stay off in anything that ships. It compiles an
+# `abort()` into the middle of the commit path so that `tests/crash_safety.rs`
+# can kill a real process at a chosen instant. See `src/crash.rs`.
+crash-injection = []
+
+[lints]
+workspace = true
+
+[dependencies]
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-codec = { path = "../f2z-codec", version = "0.1.0" }
+f2z-relay-proto = { path = "../f2z-relay-proto", version = "0.1.0" }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+# The crash test needs a real file in a real directory that a **child process**
+# can open, so `SqliteStore::open_in_memory` is not an option there. Already in
+# this workspace's dev graph beneath proptest's `rusty-fork`, so naming it
+# directly adds no crate to the tree cargo-deny judges.
+tempfile = "3"

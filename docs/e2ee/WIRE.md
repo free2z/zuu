@@ -578,7 +578,12 @@ Two mechanisms, together:
    within the window and rejects a repeat with `ERR_REPLAY`. `nonce` is 16 bytes
    from the client's CSPRNG, fresh per command; the birthday bound is 2^64 per
    key, which is not reachable inside a two-minute window at any rate a relay
-   would serve.
+   would serve. `antireplay_window_ms` MUST be at least `2 × clock_skew_ms`, and
+   an entry MUST remain live through the instant at which that retention period
+   ends. Both boundaries matter: the timestamp window is inclusive, so a frame
+   first accepted at `timestamp_ms - clock_skew_ms` remains valid at
+   `timestamp_ms + clock_skew_ms`. A half-open seen-set would forget it at that
+   same instant when the two published windows are equal.
 
 **The seen-set is fail-closed.** It is bounded (`antireplay_seen_max`, published)
 and when the bound is reached the relay returns `ERR_BACKPRESSURE` and refuses new
