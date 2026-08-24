@@ -129,12 +129,34 @@ fn derived_debug_items(file: &str, source: &str) -> Vec<DerivedDebugItem> {
 
         // Skip any further attributes and comments between the derive and the
         // item it applies to.
+        //
+        // An attribute may span several lines, and its continuation lines do
+        // **not** start with `#`. Stopping at the first line that does not
+        // would take the continuation for the item declaration and abort the
+        // whole scan on the assert below — which is a hole rather than a
+        // failure: one wrapped `#[must_use = "…"]` anywhere under
+        // `rs/crates/*/src/` disables every leak check in this file. An earlier
+        // revision of `f2z-relay-store`'s `Committed` had exactly that shape
+        // and did exactly that. So an attribute is consumed until its brackets
+        // balance.
         while index < lines.len() {
             let trimmed = lines[index].trim_start();
-            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
+            if trimmed.is_empty() || trimmed.starts_with("//") {
                 index += 1;
-            } else {
+                continue;
+            }
+            if !trimmed.starts_with('#') {
                 break;
+            }
+            let mut depth = 0i32;
+            while index < lines.len() {
+                let line = lines[index];
+                depth += i32::try_from(line.matches('[').count()).unwrap_or(0);
+                depth -= i32::try_from(line.matches(']').count()).unwrap_or(0);
+                index += 1;
+                if depth <= 0 {
+                    break;
+                }
             }
         }
         assert!(index < lines.len(), "{file}: derive with no item after it");

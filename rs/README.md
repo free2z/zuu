@@ -112,8 +112,10 @@ prevent.
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
 | [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
-| [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-relay-store`](./crates/f2z-relay-store) | The relay's queue storage: a `RelayStore` trait that speaks addresses and bytes and never a wire frame, plus a durable `SqliteStore` (WAL, `synchronous = FULL`, `secure_delete = ON`, group commit) and a volatile `MemoryStore`. **Native only** — it links SQLite and is not on the wasm line. `std`, `#![forbid(unsafe_code)]`, no async runtime. |
+| [`crates/f2z-relay-testkit`](./crates/f2z-relay-testkit) | **FakeRelay**: a spec-conforming relay a client can develop against, over an in-process pipe *and* a real `ws://127.0.0.1:0` listener running the same implementation, plus fault injection and the conformance vector suite `f2z-relay` is run against unchanged. Also ships the `f2z-fakerelay` binary and `rs/deploy/docker-compose.dev.yml`. **Native only** — it opens sockets, spawns tasks and reads a clock, and is deliberately absent from the `wasm32` job. |
+| [`crates/f2z-relay`](./crates/f2z-relay) | **The relay daemon** — the server that runs in production. `wss://` listener, §4 framing, §5 signed-command verification with the TLS-exporter binding, the full §6 command set over `RelayStore`, a group-commit writer, TTL expiry, §13 anti-abuse, the signed capability document, and a loopback-only `/healthz` + `/metrics` admin listener. **AGPL-3.0**, native only, never on the wasm line. |
+| [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
 
 `f2z-kt-core` is the **one** crate the log server, the witness and the client all
@@ -142,15 +144,18 @@ will, so `cargo audit` passes on a vulnerable pin forever
 removes those `[[bans.deny]]` entries has removed the floor.
 
 
-## The server binaries
+## The key-transparency binaries
+
+`f2z-relay` is a server binary too and is described in the table above; these
+are the two that serve `KT.md` rather than `WIRE.md`.
 
 | Binary | What it is |
 |---|---|
 | [`crates/f2z-kt`](./crates/f2z-kt) | The **key-transparency log server** ([`KT.md`](../docs/e2ee/KT.md) §5, §6, §9): durable append-only journals, the submission choke point, the `akd` tree and the epoch scheduler, `LogSigner` behind a trait with a file-backed default, and the proof-serving API. |
 | [`crates/f2z-witness`](./crates/f2z-witness) | The **cosigning daemon** (`KT.md` §7): poll, verify the tree-head signature, refuse and record evidence on rollback or fork, **verify the append-only proof**, cosign, and update one state file atomically. No inbound port, no TLS, no domain, no database. |
 
-**Both are AGPL-3.0-only**, and that is the licence boundary being crossed
-deliberately — owner decision on [#305](https://github.com/free2z/zuu/issues/305).
+**Both are AGPL-3.0-only**, on the same boundary `f2z-relay` crosses and for the
+same owner decision — [#305](https://github.com/free2z/zuu/issues/305).
 `THREAT-MODEL.md` §4.5 concedes that server-side deletion is "auditable, not
 verifiable", and a copyleft obligation for network use is the only lever we have
 over an operator we do not run. `rs/deny.toml` names each binary in
@@ -177,6 +182,16 @@ constructor.
 boundary in practice: every crate above is MIT because a third-party relay, ZUULI
 and the WASM web client all compile the same rules, and a rule that two implementations
 disagree about is how ciphertext gets deleted before it is read.
+
+**The clients link `f2z-codec` and `f2z-relay-proto`; the relay links those two
+plus `f2z-relay-store`.** That is the licence boundary in practice: the shared
+crates are MIT because a third-party relay, ZUULI and the WASM web client all
+compile the same rules, and a rule that two implementations disagree about is how
+ciphertext gets deleted before it is read. **`f2z-relay`, `f2z-kt` and
+`f2z-witness` are on the other side of that boundary** — AGPL server binaries,
+each named individually in `rs/deny.toml`'s `exceptions` so crossing it cannot
+happen by accident, and a library crate appearing in that list would be a review
+failure.
 
 The current dependency graph is narrower than that intended architecture:
 `f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
@@ -216,13 +231,21 @@ cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
 # the feature compiles an abort() into the commit path. It kills real child
 # processes; `cargo test` alone does not run it.
 cargo test -p f2z-relay-store --features crash-injection --test crash_safety
+
+# A relay endpoint for a client developer, in one command.
+cargo run -p f2z-relay-testkit --bin f2z-fakerelay
+
+# The real thing, on loopback, with an ephemeral store.
+cargo run -p f2z-relay -- --store memory
 ```
 
 **Not every crate here reaches the browser, and the wasm line is the record of
 which do.** `f2z-relay-store` links SQLite through `rusqlite`'s bundled C
-amalgamation and is relay-side only, so it is deliberately absent from
-`rs.yml`'s `rs_wasm` job. Adding a crate to that line is a claim that a client
-links it.
+amalgamation; `f2z-relay-testkit` opens sockets, spawns tasks and reads a clock,
+and a test harness that could reach the browser build could end up in the
+shipped bundle; `f2z-relay` is an AGPL server binary that does all three. All
+are deliberately absent from `rs.yml`'s `rs_wasm` job. Adding a crate to that
+line is a claim that a client links it.
 
 The gates are the repository's shared scripts, pointed here with `--root`:
 

@@ -1,0 +1,60 @@
+# A relay endpoint in one command, for client development.
+#
+#   cd rs/deploy && docker compose -f docker-compose.dev.yml up
+#   # → ws://127.0.0.1:9944/relay/v1
+#
+# WHAT THIS IS NOT: a relay. `f2z-fakerelay` serves `ws://` (WIRE.md §2.1 admits
+# `wss://` only), derives queue addresses from a fixed seed so vectors replay
+# (§7.1 requires them to be unpredictable), and keeps everything in memory
+# (§8.4's `durability_mode: memory`). All three are published in its signed
+# capability document, and a conforming client refuses it unless the developer
+# opts in per relay (§2.3 obligation 3):
+#
+#   ClientPolicy { allow_insecure_transport: true, .. }
+#
+# The `faulty` service is the same relay with the capability document of
+# https://github.com/free2z/zuu/issues/586 — `antireplay_window_ms` below
+# `2 x clock_skew_ms`, which the specification as written permits and a
+# conforming client must refuse. Point a client at it and watch the refusal;
+# if the client connects anyway, that is the bug the issue is about.
+
+name: f2z-fakerelay
+
+services:
+  fakerelay:
+    build:
+      # rs/ — the workspace root, because the build needs one Cargo.lock.
+      context: ..
+      dockerfile: deploy/Dockerfile
+    # Loopback-only by default. Change this and you are exposing a relay whose
+    # queue addresses anyone can predict.
+    ports:
+      - "127.0.0.1:9944:9944"
+    command:
+      - "--listen"
+      - "0.0.0.0:9944"
+      - "--insecure-listen"
+    read_only: true
+    healthcheck:
+      # A TCP accept is the whole health signal: the process holds no state to
+      # be unhealthy about.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9944 || exit 1"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+
+  # Optional: the same relay, publishing the capability document of #586.
+  # `docker compose -f docker-compose.dev.yml --profile faults up faulty`
+  faulty:
+    profiles: ["faults"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "127.0.0.1:9945:9945"
+    command:
+      - "--listen"
+      - "0.0.0.0:9945"
+      - "--insecure-listen"
+      - "--unsound-antireplay"
+    read_only: true
