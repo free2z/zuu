@@ -131,6 +131,9 @@ fn run(config: Config) -> ExitCode {
         if let Some(admin) = server.admin_addr() {
             eprintln!("f2z-relay: admin on http://{admin}/healthz and /metrics");
         }
+        if let Some(health) = server.health_addr() {
+            eprintln!("f2z-relay: health on http://{health}/healthz (no /metrics)");
+        }
 
         wait_for_signal().await;
         // §6.4's NOTICE(2) goes out here, before the sockets close: a client

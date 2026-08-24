@@ -63,6 +63,8 @@ OPTIONS:
         --tls-key <PATH>       PEM private key              [listen.tls_key]
         --admin-listen <ADDR>  Loopback /healthz + /metrics [admin.address]
         --no-admin             Do not serve them at all     [admin.enabled]
+        --health-listen <ADDR> /healthz ONLY, any address   [health.address]
+        --no-health            Do not serve it at all       [health.enabled]
         --store <BACKEND>      sqlite | memory              [store.backend]
         --store-path <PATH>    SQLite file                  [store.path]
         --identity <PATH>      Ed25519 identity key file    [identity.path]
@@ -158,6 +160,12 @@ where
                 index = index.saturating_add(1);
             }
             "--no-admin" => config.admin.enabled = false,
+            "--health-listen" => {
+                config.health.address = take("--health-listen")?;
+                config.health.enabled = true;
+                index = index.saturating_add(1);
+            }
+            "--no-health" => config.health.enabled = false,
             "--store" => {
                 config.store.backend = take("--store")?;
                 index = index.saturating_add(1);
@@ -280,6 +288,8 @@ mod tests {
             "--tls-key",
             "--admin-listen",
             "--no-admin",
+            "--health-listen",
+            "--no-health",
             "--store",
             "--store-path",
             "--identity",
@@ -291,6 +301,28 @@ mod tests {
         ] {
             assert!(HELP.contains(flag), "--help does not mention {flag}");
         }
+    }
+
+    #[test]
+    fn the_health_listener_is_off_until_it_is_asked_for() {
+        // A relay that nobody probes opens no extra port. `--health-listen`
+        // both sets the address and turns it on, in one token, because the two
+        // spellings that could disagree are exactly how a deployment ends up
+        // with a configured-but-unserved probe target.
+        assert!(!parse(args(&[]), []).unwrap().config.health.enabled);
+        let invocation = parse(args(&["--health-listen", "0.0.0.0:8081"]), []).unwrap();
+        assert!(invocation.config.health.enabled);
+        assert_eq!(invocation.config.health.address, "0.0.0.0:8081");
+        assert!(
+            !parse(
+                args(&["--health-listen", "0.0.0.0:8081", "--no-health"]),
+                []
+            )
+            .unwrap()
+            .config
+            .health
+            .enabled
+        );
     }
 
     #[test]

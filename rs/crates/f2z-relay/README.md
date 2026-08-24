@@ -93,6 +93,37 @@ exists to survive. `/metrics` carries **no labels at all** — a `{queue="…"}`
 series is a per-conversation activity trace that outlives the ciphertext in the
 scraper's storage, and a `{remote="…"}` series is a connection log.
 
+## …and there is a second, narrower listener, because that made it unprobeable
+
+`--health-listen ADDR` (`[health] address`, `F2Z_RELAY_HEALTH_ADDRESS`) serves
+**`/healthz` and nothing else** and may bind any address, including `0.0.0.0`.
+It is **off by default**.
+
+It exists because the rule above made the relay undeployable, and that was
+discovered by running the published image against the Kubernetes manifest
+written for it rather than by reading either. A kubelet dials the **pod IP** for
+an `httpGet` probe, and a Google Cloud load balancer health-checks the pod IP
+directly when the Service is backed by a NEG; a loopback listener is unreachable
+to both by construction. The image is distroless — no shell, no `wget`, no
+`curl` — so an `exec` probe has nothing to call, and a `healthz` subcommand (the
+shape `f2z-kt` and `f2z-witness` use) answers the kubelet and does *nothing* for
+the load balancer. The result would have been a pod reading `Ready` behind a 502.
+
+Two things this deliberately is **not**:
+
+* **It is not `/metrics` off-host.** `/metrics` on this listener is a 404. The
+  loopback rule protects the metrics endpoint, and that is unchanged; what is
+  exposed is a constant three-byte body with no digit in it.
+* **It is not `/healthz` on the protocol port.** That port is §2.2's
+  deliberately narrow unauthenticated surface, and it is also where §13.1 layer
+  1's connection guard sits — a health check answered there would take a
+  connection permit and could be *refused* under load, so a traffic spike would
+  fail the kubelet's liveness probe and restart the only replica. A separate
+  listener cannot do that.
+
+`scripts/check-f2z-images.mjs --probe-relay IMAGE` asserts all three properties
+against a running container after every build.
+
 ## `.well-known` is deliberately not served
 
 §11.2 asks for the capability document over plain HTTPS as JSON, so a human, a

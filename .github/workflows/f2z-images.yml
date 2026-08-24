@@ -136,6 +136,21 @@ jobs:
           IMAGE: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
         run: node scripts/check-f2z-images.mjs --probe "$IMAGE"
 
+      # The same idea for the relay, and it exists because the opposite was
+      # once true: k8s/f2z-relay/deployment.yaml specified three `httpGet`
+      # probes and a GCE health check against `/healthz` on the protocol port,
+      # and the binary could answer none of them — `/healthz` was on a listener
+      # that refuses to bind off loopback, while the kubelet and the load
+      # balancer both dial the pod IP. Nothing in CI could see that, because
+      # nothing had ever run the manifest against the image. This step is that
+      # missing check.
+      - name: Verify a Kubernetes probe can reach the relay's /healthz
+        if: matrix.bin == 'f2z-relay'
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.bin }}:pr-${{ github.event.pull_request.number }}
+        run: node scripts/check-f2z-images.mjs --probe-relay "$IMAGE"
+
   f2z_image_publish:
     name: f2z servers / publish ${{ matrix.bin }}
     if: >-
@@ -228,6 +243,9 @@ jobs:
           node scripts/check-f2z-images.mjs --inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" "$BIN"
           if [[ "$BIN" == f2z-witness ]]; then
             node scripts/check-f2z-images.mjs --probe "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          fi
+          if [[ "$BIN" == f2z-relay ]]; then
+            node scripts/check-f2z-images.mjs --probe-relay "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
           fi
 
       # Phase two is a person's job. The line below is the whole handover: a

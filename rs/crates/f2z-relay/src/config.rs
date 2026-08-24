@@ -87,6 +87,8 @@ pub struct Config {
     pub listen: Listen,
     /// The loopback-only operational listener.
     pub admin: Admin,
+    /// The health-only listener, which may bind off loopback.
+    pub health: Health,
     /// Where queues live.
     pub store: Store,
     /// The relay's long-term Ed25519 identity (§5.2).
@@ -143,6 +145,34 @@ pub struct Admin {
     /// Whether to serve it at all.
     pub enabled: bool,
     /// The address. Refused at startup if it is not loopback.
+    pub address: String,
+}
+
+/// The health-only listener.
+///
+/// **The one surface that may answer off-host, and it answers a constant.**
+/// [`Admin`] above must stay loopback-only because `/metrics` is on it. A
+/// Kubernetes deployment cannot probe a loopback listener at all — the kubelet
+/// dials the pod IP for an `httpGet`, and a Google Cloud load balancer
+/// health-checks the pod IP directly when the Service is backed by a NEG — so
+/// without this the relay is a workload that cannot be deployed: `Ready` in
+/// `kubectl get pod` and 502 at the hostname, or no probe at all.
+///
+/// Serving `/healthz` here rather than on the protocol port is deliberate. The
+/// protocol port is the unauthenticated WebSocket surface §2.2 keeps
+/// deliberately narrow, and it is also the port §13.1 layer 1's connection
+/// guard sits on: a health check answered there would consume a connection
+/// permit and could be REFUSED under load, so a traffic spike would fail the
+/// kubelet's liveness probe and restart the only replica. A separate listener
+/// cannot do that.
+///
+/// **Off by default.** A relay that is not being probed should not open a port.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Health {
+    /// Whether to serve it at all.
+    pub enabled: bool,
+    /// The address. Any address, including `0.0.0.0`.
     pub address: String,
 }
 
@@ -373,6 +403,20 @@ impl Default for Admin {
     }
 }
 
+impl Default for Health {
+    fn default() -> Self {
+        Self {
+            // Off unless asked for: opening a port is a deployment decision,
+            // and every existing configuration must keep the ports it had.
+            enabled: false,
+            // Only consulted when `enabled`. Loopback so that a bare `enabled =
+            // true` with no address is a mistake that stays on the host rather
+            // than one that exposes a port nobody chose.
+            address: "127.0.0.1:8081".to_owned(),
+        }
+    }
+}
+
 impl Default for Store {
     fn default() -> Self {
         Self {
@@ -570,6 +614,8 @@ impl Config {
             }
             "admin_enabled" => self.admin.enabled = boolean("admin_enabled", value)?,
             "admin_address" => self.admin.address = value.to_owned(),
+            "health_enabled" => self.health.enabled = boolean("health_enabled", value)?,
+            "health_address" => self.health.address = value.to_owned(),
             "store_backend" => self.store.backend = value.to_owned(),
             "store_path" => self.store.path = value.to_owned(),
             "identity_path" => self.identity.path = value.to_owned(),
@@ -731,6 +777,18 @@ impl Config {
             .map_err(|_| ConfigError::Invalid("admin.address", self.admin.address.clone()))
     }
 
+    /// The parsed health address.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError::Invalid`] if it is not `host:port`.
+    pub fn health_addr(&self) -> Result<SocketAddr> {
+        self.health
+            .address
+            .parse()
+            .map_err(|_| ConfigError::Invalid("health.address", self.health.address.clone()))
+    }
+
     /// Whether the listener terminates TLS itself.
     #[must_use]
     pub fn tls_enabled(&self) -> bool {
@@ -846,6 +904,38 @@ impl Config {
                     "admin.address",
                     "the admin listener must not share the protocol listener's address".to_owned(),
                 ));
+            }
+        }
+
+        if self.health.enabled {
+            let health = self.health_addr()?;
+            // Deliberately NO loopback rule here: this listener exists so that
+            // a kubelet and a load balancer, both of which dial the pod IP, can
+            // reach a health check at all. What keeps that safe is the surface
+            // itself — `/healthz` and nothing else, a constant body with no
+            // digit in it — not the address it is bound to. See
+            // `crate::admin::Scope`.
+            //
+            // The two collisions ARE refused, because either one silently
+            // changes what a port serves. Port 0 asks the OS to choose, so two
+            // zeros are not a clash; only a concrete pair can be.
+            if health.port() != 0 && health.port() == listen.port() && health.ip() == listen.ip() {
+                return Err(ConfigError::Invalid(
+                    "health.address",
+                    "the health listener must not share the protocol listener's address".to_owned(),
+                ));
+            }
+            if self.admin.enabled {
+                let admin = self.admin_addr()?;
+                if health.port() != 0 && health.port() == admin.port() && health.ip() == admin.ip()
+                {
+                    return Err(ConfigError::Invalid(
+                        "health.address",
+                        "the health listener must not share the admin listener's address; \
+                         /metrics would then be reachable wherever /healthz is"
+                            .to_owned(),
+                    ));
+                }
             }
         }
 
@@ -1069,6 +1159,10 @@ impl Config {
         let _ = writeln!(out, "\n[admin]");
         let _ = writeln!(out, "enabled = {}", self.admin.enabled);
         let _ = writeln!(out, "address = {:?}", self.admin.address);
+
+        let _ = writeln!(out, "\n[health]");
+        let _ = writeln!(out, "enabled = {}", self.health.enabled);
+        let _ = writeln!(out, "address = {:?}", self.health.address);
 
         let _ = writeln!(out, "\n[store]");
         let _ = writeln!(out, "backend = {:?}", self.store.backend);
