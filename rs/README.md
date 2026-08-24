@@ -75,7 +75,8 @@ decided is `wallet/rust-toolchain.toml`, and
 
 ```
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
-                                --manifest rs/crates/f2z-codec/Cargo.toml
+                                --manifest rs/crates/f2z-codec/Cargo.toml \
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
 ```
 
 fails the pull request the moment the two disagree. `.github/workflows/rs.yml`
@@ -108,8 +109,14 @@ prevent.
 | Crate | What it is |
 |---|---|
 | [`crates/f2z-codec`](./crates/f2z-codec) | The canonical encoding layer of `WIRE.md`: `tls_codec` wrappers for every wire structure, the domain-separated signing transcript (§5), the redacting newtypes, and the padding-bucket validator (§9). `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no async runtime, and it builds for `wasm32-unknown-unknown`. |
+| [`crates/f2z-relay-proto`](./crates/f2z-relay-proto) | The protocol layer above it: signed-command construction and verification in §5.1's exact order, the timestamp window and fail-closed seen-set (§5.5), the queue lifecycle and ACK arithmetic (§7, §8), the capability document (§11), the `HELLO` proof of possession (§5.2), and §4.3's typed in-flight window. Same constraints — `no_std` + `alloc`, no I/O, no clock, no randomness, and it builds for `wasm32-unknown-unknown`. |
 
-`f2z-codec` is separate from everything that will sit on top of it for three
+**The relay and the clients link both.** That is the licence boundary in
+practice: everything here is MIT because a third-party relay, ZUULI and the WASM
+web client all compile the same rules, and a rule that two implementations
+disagree about is how ciphertext gets deleted before it is read.
+
+`f2z-codec` is separate from everything that sits on top of it for three
 reasons, and each is enforced by a test rather than by intent:
 
 1. **Re-encode equality** (`WIRE.md` §3.3) is implemented once. Every received
@@ -127,14 +134,15 @@ reasons, and each is enforced by a test rather than by intent:
 ```bash
 cd rs
 cargo test
-cargo build --target wasm32-unknown-unknown -p f2z-codec
+cargo build --target wasm32-unknown-unknown --lib -p f2z-codec -p f2z-relay-proto
 ```
 
 The gates are the repository's shared scripts, pointed here with `--root`:
 
 ```bash
 scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
-                                --manifest rs/crates/f2z-codec/Cargo.toml
+                                --manifest rs/crates/f2z-codec/Cargo.toml \
+                                --manifest rs/crates/f2z-relay-proto/Cargo.toml
 scripts/check-rust-fmt.sh    --root rs
 scripts/check-rust-clippy.sh --root rs
 scripts/check-rust-deny.sh   --root rs --config rs/deny.toml

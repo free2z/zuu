@@ -1,0 +1,31 @@
+[package]
+name = "f2z-relay-proto"
+version = "0.1.0"
+description = "Signed commands, anti-replay, queue lifecycle and capability documents for the free2z relay protocol (docs/e2ee/WIRE.md v1)"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. Both the relay and the clients link
+# this crate — that is the entire reason it exists as a separate layer — so the
+# AGPL-3.0 boundary starts at the server binaries and not here. Stated
+# literally rather than inherited so it is visible to anyone opening the crate.
+# rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ed25519-dalek = { workspace = true }
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-codec = { path = "../f2z-codec", version = "0.1.0" }
+tls_codec = { workspace = true }
+subtle = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
