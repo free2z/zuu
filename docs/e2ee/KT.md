@@ -817,10 +817,13 @@ handle. It increments when the account changes hands or is recovered, which is
 the only thing that justifies a `reset`. The log retains the value from the last
 admitted assertion for the handle and requires the next one to be **strictly
 greater** (A15), so a `reset` assertion cannot be spent twice on one
-account-ownership event.
+account-ownership event. At a **first** entry there is no retained value and A15
+has nothing to compare against; the value in a `bind` assertion is simply the
+baseline the handle's first `reset` must exceed.
 
-> **The one place this document is stricter than a shipped implementation, and
-> it is deliberate.** `account_epoch` **MUST** be a durable per-account counter
+> **One of the two places this document is stricter than a shipped
+> implementation, and it is deliberate** — the other is A17's ledger durability
+> (§4.5.5). `account_epoch` **MUST** be a durable per-account counter
 > held by the authority, and **MUST NOT** be derived from a clock. A monotonic
 > wall clock satisfies "strictly greater than the last one" unconditionally and
 > forever, which does not merely weaken A15 — it deletes it, while leaving a
@@ -923,8 +926,8 @@ There is no new error code. §9.5's table is unchanged and the mapping is:
 | A2 decode, re-encode mismatch, charset | `ERR_MALFORMED` (1) |
 | A4 wrong `log_id` | `ERR_UNSUPPORTED_VERSION` (2) — "a `log_id` this server does not serve" |
 | A13, A16 signature failures | `ERR_BAD_SIGNATURE` (3) |
-| A1, A3, A5–A12, A14, A15, A17 | `ERR_BAD_AUTHORIZATION` (4) |
-| A17 ledger full | `ERR_RATE_LIMITED` (9) |
+| A1, A3, A5–A12, A14, A15, and A17 **as a replay** | `ERR_BAD_AUTHORIZATION` (4) |
+| A17 refused because the ledger is **full of unexpired entries** | `ERR_RATE_LIMITED` (9) |
 | the log's own authority set is misconfigured | `ERR_INTERNAL` (11) |
 
 The last row is the one to notice. A misconfigured authority set is the
