@@ -5,6 +5,10 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  compatibilityScopeIdentity,
+  reviewedCompatibilityScope,
+} from "./check-librustzcash-compat.mjs";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const POLICY_REPO_ROOT = path.resolve(
@@ -19,10 +23,17 @@ const GATE_CHECKOUT_REFERENCE =
 const GATE_POLICY_SELF_TEST_COMMAND =
   "node scripts/check-github-actions-pins.mjs --self-test";
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
+const WORKFLOW_GATES_SELF_TEST_COMMAND =
+  "node scripts/check-workflow-gates.mjs --self-test";
+const WORKFLOW_GATES_COMMAND = "node scripts/check-workflow-gates.mjs";
 const LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND =
   "node scripts/check-librustzcash-compat.mjs --self-test";
 const LIBRUSTZCASH_POLICY_COMMAND =
   "node scripts/check-librustzcash-compat.mjs";
+const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
+const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
+const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
+  "4b4115dff3d451ca9f4576881fb80e3b7b1c33b465e69968048e18b9bf0325ab";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
 const WASM_POLICY_SELF_TEST_COMMAND =
@@ -1110,11 +1121,13 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
   if (
     !hasExactKeys(policy.properties, ["name", "run"]) ||
     policy.properties.get("run")?.value !== "|" ||
-    commands.length !== 4 ||
+    commands.length !== 6 ||
     commands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
     commands[1] !== GATE_POLICY_COMMAND ||
-    commands[2] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
-    commands[3] !== LIBRUSTZCASH_POLICY_COMMAND
+    commands[2] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
+    commands[3] !== WORKFLOW_GATES_COMMAND ||
+    commands[4] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
+    commands[5] !== LIBRUSTZCASH_POLICY_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: changes policy step must exactly self-test and enforce the current-source policy`,
@@ -1662,6 +1675,29 @@ function cryptoProbeInputFailures(repoRoot, overrides = new Map()) {
   return failures;
 }
 
+function librustzcashScopeFailures(scope = reviewedCompatibilityScope()) {
+  const failures = [];
+  if (scope.lockfiles.length !== REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT) {
+    failures.push(
+      `librustzcash source contract must guard exactly ${REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT} shipping locks, got ${scope.lockfiles.length}`,
+    );
+  }
+  if (scope.packages.size !== REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT) {
+    failures.push(
+      `librustzcash source contract must guard exactly ${REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT} packages, got ${scope.packages.size}`,
+    );
+  }
+  const actualDigest = createHash("sha256")
+    .update(compatibilityScopeIdentity(scope))
+    .digest("hex");
+  if (actualDigest !== REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST) {
+    failures.push(
+      `librustzcash lock/package inventory differs from its independently reviewed digest: ${actualDigest}`,
+    );
+  }
+  return failures;
+}
+
 function gatePolicyFailures(repoRoot, relativeFile, lines) {
   const failures = [];
   const jobs = policyWorkflowJobs(relativeFile, lines, failures);
@@ -1700,6 +1736,9 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     path.resolve(repoRoot) === POLICY_REPO_ROOT &&
     relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
   const enforceWasmBoundary = enforceNativeClippy;
+  if (enforceNativeClippy) {
+    failures.push(...librustzcashScopeFailures());
+  }
   if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_clippy")) {
     failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`);
   }
@@ -2354,6 +2393,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           "        run: |",
           `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
           `          ${GATE_POLICY_COMMAND}`,
+          `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+          `          ${WORKFLOW_GATES_COMMAND}`,
           `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
           `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
         ].join("\n"),
@@ -2371,6 +2412,21 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "      - name: Verify immutable actions and fail-closed required jobs",
         "      - name: Verify immutable actions and fail-closed required jobs\n        if: false",
       ),
+    },
+    {
+      name: "real workflow rejects a missing workflow-gates policy self-test",
+      needle:
+        "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(
+        `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n`,
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a missing workflow-gates policy verdict",
+      needle:
+        "changes policy step must exactly self-test and enforce the current-source policy",
+      source: source.replace(`          ${WORKFLOW_GATES_COMMAND}\n`, ""),
     },
     {
       name: "real workflow rejects a missing librustzcash policy self-test",
@@ -2923,7 +2979,60 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     cryptoInputMutations += 1;
     console.log(`self-test: crypto input digest rejects mutation: ${input}: passed`);
   }
-  return mutations.length + cryptoInputMutations;
+  const reviewedScope = reviewedCompatibilityScope();
+  const baselineScopeFailures = librustzcashScopeFailures(reviewedScope);
+  if (baselineScopeFailures.length) {
+    throw new Error(
+      `reviewed librustzcash scope is not a valid mutation base: ${baselineScopeFailures.join("; ")}`,
+    );
+  }
+  const scopeMutants = [
+    ...reviewedScope.lockfiles.map((lockfile) => ({
+      name: `external scope contract rejects deleting lock ${lockfile}`,
+      scope: {
+        lockfiles: reviewedScope.lockfiles.filter(
+          (candidate) => candidate !== lockfile,
+        ),
+        packages: new Map(reviewedScope.packages),
+      },
+      needle: "must guard exactly 3 shipping locks",
+    })),
+    ...[...reviewedScope.packages].map(([name]) => ({
+      name: `external scope contract rejects deleting package ${name}`,
+      scope: {
+        lockfiles: [...reviewedScope.lockfiles],
+        packages: new Map(
+          [...reviewedScope.packages].filter(
+            ([candidate]) => candidate !== name,
+          ),
+        ),
+      },
+      needle: "must guard exactly 11 packages",
+    })),
+    {
+      name: "external scope digest rejects a package change with stable counts",
+      scope: {
+        lockfiles: [...reviewedScope.lockfiles],
+        packages: new Map(
+          [...reviewedScope.packages].map(([name, version]) => [
+            name,
+            name === "orchard" ? `${version}-scope-mutant` : version,
+          ]),
+        ),
+      },
+      needle: "inventory differs from its independently reviewed digest",
+    },
+  ];
+  for (const mutation of scopeMutants) {
+    const failures = librustzcashScopeFailures(mutation.scope);
+    if (!failures.some((failure) => failure.includes(mutation.needle))) {
+      throw new Error(
+        `${mutation.name}: expected ${JSON.stringify(mutation.needle)}, got ${failures.join("; ")}`,
+      );
+    }
+    console.log(`self-test: ${mutation.name}: passed`);
+  }
+  return mutations.length + cryptoInputMutations + scopeMutants.length;
 }
 
 function runSelfTest(repoRoot) {
@@ -2964,6 +3073,8 @@ function runSelfTest(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
+    `          ${WORKFLOW_GATES_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
     "      - name: Verify the required Rust/WASM build boundary",
@@ -3342,7 +3453,7 @@ function runSelfTest(repoRoot) {
         "changes policy step must exactly self-test and enforce the current-source policy",
       files: gateFixture(
         validGateWorkflow.replace(
-          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
+          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n`,
           "        run: true\n",
         ),
       ),

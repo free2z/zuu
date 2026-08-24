@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,53 @@ const EXPECTED_PACKAGES = new Map([
   ["zcash_transparent", "0.10.0"],
   ["zip321", "0.9.0"],
 ]);
+// These independent literals make the guarded inventory fail closed. The
+// digest is deliberately not derived into its expected value at runtime: a
+// lock or package disappearing from the declarations above must make both the
+// live verdict and the self-test red until a reviewer accepts a new scope.
+const REVIEWED_LOCKFILE_COUNT = 3;
+const REVIEWED_PACKAGE_COUNT = 11;
+const REVIEWED_SCOPE_DIGEST =
+  "4b4115dff3d451ca9f4576881fb80e3b7b1c33b465e69968048e18b9bf0325ab";
+
+export function reviewedCompatibilityScope() {
+  return {
+    lockfiles: [...LOCKFILES],
+    packages: new Map(EXPECTED_PACKAGES),
+  };
+}
+
+export function compatibilityScopeIdentity(
+  scope = reviewedCompatibilityScope(),
+) {
+  return JSON.stringify({
+    lockfiles: scope.lockfiles,
+    packages: [...scope.packages],
+  });
+}
+
+function scopeErrors(scope) {
+  const errors = [];
+  if (scope.lockfiles.length !== REVIEWED_LOCKFILE_COUNT) {
+    errors.push(
+      `reviewed scope must contain exactly ${REVIEWED_LOCKFILE_COUNT} shipping locks, got ${scope.lockfiles.length}`,
+    );
+  }
+  if (scope.packages.size !== REVIEWED_PACKAGE_COUNT) {
+    errors.push(
+      `reviewed scope must contain exactly ${REVIEWED_PACKAGE_COUNT} packages, got ${scope.packages.size}`,
+    );
+  }
+  const digest = createHash("sha256")
+    .update(compatibilityScopeIdentity(scope))
+    .digest("hex");
+  if (digest !== REVIEWED_SCOPE_DIGEST) {
+    errors.push(
+      `reviewed lock/package scope digest must remain ${REVIEWED_SCOPE_DIGEST}, got ${digest}`,
+    );
+  }
+  return errors;
+}
 
 function stripRustComments(source) {
   let output = "";
@@ -117,12 +165,12 @@ function occurrences(source, needle) {
   return count;
 }
 
-function packageVersions(lock) {
+function packageVersions(lock, expectedPackages) {
   const versions = new Map();
   for (const block of lock.split(/^\[\[package\]\]$/m).slice(1)) {
     const name = block.match(/^name = "([^"]+)"$/m)?.[1];
     const version = block.match(/^version = "([^"]+)"$/m)?.[1];
-    if (!name || !version || !EXPECTED_PACKAGES.has(name)) continue;
+    if (!name || !version || !expectedPackages.has(name)) continue;
     const found = versions.get(name) ?? [];
     found.push(version);
     versions.set(name, found);
@@ -130,8 +178,8 @@ function packageVersions(lock) {
   return versions;
 }
 
-function validate(snapshot) {
-  const errors = [];
+function validate(snapshot, scope = reviewedCompatibilityScope()) {
+  const errors = scopeErrors(scope);
   if (snapshot.gitlink !== EXPECTED_LIBRUSTZCASH_SHA) {
     errors.push(
       `librustzcash gitlink must be reviewed ${EXPECTED_LIBRUSTZCASH_SHA}, got ${snapshot.gitlink}`,
@@ -187,9 +235,9 @@ function validate(snapshot) {
     );
   }
 
-  for (const lockfile of LOCKFILES) {
-    const versions = packageVersions(snapshot.files[lockfile]);
-    for (const [name, expected] of EXPECTED_PACKAGES) {
+  for (const lockfile of scope.lockfiles) {
+    const versions = packageVersions(snapshot.files[lockfile], scope.packages);
+    for (const [name, expected] of scope.packages) {
       const found = versions.get(name) ?? [];
       if (found.length !== 1 || found[0] !== expected) {
         errors.push(
@@ -243,8 +291,8 @@ function mutated(snapshot, file, target, replacement, mutation) {
   };
 }
 
-function requireFailure(name, snapshot, expected) {
-  const errors = validate(snapshot);
+function requireFailure(name, snapshot, expected, scope) {
+  const errors = validate(snapshot, scope);
   if (!errors.some((error) => error.includes(expected))) {
     throw new Error(
       `${name}: mutant survived; expected ${JSON.stringify(expected)}, got ${JSON.stringify(errors)}`,
@@ -300,6 +348,42 @@ function runSelfTest() {
         '[[package]]\nname = "orchard"\nversion = "0.15.3"\n',
     },
   };
+  const scopeMutants = [
+    ...LOCKFILES.map((lockfile) => [
+      `guarded scope drops ${lockfile}`,
+      baseline,
+      "reviewed scope must contain exactly 3 shipping locks",
+      {
+        lockfiles: LOCKFILES.filter((candidate) => candidate !== lockfile),
+        packages: new Map(EXPECTED_PACKAGES),
+      },
+    ]),
+    ...[...EXPECTED_PACKAGES].map(([name]) => [
+      `guarded scope drops package ${name}`,
+      baseline,
+      "reviewed scope must contain exactly 11 packages",
+      {
+        lockfiles: [...LOCKFILES],
+        packages: new Map(
+          [...EXPECTED_PACKAGES].filter(([candidate]) => candidate !== name),
+        ),
+      },
+    ]),
+    [
+      "guarded package inventory changes without changing its count",
+      baseline,
+      "reviewed lock/package scope digest",
+      {
+        lockfiles: [...LOCKFILES],
+        packages: new Map(
+          [...EXPECTED_PACKAGES].map(([name, version]) => [
+            name,
+            name === "orchard" ? `${version}-scope-mutant` : version,
+          ]),
+        ),
+      },
+    ],
+  ];
   const cases = [
     [
       "LockRequest helper drift",
@@ -399,29 +483,39 @@ function runSelfTest() {
       duplicatePackage,
       `${LOCKFILES[0]}: orchard must occur once`,
     ],
+    ...scopeMutants,
   ];
-  for (const [name, snapshot, expected] of cases) {
-    requireFailure(name, snapshot, expected);
+  for (const [name, snapshot, expected, scope] of cases) {
+    requireFailure(name, snapshot, expected, scope);
   }
   process.stdout.write(`self-test: killed ${cases.length} compatibility mutants.\n`);
 }
 
-const args = process.argv.slice(2);
-if (args.length === 1 && args[0] === "--self-test") {
-  runSelfTest();
-} else if (args.length === 0) {
-  const errors = validate(liveSnapshot());
-  if (errors.length) {
-    for (const error of errors) process.stderr.write(`drift: ${error}\n`);
-    process.exit(1);
+function runCli(args) {
+  if (args.length === 1 && args[0] === "--self-test") {
+    runSelfTest();
+  } else if (args.length === 1 && args[0] === "--print-scope-digest") {
+    process.stdout.write(
+      `${createHash("sha256").update(compatibilityScopeIdentity()).digest("hex")}\n`,
+    );
+  } else if (args.length === 0) {
+    const errors = validate(liveSnapshot());
+    if (errors.length) {
+      for (const error of errors) process.stderr.write(`drift: ${error}\n`);
+      process.exit(1);
+    }
+    process.stdout.write(
+      `librustzcash source contract passed: gitlink ${EXPECTED_LIBRUSTZCASH_SHA}, ` +
+        `${EXPECTED_PACKAGES.size} reviewed packages across ${LOCKFILES.length} shipping locks.\n`,
+    );
+  } else {
+    process.stderr.write(
+      "usage: scripts/check-librustzcash-compat.mjs [--self-test|--print-scope-digest]\n",
+    );
+    process.exit(2);
   }
-  process.stdout.write(
-    `librustzcash compatibility passed: gitlink ${EXPECTED_LIBRUSTZCASH_SHA}, ` +
-      `${EXPECTED_PACKAGES.size} reviewed packages across ${LOCKFILES.length} shipping locks.\n`,
-  );
-} else {
-  process.stderr.write(
-    "usage: scripts/check-librustzcash-compat.mjs [--self-test]\n",
-  );
-  process.exit(2);
+}
+
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  runCli(process.argv.slice(2));
 }

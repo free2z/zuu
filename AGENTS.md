@@ -156,6 +156,20 @@ integrate, and move it forward alongside everything else.
   typecheck+build; Rust `cargo build` of the Tauri backend through the
   librustzcash path deps) on every change to the app, its deps, or the
   `z/zcash/librustzcash` submodule pointer. If a bump breaks us, CI says so.
+- **`scripts/check-librustzcash-compat.mjs` is a source-text change detector,
+  not send-path behavioural coverage.** It pins the reviewed librustzcash
+  gitlink, the exact versions of 11 Zcash packages in each of the 3 shipping
+  lockfiles that contain that graph, and the API-adaptation source shapes that
+  accompanied the pin. It does not compile or exercise a transaction; the
+  money-affecting behavioural coverage remains tracked in **#547**. To bump
+  librustzcash: move the submodule to reviewed upstream HEAD, regenerate all
+  three lockfiles on the pinned toolchain, and inspect the resolved graph before
+  changing any expected literal. Then update the reviewed SHA/package versions,
+  run `node scripts/check-librustzcash-compat.mjs --print-scope-digest`, and copy
+  that digest into both the checker and
+  `scripts/check-github-actions-pins.mjs` without reducing the fixed 3-lock /
+  11-package inventory. Finish with both scripts' `--self-test` and live modes,
+  plus clean `cargo build --locked` coverage for every affected shipping root.
 - The workflow's **weekly `upstream-canary`** job rebuilds against the *latest*
   librustzcash `main` + refreshed crates, so upstream drift surfaces as an early
   warning **before** we bump the submodule in a PR.
