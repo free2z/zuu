@@ -931,8 +931,25 @@ mod tests {
         }
     }
 
+    /// Content, isolated from every other observed property.
+    ///
+    /// This test used to be called `source_content_or_identity_change_after_copy`
+    /// and swapped a whole different file in with `fs::rename`, which changes the
+    /// bytes, the length, the modification time *and* the inode at once. Any one
+    /// of the four would have failed it, so it proved nothing in particular about
+    /// content and — despite the name — nothing at all about identity: it stayed
+    /// green under a build whose identity check was bypassed entirely (#610,
+    /// found while reviewing #598).
+    ///
+    /// So the replacement is written in place, at the same length, with the
+    /// modification time restored: `hash` is the only field of `Observation` that
+    /// differs, and the assertion below is therefore about the hash and nothing
+    /// else. `same_content_length_and_mtime_but_distinct_identity_after_copy_is_rejected`
+    /// below is the exact mirror — identical bytes, length and mtime, differing
+    /// only in identity — and between them each property is proved to be load
+    /// bearing on its own.
     #[test]
-    fn source_content_or_identity_change_after_copy_is_rejected() {
+    fn same_length_mtime_and_identity_but_distinct_content_after_copy_is_rejected() {
         let tree = TestTree::new();
         fs::create_dir(tree.legacy()).expect("legacy");
         let db = tree.legacy().join("wallet.sqlite");
@@ -945,10 +962,34 @@ mod tests {
             created_at: String::new(),
             backup_required: false,
         };
-        let replacement = tree.root.join("replacement.sqlite");
-        create_db(&replacement, &[valid_ufvk(1)]);
+
+        let original = observe(&db).expect("observe original source");
+        let mut edited = fs::read(&db).expect("read original source");
+        let last = edited.len() - 1;
+        edited[last] ^= 0xff;
+
         let rejected = inspect_wallet_with_hook(&tree.legacy(), &entry, false, || {
-            fs::rename(&replacement, &db).expect("replace source after copy");
+            // Truncating write, not a rename: the directory entry and the inode
+            // behind it survive, so identity is untouched.
+            fs::write(&db, &edited).expect("rewrite source in place after copy");
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&db)
+                .expect("open rewritten source for timestamp restoration");
+            file.set_times(
+                fs::FileTimes::new().set_modified(
+                    original
+                        .modified
+                        .expect("SQLite source has a modification time"),
+                ),
+            )
+            .expect("restore source modification time");
+
+            let rewritten = observe(&db).expect("observe rewritten source");
+            assert_eq!(rewritten.len, original.len);
+            assert_eq!(rewritten.modified, original.modified);
+            assert_eq!(rewritten.identity, original.identity);
+            assert_ne!(rewritten.hash, original.hash);
         });
         assert_eq!(rejected, Err("Legacy data changed during preview."));
     }
