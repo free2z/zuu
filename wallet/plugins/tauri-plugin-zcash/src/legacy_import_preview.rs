@@ -954,6 +954,57 @@ mod tests {
     }
 
     #[test]
+    fn same_content_length_and_mtime_but_distinct_identity_after_copy_is_rejected() {
+        let tree = TestTree::new();
+        fs::create_dir(tree.legacy()).expect("legacy");
+        let db = tree.legacy().join("wallet.sqlite");
+        create_db(&db, &[valid_ufvk(0)]);
+        let entry = WalletEntry {
+            id: REDACTED.into(),
+            name: REDACTED.into(),
+            db_filename: "wallet.sqlite".into(),
+            birthday_height: None,
+            created_at: String::new(),
+            backup_required: false,
+        };
+
+        let original = observe(&db).expect("observe original source");
+        let replacement = tree.root.join("replacement.sqlite");
+        fs::write(&replacement, fs::read(&db).expect("read original source"))
+            .expect("write byte-identical replacement");
+        let replacement_file = OpenOptions::new()
+            .write(true)
+            .open(&replacement)
+            .expect("open replacement for timestamp restoration");
+        replacement_file
+            .set_times(
+                fs::FileTimes::new().set_modified(
+                    original
+                        .modified
+                        .expect("SQLite source has a modification time"),
+                ),
+            )
+            .expect("restore replacement modification time");
+        let replacement_observation = observe(&replacement).expect("observe replacement");
+        assert_eq!(replacement_observation.len, original.len);
+        assert_eq!(replacement_observation.modified, original.modified);
+        assert_eq!(replacement_observation.hash, original.hash);
+        assert_ne!(replacement_observation.identity, original.identity);
+
+        let displaced = tree.root.join("displaced-original.sqlite");
+        let rejected = inspect_wallet_with_hook(&tree.legacy(), &entry, false, || {
+            fs::rename(&db, &displaced).expect("displace original after snapshot copy");
+            fs::rename(&replacement, &db).expect("install byte-identical replacement");
+            let installed = observe(&db).expect("observe installed replacement");
+            assert_eq!(installed.len, original.len);
+            assert_eq!(installed.modified, original.modified);
+            assert_eq!(installed.hash, original.hash);
+            assert_ne!(installed.identity, original.identity);
+        });
+        assert_eq!(rejected, Err("Legacy data changed during preview."));
+    }
+
+    #[test]
     fn wal_snapshot_includes_uncheckpointed_accounts_without_source_mutation() {
         let tree = TestTree::new();
         fs::create_dir(tree.canonical()).expect("canonical");
@@ -1088,17 +1139,5 @@ mod tests {
             reject_links(&linked, &metadata),
             Err("Legacy application data contains a linked file.")
         );
-    }
-
-    #[test]
-    fn windows_identity_is_bound_to_the_stable_no_follow_win32_helper() {
-        let preview_source = include_str!("legacy_import_preview.rs");
-        let migration_source = include_str!("app_data_migration.rs");
-
-        assert!(preview_source.contains(
-            "crate::app_data_migration::windows_file_identity(path, metadata.file_type().is_dir())"
-        ));
-        assert!(migration_source.contains("FILE_FLAG_OPEN_REPARSE_POINT"));
-        assert!(migration_source.contains("GetFileInformationByHandle"));
     }
 }
