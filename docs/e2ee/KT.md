@@ -2079,7 +2079,7 @@ and the directory is a different service from a relay with a different lifecycle
 | `GET` | `/kt/v1/sth/{epoch}` | that epoch's `SignedTreeHead` + cosignatures | anyone |
 | `GET` | `/kt/v1/audit?from={e0}&to={e1}` | `AppendOnlyProof` (akd protobuf, §9.4) + both tree heads | witnesses in practice (§10) |
 | `POST` | `/kt/v1/lookup` | `{handle}` → `DirectoryEntry` + `LookupProof` + tree head + cosignatures | anyone |
-| `POST` | `/kt/v1/history` | `{handle, params}` → `DirectoryEntry<>` + `HistoryProofV2` + tree head + cosignatures | anyone |
+| `POST` | `/kt/v1/history` | `{handle, params}` → `DirectoryEntry<>` + `HistoryProof` + tree head + cosignatures | anyone |
 | `POST` | `/kt/v1/submit` | `SubmissionEnvelope` → `SubmissionReceipt` | the handle's owner |
 | `POST` | `/kt/v1/cosign` | `WitnessCosignature` → empty | witnesses |
 
@@ -2249,9 +2249,17 @@ size the system.
 Scaling from 10,000 to 1,000,000 entries costs 1.3 KB of proof and no measurable
 time — the cost is dominated by three constant-cost ECVRF verifications.
 
-**Client verifier bundle**, size-optimised `cdylib`, `akd_core` +
-`vrf,whatsapp_v1,protobuf`: 118 KB raw, 47.9 KB gzip, **39.6 KB brotli**. At
-`opt-level=3`: 183 KB raw, 48.1 KB brotli — take `opt-level=3`.
+**Client verifier bundle**, `cdylib`, `akd_core` +
+`vrf,whatsapp_v1,protobuf`: the size-optimised profile produced
+**118,314 B**<!-- akd-metric:verifier_size_raw --> raw,
+**47,940 B**<!-- akd-metric:verifier_size_gzip --> gzip -9, and
+**39,631 B**<!-- akd-metric:verifier_size_brotli --> brotli -q11. The recommended
+`opt-level=3` profile produced
+**183,375 B**<!-- akd-metric:verifier_recommended_raw --> raw and
+**48,116 B**<!-- akd-metric:verifier_recommended_brotli --> brotli -q11. Take
+`opt-level=3`; the exact measurements and provenance are checked in at
+[`evidence/akd-benchmark.json`](./evidence/akd-benchmark.json) and mechanically
+bound to every published bundle-size value.
 
 **Append-only proof, 100,000-entry directory, 5 epoch transitions, ~1,000 new
 entries per epoch:**

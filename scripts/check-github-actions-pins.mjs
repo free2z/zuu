@@ -94,7 +94,19 @@ const RUST_ROOT_CONTRACTS = [
     selectorStep: "Detect changes under rs/",
     selectorId: "filter",
     selectorOutput: "rs",
-    selectorOutputs: [{ name: "rs", probeRoot: "rs" }],
+    selectorOutputs: [
+      {
+        name: "rs",
+        probeRoot: "rs",
+        additionalProbePaths: [
+          "docs/e2ee/KT.md",
+          "docs/e2ee/decisions/0013-key-transparency-log.md",
+          "docs/e2ee/evidence/akd-benchmark.json",
+          "docs/e2ee/evidence/akd-audit-scope.json",
+          "scripts/check-akd-doc-evidence.mjs",
+        ],
+      },
+    ],
     jobs: [
       [
         "rs_fmt",
@@ -2066,6 +2078,29 @@ function rustRootWorkflowFailures(relativeFile, lines, contract) {
     }
   }
 
+  if (contract.root === "rs") {
+    const job = jobs.get("rs_test");
+    const steps = job
+      ? policyJobSteps(relativeFile, lines, job, failures, "rs AKD evidence owner")
+      : [];
+    for (const [stepName, command] of [
+      ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test"],
+      ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs"],
+    ]) {
+      const matching = steps.filter((step) => step.properties.get("name")?.value === stepName);
+      const step = matching[0];
+      if (
+        matching.length !== 1 ||
+        !hasExactKeys(step?.properties ?? new Map(), ["name", "run"]) ||
+        step?.properties.get("run")?.value !== command
+      ) {
+        failures.push(
+          `${relativeFile}:${job?.start + 1 ?? 1}: rs owner job rs_test must run exactly one unconditional, non-soft-failing ${command}`,
+        );
+      }
+    }
+  }
+
   return failures;
 }
 
@@ -3093,6 +3128,41 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         `${ownerPrefix} selector must actively select`,
       );
     }
+    if (contract.root === "rs") {
+      const additionalProbePaths = contract.selectorOutputs.find(
+        ({ name }) => name === contract.selectorOutput,
+      )?.additionalProbePaths ?? [];
+      for (const probePath of additionalProbePaths) {
+        assertWorkflowFailure(
+          contract,
+          source,
+          `${contract.root}/ rejects dropping selector coverage for ${probePath}`,
+          (value) =>
+            mutateJob(
+              value,
+              "changes",
+              probePath.startsWith("docs/e2ee/")
+                ? "docs/e2ee/*|"
+                : "scripts/check-akd-doc-evidence.mjs|",
+              "",
+            ),
+          `${ownerPrefix} selector must actively select`,
+        );
+      }
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs rejects narrowing AKD documentation coverage to KT and benchmark only",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            "docs/e2ee/*|",
+            "docs/e2ee/KT.md|docs/e2ee/evidence/akd-benchmark.json|",
+          ),
+        `${ownerPrefix} selector must actively select`,
+      );
+    }
     assertWorkflowFailure(
       contract,
       source,
@@ -3285,6 +3355,35 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           ),
         verdictNeedle,
       );
+    }
+    if (contract.root === "rs") {
+      for (const [stepName, command] of [
+        ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test"],
+        ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs"],
+      ]) {
+        const needle = "rs owner job rs_test must run exactly one unconditional";
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects deleting ${stepName}`,
+          (value) => mutateJob(value, "rs_test", `        run: ${command}`, "        run: echo skipped"),
+          needle,
+        );
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects parking ${stepName}`,
+          (value) => mutateJob(value, "rs_test", `      - name: ${stepName}`, `      - name: ${stepName}\n        if: false`),
+          needle,
+        );
+        assertWorkflowFailure(
+          contract,
+          source,
+          `rs/rs_test rejects soft-failing ${stepName}`,
+          (value) => mutateJob(value, "rs_test", `      - name: ${stepName}`, `      - name: ${stepName}\n        continue-on-error: true`),
+          needle,
+        );
+      }
     }
   }
   return cases;

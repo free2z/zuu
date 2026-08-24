@@ -125,7 +125,8 @@ supplemented by what is now RFC 9381, SEEMless and Parakeet.
 merged as of tagged release v0.11.0.** The Medium was *"multiple key updates
 during epoch results in invalid state"* — `publish()` with duplicate labels
 leaving a dangling interior node and no valid key for the user; it is why
-[`../KT.md` §5.1](../KT.md#51-cadence) makes at-most-one-entry-per-handle-per-epoch
+[`../KT.md` §4.3](../KT.md#43-uniqueness-within-an-epoch--a-must-that-comes-from-the-audit)
+makes at-most-one-entry-per-handle-per-epoch
 a MUST rather than a convention.
 
 - Landing page:
@@ -155,8 +156,10 @@ is [`../KT.md`](../KT.md).
   builds for `wasm32-unknown-unknown` with no `wasm-bindgen` shim, no `js-sys`,
   no fork and no `getrandom` feature dance, and **runs**: the spike drove real
   proofs through `WebAssembly.instantiate(bytes, {})` with zero imports and got
-  valid results against real root hashes. Size, size-optimised `cdylib`:
-  **118 KB raw, 40 KB brotli**. Cost in V8, against a 1,000,000-entry directory:
+  valid results against real root hashes. Size, recommended `opt-level=3` `cdylib`:
+  **183,375 B**<!-- akd-metric:verifier_recommended_raw --> raw and
+  **48,116 B**<!-- akd-metric:verifier_recommended_brotli --> brotli under the
+  recommended `opt-level=3` profile. Cost in V8, against a 1,000,000-entry directory:
   `lookup_verify` **1.11 ms** (4,042-byte proof), `key_history_verify` over three
   versions **2.63 ms** (9,173-byte proof) — about 1.25× native. There is no
   second verifier to diverge.
@@ -203,16 +206,26 @@ is [`../KT.md`](../KT.md).
   read the release notes for soundness fixes on every bump, because — as #495
   proves — they will not arrive as advisories.
 
-- **The audit is three years old and does not cover the code we will run.** NCC
-  reviewed v0.9.0 in August 2023 and retested into v0.11.0. `HistoryProofV2`, the
-  parallelisation work and the batch-insert rewrite are all later and unreviewed,
-  and **#495 lived in exactly that unreviewed region** — NCC had explicitly
-  deprioritised "performance optimizations within the library, such as the
-  storage caching and parallelization strategy," which is where the bug was. This
-  is the same shape as our OpenMLS position and takes the same mitigation: hold
-  the floor, read every release, and treat the auditor path as the highest-value
-  target for our own review and fuzzing. NCC's own strategic recommendation — more
-  negative and fuzz testing of the public API — is cheap for us to actually do.
+- **The original audit-scope conclusion was wrong, and is retained here as a
+  dated correction rather than silently rewritten.** The original review said
+  the batch-insert rewrite was post-audit and that #495 lived in an unreviewed
+  performance/parallelisation region. That was false: the vulnerable
+  `partition()` implementation was already in the audited release.
+
+  <!-- akd-claim:audit_scope:start -->
+  **Correction (2026-08-24) — NCC reviewed the affected insertion path.** Finding
+  [NCC-E008327-Q3U](https://www.nccgroup.com/media/phzpm0qv/_ncc_group_metaplatforms_e008327_report_2023-11-14_v10.pdf) (report pages 4-5) walks through
+  `recursive_batch_insert_nodes()` and reproduces it as Figure 2: recursive_batch_insert_nodes() in akd/src/append_only_zks.rs.
+  The complete `partition()` body is byte-for-byte identical between audited
+  [v0.9.0](https://github.com/facebook/akd/tree/be1055ee8a2b5291d84206592d8f46b7f042bbe1) and selected
+  [v0.13.0](https://github.com/facebook/akd/tree/43a60ccf7dfdd8f4b628186410e871192adaf65b); the pinned source-object and body
+  hashes are verified by `scripts/check-akd-doc-evidence.mjs`. Q3U's fix in
+  [#400](https://github.com/facebook/akd/pull/400) rejected duplicate labels in `publish()`, but did not guard the
+  `InsertMode::Auditor` insertion used by append-only verification. That residual gap survived until
+  [#495](https://github.com/facebook/akd/pull/495) in 0.13.0. The lesson is therefore stronger and narrower: a paid review
+  examined the same insertion and silent-drop bug class, yet its publish-only remediation left the auditor
+  variant exploitable for almost three years. The auditor path remains our highest-value review and fuzz target.
+  <!-- akd-claim:audit_scope:end -->
 
 - **The audit covers `akd`; it does not cover our use of `akd`.** NCC said so
   directly: *"the correct behavior of akd relies on proper integration with an
@@ -281,7 +294,9 @@ is [`../KT.md`](../KT.md).
 
 - **A second, simpler verifier for the web client**, with `akd` used only
   natively. Rejected by [ADR 0001](./0001-platform-priority.md), and unnecessary:
-  the client verifier reaches the browser at 40 KB brotli and 1.1 ms per lookup.
+  the client verifier reaches the browser at
+  **48,116 B**<!-- akd-metric:verifier_recommended_brotli --> brotli under the
+  recommended profile and 1.1 ms per lookup.
   There was no cost to pay for the divergence we would have bought.
 
 - **Waiting for `akd` 1.0.** Rejected: pre-1.0 is a versioning statement, not a
