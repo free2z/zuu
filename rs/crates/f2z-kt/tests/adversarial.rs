@@ -18,14 +18,24 @@
 //! entry in the pending batch would publish it on the next tick, and a test
 //! that only checked the return value would never see it.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Test code, run on the host by a person reading the failure. The workspace
+// denies these because a panic in a parser is a remote denial of service, and
+// neither hazard exists here: a fixture that indexes past the end of a fixture
+// is a failing test, which is what a test is for.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects
+)]
 
 use f2z_codec::Canonical as _;
 use f2z_codec::types::{Digest, Signature};
-use f2z_kt_core::entry::EntryKind;
-use f2z_kt_core::{ErrorCode, labels};
 use f2z_kt::testing::{EntryBuilder, Harness, Identity, entry_bytes, envelope_without_claim};
 use f2z_kt::wire::{Presence, SubmissionEnvelope};
+use f2z_kt_core::entry::EntryKind;
+use f2z_kt_core::{ErrorCode, labels};
 
 const NOW: u64 = 1_700_000_100_000;
 
@@ -40,7 +50,11 @@ fn refusal(result: Result<f2z_kt_core::SubmissionReceipt, f2z_kt::LogError>) -> 
 /// Publish an epoch and return how many entries the tree gained beyond the
 /// per-epoch heartbeat.
 async fn publish_and_count(harness: &Harness) -> u64 {
-    let before = harness.log.latest_bundle().await.map(|b| b.head.sth.tree_size);
+    let before = harness
+        .log
+        .latest_bundle()
+        .await
+        .map(|b| b.head.sth.tree_size);
     let head = harness.log.publish_epoch(NOW).await.unwrap();
     match before {
         Ok(before) => head.sth.tree_size.saturating_sub(before).saturating_sub(1),
@@ -76,7 +90,11 @@ async fn a_first_entry_with_no_authority_assertion_is_refused() {
         ErrorCode::BadAuthorization
     );
     assert_eq!(harness.log.pending_count().await, 0);
-    assert_eq!(publish_and_count(&harness).await, 0, "the tree did not move");
+    assert_eq!(
+        publish_and_count(&harness).await,
+        0,
+        "the tree did not move"
+    );
 }
 
 #[tokio::test]
@@ -217,7 +235,12 @@ async fn an_unvouched_log_reports_itself_as_unvouched_and_still_demands_the_iden
     // Even here the identity key must sign the binding: proof of possession is
     // the whole of the check when nobody is vouching.
     assert_eq!(
-        refusal(harness.log.submit(&envelope_without_claim(&entry), NOW).await),
+        refusal(
+            harness
+                .log
+                .submit(&envelope_without_claim(&entry), NOW)
+                .await
+        ),
         ErrorCode::BadSignature
     );
 

@@ -121,8 +121,7 @@ fn build_signer(config: &Config) -> Result<Arc<dyn LogSigner>> {
 
     if !config.signing_command.is_empty() {
         return Err(LogError::Config(
-            "signing_command is set but this binary was built without the `kms` feature"
-                .to_owned(),
+            "signing_command is set but this binary was built without the `kms` feature".to_owned(),
         ));
     }
     Ok(Arc::new(FileSigner::load(&config.signing_key_file)?))
@@ -139,8 +138,7 @@ pub async fn serve(state: Arc<AppState>, listen: &str) -> Result<()> {
     let scheduler = {
         let log = Arc::clone(&state.log);
         tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(tokio::time::Duration::from_secs(interval));
+            let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(interval));
             // `Delay` rather than `Burst`: a process that was descheduled must
             // not then publish four epochs back to back, which would spend four
             // signatures to say nothing and make the cadence a client observes

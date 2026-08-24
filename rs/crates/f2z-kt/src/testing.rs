@@ -45,10 +45,7 @@ use f2z_kt_core::api::{SubmissionEnvelope, TreeHeadBundle};
 pub fn temp_dir(name: &str) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!(
-        "f2z-kt-{name}-{}-{unique}",
-        std::process::id()
-    ));
+    let path = std::env::temp_dir().join(format!("f2z-kt-{name}-{}-{unique}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     path
@@ -517,8 +514,7 @@ impl Harness {
     ) -> Vec<u8> {
         let bytes = entry_bytes(entry);
         let digest = labels::entry_value(&bytes);
-        let handle =
-            f2z_authority::types::Handle::parse(entry.entry.handle.as_slice()).unwrap();
+        let handle = f2z_authority::types::Handle::parse(entry.entry.handle.as_slice()).unwrap();
 
         let assertion = match (&self.issuer, with_assertion) {
             (Some(issuer), true) => {
@@ -550,18 +546,19 @@ impl Harness {
         let binding = self
             .log
             .authority()
-            .binding(&handle, &entry.entry.identity_pk, assertion.as_ref(), &digest)
+            .binding(
+                &handle,
+                &entry.entry.identity_pk,
+                assertion.as_ref(),
+                &digest,
+            )
             .unwrap();
         let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
 
         let assertion_bytes = assertion.as_ref().map(|a| a.encode_canonical().unwrap());
-        SubmissionEnvelope::new(
-            &bytes,
-            assertion_bytes.as_deref(),
-            identity_signature,
-        )
-        .unwrap()
-        .encode_canonical()
-        .unwrap()
+        SubmissionEnvelope::new(&bytes, assertion_bytes.as_deref(), identity_signature)
+            .unwrap()
+            .encode_canonical()
+            .unwrap()
     }
 }

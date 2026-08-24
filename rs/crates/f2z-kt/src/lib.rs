@@ -64,6 +64,20 @@
 //! [zuu#594]: https://github.com/free2z/zuu/issues/594
 
 #![forbid(unsafe_code)]
+// Unit tests are host code read by a person looking at a failure. The workspace
+// denies these families because a panic on the unauthenticated path is a remote
+// denial of service; a `.unwrap()` in a test is a failing test, which is the
+// point of one. Same shape as `f2z-kt-core`.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )
+)]
 
 pub mod admit;
 pub mod api;
@@ -91,10 +105,10 @@ pub mod testing;
 pub use admit::{AdmissionContext, AdmittedSubmission, admit_submission};
 pub use config::{Config, LogSettings};
 pub use error::{LogError, Result};
+pub use f2z_kt_core::api::{Presence, SubmissionEnvelope, TreeHeadBundle};
 pub use log::LogService;
 pub use policy::{SignedAuthorityPolicy, sign_policy};
 pub use signer::{FileSigner, LogSigner};
-pub use f2z_kt_core::api::{Presence, SubmissionEnvelope, TreeHeadBundle};
 
 /// The wall clock, in milliseconds since the Unix epoch.
 ///

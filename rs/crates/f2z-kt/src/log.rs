@@ -66,8 +66,8 @@ use f2z_authority::authority::AuthorityConfig;
 use f2z_authority::nonce::NonceLedger;
 use f2z_codec::hash::hash;
 use f2z_codec::types::{Digest, Payload, PublicKey};
-use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext, validate_submission};
 use f2z_kt_core::sth::{SignedTreeHead, SignedTreeHeadTBS};
+use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext, validate_submission};
 use f2z_kt_core::types::{Handle, LogId, label_field};
 use f2z_kt_core::{
     DirectoryEntry, KT_VERSION, KtError, SubmissionReceipt, SubmissionReceiptTBS,
@@ -82,8 +82,8 @@ use crate::signer::LogSigner;
 use crate::store::{Journal, Store};
 use crate::vrf::FileVrf;
 use crate::wire::{
-    AuditResponse, HistoryResponse, LookupResponse, Presence, TreeHeadBundle, LABEL_AUDIT_RESPONSE,
-    LABEL_HISTORY_RESPONSE, LABEL_LOOKUP_RESPONSE,
+    AuditResponse, HistoryResponse, LABEL_AUDIT_RESPONSE, LABEL_HISTORY_RESPONSE,
+    LABEL_LOOKUP_RESPONSE, LookupResponse, Presence, TreeHeadBundle,
 };
 
 /// The `akd` label of the per-epoch heartbeat record. See the module note.
@@ -266,11 +266,16 @@ impl LogService {
                 let handle = entry.entry.handle.as_slice().to_vec();
                 updates.push((
                     AkdLabel(labels::akd_label(&entry.entry.handle)),
-                    AkdValue(labels::entry_value(record.entry.as_slice()).as_bytes().to_vec()),
+                    AkdValue(
+                        labels::entry_value(record.entry.as_slice())
+                            .as_bytes()
+                            .to_vec(),
+                    ),
                 ));
-                state
-                    .entries
-                    .insert((handle.clone(), entry.entry.entry_version), record.entry.as_slice().to_vec());
+                state.entries.insert(
+                    (handle.clone(), entry.entry.entry_version),
+                    record.entry.as_slice().to_vec(),
+                );
                 state
                     .latest_entry
                     .insert(handle.clone(), record.entry.as_slice().to_vec());
@@ -329,11 +334,13 @@ impl LogService {
                 // original decision rather than a new one at a different time.
                 now_ms: record.received_at_ms,
             };
-            let accepted = validate_submission(record.entry.as_slice(), &context).map_err(|_| {
-                LogError::Storage(
-                    "submissions.log: a pending entry no longer satisfies KT.md §4.4".to_owned(),
-                )
-            })?;
+            let accepted =
+                validate_submission(record.entry.as_slice(), &context).map_err(|_| {
+                    LogError::Storage(
+                        "submissions.log: a pending entry no longer satisfies KT.md §4.4"
+                            .to_owned(),
+                    )
+                })?;
             let published = accepted.published().map_err(LogError::Kt)?;
             state.pending_handles.insert(handle.clone());
             state.pending.push(Pending {
@@ -349,7 +356,11 @@ impl LogService {
 
         for cosignature in journal.cosignatures {
             let epoch = cosignature.statement.epoch;
-            state.cosignatures.entry(epoch).or_default().push(cosignature);
+            state
+                .cosignatures
+                .entry(epoch)
+                .or_default()
+                .push(cosignature);
         }
 
         log::info!(
@@ -452,7 +463,9 @@ impl LogService {
         let handle_bytes = entry.entry.handle.as_slice().to_vec();
         let published = accepted.published().map_err(LogError::Kt)?;
 
-        state.store.append_submission(accepted.canonical_bytes(), now_ms)?;
+        state
+            .store
+            .append_submission(accepted.canonical_bytes(), now_ms)?;
 
         state.pending_handles.insert(handle_bytes.clone());
         state.pending.push(Pending {
@@ -470,14 +483,18 @@ impl LogService {
         // an operator needs to correlate a complaint with an epoch.
         log::info!(
             "admitted {}@v{} ({})",
-            String::from_utf8_lossy(&state.pending.last().map_or_else(Vec::new, |p| p.handle.clone())),
+            String::from_utf8_lossy(
+                &state
+                    .pending
+                    .last()
+                    .map_or_else(Vec::new, |p| p.handle.clone())
+            ),
             entry.entry.entry_version,
             admitted.vouch()
         );
 
-        let merge_by_ms = now_ms.saturating_add(
-            u64::from(self.settings.max_merge_delay_seconds).saturating_mul(1_000),
-        );
+        let merge_by_ms = now_ms
+            .saturating_add(u64::from(self.settings.max_merge_delay_seconds).saturating_mul(1_000));
         let receipt = SubmissionReceiptTBS {
             label: label_field(f2z_kt_core::labels::LABEL_RECEIPT).map_err(LogError::Kt)?,
             kt_version: KT_VERSION,
@@ -568,7 +585,9 @@ impl LogService {
             max_merge_delay_seconds: self.settings.max_merge_delay_seconds,
             successor_log_pk: self.settings.successor_log_pk,
         };
-        let signature = self.signer.sign(&sth.signing_bytes().map_err(LogError::Kt)?)?;
+        let signature = self
+            .signer
+            .sign(&sth.signing_bytes().map_err(LogError::Kt)?)?;
         let head = SignedTreeHead { sth, signature };
 
         let upto = state
@@ -578,9 +597,10 @@ impl LogService {
         state.submissions_upto = upto;
 
         for pending in batch {
-            state
-                .entries
-                .insert((pending.handle.clone(), pending.entry_version), pending.canonical.clone());
+            state.entries.insert(
+                (pending.handle.clone(), pending.entry_version),
+                pending.canonical.clone(),
+            );
             state
                 .latest_entry
                 .insert(pending.handle.clone(), pending.canonical);
@@ -799,7 +819,8 @@ impl LogService {
         }
 
         let mut state = self.state.lock().await;
-        let head = head_at(&state, cosignature.statement.epoch).ok_or(LogError::EpochUnavailable)?;
+        let head =
+            head_at(&state, cosignature.statement.epoch).ok_or(LogError::EpochUnavailable)?;
         if !cosignature.covers(&head) {
             // The witness signed a different root for an epoch this log
             // published. That is the witness's business to explain, and it is
@@ -850,6 +871,26 @@ impl LogService {
     }
 }
 
+/// Renders identifiers and nothing else.
+///
+/// Hand-written rather than derived, and it is not decoration: a derived
+/// `Debug` here would reach the signer, the VRF key and — through `State` —
+/// every pending submission the log is holding but has not published. `KT.md`
+/// says the log is public by construction, but an *unpublished* submission is
+/// not, and neither is a key. See `crate::logging`.
+impl core::fmt::Debug for LogService {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LogService")
+            .field("log_id", &self.log_id)
+            .field("vrf_public_key", &self.vrf_public_key)
+            .field("log_signing_pk", &self.signer.public_key())
+            .field("signer", &"<redacted>")
+            .field("vrf", &"<redacted>")
+            .field("state", &"<redacted>")
+            .finish()
+    }
+}
+
 /// The heartbeat insertion for an epoch. See the module note.
 fn heartbeat_update(epoch: u64) -> (AkdLabel, AkdValue) {
     let value = hash(HEARTBEAT_VALUE_LABEL, &epoch.to_be_bytes());
@@ -880,4 +921,3 @@ fn peek_handle(envelope: &[u8]) -> Result<Vec<u8>> {
     let entry = f2z_codec::decode_canonical::<DirectoryEntry>(decoded.value().entry.as_slice())?;
     Ok(entry.value().entry.handle.as_slice().to_vec())
 }
-

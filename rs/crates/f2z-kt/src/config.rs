@@ -210,14 +210,15 @@ impl Config {
                 "witness_pk" => witnesses.push(public_key(key, value)?),
                 "authority_max_validity_ms" => authority_max_validity_ms = number_u64(key, value)?,
                 "authority_clock_skew_ms" => authority_clock_skew_ms = number_u64(key, value)?,
-                _ => numbers.set(key, value).or_else(|| strings.set(key, value)).ok_or_else(
-                    || {
+                _ => numbers
+                    .set(key, value)
+                    .or_else(|| strings.set(key, value))
+                    .ok_or_else(|| {
                         LogError::Config(format!(
                             "line {}: unknown key `{key}`",
                             number.saturating_add(1)
                         ))
-                    },
-                )??,
+                    })??,
             }
         }
 
@@ -263,7 +264,13 @@ impl Config {
         let set = if self.authorities.is_empty() {
             AuthoritySet::none()
         } else {
-            AuthoritySet::new(self.authorities.iter().copied().map(AuthorityKey::new).collect())?
+            AuthoritySet::new(
+                self.authorities
+                    .iter()
+                    .copied()
+                    .map(AuthorityKey::new)
+                    .collect(),
+            )?
         };
         let log_id = f2z_authority::types::LogId::new(*log_id.as_bytes());
         Ok(AuthorityConfig::new(

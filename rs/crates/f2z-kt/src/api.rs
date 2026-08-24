@@ -84,7 +84,6 @@ fn trailing_u64(uri: &Uri) -> Option<u64> {
 }
 
 /// Build the router.
-#[must_use]
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/.well-known/free2z-kt/v1/log", get(descriptor))
@@ -156,11 +155,7 @@ async fn audit(headers: HeaderMap, State(state): State<Arc<AppState>>, uri: Uri)
     finish(&headers, state.log.audit(from, to).await)
 }
 
-async fn lookup(
-    headers: HeaderMap,
-    State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Response {
+async fn lookup(headers: HeaderMap, State(state): State<Arc<AppState>>, body: Bytes) -> Response {
     if !state.limits.allow(Class::Query, (state.clock)()) {
         return error_response(&headers, &LogError::RateLimited);
     }
@@ -178,11 +173,7 @@ async fn lookup(
     finish(&headers, state.log.lookup(&request.handle).await)
 }
 
-async fn history(
-    headers: HeaderMap,
-    State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Response {
+async fn history(headers: HeaderMap, State(state): State<Arc<AppState>>, body: Bytes) -> Response {
     if !state.limits.allow(Class::Query, (state.clock)()) {
         return error_response(&headers, &LogError::RateLimited);
     }
@@ -249,12 +240,7 @@ fn finish<T: f2z_codec::Canonical>(headers: &HeaderMap, result: Result<T>) -> Re
 fn respond(headers: &HeaderMap, status: StatusCode, bytes: &[u8], rendered: &str) -> Response {
     if wants_json(headers) {
         let body = json::container(bytes, rendered);
-        (
-            status,
-            [(header::CONTENT_TYPE, "application/json")],
-            body,
-        )
-            .into_response()
+        (status, [(header::CONTENT_TYPE, "application/json")], body).into_response()
     } else {
         (
             status,

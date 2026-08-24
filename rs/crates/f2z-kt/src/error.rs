@@ -196,7 +196,10 @@ mod tests {
             LogError::Kt(KtError::VersionConflict).wire_code(),
             ErrorCode::VersionConflict
         );
-        assert_eq!(LogError::Kt(KtError::Cooldown).wire_code(), ErrorCode::Cooldown);
+        assert_eq!(
+            LogError::Kt(KtError::Cooldown).wire_code(),
+            ErrorCode::Cooldown
+        );
         assert!(!LogError::Kt(KtError::Cooldown).is_log_fault());
     }
 

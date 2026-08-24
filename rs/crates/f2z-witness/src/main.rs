@@ -130,8 +130,7 @@ fn daemon(args: &[String], once: bool) -> Result<u8, String> {
 
     let url = required(&pairs, "--log-url")?;
     let log_id = LogId::new(
-        unhex::<32>(required(&pairs, "--log-id")?)
-            .ok_or("--log-id must be 64 hex characters")?,
+        unhex::<32>(required(&pairs, "--log-id")?).ok_or("--log-id must be 64 hex characters")?,
     );
     let accepted_log_pk = PublicKey::new(
         unhex::<32>(required(&pairs, "--log-pk")?).ok_or("--log-pk must be 64 hex characters")?,
@@ -229,8 +228,8 @@ fn healthz(args: &[String]) -> Result<u8, String> {
         None => DEFAULT_STALE_AFTER_MS,
     };
 
-    let health = health::probe(&state_path, now_ms(), stale_after_ms)
-        .map_err(|error| error.to_string())?;
+    let health =
+        health::probe(&state_path, now_ms(), stale_after_ms).map_err(|error| error.to_string())?;
     let message = health.message(&evidence_dir);
     if health.is_healthy() {
         println!("{message}");

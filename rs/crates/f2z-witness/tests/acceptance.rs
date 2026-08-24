@@ -25,14 +25,24 @@
 //! `block_on`. That is a real property of the daemon's shape, not a test
 //! artefact: the witness is a blocking poll loop with one runtime for one call.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Test code, run on the host by a person reading the failure. The workspace
+// denies these because a panic in a parser is a remote denial of service, and
+// neither hazard exists here: a fixture that indexes past the end of a fixture
+// is a failing test, which is what a test is for.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects
+)]
 
 use std::sync::{Arc, Mutex};
 
 use f2z_codec::Canonical as _;
 use f2z_kt::LogService;
 use f2z_kt::testing::{EntryBuilder, Harness, Identity};
-use f2z_kt_core::api::{AuditResponse, TreeHeadBundle};
+use f2z_kt_core::api::TreeHeadBundle;
 use f2z_kt_core::types::Handle;
 use f2z_kt_core::{ConfiguredWitness, FaultKind, WitnessSet, verify_threshold};
 use f2z_witness::witness::{Outcome, Settings, Witness};
@@ -249,10 +259,7 @@ fn a_witness_verifies_real_proofs_and_the_log_serves_its_cosignature() {
 /// This is what an equivocating log actually is: not a mock that returns bad
 /// bytes, but a server that has committed to two different roots for one epoch
 /// and shows each party one of them, with a perfectly valid signature on both.
-fn equivocating_pair(
-    setup: &tokio::runtime::Runtime,
-    name: &str,
-) -> (Harness, Harness) {
+fn equivocating_pair(setup: &tokio::runtime::Runtime, name: &str) -> (Harness, Harness) {
     let left = setup.block_on(Harness::vouched(&format!("{name}-left")));
     let right = setup.block_on(Harness::vouched(&format!("{name}-right")));
     // `Harness` derives both logs from the same fixed seeds, so they share a
@@ -277,7 +284,10 @@ fn a_witness_refuses_a_fork_and_records_self_authenticating_evidence() {
         Box::new(TransportHandle(Arc::clone(&transport))),
         "accept-fork-w",
     );
-    assert_eq!(witness.poll_once(NOW).unwrap(), Outcome::Pinned { epoch: 1 });
+    assert_eq!(
+        witness.poll_once(NOW).unwrap(),
+        Outcome::Pinned { epoch: 1 }
+    );
 
     // Each branch publishes a *different* epoch 2: one registers alice, the
     // other bob. Same key, same epoch number, different root.
@@ -418,7 +428,10 @@ fn a_witness_refuses_an_append_only_proof_that_does_not_verify() {
         Box::new(TransportHandle(Arc::clone(&transport))),
         "accept-append-only-w",
     );
-    assert_eq!(witness.poll_once(NOW).unwrap(), Outcome::Pinned { epoch: 1 });
+    assert_eq!(
+        witness.poll_once(NOW).unwrap(),
+        Outcome::Pinned { epoch: 1 }
+    );
 
     register(&setup, &left, "alice", 1);
     register(&setup, &right, "bob", 2);

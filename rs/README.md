@@ -78,7 +78,9 @@ scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
                                 --manifest rs/crates/f2z-relay-proto/Cargo.toml \
                                 --manifest rs/crates/f2z-kt-core/Cargo.toml \
-                                --manifest rs/crates/f2z-authority/Cargo.toml
+                                --manifest rs/crates/f2z-authority/Cargo.toml \
+                                --manifest rs/crates/f2z-kt/Cargo.toml \
+                                --manifest rs/crates/f2z-witness/Cargo.toml
 ```
 
 fails the pull request the moment the two disagree. `.github/workflows/rs.yml`
@@ -172,7 +174,9 @@ scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
                                 --manifest rs/crates/f2z-codec/Cargo.toml \
                                 --manifest rs/crates/f2z-relay-proto/Cargo.toml \
                                 --manifest rs/crates/f2z-kt-core/Cargo.toml \
-                                --manifest rs/crates/f2z-authority/Cargo.toml
+                                --manifest rs/crates/f2z-authority/Cargo.toml \
+                                --manifest rs/crates/f2z-kt/Cargo.toml \
+                                --manifest rs/crates/f2z-witness/Cargo.toml
 scripts/check-rust-fmt.sh    --root rs
 scripts/check-rust-clippy.sh --root rs
 scripts/check-rust-deny.sh   --root rs --config rs/deny.toml

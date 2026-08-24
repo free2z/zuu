@@ -156,8 +156,8 @@ mod tests {
 
     #[test]
     fn a_cleartext_log_url_is_refused_by_default() {
-        let error = HttpTransport::new("http://kt.example", std::time::Duration::from_secs(5))
-            .unwrap_err();
+        let error =
+            HttpTransport::new("http://kt.example", std::time::Duration::from_secs(5)).unwrap_err();
         assert!(format!("{error}").contains("HTTPS"));
     }
 

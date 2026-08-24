@@ -142,11 +142,7 @@ impl SignedAuthorityPolicy {
     /// # Errors
     ///
     /// As [`AuthorityPolicyTBS::validate`], plus [`KtError::BadSignature`].
-    pub fn verify(
-        &self,
-        log_id: &LogId,
-        log_pk: &PublicKey,
-    ) -> core::result::Result<(), KtError> {
+    pub fn verify(&self, log_id: &LogId, log_pk: &PublicKey) -> core::result::Result<(), KtError> {
         self.policy.validate()?;
         if &self.policy.log_id != log_id {
             return Err(KtError::WrongLog);
@@ -202,7 +198,7 @@ pub fn sign_policy(
 
 #[cfg(test)]
 mod tests {
-    use f2z_authority::authority::{AuthoritySet, AuthorityConfig};
+    use f2z_authority::authority::{AuthorityConfig, AuthoritySet};
     use f2z_codec::types::PublicKey;
     use f2z_kt_core::types::LogId;
 

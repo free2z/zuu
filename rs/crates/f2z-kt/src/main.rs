@@ -133,11 +133,16 @@ fn check(args: &[String]) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    let state = runtime.block_on(server::build(&config)).map_err(|e| e.to_string())?;
+    let state = runtime
+        .block_on(server::build(&config))
+        .map_err(|e| e.to_string())?;
     let epoch = runtime.block_on(state.log.current_epoch());
     let pending = runtime.block_on(state.log.pending_count());
 
-    println!("log_id           {}", hexbytes::encode(state.log.log_id().as_bytes()));
+    println!(
+        "log_id           {}",
+        hexbytes::encode(state.log.log_id().as_bytes())
+    );
     println!(
         "log_signing_pk   {}",
         hexbytes::encode(state.log.log_public_key().as_bytes())
@@ -193,8 +198,8 @@ fn healthz(args: &[String]) -> Result<(), String> {
     // for a reason the operator did not choose.
     let (host, path) = split_url(url)?;
     use std::io::{Read as _, Write as _};
-    let mut stream = std::net::TcpStream::connect(&host)
-        .map_err(|error| format!("{host}: {error}"))?;
+    let mut stream =
+        std::net::TcpStream::connect(&host).map_err(|error| format!("{host}: {error}"))?;
     stream
         .write_all(format!("GET {path} HTTP/1.0\r\nHost: {host}\r\n\r\n").as_bytes())
         .map_err(|error| error.to_string())?;
@@ -204,7 +209,10 @@ fn healthz(args: &[String]) -> Result<(), String> {
         println!("ok");
         Ok(())
     } else {
-        Err(format!("unhealthy: {}", response.lines().next().unwrap_or("")))
+        Err(format!(
+            "unhealthy: {}",
+            response.lines().next().unwrap_or("")
+        ))
     }
 }
 
@@ -225,8 +233,8 @@ fn split_url(url: &str) -> Result<(String, String), String> {
 /// rather than falling back to anything.
 fn random_32() -> Result<[u8; 32], String> {
     use std::io::Read as _;
-    let mut file = std::fs::File::open("/dev/urandom")
-        .map_err(|error| format!("/dev/urandom: {error}"))?;
+    let mut file =
+        std::fs::File::open("/dev/urandom").map_err(|error| format!("/dev/urandom: {error}"))?;
     let mut seed = [0u8; 32];
     file.read_exact(&mut seed)
         .map_err(|error| format!("/dev/urandom: {error}"))?;

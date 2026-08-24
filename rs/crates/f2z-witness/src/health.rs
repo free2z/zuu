@@ -233,8 +233,12 @@ mod tests {
     fn a_stale_state_file_fails() {
         let path = temp("stale").join("state.bin");
         store(&path, &state(1_000)).unwrap();
-        let health = probe(&path, 1_000 + DEFAULT_STALE_AFTER_MS + 1, DEFAULT_STALE_AFTER_MS)
-            .unwrap();
+        let health = probe(
+            &path,
+            1_000 + DEFAULT_STALE_AFTER_MS + 1,
+            DEFAULT_STALE_AFTER_MS,
+        )
+        .unwrap();
         assert!(matches!(health, Health::Stale { .. }));
         assert_eq!(health.exit_code(), 1);
     }
@@ -271,8 +275,12 @@ mod tests {
         halted.halt(FaultKind::Rollback, 1_000);
         store(&path, &halted).unwrap();
 
-        let health = probe(&path, 1_000 + DEFAULT_STALE_AFTER_MS * 10, DEFAULT_STALE_AFTER_MS)
-            .unwrap();
+        let health = probe(
+            &path,
+            1_000 + DEFAULT_STALE_AFTER_MS * 10,
+            DEFAULT_STALE_AFTER_MS,
+        )
+        .unwrap();
         assert!(matches!(health, Health::Halted { .. }));
     }
 

@@ -219,10 +219,7 @@ pub fn load(path: &Path) -> Result<Option<WitnessState>> {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
-            return Err(WitnessError::Local(format!(
-                "{}: {error}",
-                path.display()
-            )));
+            return Err(WitnessError::Local(format!("{}: {error}", path.display())));
         }
     };
     let state = decode_canonical::<WitnessState>(&bytes)

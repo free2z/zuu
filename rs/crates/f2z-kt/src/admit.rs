@@ -58,7 +58,9 @@ use f2z_authority::authority::{AuthorityConfig, Submission, Vouch};
 use f2z_authority::nonce::NonceSeen;
 use f2z_codec::decode_canonical;
 use f2z_codec::types::PublicKey;
-use f2z_kt_core::submit::{AcceptedSubmission, PublishedEntry, SubmissionContext, validate_submission};
+use f2z_kt_core::submit::{
+    AcceptedSubmission, PublishedEntry, SubmissionContext, validate_submission,
+};
 use f2z_kt_core::{KtError, sig};
 
 use crate::error::{LogError, Result};
@@ -91,7 +93,6 @@ impl AdmittedSubmission {
     /// [`Vouch::Unvouched`] on a log configured with no authority, and on every
     /// entry after the first — where the vouch that matters was recorded at
     /// version 1 and the chain has carried it since.
-    #[must_use]
     pub const fn vouch(&self) -> Vouch {
         self.vouch
     }

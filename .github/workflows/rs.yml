@@ -77,7 +77,9 @@ jobs:
             --manifest rs/crates/f2z-codec/Cargo.toml \
             --manifest rs/crates/f2z-relay-proto/Cargo.toml \
             --manifest rs/crates/f2z-kt-core/Cargo.toml \
-            --manifest rs/crates/f2z-authority/Cargo.toml
+            --manifest rs/crates/f2z-authority/Cargo.toml \
+            --manifest rs/crates/f2z-kt/Cargo.toml \
+            --manifest rs/crates/f2z-witness/Cargo.toml
 
       - name: Detect changes under rs/
         id: filter

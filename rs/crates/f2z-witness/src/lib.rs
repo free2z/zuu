@@ -62,6 +62,20 @@
 //! [`THREAT-MODEL.md` §3.9]: https://github.com/free2z/zuu/blob/main/docs/e2ee/THREAT-MODEL.md
 
 #![forbid(unsafe_code)]
+// Unit tests are host code read by a person looking at a failure. The workspace
+// denies these families because a panic on the unauthenticated path is a remote
+// denial of service; a `.unwrap()` in a test is a failing test, which is the
+// point of one. Same shape as `f2z-kt-core`.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )
+)]
 
 pub mod error;
 pub mod evidence;
@@ -121,19 +135,45 @@ pub fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
     Some(out)
 }
 
+/// The base16 alphabet, written out rather than computed.
+///
+/// `b'0' + value` is what this would ordinarily be, and the workspace denies
+/// `arithmetic_side_effects` for a good reason: that family of bugs is exactly
+/// the family that turns a parser on an unauthenticated path into a remote
+/// denial of service. Sixteen arms have no such family, stay `const`, and need
+/// no indexing — which the workspace also denies.
 const fn nibble(value: u8) -> char {
-    match value {
-        0..=9 => (b'0' + value) as char,
-        10..=15 => (b'a' + (value - 10)) as char,
-        _ => '?',
+    match value & 0x0f {
+        0 => '0',
+        1 => '1',
+        2 => '2',
+        3 => '3',
+        4 => '4',
+        5 => '5',
+        6 => '6',
+        7 => '7',
+        8 => '8',
+        9 => '9',
+        10 => 'a',
+        11 => 'b',
+        12 => 'c',
+        13 => 'd',
+        14 => 'e',
+        _ => 'f',
     }
 }
 
 const fn value(byte: u8) -> Option<u8> {
     match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
+        b'0'..=b'9' => byte.checked_sub(b'0'),
+        b'a'..=b'f' => match byte.checked_sub(b'a') {
+            Some(offset) => offset.checked_add(10),
+            None => None,
+        },
+        b'A'..=b'F' => match byte.checked_sub(b'A') {
+            Some(offset) => offset.checked_add(10),
+            None => None,
+        },
         _ => None,
     }
 }

@@ -29,11 +29,37 @@ use f2z_codec::types::{Payload, PublicKey, Signature};
 use f2z_codec::vec::VecU24;
 use f2z_kt_core::sth::SignedTreeHead;
 use f2z_kt_core::types::{LogId, label_field};
-use f2z_kt_core::{
-    FaultKind, FaultReport, FaultReportTBS, KT_VERSION, WitnessCosignature, labels,
-};
+use f2z_kt_core::{FaultKind, FaultReport, FaultReportTBS, KT_VERSION, WitnessCosignature, labels};
 
 use crate::error::{Result, WitnessError};
+
+/// One fault, and everything §7.3 needs to record it.
+///
+/// A structure rather than an argument list because `held` and `served` are two
+/// `Vec<SignedTreeHead>` of the same type in adjacent positions, and getting
+/// them the wrong way round would produce a report that reads as an accusation
+/// against the witness's own history. Named fields make that a compile error.
+#[derive(Clone, Copy, Debug)]
+pub struct Finding<'a> {
+    /// The witness making the accusation. Inside the signed bytes, so a report
+    /// cannot be re-attributed.
+    pub witness_pk: PublicKey,
+    /// The log being accused.
+    pub log_id: LogId,
+    /// What was found.
+    pub kind: FaultKind,
+    /// The tree heads the witness held, in order — `FaultReportTBS.a`.
+    pub held: &'a [SignedTreeHead],
+    /// The conflicting ones it was served, empty where not applicable —
+    /// `FaultReportTBS.b`.
+    pub served: &'a [SignedTreeHead],
+    /// Proof bytes for `append_only_failure`, empty otherwise. **Not optional
+    /// for that kind**: it is the one report that is not self-authenticating,
+    /// so without the bytes it is an accusation nobody can re-run.
+    pub detail: &'a [u8],
+    /// The witness's clock.
+    pub observed_at_ms: u64,
+}
 
 /// Where a witness writes what it found, and what it said.
 #[derive(Clone, Debug)]
@@ -48,9 +74,8 @@ impl Evidence {
     ///
     /// [`WitnessError::Local`] if it cannot be created.
     pub fn new(directory: &Path) -> Result<Self> {
-        std::fs::create_dir_all(directory).map_err(|error| {
-            WitnessError::Local(format!("{}: {error}", directory.display()))
-        })?;
+        std::fs::create_dir_all(directory)
+            .map_err(|error| WitnessError::Local(format!("{}: {error}", directory.display())))?;
         Ok(Self {
             directory: directory.to_path_buf(),
         })
@@ -66,24 +91,22 @@ impl Evidence {
 
     /// Build, sign and write a fault report.
     ///
-    /// `a` is what the witness held, `b` is what it was served, `detail` is the
-    /// proof bytes for `append_only_failure` and empty otherwise. Returns the
-    /// path written, for the operator log.
+    /// Returns the path written, for the operator log.
     ///
     /// # Errors
     ///
     /// [`WitnessError::Local`] if the report will not encode or will not write.
-    pub fn record(
-        &self,
-        key: &SigningKey,
-        witness_pk: PublicKey,
-        log_id: LogId,
-        kind: FaultKind,
-        a: Vec<SignedTreeHead>,
-        b: Vec<SignedTreeHead>,
-        detail: &[u8],
-        observed_at_ms: u64,
-    ) -> Result<PathBuf> {
+    pub fn record(&self, key: &SigningKey, finding: &Finding<'_>) -> Result<PathBuf> {
+        let Finding {
+            witness_pk,
+            log_id,
+            kind,
+            held,
+            served,
+            detail,
+            observed_at_ms,
+        } = *finding;
+        let (a, b) = (held.to_vec(), served.to_vec());
         let report = FaultReportTBS {
             label: label_field(labels::LABEL_FAULT)
                 .map_err(|error| WitnessError::Local(error.to_string()))?,
@@ -93,9 +116,8 @@ impl Evidence {
             witness_pk,
             a: VecU24::new(a),
             b: VecU24::new(b),
-            detail: Payload::new(detail.to_vec()).map_err(|_| {
-                WitnessError::Local("fault detail exceeds 2^24-1 bytes".to_owned())
-            })?,
+            detail: Payload::new(detail.to_vec())
+                .map_err(|_| WitnessError::Local("fault detail exceeds 2^24-1 bytes".to_owned()))?,
             observed_at_ms,
         };
         let signing_bytes = report

@@ -11,7 +11,11 @@ rust-version = "1.97"
 # sense that matters: it is run for other people's benefit, and a modified
 # witness that skips `KT.md` §7.1 step 4 is worthless in a way nobody can see
 # from outside (§7.4). Copyleft for network use is the only lever there is.
-license = "AGPL-3.0"
+# The SPDX identifier is `AGPL-3.0-only`, not the deprecated bare `AGPL-3.0`:
+# cargo-deny parses this field as an SPDX expression and warns on the
+# deprecated form, and "-only" is the accurate statement — this is AGPL-3.0,
+# not "or any later version".
+license = "AGPL-3.0-only"
 repository.workspace = true
 publish.workspace = true
 

@@ -196,7 +196,8 @@ impl Witness {
     /// tree heads that *are* the evidence are still in hand.
     fn step(&mut self, stored: Option<WitnessState>, now_ms: u64) -> Result<Outcome> {
         // ---- Step 1. Poll. --------------------------------------------------
-        let bundle = decode_canonical::<TreeHeadBundle>(&self.transport.latest_sth()?)?.into_value();
+        let bundle =
+            decode_canonical::<TreeHeadBundle>(&self.transport.latest_sth()?)?.into_value();
         bundle
             .validate()
             .map_err(|error| WitnessError::Transport(format!("tree head bundle: {error}")))?;
@@ -323,10 +324,7 @@ impl Witness {
         }
 
         // ---- Step 4. THE check the role exists for (§7.4). ------------------
-        let verified = match self
-            .runtime
-            .block_on(verify_append_only(&heads, &proof))
-        {
+        let verified = match self.runtime.block_on(verify_append_only(&heads, &proof)) {
             Ok(verified) => verified,
             Err(error) => {
                 // `append_only_failure` is the one kind that is NOT
@@ -448,13 +446,15 @@ impl Witness {
         // means the next poll re-detects the same fault and rewrites it.
         if let Err(local) = self.evidence.record(
             &self.key,
-            self.witness_pk,
-            stored.log_id,
-            kind,
-            a,
-            b,
-            detail,
-            now_ms,
+            &crate::evidence::Finding {
+                witness_pk: self.witness_pk,
+                log_id: stored.log_id,
+                kind,
+                held: &a,
+                served: &b,
+                detail,
+                observed_at_ms: now_ms,
+            },
         ) {
             log::error!("fault report not written: {local}");
         }

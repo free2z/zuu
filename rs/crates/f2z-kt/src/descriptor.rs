@@ -13,9 +13,9 @@
 //! published copy exists so a human can compare it with the pinned one.
 
 use f2z_codec::vec::VecU8;
+use f2z_kt_core::KT_VERSION;
 use f2z_kt_core::descriptor::{CONFIGURATION_WHATSAPP_V1, LogDescriptor, SignedLogDescriptor};
 use f2z_kt_core::types::LogId;
-use f2z_kt_core::KT_VERSION;
 
 use crate::config::LogSettings;
 use crate::error::{LogError, Result};
@@ -130,7 +130,11 @@ mod tests {
 
         signed.verify().unwrap();
         assert_eq!(signed.derived_log_id(), signed.descriptor.log_id);
-        assert!(signed.descriptor.matches_pinned_reset_authority(&PublicKey::new([8u8; 32])));
+        assert!(
+            signed
+                .descriptor
+                .matches_pinned_reset_authority(&PublicKey::new([8u8; 32]))
+        );
     }
 
     #[test]
@@ -141,9 +145,7 @@ mod tests {
         // A log_id from somebody else's genesis key: every client that pinned
         // this log would compute a different identifier for it.
         let wrong = f2z_kt_core::types::LogId::new([1u8; 32]);
-        assert!(
-            sign_descriptor(&settings, wrong, PublicKey::new([7u8; 32]), &signer, 1).is_err()
-        );
+        assert!(sign_descriptor(&settings, wrong, PublicKey::new([7u8; 32]), &signer, 1).is_err());
     }
 
     #[test]
@@ -151,8 +153,7 @@ mod tests {
         let signer = FileSigner::from_seed(&[6u8; 32]);
         let genesis = signer.public_key();
         let mut settings = LogSettings::defaults(genesis, PublicKey::new([8u8; 32])).unwrap();
-        settings.operator_name =
-            f2z_codec::types::ShortBytes::new(b"ev\"il".to_vec()).unwrap();
+        settings.operator_name = f2z_codec::types::ShortBytes::new(b"ev\"il".to_vec()).unwrap();
         let signed = sign_descriptor(
             &settings,
             labels::log_id(&genesis),

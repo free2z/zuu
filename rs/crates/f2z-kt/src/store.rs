@@ -292,10 +292,7 @@ fn read_records(file: &mut File, dir: &Path) -> Result<Vec<Vec<u8>>> {
 
     let mut records = Vec::new();
     let mut offset = 0usize;
-    loop {
-        let Some(header) = raw.get(offset..offset.saturating_add(4)) else {
-            break;
-        };
+    while let Some(header) = raw.get(offset..offset.saturating_add(4)) {
         let Ok(header) = <[u8; 4]>::try_from(header) else {
             break;
         };

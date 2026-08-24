@@ -35,12 +35,12 @@
 //! because it has to answer. It removes the accidental copies, not the
 //! intentional one.
 
-use f2z_codec::types::{Payload, ShortBytes, Signature};
-use f2z_codec::vec::VecU24;
 use crate::cosign::WitnessCosignature;
 use crate::sth::SignedTreeHead;
 use crate::types::{Handle, check_label, label_field};
 use crate::{KT_VERSION, KtError};
+use f2z_codec::types::{Payload, ShortBytes, Signature};
+use f2z_codec::vec::VecU24;
 use tls_codec::{TlsDeserializeBytes, TlsSerializeBytes, TlsSize};
 
 /// `SubmissionEnvelope`'s type tag.
@@ -194,7 +194,10 @@ impl TreeHeadBundle {
     /// # Errors
     ///
     /// [`KtError::Malformed`] if the label will not fit, which it always will.
-    pub fn new(head: SignedTreeHead, cosignatures: Vec<WitnessCosignature>) -> Result<Self, KtError> {
+    pub fn new(
+        head: SignedTreeHead,
+        cosignatures: Vec<WitnessCosignature>,
+    ) -> Result<Self, KtError> {
         Ok(Self {
             label: label_field(LABEL_TREE_HEAD_BUNDLE)?,
             kt_version: KT_VERSION,
@@ -532,9 +535,12 @@ mod tests {
 
     #[test]
     fn every_envelope_round_trips_canonically() {
-        let envelope =
-            SubmissionEnvelope::new(b"entry-bytes", Some(b"assertion"), Signature::new([3u8; 64]))
-                .unwrap();
+        let envelope = SubmissionEnvelope::new(
+            b"entry-bytes",
+            Some(b"assertion"),
+            Signature::new([3u8; 64]),
+        )
+        .unwrap();
         let bytes = envelope.encode_canonical().unwrap();
         let decoded = f2z_codec::decode_canonical::<SubmissionEnvelope>(&bytes).unwrap();
         assert_eq!(decoded.value(), &envelope);
