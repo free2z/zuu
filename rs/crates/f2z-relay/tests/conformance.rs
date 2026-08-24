@@ -52,6 +52,12 @@ use f2z_relay_testkit::config::{RelayConfig, TESTKIT_POW_DIFFICULTY_BITS};
 use f2z_relay_testkit::fake::{FakeRelay, WebSocketEndpoint};
 use f2z_relay_testkit::vectors::{self, Needs, Report, Status};
 
+// Reviewed literals, not values derived from `vectors::suite()`. Changing a
+// vector's `Needs` or deleting a vector must stop this test and require an
+// explicit coverage review instead of shrinking the real-relay run invisibly.
+const REVIEWED_SUITE_VECTOR_COUNT: usize = 52;
+const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 39;
+
 /// A configuration that matches the FakeRelay's published policy wherever the
 /// policy is what a vector observes.
 ///
@@ -208,21 +214,41 @@ async fn the_real_relay_and_the_fakerelay_agree_on_every_vector_both_can_run() {
 #[tokio::test(flavor = "multi_thread")]
 async fn every_vector_that_needs_no_handle_passes_against_the_real_relay() {
     let (real, server) = real_report().await;
-    let runnable = vectors::suite()
-        .into_iter()
+    let suite = vectors::suite();
+    let runnable = suite
+        .iter()
         .filter(|vector| matches!(vector.needs, Needs::Nothing))
         .count();
     server.shutdown().await;
 
     assert_eq!(
+        suite.len(),
+        REVIEWED_SUITE_VECTOR_COUNT,
+        "the reviewed conformance-suite population changed; adding or removing \
+         a vector requires an explicit coverage review"
+    );
+    assert_eq!(
+        runnable, REVIEWED_REAL_RELAY_VECTOR_COUNT,
+        "the reviewed handle-free vector population changed; changing a vector's \
+         `Needs` silently changes what the real relay is asked to prove"
+    );
+    assert_eq!(
+        real.outcomes.len(),
+        REVIEWED_SUITE_VECTOR_COUNT,
+        "the real-relay report did not retain the whole reviewed suite"
+    );
+    assert_eq!(
         real.passed(),
-        runnable,
-        "{} of {runnable} handle-free vectors passed; failures:\n  {}",
+        REVIEWED_REAL_RELAY_VECTOR_COUNT,
+        "{} of {} reviewed handle-free vectors passed; failures:\n  {}",
         real.passed(),
+        REVIEWED_REAL_RELAY_VECTOR_COUNT,
         real.failures().join("\n  ")
     );
-    // Stated as a number so a vector silently changing its `Needs` is visible.
-    assert_eq!(real.skipped(), real.outcomes.len() - runnable);
+    assert_eq!(
+        real.skipped(),
+        REVIEWED_SUITE_VECTOR_COUNT - REVIEWED_REAL_RELAY_VECTOR_COUNT
+    );
 }
 
 fn render(status: Option<&Status>) -> String {
