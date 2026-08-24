@@ -7,9 +7,17 @@
 //! No separator means the labels themselves have to be non-ambiguous, and they
 //! are: every label below is a full path under `free2z/relay/v1/` and no label
 //! is a prefix of another with a message that could complete it. That is a
-//! property of this fixed set, not of the construction, so a new label must be
-//! checked against the same rule before it is added — [`LABELS`] exists so a
-//! test can do that mechanically.
+//! property of *a set*, not of the construction, so a new label must be checked
+//! against the same rule before it is added.
+//!
+//! **The set that matters is the union, not this array.** `WIRE.md` §1.3 now
+//! states prefix-freeness as a normative requirement over every label in every
+//! document that uses `H`, and `scripts/check-hash-domain-labels.mjs` enforces
+//! it across the whole repository — the specifications under `docs/e2ee/` as
+//! well as these constants. [`LABELS`] and the test below cover this crate's
+//! own six, which is worth keeping and is not sufficient on its own: `KT.md`'s
+//! labels were internally prefix-free too, and collided anyway
+//! ([#602](https://github.com/free2z/zuu/issues/602)).
 
 use blake2::digest::consts::U32;
 use blake2::{Blake2b, Digest as _};
@@ -134,6 +142,13 @@ mod tests {
         // is a prefix of another label is a cross-domain collision waiting for
         // an attacker-chosen message. Assert the property rather than trusting
         // that whoever adds the next label remembers it.
+        //
+        // Scope, stated because it is the part that was wrong before #602: this
+        // ranges over this crate's `LABELS` and nothing else. The union with
+        // `KT.md`'s and `ARCHITECTURE.md`'s labels — which is where the property
+        // actually has to hold — is asserted by
+        // `scripts/check-hash-domain-labels.mjs`, from a CI job that runs on
+        // every pull request including the docs-only ones this test never sees.
         for (i, a) in LABELS.iter().enumerate() {
             for (j, b) in LABELS.iter().enumerate() {
                 if i == j {

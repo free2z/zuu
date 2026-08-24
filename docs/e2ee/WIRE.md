@@ -71,6 +71,35 @@ construction #544 selects.
 - `H(label, x)` means `BLAKE2b-256(label || x)` where `label` is the exact ASCII
   bytes shown, with no separator and no terminator — the idiom already used for
   `msg_id` in [`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering).
+- **The label set MUST be prefix-free.** No label used with `H` — in this
+  document, in [`KT.md`](./KT.md), or in any later document that uses `H` — may
+  be a proper prefix of any other such label. The rule extends to labels
+  concatenated the same way without `H`, such as the §5.2 signing prefix
+  `"free2z/relay/v1/hello"`, and to the first-field `label` constants of the
+  signed structures, because those constants and these arguments are drawn from
+  one namespace and a future construction will reuse one for the other.
+
+  This is the precondition of the construction, not a naming preference. With no
+  separator, if label `A` is a proper prefix of label `B` — so that
+  `B == A || s` for some nonempty `s` — then
+
+  ```
+  H(A, s || y) = BLAKE2b-256(A || s || y) = BLAKE2b-256(B || y) = H(B, y)
+  ```
+
+  bit for bit, and the two domains are not separated for any `A`-domain message
+  beginning with `s`.
+
+  The requirement is on the **union** of every document's labels, never on each
+  document's set separately: a set that is internally prefix-free says nothing
+  about its neighbours, and that scoping mistake is how
+  [#602](https://github.com/free2z/zuu/issues/602) put `free2z/kt/v1/sth` and a
+  label extending it into the same namespace. `scripts/check-hash-domain-labels.mjs`
+  asserts the property mechanically over every label in the repository on every
+  pull request, from the always-running `rs / changes` job, and its verdict is
+  re-checked inside the required `rs / gate` context. **Adding a label means
+  running that check**; a label that has not been through it is a label nobody
+  has checked against the rest of the namespace.
 - Structures are written in the **TLS presentation language**
   ([RFC 8446 §3](https://datatracker.ietf.org/doc/html/rfc8446#section-3)); see §3.
 - "The relay" is the server. "The client" is a ZUULI or WASM device

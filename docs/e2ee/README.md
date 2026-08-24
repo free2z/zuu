@@ -116,6 +116,15 @@ witnesses can**), with the consequences carried into
 [`THREAT-MODEL.md` §3.1](./THREAT-MODEL.md#31-malicious-or-compromised-free2z-server)
 and [§3.9](./THREAT-MODEL.md#39-malicious-directory-witness).
 
+A Phase 1 constant has since been corrected the same way:
+[`KT.md` §6.1](./KT.md#61-structure) (2026-08-24) **renames the tree-head digest
+label to `free2z/kt/v1/tree-head-hash`**, because the name it shipped with was a
+proper extension of `free2z/kt/v1/sth` and `H` has no separator, so the two
+domains were not separated at all. `WIRE.md` §1.3 now states prefix-freeness as a
+normative requirement on the **union** of every document's labels, and
+`scripts/check-hash-domain-labels.mjs` enforces it on every pull request
+([#602](https://github.com/free2z/zuu/issues/602)).
+
 Still open above the relay: `KeyPackage` publication, push notifications, padding
 bucket sizes, the redundancy factor *k*, the client gossip protocol, the witness
 independence criterion and the default *t*, and the KT epoch cadence. All are

@@ -505,7 +505,7 @@ struct {
     uint64 epoch;
     uint64 tree_size;             /* total (label, version) insertions committed */
     opaque root_hash[32];         /* the akd Azks root at this epoch */
-    opaque prev_sth_hash[32];     /* H("free2z/kt/v1/sth-hash", tls_codec(prev SignedTreeHeadTBS)) */
+    opaque prev_sth_hash[32];     /* H("free2z/kt/v1/tree-head-hash", tls_codec(prev SignedTreeHeadTBS)) */
     opaque vrf_public_key[32];    /* the ECVRF key labels are derived under */
     uint64 published_at_ms;
     uint32 reset_count;           /* platform resets in this epoch — ADR 0014 */
@@ -535,6 +535,31 @@ change. It **MUST NOT** change within a `log_id`: it determines every label in
 the tree, so changing it silently invalidates every prior proof while producing
 proofs that still verify under the new key. A client or witness that observes a
 `vrf_public_key` change MUST treat it as a fork (§7.3), not as an update.
+
+> **Correction (2026-08-24) — the tree-head digest label was renamed, and the
+> old one must not be used.** As first published, this document computed
+> `prev_sth_hash` and `announce_sth_hash` (§6.4) under the label formed by
+> appending `-hash` to `free2z/kt/v1/sth`. That label was a **proper prefix
+> violation**: `free2z/kt/v1/sth` — the signing-transcript constant of
+> `SignedTreeHeadTBS` two paragraphs below — is a proper prefix of it, and
+> [`WIRE.md` §1.3](./WIRE.md#13-conventions) defines `H(label, x)` as
+> `BLAKE2b-256(label || x)` with **no separator and no terminator**. A digest
+> taken in the `free2z/kt/v1/sth` domain over any message whose first five bytes
+> were `-hash` was therefore bit-identical to a digest taken in the old
+> tree-head-digest domain over the remainder: between those two domains,
+> separation was absent rather than weakened, over exactly the structure the
+> anti-equivocation argument in §7 rests on.
+>
+> The label is now **`free2z/kt/v1/tree-head-hash`**, which no other label in the
+> namespace prefixes and which prefixes no other. **Any digest computed under the
+> old label is invalid and MUST be recomputed**; no shipped code held the old
+> value — the crates that will use these labels are not written — but an
+> implementer working from the first revision of this document must change it.
+> `WIRE.md` §1.3 now states prefix-freeness as a normative requirement on the
+> union of every document's labels rather than leaving it an unwritten
+> assumption, and `scripts/check-hash-domain-labels.mjs` enforces it on every
+> pull request. [#602](https://github.com/free2z/zuu/issues/602); predicted in
+> [#552](https://github.com/free2z/zuu/issues/552).
 
 ### 6.2 The signing transcript, and domain separation
 
@@ -578,7 +603,7 @@ following hold** against the last one it accepted for this `log_id`:
 5. `published_at_ms > last.published_at_ms`.
 6. `vrf_public_key == last.vrf_public_key`.
 7. **The `prev_sth_hash` chain connects.** If `epoch == last.epoch + 1`, then
-   `prev_sth_hash == H("free2z/kt/v1/sth-hash", tls_codec(last.sth))` directly.
+   `prev_sth_hash == H("free2z/kt/v1/tree-head-hash", tls_codec(last.sth))` directly.
    If `epoch > last.epoch + 1`, the verifier MUST fetch every intervening tree
    head and check the chain link by link. **It MUST NOT skip.** A gap accepted on
    trust is a branch accepted on trust.
@@ -603,7 +628,7 @@ struct {
     opaque label<0..255>;        /* exactly "free2z/kt/v1/log-key-transition" */
     opaque log_id[32];
     uint64 announce_epoch;       /* the epoch of the announcing STH */
-    opaque announce_sth_hash[32];/* H("free2z/kt/v1/sth-hash", tls_codec(announcing sth)) */
+    opaque announce_sth_hash[32];/* H("free2z/kt/v1/tree-head-hash", tls_codec(announcing sth)) */
     opaque outgoing_log_pk[32];
     opaque successor_log_pk[32];
     uint64 effective_epoch;      /* first epoch signed by the successor */

@@ -26,6 +26,14 @@
 #
 #   scripts/check-rust-toolchain.sh --toolchain-file rs/rust-toolchain.toml \
 #                                   --manifest rs/relay/Cargo.toml
+#
+# Registration used to be a discipline: this script only ever looked at the
+# arrays below plus whatever flags a caller passed, so a crate nobody remembered
+# to register was simply invisible to it and shipped with a wrong MSRV, or none,
+# behind a green check identical to the one a registered crate gets. The
+# registration census (check_census) closes that: it enumerates the manifests and
+# toolchain files git actually tracks and fails on any that is not registered.
+# See #553.
 
 set -euo pipefail
 
@@ -37,19 +45,31 @@ TOOLCHAIN_FILE=wallet/rust-toolchain.toml
 # Crate manifests. These carry the two-component MSRV form (1.88) of the
 # three-component channel (1.88.0) — Cargo's `rust-version` is a floor, not an
 # exact toolchain, so the forms are deliberately different and compared as such.
+#
+# This array is the registry, and check_census makes it exhaustive: every
+# tracked Cargo.toml outside z/ that declares a [package] table must appear
+# here. `--manifest` still works for an ad-hoc or not-yet-committed manifest,
+# but a workflow flag is not a registration — the census runs in every
+# invocation, including the bare one the required gate runs, which passes no
+# flags at all and would fail on anything registered only elsewhere.
 MANIFESTS=(
   wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
+  rs/crates/f2z-codec/Cargo.toml
+  rs/crates/f2z-relay-proto/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
 # it runs in, so a second Rust tree needs its own copy — but a copy is a
 # restatement, never a second source of truth, and every entry here must repeat
-# TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file.
-TOOLCHAIN_RESTATEMENTS=()
+# TOOLCHAIN_FILE's channel exactly. Extend with --toolchain-file. check_census
+# holds this array to the tracked tree the same way it holds MANIFESTS.
+TOOLCHAIN_RESTATEMENTS=(
+  rs/rust-toolchain.toml
+)
 
 # Workflows whose jobs verify the installed compiler with
 # `rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "`. GitHub cannot
@@ -89,6 +109,12 @@ ACCEPTED_EXPRESSIONS=(
 )
 
 WASM_TARGET=wasm32-unknown-unknown
+
+# Vendored ecosystem sources. Their MSRVs are upstream's decision, not ours, so
+# the census stops at this prefix. They are submodules, so the superproject
+# index does not list their contents in the first place — this is belt and
+# braces for the day something under z/ stops being a submodule.
+VENDORED_PREFIX=z/
 
 # These are implementation identities, not alternate version decisions. The
 # generic branch commit accepts the source-derived `toolchain:` input; the
@@ -415,6 +441,85 @@ check_toolchain_restatements() {
   done
 }
 
+# --- the registration census -------------------------------------------------
+#
+# Everything above verifies what it was *told about*. This is what makes the
+# telling mandatory: the tracked tree is the input, so a crate cannot escape the
+# MSRV check by never being mentioned. Without it, `check_manifests` and
+# `check_toolchain_restatements` return the same green verdict whether a new
+# crate was registered or forgotten, and only a reviewer noticing tells the two
+# apart.
+
+# The census input: every Cargo.toml and rust-toolchain.toml git tracks.
+# `git ls-files` rather than a filesystem walk, so build artefacts, scratch
+# checkouts and target/ directories cannot inflate or distract it.
+census_tracked_files() {
+  git -C "$REPO_ROOT" ls-files -- '*Cargo.toml' '*rust-toolchain.toml'
+}
+
+# Split out from check_census so the self-test can hand it a synthetic listing
+# and watch each verdict, instead of asserting the census works.
+check_census_listing() {
+  local root=$1 listing=$2
+  local rel base seen=0
+  local registered_toolchains=("$TOOLCHAIN_FILE")
+
+  if (( ${#TOOLCHAIN_RESTATEMENTS[@]} > 0 )); then
+    registered_toolchains+=("${TOOLCHAIN_RESTATEMENTS[@]}")
+  fi
+
+  while IFS= read -r rel; do
+    if [[ -z $rel ]]; then
+      continue
+    fi
+    if [[ $rel == "$VENDORED_PREFIX"* ]]; then
+      continue
+    fi
+
+    base=${rel##*/}
+    if [[ $base == rust-toolchain.toml ]]; then
+      seen=$((seen + 1))
+      if contains "$rel" "${registered_toolchains[@]}"; then
+        continue
+      fi
+      fail "$rel is an unregistered Rust toolchain file; nothing holds it to $TOOLCHAIN_FILE. Add it to TOOLCHAIN_RESTATEMENTS in scripts/check-rust-toolchain.sh"
+      continue
+    fi
+
+    # Registered paths are checked for existence by check_manifests; a listed
+    # path absent from this root is the staged-tree case, not a finding.
+    if [[ ! -f "$root/$rel" ]]; then
+      continue
+    fi
+    # A crate is a manifest that declares a [package] table. A virtual
+    # workspace root declares only [workspace] and has no rust-version to pin,
+    # so it is excused by that structure — not by a path list that could later
+    # be widened to excuse a real crate.
+    if ! grep -qE '^[[:space:]]*\[package\]' "$root/$rel"; then
+      continue
+    fi
+
+    seen=$((seen + 1))
+    if contains "$rel" "${MANIFESTS[@]}"; then
+      continue
+    fi
+    fail "$rel declares [package] but is registered nowhere, so nothing holds its rust-version to $TOOLCHAIN_FILE. Add it to MANIFESTS in scripts/check-rust-toolchain.sh"
+  done <<<"$listing"
+
+  (( seen > 0 )) ||
+    fail "no tracked crate manifests or toolchain files were enumerated; the registration census has gone blind"
+}
+
+check_census() {
+  local root=$1 listing
+
+  if ! listing=$(census_tracked_files 2>/dev/null); then
+    fail "git could not enumerate tracked files; the registration census has gone blind"
+    return
+  fi
+  check_census_listing "$root" "$listing"
+}
+
 check_docs() {
   local root=$1 channel=$2 msrv=$3
   local entry rel needle
@@ -455,6 +560,7 @@ run_checks() {
   check_workflows "$root" "$channel"
   check_manifests "$root" "$channel" "$msrv"
   check_toolchain_restatements "$root" "$channel"
+  check_census "$root"
   check_docs "$root" "$channel" "$msrv"
   check_wasm_target "$root"
 
@@ -588,6 +694,7 @@ self_test() {
     printf 'self-test: caught drift when %s.\n' "$description"
   done
 
+  self_test_census "$scratch" || failures=$((failures + $?))
   self_test_second_tree "$scratch" "$channel" "$msrv" || failures=$((failures + $?))
 
   if (( failures > 0 )); then
@@ -595,6 +702,115 @@ self_test() {
     return 1
   fi
   printf 'self-test: %d drift case(s) caught.\n' "${#SELF_TEST_MUTATIONS[@]}"
+}
+
+# --- self-test: the registration census --------------------------------------
+#
+# The census reads git, not a staged tree, so the mutation loop above cannot
+# exercise it. Each case hands check_census_listing a synthetic listing and
+# asserts on the verdict *and* the path the verdict names — a census that
+# rejected the wrong file, or rejected everything, would pass a bare
+# "it failed" assertion and is caught here instead.
+
+# `expect` is reject or accept; `needle` is the path the verdict must name when
+# rejecting, and the path it must not complain about when accepting.
+self_test_census_case() {
+  local root=$1 description=$2 expect=$3 needle=$4 listing=$5
+  local output raised
+
+  output=$(
+    errors=0
+    check_census_listing "$root" "$listing" 2>&1
+    printf 'errors=%s\n' "$errors"
+  )
+  raised=${output##*errors=}
+
+  if [[ $expect == reject ]]; then
+    if (( raised == 0 )); then
+      printf 'self-test FAILED: the census accepted %s.\n' "$description" >&2
+      return 1
+    fi
+    if [[ $output != *"$needle"* ]]; then
+      printf 'self-test FAILED: the census rejected %s without naming %s:\n%s\n' \
+        "$description" "$needle" "$output" >&2
+      return 1
+    fi
+    printf 'self-test: the census rejects %s.\n' "$description"
+    return 0
+  fi
+
+  if (( raised != 0 )); then
+    printf 'self-test FAILED: the census rejected %s:\n%s\n' "$description" "$output" >&2
+    return 1
+  fi
+  printf 'self-test: the census accepts %s.\n' "$description"
+}
+
+self_test_census() {
+  local scratch=$1
+  local tree=$scratch/census
+  local failures=0
+  local registered=rs/crates/f2z-codec/Cargo.toml
+
+  stage_tree "$tree"
+
+  mkdir -p "$tree/rs/crates/scratch" "$tree/wallet/scratch-crate" "$tree/z/vendored/crate"
+  printf '[package]\nname = "scratch"\nversion = "0.0.0"\n' \
+    > "$tree/rs/crates/scratch/Cargo.toml"
+  printf '[package]\nname = "wallet-scratch"\nversion = "0.0.0"\n' \
+    > "$tree/wallet/scratch-crate/Cargo.toml"
+  printf '[package]\nname = "vendored"\nversion = "0.0.0"\n' \
+    > "$tree/z/vendored/crate/Cargo.toml"
+  printf '[toolchain]\nchannel = "9.99.9"\n' \
+    > "$tree/wallet/scratch-crate/rust-toolchain.toml"
+  # A virtual workspace root: no [package], so there is no rust-version to pin
+  # and nothing to register. Recognised by that structure, not by its path.
+  printf '[workspace]\nresolver = "3"\nmembers = ["crates/*"]\n' > "$tree/rs/Cargo.toml"
+
+  self_test_census_case "$tree" \
+    'a new crate under rs/ that nobody registered' \
+    reject rs/crates/scratch/Cargo.toml \
+    "$registered"$'\n''rs/crates/scratch/Cargo.toml' ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'a new crate under wallet/ that nobody registered' \
+    reject wallet/scratch-crate/Cargo.toml \
+    "$registered"$'\n''wallet/scratch-crate/Cargo.toml' ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'a second rust-toolchain.toml that nobody registered' \
+    reject wallet/scratch-crate/rust-toolchain.toml \
+    "$registered"$'\n''wallet/scratch-crate/rust-toolchain.toml' ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'a listing of nothing at all (the census gone blind)' \
+    reject 'gone blind' '' ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'a registered crate manifest' \
+    accept '' "$registered" ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'a virtual workspace root that declares no [package]' \
+    accept '' "$registered"$'\n''rs/Cargo.toml' ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'the source of truth itself, which is registered by being it' \
+    accept '' "$registered"$'\n'"$TOOLCHAIN_FILE" ||
+    failures=$((failures + 1))
+
+  self_test_census_case "$tree" \
+    'a vendored crate under z/, whose MSRV is upstream to decide' \
+    accept '' "$registered"$'\n''z/vendored/crate/Cargo.toml' ||
+    failures=$((failures + 1))
+
+  return "$failures"
 }
 
 # --- self-test: a second Rust tree -------------------------------------------
