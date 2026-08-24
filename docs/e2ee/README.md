@@ -20,6 +20,12 @@ deliberately and can be reviewed by a third party.
   `ARCHITECTURE.md` §9.2, which claimed clients could verify consistency across
   every root they had seen — they cannot, and the correction says so with a date
   rather than editing the sentence away.
+- **Phase 2, client interface** is `CLIENT-CONTRACT.md`: the interface the
+  native engine will present to a client, published **ahead of** the
+  implementation so frontend work can start in parallel. It decides nothing
+  about the protocol — every property in it is a restatement of the documents
+  above, cited at the point of use — and it marks every unsettled shape
+  *provisional* rather than inventing false precision.
 
 ## Contents
 
@@ -28,6 +34,7 @@ deliberately and can be reviewed by a third party.
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | The design. Layers, key hierarchy and derivation, delivery-service semantics, retention model, metadata model, federation and relay trust, FROST/DKG application design, open questions. |
 | [`THREAT-MODEL.md`](./THREAT-MODEL.md) | Adversaries, what each can do, and for each one the defense — or a plain statement that there is none. Includes the known, accepted limits. |
 | [`WIRE.md`](./WIRE.md) | The relay protocol, specified for a second implementer: transport, framing, canonical serialization, the command set with request/response shapes and stable error codes, the signing transcript, anti-replay, queue lifecycle, ACK semantics, TTLs, padding enforcement, the capability document, first contact, and anti-abuse. Also carries the two resolved pre-checks — the messaging handle charset (§14) and the SimpleX clean-room posture (§15). |
+| [`CLIENT-CONTRACT.md`](./CLIENT-CONTRACT.md) | The client interface, specified for a frontend developer who will not read any Rust: the Tauri command surface (`plugin:f2zmsg\|<cmd>`), why enrollment lives in the app crate rather than the plugin, the `types.ts` / `bridge.ts` / `mock.ts` / `events.ts` boundary and the mechanical mock-covers-bridge parity test, the event set and its ordering guarantees, the engine and four-delivery-state machines, the ordering rule, the closed `ErrorCode` union, the rules that must not be broken, what is deliberately not in v1, and the browser client's durability and handle-eligibility obligations. Field shapes are marked provisional; the backend is being implemented now. |
 | [`KT.md`](./KT.md) | The key-transparency protocol — `WIRE.md`'s analogue for the directory, specified for a second implementer: the `DirectoryEntry` structure and what authorizes it, `SignedTreeHead` and its signing transcript, log-key rotation, epoch cadence and maximum merge delay, the submission receipt, the witness poll-verify-cosign protocol and its fault evidence, the `WitnessCosignature` format, the client threshold rule and fail-closed behaviour, the proof-serving API, and where `akd`'s types sit underneath ours. |
 | [`decisions/`](./decisions/) | One ADR per decision, `0001`–`0014`. |
 
@@ -91,7 +98,10 @@ Where each of those is addressed is tabulated in
 
 ## Status
 
-Specification only. **Nothing here is implemented.** The phasing plan lives in
+Specification only. **Nothing here is implemented.** In particular
+`CLIENT-CONTRACT.md` describes an interface that does not exist yet: there is no
+`tauri-plugin-f2zmsg` and no frontend messaging module, and nothing should be
+read as though there were. The phasing plan lives in
 [#305 §8](https://github.com/free2z/zuu/issues/305); child issues are filed
 against it.
 
