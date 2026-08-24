@@ -165,6 +165,23 @@ function occurrences(source, needle) {
   return count;
 }
 
+function rustFunctionBody(source, name) {
+  const marker = `fn ${name}<`;
+  if (occurrences(source, marker) !== 1) return null;
+
+  const declaration = source.indexOf(marker);
+  const bodyStart = source.indexOf("{", declaration + marker.length);
+  if (bodyStart < 0) return null;
+
+  let depth = 1;
+  for (let index = bodyStart + 1; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(bodyStart + 1, index).trim();
+  }
+  return null;
+}
+
 function packageVersions(lock, expectedPackages) {
   const versions = new Map();
   for (const block of lock.split(/^\[\[package\]\]$/m).slice(1)) {
@@ -205,14 +222,50 @@ function validate(snapshot, scope = reviewedCompatibilityScope()) {
       "transaction version decision must remain one exact audited None helper",
     );
   }
+  const sharedProposalCore = rustFunctionBody(
+    send,
+    "propose_native_send_with_policy",
+  );
+  const defaultProposalBoundary = rustFunctionBody(send, "propose_native_send");
+  const fixedSendBoundary = rustFunctionBody(send, "propose_fixed_native_send");
+  const sendAllBoundary = rustFunctionBody(
+    send,
+    "propose_send_all_native_attempt",
+  );
   const auditedTail =
-    "&SpendPolicy::default(), proposal_lock_request(), proposed_transaction_version(),";
+    "request, ConfirmationsPolicy::default(), spend_policy, proposal_lock_request(), proposed_transaction_version(),";
   if (
-    occurrences(send, "propose_transfer::<") !== 2 ||
-    occurrences(send, auditedTail) !== 2
+    sharedProposalCore === null ||
+    occurrences(send, "propose_transfer::<") !== 1 ||
+    occurrences(sharedProposalCore ?? "", "propose_transfer::<") !== 1 ||
+    occurrences(sharedProposalCore ?? "", auditedTail) !== 1
   ) {
     errors.push(
-      "both transfer proposal paths must consume the audited lock and version decisions",
+      "the shared proposal core must remain the only direct propose_transfer authority and consume the exact audited depth, spend, lock, and version decisions",
+    );
+  }
+  const defaultPolicyCall =
+    "propose_native_send_with_policy(db, params, account_id, request, &SpendPolicy::default())";
+  if (
+    defaultProposalBoundary === null ||
+    occurrences(defaultProposalBoundary ?? "", defaultPolicyCall) !== 1 ||
+    occurrences(send, defaultPolicyCall) !== 1
+  ) {
+    errors.push(
+      "the default native-send boundary must enter the shared proposal core exactly once",
+    );
+  }
+  const sharedDefaultCall =
+    "propose_native_send(db, params, account_id, request)";
+  if (
+    fixedSendBoundary === null ||
+    sendAllBoundary === null ||
+    occurrences(fixedSendBoundary ?? "", sharedDefaultCall) !== 1 ||
+    occurrences(sendAllBoundary ?? "", sharedDefaultCall) !== 1 ||
+    occurrences(send, sharedDefaultCall) !== 2
+  ) {
+    errors.push(
+      "fixed send and send-all must each delegate exactly once to the shared default proposal boundary",
     );
   }
 
@@ -287,6 +340,40 @@ function mutated(snapshot, file, target, replacement, mutation) {
         replacement,
         mutation,
       ),
+    },
+  };
+}
+
+function mutatedOccurrence(
+  snapshot,
+  file,
+  target,
+  replacement,
+  occurrence,
+  expectedCount,
+  mutation,
+) {
+  const source = snapshot.files[file];
+  const offsets = [];
+  let offset = 0;
+  while ((offset = source.indexOf(target, offset)) !== -1) {
+    offsets.push(offset);
+    offset += target.length;
+  }
+  if (offsets.length !== expectedCount || occurrence >= offsets.length) {
+    throw new Error(
+      `${mutation}: mutation target must occur exactly ${expectedCount} time(s), found ${offsets.length}`,
+    );
+  }
+  const selected = offsets[occurrence];
+  return {
+    ...snapshot,
+    files: {
+      ...snapshot.files,
+      [file]:
+        source.slice(0, selected) +
+        replacement +
+        source.slice(selected + target.length),
     },
   };
 }
@@ -408,26 +495,85 @@ function runSelfTest() {
       "transaction version decision",
     ],
     [
-      "primary send bypasses audited helpers",
+      "shared proposal core is no longer recognizable",
       mutated(
         baseline,
         SEND_SOURCE,
-        "            proposal_lock_request(),\n            proposed_transaction_version(),",
-        "            None,\n            None,",
-        "primary send bypasses audited helpers",
+        "fn propose_native_send_with_policy<",
+        "fn propose_native_send_with_policy_mutant<",
+        "shared proposal core is no longer recognizable",
       ),
-      "both transfer proposal paths",
+      "shared proposal core",
     ],
     [
-      "send-all bypasses audited helpers",
+      "a duplicated direct proposal path revives the old split authority",
       mutated(
         baseline,
         SEND_SOURCE,
-        "                proposal_lock_request(),\n                proposed_transaction_version(),",
-        "                None,\n                None,",
-        "send-all bypasses audited helpers",
+        "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
+        "    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(\n    propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(",
+        "a duplicated direct proposal path revives the old split authority",
       ),
-      "both transfer proposal paths",
+      "only direct propose_transfer authority",
+    ],
+    [
+      "shared proposal core bypasses the exact lock decision",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "        proposal_lock_request(),\n",
+        "        None,\n",
+        "shared proposal core bypasses the exact lock decision",
+      ),
+      "exact audited depth, spend, lock, and version decisions",
+    ],
+    [
+      "shared proposal core bypasses the exact version decision",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "        proposed_transaction_version(),\n",
+        "        None,\n",
+        "shared proposal core bypasses the exact version decision",
+      ),
+      "exact audited depth, spend, lock, and version decisions",
+    ],
+    [
+      "default policy boundary bypasses the shared proposal core",
+      mutated(
+        baseline,
+        SEND_SOURCE,
+        "fn propose_native_send<",
+        "fn propose_native_send_mutant<",
+        "default policy boundary bypasses the shared proposal core",
+      ),
+      "default native-send boundary",
+    ],
+    [
+      "fixed send bypasses the shared default boundary",
+      mutatedOccurrence(
+        baseline,
+        SEND_SOURCE,
+        "    propose_native_send(db, params, account_id, request)",
+        "    propose_native_send_with_policy(db, params, account_id, request, &SpendPolicy::default())",
+        0,
+        2,
+        "fixed send bypasses the shared default boundary",
+      ),
+      "fixed send and send-all",
+    ],
+    [
+      "send-all bypasses the shared default boundary",
+      mutatedOccurrence(
+        baseline,
+        SEND_SOURCE,
+        "    propose_native_send(db, params, account_id, request)",
+        "    propose_native_send_with_policy(db, params, account_id, request, &SpendPolicy::default())",
+        1,
+        2,
+        "send-all bypasses the shared default boundary",
+      ),
+      "fixed send and send-all",
     ],
     [
       "known BirthdayError context disappears",

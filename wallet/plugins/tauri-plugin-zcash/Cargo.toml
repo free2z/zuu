@@ -80,6 +80,14 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 tauri-plugin = { version = "2", features = ["build"] }
 tauri-build = "2"
 
+[dev-dependencies]
+# The behavioral send tests exercise the same generic production boundary with
+# librustzcash's real in-memory wallet DSL. These features expose test support;
+# they do not replace proposal or transaction behavior with mocks.
+zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["test-dependencies"] }
+zcash_client_sqlite = { path = "../../../z/zcash/librustzcash/zcash_client_sqlite", features = ["test-dependencies"] }
+transparent = { package = "zcash_transparent", path = "../../../z/zcash/librustzcash/zcash_transparent", features = ["transparent-inputs"] }
+
 # ---------------------------------------------------------------------------
 # Build profiles. DO NOT DELETE — see the identical blocks in
 # wallet/zuuli/src-tauri/Cargo.toml and wallet/zuuallet/src-tauri/Cargo.toml.
