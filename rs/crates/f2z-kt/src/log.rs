@@ -799,6 +799,19 @@ impl LogService {
         })
     }
 
+    /// Remove the stored entry bytes while leaving the authenticated tree
+    /// untouched, so an acceptance test can exercise the production history
+    /// fault path through the HTTP error logger.
+    ///
+    /// This is available only to test builds. A real process can reach the
+    /// same state after storage corruption; it must report that fault without
+    /// turning the queried handle into operator-log data.
+    #[cfg(any(test, feature = "testing"))]
+    pub async fn forget_entry_bytes_for_test(&self, handle: &Handle, version: u32) {
+        let mut state = self.state.lock().await;
+        state.entries.remove(&(handle.as_slice().to_vec(), version));
+    }
+
     /// **`GET /kt/v1/audit?from&to`.**
     ///
     /// Carries every head in `[from, to]` alongside the proof — see

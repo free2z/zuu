@@ -525,6 +525,7 @@ dependencies = [
  "protobuf",
  "tls_codec",
  "tokio",
+ "tower",
 ]
 
 [[package]]

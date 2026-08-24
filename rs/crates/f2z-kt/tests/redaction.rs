@@ -1,5 +1,5 @@
 //! **The log is public by construction — so log it normally, but never a
-//! signing key and never an unpublished submission.**
+//! signing key, never an unpublished submission, and never a queried handle.**
 //!
 //! The first half is deliberate: a `DirectoryEntry` is a public record, and a
 //! server that refused to name a handle in its own operator log would be
@@ -30,10 +30,58 @@
     clippy::arithmetic_side_effects
 )]
 
+use std::sync::{Arc, Mutex, Once};
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use f2z_codec::Canonical as _;
+use f2z_kt::api::AppState;
+use f2z_kt::ratelimit::RateLimiter;
 use f2z_kt::testing::{EntryBuilder, Harness, Identity, Key};
+use f2z_kt::wire::{HistoryRequest, LookupRequest};
 use f2z_kt::{FileSigner, LogSigner as _};
+use tower::ServiceExt as _;
 
 const NOW: u64 = 1_700_000_100_000;
+
+struct Capture {
+    records: Mutex<Vec<String>>,
+}
+
+impl log::Log for Capture {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Trace
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            self.records.lock().unwrap().push(record.args().to_string());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static CAPTURE: Capture = Capture {
+    records: Mutex::new(Vec::new()),
+};
+static INSTALL_CAPTURE: Once = Once::new();
+
+fn captured() -> String {
+    CAPTURE.records.lock().unwrap().join("\n")
+}
+
+fn clear_capture() {
+    CAPTURE.records.lock().unwrap().clear();
+}
+
+fn install_capture() {
+    INSTALL_CAPTURE.call_once(|| {
+        log::set_logger(&CAPTURE).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
+    });
+    clear_capture();
+}
 
 /// Assert that `rendered` contains `bytes` in none of the forms a `Debug`
 /// implementation can leak them in.
@@ -74,6 +122,39 @@ fn assert_absent(rendered: &str, bytes: &[u8], what: &str) {
             "{what} leaked as {form} in: {rendered}"
         );
     }
+
+    if let Ok(utf8) = std::str::from_utf8(bytes) {
+        assert!(
+            !rendered.contains(utf8),
+            "{what} leaked as UTF-8 in: {rendered}"
+        );
+    }
+}
+
+async fn request(state: Arc<AppState>, path: &'static str, body: Vec<u8>) -> StatusCode {
+    f2z_kt::api::router(state)
+        .oneshot(Request::post(path).body(Body::from(body)).unwrap())
+        .await
+        .unwrap()
+        .status()
+}
+
+async fn app_state(harness: &Harness) -> Arc<AppState> {
+    let signer = FileSigner::from_seed(&[0xa1; 32]);
+    Arc::new(AppState {
+        descriptor: f2z_kt::descriptor::sign_descriptor(
+            harness.log.settings(),
+            harness.log_id,
+            *harness.log.vrf_public_key(),
+            &signer,
+            NOW,
+        )
+        .unwrap(),
+        policy: f2z_kt::sign_policy(harness.log.authority(), harness.log_id, &signer, NOW).unwrap(),
+        log: Arc::clone(&harness.log),
+        limits: RateLimiter::defaults(),
+        clock: Arc::new(|| NOW),
+    })
 }
 
 #[test]
@@ -135,6 +216,77 @@ async fn the_log_service_never_renders_a_pending_submission_or_a_key() {
     // And the identifiers an operator actually needs are still there.
     assert!(rendered.contains("log_id"));
     assert!(rendered.contains("vrf_public_key"));
+}
+
+#[tokio::test]
+async fn lookup_and_history_never_put_the_queried_handle_in_the_operator_log() {
+    install_capture();
+    log::trace!("query-log-privacy trace capture control");
+    assert!(
+        captured().contains("query-log-privacy trace capture control"),
+        "the capturing logger did not observe its trace-level control"
+    );
+    clear_capture();
+
+    let harness = Harness::vouched("redaction-query-handle").await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+
+    let alice = Identity::from_byte(0x5d);
+    let handle = f2z_kt_core::types::Handle::new(b"queryhandleprivacy".to_vec()).unwrap();
+    let entry =
+        EntryBuilder::first(harness.log_id, "queryhandleprivacy", &alice).same_key(&alice.dak);
+    harness
+        .log
+        .submit(&harness.envelope(&entry, &alice, NOW), NOW)
+        .await
+        .unwrap();
+
+    let positive = captured();
+    assert!(
+        positive.contains("queryhandleprivacy"),
+        "the capturing logger did not observe the production submission log: {positive}"
+    );
+
+    harness.log.publish_epoch(NOW + 1).await.unwrap();
+    let state = app_state(&harness).await;
+    clear_capture();
+
+    let lookup = LookupRequest::new(handle.clone())
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
+    assert_eq!(
+        request(Arc::clone(&state), "/kt/v1/lookup", lookup).await,
+        StatusCode::OK
+    );
+    assert_absent(&captured(), handle.as_slice(), "the queried lookup handle");
+
+    let history = HistoryRequest::complete(handle.clone())
+        .unwrap()
+        .encode_canonical()
+        .unwrap();
+    assert_eq!(
+        request(Arc::clone(&state), "/kt/v1/history", history.clone()).await,
+        StatusCode::OK
+    );
+    assert_absent(&captured(), handle.as_slice(), "the queried history handle");
+
+    harness.log.forget_entry_bytes_for_test(&handle, 1).await;
+    clear_capture();
+    assert_eq!(
+        request(state, "/kt/v1/history", history).await,
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+    let fault = captured();
+    assert!(
+        fault.contains("history: no stored entry for version 1"),
+        "the test did not drive the production storage fault into the operator logger: {fault}"
+    );
+    assert_absent(
+        &fault,
+        handle.as_slice(),
+        "the history handle on the storage-fault path",
+    );
 }
 
 #[test]
