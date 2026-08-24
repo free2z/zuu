@@ -84,6 +84,51 @@ const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   "        shell: bash",
   "        run: scripts/check-rust-clippy.sh",
 ];
+// The macOS/Windows job that *executes* the shared plugin's test suite. Held to
+// its exact source for the same reason as the lint job beside it: this is the
+// only required job that runs Win32 and Darwin code paths, so weakening the
+// command, the matrix or the selector silently restores the #610 state where
+// Windows execution could not fail a merge.
+const REQUIRED_NATIVE_TESTS_JOB_LINES = [
+  "  rust_native_tests:",
+  "    name: Rust / native tests (${{ matrix.target_os }})",
+  "    needs: changes",
+  "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+  "    timeout-minutes: 90",
+  "    strategy:",
+  "      fail-fast: false",
+  "      matrix:",
+  "        include:",
+  "          - os: macos-latest",
+  "            target_os: macos",
+  "          - os: windows-latest",
+  "            target_os: windows",
+  "    runs-on: ${{ matrix.os }}",
+  "    steps:",
+  `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - name: Fetch librustzcash submodule",
+  "        run: git submodule update --init z/zcash/librustzcash",
+  "      - name: Resolve the pinned Rust toolchain",
+  "        id: rust_toolchain",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  "          version=$(scripts/check-rust-toolchain.sh --print-channel)",
+  '          echo "version=$version" >> "$GITHUB_OUTPUT"',
+  "      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+  "        with:",
+  "          toolchain: ${{ steps.rust_toolchain.outputs.version }}",
+  "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+  "        with:",
+  "          workspaces: wallet/plugins/tauri-plugin-zcash",
+  "          key: zuuli-native-tests-${{ matrix.target_os }}",
+  "      - name: Test the shared plugin on the native host",
+  "        shell: bash",
+  "        run: >-",
+  "          cargo test --locked",
+  "          --all-targets",
+  "          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml",
+];
 const REQUIRED_CRYPTO_TARGET_JOB_LINES = [
   "  rust_crypto_targets:",
   "    name: Rust / modern crypto targets (${{ matrix.family }})",
@@ -1744,8 +1789,31 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
   if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_clippy")) {
     failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_clippy`);
   }
+  if (enforceNativeClippy && !parsedNeeds.values.includes("rust_native_tests")) {
+    failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_native_tests`);
+  }
   if (enforceNativeClippy && !parsedNeeds.values.includes("rust_crypto_targets")) {
     failures.push(`${relativeFile}:${needsProperty.index + 1}: gate must await rust_crypto_targets`);
+  }
+
+  const nativeTests = jobs.get("rust_native_tests");
+  if (enforceNativeClippy && !nativeTests) {
+    failures.push(
+      `${relativeFile}: required workflow must contain rust_native_tests`,
+    );
+  } else if (enforceNativeClippy) {
+    const actualNativeTestsJobLines = lines
+      .slice(nativeTests.start, nativeTests.end)
+      .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+      .map((line) => line.trimEnd());
+    if (
+      JSON.stringify(actualNativeTestsJobLines) !==
+      JSON.stringify(REQUIRED_NATIVE_TESTS_JOB_LINES)
+    ) {
+      failures.push(
+        `${relativeFile}:${nativeTests.start + 1}: rust_native_tests must match the exact current-source native execution contract`,
+      );
+    }
   }
 
   const nativeClippy = jobs.get("rust_native_clippy");
@@ -1977,8 +2045,13 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
     changes.outputs.zuuallet_schema,
     "Zuuallet schema",
   );
-  const nativeClippyExpected =
+  // The two native macOS/Windows jobs share one selector because they judge one
+  // body of code: rust_native_clippy compiles it and rust_native_tests executes
+  // it. Deriving both expectations from the same value here means the gate can
+  // never accept a skip from one that it would reject from the other.
+  const nativeExpected =
     zuuliExpected === "success" || schemaExpected === "success" ? "success" : "skipped";
+  const NATIVE_JOBS = new Set(["rust_native_clippy", "rust_native_tests"]);
 
   const verdicts = [];
   for (const [job, state] of entries) {
@@ -1994,8 +2067,8 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
         ? "success"
         : job === "zuuallet_schema"
           ? schemaExpected
-          : job === "rust_native_clippy"
-            ? nativeClippyExpected
+          : NATIVE_JOBS.has(job)
+            ? nativeExpected
             : zuuliExpected;
     if (state.result !== expected) {
       throw new Error(
@@ -2189,6 +2262,46 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       source: source.replace(
         "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
         "    if: needs.changes.outputs.zuuli == 'true'",
+      ),
+    },
+    {
+      name: "real workflow rejects native tests detached from gate",
+      needle: "gate must await rust_native_tests",
+      source: source.replace(", rust_native_tests", ""),
+    },
+    {
+      name: "real workflow rejects a weakened native test command",
+      needle:
+        "rust_native_tests must match the exact current-source native execution contract",
+      // Unique in the file: rust_plugin runs the same command on one line, so
+      // only the folded form belongs to rust_native_tests. Dropping --locked is
+      // the realistic weakening — it makes a stale lockfile build anyway.
+      source: source.replace(
+        "          cargo test --locked\n          --all-targets\n",
+        "          cargo test\n          --all-targets\n",
+      ),
+    },
+    {
+      name: "real workflow rejects a weakened native test selector",
+      needle:
+        "rust_native_tests must match the exact current-source native execution contract",
+      // replaceLast, not replace: rust_native_clippy carries the identical
+      // selector earlier in the file, and mutating that one would prove the
+      // clippy contract rather than this one.
+      source: replaceLast(
+        source,
+        "    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'",
+        "    if: needs.changes.outputs.zuuli == 'true'",
+      ),
+    },
+    {
+      name: "real workflow rejects dropping the Windows native test leg",
+      needle:
+        "rust_native_tests must match the exact current-source native execution contract",
+      source: replaceLast(
+        source,
+        "          - os: windows-latest\n            target_os: windows\n",
+        "",
       ),
     },
     {
@@ -4083,6 +4196,44 @@ function runSelfTest(repoRoot) {
         },
         rust_native_clippy: { result: "skipped", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
+      },
+    },
+    {
+      name: "native tests cannot skip a Zuuallet-only Rust change",
+      policyOutcome: "success",
+      needle: "required job rust_native_tests must be success, got skipped",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "true" },
+        },
+        rust_native_tests: { result: "skipped", outputs: {} },
+        zuuallet_schema: { result: "success", outputs: {} },
+      },
+    },
+    {
+      name: "native tests follow the shared native selector when neither is set",
+      policyOutcome: "success",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "false", zuuallet_schema: "false" },
+        },
+        rust_native_clippy: { result: "skipped", outputs: {} },
+        rust_native_tests: { result: "skipped", outputs: {} },
+        zuuallet_schema: { result: "skipped", outputs: {} },
+      },
+    },
+    {
+      name: "a failed native test run is rejected",
+      policyOutcome: "success",
+      needle: "required job rust_native_tests must be success, got failure",
+      needs: {
+        changes: {
+          result: "success",
+          outputs: { zuuli: "true", zuuallet_schema: "false" },
+        },
+        rust_native_tests: { result: "failure", outputs: {} },
       },
     },
     {

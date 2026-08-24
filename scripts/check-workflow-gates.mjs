@@ -58,6 +58,17 @@
 //      workflow emits never reports at all, so PRs hang pending forever with
 //      nothing anywhere going red.
 //
+//   6. EVERY WORKFLOW ACCOUNTED FOR. Rules 1–5 all reason *about a gate*, so a
+//      workflow that has no gate presents nothing to be wrong about and passes
+//      by having no surface. That is not a hypothetical: `zuuallet.yml` ran the
+//      wallet plugin's Windows test suite for months with no required check
+//      able to fail on it, and this script had nothing to say (#610). So the
+//      population is enumerated off the filesystem and each file must either
+//      publish a gate resolving to a required context or appear in
+//      `UNGATED_WORKFLOWS` with a reason. A registration for a file the
+//      enumeration did not produce fails, which is what makes narrowing the
+//      enumeration red rather than quietly smaller.
+//
 // Usage:
 //   node scripts/check-workflow-gates.mjs             judge every workflow
 //   node scripts/check-workflow-gates.mjs --self-test negative controls first
@@ -147,6 +158,115 @@ const TOLERATED_CONTEXT_COLLISIONS = new Map([
 /// being weakened to accommodate it. The self-test exercises this path with an
 /// injected map so the opt-out is not untested code.
 const GATE_EXEMPT_JOBS = new Map();
+
+/// The shortest string that can pass as a recorded reason in the registry
+/// below. It exists so `""` — the thing a hurried edit reaches for — is red
+/// rather than a silent exemption.
+const MINIMUM_REGISTRY_REASON = 40;
+
+/// Workflows that deliberately publish no `gate`, each mapped to why not.
+///
+/// Every rule above this line reasons *about a gate*: it reads a `gate` job and
+/// judges what that gate awaits, binds, reports and publishes. A workflow with
+/// no gate therefore presents nothing to judge, and passes by having no
+/// surface — which is exactly how `.github/workflows/zuuallet.yml` came to run
+/// the plugin's Windows test suite with no required check able to fail on it
+/// (#610). "Nothing to complain about" and "nothing is checked" produced the
+/// same green.
+///
+/// So the population is read off the filesystem — every `.yml`/`.yaml` under
+/// `.github/workflows` — and each file must either publish a gate that resolves
+/// to a context branch protection requires, or appear here with a reason. Not
+/// every workflow should be gated (`cache-cleanup.yml` plainly should not),
+/// which is why this is a registration and not a blanket rule.
+///
+/// Three properties make the registration an anchor rather than a list:
+///
+///   * An entry naming a file the enumeration did not produce fails. That is
+///     what makes narrowing `workflowFiles` red instead of quietly shrinking
+///     the population — the check names what it stopped covering.
+///   * An entry naming a file that has since *gained* a gate fails, so the
+///     registration cannot outlive the situation that justified it.
+///   * An entry with no substantive reason fails, so the escape hatch costs a
+///     sentence of justification rather than a comma.
+///
+/// The recurring reason below deserves stating once here: GitHub does not run a
+/// workflow whose `on: pull_request:` carries a `paths:` filter when a pull
+/// request touches nothing matching, and a required context from a workflow
+/// that did not run never reports — every pull request waits on it forever with
+/// nothing anywhere going red. So "add it to branch protection" is not a
+/// one-line change for any of these: it means first moving the filter into a
+/// change-detector job the way `zuuli.yml` and `rs.yml` do.
+const UNGATED_WORKFLOWS = new Map([
+  [
+    ".github/workflows/cache-cleanup.yml",
+    "Maintenance only: reclaims Actions cache entries on `pull_request_target: closed`, " +
+      "schedule and dispatch. It builds and tests nothing, and no event it listens for exists " +
+      "while a pull request is still open, so a required context from it could never report.",
+  ],
+  [
+    ".github/workflows/docs-about-free2z.yml",
+    "Advisory build of docs/about-free2z/**, selected by an `on: pull_request: paths:` filter; " +
+      "gating it means first moving that filter into a change-detector job.",
+  ],
+  [
+    ".github/workflows/ts-react-free2z.yml",
+    "Advisory build of the free2z React app, selected by an `on: pull_request: paths:` filter; " +
+      "gating it means first moving that filter into a change-detector job.",
+  ],
+  [
+    ".github/workflows/ts-svelte-free2z.yml",
+    "Advisory build of the SvelteKit port of free2z, selected by an `on: pull_request: paths:` " +
+      "filter; gating it means first moving that filter into a change-detector job.",
+  ],
+  [
+    ".github/workflows/zuuallet.yml",
+    "Advisory build of the Zuuallet reference wallet behind an `on: pull_request: paths:` filter. " +
+      "Its jobs restate gated work: `fmt`, `deny` and `clippy` run the same scripts as zuuli.yml's " +
+      "`rust_fmt`, `rust_deny` and `rust_clippy`, and the plugin's native macOS/Windows test " +
+      "execution moved to zuuli.yml's gated `rust_native_tests` in #610 rather than staying here " +
+      "ungated. What remains is Zuuallet-only build coverage, which cannot fail a merge and is not " +
+      "claimed to.",
+  ],
+  [
+    ".github/workflows/zuuli-linux-image.yml",
+    "Builds and publishes the pinned Linux CI container image: its pull-request leg is path-filtered " +
+      "and its `publish` leg only runs on main. The property that must hold for a merge — that the " +
+      "required jobs consume the pinned digest — is enforced from inside the gate by " +
+      "scripts/check-zuuli-linux-image.mjs.",
+  ],
+  [
+    ".github/workflows/zuuli-packaging.yml",
+    "Path-filtered Android/iOS/desktop packaging rehearsal, plus a weekly cache-free run. The Rust " +
+      "and TypeScript surface it packages is gated through zuuli.yml; this workflow proves the " +
+      "packaging steps, on a filter that would leave a required context pending.",
+  ],
+  [
+    ".github/workflows/zuuli-release.yml",
+    "Release pipeline: `push` to main on wallet/zuuli/release.json, plus manual dispatch. It runs " +
+      "after a merge, never on the pull request that produced it, so there is no verdict to gate.",
+  ],
+  [
+    ".github/workflows/zuuli-store-audit.yml",
+    "`workflow_dispatch` only — an operator-run read-only audit of the published store listing. No " +
+      "pull-request event triggers it.",
+  ],
+  [
+    ".github/workflows/zuuli-store-publish.yml",
+    "`workflow_dispatch` only — an operator-run store publication guarded by a typed confirmation " +
+      "input. No pull-request event triggers it.",
+  ],
+  [
+    ".github/workflows/zuuli-testflight-bootstrap.yml",
+    "`workflow_dispatch` only — an operator-run TestFlight bootstrap against an explicit source SHA. " +
+      "No pull-request event triggers it.",
+  ],
+  [
+    ".github/workflows/zuuli-testflight-recovery.yml",
+    "`workflow_dispatch` only — an operator-run TestFlight state inspection against an explicit " +
+      "source SHA. No pull-request event triggers it.",
+  ],
+]);
 
 const NEEDS_RESULT = /needs\.([A-Za-z0-9_-]+)\.result/g;
 const TO_JSON_NEEDS = /toJSON\(\s*needs\s*\)/;
@@ -481,12 +601,98 @@ export function protectedProducerFailures(published, protectedContexts) {
   return failures;
 }
 
+/// Require every workflow in the tree to be either gate-bearing or registered.
+///
+/// `gateContexts` maps each enumerated workflow to the check-run names its
+/// `gate` job(s) publish — empty for a workflow that has no gate at all. That
+/// distinction is the whole point: the rules above can only speak about a gate
+/// they can see, so a file with none is invisible to them and this is the only
+/// place it can be reached.
+///
+/// Four failures, and the last two are what keep the registry honest rather
+/// than merely present:
+///
+///   1. A workflow with no gate and no registration. The #610 defect.
+///   2. A workflow whose gate publishes no context branch protection requires.
+///      Such a gate can be perfectly wired and still decide nothing, which is
+///      the same "green means nothing" shape one level up.
+///   3. A registration naming a file the enumeration did not produce. Deleting
+///      the workflow and forgetting the entry looks identical to `workflowFiles`
+///      quietly stopping at a narrower population, so both are red and the
+///      message names the file that lost its coverage.
+///   4. A registration for a file that now has a gate, or with no substantive
+///      reason. An excuse that outlives its situation is worse than none,
+///      because it reads as considered.
+export function ungatedWorkflowFailures(
+  relativeFiles,
+  gateContexts,
+  registry,
+  protectedContexts,
+) {
+  const failures = [];
+  const enumerated = new Set(relativeFiles);
+
+  for (const file of relativeFiles) {
+    const contexts = gateContexts.get(file) ?? [];
+    if (contexts.length === 0) {
+      if (registry.has(file)) continue;
+      failures.push(
+        `${file}: workflow publishes no gate job and is not registered in UNGATED_WORKFLOWS; ` +
+          "every rule in this check reasons about a gate, so a workflow without one is judged by nothing at all " +
+          "— give it a gate whose name is a required status check, or register it with the reason it does not need one",
+      );
+      continue;
+    }
+    const required = contexts.filter((context) =>
+      protectedContexts.has(context),
+    );
+    if (required.length === 0) {
+      failures.push(
+        `${file}: gate job publishes ${contexts.map((context) => `"${context}"`).join(", ")}, ` +
+          `none of which branch protection requires (${[...protectedContexts].sort().join(", ")}); ` +
+          "a gate no required context resolves to cannot fail a merge, whatever it concludes",
+      );
+    }
+  }
+
+  for (const file of [...registry.keys()].sort()) {
+    if (!enumerated.has(file)) {
+      failures.push(
+        `UNGATED_WORKFLOWS registers ${file}, which is not among the ${relativeFiles.length} workflow file(s) ` +
+          "this check enumerated; either the workflow was deleted and the entry is stale, or the enumeration " +
+          "stopped covering it and that file is now judged by nothing",
+      );
+      continue;
+    }
+    if ((gateContexts.get(file) ?? []).length > 0) {
+      failures.push(
+        `UNGATED_WORKFLOWS registers ${file} as deliberately ungated, but it now publishes a gate; ` +
+          "remove the stale entry so the gate is held to the rules the registration excused it from",
+      );
+      continue;
+    }
+    const reason = (registry.get(file) ?? "").trim();
+    if (reason.length < MINIMUM_REGISTRY_REASON) {
+      failures.push(
+        `UNGATED_WORKFLOWS registers ${file} with no substantive reason ` +
+          `(${reason.length} character(s), at least ${MINIMUM_REGISTRY_REASON} required); ` +
+          "an unexplained exemption is indistinguishable from an oversight",
+      );
+    }
+  }
+
+  return failures;
+}
+
 export function scanRepository(root, options = {}) {
   const tolerated = options.tolerated ?? TOLERATED_CONTEXT_COLLISIONS;
   const protectedContexts = options.protectedContexts ?? PROTECTED_CONTEXTS;
   const exemptions = options.exempt ?? GATE_EXEMPT_JOBS;
+  const registry = options.ungated ?? UNGATED_WORKFLOWS;
   const failures = [];
   const published = [];
+  const relativeFiles = [];
+  const gateContexts = new Map();
   let gates = 0;
   const files = workflowFiles(root);
   for (const file of files) {
@@ -498,21 +704,37 @@ export function scanRepository(root, options = {}) {
     const jobs = jobsIn(lines);
     const siblings = jobs.map((job) => job.name);
     const exempt = new Set(exemptions.get(relativeFile) ?? []);
+    relativeFiles.push(relativeFile);
+    gateContexts.set(relativeFile, []);
     for (const job of jobs) {
-      published.push({
-        file: relativeFile,
-        job: job.name,
-        context: publishedContext(lines, job),
-      });
+      const context = publishedContext(lines, job);
+      published.push({ file: relativeFile, job: job.name, context });
       if (job.name !== "gate") continue;
       gates += 1;
+      gateContexts.get(relativeFile).push(context);
       failures.push(...gateFailures(relativeFile, lines, job, siblings, exempt));
     }
   }
   failures.push(...protectedToleranceFailures(tolerated, protectedContexts));
   failures.push(...contextCollisionFailures(published, tolerated));
   failures.push(...protectedProducerFailures(published, protectedContexts));
-  return { failures, gates, files: files.length, contexts: published.length };
+  failures.push(
+    ...ungatedWorkflowFailures(
+      relativeFiles,
+      gateContexts,
+      registry,
+      protectedContexts,
+    ),
+  );
+  return {
+    failures,
+    gates,
+    files: files.length,
+    contexts: published.length,
+    registered: [...registry.keys()].filter((file) =>
+      relativeFiles.includes(file),
+    ).length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -626,6 +848,26 @@ jobs:
           echo "$results"
 `;
 
+/// A workflow with no gate at all — the shape rule 6 exists to reach. It is
+/// deliberately well-formed in every other respect, so nothing but the absence
+/// of a gate distinguishes it from a file this check would judge.
+const UNGATED_WORKFLOW = `name: aside fixture
+
+on:
+  workflow_dispatch:
+
+jobs:
+  aside:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo aside
+`;
+
+/// A reason long enough to satisfy MINIMUM_REGISTRY_REASON, so cases about
+/// *which* file is registered are not accidentally testing the reason rule.
+const FIXTURE_REASON =
+  "Dispatch-only fixture that no pull-request event can ever trigger.";
+
 /// An extra job in the same file as a gate that never awaits it.
 const UNAWAITED_JOB = `  gamma:
     needs: changes
@@ -662,6 +904,7 @@ function fixtureOptions(options) {
   return {
     protectedContexts: new Set(["gate"]),
     tolerated: new Map(),
+    ungated: new Map(),
     ...options,
   };
 }
@@ -784,10 +1027,15 @@ function selfTest() {
     { "fixture.yml": EXPLICIT_GATE, "other.yml": EXPLICIT_GATE },
     /2 job\(s\) publish the status-check context "gate"/,
   );
+  // Both contexts are declared protected here because rule 6 now also asks
+  // whether a gate resolves to a name branch protection requires; without that
+  // this case would fail on the second gate being decorative rather than on the
+  // property it exists to prove, which is that distinct `name:` values do not
+  // collide.
   expectClean(
     "two gates in one tree with distinct display names",
     { "fixture.yml": EXPLICIT_GATE, "other.yml": NAMED_GATE },
-    { gates: 2 },
+    { gates: 2, protectedContexts: new Set(["gate", "other / gate"]) },
   );
   // The tolerated map is keyed by the exact producing files, not by the name,
   // so a third producer of a knowingly-duplicated name is still a failure.
@@ -860,7 +1108,56 @@ function selfTest() {
     /requires the status-check context "gate", which 2 jobs publish/,
   );
 
-  console.log("check-workflow-gates self-test: 20 case(s) passed.");
+  // Rule 6: every workflow accounted for. These are the only cases in this file
+  // whose subject is a workflow the other rules cannot see at all, so each one
+  // is checked against a tree that is otherwise entirely well-formed — the
+  // gated `fixture.yml` is present throughout, and only the unjudged file
+  // changes.
+  expectDetected(
+    "a workflow with no gate that nothing registers",
+    { "fixture.yml": EXPLICIT_GATE, "aside.yml": UNGATED_WORKFLOW },
+    /aside\.yml: workflow publishes no gate job and is not registered/,
+  );
+  expectClean(
+    "a workflow registered as deliberately ungated",
+    { "fixture.yml": EXPLICIT_GATE, "aside.yml": UNGATED_WORKFLOW },
+    { ungated: new Map([[".github/workflows/aside.yml", FIXTURE_REASON]]) },
+  );
+  // The registration is only worth having if it decays: an entry naming a file
+  // the enumeration did not produce is either a deleted workflow whose excuse
+  // outlived it, or — the case this is really for — an enumeration that quietly
+  // stopped covering that file.
+  expectDetected(
+    "a registration for a workflow the enumeration did not produce",
+    { "fixture.yml": EXPLICIT_GATE },
+    /UNGATED_WORKFLOWS registers \.github\/workflows\/aside\.yml, which is not among the 1 workflow file\(s\)/,
+    { ungated: new Map([[".github/workflows/aside.yml", FIXTURE_REASON]]) },
+  );
+  expectDetected(
+    "a registration for a workflow that has since gained a gate",
+    { "fixture.yml": EXPLICIT_GATE, "other.yml": NAMED_GATE },
+    /UNGATED_WORKFLOWS registers \.github\/workflows\/other\.yml as deliberately ungated, but it now publishes a gate/,
+    {
+      protectedContexts: new Set(["gate", "other / gate"]),
+      ungated: new Map([[".github/workflows/other.yml", FIXTURE_REASON]]),
+    },
+  );
+  expectDetected(
+    "a registration with no substantive reason",
+    { "fixture.yml": EXPLICIT_GATE, "aside.yml": UNGATED_WORKFLOW },
+    /UNGATED_WORKFLOWS registers \.github\/workflows\/aside\.yml with no substantive reason/,
+    { ungated: new Map([[".github/workflows/aside.yml", "  because  "]]) },
+  );
+  // A gate can satisfy every wiring rule above and still resolve to no name
+  // branch protection requires, which is the whole defect one level up: it
+  // concludes correctly and cannot fail a merge.
+  expectDetected(
+    "a gate that no required context resolves to",
+    { "fixture.yml": EXPLICIT_GATE, "other.yml": NAMED_GATE },
+    /other\.yml: gate job publishes "other \/ gate", none of which branch protection requires/,
+  );
+
+  console.log("check-workflow-gates self-test: 26 case(s) passed.");
 }
 
 const mode = process.argv[2];
@@ -891,7 +1188,9 @@ if (result.failures.length) {
 }
 console.log(
   `Every gate inspects every job it awaits and covers every job in its file, ` +
-    `no two workflows publish one status-check context, and each protected context ` +
-    `(${[...PROTECTED_CONTEXTS].sort().join(", ")}) has exactly one producer and no allowlist entry: ` +
-    `${result.gates} gate(s), ${result.contexts} job(s), ${result.files} workflow file(s).`,
+    `no two workflows publish one status-check context, each protected context ` +
+    `(${[...PROTECTED_CONTEXTS].sort().join(", ")}) has exactly one producer and no allowlist entry, ` +
+    `and every workflow either feeds a required context or is registered as deliberately ungated: ` +
+    `${result.gates} gate(s), ${result.registered} registered ungated, ` +
+    `${result.contexts} job(s), ${result.files} workflow file(s).`,
 );

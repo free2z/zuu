@@ -421,6 +421,67 @@ jobs:
         shell: bash
         run: scripts/check-rust-clippy.sh
 
+  # Native *execution*, not just compilation. `rust_native_clippy` above proves
+  # the macOS and Windows halves of the plugin compile; until #610 nothing that
+  # could fail a merge ever ran them. The Win32 file-identity helper the
+  # legacy-import preview relies on is reachable only from a Windows host, so a
+  # regression in it passed every required check — the plugin's Windows suite
+  # lived in the ungated .github/workflows/zuuallet.yml, which branch protection
+  # does not require and which does not even run for a pull request outside its
+  # `paths:` filter. That job moved here, where the required `gate` awaits it.
+  #
+  # Same selector and same matrix as the lint job deliberately: it is the same
+  # code on the same two hosts, and two selectors over one body of code drift.
+  rust_native_tests:
+    name: Rust / native tests (${{ matrix.target_os }})
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true' || needs.changes.outputs.zuuallet_schema == 'true'
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target_os: macos
+          - os: windows-latest
+            target_os: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch librustzcash submodule
+        run: git submodule update --init z/zcash/librustzcash
+
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      # Separate cache key from rust_native_clippy: clippy and rustc write
+      # different artifacts under the same target directory names, so a shared
+      # key has the two jobs evicting each other's work on every run.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: wallet/plugins/tauri-plugin-zcash
+          key: zuuli-native-tests-${{ matrix.target_os }}
+
+      # --all-targets so the integration and doc-adjacent targets build too;
+      # this is the exact command the retired zuuallet.yml custody job ran, now
+      # under a required context.
+      - name: Test the shared plugin on the native host
+        shell: bash
+        run: >-
+          cargo test --locked
+          --all-targets
+          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+
   rust_plugin:
     name: Rust / shared plugin
     needs: changes
@@ -750,7 +811,7 @@ jobs:
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
+    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

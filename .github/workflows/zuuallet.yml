@@ -302,36 +302,17 @@ jobs:
           cargo test --locked
           --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
-  # Compile the target-specific Keychain and Credential Manager adapters on
-  # their native hosts. Linux Secret Service is covered by the `rust` job.
-  custody-platforms:
-    if: github.event_name != 'schedule'
-    name: custody / ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Fetch librustzcash submodule
-        run: git submodule update --init z/zcash/librustzcash
-
-      # `uses:` cannot take an expression, so this commit-pinned version action
-      # restates wallet/rust-toolchain.toml; scripts/check-rust-toolchain.sh
-      # holds it to the source of truth.
-      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: wallet/plugins/tauri-plugin-zcash
-
-      - name: Test native plugin
-        run: >-
-          cargo test --locked
-          --all-targets
-          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
+  # The macOS/Windows plugin test matrix that used to live here — `custody /
+  # ${{ matrix.os }}` — is now `rust_native_tests` in .github/workflows/zuuli.yml,
+  # where the required `gate` awaits it (#610).
+  #
+  # It ran here, and passed, and could not fail a merge: this workflow publishes
+  # no gate, branch protection does not require any context it emits, and its
+  # `on: pull_request: paths:` filter means it does not run at all for a pull
+  # request that touches nothing it lists. So the one job in the repository that
+  # executed the Win32 file-identity helper was, in merge terms, advisory. The
+  # move keeps the suite whole rather than splitting it: the entire matrix went,
+  # under a selector that covers the same changes this workflow's filter does.
 
   # ---------------------------------------------------------------------------
   # Canary: rebuild against the LATEST librustzcash main + refreshed crates.
