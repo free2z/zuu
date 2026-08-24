@@ -288,6 +288,35 @@ enum Strictness {
         /// The local binding on which the wrapper method must be called.
         receiver: &'static str,
     },
+    /// Its body calls a registered strict verifier as a **free function**
+    /// rather than as a method — `sig::verify(key, message, signature)`.
+    ///
+    /// `f2z-kt-core` puts its one Ed25519 entry point in a free function
+    /// instead of on a key newtype, so its wrappers cannot satisfy
+    /// [`Strictness::DelegatesTo`]'s receiver rule. The guarantee is the same:
+    /// the target is registered, and the target's own row is what holds it to
+    /// `verify_strict`.
+    DelegatesToFn {
+        /// The registered strict function this call resolves to.
+        target: &'static str,
+        /// The exact path as written at the call site, e.g. `sig::verify`.
+        call: &'static str,
+    },
+    /// It verifies something that is **not an Ed25519 signature**, so no
+    /// delegation chain to `verify_strict` exists or should.
+    ///
+    /// `verify_lookup` and `verify_key_history` check `akd_core` proofs against
+    /// an already-witnessed root; `verify_append_only` runs `akd`'s auditor;
+    /// `verify_threshold` counts cosignatures whose signatures a registered
+    /// verifier already checked; `verify_authorization` re-runs `KT.md` §4.4.
+    ///
+    /// The row still names the call it makes, so it cannot go vacuous by that
+    /// call being deleted — which is the same property every other variant
+    /// buys, applied to a different kind of verification.
+    NotASignatureCheck {
+        /// The verification call the body must still contain.
+        via: &'static str,
+    },
 }
 
 /// A `fn verify…` defined under `rs/crates/*/src/`, and why it is strict.
@@ -388,6 +417,125 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
         strictness: Strictness::DelegatesTo {
             target: "f2z-authority/src/key.rs::verify",
             receiver: "identity_key",
+        },
+    },
+    // ---- f2z-kt-core -------------------------------------------------------
+    //
+    // The crate's one Ed25519 entry point, and the basis of its chain.
+    VerifyFn {
+        file: "f2z-kt-core/src/sig.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict { receiver: "key" },
+    },
+    VerifyFn {
+        file: "f2z-kt-core/src/cosign.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
+        },
+    },
+    VerifyFn {
+        file: "f2z-kt-core/src/descriptor.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
+        },
+    },
+    VerifyFn {
+        file: "f2z-kt-core/src/receipt.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
+        },
+    },
+    VerifyFn {
+        file: "f2z-kt-core/src/sth.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
+        },
+    },
+    VerifyFn {
+        file: "f2z-kt-core/src/witness.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
+        },
+    },
+    // Counts cosignatures whose Ed25519 signatures `WitnessCosignature::verify`
+    // — registered above — has already checked. `KT.md` §8.3's threshold is
+    // arithmetic over verified statements, not a signature check of its own.
+    VerifyFn {
+        file: "f2z-kt-core/src/witness.rs",
+        name: "verify_threshold",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "cosignature.verify",
+        },
+    },
+    // `KT.md` §4.4 in full, and every signature inside it reaches `sig::verify`.
+    VerifyFn {
+        file: "f2z-kt-core/src/verify.rs",
+        name: "verify_authorization",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "validate_submission",
+        },
+    },
+    // `akd_core` proof verification against an already-witnessed root.
+    VerifyFn {
+        file: "f2z-kt-core/src/verify.rs",
+        name: "verify_lookup",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "lookup_verify",
+        },
+    },
+    VerifyFn {
+        file: "f2z-kt-core/src/verify.rs",
+        name: "verify_key_history",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "key_history_verify",
+        },
+    },
+    // `KT.md` §7.1 step 4 — `akd`'s auditor, not a signature at all.
+    VerifyFn {
+        file: "f2z-kt-core/src/auditor.rs",
+        name: "verify_append_only",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "audit_verify",
+        },
+    },
+    // ---- f2z-kt ------------------------------------------------------------
+    VerifyFn {
+        file: "f2z-kt/src/policy.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
+        },
+    },
+    VerifyFn {
+        file: "f2z-kt/src/admit.rs",
+        name: "verify_binding",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-kt-core/src/sig.rs::verify",
+            call: "sig::verify",
         },
     },
 ];
@@ -791,7 +939,50 @@ fn registered_body_has_required_call(strictness: &Strictness, body: &str) -> boo
             calls_method_on(body, receiver, "verify_strict")
         }
         Strictness::DelegatesTo { receiver, .. } => calls_method_on(body, receiver, "verify"),
+        Strictness::DelegatesToFn { call, .. } | Strictness::NotASignatureCheck { via: call } => {
+            calls_path(body, call)
+        }
     }
+}
+
+/// Whether `body` calls the free function at `path` — `sig::verify(…)`.
+///
+/// Held to the same standard as [`calls_method_on`]: the final segment must be
+/// a real identifier followed by `(` or a turbofish, and the text immediately
+/// before it must be the rest of the path. A comment or a same-named local
+/// cannot satisfy it, which the negative controls below assert.
+fn calls_path(body: &str, path: &str) -> bool {
+    let (prefix, name) = match path.rsplit_once("::") {
+        Some((prefix, name)) => (prefix, name),
+        None => ("", path),
+    };
+    identifier_positions(body, name).any(|at| {
+        let after = body[at + name.len()..].trim_start();
+        if !(after.starts_with('(') || after.starts_with("::<")) {
+            return false;
+        }
+        if prefix.is_empty() {
+            return true;
+        }
+        let before = &body[..at];
+        before.trim_end().ends_with(&format!("{prefix}::"))
+    })
+}
+
+#[test]
+fn a_free_function_call_is_matched_only_when_it_is_really_a_call() {
+    assert!(calls_path("{ sig::verify(a, b, c) }", "sig::verify"));
+    assert!(calls_path("{ sig::verify::<T>(a) }", "sig::verify"));
+    assert!(calls_path(
+        "{ audit_verify(hashes, proof) }",
+        "audit_verify"
+    ));
+    // Not a call.
+    assert!(!calls_path("{ let f = sig::verify; }", "sig::verify"));
+    // The wrong path with the right final segment.
+    assert!(!calls_path("{ other::verify(a) }", "sig::verify"));
+    // A same-named local binding.
+    assert!(!calls_path("{ let verify = 1; }", "sig::verify"));
 }
 
 #[test]
@@ -1090,6 +1281,37 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
                     registered_body_has_required_call(&entry.strictness, &body),
                     "{}::{} is registered as delegating to {target} and its body contains no \
                      call to it, so the registration describes something that is not there.",
+                    entry.file,
+                    entry.name
+                );
+            }
+            Strictness::DelegatesToFn { target, call } => {
+                let (target_file, target_name) = target.rsplit_once("::").unwrap();
+                assert!(
+                    WORKSPACE_VERIFY_FNS
+                        .iter()
+                        .any(|other| other.file == target_file
+                            && other.name == target_name
+                            && matches!(other.strictness, Strictness::CallsVerifyStrict { .. })),
+                    "{}::{} delegates to {target}, which is not registered as a strict \
+                     verifier",
+                    entry.file,
+                    entry.name
+                );
+                assert!(
+                    registered_body_has_required_call(&entry.strictness, &body),
+                    "{}::{} is registered as calling `{call}` and its body does not, so the \
+                     registration describes something that is not there.",
+                    entry.file,
+                    entry.name
+                );
+            }
+            Strictness::NotASignatureCheck { via } => {
+                assert!(
+                    registered_body_has_required_call(&entry.strictness, &body),
+                    "{}::{} is registered as verifying something that is not an Ed25519 \
+                     signature, via `{via}`, and its body no longer calls it — so the row is \
+                     now an unexplained exemption rather than a described one.",
                     entry.file,
                     entry.name
                 );

@@ -116,20 +116,91 @@ prevent.
 | [`crates/f2z-relay-testkit`](./crates/f2z-relay-testkit) | **FakeRelay**: a spec-conforming relay a client can develop against, over an in-process pipe *and* a real `ws://127.0.0.1:0` listener running the same implementation, plus fault injection and the conformance vector suite `f2z-relay` is run against unchanged. Also ships the `f2z-fakerelay` binary and `rs/deploy/docker-compose.dev.yml`. **Native only** — it opens sockets, spawns tasks and reads a clock, and is deliberately absent from the `wasm32` job. |
 | [`crates/f2z-relay`](./crates/f2z-relay) | **The relay daemon** — the server that runs in production. `wss://` listener, §4 framing, §5 signed-command verification with the TLS-exporter binding, the full §6 command set over `RelayStore`, a group-commit writer, TTL expiry, §13 anti-abuse, the signed capability document, and a loopback-only `/healthz` + `/metrics` admin listener. **AGPL-3.0**, native only, never on the wasm line. |
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
+| [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
+
+`f2z-kt-core` is the **one** crate the log server, the witness and the client all
+link (`KT.md` §11.4). That is not tidiness: a witness that verified with a
+different implementation than the log builds with would produce cosignatures that
+mean nothing, and §7.4's only structural defence against a lazy witness is that
+there are not two implementations to disagree.
+
+Its `verifier` feature reaches `wasm32-unknown-unknown`; its `auditor` feature
+does not, and must never be enabled for the browser — `akd::auditor::audit_verify`
+hardcodes `AzksParallelismConfig::default()` and reaches `tokio::task::spawn`, so
+it compiles for that target and then traps at runtime (`KT.md` §11.3). The wasm CI
+job builds `--no-default-features --features verifier` for exactly that reason.
+
+`f2z-kt-core::api` carries `KT.md` §9.2's request and response envelopes —
+`SubmissionEnvelope`, `TreeHeadBundle`, the lookup/history/audit shapes — for the
+same reason. A witness that decoded a tree-head bundle differently from the log
+that encoded it would cosign a root it did not actually read.
+
+**`rs/deny.toml` carries the `akd >= 0.13.0` floor and it is load-bearing.**
+[facebook/akd#495](https://github.com/facebook/akd/pull/495) — an auditor
+append-only bypass letting a malicious log rewrite a label's value while still
+producing a *valid* append-only proof — has no RustSec or OSV advisory and never
+will, so `cargo audit` passes on a vulnerable pin forever
+([ADR 0013](../docs/e2ee/decisions/0013-key-transparency-log.md)). A reviewer who
+removes those `[[bans.deny]]` entries has removed the floor.
+
+
+## The key-transparency binaries
+
+`f2z-relay` is a server binary too and is described in the table above; these
+are the two that serve `KT.md` rather than `WIRE.md`.
+
+| Binary | What it is |
+|---|---|
+| [`crates/f2z-kt`](./crates/f2z-kt) | The **key-transparency log server** ([`KT.md`](../docs/e2ee/KT.md) §5, §6, §9): durable append-only journals, the submission choke point, the `akd` tree and the epoch scheduler, `LogSigner` behind a trait with a file-backed default, and the proof-serving API. |
+| [`crates/f2z-witness`](./crates/f2z-witness) | The **cosigning daemon** (`KT.md` §7): poll, verify the tree-head signature, refuse and record evidence on rollback or fork, **verify the append-only proof**, cosign, and update one state file atomically. No inbound port, no TLS, no domain, no database. |
+
+**Both are AGPL-3.0-only**, on the same boundary `f2z-relay` crosses and for the
+same owner decision — [#305](https://github.com/free2z/zuu/issues/305).
+`THREAT-MODEL.md` §4.5 concedes that server-side deletion is "auditable, not
+verifiable", and a copyleft obligation for network use is the only lever we have
+over an operator we do not run. `rs/deny.toml` names each binary in
+`[licenses] exceptions` — the *library* crates above stay MIT so clients and
+third-party implementations can link them, and a library crate appearing in that
+list would be a review failure.
+
+Neither is on the wasm line and neither ever should be: `f2z-kt` pulls tokio and
+axum, and `f2z-witness` links `f2z-kt-core`'s `auditor` feature, which reaches
+`akd::auditor::audit_verify` — it compiles for `wasm32-unknown-unknown` and then
+traps at runtime (`KT.md` §11.3).
+
+**The log and the witness link the same `audit_verify`, and that is structural
+rather than tidy.** `KT.md` §7.4: a witness that cosigns without verifying the
+append-only proof is worthless, and there is no way for a client to tell a lazy
+witness from a diligent one by inspecting cosignatures. What the design does
+about it is make "cosign without verifying" take *deleting a call* rather than
+forgetting one — `f2z_kt_core::auditor::WitnessState::advance` will not advance
+without the token `verify_append_only` returns, and neither has a public
+constructor.
+
+
+**The relay and the clients link these library crates.** That is the licence
+boundary in practice: every crate above is MIT because a third-party relay, ZUULI
+and the WASM web client all compile the same rules, and a rule that two implementations
+disagree about is how ciphertext gets deleted before it is read.
 
 **The clients link `f2z-codec` and `f2z-relay-proto`; the relay links those two
 plus `f2z-relay-store`.** That is the licence boundary in practice: the shared
 crates are MIT because a third-party relay, ZUULI and the WASM web client all
 compile the same rules, and a rule that two implementations disagree about is how
-ciphertext gets deleted before it is read. **`f2z-relay` is the first crate on
-the other side of that boundary** — an AGPL-3.0 server binary, named in
-`rs/deny.toml`'s `exceptions` so crossing it cannot happen by accident.
+ciphertext gets deleted before it is read. **`f2z-relay`, `f2z-kt` and
+`f2z-witness` are on the other side of that boundary** — AGPL server binaries,
+each named individually in `rs/deny.toml`'s `exceptions` so crossing it cannot
+happen by accident, and a library crate appearing in that list would be a review
+failure.
 
 The current dependency graph is narrower than that intended architecture:
 `f2z-relay-proto` depends on `f2z-codec`, while `f2z-authority` is still a
-standalone experimental leaf and no workspace package depends on it. Wiring the
-authority candidate into a relay or client is future integration work, not a
-property this README claims today.
+standalone experimental leaf. Wiring the authority candidate into a relay or
+client is future integration work, not a property this README claims today.
+`f2z-kt` and `f2z-witness` **do** depend on it, and on `f2z-kt-core` — they are
+the server binaries below, and they are the reason that layer exists. Every
+library crate above remains MIT so downstream relays and clients can share the
+rules.
 
 `f2z-codec` is separate from everything that sits on top of it for three
 reasons, and each is enforced by a test rather than by intent:
@@ -149,8 +220,12 @@ reasons, and each is enforced by a test rather than by intent:
 ```bash
 cd rs
 cargo test
+# The client-linked crates only. `f2z-kt` and `f2z-witness` are native server
+# binaries and are deliberately absent from this line.
 cargo build --target wasm32-unknown-unknown --lib \
   -p f2z-codec -p f2z-relay-proto -p f2z-authority
+cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
+            --no-default-features --features verifier
 
 # f2z-relay-store's crash-safety suite is behind a default-off feature, because
 # the feature compiles an abort() into the commit path. It kills real child

@@ -1,0 +1,44 @@
+[package]
+name = "f2z-kt-core"
+version = "0.1.0"
+description = "Key-transparency core for the free2z directory (docs/e2ee/KT.md v1): entry authorization, signed tree heads, witness cosignatures and the client verifier"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. KT.md §11.4: this crate is linked by
+# the log server, by the witness, and by the ZUULI and WASM clients. The
+# AGPL-3.0 boundary starts at the server binaries, not here. rs/deny.toml
+# enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["verifier", "auditor"]
+# The client half of KT.md §8: inclusion and key-history verification. Reaches
+# wasm32-unknown-unknown; `akd_core` builds for the browser with no shim.
+verifier = ["dep:akd_core", "dep:protobuf"]
+# The witness half of KT.md §7.1 step 4. Pulls the server crate `akd` for
+# `audit_verify`, which reaches `tokio::task::spawn` and therefore does NOT
+# work on wasm32-unknown-unknown (KT.md §11.3). Never enable it for the browser.
+auditor = ["dep:akd", "verifier"]
+
+[dependencies]
+# Ed25519 verification for every signature KT.md §6.2's label table names. The
+# workspace entry is version 3; `akd_core` carries its own ^2 for the ECVRF, and
+# no type from either crosses between them.
+ed25519-dalek = { workspace = true }
+f2z-codec = { workspace = true }
+tls_codec = { workspace = true }
+
+akd_core = { workspace = true, optional = true }
+akd = { workspace = true, optional = true }
+protobuf = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

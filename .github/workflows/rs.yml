@@ -347,6 +347,22 @@ jobs:
             -p f2z-relay-proto \
             -p f2z-authority
 
+      # KT.md §11.4: the log, the witness and the client link one crate. Only
+      # the *client* half reaches the browser — `akd::auditor::audit_verify`
+      # hardcodes AzksParallelismConfig::default() and reaches
+      # tokio::task::spawn, so it compiles for wasm32 and then traps at runtime
+      # (KT.md §11.3). `--no-default-features --features verifier` is therefore
+      # not a size optimisation, it is the supported configuration, and this
+      # step is what stops the auditor being pulled into a browser bundle by an
+      # innocent-looking feature edit.
+      - name: Build the f2z-kt-core client verifier for the browser target
+        working-directory: rs
+        run: |
+          set -euo pipefail
+          cargo build --locked --lib \
+            --target "${{ steps.rust_toolchain.outputs.target }}" \
+            -p f2z-kt-core --no-default-features --features verifier
+
   # Branch protection should require this stable context, `rs / gate`. It
   # succeeds only when the change detector and every applicable rs job
   # succeeded; a legitimate non-rs skip reports success rather than remaining
