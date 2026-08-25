@@ -141,6 +141,19 @@ fn a_source_key_is_not_an_address_and_does_not_render() {
 }
 
 #[test]
+fn the_abuse_guard_never_renders_its_per_source_salt() {
+    // The salt is what makes a `SourceKey` not an address: hold it and every
+    // key in the table is invertible by trying candidate peers. `AbuseGuard`
+    // hand-writes its `Debug` to keep it out, and this is what proves that impl
+    // still does its job — the other two relay tables are covered above, and
+    // this is the only one carrying a secret of its own.
+    let mut salt = [0u8; 32];
+    salt[..SECRET.len()].copy_from_slice(&SECRET);
+    let guard = f2z_relay::abuse::AbuseGuard::new(Config::default().limits, true, salt);
+    assert_no_leak("AbuseGuard", &format!("{guard:?}"));
+}
+
+#[test]
 fn the_config_debug_and_print_config_both_redact_the_identity_seed() {
     let mut config = Config::default();
     config.identity.seed = "de".repeat(32);

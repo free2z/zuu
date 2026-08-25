@@ -20,7 +20,7 @@
 //! `READ` still returns it, and the push was only ever a hint that a `READ` is
 //! worth doing. §13.2's rule is about *messages*, and a push is not one.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 
 use f2z_codec::commands::{NoticePush, PushEvent, QueueEventPush, QueuedMessage};
@@ -51,11 +51,27 @@ impl core::fmt::Debug for Subscriber {
 }
 
 /// The relay's subscription table.
+///
+/// Both directions are held here, under one lock, because §6.2's "dies with it"
+/// is only as good as the list teardown is given. When the connection kept that
+/// list itself, a `SUBSCRIBE` path that forgot to record an address left a row
+/// nothing would ever remove — and nothing prunes an orphan, because a failed
+/// `try_send` is counted and the subscriber is left in place. Owning the reverse
+/// index means [`Subscriptions::drop_connection`] needs no caller-supplied list,
+/// so there is no second place to forget (zuu#722).
 #[derive(Debug, Default)]
 pub struct Subscriptions {
-    // The key is a queue address. `QueueAddress`'s `Debug` redacts, so the
-    // derived `Debug` on this map does too.
-    by_recv: Mutex<HashMap<QueueAddress, Vec<Subscriber>>>,
+    inner: Mutex<Tables>,
+}
+
+/// The two indexes, kept consistent by every method that touches either.
+///
+/// The address map's key is a `QueueAddress`, whose `Debug` redacts, so the
+/// derived `Debug` here does too.
+#[derive(Debug, Default)]
+struct Tables {
+    by_recv: HashMap<QueueAddress, Vec<Subscriber>>,
+    by_connection: HashMap<u64, BTreeSet<QueueAddress>>,
 }
 
 impl Subscriptions {
@@ -72,8 +88,8 @@ impl Subscriptions {
         connection: u64,
         sender: tokio::sync::mpsc::Sender<Outbound>,
     ) {
-        let mut table = self.lock();
-        let entries = table.entry(recv_addr).or_default();
+        let mut tables = self.lock();
+        let entries = tables.by_recv.entry(recv_addr).or_default();
         if entries
             .iter()
             .any(|subscriber| subscriber.connection == connection)
@@ -81,23 +97,46 @@ impl Subscriptions {
             return;
         }
         entries.push(Subscriber { connection, sender });
+        tables
+            .by_connection
+            .entry(connection)
+            .or_default()
+            .insert(recv_addr);
     }
 
     /// Drop one connection's registration on one address.
     pub fn unsubscribe(&self, recv_addr: &QueueAddress, connection: u64) {
-        let mut table = self.lock();
-        if let Some(entries) = table.get_mut(recv_addr) {
-            entries.retain(|subscriber| subscriber.connection != connection);
-            if entries.is_empty() {
-                table.remove(recv_addr);
-            }
-        }
+        let mut tables = self.lock();
+        Self::remove_one(&mut tables, recv_addr, connection);
     }
 
     /// Drop every registration a connection holds — §6.2's "dies with it".
-    pub fn drop_connection(&self, connection: u64, addresses: &[QueueAddress]) {
+    ///
+    /// The addresses come from this table's own reverse index, so a caller
+    /// cannot pass an incomplete list.
+    pub fn drop_connection(&self, connection: u64) {
+        let mut tables = self.lock();
+        let Some(addresses) = tables.by_connection.remove(&connection) else {
+            return;
+        };
         for address in addresses {
-            self.unsubscribe(address, connection);
+            Self::remove_one(&mut tables, &address, connection);
+        }
+    }
+
+    /// Remove one (address, connection) pair from both indexes.
+    fn remove_one(tables: &mut Tables, recv_addr: &QueueAddress, connection: u64) {
+        if let Some(entries) = tables.by_recv.get_mut(recv_addr) {
+            entries.retain(|subscriber| subscriber.connection != connection);
+            if entries.is_empty() {
+                tables.by_recv.remove(recv_addr);
+            }
+        }
+        if let Some(addresses) = tables.by_connection.get_mut(&connection) {
+            addresses.remove(recv_addr);
+            if addresses.is_empty() {
+                tables.by_connection.remove(&connection);
+            }
         }
     }
 
@@ -106,7 +145,7 @@ impl Subscriptions {
     /// them.
     #[must_use]
     pub fn has_subscriber(&self, recv_addr: &QueueAddress) -> bool {
-        self.lock().contains_key(recv_addr)
+        self.lock().by_recv.contains_key(recv_addr)
     }
 
     /// Push a `MSG` to whoever is reading this queue (§6.4).
@@ -128,8 +167,8 @@ impl Subscriptions {
     /// Push a `NOTICE` to every subscribed connection (§6.4).
     pub fn notify_all(&self, kind: u8, at_ms: u64, metrics: &Metrics) {
         let body = NoticePush { kind, at_ms };
-        let table = self.lock();
-        for entries in table.values() {
+        let tables = self.lock();
+        for entries in tables.by_recv.values() {
             for subscriber in entries {
                 let Some(outbound) = push(PushEvent::Notice, &body) else {
                     continue;
@@ -147,8 +186,8 @@ impl Subscriptions {
         metrics: &Metrics,
         build: F,
     ) {
-        let table = self.lock();
-        let Some(entries) = table.get(recv_addr) else {
+        let tables = self.lock();
+        let Some(entries) = tables.by_recv.get(recv_addr) else {
             return;
         };
         for subscriber in entries {
@@ -163,8 +202,8 @@ impl Subscriptions {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<QueueAddress, Vec<Subscriber>>> {
-        self.by_recv
+    fn lock(&self) -> std::sync::MutexGuard<'_, Tables> {
+        self.inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -220,11 +259,55 @@ mod tests {
         let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
         table.subscribe(first, 9, sender.clone());
         table.subscribe(second, 9, sender);
-        table.drop_connection(9, &[first, second]);
+        // No address list: the table knows what this connection holds, which is
+        // the whole point — a caller cannot hand teardown a short list.
+        table.drop_connection(9);
         assert!(!table.has_subscriber(&first));
         assert!(!table.has_subscriber(&second));
         table.notify_message(first, &message(), &metrics);
         assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn teardown_needs_nothing_the_caller_has_to_remember() {
+        // zuu#722. The rule used to be kept in two places: this table, and a
+        // `BTreeSet` on the connection that the `SUBSCRIBE` handler had to
+        // remember to update. Deleting that one line left every workspace test
+        // green while every subscription outlived its connection. There is now
+        // no second place, and this asserts the reverse index really is what
+        // teardown reads.
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let first = QueueAddress::new([5u8; 32]);
+        let second = QueueAddress::new([6u8; 32]);
+        let other = QueueAddress::new([7u8; 32]);
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+        let (survivor, mut survivor_receiver) = tokio::sync::mpsc::channel(4);
+
+        table.subscribe(first, 11, sender.clone());
+        table.subscribe(second, 11, sender);
+        table.subscribe(other, 12, survivor);
+
+        table.drop_connection(11);
+
+        // Everything connection 11 held is gone, including the address it
+        // subscribed to second — the one a partial list would have missed.
+        assert!(!table.has_subscriber(&first));
+        assert!(!table.has_subscriber(&second));
+        table.notify_message(second, &message(), &metrics);
+        assert!(receiver.try_recv().is_err());
+
+        // …and only that connection's rows went.
+        assert!(table.has_subscriber(&other));
+        table.notify_message(other, &message(), &metrics);
+        assert!(survivor_receiver.try_recv().is_ok());
+
+        // Dropping a connection that holds nothing is not an error, and an
+        // explicit unsubscribe leaves no empty row for a later teardown to walk.
+        table.drop_connection(11);
+        table.unsubscribe(&other, 12);
+        assert!(!table.has_subscriber(&other));
+        table.drop_connection(12);
     }
 
     #[tokio::test]

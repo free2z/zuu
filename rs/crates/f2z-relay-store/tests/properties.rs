@@ -760,6 +760,86 @@ fn indices_are_dense_and_ascending_across_batch_boundaries() {
     });
 }
 
+#[test]
+fn a_batch_result_belongs_to_the_append_that_earned_it() {
+    // zuu#721. `append_batch`'s contract is that the vector is the same length
+    // as `appends` and in the same order, and the relay consumes it purely by
+    // position: `commit.rs` zips results onto jobs and routes §6.4's `MSG` push
+    // to `Appended::recv_addr`. Every other batch test here is single-queue, so
+    // reversing the queue each success belonged to — while leaving the indices
+    // dense and ascending — used to pass the whole workspace. Group commit
+    // exists to batch appends from *different* connections to *different*
+    // queues, so the mixed batch is the shape production actually runs.
+    let second_recv = QueueAddress::new([0x66; 32]);
+    let second_send = QueueAddress::new([0x77; 32]);
+    let second_recv_key = PublicKey::new([0x88; 32]);
+    let second_send_key = PublicKey::new([0xaa; 32]);
+
+    both(|store, name| {
+        let _ = store
+            .create_queue(&spec(QueueKind::Standard, generous(), 86_400, 86_400))
+            .unwrap();
+        let _ = store.bind_send(&SEND, &SEND_KEY, 1_000).unwrap();
+        let _ = store
+            .create_queue(&QueueSpec {
+                kind: QueueKind::Standard,
+                recv_addr: second_recv,
+                send_addr: second_send,
+                recv_key: second_recv_key,
+                message_ttl_seconds: 86_400,
+                idle_ttl_seconds: 86_400,
+                quota: generous(),
+                created_at_ms: 1_000,
+            })
+            .unwrap();
+        let _ = store
+            .bind_send(&second_send, &second_send_key, 1_000)
+            .unwrap();
+
+        let payload = Payload::new(vec![9u8; 32]).unwrap();
+        // Interleaved on purpose: A, B, A, B. A batch grouped by address would
+        // still satisfy "same length", and a `HashMap`-keyed implementation
+        // returning `into_values()` would still return four results.
+        let batch: Vec<Append<'_>> = [
+            (SEND, SEND_KEY),
+            (second_send, second_send_key),
+            (SEND, SEND_KEY),
+            (second_send, second_send_key),
+        ]
+        .into_iter()
+        .map(|(send_addr, key)| Append {
+            send_addr,
+            auth: SendAuth::Signed(key),
+            payload: &payload,
+            received_at_ms: 2_000,
+        })
+        .collect();
+
+        let results = store.append_batch(&batch).unwrap().into_inner();
+        assert_eq!(results.len(), batch.len(), "{name}");
+
+        // Reviewed literals rather than values derived from the results: each
+        // position's queue and the index that position earned within it.
+        let expected = [(RECV, 0u64), (second_recv, 0), (RECV, 1), (second_recv, 1)];
+        for (position, (result, (recv_addr, index))) in
+            results.into_iter().zip(expected).enumerate()
+        {
+            let appended = result.unwrap();
+            assert_eq!(
+                appended.recv_addr, recv_addr,
+                "{name}: position {position} came back with another queue's receive address"
+            );
+            assert_eq!(
+                appended.index, index,
+                "{name}: position {position} came back with another append's index"
+            );
+        }
+
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+        let _ = store.delete_queue(&second_recv, &second_recv_key).unwrap();
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Durability, as a published fact.
 // ---------------------------------------------------------------------------
