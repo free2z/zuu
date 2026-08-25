@@ -68,7 +68,7 @@ const schemaGateSamplePaths = [
   "wallet/plugins/tauri-plugin-zcash/build.rs",
   "wallet/rust-toolchain.toml",
   "scripts/check-rust-toolchain.sh",
-  "scripts/check-zcash-permissions.mjs",
+  "scripts/check-tauri-plugin-permissions.mjs",
   "scripts/check-zuuli-linux-image.mjs",
   "z/zcash/librustzcash",
   ".gitmodules",

@@ -471,6 +471,19 @@ const REQUIRED_STEP_ENVIRONMENTS = new Map([
     ]),
   ],
   [
+    // The messaging plugin's `build.rs` watches this value, so a restored
+    // Cargo cache cannot turn its permission-drift assertion into a no-op.
+    // There is no schema nonce beside it: this plugin has no consuming app in
+    // the tree yet, so nothing generates target schemas from it.
+    "rust_msg_plugin\0Build and test the messaging plugin",
+    new Map([
+      [
+        "TAURI_PERMISSION_GENERATION_NONCE",
+        "${{ github.run_id }}-${{ github.run_attempt }}",
+      ],
+    ]),
+  ],
+  [
     "gate\0Verify required jobs succeeded or legitimately skipped",
     new Map([
       ["POLICY_OUTCOME", "${{ steps.policy.outcome }}"],
@@ -483,6 +496,7 @@ const REQUIRED_STEP_WORKING_DIRECTORIES = new Map([
   ["rust_plugin\0Verify pinned Linux build image", "/"],
   ["rust_app\0Verify pinned Linux build image", "/"],
   ["zuuallet_schema\0Verify pinned Linux build image", "/"],
+  ["rust_msg_plugin\0Verify pinned Linux build image", "/"],
 ]);
 
 // Required-gate policy deliberately accepts a small, canonical YAML subset.

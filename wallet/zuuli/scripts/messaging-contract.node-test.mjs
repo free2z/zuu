@@ -9,6 +9,17 @@
 // fails here until someone wires it. It lives in scripts/ rather than src/
 // because that is where this repository keeps source-scanning tests, and it
 // keeps `node:fs` out of the frontend's tsconfig scope.
+//
+// Since 2026-08-25 it reads a third artefact: `tauri-plugin-f2zmsg`'s command
+// registry. §12.3 proposed a separate `scripts/check-client-contract.mjs` for
+// that comparison, and a separate file would have been a third place the set is
+// written down. The document, the bridge and the plugin are now held to each
+// other here, in both directions.
+//
+// The enrollment trio is the one asymmetry, and it is §2.2's: `f2zmsg_enroll`,
+// `f2zmsg_enrollment_status` and `f2zmsg_unenroll` need the wallet seed, so they
+// are app-crate commands and are deliberately absent from the plugin. The test
+// asserts that absence rather than excusing it.
 
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
@@ -24,10 +35,26 @@ const bridgePath = fileURLToPath(
 const eventsPath = fileURLToPath(
   new URL("../src/lib/messaging/events.ts", import.meta.url),
 );
+const registryPath = fileURLToPath(
+  new URL(
+    "../../plugins/tauri-plugin-f2zmsg/command_registry.rs",
+    import.meta.url,
+  ),
+);
 
 const contract = readFileSync(contractPath, "utf8");
 const bridge = readFileSync(bridgePath, "utf8");
 const events = readFileSync(eventsPath, "utf8");
+const registry = readFileSync(registryPath, "utf8");
+
+/// §2.2: these three need the wallet seed, so they live in
+/// `wallet/zuuli/src-tauri/src/messaging.rs` and are invoked with no `plugin:`
+/// prefix. The plugin must not register them.
+const APP_CRATE_COMMANDS = new Set([
+  "f2zmsg_enroll",
+  "f2zmsg_enrollment_status",
+  "f2zmsg_unenroll",
+]);
 
 /** §3's command tables are `| \`name\` | args | Returns |`. */
 function declaredCommands() {
@@ -78,6 +105,18 @@ function implementedEvents() {
   return names;
 }
 
+/** The idents inside `with_f2zmsg_commands!`, which is the plugin's one population. */
+function registeredCommands() {
+  const block = /\$callback!\s*\{([\s\S]*?)\n\s*\}/.exec(registry);
+  assert.ok(block, "the command registry macro body was not found");
+
+  const names = new Set();
+  for (const [, name] of block[1].matchAll(/^\s*([a-z0-9_]+),$/gm)) {
+    names.add(name);
+  }
+  return names;
+}
+
 function difference(left, right) {
   return [...left].filter((value) => !right.has(value)).sort();
 }
@@ -90,6 +129,10 @@ test("the contract and the bridge are the documents this test thinks they are", 
   assert.ok(declaredEvents().size > 0, "no events parsed from §5.1");
   assert.ok(implementedCommands().size > 0, "no commands parsed from bridge.ts");
   assert.ok(implementedEvents().size > 0, "no events parsed from events.ts");
+  assert.ok(
+    registeredCommands().size > 0,
+    "no commands parsed from the plugin's command registry",
+  );
 });
 
 test("the bridge implements exactly the commands §3 declares", () => {
@@ -109,5 +152,43 @@ test("events.ts declares exactly the events §5.1 does", () => {
   assert.deepEqual(
     { missing: difference(spec, impl), extra: difference(impl, spec) },
     { missing: [], extra: [] },
+  );
+});
+
+test("the plugin registers exactly the commands §3 declares, minus the app-crate trio", () => {
+  const spec = new Set(
+    [...declaredCommands()].filter((name) => !APP_CRATE_COMMANDS.has(name)),
+  );
+  const impl = registeredCommands();
+
+  assert.deepEqual(
+    { missing: difference(spec, impl), extra: difference(impl, spec) },
+    { missing: [], extra: [] },
+  );
+});
+
+test("the plugin does not register a command that needs the wallet seed", () => {
+  // §2.2. If one of these ever appears in the plugin, the mnemonic has a route
+  // into the webview's JavaScript heap and the whole reason enrollment lives in
+  // the app crate is gone.
+  const registered = registeredCommands();
+  assert.deepEqual(
+    [...APP_CRATE_COMMANDS].filter((name) => registered.has(name)),
+    [],
+  );
+});
+
+test("the bridge and the plugin agree, so neither can drift alone", () => {
+  // The document is the source of truth and both are compared to it above.
+  // This is the diagonal: it fails with a clearer message when only one of the
+  // two moved, which is the likeliest way this breaks.
+  const bridge = new Set(
+    [...implementedCommands()].filter((name) => !APP_CRATE_COMMANDS.has(name)),
+  );
+  const plugin = registeredCommands();
+
+  assert.deepEqual(
+    { onlyInBridge: difference(bridge, plugin), onlyInPlugin: difference(plugin, bridge) },
+    { onlyInBridge: [], onlyInPlugin: [] },
   );
 });
