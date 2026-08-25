@@ -38,8 +38,6 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # upstream between two runs of CI with no commit of ours in between, which would
 # turn an unrelated pull request red for reasons its author cannot act on. It is
 # reported on every run and triaged deliberately instead.
-# Currently reported: spin 0.9.8 (via flume -> zcash_client_backend, and via
-# lazy_static -> bellman/orchard/tao).
 yanked = "warn"
 
 ignore = [
