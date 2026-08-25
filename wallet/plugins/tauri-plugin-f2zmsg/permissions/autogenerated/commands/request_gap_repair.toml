@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-request-gap-repair"
+description = "Enables the request_gap_repair command without any pre-configured scope."
+commands.allow = ["request_gap_repair"]
+
+[[permission]]
+identifier = "deny-request-gap-repair"
+description = "Denies the request_gap_repair command without any pre-configured scope."
+commands.deny = ["request_gap_repair"]

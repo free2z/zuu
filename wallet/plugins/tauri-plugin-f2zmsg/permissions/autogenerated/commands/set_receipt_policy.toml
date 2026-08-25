@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-receipt-policy"
+description = "Enables the set_receipt_policy command without any pre-configured scope."
+commands.allow = ["set_receipt_policy"]
+
+[[permission]]
+identifier = "deny-set-receipt-policy"
+description = "Denies the set_receipt_policy command without any pre-configured scope."
+commands.deny = ["set_receipt_policy"]

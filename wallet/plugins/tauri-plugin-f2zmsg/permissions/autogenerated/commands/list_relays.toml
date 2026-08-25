@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-relays"
+description = "Enables the list_relays command without any pre-configured scope."
+commands.allow = ["list_relays"]
+
+[[permission]]
+identifier = "deny-list-relays"
+description = "Denies the list_relays command without any pre-configured scope."
+commands.deny = ["list_relays"]

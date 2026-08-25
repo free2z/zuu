@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-relay-trust"
+description = "Enables the set_relay_trust command without any pre-configured scope."
+commands.allow = ["set_relay_trust"]
+
+[[permission]]
+identifier = "deny-set-relay-trust"
+description = "Denies the set_relay_trust command without any pre-configured scope."
+commands.deny = ["set_relay_trust"]

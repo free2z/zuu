@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-accept-contact-request"
+description = "Enables the accept_contact_request command without any pre-configured scope."
+commands.allow = ["accept_contact_request"]
+
+[[permission]]
+identifier = "deny-accept-contact-request"
+description = "Denies the accept_contact_request command without any pre-configured scope."
+commands.deny = ["accept_contact_request"]

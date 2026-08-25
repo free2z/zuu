@@ -289,7 +289,7 @@ for (const path of [
   "wallet/plugins/tauri-plugin-zcash/src/lib.rs",
   ".github/workflows/zuuli-release.yml",
   ".github/containers/zuuli-linux/Dockerfile",
-  "scripts/check-zcash-permissions.mjs",
+  "scripts/check-tauri-plugin-permissions.mjs",
   "z/zcash/librustzcash",
 ]) {
   test(`rejects intervening release-impacting change to ${path}`, (t) => {

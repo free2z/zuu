@@ -58,6 +58,7 @@ MANIFESTS=(
   wallet/zuuli/src-tauri/Cargo.toml
   wallet/zuuallet/src-tauri/Cargo.toml
   wallet/plugins/tauri-plugin-zcash/Cargo.toml
+  wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml
   rs/crates/f2z-codec/Cargo.toml
   rs/crates/f2z-relay-proto/Cargo.toml
   rs/crates/f2z-authority/Cargo.toml
@@ -107,6 +108,8 @@ DOC_PINS=(
   $'wallet/plugins/tauri-plugin-zcash/README.md\tcargo +%CHANNEL% test --locked'
   $'wallet/plugins/tauri-plugin-zcash/README.md\t- **MSRV**: %MSRV%'
   $'wallet/plugins/tauri-plugin-zcash/CLAUDE.md\tRust edition 2024, MSRV %MSRV%.'
+  $'wallet/plugins/tauri-plugin-f2zmsg/CLAUDE.md\tRust edition 2024, MSRV %MSRV%.'
+  $'wallet/plugins/tauri-plugin-f2zmsg/CLAUDE.md\tcargo +%CHANNEL% build --locked'
   $'wallet/zuuli/docs/releasing.md\tRust `%CHANNEL%`'
   $'AGENTS.md\tThe pin is currently `%CHANNEL%`'
   # Not prose: release-identity.mjs reads rust-toolchain.toml and asserts the

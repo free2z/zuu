@@ -1,0 +1,822 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionFile",
+  "description": "Permission file that can define a default permission, a set of permissions or a list of inlined permissions.",
+  "type": "object",
+  "properties": {
+    "default": {
+      "description": "The default permission set for the plugin",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DefaultPermission"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "set": {
+      "description": "A list of permissions sets defined",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PermissionSet"
+      }
+    },
+    "permission": {
+      "description": "A list of inlined permissions",
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Permission"
+      }
+    }
+  },
+  "definitions": {
+    "DefaultPermission": {
+      "description": "The default permission set of the plugin.\n\nWorks similarly to a permission with the \"default\" identifier.",
+      "type": "object",
+      "required": [
+        "permissions"
+      ],
+      "properties": {
+        "version": {
+          "description": "The version of the permission.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 1.0
+        },
+        "description": {
+          "description": "Human-readable description of what the permission does. Tauri convention is to use `<h4>` headings in markdown content for Tauri documentation generation purposes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "permissions": {
+          "description": "All permissions this set contains.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PermissionSet": {
+      "description": "A set of direct permissions grouped together under a new name.",
+      "type": "object",
+      "required": [
+        "description",
+        "identifier",
+        "permissions"
+      ],
+      "properties": {
+        "identifier": {
+          "description": "A unique identifier for the permission.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable description of what the permission does.",
+          "type": "string"
+        },
+        "permissions": {
+          "description": "All permissions this set contains.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PermissionKind"
+          }
+        }
+      }
+    },
+    "Permission": {
+      "description": "Descriptions of explicit privileges of commands.\n\nIt can enable commands to be accessible in the frontend of the application.\n\nIf the scope is defined it can be used to fine grain control the access of individual or multiple commands.",
+      "type": "object",
+      "required": [
+        "identifier"
+      ],
+      "properties": {
+        "version": {
+          "description": "The version of the permission.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 1.0
+        },
+        "identifier": {
+          "description": "A unique identifier for the permission.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable description of what the permission does. Tauri internal convention is to use `<h4>` headings in markdown content for Tauri documentation generation purposes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commands": {
+          "description": "Allowed or denied commands when using this permission.",
+          "default": {
+            "allow": [],
+            "deny": []
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/Commands"
+            }
+          ]
+        },
+        "scope": {
+          "description": "Allowed or denied scoped when using this permission.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Scopes"
+            }
+          ]
+        },
+        "platforms": {
+          "description": "Target platforms this permission applies. By default all platforms are affected by this permission.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Target"
+          }
+        }
+      }
+    },
+    "Commands": {
+      "description": "Allowed and denied commands inside a permission.\n\nIf two commands clash inside of `allow` and `deny`, it should be denied by default.",
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "Allowed command.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "description": "Denied command, which takes priority.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Scopes": {
+      "description": "An argument for fine grained behavior control of Tauri commands.\n\nIt can be of any serde serializable type and is used to allow or prevent certain actions inside a Tauri command. The configured scope is passed to the command and will be enforced by the command implementation.\n\n## Example\n\n```json { \"allow\": [{ \"path\": \"$HOME/**\" }], \"deny\": [{ \"path\": \"$HOME/secret.txt\" }] } ```",
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "Data that defines what is allowed by the scope.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Value"
+          }
+        },
+        "deny": {
+          "description": "Data that defines what is denied by the scope. This should be prioritized by validation logic.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Value"
+          }
+        }
+      }
+    },
+    "Value": {
+      "description": "All supported ACL values.",
+      "anyOf": [
+        {
+          "description": "Represents a null JSON value.",
+          "type": "null"
+        },
+        {
+          "description": "Represents a [`bool`].",
+          "type": "boolean"
+        },
+        {
+          "description": "Represents a valid ACL [`Number`].",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Number"
+            }
+          ]
+        },
+        {
+          "description": "Represents a [`String`].",
+          "type": "string"
+        },
+        {
+          "description": "Represents a list of other [`Value`]s.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Value"
+          }
+        },
+        {
+          "description": "Represents a map of [`String`] keys to [`Value`]s.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Value"
+          }
+        }
+      ]
+    },
+    "Number": {
+      "description": "A valid ACL number.",
+      "anyOf": [
+        {
+          "description": "Represents an [`i64`].",
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "description": "Represents a [`f64`].",
+          "type": "number",
+          "format": "double"
+        }
+      ]
+    },
+    "Target": {
+      "description": "Platform target.",
+      "oneOf": [
+        {
+          "description": "MacOS.",
+          "type": "string",
+          "enum": [
+            "macOS"
+          ]
+        },
+        {
+          "description": "Windows.",
+          "type": "string",
+          "enum": [
+            "windows"
+          ]
+        },
+        {
+          "description": "Linux.",
+          "type": "string",
+          "enum": [
+            "linux"
+          ]
+        },
+        {
+          "description": "Android.",
+          "type": "string",
+          "enum": [
+            "android"
+          ]
+        },
+        {
+          "description": "iOS.",
+          "type": "string",
+          "enum": [
+            "iOS"
+          ]
+        }
+      ]
+    },
+    "PermissionKind": {
+      "type": "string",
+      "oneOf": [
+        {
+          "description": "Enables the accept_contact_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-accept-contact-request",
+          "markdownDescription": "Enables the accept_contact_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the accept_contact_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-accept-contact-request",
+          "markdownDescription": "Denies the accept_contact_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the acknowledge_alarm command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-acknowledge-alarm",
+          "markdownDescription": "Enables the acknowledge_alarm command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the acknowledge_alarm command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-acknowledge-alarm",
+          "markdownDescription": "Denies the acknowledge_alarm command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the add_relay command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-add-relay",
+          "markdownDescription": "Enables the add_relay command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the add_relay command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-add-relay",
+          "markdownDescription": "Denies the add_relay command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cancel_send command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-send",
+          "markdownDescription": "Enables the cancel_send command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_send command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-send",
+          "markdownDescription": "Denies the cancel_send command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the check_handle_eligibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-check-handle-eligibility",
+          "markdownDescription": "Enables the check_handle_eligibility command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the check_handle_eligibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-check-handle-eligibility",
+          "markdownDescription": "Denies the check_handle_eligibility command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_conversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-conversation",
+          "markdownDescription": "Enables the get_conversation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_conversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-conversation",
+          "markdownDescription": "Denies the get_conversation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_delivery_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-delivery-state",
+          "markdownDescription": "Enables the get_delivery_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_delivery_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-delivery-state",
+          "markdownDescription": "Denies the get_delivery_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_device_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-device-info",
+          "markdownDescription": "Enables the get_device_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_device_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-device-info",
+          "markdownDescription": "Denies the get_device_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_engine_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-engine-status",
+          "markdownDescription": "Enables the get_engine_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_engine_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-engine-status",
+          "markdownDescription": "Denies the get_engine_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_ephemeral_hint command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-ephemeral-hint",
+          "markdownDescription": "Enables the get_ephemeral_hint command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_ephemeral_hint command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-ephemeral-hint",
+          "markdownDescription": "Denies the get_ephemeral_hint command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-message",
+          "markdownDescription": "Enables the get_message command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-message",
+          "markdownDescription": "Denies the get_message command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_receipt_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-receipt-policy",
+          "markdownDescription": "Enables the get_receipt_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_receipt_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-receipt-policy",
+          "markdownDescription": "Denies the get_receipt_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_relay_capabilities command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-relay-capabilities",
+          "markdownDescription": "Enables the get_relay_capabilities command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_relay_capabilities command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-relay-capabilities",
+          "markdownDescription": "Denies the get_relay_capabilities command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_retention_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-retention-policy",
+          "markdownDescription": "Enables the get_retention_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_retention_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-retention-policy",
+          "markdownDescription": "Denies the get_retention_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_safety_number command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-safety-number",
+          "markdownDescription": "Enables the get_safety_number command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_safety_number command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-safety-number",
+          "markdownDescription": "Denies the get_safety_number command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_self_audit_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-self-audit-state",
+          "markdownDescription": "Enables the get_self_audit_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_self_audit_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-self-audit-state",
+          "markdownDescription": "Denies the get_self_audit_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_witness_set_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-witness-set-state",
+          "markdownDescription": "Enables the get_witness_set_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_witness_set_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-witness-set-state",
+          "markdownDescription": "Denies the get_witness_set_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the leave_conversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-leave-conversation",
+          "markdownDescription": "Enables the leave_conversation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the leave_conversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-leave-conversation",
+          "markdownDescription": "Denies the leave_conversation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_alarms command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-alarms",
+          "markdownDescription": "Enables the list_alarms command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_alarms command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-alarms",
+          "markdownDescription": "Denies the list_alarms command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_contact_requests command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-contact-requests",
+          "markdownDescription": "Enables the list_contact_requests command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_contact_requests command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-contact-requests",
+          "markdownDescription": "Denies the list_contact_requests command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_conversations command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-conversations",
+          "markdownDescription": "Enables the list_conversations command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_conversations command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-conversations",
+          "markdownDescription": "Denies the list_conversations command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_gaps command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-gaps",
+          "markdownDescription": "Enables the list_gaps command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_gaps command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-gaps",
+          "markdownDescription": "Denies the list_gaps command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_messages command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-messages",
+          "markdownDescription": "Enables the list_messages command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_messages command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-messages",
+          "markdownDescription": "Denies the list_messages command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_purge_requests command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-purge-requests",
+          "markdownDescription": "Enables the list_purge_requests command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_purge_requests command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-purge-requests",
+          "markdownDescription": "Denies the list_purge_requests command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_relays command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-relays",
+          "markdownDescription": "Enables the list_relays command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_relays command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-relays",
+          "markdownDescription": "Denies the list_relays command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_witnesses command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-witnesses",
+          "markdownDescription": "Enables the list_witnesses command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_witnesses command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-witnesses",
+          "markdownDescription": "Denies the list_witnesses command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mark_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mark-read",
+          "markdownDescription": "Enables the mark_read command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mark_read command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mark-read",
+          "markdownDescription": "Denies the mark_read command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reject_contact_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reject-contact-request",
+          "markdownDescription": "Enables the reject_contact_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reject_contact_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reject-contact-request",
+          "markdownDescription": "Denies the reject_contact_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_relay command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-relay",
+          "markdownDescription": "Enables the remove_relay command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_relay command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-relay",
+          "markdownDescription": "Denies the remove_relay command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the request_gap_repair command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-gap-repair",
+          "markdownDescription": "Enables the request_gap_repair command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_gap_repair command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-gap-repair",
+          "markdownDescription": "Denies the request_gap_repair command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the resolve_handle command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resolve-handle",
+          "markdownDescription": "Enables the resolve_handle command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resolve_handle command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resolve-handle",
+          "markdownDescription": "Denies the resolve_handle command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the retry_send command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-retry-send",
+          "markdownDescription": "Enables the retry_send command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the retry_send command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-retry-send",
+          "markdownDescription": "Denies the retry_send command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the send_ephemeral_hint command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-send-ephemeral-hint",
+          "markdownDescription": "Enables the send_ephemeral_hint command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the send_ephemeral_hint command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-send-ephemeral-hint",
+          "markdownDescription": "Denies the send_ephemeral_hint command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the send_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-send-message",
+          "markdownDescription": "Enables the send_message command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the send_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-send-message",
+          "markdownDescription": "Denies the send_message command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the send_purge_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-send-purge-request",
+          "markdownDescription": "Enables the send_purge_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the send_purge_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-send-purge-request",
+          "markdownDescription": "Denies the send_purge_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_receipt_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-receipt-policy",
+          "markdownDescription": "Enables the set_receipt_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_receipt_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-receipt-policy",
+          "markdownDescription": "Denies the set_receipt_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_relay_trust command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-relay-trust",
+          "markdownDescription": "Enables the set_relay_trust command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_relay_trust command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-relay-trust",
+          "markdownDescription": "Denies the set_relay_trust command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_retention_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-retention-policy",
+          "markdownDescription": "Enables the set_retention_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_retention_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-retention-policy",
+          "markdownDescription": "Denies the set_retention_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_verification command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-verification",
+          "markdownDescription": "Enables the set_verification command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_verification command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-verification",
+          "markdownDescription": "Denies the set_verification command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_witness_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-witness-set",
+          "markdownDescription": "Enables the set_witness_set command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_witness_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-witness-set",
+          "markdownDescription": "Denies the set_witness_set command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_conversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-conversation",
+          "markdownDescription": "Enables the start_conversation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_conversation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-conversation",
+          "markdownDescription": "Denies the start_conversation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_engine command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-engine",
+          "markdownDescription": "Enables the start_engine command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_engine command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-engine",
+          "markdownDescription": "Denies the start_engine command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stop_engine command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-engine",
+          "markdownDescription": "Enables the stop_engine command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_engine command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-engine",
+          "markdownDescription": "Denies the stop_engine command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the free2z messaging plugin\n#### This default permission set includes:\n\n- `allow-get-engine-status`\n- `allow-start-engine`\n- `allow-stop-engine`\n- `allow-get-device-info`\n- `allow-list-conversations`\n- `allow-get-conversation`\n- `allow-start-conversation`\n- `allow-list-contact-requests`\n- `allow-accept-contact-request`\n- `allow-reject-contact-request`\n- `allow-leave-conversation`\n- `allow-send-message`\n- `allow-retry-send`\n- `allow-cancel-send`\n- `allow-list-messages`\n- `allow-get-message`\n- `allow-get-delivery-state`\n- `allow-mark-read`\n- `allow-get-receipt-policy`\n- `allow-set-receipt-policy`\n- `allow-list-gaps`\n- `allow-request-gap-repair`\n- `allow-get-retention-policy`\n- `allow-set-retention-policy`\n- `allow-send-ephemeral-hint`\n- `allow-get-ephemeral-hint`\n- `allow-send-purge-request`\n- `allow-list-purge-requests`\n- `allow-resolve-handle`\n- `allow-check-handle-eligibility`\n- `allow-get-safety-number`\n- `allow-set-verification`\n- `allow-get-self-audit-state`\n- `allow-list-alarms`\n- `allow-acknowledge-alarm`\n- `allow-list-relays`\n- `allow-add-relay`\n- `allow-remove-relay`\n- `allow-get-relay-capabilities`\n- `allow-set-relay-trust`\n- `allow-list-witnesses`\n- `allow-set-witness-set`\n- `allow-get-witness-set-state`",
+          "type": "string",
+          "const": "default",
+          "markdownDescription": "Default permissions for the free2z messaging plugin\n#### This default permission set includes:\n\n- `allow-get-engine-status`\n- `allow-start-engine`\n- `allow-stop-engine`\n- `allow-get-device-info`\n- `allow-list-conversations`\n- `allow-get-conversation`\n- `allow-start-conversation`\n- `allow-list-contact-requests`\n- `allow-accept-contact-request`\n- `allow-reject-contact-request`\n- `allow-leave-conversation`\n- `allow-send-message`\n- `allow-retry-send`\n- `allow-cancel-send`\n- `allow-list-messages`\n- `allow-get-message`\n- `allow-get-delivery-state`\n- `allow-mark-read`\n- `allow-get-receipt-policy`\n- `allow-set-receipt-policy`\n- `allow-list-gaps`\n- `allow-request-gap-repair`\n- `allow-get-retention-policy`\n- `allow-set-retention-policy`\n- `allow-send-ephemeral-hint`\n- `allow-get-ephemeral-hint`\n- `allow-send-purge-request`\n- `allow-list-purge-requests`\n- `allow-resolve-handle`\n- `allow-check-handle-eligibility`\n- `allow-get-safety-number`\n- `allow-set-verification`\n- `allow-get-self-audit-state`\n- `allow-list-alarms`\n- `allow-acknowledge-alarm`\n- `allow-list-relays`\n- `allow-add-relay`\n- `allow-remove-relay`\n- `allow-get-relay-capabilities`\n- `allow-set-relay-trust`\n- `allow-list-witnesses`\n- `allow-set-witness-set`\n- `allow-get-witness-set-state`"
+        }
+      ]
+    }
+  }
+}

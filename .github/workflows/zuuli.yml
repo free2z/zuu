@@ -87,10 +87,10 @@ jobs:
           node wallet/zuuli/scripts/wasm-boundary.mjs --self-test
           node wallet/zuuli/scripts/wasm-boundary.mjs
 
-      - name: Verify Zcash command and permission parity
+      - name: Verify plugin command and permission parity
         run: |
-          node scripts/check-zcash-permissions.mjs --self-test
-          node scripts/check-zcash-permissions.mjs
+          node scripts/check-tauri-plugin-permissions.mjs --self-test
+          node scripts/check-tauri-plugin-permissions.mjs
 
       - name: Detect release-impacting ZUULI changes
         id: filter
@@ -123,12 +123,12 @@ jobs:
           zuuallet_schema=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/shared/sensitive-entry-session.ts|wallet/zuuli/*|wallet/plugins/*|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/shared/sensitive-entry-session.ts|wallet/zuuli/*|wallet/plugins/*|rs/crates/f2z-codec/*|rs/crates/f2z-kt-core/*|rs/crates/f2z-msg-dag/*|rs/crates/f2z-msg-identity/*|rs/crates/f2z-msg-mls/*|rs/crates/f2z-msg-store/*|rs/crates/f2z-relay-proto/*|rs/crates/f2z-relay-testkit/*|rs/rust-toolchain.toml|wallet/zuuallet/package.json|wallet/zuuallet/package-lock.json|wallet/zuuallet/src/hooks/useWallet.ts|wallet/zuuallet/src/lib/mnemonic.ts|wallet/zuuallet/src/lib/sensitive-entry.ts|wallet/zuuallet/src/lib/sensitive-seed-session.ts|wallet/zuuallet/src/lib/sensitive-seed.ts|wallet/zuuallet/src/lib/tauri.ts|wallet/zuuallet/src/pages/CreateWallet.tsx|wallet/zuuallet/src/pages/RestoreWallet.tsx|wallet/zuuallet/src/pages/Settings.tsx|wallet/zuuallet/src/pages/Welcome.tsx|wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx|wallet/zuuallet/src/types/index.ts|wallet/rust-toolchain.toml|wallet/deny.toml|scripts/check-github-actions-pins.mjs|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-fmt.sh|scripts/check-rust-deny.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|scripts/check-zuuli-android-gate.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/workflows/zuuli-packaging.yml|.github/workflows/zuuli-release.yml|.github/workflows/zuuli-store-audit.yml|.github/workflows/zuuli-store-publish.yml|.github/workflows/zuuli-testflight-bootstrap.yml|.github/workflows/zuuli-testflight-recovery.yml|.github/workflows/cache-cleanup.yml|.github/actions/zuuli-rust-cache/*|docs/ZUULI-LINUX-BUILD-IMAGE.md)
                 zuuli=true
                 ;;
             esac
             case "$file" in
-              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-zcash-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
+              Cargo.toml|Cargo.lock|.cargo/*|clippy.toml|.clippy.toml|wallet/Cargo.toml|wallet/Cargo.lock|wallet/.cargo/*|wallet/clippy.toml|wallet/.clippy.toml|wallet/*.rs|wallet/*/Cargo.toml|wallet/*/Cargo.lock|wallet/*/.cargo/*|wallet/*/clippy.toml|wallet/*/.clippy.toml|wallet/zuuallet/src-tauri/*|wallet/plugins/*|wallet/rust-toolchain.toml|scripts/check-librustzcash-compat.mjs|scripts/check-rust-toolchain.sh|scripts/check-rust-clippy.sh|scripts/check-tauri-plugin-permissions.mjs|scripts/check-zuuli-linux-image.mjs|z/zcash/librustzcash|.gitmodules|.github/containers/zuuli-linux/*|.github/workflows/zuuli.yml|.github/workflows/zuuli-linux-image.yml|.github/actions/zuuli-rust-cache/*)
                 zuuallet_schema=true
                 ;;
             esac
@@ -549,6 +549,107 @@ jobs:
       - name: Build and test shared Zcash plugin
         run: cargo test --locked --all-targets --features production-route-probe --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml
 
+  # The messaging plugin (docs/e2ee/CLIENT-CONTRACT.md §3). It needs a job of its
+  # own rather than riding on `rust_plugin`: it is a different Cargo root with a
+  # different lockfile, it does not link librustzcash at all, and the two-process
+  # relay harness that proves the acceptance criterion — two independent engines
+  # exchanging a message over a real WebSocket relay — is behind a feature flag
+  # that nothing else turns on.
+  #
+  # `zuuli.yml`'s change detector already selects `wallet/plugins/*`, so the
+  # filter needed nothing. What a new plugin gets no coverage from is `gate`, and
+  # that is deliberate work rather than a freebie: it must appear in `gate`'s
+  # `needs:` AND that gate must inspect its result.
+  # `scripts/check-workflow-gates.mjs` enforces the second half — this gate is
+  # the EXHAUSTIVE shape, so `toJSON(needs)` reaches
+  # `check-github-actions-pins.mjs --verify-gate-results` and every entry is
+  # judged — and its total-coverage rule enforces the first, because `needs:`
+  # must cover every job in this file.
+  rust_msg_plugin:
+    name: Rust / messaging plugin
+    needs: changes
+    if: needs.changes.outputs.zuuli == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Verify pinned Linux build image
+        working-directory: /
+        run: |
+          set -euo pipefail
+          /usr/local/bin/verify-zuuli-linux-image
+          test -n "$BASH_VERSION"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure exact Git workspace trust
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      # No submodule fetch. This plugin depends on rs/crates by path and on
+      # librustzcash not at all, and a job that fetched it anyway would hide the
+      # day that stopped being true.
+      - name: Resolve the pinned Rust toolchain
+        id: rust_toolchain
+        run: |
+          set -euo pipefail
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: wallet/plugins/tauri-plugin-f2zmsg
+          key: zuuli-msg-plugin
+
+      # The acceptance criterion. `--features relay-harness` builds the
+      # `f2zmsg-peer` binary the integration test spawns twice against a real
+      # `ws://` listener; without it the test compiles to nothing and passes by
+      # not existing.
+      - name: Build and test the messaging plugin
+        env:
+          TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          cargo test --locked --all-targets --features relay-harness \
+            --manifest-path wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml
+
+      # A default build too, because `relay-harness` adds a dependency and a
+      # binary, and what ships is the build without them.
+      - name: Build the shipping configuration
+        run: |
+          cargo build --locked \
+            --manifest-path wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml
+
+      - name: Reject generated permission drift
+        run: |
+          set -euo pipefail
+          node scripts/check-tauri-plugin-permissions.mjs --self-test
+          node scripts/check-tauri-plugin-permissions.mjs
+          generated=wallet/plugins/tauri-plugin-f2zmsg/permissions
+          git diff --exit-code -- "$generated"
+          untracked=$(git ls-files --others --exclude-standard -- "$generated")
+          test -z "$untracked" || {
+            echo "Unexpected generated permission files under $generated:" >&2
+            echo "$untracked" >&2
+            exit 1
+          }
+
   # PR packaging builds only arm64 Android. Keep one cheap 32-bit type-check in
   # the required gate because libc's Android ABI types can differ on armv7; the
   # exact class escaped arm64 CI and broke build 7 only in the release lane.
@@ -746,8 +847,8 @@ jobs:
       - name: Reject generated permission or schema drift
         run: |
           set -euo pipefail
-          node scripts/check-zcash-permissions.mjs --self-test
-          node scripts/check-zcash-permissions.mjs
+          node scripts/check-tauri-plugin-permissions.mjs --self-test
+          node scripts/check-tauri-plugin-permissions.mjs
           for generated in \
             wallet/plugins/tauri-plugin-zcash/permissions \
             wallet/zuuallet/src-tauri/gen/schemas; do
@@ -824,7 +925,7 @@ jobs:
   # change detector and every applicable full-stack job succeeded; legitimate
   # non-ZUULI skips continue to report success instead of remaining pending.
   gate:
-    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
+    needs: [changes, frontend, rust_fmt, rust_deny, rust_clippy, rust_native_clippy, rust_native_tests, rust_plugin, rust_msg_plugin, rust_android_32, rust_app, zuuallet_schema, rust_crypto_targets]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

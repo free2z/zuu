@@ -30,7 +30,7 @@ const releaseImpactingPaths = new Set([
   "scripts/check-rust-fmt.sh",
   "scripts/check-rust-deny.sh",
   "scripts/check-rust-clippy.sh",
-  "scripts/check-zcash-permissions.mjs",
+  "scripts/check-tauri-plugin-permissions.mjs",
   "scripts/check-zuuli-linux-image.mjs",
   "z/zcash/librustzcash",
   ".gitmodules",

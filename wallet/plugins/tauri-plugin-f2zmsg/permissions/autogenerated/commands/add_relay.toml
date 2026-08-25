@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-add-relay"
+description = "Enables the add_relay command without any pre-configured scope."
+commands.allow = ["add_relay"]
+
+[[permission]]
+identifier = "deny-add-relay"
+description = "Denies the add_relay command without any pre-configured scope."
+commands.deny = ["add_relay"]

@@ -40,10 +40,11 @@ const lockedImagePublicationRun = "32642217313";
 const lockedImageAttestation = "42422072";
 const lockedImageRekorIndex = "2571737098";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
-const expectedConsumerCount = 7;
+const expectedConsumerCount = 8;
 const requiredConsumerJobs = new Set([
   ".github/workflows/zuuli.yml:rust_clippy",
   ".github/workflows/zuuli.yml:rust_plugin",
+  ".github/workflows/zuuli.yml:rust_msg_plugin",
   ".github/workflows/zuuli.yml:rust_app",
   ".github/workflows/zuuli.yml:zuuallet_schema",
   ".github/workflows/zuuli-packaging.yml:desktop",
@@ -68,7 +69,7 @@ const schemaGateSamplePaths = [
   "wallet/plugins/tauri-plugin-zcash/build.rs",
   "wallet/rust-toolchain.toml",
   "scripts/check-rust-toolchain.sh",
-  "scripts/check-zcash-permissions.mjs",
+  "scripts/check-tauri-plugin-permissions.mjs",
   "scripts/check-zuuli-linux-image.mjs",
   "z/zcash/librustzcash",
   ".gitmodules",

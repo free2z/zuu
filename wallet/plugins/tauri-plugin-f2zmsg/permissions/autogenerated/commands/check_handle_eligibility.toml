@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-check-handle-eligibility"
+description = "Enables the check_handle_eligibility command without any pre-configured scope."
+commands.allow = ["check_handle_eligibility"]
+
+[[permission]]
+identifier = "deny-check-handle-eligibility"
+description = "Denies the check_handle_eligibility command without any pre-configured scope."
+commands.deny = ["check_handle_eligibility"]

@@ -24,7 +24,7 @@ on:
       - 'scripts/check-rust-fmt.sh'
       - 'scripts/check-rust-deny.sh'
       - 'scripts/check-rust-clippy.sh'
-      - 'scripts/check-zcash-permissions.mjs'
+      - 'scripts/check-tauri-plugin-permissions.mjs'
       - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   push:
@@ -37,7 +37,7 @@ on:
       - 'scripts/check-rust-fmt.sh'
       - 'scripts/check-rust-deny.sh'
       - 'scripts/check-rust-clippy.sh'
-      - 'scripts/check-zcash-permissions.mjs'
+      - 'scripts/check-tauri-plugin-permissions.mjs'
       - 'wallet/deny.toml'
       - '.github/workflows/zuuallet.yml'
   workflow_dispatch:
@@ -269,11 +269,11 @@ jobs:
           TAURI_PERMISSION_GENERATION_NONCE: ${{ github.run_id }}-${{ github.run_attempt }}
         run: cargo build --locked --manifest-path wallet/zuuallet/src-tauri/Cargo.toml
 
-      - name: Verify generated Zcash permissions are current
+      - name: Verify generated plugin permissions are current
         run: |
           set -euo pipefail
-          node scripts/check-zcash-permissions.mjs --self-test
-          node scripts/check-zcash-permissions.mjs
+          node scripts/check-tauri-plugin-permissions.mjs --self-test
+          node scripts/check-tauri-plugin-permissions.mjs
           permissions=wallet/plugins/tauri-plugin-zcash/permissions
           git diff --exit-code -- "$permissions"
           untracked=$(git ls-files --others --exclude-standard -- "$permissions")

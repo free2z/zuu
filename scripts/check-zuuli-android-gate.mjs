@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
@@ -13,7 +14,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "f2aa1e7462714c0ebace75367cc33e159b64d85a4d4e88cb6863dba6aa3af56b";
+  "911f80a5d439948edf765c10a816cfc6885942bba3b3a6c3cc70beabc809e627";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -58,6 +59,36 @@ function namedStep(jobContents, name) {
     .trimEnd();
 }
 
+/// Every `rs/crates/<name>` a tracked manifest under `wallet/` path-depends on.
+///
+/// Read off the manifests rather than listed, because a list is what rots. The
+/// messaging plugin links six of these and takes a seventh as a
+/// dev-dependency; a change to any of them changes the wallet's own build, and
+/// before the selector named them an `rs/` change that broke the wallet would
+/// have skipped the entire ZUULI suite.
+///
+/// It must be **exactly** these, and not `rs/crates/*`: `f2z-relay`,
+/// `f2z-relay-store`, `f2z-kt`, `f2z-witness` and `f2z-authority` are server
+/// crates the wallet does not link, and selecting the whole ZUULI gate for a
+/// relay change is the over-selection `check-github-actions-pins.mjs`'s
+/// frontend-build contract already refuses.
+function linkedRsCrates(root = repoRoot) {
+  const manifests = execFileSync("git", ["ls-files", "--", "wallet/**/Cargo.toml"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
+  const crates = new Set();
+  for (const manifest of manifests) {
+    const contents = readFileSync(resolve(root, manifest), "utf8");
+    for (const [, name] of contents.matchAll(/rs\/crates\/([a-z0-9-]+)/g)) {
+      crates.add(name);
+    }
+  }
+  return [...crates].sort();
+}
+
 function requireLine(failures, contents, expected, message) {
   const lines = contents.split("\n").map((line) => line.trim());
   if (!lines.includes(expected)) failures.push(message);
@@ -67,6 +98,7 @@ function check(
   workflow,
   toolchainEnv,
   expectedChangeDetectorDigest = changeDetectorDigest,
+  linkedCrates = linkedRsCrates(),
 ) {
   const failures = [];
   const changes = job(workflow, "changes");
@@ -103,6 +135,18 @@ function check(
     failures.push(
       "messaging changes must retain the full wallet/zuuli/* selector",
     );
+  }
+  if (selectedPatterns.includes("rs/crates/*")) {
+    failures.push(
+      "rs/crates/* over-selects: name the crates the wallet links, not the tree",
+    );
+  }
+  for (const crate of linkedCrates) {
+    if (!selectedPatterns.includes(`rs/crates/${crate}/*`)) {
+      failures.push(
+        `wallet/ links rs/crates/${crate} in source; the ZUULI selector must name it`,
+      );
+    }
   }
   for (const input of classicSeedBoundaryInputs) {
     if (!selectedPatterns.includes(input)) {
@@ -402,14 +446,49 @@ function runSelfTest(workflow, toolchainEnv) {
   if (check(workflow, deadPinnedArmv7Archiver).length === 0) {
     throw new Error("mutation escaped policy: pinned armv7 archiver is dead decoration");
   }
+  // The rs/ selector, both directions.
+  {
+    const failures = check(workflow, toolchainEnv, changeDetectorDigest, [
+      "f2z-msg-dag",
+      "f2z-not-selected",
+    ]);
+    const expected =
+      "wallet/ links rs/crates/f2z-not-selected in source; the ZUULI selector must name it";
+    if (!failures.includes(expected)) {
+      throw new Error("mutation escaped policy: a linked rs crate the selector omits");
+    }
+    console.log("self-test: a linked rs crate the selector omits is detected: passed");
+  }
+  {
+    const overBroad = workflow.replace("rs/crates/f2z-codec/*", "rs/crates/*");
+    const failures = check(overBroad, toolchainEnv, changeDetectorDigest, []);
+    if (
+      !failures.includes(
+        "rs/crates/* over-selects: name the crates the wallet links, not the tree",
+      )
+    ) {
+      throw new Error("mutation escaped policy: an over-broad rs/crates/* selector");
+    }
+    console.log("self-test: an over-broad rs/crates/* selector is detected: passed");
+  }
+
   console.log(
-    `Android gate policy self-test passed (${mutations.length + 6} mutations).`,
+    `Android gate policy self-test passed (${mutations.length + 8} mutations).`,
   );
 }
 
 const workflow = readFileSync(resolve(repoRoot, workflowPath), "utf8");
 const toolchainEnv = readFileSync(resolve(repoRoot, toolchainEnvPath), "utf8");
-if (process.argv.includes("--self-test")) {
+// The digest is a reviewed constant, and re-deriving it by hand is how a
+// deliberate edit to the change detector turns into a wrong literal. This
+// prints what the current file hashes to, so updating the constant is a copy
+// rather than an experiment — the same affordance
+// `scripts/check-librustzcash-compat.mjs --print-scope-digest` provides.
+if (process.argv.includes("--print-change-detector-digest")) {
+  const changes = job(workflow, "changes");
+  const detector = namedStep(changes, "Detect release-impacting ZUULI changes");
+  console.log(createHash("sha256").update(detector).digest("hex"));
+} else if (process.argv.includes("--self-test")) {
   runSelfTest(workflow, toolchainEnv);
 } else {
   const failures = check(workflow, toolchainEnv);
