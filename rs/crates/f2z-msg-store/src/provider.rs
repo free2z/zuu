@@ -76,7 +76,15 @@ use crate::keys::{APP_RECORD_LABEL, build_key_from_vec, label_name};
 ///
 /// `None` is a tombstone: the key was deleted in this transaction and must read
 /// as absent even though the backend still holds it.
-type Journal = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
+///
+/// Named `StagedWrites` and not `Journal` on purpose. `f2z-codec`'s
+/// `workspace_debug_scan` resolves one level of type alias when looking for
+/// fields a derived `Debug` would dump as decimal bytes, and it does so over
+/// the **whole workspace** — so an alias here called `Journal` teaches the scan
+/// that every `Journal`-shaped field in `f2z-kt` and `f2z-relay-store` holds
+/// raw bytes, and it reports three failures for one mistake. The alias set is
+/// global; the names have to be too.
+type StagedWrites = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 
 /// The OpenMLS [`StorageProvider`] for free2z messaging.
 ///
@@ -84,7 +92,7 @@ type Journal = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
 pub struct F2zStorageProvider<B: StorageBackend> {
     backend: B,
     /// `None` when no transaction is open.
-    journal: Mutex<Option<Journal>>,
+    journal: Mutex<Option<StagedWrites>>,
 }
 
 impl<B: StorageBackend> core::fmt::Debug for F2zStorageProvider<B> {
@@ -143,7 +151,7 @@ impl<B: StorageBackend> F2zStorageProvider<B> {
         if journal.is_some() {
             return Err(StoreError::TransactionAlreadyOpen);
         }
-        *journal = Some(Journal::new());
+        *journal = Some(StagedWrites::new());
         drop(journal);
         Ok(Transaction {
             provider: self,

@@ -182,6 +182,29 @@ fn the_provider_redacts_its_store_and_names_its_crypto() {
     assert_redacted("F2zStorageProvider", &rendered, &[0xABu8; 4]);
 }
 
+/// The decrypted plaintext of a user's message is the sharpest thing in this
+/// crate that a derived `Debug` would dump. `f2z-codec`'s
+/// `workspace_debug_scan` catches the *shape*; this catches the bytes.
+#[test]
+fn a_received_application_message_does_not_render_its_plaintext() {
+    use f2z_msg_mls::Received;
+
+    let received = Received::Application {
+        payload: b"meet me at the usual place".to_vec(),
+        sender: 3,
+        epoch: 7,
+    };
+    let rendered = format!("{received:?}");
+    assert!(!rendered.contains("meet me"), "{rendered}");
+    assert_redacted("Received", &rendered, &SECRET);
+    assert_redacted("Received", &rendered, b"meet");
+    // The two protocol-authenticated fields that order the transcript
+    // (`CLIENT-CONTRACT.md` §7) are what a diagnostic needs and are safe.
+    assert!(rendered.contains("sender: 3"), "{rendered}");
+    assert!(rendered.contains("epoch: 7"), "{rendered}");
+    assert!(rendered.contains("<redacted; 26 bytes>"), "{rendered}");
+}
+
 /// An error's `Debug` reaches whatever log the application installs, from a
 /// path nobody reviews because it only runs when something is already wrong.
 #[test]

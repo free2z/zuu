@@ -89,7 +89,14 @@ const VERSION_RECORD_PREFIX: &[u8] = b"f2z/version/";
 const HANDLED_RECORD_PREFIX: &[u8] = b"f2z/handled/";
 
 /// What [`MlsEngine::receive`] decided a message was.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// `Debug` is hand-written. `Application::payload` is the **decrypted
+/// plaintext of a user's message**, and a derived `Debug` would render it as a
+/// decimal byte list — which contains no hex, so a leak check that greps for
+/// hex would pass over it. `f2z-codec`'s `workspace_debug_scan` is what caught
+/// this, and it is the sharpest instance of the trap in this tree: everything
+/// else that could leak here is a key, and this is the message itself.
+#[derive(PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Received {
     /// An application payload, decrypted.
@@ -113,6 +120,34 @@ pub enum Received {
     },
     /// A proposal was queued. It changes nothing until a commit covers it.
     ProposalQueued,
+}
+
+impl core::fmt::Debug for Received {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Application {
+                payload,
+                sender,
+                epoch,
+            } => f
+                .debug_struct("Application")
+                // The two fields that order the transcript
+                // (`CLIENT-CONTRACT.md` §7) are protocol-authenticated and are
+                // exactly what a diagnostic needs; the plaintext is not.
+                .field("sender", sender)
+                .field("epoch", epoch)
+                .field(
+                    "payload",
+                    &format_args!("<redacted; {} bytes>", payload.len()),
+                )
+                .finish(),
+            Self::EpochChanged { epoch } => f
+                .debug_struct("EpochChanged")
+                .field("epoch", epoch)
+                .finish(),
+            Self::ProposalQueued => f.write_str("ProposalQueued"),
+        }
+    }
 }
 
 impl Received {
