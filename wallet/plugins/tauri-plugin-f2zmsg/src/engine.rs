@@ -1575,15 +1575,24 @@ impl<B: StorageBackend> Engine<B> {
     /// `relay-identity-mismatch`, `relay-unreachable`.
     pub async fn add_relay(&self, relay_url: &str) -> Result<RelayConfig> {
         let mut inner = self.inner.lock().await;
+
+        // The inspection connection, and it is worth saying why it is not the
+        // strict one. §11.3's checklist is applied to a *document*, and the
+        // document has to be fetched before it can be judged; §8's
+        // `relay-refused-insecure` row then tells the UI to "offer the opt-in
+        // with copy stating that ciphertext is protected by MLS but connection
+        // metadata, queue addresses and commands travel in the clear" — which
+        // is a sentence nobody can write without having read the document. So
+        // this connection tolerates the two conditions a user is *allowed* to
+        // consent to, and nothing else: every other check below is strict, and
+        // a relay that fails one of those is never stored at all.
         let mut policy = ConnectionPolicy::default();
-        // A new relay gets the strict policy. `set_relay_trust` is the one
-        // command whose grant is a security downgrade, and it is a separate,
-        // explicit act.
-        policy.policy.allow_insecure_transport = false;
+        policy.policy.allow_insecure_transport = true;
+        policy.policy.require_channel_binding = false;
 
         let mut connection = RelayConnection::connect(relay_url, &policy).await?;
         let signed = connection.capabilities().await?;
-        let capabilities = &signed.capabilities;
+        let capabilities = signed.capabilities.clone();
         f2z_relay_proto::capabilities::verify(&signed, &connection.session().relay_identity_pk())
             .map_err(|error| {
                 Error::new(
@@ -1592,16 +1601,52 @@ impl<B: StorageBackend> Engine<B> {
                 )
             })?;
 
-        let warnings = warnings_for(capabilities);
+        // 2026-08-24's correction, and there is deliberately no override for it:
+        // v1's `CREATE_QUEUE` has no field a token can go in, so a relay
+        // advertising the reserved mode gates creation behind a credential no
+        // conforming client can present. There is nothing a user could consent
+        // to that would make a token presentable.
+        if capabilities.queue_creation_mode == 2 {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "queue_creation_mode: token is reserved (#630); no client can present one",
+            ));
+        }
+
+        // This client's strict policy, not the crate's: see `ConnectionPolicy`'s
+        // `Default` for the one place they differ and why.
+        let strict = ConnectionPolicy::default().policy;
+        let consentable = match strict.accept(&capabilities) {
+            Ok(()) => None,
+            Err(f2z_relay_proto::ProtoError::Refused(
+                refusal @ (f2z_relay_proto::Refusal::InsecureTransport
+                | f2z_relay_proto::Refusal::NoChannelBinding),
+            )) => Some(refusal),
+            // A padding set that is not a superset of what we emit, or is
+            // implausibly fine-grained, or a document that contradicts itself.
+            // §3.11: those refusals are `ErrorCode`s, not warnings, and the
+            // relay is never added.
+            Err(error) => {
+                return Err(Error::new(
+                    crate::wire_codes::from_proto(
+                        error,
+                        crate::wire_codes::CommandSide::Receive,
+                        crate::wire_codes::BindAttempt::Later,
+                    ),
+                    format!("the relay's published capabilities are refused: {error:?}"),
+                ));
+            }
+        };
+
         let relay = StoredRelay {
             relay_id: hex::encode(connection.relay_id().as_bytes()),
             relay_url: relay_url.to_owned(),
             allow_insecure_transport: false,
             allow_no_channel_binding: false,
-            warnings,
-            operator: operator_of(capabilities),
+            warnings: warnings_for(&capabilities),
+            operator: operator_of(&capabilities),
             capabilities_digest: hex::encode(
-                f2z_relay_proto::capabilities::digest(capabilities)
+                f2z_relay_proto::capabilities::digest(&capabilities)
                     .map_err(|error| {
                         Error::new(
                             ErrorCode::RelayCapabilityMismatch,
@@ -1616,10 +1661,25 @@ impl<B: StorageBackend> Engine<B> {
         relays.retain(|existing| existing.relay_url != relay.relay_url);
         relays.push(relay.clone());
         inner.records().commit(|records| records.put_relays(&relays))?;
+
+        if let Some(refusal) = consentable {
+            // Stored, but not connected: §3.11's `connection: "refused"`. The
+            // record exists so `set_relay_trust` has a `relayId` to address —
+            // without it the opt-in §2.3 requires would have nothing to attach
+            // to and an insecure relay could never be used at all, which is not
+            // what the specification says.
+            connection.close().await;
+            let config = inner.relay_config(&relay);
+            self.sink.relay_state(&config);
+            return Err(Error::new(
+                crate::wire_codes::from_refusal(refusal),
+                format!("{relay_url} requires an explicit per-relay opt-in: {refusal:?}"),
+            ));
+        }
+
         inner
             .connections
             .insert(relay.relay_url.clone(), connection);
-
         let config = inner.relay_config(&relay);
         self.sink.relay_state(&config);
         Ok(config)
@@ -1814,19 +1874,19 @@ impl<B: StorageBackend> Engine<B> {
     }
 
     // ------------------------------------------------------------------
-    // The out-of-band bootstrap — the same path, with the resolution supplied
+    // What a directory publishes — exposed for the two-process harness
     // ------------------------------------------------------------------
     //
-    // **Not commands, and not compiled into a shipping build.** Every one of
-    // these is a thin wrapper over the `Inner` method `start_conversation` and
-    // `accept_contact_request` already call, so what the two-process relay
-    // harness exercises is the shipping path and not a parallel one. The single
-    // step it substitutes is the directory resolution — which §6.4 and §9 rule 5
-    // say a client must never fake, and which is exactly why a "temporary"
-    // permissive resolver would be the defect rather than the shortcut.
+    // **Not commands, and not compiled into a shipping build.** These are the
+    // two values enrollment would put in the directory, and the harness in
+    // `tests/` carries them between processes in a shared file so that the
+    // shipping `start_conversation` / `accept_contact_request` path — the whole
+    // of `WIRE.md` §12.5, proof of work included — runs unchanged with only the
+    // *resolution* substituted. Nothing else about the handshake is faked, and
+    // faking the resolution inside the shipping binary is precisely what §6.4
+    // and §9 rule 5 forbid.
 
-    /// The `KeyPackage` this device offers. In a real handshake the directory
-    /// publishes it; here the harness carries it.
+    /// An MLS `KeyPackage` this device offers, for a peer to add it to a group.
     ///
     /// # Errors
     ///
@@ -1840,73 +1900,8 @@ impl<B: StorageBackend> Engine<B> {
             .map_err(|error| Error::internal(format!("key package: {error}")))
     }
 
-    /// [`Engine::start_conversation`] with the resolution supplied.
-    ///
-    /// # Errors
-    ///
-    /// `engine-not-running`, or §8's relay group.
-    #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn create_conversation_out_of_band(
-        &self,
-        peer_handle: &str,
-        peer_identity_pk: &str,
-        peer_key_package: &[u8],
-        relay_url: &str,
-    ) -> Result<Introduction> {
-        let mut inner = self.inner.lock().await;
-        inner.require_running("create_conversation")?;
-        let introduction = inner
-            .create_conversation(peer_handle, peer_identity_pk, peer_key_package, relay_url)
-            .await?;
-        let stored = inner.conversation(&introduction.conversation_id)?;
-        let view = inner.view(&stored)?;
-        self.sink.conversation_updated(&view);
-        Ok(introduction)
-    }
-
-    /// [`Engine::accept_contact_request`] with the resolution supplied.
-    ///
-    /// # Errors
-    ///
-    /// `engine-not-running`, or §8's relay group.
-    #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn join_conversation_out_of_band(
-        &self,
-        peer_handle: &str,
-        peer_identity_pk: &str,
-        introduction: &Introduction,
-        relay_url: &str,
-    ) -> Result<QueueAdvert> {
-        let mut inner = self.inner.lock().await;
-        inner.require_running("join_conversation")?;
-        let advert = inner
-            .join_conversation(peer_handle, peer_identity_pk, introduction, relay_url)
-            .await?;
-        let stored = inner.conversation(&introduction.conversation_id)?;
-        let view = inner.view(&stored)?;
-        self.sink.conversation_updated(&view);
-        Ok(advert)
-    }
-
-    /// Record the peer's advertised send address, which is what the joiner's
-    /// first in-band message carries in a real handshake.
-    ///
-    /// # Errors
-    ///
-    /// `internal` when no such conversation exists.
-    #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn set_peer_advert(
-        &self,
-        conversation_id: &str,
-        advert: &QueueAdvert,
-    ) -> Result<()> {
-        let inner = self.inner.lock().await;
-        inner.set_peer_advert(conversation_id, advert)
-    }
-
     /// This device's published contact address (§12.2), once `start_engine` has
-    /// opened one. In a real deployment enrollment publishes it in the
-    /// directory; here the harness carries it.
+    /// opened one.
     ///
     /// # Errors
     ///
@@ -2085,17 +2080,25 @@ impl<B: StorageBackend> Inner<B> {
             ephemeral_hint: stored.ephemeral_hint.clone(),
             receipt_policy: stored.receipt_policy,
             has_gaps: !self.records().gaps(&stored.conversation_id)?.is_empty(),
+            // A conversation needs **both** queues: one this device reads and
+            // one it writes to. Reporting `ok` on the strength of the read side
+            // alone would tell the UI a message can be sent when there is no
+            // address to send it to — and §3.3's transport health is the field
+            // a send affordance is supposed to be gated on.
             transport_health: if stored.send_address_stolen {
                 // §7.4: the send side of a queue this conversation depends on
                 // was bound by somebody else. Loud and non-dismissible — never
                 // a toast, never a retry.
                 TransportHealth::Compromised
-            } else if connected {
-                TransportHealth::Ok
-            } else if stored.queues.inbound.is_some() {
-                TransportHealth::Degraded
-            } else {
+            } else if stored.queues.inbound.is_none() {
                 TransportHealth::Unavailable
+            } else if connected && stored.queues.outbound.is_some() {
+                TransportHealth::Ok
+            } else {
+                // Either the relay is unreachable, or the peer has not yet said
+                // where to write. Both are "receiving works, sending does not
+                // yet", which is what `degraded` means.
+                TransportHealth::Degraded
             },
         })
     }
@@ -2182,43 +2185,22 @@ impl<B: StorageBackend> Inner<B> {
         now: i64,
     ) -> Result<DeliveryStatus> {
         let Some(outbound) = stored.queues.outbound.clone() else {
-            return self.mark_delivery(msg_id, "failed", Some(ErrorCode::SendUnavailable), now);
+            // The peer has not said where to write yet. `pending`, not
+            // `failed`: §8's `failed` means the engine gave up after its retry
+            // budget, and nothing has been tried.
+            return self.mark_delivery(msg_id, "pending", Some(ErrorCode::SendUnavailable), now);
         };
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
 
-        let Some(connection) = self.connections.get_mut(&outbound.relay_url) else {
+        if !self.connections.contains_key(&outbound.relay_url) {
             // §8: keep the message `pending` and retry with backoff. Do not
             // mark anything failed — an unreachable relay is not a delivery
             // failure, it is an absence of evidence either way.
             return self.mark_delivery(msg_id, "pending", Some(ErrorCode::RelayUnreachable), now);
-        };
-
-        if !outbound.bound {
-            let attempt = crate::wire_codes::BindAttempt::FirstForFreshAdvert;
-            match connection.bind_send(&send_key, send_addr, attempt).await {
-                Ok(()) => {
-                    let mut updated = stored.clone();
-                    if let Some(queue) = updated.queues.outbound.as_mut() {
-                        queue.bound = true;
-                    }
-                    self.records()
-                        .commit(|records| records.put_conversation(&updated))?;
-                }
-                Err(error) if error.code() == ErrorCode::SendAddressStolen => {
-                    // §7.4 and §9: fatal, loud, non-dismissible. Mark the
-                    // conversation compromised, raise an alarm, abandon the
-                    // queue. Not a warning toast and not a log line.
-                    let mut updated = stored.clone();
-                    updated.send_address_stolen = true;
-                    self.records()
-                        .commit(|records| records.put_conversation(&updated))?;
-                    self.raise_alarm(AlarmKind::QueueSendAddressStolen, &stored.peer_handle)?;
-                    return Err(error);
-                }
-                Err(error) => return Err(error),
-            }
         }
+
+        self.ensure_bound(stored).await?;
 
         let outcome = {
             let Some(connection) = self.connections.get_mut(&outbound.relay_url) else {
@@ -2240,6 +2222,60 @@ impl<B: StorageBackend> Inner<B> {
                 let state = if error.code().retryable() { "pending" } else { "failed" };
                 self.mark_delivery(msg_id, state, Some(error.code()), now)
             }
+        }
+    }
+
+    /// `BIND_SEND` on the peer's advertised address, once (§6.3).
+    ///
+    /// Shared by every send path, because binding is not a property of one of
+    /// them: the first thing this device writes to a conversation might be a
+    /// `queue_advert` or a `gap_response` rather than a chat message, and an
+    /// `APPEND` to an unbound address is refused with the same collapsed
+    /// `ERR_UNAVAILABLE` as an absent queue — which would look like the peer
+    /// having vanished rather than like our own missing step.
+    async fn ensure_bound(&mut self, stored: &StoredConversation) -> Result<()> {
+        let Some(outbound) = stored.queues.outbound.clone() else {
+            return Err(Error::new(
+                ErrorCode::SendUnavailable,
+                "no advertised send address for this conversation",
+            ));
+        };
+        if outbound.bound {
+            return Ok(());
+        }
+        let send_key = signing_key(&outbound.send_key_seed)?;
+        let send_addr = queue_address(&outbound.send_addr)?;
+        let connection = self
+            .connections
+            .get_mut(&outbound.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+
+        // `FirstForFreshAdvert` is the truth here and it is what makes
+        // `ERR_ALREADY_BOUND` mean `send-address-stolen` rather than a client
+        // bug: this address came from an advert this device has not bound
+        // before, so somebody else holding the write capability is theft.
+        let attempt = crate::wire_codes::BindAttempt::FirstForFreshAdvert;
+        match connection.bind_send(&send_key, send_addr, attempt).await {
+            Ok(()) => {
+                let mut updated = stored.clone();
+                if let Some(queue) = updated.queues.outbound.as_mut() {
+                    queue.bound = true;
+                }
+                self.records()
+                    .commit(|records| records.put_conversation(&updated))
+            }
+            Err(error) if error.code() == ErrorCode::SendAddressStolen => {
+                // §7.4 and §9: fatal, loud, non-dismissible. Mark the
+                // conversation compromised, raise an alarm, abandon the queue.
+                // Not a warning toast and not a log line.
+                let mut updated = stored.clone();
+                updated.send_address_stolen = true;
+                self.records()
+                    .commit(|records| records.put_conversation(&updated))?;
+                self.raise_alarm(AlarmKind::QueueSendAddressStolen, &stored.peer_handle)?;
+                Err(error)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -2325,12 +2361,12 @@ impl<B: StorageBackend> Inner<B> {
         self.groups.insert(stored.conversation_id.clone(), group);
         let ciphertext = sealed?;
 
-        let Some(outbound) = stored.queues.outbound.clone() else {
-            return Err(Error::new(
-                ErrorCode::SendUnavailable,
-                "no advertised send address for this conversation",
-            ));
-        };
+        self.ensure_bound(stored).await?;
+        let outbound = stored
+            .queues
+            .outbound
+            .clone()
+            .ok_or_else(|| Error::new(ErrorCode::SendUnavailable, "no advertised send address"))?;
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
         let connection = self
@@ -2816,14 +2852,12 @@ impl<B: StorageBackend> Inner<B> {
         for queued in response.messages.as_slice() {
             highest = Some(queued.index);
             queue.next_index = queued.index.saturating_add(1);
-            // The payload is padded to a bucket (§9), so trailing zeros are
-            // expected and are trimmed rather than treated as corruption.
-            let bytes = queued.payload.as_slice();
-            let trimmed = bytes
-                .iter()
-                .rposition(|byte| *byte != 0)
-                .map_or(&bytes[..0], |end| &bytes[..=end]);
-            let Ok(envelope) = serde_json::from_slice::<ContactEnvelope>(trimmed) else {
+            // The payload is padded to a bucket (§9); `unpad` recovers the
+            // real length from the framing this client wrote.
+            let Ok(bytes) = crate::relay::unpad(queued.payload.as_slice()) else {
+                continue;
+            };
+            let Ok(envelope) = serde_json::from_slice::<ContactEnvelope>(&bytes) else {
                 // A stranger can put anything in a contact queue. A payload
                 // that does not parse is discarded silently: it is not evidence
                 // of anything, and surfacing it would make the queue an abuse
@@ -2971,9 +3005,10 @@ impl<B: StorageBackend> Inner<B> {
         let mut highest: Option<u64> = None;
         for queued in response.messages.as_slice() {
             let index = queued.index;
-            let outcome = self
-                .apply_inbound(&mut stored, index, queued.payload.as_slice())
-                .await;
+            let outcome = match crate::relay::unpad(queued.payload.as_slice()) {
+                Ok(ciphertext) => self.apply_inbound(&mut stored, index, &ciphertext).await,
+                Err(error) => Err(error),
+            };
             match outcome {
                 Ok(mut produced) => events.append(&mut produced),
                 Err(error) => {

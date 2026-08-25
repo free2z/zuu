@@ -21,7 +21,15 @@ default = []
 # Native-only integration coverage: the two-process relay harness in
 # `tests/`. Off in shipping builds, and it turns on nothing that changes the
 # library's behaviour — it only compiles the extra test binaries' support code.
-relay-harness = []
+relay-harness = ["dep:tracing-subscriber"]
+
+# The two-process relay harness. `required-features` keeps it out of every
+# ordinary build: it exists to be spawned twice by
+# `tests/two_instances_over_a_relay.rs`, and nothing ships it.
+[[bin]]
+name = "f2zmsg-peer"
+path = "src/bin/peer.rs"
+required-features = ["relay-harness"]
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
@@ -58,6 +66,14 @@ futures-util = { version = "0.3", default-features = false, features = [
 rand = "0.9"
 zeroize = { version = "1.8", features = ["derive"] }
 hex = "0.4"
+# Harness only, and optional so it is absent from every shipping build. The
+# engine logs its refusals through `tracing`; without a subscriber those go
+# nowhere, and a two-process failure with no log is a failure nobody can read.
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = [
+  "ansi",
+  "env-filter",
+  "fmt",
+] }
 
 # ---------------------------------------------------------------------------
 # The messaging core, by path into the `rs/` workspace. Each of these is MIT and

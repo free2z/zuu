@@ -75,6 +75,10 @@ pub const RELAY_PATH: &str = "/relay/v1";
 /// rather than guess.
 pub const SUBPROTOCOL: &str = "free2z-relay.v1";
 
+/// The big-endian `u32` that says how much of a padded payload is real.
+/// See [`RelayConnection::pad`].
+const LENGTH_PREFIX: usize = 4;
+
 /// How long any single read waits.
 ///
 /// Not a protocol value. §2.5 leaves a client with "unknown status" when a relay
@@ -117,11 +121,21 @@ impl core::fmt::Debug for ConnectionPolicy {
 impl Default for ConnectionPolicy {
     fn default() -> Self {
         Self {
-            // Every field at its strict default. §2.3 obligation 3 requires an
-            // explicit per-relay opt-in for an insecure transport, and a
-            // permissive default here would be that opt-in granted silently to
-            // every relay at once.
-            policy: ClientPolicy::default(),
+            // `ClientPolicy::default()` with one deliberate tightening.
+            //
+            // §2.3 obligation 3 requires an explicit per-relay opt-in for an
+            // insecure transport, and `allow_insecure_transport: false` is
+            // already the crate's default. `require_channel_binding` is not —
+            // the crate leaves it off — but §8's `relay-refused-insecure` row
+            // names `channel_binding_mode: "none"` alongside
+            // `transport_security: "none"` as a thing the user has to opt in
+            // to, and §3.11 gives `set_relay_trust` a second argument for
+            // exactly that. A default that never required it would make that
+            // argument a no-op and the error code unreachable.
+            policy: ClientPolicy {
+                require_channel_binding: true,
+                ..ClientPolicy::default()
+            },
             expected_relay_id: None,
             channel_binding: ChannelBinding::zero(),
             padding: PaddingBuckets::default(),
@@ -476,21 +490,45 @@ impl RelayConnection {
 
     /// Pad a ciphertext to the smallest published bucket that fits (§9).
     ///
+    /// # The four-byte length prefix, and why it is here
+    ///
+    /// §9 fixes the *outer* length — a payload MUST be exactly one of the
+    /// relay's `padding_sizes`, and anything else is `ERR_BAD_SIZE` — and says
+    /// nothing about how a receiver finds the real length inside. It cannot:
+    /// the relay never looks inside a payload, so the framing is entirely the
+    /// application's, and the two ends need to agree on it or a receiver cannot
+    /// tell ciphertext from padding.
+    ///
+    /// Trimming trailing zeros would be the tempting alternative and it is
+    /// wrong: AEAD output is uniformly random, so a ciphertext genuinely ending
+    /// in `0x00` is ordinary and would be silently truncated. A big-endian
+    /// `u32` costs four bytes of every bucket and removes the whole class.
+    ///
     /// # Errors
     ///
-    /// `relay-capability-mismatch` when nothing fits.
+    /// `relay-capability-mismatch` when nothing fits. §9 says chunk it
+    /// client-side above the largest bucket, and chunking is the application's
+    /// job rather than this layer's.
     fn pad(&self, ciphertext: &[u8]) -> Result<Payload> {
-        let bucket = self.padding.bucket_for(ciphertext.len()).ok_or_else(|| {
+        let len = u32::try_from(ciphertext.len())
+            .map_err(|_| Error::internal("a ciphertext longer than 4 GiB"))?;
+        let framed = usize::try_from(len)
+            .ok()
+            .and_then(|len| len.checked_add(LENGTH_PREFIX))
+            .ok_or_else(|| Error::internal("length overflow"))?;
+        let bucket = self.padding.bucket_for(framed).ok_or_else(|| {
             Error::new(
                 ErrorCode::RelayCapabilityMismatch,
                 format!(
-                    "{} bytes exceeds the largest published padding bucket",
-                    ciphertext.len()
+                    "{framed} bytes exceeds the largest published padding bucket; \
+                     §9 says chunk above it"
                 ),
             )
         })?;
-        let mut bytes = ciphertext.to_vec();
-        bytes.resize(usize::try_from(bucket).unwrap_or(ciphertext.len()), 0);
+        let mut bytes = Vec::with_capacity(usize::try_from(bucket).unwrap_or(framed));
+        bytes.extend_from_slice(&len.to_be_bytes());
+        bytes.extend_from_slice(ciphertext);
+        bytes.resize(usize::try_from(bucket).unwrap_or(framed), 0);
         Payload::new(bytes).map_err(|error| Error::internal(format!("padding: {error:?}")))
     }
 
@@ -502,6 +540,52 @@ impl RelayConnection {
     /// [`crate::wire_codes::from_relay`], or `relay-unreachable` when the
     /// transport fails.
     async fn call_signed<C: RelayCommand>(
+        &mut self,
+        key: &SigningKey,
+        address: QueueAddress,
+        body: &C::Request,
+        side: CommandSide,
+        attempt: BindAttempt,
+    ) -> Result<C::Response> {
+        match self.call_signed_once::<C>(key, address, body, side, attempt).await {
+            Err(error) if error.code() == ErrorCode::DeviceClockSkew => {
+                // §8's `device-clock-skew` row, exactly: re-learn the relay's
+                // time from `GET_CHALLENGE`, apply the offset **locally**, and
+                // retry once. Never set the system clock from it — a relay that
+                // could move this device's clock could move the anti-replay
+                // window with it (§5.5).
+                //
+                // This is not a rare path. Any client whose clock drifts, or
+                // that sleeps through a suspend, lands here; so does a relay
+                // running a frozen clock, which is how the two-process harness
+                // finds this branch.
+                tracing::debug!("relay reported a stale timestamp; resynchronising the offset");
+                self.resync_clock().await?;
+                self.call_signed_once::<C>(key, address, body, side, attempt)
+                    .await
+            }
+            other => other,
+        }
+    }
+
+    /// Re-learn the relay's clock (§5.5). The system clock is never written.
+    ///
+    /// # Errors
+    ///
+    /// As [`RelayConnection::call_unsigned`].
+    pub async fn resync_clock(&mut self) -> Result<()> {
+        let body = ChallengeRequest {
+            purpose: ChallengePurpose::Clock.code(),
+            scope: f2z_codec::types::ShortBytes::new(Vec::new())
+                .map_err(|error| Error::internal(format!("challenge scope: {error:?}")))?,
+        };
+        let issued = self.call_unsigned::<ops::GetChallenge>(&body).await?;
+        self.relay_time_ms = issued.relay_time_ms;
+        self.relay_time_taken = Instant::now();
+        Ok(())
+    }
+
+    async fn call_signed_once<C: RelayCommand>(
         &mut self,
         key: &SigningKey,
         address: QueueAddress,
@@ -701,6 +785,34 @@ pub fn solve(challenge: Challenge, difficulty_bits: u8) -> PowStamp {
         }
         stamp.counter = stamp.counter.wrapping_add(1);
     }
+}
+
+/// Recover the ciphertext from a padded payload.
+///
+/// # Errors
+///
+/// `relay-protocol-violation` if the declared length does not fit the payload —
+/// which means the sender's framing and this one disagree, and that is a bug in
+/// one of the two implementations rather than something to guess around.
+pub fn unpad(payload: &[u8]) -> Result<Vec<u8>> {
+    let (prefix, rest) = payload.split_at_checked(LENGTH_PREFIX).ok_or_else(|| {
+        Error::new(
+            ErrorCode::RelayProtocolViolation,
+            "a padded payload shorter than its length prefix",
+        )
+    })?;
+    let declared = usize::try_from(u32::from_be_bytes([
+        prefix[0], prefix[1], prefix[2], prefix[3],
+    ]))
+    .map_err(|_| Error::internal("a length that does not fit this platform"))?;
+    rest.get(..declared)
+        .map(<[u8]>::to_vec)
+        .ok_or_else(|| {
+            Error::new(
+                ErrorCode::RelayProtocolViolation,
+                format!("a payload declaring {declared} bytes but carrying {}", rest.len()),
+            )
+        })
 }
 
 fn proto(error: f2z_relay_proto::ProtoError, side: CommandSide, attempt: BindAttempt) -> Error {
