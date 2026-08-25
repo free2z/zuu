@@ -836,8 +836,16 @@ impl CommandVerifier {
     }
 }
 
-/// §6's table, as a check: the transcript's `address` is zeros for the creation
-/// commands and a real address for the rest.
+/// One column of §6's table, as a check: the transcript's `address` is zeros for
+/// the creation commands and a real address for the rest.
+///
+/// It deliberately does **not** distinguish `RecvAddr` from `SendAddr`, and no
+/// other consumer of [`Command::transcript_address`] does either (zuu#718).
+/// Which of a queue's two addresses a command is bound to is decided by the
+/// handler's choice of store lookup — `queue_by_recv` for the receive-side
+/// commands, `queue_by_send` for `BIND_SEND` and `APPEND` — and it is that
+/// lookup, not this function, that refuses a command presented against the
+/// wrong address.
 ///
 /// The zero address is the sentinel for "no queue exists yet", so a non-creation
 /// command carrying it is a command about no queue at all. `ERR_MALFORMED` is
