@@ -593,6 +593,20 @@ for (const [name, key, search, replacement] of [
     "    #[tokio::test]\n    async fn native_entry_commands_install_and_release_the_exact_lease()",
   ],
   [
+    "plugin mock-only command imports compile on Windows",
+    "rustCommands",
+    '    #[cfg(not(target_os = "windows"))]\n' +
+      "    use super::{begin_sensitive_entry, end_sensitive_display};",
+    "    use super::{begin_sensitive_entry, end_sensitive_display};",
+  ],
+  [
+    "plugin mock-only argument imports compile on Windows",
+    "rustCommands",
+    '    #[cfg(not(target_os = "windows"))]\n' +
+      "    use crate::models::{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs};",
+    "    use crate::models::{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs};",
+  ],
+  [
     "ZUULI mock-router test runs on Windows",
     "zuuliRust",
     '    #[cfg(not(target_os = "windows"))]\n    #[test]\n    fn shipping_zcash_router_registers_sensitive_entry_commands()',

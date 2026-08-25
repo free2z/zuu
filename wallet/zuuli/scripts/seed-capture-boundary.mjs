@@ -499,6 +499,16 @@ export function assertSeedCaptureBoundary(sources) {
     "shared plugin mock-runtime test must remain excluded from Windows",
   );
   requireMatch(
+    rustCommands,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*use super::\{begin_sensitive_entry, end_sensitive_display\};/,
+    "shared plugin mock-only command imports must remain excluded from Windows",
+  );
+  requireMatch(
+    rustCommands,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*use crate::models::\{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs\};/,
+    "shared plugin mock-only argument imports must remain excluded from Windows",
+  );
+  requireMatch(
     zuuliRust,
     /#\[cfg\(not\(target_os = "windows"\)\)\]\s*#\[test\]\s*fn shipping_zcash_router_registers_sensitive_entry_commands\(/,
     "ZUULI mock-router test must remain excluded from Windows",

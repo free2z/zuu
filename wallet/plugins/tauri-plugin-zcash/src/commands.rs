@@ -651,15 +651,15 @@ async fn consume_sensitive_display<'a>(
 
 #[cfg(test)]
 mod sensitive_display_tests {
+    #[cfg(not(target_os = "windows"))]
+    use super::{begin_sensitive_entry, end_sensitive_display};
     use super::{
-        begin_sensitive_entry, consume_sensitive_display, end_sensitive_display,
-        ensure_sensitive_display_replaceable, ensure_sensitive_entry_available,
-        owns_sensitive_display, sensitive_entry_state,
+        consume_sensitive_display, ensure_sensitive_display_replaceable,
+        ensure_sensitive_entry_available, owns_sensitive_display, sensitive_entry_state,
     };
-    use crate::models::{
-        BeginSensitiveEntryArgs, EndSensitiveDisplayArgs, SensitiveDisplayPurpose,
-        SensitiveDisplayState,
-    };
+    #[cfg(not(target_os = "windows"))]
+    use crate::models::{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs};
+    use crate::models::{SensitiveDisplayPurpose, SensitiveDisplayState};
     use std::sync::Arc;
     #[cfg(not(target_os = "windows"))]
     use tauri::Manager;
