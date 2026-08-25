@@ -74,7 +74,11 @@ seal_verifier() {
     actual_inventory=$({ for path in ./*; do [[ -f "$path" && ! -L "$path" ]] || exit 1; printf '%s\n' "${path#./}"; done; } | LC_ALL=C sort | tr '\n' ' ') || exit 1
     [[ "$actual_inventory" == \
       "CHECKSUMS.sha256 ZUULI-android-unsigned.aab aab-members.txt source-record.json " ]] || exit 1
-    sha256sum -c CHECKSUMS.sha256
+    # Stdout of seal_verifier is the sealed digest and nothing else; `-c` reports
+    # every member on stdout, so keep only its exit status. Redirecting rather
+    # than passing --status keeps sha256sum's stderr diagnostics (unreadable
+    # members, the mismatch warning).
+    sha256sum -c CHECKSUMS.sha256 >/dev/null
   ) || { echo "unsigned artifact is not ready to seal" >&2; return 1; }
   cp "$verifier" "$directory/bundletool-all-1.18.3.jar" || return 1
   local source_record_tmp="$directory/source-record.json.tmp"
