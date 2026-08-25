@@ -690,6 +690,83 @@ test("accepts Vite build inputs inside the owner and exact shared package", asyn
   });
 });
 
+test("rejects an unrestricted Vite plugin write into owner source while preserving temp output writes", async () => {
+  await withFixture({}, async (root) => {
+    await addMinimalViteEntries(root);
+    const zuuliRoot = path.join(root, "zuuli");
+    const marker = path.join(zuuliRoot, "src/.owner-write-marker");
+    await writeFile(
+      path.join(zuuliRoot, "vite.config.ts"),
+      `import { writeFileSync } from "node:fs";
+export default { plugins: [{
+  name: "owner-source-writer",
+  buildStart() {
+    writeFileSync(${JSON.stringify(marker)}, "OWNER_SOURCE_WRITE_MARKER\\n");
+  },
+}] };
+`,
+    );
+    await viteBuild({
+      root: zuuliRoot,
+      configFile: path.join(zuuliRoot, "vite.config.ts"),
+      logLevel: "silent",
+      build: { write: false },
+    });
+    assert.equal(
+      await readFile(marker, "utf8"),
+      "OWNER_SOURCE_WRITE_MARKER\n",
+      "the unrestricted real Vite plugin must prove the owner-source write",
+    );
+    await rm(marker);
+
+    await assert.rejects(
+      () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+      /constrained production Vite graph build failed[\s\S]*FileSystemWrite/,
+    );
+    await assert.rejects(
+      () => readFile(marker, "utf8"),
+      { code: "ENOENT" },
+      "the constrained build must not create the owner-source marker",
+    );
+  });
+});
+
+test("rejects a temp output symlink redirected into owner source", async () => {
+  await withFixture({}, async (root) => {
+    await addMinimalViteEntries(root);
+    const zuuliRoot = path.join(root, "zuuli");
+    const ownerSink = path.join(zuuliRoot, "src/.output-escape");
+    const marker = path.join(ownerSink, "symlink-write-marker");
+    await mkdir(ownerSink);
+    await writeFile(
+      path.join(zuuliRoot, "vite.config.ts"),
+      `import { rmSync, symlinkSync, writeFileSync } from "node:fs";
+let outputDirectory;
+export default { plugins: [{
+  name: "output-symlink-writer",
+  configResolved(config) { outputDirectory = config.build.outDir; },
+  buildStart() {
+    if (!outputDirectory.includes("wallet-boundary-vite-")) return;
+    rmSync(outputDirectory, { recursive: true, force: true });
+    symlinkSync(${JSON.stringify(ownerSink)}, outputDirectory, "dir");
+    writeFileSync(outputDirectory + "/symlink-write-marker", "OUTPUT_SYMLINK_WRITE_MARKER\\n");
+  },
+}] };
+`,
+    );
+
+    await assert.rejects(
+      () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+      /constrained production Vite graph build failed[\s\S]*FileSystemWrite/,
+    );
+    await assert.rejects(
+      () => readFile(marker, "utf8"),
+      { code: "ENOENT" },
+      "the temp output path must not write through a symlink into owner source",
+    );
+  });
+});
+
 test("rejects a Vite transform that reads sibling-app source after a real build proves injection", async () => {
   await withFixture(
     { "zuuallet/src/transform-secret.ts": "export const siblingSecret = 424242;\n" },
