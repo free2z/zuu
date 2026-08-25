@@ -157,9 +157,53 @@ ignore = [
   # it is not a proof of absence, because the advisory says the fault depends on
   # the execution environment.
   #
-  # Fixed in libcrux-secrets 0.0.6. Unreachable from here: `libcrux-aead 0.0.6`
-  # and `0.0.7` both pin `0.0.5`, and both arrive through
-  # `openmls_libcrux_crypto 0.3.1`.
+  # ## The fix exists and CANNOT be applied from here. This was measured, not
+  # ## assumed — do not spend the afternoon rediscovering it.
+  #
+  # `libcrux-secrets 0.0.6` is published and is the fix. Three things were tried
+  # against the graph in this lockfile, in increasing force:
+  #
+  #   1. `cargo update -p libcrux-secrets --precise 0.0.6` — **refused.**
+  #      `libcrux-aead 0.0.6` *and* `0.0.7` both require `libcrux-secrets`
+  #      `"=0.0.5"`, an exact pin, not a caret.
+  #
+  #   2. `[patch.crates-io]` pointing `libcrux-secrets` at a 0.0.6 source —
+  #      **silently ignored.** Cargo's `[patch]` replaces a package's *source*,
+  #      not its version, so a 0.0.6 patch cannot satisfy `=0.0.5`; cargo emits
+  #      `warning: patch ... was not used in the crate graph` and carries on.
+  #      **The build goes green on 0.0.5.** That is the dangerous shape here: a
+  #      patch that appears to work, changes nothing, and would have let us
+  #      report the advisory fixed while the vulnerable code was still linked.
+  #      Anyone repeating this must check `cargo tree -i libcrux-secrets`, not
+  #      the exit code.
+  #
+  #   3. Forcing it — a vendored 0.0.6 whose manifest claims `version = "0.0.5"`
+  #      — **fails to resolve, and not over anything to do with this crate's
+  #      API.** `libcrux-secrets 0.0.6` requires `hax-lib "0.3.7"`, while
+  #      `libcrux-intrinsics 0.0.6`, `libcrux-ml-kem 0.0.8` and `libcrux-sha3
+  #      0.0.8` each require `hax-lib "=0.3.6"`. `hax-lib` is libcrux's
+  #      formal-verification annotation crate and every one of those pins is
+  #      exact, so the two constraints are unsatisfiable together.
+  #
+  # So this is not a one-crate override. Taking `libcrux-secrets 0.0.6` means
+  # simultaneously forking `libcrux-intrinsics`, `libcrux-ml-kem` and
+  # `libcrux-sha3` off `hax-lib =0.3.6` — and those are in turn exactly pinned
+  # by `libcrux-aead`, `libcrux-kem` and `hpke-rs`, so the fork propagates all
+  # the way up to `openmls_libcrux_crypto`. It is forking the libcrux release
+  # train, not patching a dependency.
+  #
+  # Two further facts a decision should have. `libcrux-secrets 0.0.6` carries
+  # deliberate **API breaks** (upstream #1499 replaced the `IntOps`/`EncodeOps`
+  # traits with inherent methods on `Secret`, #1446 removed the const
+  # qualifier from the secret constructors, #1484 sealed the scalar trait), so
+  # `libcrux-aead`'s `=0.0.5` is a considered pin rather than an oversight —
+  # even a resolvable patch would have had to survive those. And libcrux has
+  # moved organisation: the advisory's fix PR is `celabshq/libcrux#1461`, while
+  # the crates still name `cryspen/libcrux`.
+  #
+  # **Remove this entry when `openmls_libcrux_crypto` ships against a
+  # `libcrux-aead` whose `libcrux-secrets` requirement admits `>= 0.0.6`.** That
+  # is the only condition under which it goes away without a fork. See #701.
   { id = "RUSTSEC-2026-0212", reason = "aarch64 constant-time swap/select may return incorrect results; #385's aarch64 KATs are green but this is evidence, not proof — owner decision required" },
 
   # ---------------------------------------------------------------------------
