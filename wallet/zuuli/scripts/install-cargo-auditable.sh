@@ -17,4 +17,5 @@ patch --fuzz=0 --batch --forward -d "$temporary" -p0 \
   --input="$script_directory/cargo-auditable-0.7.5-root.patch"
 cargo install --force --locked --path "$temporary/cargo-auditable-$version"
 installed=$(cargo install --list)
-printf '%s\n' "$installed" | grep -Eq "^cargo-auditable v${version}( \\([^)]*\\))?:$"
+expected="cargo-auditable v${version} ($temporary/cargo-auditable-$version):"
+printf '%s\n' "$installed" | grep -Fx -- "$expected"

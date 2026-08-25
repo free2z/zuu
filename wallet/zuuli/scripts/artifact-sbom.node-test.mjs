@@ -119,6 +119,16 @@ const linuxFixtureTools = [
   "rpmbuild",
   "unsquashfs",
 ];
+const cargoRuntimeFixtureTools = [
+  "cargo",
+  "cargo-auditable",
+  "dpkg-deb",
+  "objcopy",
+  "rustc",
+];
+const requiredLinuxFixtureTools = [
+  ...new Set([...linuxFixtureTools, ...cargoRuntimeFixtureTools]),
+].sort();
 
 function commandExists(command) {
   return (process.env.PATH ?? "")
@@ -130,7 +140,7 @@ const canBuildLinuxFixtures =
   process.platform === "linux" && linuxFixtureTools.every(commandExists);
 const requireLinuxFixtures =
   process.env[REQUIRE_LINUX_ARTIFACT_FIXTURES] === "1";
-const missingLinuxFixtureTools = linuxFixtureTools.filter(
+const missingLinuxFixtureTools = requiredLinuxFixtureTools.filter(
   (command) => !commandExists(command),
 );
 if (
@@ -244,8 +254,52 @@ test("Linux packaging runner binds every selected fixture to a real passing test
   assert.notEqual(missingToolProbe.status, 0);
   assert.match(
     `${missingToolProbe.stdout}${missingToolProbe.stderr}`,
-    /required Linux artifact fixtures cannot run: .*missing tools=cc,dpkg-deb,mksquashfs,readelf,rpm2archive,rpmbuild,unsquashfs/,
+    /required Linux artifact fixtures cannot run: .*missing tools=cargo,cargo-auditable,cc,dpkg-deb,mksquashfs,objcopy,readelf,rpm2archive,rpmbuild,rustc,unsquashfs/,
   );
+  const incompleteToolDirectory = mkdtempSync(
+    resolve(tmpdir(), "zuuli-linux-fixture-tools-"),
+  );
+  try {
+    for (const command of [
+      "cargo",
+      "cc",
+      "dpkg-deb",
+      "mksquashfs",
+      "objcopy",
+      "readelf",
+      "rpm2archive",
+      "rpmbuild",
+      "rustc",
+      "unsquashfs",
+    ]) {
+      symlinkSync(process.execPath, resolve(incompleteToolDirectory, command));
+    }
+    const missingCargoAuditableEnvironment = {
+      ...process.env,
+      PATH: incompleteToolDirectory,
+      [REQUIRE_LINUX_ARTIFACT_FIXTURES]: "1",
+    };
+    delete missingCargoAuditableEnvironment.NODE_TEST_CONTEXT;
+    const missingCargoAuditableProbe = spawnSync(
+      process.execPath,
+      [
+        "--test",
+        "--test-name-pattern=nonexistent",
+        resolve(scriptDirectory, "artifact-sbom.node-test.mjs"),
+      ],
+      {
+        encoding: "utf8",
+        env: missingCargoAuditableEnvironment,
+      },
+    );
+    assert.notEqual(missingCargoAuditableProbe.status, 0);
+    assert.match(
+      `${missingCargoAuditableProbe.stdout}${missingCargoAuditableProbe.stderr}`,
+      /required Linux artifact fixtures cannot run: .*missing tools=cargo-auditable(?:\s|$)/,
+    );
+  } finally {
+    rmSync(incompleteToolDirectory, { recursive: true, force: true });
+  }
   assert.throws(
     () =>
       runLinuxArtifactFixtures({
@@ -594,13 +648,6 @@ linuxArtifactFixture(
   },
 );
 
-const cargoRuntimeFixtureTools = [
-  "cargo",
-  "cargo-auditable",
-  "dpkg-deb",
-  "objcopy",
-  "rustc",
-];
 const canBuildCargoRuntimeFixture =
   process.platform === "linux" && cargoRuntimeFixtureTools.every(commandExists);
 
@@ -935,11 +982,13 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
         '  if (args[0] === "install" && args[1] !== "--list") {',
         '    requireState("patch");',
         '    if (process.env.ZUULI_INSTALLER_FAILURE === "install") fail("install", 101);',
+        '    writeFileSync(resolve(state, "installed-source"), args[args.indexOf("--path") + 1]);',
         '    writeFileSync(resolve(state, "install"), "ok\\n");',
         '  } else if (args[0] === "install" && args[1] === "--list") {',
         '    requireState("install");',
         '    const version = process.env.ZUULI_INSTALLER_FAILURE === "version" ? "9.9.9" : "0.7.5";',
-        "    process.stdout.write(`cargo-auditable v${version} (/mock/source):\\n    cargo-auditable\\n`);",
+        '    const source = process.env.ZUULI_INSTALLER_FAILURE === "source" ? "" : ` (${readFileSync(resolve(state, "installed-source"), "utf8")})`;',
+        "    process.stdout.write(`cargo-auditable v${version}${source}:\\n    cargo-auditable\\n`);",
         '    if (process.env.ZUULI_INSTALLER_FAILURE === "list-exit") fail("list", 17);',
         "  } else process.exit(94);",
         "} else process.exit(95);",
@@ -1136,6 +1185,14 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
       wrongVersion.commands,
       expectedCommandsFor(wrongVersionArchive),
     );
+
+    const missingSource = invoke("failure-source", "source");
+    assert.ok(
+      missingSource.error,
+      "a crates.io-style listing must not verify the patched path install",
+    );
+    assert.equal(missingSource.status, 1);
+    assert.equal(missingSource.stderr, "");
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
