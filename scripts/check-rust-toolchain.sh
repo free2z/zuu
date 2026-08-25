@@ -72,6 +72,10 @@ MANIFESTS=(
   rs/crates/f2z-relay-store/Cargo.toml
   rs/crates/f2z-relay-testkit/Cargo.toml
   rs/crates/f2z-relay/Cargo.toml
+  # The messaging crates (#312). Client-linked and permissive, so they carry the
+  # same `rust-version` restatement as every other crate under rs/.
+  rs/crates/f2z-msg-store/Cargo.toml
+  rs/crates/f2z-msg-mls/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory
