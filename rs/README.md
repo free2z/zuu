@@ -118,6 +118,7 @@ prevent.
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
 | [`crates/f2z-msg-identity`](./crates/f2z-msg-identity) | The messaging key hierarchy, [`docs/e2ee/ARCHITECTURE.md`](../docs/e2ee/ARCHITECTURE.md) §4.2: the ZIP-32-idiom seed-derived tree (`MSK`, hardened-only `CKDh`, `account_node`), the four HKDF account leaves, the per-device keys the OS CSPRNG generates, and `DeviceCredential` issuance. **The one crate here that holds a user's secret keys.** `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no clock, and its randomness is a `rand_core::CryptoRng` parameter so it reaches `wasm32-unknown-unknown`. |
+| [`crates/f2z-msg-dag`](./crates/f2z-msg-dag) | The hash-linked application framing, [`docs/e2ee/ARCHITECTURE.md`](../docs/e2ee/ARCHITECTURE.md) §7: the `AppMessage`, its `msg_id` commitment, causal ordering with `(epoch, sender_leaf_index, msg_id)` as the tie-break, gap detection from a dangling `parents` hash, and the bounded-window plaintext outbox §7's repair needs. `sent_at` is a newtype with **no `Ord`**, so ordering by the sender's clock does not compile. `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O and no clock — every time-dependent decision is a `now_ms` parameter — so it reaches `wasm32-unknown-unknown`. |
 
 `f2z-msg-identity` is the **only** crate in this tree that holds secrets. Every
 other crate here verifies, encodes or stores; this one derives an identity from a
@@ -202,8 +203,8 @@ boundary in practice: every crate above is MIT because a third-party relay, ZUUL
 and the WASM web client all compile the same rules, and a rule that two implementations
 disagree about is how ciphertext gets deleted before it is read.
 
-**The clients link `f2z-codec`, `f2z-relay-proto`, `f2z-kt-core`'s verifier and
-`f2z-msg-identity`; the relay links the first two
+**The clients link `f2z-codec`, `f2z-relay-proto`, `f2z-kt-core`'s verifier,
+`f2z-msg-identity` and `f2z-msg-dag`; the relay links the first two
 plus `f2z-relay-store`.** That is the licence boundary in practice: the shared
 crates are MIT because a third-party relay, ZUULI and the WASM web client all
 compile the same rules, and a rule that two implementations disagree about is how
@@ -377,7 +378,7 @@ cargo test
 # The client-linked crates only. `f2z-kt` and `f2z-witness` are native server
 # binaries and are deliberately absent from this line.
 cargo build --target wasm32-unknown-unknown --lib \
-  -p f2z-codec -p f2z-relay-proto -p f2z-authority -p f2z-msg-identity
+  -p f2z-codec -p f2z-relay-proto -p f2z-authority -p f2z-msg-identity -p f2z-msg-dag
 cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
             --no-default-features --features verifier
 
