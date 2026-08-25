@@ -45,7 +45,8 @@ use f2z_codec::types::{Body, PublicKey};
 use f2z_kt_core::types::{Handle, KemPublicKey};
 use f2z_msg_dag::{
     AppMessage, AppMessageTbs, DagEntry, GapRequest, GapResponse, MessageDag, MessageType, MsgId,
-    Parents, PlaintextOutbox, RepairEntry, RepairOutcome, RepairRefusal, RetentionClass, SentAt,
+    Parents, PlaintextOutbox, Provenance, RepairEntry, RepairOutcome, RepairRefusal,
+    RetentionClass, SentAt,
 };
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_mls::{DeviceSigner, MlsEngine, Received};
@@ -214,7 +215,14 @@ fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
         "the message keeps the epoch it was authored in; only the framing moved"
     );
 
-    bob_dag.insert(DagEntry::from_repair(&repaired, sender));
+    let entry = DagEntry::from_repair(&repaired, sender);
+    assert_eq!(
+        entry.provenance(),
+        Provenance::Repaired,
+        "the receiver must be able to tell a repaired message from a delivered one: \
+         its sender_leaf_index is the repairing peer's, not a committed value"
+    );
+    bob_dag.insert(entry);
     assert!(!bob_dag.has_detected_gaps());
     assert_eq!(
         bob_dag.display_order().unwrap(),

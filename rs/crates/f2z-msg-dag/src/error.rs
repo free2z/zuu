@@ -52,6 +52,15 @@ pub enum DagError {
     /// original sender.
     UnsolicitedRepair,
 
+    /// The responder answered, and the answer was "I cannot supply it".
+    ///
+    /// Distinct from [`DagError::UnsolicitedRepair`] because it is not a
+    /// protocol violation and not an attack — it is §8.4 working: the
+    /// responder's plaintext outbox window elapsed, and saying so is the
+    /// behaviour the specification asks for. The caller's next step is
+    /// [`crate::dag::MessageDag::mark_unrecoverable`], not a retry.
+    RepairRefused(crate::repair::RepairRefusal),
+
     /// The held graph contains a cycle.
     ///
     /// Cryptographically infeasible: a child's `msg_id` commits to its
@@ -87,6 +96,9 @@ impl fmt::Display for DagError {
             }
             Self::UnsolicitedRepair => {
                 f.write_str("a gap_response carried a message that was not requested")
+            }
+            Self::RepairRefused(reason) => {
+                write!(f, "the responder cannot supply that message: {reason:?}")
             }
             Self::Cycle => f.write_str("the message graph contains a cycle"),
         }

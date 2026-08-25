@@ -257,13 +257,21 @@ impl RepairEntry {
     ///
     /// - [`DagError::UnsolicitedRepair`] if this entry answers a hash that was
     ///   not requested.
+    /// - [`DagError::RepairRefused`] if the responder said it cannot supply it.
+    ///   That is §8.4 working, not a violation: the caller's next step is
+    ///   [`crate::dag::MessageDag::mark_unrecoverable`], not a retry.
     /// - [`DagError::MsgIdMismatch`] if the supplied bytes do not hash to it.
     /// - [`DagError::Codec`] if they are not a canonical `AppMessage`.
     pub fn accept(&self, requested: &MsgId) -> Result<AppMessage, DagError> {
         if self.msg_id != *requested {
             return Err(DagError::UnsolicitedRepair);
         }
+        if let Some(refusal) = self.refusal() {
+            return Err(DagError::RepairRefused(refusal));
+        }
         if self.refusal != 0 {
+            // A refusal code this build does not recognise. Not a message, and
+            // not something to guess at.
             return Err(DagError::UnsolicitedRepair);
         }
         // `AppMessage::decode` re-checks the commitment against the bytes, so
@@ -406,7 +414,11 @@ mod tests {
         let id = MsgId::new([4; 32]);
         let entry = RepairEntry::unrecoverable(id, RepairRefusal::NoLongerHeld).unwrap();
         assert_eq!(entry.refusal(), Some(RepairRefusal::NoLongerHeld));
-        assert_eq!(entry.accept(&id), Err(DagError::UnsolicitedRepair));
+        assert_eq!(
+            entry.accept(&id),
+            Err(DagError::RepairRefused(RepairRefusal::NoLongerHeld)),
+            "§8.4's answer is an answer, not a protocol violation"
+        );
 
         let response = GapResponse::new(vec![entry]);
         let body = response.to_body().unwrap();
