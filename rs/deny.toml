@@ -204,6 +204,31 @@ ignore = [
   # **Remove this entry when `openmls_libcrux_crypto` ships against a
   # `libcrux-aead` whose `libcrux-secrets` requirement admits `>= 0.0.6`.** That
   # is the only condition under which it goes away without a fork. See #701.
+  #
+  # ## UPDATE 2026-08-25: that condition is already met. Do not re-run the
+  # ## experiment above — upgrade instead. See #723.
+  #
+  # The whole OpenMLS 0.9 train shipped on 2026-08-25, one day after the analysis
+  # above was written: `openmls 0.9.0`, `openmls_traits 0.6.0`,
+  # `openmls_libcrux_crypto 0.4.0`. That provider requires `libcrux-aead 0.0.9`,
+  # which requires `libcrux-secrets = "=0.0.6"` — the fixed version.
+  #
+  # Resolved and measured, not inferred: `cargo deny check advisories` over a
+  # crate depending only on `openmls 0.9.0` + `openmls_libcrux_crypto 0.4.0`,
+  # with an **empty** ignore list, reports exactly one finding —
+  # RUSTSEC-2026-0173, the build-host-only `proc-macro-error2` below. The 0.9
+  # train pulls `libcrux-secrets 0.0.6`, `libcrux-sha3 0.0.10`,
+  # `libcrux-ed25519 0.0.9`, `libcrux-poly1305 0.0.6`,
+  # `libcrux-chacha20poly1305 0.0.9` and `libcrux-aes 0.0.9`, which between them
+  # clear **every libcrux advisory in this list**.
+  #
+  # These entries stay until that migration lands, because they are accurate
+  # about the graph this repository actually ships — `openmls 0.8.1`, the version
+  # #385 validated on nine triples with real NIST/RFC vectors on Android
+  # hardware. What has changed is their status: they are a **migration backlog
+  # item with a known fix**, not a standing risk anyone has to keep accepting.
+  # #723 tracks it and takes "these ten entries come out" as its acceptance
+  # criterion.
   { id = "RUSTSEC-2026-0212", reason = "aarch64 constant-time swap/select may return incorrect results; #385's aarch64 KATs are green but this is evidence, not proof — owner decision required" },
 
   # ---------------------------------------------------------------------------
