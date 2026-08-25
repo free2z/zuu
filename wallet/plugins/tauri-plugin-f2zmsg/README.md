@@ -199,8 +199,15 @@ Consequences, all of them recorded rather than worked around:
   Adding the mobile entries will also need
   `wallet/zuuli/scripts/mobile-webview-authority.mjs`'s reviewed allowlist
   extended — mobile authority is granted by review, not by registration.
-* `wallet/zuuli/src-tauri/src/messaging.rs` — the enrollment trio — is written
-  and not landed, because it cannot compile until the plugin links.
+* `wallet/zuuli/src-tauri/src/messaging.rs` — the enrollment trio — is **not in
+  this pull request**, because it cannot compile until the plugin links. What
+  *is* here is the whole plugin side of it: `Engine::prepare_device` generates
+  the device keys from the OS CSPRNG and returns only their public halves, and
+  `Engine::install_identity` takes a `DeviceCredential` and the seed-derived
+  `BackupWrapKey` and never sees the seed. `src/bin/peer.rs` performs exactly
+  the sequence the app crate will — derive `AccountKeys::from_seed`, issue the
+  credential, install, unlock — so the API is exercised rather than asserted,
+  and `tests/engine_lifecycle.rs` covers its refusals.
 
 **The key-transparency directory has no client.** `f2z-kt` is a running server
 and `f2z-kt-core` is the client verifier, but nothing carries a `/kt/v1/lookup`
