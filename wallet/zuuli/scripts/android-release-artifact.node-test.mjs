@@ -46,6 +46,33 @@ test("records and verifies a checksum-closed four-ABI AAB", async (t) => {
   assert.equal(source.verifier.sha256, verifierSha);
 });
 
+test("record and seal-verifier print one bare digest and nothing else", async (t) => {
+  const { root, aab, output, verifier, verifierSha } = await fixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // $GITHUB_OUTPUT takes one key=value per line, so every extra stdout line
+  // from a helper (`sha256sum -c` names each member) breaks the release job.
+  const recorded = run(["record", aab, "0.1.0+14", "a".repeat(40), "b".repeat(40), output]);
+  assert.equal(recorded.status, 0, recorded.stderr);
+  assert.match(recorded.stdout, /^[0-9a-f]{64}\n$/);
+
+  const sealed = run(["seal-verifier", output, verifier, verifierSha]);
+  assert.equal(sealed.status, 0, sealed.stderr);
+  assert.match(sealed.stdout, /^[0-9a-f]{64}\n$/);
+  assert.equal(sealed.stdout.trimEnd().split("\n").length, 1, sealed.stdout);
+});
+
+test("seal-verifier still refuses a recorded member that drifted", async (t) => {
+  const { root, aab, output, verifier, verifierSha } = await fixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(run(["record", aab, "0.1.0+14", "a".repeat(40), "b".repeat(40), output]).status, 0);
+  // Silencing the pre-seal checksum check must not disable it.
+  await writeFile(join(output, "aab-members.txt"), "drifted\n");
+  const sealed = run(["seal-verifier", output, verifier, verifierSha]);
+  assert.notEqual(sealed.status, 0);
+  assert.match(sealed.stderr, /unsigned artifact is not ready to seal/);
+});
+
 test("rejects missing ABIs and checksum drift", async (t) => {
   const { root, aab, output, verifier, verifierSha } = await fixture();
   t.after(() => rm(root, { recursive: true, force: true }));
