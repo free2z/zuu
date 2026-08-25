@@ -32,7 +32,7 @@ export const CARGO_RUNTIME_PACKAGE_FEATURES =
 const MAX_EVIDENCE_BYTES = 1024 * 1024;
 const MAX_EVIDENCE_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_PACKAGES = 10_000;
-const KNOWN_SOURCES = new Set(["crates.io", "git", "local", "registry"]);
+const KNOWN_SOURCES = new Set(["crates.io", "local"]);
 
 function sha256Bytes(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -85,10 +85,8 @@ function sourceKind(source) {
   if (source === "registry+https://github.com/rust-lang/crates.io-index") {
     return "crates.io";
   }
-  if (source.startsWith("registry+")) return "registry";
-  if (source.startsWith("git+")) return "git";
   throw new Error(
-    `Cargo metadata contains an unsupported package source: ${source}`,
+    `Cargo metadata contains a non-shipping package source: ${source}`,
   );
 }
 

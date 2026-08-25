@@ -611,7 +611,7 @@ test(
         [
           '[package]\nname="zuuli"\nversion="0.1.0"\nedition="2021"',
           '[features]\ndefault=["ship"]\nship=["dep:featured"]',
-          '[dependencies]\nlinked={path="linked",features=["spark"]}\nfeatured={path="featured",optional=true}\nlocal-macro={path="local-macro"}',
+          '[dependencies]\nitoa="=1.0.15"\nlinked={path="linked",features=["spark"]}\nfeatured={path="featured",optional=true}\nlocal-macro={path="local-macro"}',
           '[target.\'cfg(target_os = "linux")\'.dependencies]\nlinux-only={path="linux-only"}',
           '[target.\'cfg(target_os = "windows")\'.dependencies]\nwrong-target={path="wrong-target"}',
           "",
@@ -624,7 +624,7 @@ test(
           "fn marked() {}",
           "fn main() {",
           "    marked();",
-          '    println!("{} {}", linked::answer(), featured::answer());',
+          '    println!("{} {} {}", linked::answer(), featured::answer(), itoa::Buffer::new().format(42));',
           '    #[cfg(target_os = "linux")] println!("{}", linux_only::answer());',
           '    #[cfg(target_os = "windows")] println!("{}", wrong_target::answer());',
           "}",
@@ -699,6 +699,12 @@ test(
       const audited = resolve(project, "target/release/zuuli");
       const expectedRuntimePackages = [
         { name: "featured", version: "2.0.0", source: "local", features: [] },
+        {
+          name: "itoa",
+          version: "1.0.15",
+          source: "crates.io",
+          features: [],
+        },
         {
           name: "linked",
           version: "1.2.3",
@@ -803,11 +809,18 @@ test(
             ),
           )}`,
         );
-        assert.equal(
-          Object.hasOwn(component, "purl"),
-          false,
-          "local/path Cargo packages must not claim a registry purl",
-        );
+        if (expected.source === "crates.io") {
+          assert.equal(
+            component.purl,
+            `pkg:cargo/${expected.name}@${expected.version}`,
+          );
+        } else {
+          assert.equal(
+            Object.hasOwn(component, "purl"),
+            false,
+            "local/path Cargo packages must not claim a registry purl",
+          );
+        }
         assert.deepEqual(exactProperties(component.properties), {
           "free2z:cargo-runtime:package": "true",
           "free2z:cargo-runtime:package-features": JSON.stringify(
@@ -907,6 +920,30 @@ test(
         "invented-linked-purl",
         (document) => {
           runtimeComponent(document, "linked").purl = "pkg:cargo/linked@1.2.3";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "missing-itoa-purl",
+        (document) => {
+          delete runtimeComponent(document, "itoa").purl;
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "wrong-itoa-purl",
+        (document) => {
+          runtimeComponent(document, "itoa").purl = "pkg:cargo/itoa@9.9.9";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "wrong-itoa-source",
+        (document) => {
+          runtimeProperty(
+            runtimeComponent(document, "itoa").properties,
+            "free2z:cargo-runtime:source",
+          ).value = "local";
         },
         /SBOM Cargo runtime components/,
       );
