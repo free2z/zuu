@@ -157,6 +157,101 @@ describe("opaque identifier production inventory", () => {
     );
   });
 
+  it("rejects the reviewed AddressCard template-interpolation survivor", () => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/components.tsx",
+      `        />
+        <div className="pt-1">`,
+      [
+        "        />",
+        '        <span>{`${address}`}</span>',
+        '        <div className="pt-1">',
+      ].join("\n"),
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it.each([
+    ["template interpolation", "`${address}`"],
+    ["global String conversion", "String(address)"],
+    ["toString conversion", "address.toString()"],
+    ["logical-and wrapper", "true && address"],
+    ["conditional wrapper", 'true ? address : "unavailable"'],
+    ["nullish wrapper", 'address ?? "unavailable"'],
+  ])("rejects an additional raw display through $name", (_name, expression) => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `              <span>{${expression}}</span>
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects a lexically aliased raw identifier display", () => {
+    let mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "  const address = useWallet((s) => s.unifiedAddress);",
+      "  const address = useWallet((s) => s.unifiedAddress);\n  const rawAlias = address;",
+    );
+    mutant = mutate(
+      mutant,
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `              <span>{rawAlias}</span>
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("allows safe transparent expressions and same-name values in another scope", () => {
+    let mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "export function Receive() {",
+      [
+        "function DecorativeAddress({ address }: { address: string }) {",
+        "  const alias = address;",
+        "  return <span>{String(alias)}</span>;",
+        "}",
+        "void DecorativeAddress;",
+        "",
+        "export function Receive() {",
+      ].join("\n"),
+    );
+    mutant = mutate(
+      mutant,
+      "src/features/wallet/Receive.tsx",
+      "  const address = useWallet((s) => s.unifiedAddress);",
+      '  const address = useWallet((s) => s.unifiedAddress);\n  const safeLabel = "Wallet address";',
+    );
+    mutant = mutate(
+      mutant,
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      [
+        '              <span>{`${safeLabel}`}</span>',
+        "              <CopyButton",
+        "                value={address}",
+      ].join("\n"),
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).not.toThrow();
+  });
+
   it("allows an unrelated locally scoped component with the same name", () => {
     const mutant = mutate(
       productionSources(),

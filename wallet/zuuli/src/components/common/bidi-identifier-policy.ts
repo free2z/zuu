@@ -120,6 +120,25 @@ function expressionAttribute(
   return initializer.expression.getText(file);
 }
 
+function expressionAttributeNode(
+  attributes: ts.JsxAttributes,
+  name: string,
+): ts.Expression | null {
+  const matches = attributes.properties.filter(
+    (property): property is ts.JsxAttribute =>
+      ts.isJsxAttribute(property) &&
+      ts.isIdentifier(property.name) &&
+      property.name.text === name,
+  );
+  if (matches.length !== 1) return null;
+  const initializer = matches[0].initializer;
+  return initializer &&
+    ts.isJsxExpression(initializer) &&
+    initializer.expression
+    ? initializer.expression
+    : null;
+}
+
 function hasBooleanAttribute(attributes: ts.JsxAttributes, name: string): boolean {
   return attributes.properties.some(
     (property) =>
@@ -225,24 +244,162 @@ function isImportedBidiTag(
   );
 }
 
-function directDisplayExpression(file: ts.SourceFile, node: ts.JsxExpression): string | null {
+function directDisplayExpression(node: ts.JsxExpression): ts.Expression | null {
   if (
     !node.expression ||
     (!ts.isJsxElement(node.parent) && !ts.isJsxFragment(node.parent))
   ) {
     return null;
   }
-  let expression = node.expression;
+  return node.expression;
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
   while (
-    ts.isParenthesizedExpression(expression) ||
-    ts.isAsExpression(expression) ||
-    ts.isTypeAssertionExpression(expression) ||
-    ts.isSatisfiesExpression(expression) ||
-    ts.isNonNullExpression(expression)
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current)
   ) {
-    expression = expression.expression;
+    current = current.expression;
   }
-  return expression.getText(file);
+  return current;
+}
+
+function sameReference(
+  left: ts.Expression,
+  right: ts.Expression,
+  checker: ts.TypeChecker,
+): boolean {
+  const actual = unwrapExpression(left);
+  const expected = unwrapExpression(right);
+  if (ts.isIdentifier(actual) && ts.isIdentifier(expected)) {
+    const actualSymbol = checker.getSymbolAtLocation(actual);
+    return actualSymbol !== undefined && actualSymbol === checker.getSymbolAtLocation(expected);
+  }
+  if (
+    ts.isPropertyAccessExpression(actual) &&
+    ts.isPropertyAccessExpression(expected)
+  ) {
+    return (
+      actual.name.text === expected.name.text &&
+      sameReference(actual.expression, expected.expression, checker)
+    );
+  }
+  if (
+    ts.isElementAccessExpression(actual) &&
+    ts.isElementAccessExpression(expected) &&
+    actual.argumentExpression &&
+    expected.argumentExpression
+  ) {
+    return (
+      actual.argumentExpression.getText() === expected.argumentExpression.getText() &&
+      sameReference(actual.expression, expected.expression, checker)
+    );
+  }
+  return false;
+}
+
+function auditedReferenceCandidates(expression: ts.Expression): ts.Expression[] {
+  const current = unwrapExpression(expression);
+  if (
+    ts.isBinaryExpression(current) &&
+    current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+  ) {
+    return auditedReferenceCandidates(current.left);
+  }
+  return [current];
+}
+
+function rendersAuditedValue(
+  expression: ts.Expression,
+  auditedSources: readonly ts.Expression[],
+  checker: ts.TypeChecker,
+  resolving = new Set<ts.Symbol>(),
+): boolean {
+  const current = unwrapExpression(expression);
+  if (
+    auditedSources.some((source) =>
+      auditedReferenceCandidates(source).some((candidate) =>
+        sameReference(current, candidate, checker),
+      ),
+    )
+  ) {
+    return true;
+  }
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || resolving.has(symbol)) return false;
+    const declaration = symbol.declarations?.find(
+      (candidate): candidate is ts.VariableDeclaration =>
+        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+    );
+    if (!declaration?.initializer) return false;
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
+    return rendersAuditedValue(
+      declaration.initializer,
+      auditedSources,
+      checker,
+      nextResolving,
+    );
+  }
+  if (ts.isTemplateExpression(current)) {
+    return current.templateSpans.some((span) =>
+      rendersAuditedValue(span.expression, auditedSources, checker, resolving),
+    );
+  }
+  if (ts.isCallExpression(current)) {
+    if (
+      ts.isIdentifier(current.expression) &&
+      current.expression.text === "String" &&
+      checker.getSymbolAtLocation(current.expression) === undefined &&
+      current.arguments.length === 1
+    ) {
+      return rendersAuditedValue(
+        current.arguments[0],
+        auditedSources,
+        checker,
+        resolving,
+      );
+    }
+    if (
+      ts.isPropertyAccessExpression(current.expression) &&
+      current.expression.name.text === "toString" &&
+      current.arguments.length === 0
+    ) {
+      return rendersAuditedValue(
+        current.expression.expression,
+        auditedSources,
+        checker,
+        resolving,
+      );
+    }
+  }
+  if (ts.isConditionalExpression(current)) {
+    return (
+      rendersAuditedValue(current.whenTrue, auditedSources, checker, resolving) ||
+      rendersAuditedValue(current.whenFalse, auditedSources, checker, resolving)
+    );
+  }
+  if (ts.isBinaryExpression(current)) {
+    if (current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return rendersAuditedValue(current.right, auditedSources, checker, resolving);
+    }
+    if (
+      current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      current.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+      current.operatorToken.kind === ts.SyntaxKind.PlusToken
+    ) {
+      return (
+        rendersAuditedValue(current.left, auditedSources, checker, resolving) ||
+        rendersAuditedValue(current.right, auditedSources, checker, resolving)
+      );
+    }
+  }
+  return false;
 }
 
 /**
@@ -260,15 +417,8 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
       throw new Error(`${fileName} must import BidiIdentifier without an alias`);
     }
     const checker = checkerFor(fileName, file);
-    const expectedValuesByFunction = new Map<string, Set<string>>();
-    for (const site of expectedSites) {
-      const values = expectedValuesByFunction.get(site.functionName) ?? new Set<string>();
-      values.add(site.value);
-      expectedValuesByFunction.set(site.functionName, values);
-    }
-
     const actualSites: string[] = [];
-    const rawDisplays: string[] = [];
+    const auditedSourcesByFunction = new Map<string, ts.Expression[]>();
     const visit = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
@@ -282,12 +432,12 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
         isImportedBidiTag(node.tagName, importBinding, checker)
       ) {
         actualSites.push(actualSiteKey(file, node));
-      }
-      if (ts.isJsxExpression(node)) {
-        const value = directDisplayExpression(file, node);
         const functionName = enclosingFunctionName(node) ?? "";
-        if (value && expectedValuesByFunction.get(functionName)?.has(value)) {
-          rawDisplays.push(`${functionName}|${value}`);
+        const value = expressionAttributeNode(node.attributes, "value");
+        if (value) {
+          const current = auditedSourcesByFunction.get(functionName) ?? [];
+          current.push(value);
+          auditedSourcesByFunction.set(functionName, current);
         }
       }
       ts.forEachChild(node, visit);
@@ -298,6 +448,23 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
       actualSites,
       expectedSites.map(siteKey),
     );
+    const rawDisplays: string[] = [];
+    const visitDisplays = (node: ts.Node) => {
+      if (ts.isJsxExpression(node)) {
+        const expression = directDisplayExpression(node);
+        const functionName = enclosingFunctionName(node) ?? "";
+        const auditedSources = auditedSourcesByFunction.get(functionName) ?? [];
+        if (
+          expression &&
+          auditedSources.length > 0 &&
+          rendersAuditedValue(expression, auditedSources, checker)
+        ) {
+          rawDisplays.push(`${functionName}|${expression.getText(file)}`);
+        }
+      }
+      ts.forEachChild(node, visitDisplays);
+    };
+    visitDisplays(file);
     if (rawDisplays.length > 0) {
       throw new Error(
         `${fileName} renders audited identifier values outside imported BidiIdentifier: ${rawDisplays.join(", ")}`,
