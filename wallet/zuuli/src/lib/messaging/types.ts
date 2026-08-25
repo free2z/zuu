@@ -304,6 +304,11 @@ export const MessageSchema = z.object({
   conversationId: z.string(),
   direction: z.enum(["outbound", "inbound"]),
   epoch: z.number().int().nonnegative(),
+  /**
+   * The author's MLS leaf index — hashed into `msgId` since ARCHITECTURE.md
+   * §7's 2026-08-25 correction. Carried for display and diagnostics: this is
+   * ordering key 2, and the frontend does not order (§9 rule 10).
+   */
   senderLeafIndex: z.number().int().nonnegative(),
   /** The DAG. */
   parents: z.array(z.string()),
@@ -319,8 +324,13 @@ export const MessageSchema = z.object({
 export type Message = z.infer<typeof MessageSchema>;
 
 export const MessagePageSchema = z.object({
-  /** In the §7 total order, oldest first. */
+  /**
+   * ALREADY in the §7 total order, oldest first. The engine linearises the
+   * causal DAG; render this sequence as given and never re-sort it (§7, §9
+   * rule 10).
+   */
   messages: z.array(MessageSchema),
+  /** A `msgId`, never an offset — positions are not stable under arrival. */
   cursor: z.string().nullable(),
   /** A hole, not an absence (§3.5). */
   hasGapBefore: z.boolean(),
