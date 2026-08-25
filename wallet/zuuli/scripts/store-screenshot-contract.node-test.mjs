@@ -244,7 +244,7 @@ test("feed capture scroll is geometry-derived and keeps a required control unobs
   assert.equal(computeFeedCaptureScroll({ currentScroll: 0, visibleTop: 60, visibleBottom: 580, controlTop: 240, contentBottom: 820, requireControl: false }), 240);
 });
 
-test("creator capture pins the authoritative first catalog page and rejects pagination drift", () => {
+test("creator capture pins the authoritative first catalog page and rejects decorative pagination", () => {
   const creatorDetail = "GET https://free2z.cash/api/creator/example_editorial/";
   const firstPage = "GET https://free2z.cash/api/zpage/?ordering=-created_at&page=1&page_size=12&username=example_editorial";
   assert.deepEqual(CAPTURE_PUBLIC_REQUESTS["creator-profile"], [creatorDetail, firstPage]);
@@ -252,7 +252,8 @@ test("creator capture pins the authoritative first catalog page and rejects pagi
   for (const drifted of [
     "GET https://free2z.cash/api/zpage/?ordering=-created_at&page_size=12&username=example_editorial",
     "GET https://free2z.cash/api/zpage/?ordering=-created_at&page=2&page_size=12&username=example_editorial",
-    "GET https://free2z.cash/api/zpage/?ordering=-created_at&page=1&page_size=24&username=example_editorial",
+    "GET https://free2z.cash/api/zpage/?note=page%3D1&ordering=-created_at&page_size=12&username=example_editorial",
+    "GET https://free2z.cash/api/creator/example_editorial/?page=1",
   ]) {
     assert.equal(capturePublicRequestAllowed("creator-profile", drifted), false);
   }
