@@ -21,38 +21,13 @@
     clippy::arithmetic_side_effects
 )]
 
-use f2z_msg_mls::{
-    DeviceCredential, DeviceCredentialTbs, DeviceSigner, EngineError, ExportLabel, MlsEngine,
-    ProtocolVersion, Received,
-};
+use f2z_msg_mls::{EngineError, ExportLabel, MlsEngine, ProtocolVersion, Received};
 use f2z_msg_store::MemoryBackend;
 
-const NOW: u64 = 1_700_000_000_000;
+mod common;
+use common::{NOW, device, issue_credential};
+
 const GROUP_ID: &[u8] = b"conversation-alice-bob";
-
-/// One device: its own store, its own keys, its own credential.
-fn device(handle: &str, seed: u8) -> MlsEngine<MemoryBackend> {
-    let identity_private = [seed; 32];
-    let mut identity_public = [0u8; 32];
-    libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
-
-    let signer = DeviceSigner::from_private_key([seed.wrapping_add(128); 32]);
-    let tbs = DeviceCredentialTbs::new(
-        &identity_public,
-        handle,
-        signer.public_key(),
-        // A stand-in for `DeviceInitKey.public`. The engine does not read it —
-        // the HPKE init key that MLS actually uses is the one inside the
-        // KeyPackage — so a fixed value here keeps the test about the binding.
-        &[seed; 1216],
-        NOW - 1_000_000,
-        NOW + 1_000_000,
-    )
-    .expect("credential body");
-    let credential = DeviceCredential::sign(tbs, &identity_private).expect("sign credential");
-
-    MlsEngine::new(MemoryBackend::new(), signer, credential, NOW).expect("engine")
-}
 
 /// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
 fn paired() -> (
@@ -61,8 +36,8 @@ fn paired() -> (
     MlsEngine<MemoryBackend>,
     openmls::prelude::MlsGroup,
 ) {
-    let alice = device("alice", 11);
-    let bob = device("bob", 22);
+    let alice = device("alice", 11, 111);
+    let bob = device("bob", 22, 222);
 
     let bob_key_package = bob.generate_key_package().expect("key package");
 
@@ -216,12 +191,12 @@ fn two_engines_share_no_state() {
     assert!(alice.provider().store().backend().len().expect("len") > 0);
     assert!(bob.provider().store().backend().len().expect("len") > 0);
     assert_ne!(
-        alice.credential().tbs().device_pk(),
-        bob.credential().tbs().device_pk()
+        alice.credential().credential.device_pk,
+        bob.credential().credential.device_pk
     );
     assert_ne!(
-        alice.credential().tbs().identity_pk(),
-        bob.credential().tbs().identity_pk()
+        alice.credential().credential.identity_pk,
+        bob.credential().credential.identity_pk
     );
 }
 
@@ -399,35 +374,25 @@ fn trailing_bytes_after_a_message_are_refused() {
     assert!(bob.receive(&mut bob_group, &wire, b"msg-1", NOW).is_err());
 }
 
-/// The identity→device binding, at the point it actually matters: a key package
-/// whose credential describes somebody else's device must not be addable.
+/// The identity→device binding, at the point it actually matters: a credential
+/// that describes somebody else's device must not produce a working engine.
+///
+/// The credential itself is genuine — issued by a real `IdentitySigningKey`
+/// through `f2z-msg-identity` — and it is the *pairing* that is wrong. That is
+/// the substitution §4.2's binding exists to stop, and the earliest point it can
+/// be caught is here, on the device that would otherwise publish a KeyPackage
+/// nobody else will accept.
 #[test]
-fn a_key_package_whose_credential_does_not_bind_is_not_added() {
-    let alice = device("alice", 11);
+fn a_credential_that_describes_another_device_cannot_build_an_engine() {
+    let alice = device("alice", 11, 111);
 
-    // Mallory signs a credential for a device key that is not the one her
-    // KeyPackage will carry.
-    let identity_private = [33u8; 32];
-    let mut identity_public = [0u8; 32];
-    libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
-    let real_signer = DeviceSigner::from_private_key([44u8; 32]);
-    let other_signer = DeviceSigner::from_private_key([55u8; 32]);
+    // Mallory's credential names device key 44; her engine would sign with 55.
+    let (credential, _real_device) =
+        issue_credential("mallory", 33, 44, NOW - 1000, NOW + 1000);
+    let other_signer = f2z_msg_mls::DeviceSigner::from_private_key([55u8; 32]);
 
-    let tbs = DeviceCredentialTbs::new(
-        &identity_public,
-        "mallory",
-        other_signer.public_key(), // ← not the key this device will sign with
-        &[0x33; 1216],
-        NOW - 1000,
-        NOW + 1000,
-    )
-    .expect("credential body");
-    let credential = DeviceCredential::sign(tbs, &identity_private).expect("sign");
-
-    // The engine refuses to be built with it at all, which is the earliest
-    // point the mismatch can be caught.
     assert!(matches!(
-        MlsEngine::new(MemoryBackend::new(), real_signer, credential, NOW),
+        MlsEngine::new(MemoryBackend::new(), other_signer, credential, NOW),
         Err(EngineError::Credential(_))
     ));
 
@@ -439,7 +404,7 @@ fn a_key_package_whose_credential_does_not_bind_is_not_added() {
 
 #[test]
 fn an_expired_credential_is_refused() {
-    let engine = device("alice", 11);
+    let engine = device("alice", 11, 111);
     assert!(matches!(
         engine.validate_members(
             &engine.create_group(GROUP_ID).expect("group"),
@@ -451,7 +416,7 @@ fn an_expired_credential_is_refused() {
 
 #[test]
 fn a_key_package_cannot_be_parsed_as_a_welcome() {
-    let bob = device("bob", 22);
+    let bob = device("bob", 22, 222);
     let key_package = bob.generate_key_package().expect("key package");
     assert!(bob.join_from_welcome(&key_package, NOW).is_err());
 }

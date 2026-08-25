@@ -61,19 +61,19 @@
 //! # Example
 //!
 //! ```no_run
-//! use f2z_msg_mls::{DeviceCredential, DeviceCredentialTbs, DeviceSigner, MlsEngine};
+//! use f2z_msg_mls::{DeviceCredential, DeviceSigner, MlsEngine};
 //! use f2z_msg_store::MemoryBackend;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # let identity_private = [1u8; 32];
-//! # let mut identity_public = [0u8; 32];
-//! # libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
+//! # fn issue(device_pk: &[u8; 32]) -> DeviceCredential { unimplemented!() }
 //! # let now = 1_700_000_000_000;
+//! // The device signing key is generated on-device from the OS CSPRNG and is
+//! // deliberately not seed-derivable (`ARCHITECTURE.md` §4.2).
 //! let signer = DeviceSigner::from_private_key([2u8; 32]);
-//! let tbs = DeviceCredentialTbs::new(
-//!     &identity_public, "alice", signer.public_key(), &[0; 1216], 0, u64::MAX,
-//! )?;
-//! let credential = DeviceCredential::sign(tbs, &identity_private)?;
+//!
+//! // The credential is issued by `f2z-msg-identity`'s `IdentitySigningKey`,
+//! // which holds the seed-derived account key. This crate never issues one.
+//! let credential = issue(signer.public_key());
 //!
 //! let engine = MlsEngine::new(MemoryBackend::new(), signer, credential, now)?;
 //! let mut group = engine.create_group(b"conversation-1")?;
@@ -107,11 +107,11 @@ pub mod signer;
 pub mod version;
 
 pub use credential::{
-    DEVICE_CREDENTIAL_TYPE, DeviceCredential, DeviceCredentialTbs, MAX_HANDLE_LEN,
+    DEVICE_CREDENTIAL_TYPE, DeviceCredential, DeviceCredentialTBS, validate_at, validate_for_leaf,
 };
 pub use engine::{CIPHERSUITE, MlsEngine, Received};
 pub use error::{CredentialError, EngineError, Result};
 pub use exporter::ExportLabel;
 pub use provider::F2zProvider;
-pub use signer::{DeviceSigner, verify};
+pub use signer::DeviceSigner;
 pub use version::{ProtocolVersion, XWING_CIPHERSUITE_CODEPOINT};

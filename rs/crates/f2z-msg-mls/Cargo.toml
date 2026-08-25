@@ -40,6 +40,18 @@ workspace = true
 # `default-features = false` so that a consumer targeting the browser does not
 # get SQLite by transitive default; this crate's own `sqlite` feature forwards.
 f2z-msg-store = { path = "../f2z-msg-store", version = "0.1.0", default-features = false }
+# `DeviceCredential` and `DeviceCredentialTBS` are **`f2z-kt-core`'s**, and this
+# crate re-exports them rather than restating them: an MLS peer and the
+# transparency log must agree byte-for-byte about what a credential is, and two
+# copies of a `tls_codec` struct are one field-order edit away from disagreeing.
+# `default-features = false` drops `verifier` and `auditor` — `akd_core` and
+# `akd` — which this crate does not need: `entry`, `labels`, `sig` and `types`
+# are unconditional. That also keeps the browser build small and keeps `akd`,
+# which cannot reach wasm32 (KT.md §11.3), out of the graph entirely.
+f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0", default-features = false }
+# The canonical encoding every free2z wire structure uses (`WIRE.md` §1.2, §3.3),
+# and the newtypes the credential is built from.
+f2z-codec = { workspace = true }
 openmls = { workspace = true }
 openmls_traits = { workspace = true }
 openmls_libcrux_crypto = { workspace = true }
@@ -49,18 +61,25 @@ openmls_libcrux_crypto = { workspace = true }
 # uses (`openmls_libcrux_crypto`'s `crypto.rs` calls exactly these functions),
 # so naming it here adds no crate to the graph and removes two.
 libcrux-ed25519 = { workspace = true }
-# The `DeviceCredential` is canonically encoded with `tls_codec`, like every
-# other free2z wire structure (`WIRE.md` §1.2), so that "re-encode and compare"
-# is the same operation everywhere in this tree.
 tls_codec = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
-# The two-instance test drives the engine the way a device does, which means
-# holding the libcrux Ed25519 primitive directly to mint the identity keys
-# `f2z-msg-identity` will eventually derive. Already a dependency of the
-# library; named again so the test's use of it is declared.
+# The tests issue credentials through the **real** issuer rather than by hand:
+# `AccountKeys::from_seed` → `IdentitySigningKey::issue_device_credential`. That
+# makes `tests/` the coordination test between #694's crate and this one — if
+# the two ever disagree about the structure, the engine stops accepting
+# credentials the identity crate issues, here, rather than on a user's phone.
+#
+# A dev-dependency and not a dependency: this crate never issues a credential.
+# Issuance needs the account key hierarchy and the seed, and
+# `CLIENT-CONTRACT.md` §2.2 keeps the seed in the app crate for reasons that
+# have nothing to do with MLS.
+f2z-msg-identity = { path = "../f2z-msg-identity", version = "0.1.0" }
+# The libcrux Ed25519 primitive, for the tests that check `DeviceSigner`
+# directly. Already a dependency of the library; named again so the test's use
+# of it is declared.
 libcrux-ed25519 = { workspace = true }
 # `version.rs`'s test round-trips a `ProtocolVersion` through the encoding the
 # store uses.

@@ -57,7 +57,7 @@ use f2z_msg_store::{Durability, StorageBackend};
 use openmls::prelude::*;
 use tls_codec::{Deserialize as _, Serialize as _};
 
-use crate::credential::DeviceCredential;
+use crate::credential::{DeviceCredential, encode as encode_credential, validate_for_leaf};
 use crate::error::{CredentialError, EngineError, Result};
 use crate::exporter::ExportLabel;
 use crate::provider::F2zProvider;
@@ -179,7 +179,7 @@ impl<B: StorageBackend> core::fmt::Debug for MlsEngine<B> {
         f.debug_struct("MlsEngine")
             .field(
                 "handle",
-                &String::from_utf8_lossy(self.credential.tbs().handle()),
+                &String::from_utf8_lossy(self.credential.credential.handle.as_slice()),
             )
             .field("durability", &self.durability())
             .finish_non_exhaustive()
@@ -206,8 +206,8 @@ impl<B: StorageBackend> MlsEngine<B> {
         credential: DeviceCredential,
         now_ms: u64,
     ) -> Result<Self> {
-        credential.validate_for_leaf(signer.public_key(), now_ms)?;
-        let credential_bytes = credential.to_bytes()?;
+        validate_for_leaf(&credential, signer.public_key(), now_ms)?;
+        let credential_bytes = encode_credential(&credential)?;
         Ok(Self {
             provider: F2zProvider::new(backend)?,
             signer,
@@ -657,7 +657,8 @@ fn basic_credential_identity(credential: &Credential) -> Result<&[u8]> {
 }
 
 fn validate_credential_bytes(bytes: &[u8], leaf_signature_key: &[u8], now_ms: u64) -> Result<()> {
-    DeviceCredential::parse(bytes)?.validate_for_leaf(leaf_signature_key, now_ms)?;
+    let credential = crate::credential::parse(bytes)?;
+    validate_for_leaf(&credential, leaf_signature_key, now_ms)?;
     Ok(())
 }
 

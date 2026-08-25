@@ -96,18 +96,21 @@ impl DeviceSigner {
     }
 }
 
-/// Verify an Ed25519 signature through the same core that produced it.
-///
-/// # Errors
-///
-/// [`EngineError::Signature`] if the signature does not verify.
-pub fn verify(
-    payload: &[u8],
-    public: &[u8; PUBLIC_LEN],
-    signature: &[u8; SIGNATURE_LEN],
-) -> Result<(), EngineError> {
-    libcrux_ed25519::verify(payload, public, signature).map_err(|_| EngineError::Signature)
-}
+// There is deliberately no `verify` function in this module.
+//
+// Two reasons, and the second is the one that matters. First, this crate never
+// verifies an MLS framing signature itself: OpenMLS does, through
+// `openmls_libcrux_crypto`'s `verify_signature`, which calls the same libcrux
+// primitive `sign` above does — so a verifier here would be a third caller of
+// a function that already has exactly the two it needs. Second, a
+// device-credential signature is an *identity*-domain signature and
+// `f2z-kt-core::sig::verify` owns it, using `verify_strict` so that small-order
+// keys and non-canonical encodings are refused; an MLS peer and the
+// transparency log answering differently about the same credential is a fork
+// nobody would see. `f2z-codec`'s `workspace_strict_verification_scan` requires
+// every `fn verify` in the tree to be registered with a statement of what makes
+// it strict, and the honest statement for one here would be "it duplicates one
+// of those two".
 
 impl Signer for DeviceSigner {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, SignerError> {
@@ -126,17 +129,30 @@ impl Signer for DeviceSigner {
 
 #[cfg(test)]
 mod tests {
+    use openmls_libcrux_crypto::CryptoProvider;
+    use openmls_traits::crypto::OpenMlsCrypto as _;
+
     use super::*;
 
     fn signer() -> DeviceSigner {
         DeviceSigner::from_private_key([7u8; PRIVATE_LEN])
     }
 
+    /// Verification goes through the **production** verifier — the libcrux
+    /// provider OpenMLS itself calls — rather than through a helper this module
+    /// exports. See the note above on why there is no `verify` here.
+    fn verifies(payload: &[u8], public: &[u8; PUBLIC_LEN], signature: &[u8]) -> bool {
+        CryptoProvider::new()
+            .unwrap()
+            .verify_signature(SignatureScheme::ED25519, payload, public, signature)
+            .is_ok()
+    }
+
     #[test]
     fn a_signature_verifies_against_the_derived_public_key() {
         let signer = signer();
         let signature = signer.sign_bytes(b"transcript").unwrap();
-        verify(b"transcript", signer.public_key(), &signature).unwrap();
+        assert!(verifies(b"transcript", signer.public_key(), &signature));
     }
 
     #[test]
@@ -144,14 +160,14 @@ mod tests {
         let signer = signer();
         let mut signature = signer.sign_bytes(b"transcript").unwrap();
         signature[0] ^= 0x01;
-        assert!(verify(b"transcript", signer.public_key(), &signature).is_err());
+        assert!(!verifies(b"transcript", signer.public_key(), &signature));
     }
 
     #[test]
     fn a_different_payload_is_rejected() {
         let signer = signer();
         let signature = signer.sign_bytes(b"transcript").unwrap();
-        assert!(verify(b"transcripT", signer.public_key(), &signature).is_err());
+        assert!(!verifies(b"transcripT", signer.public_key(), &signature));
     }
 
     #[test]
@@ -159,7 +175,7 @@ mod tests {
         let signer = signer();
         let other = DeviceSigner::from_private_key([8u8; PRIVATE_LEN]);
         let signature = signer.sign_bytes(b"transcript").unwrap();
-        assert!(verify(b"transcript", other.public_key(), &signature).is_err());
+        assert!(!verifies(b"transcript", other.public_key(), &signature));
     }
 
     /// The `Signer` impl OpenMLS calls and [`DeviceSigner::sign_bytes`] must be

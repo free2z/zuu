@@ -29,8 +29,11 @@
     clippy::arithmetic_side_effects
 )]
 
-use f2z_msg_mls::{DeviceCredential, DeviceCredentialTbs, DeviceSigner, MlsEngine};
+use f2z_msg_mls::DeviceSigner;
 use f2z_msg_store::{F2zStorageProvider, MemoryBackend};
+
+mod common;
+use common::{NOW, issue_credential};
 
 /// A byte pattern with a distinctive rendering in every base a leak could use.
 const SECRET: [u8; 4] = [0xAB, 0xCD, 0xEF, 0x12];
@@ -103,27 +106,26 @@ fn a_device_signer_redacts_both_keys() {
 
 #[test]
 fn a_device_credential_redacts_every_key_and_the_signature() {
-    let identity_private = [0xCD; 32];
-    let mut identity_public = [0u8; 32];
-    libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
-    let signer = DeviceSigner::from_private_key([0xAB; 32]);
-
-    let tbs = DeviceCredentialTbs::new(
-        &identity_public,
-        "alice",
-        signer.public_key(),
-        &[0xEF; 1216],
-        0,
-        u64::MAX,
-    )
-    .expect("tbs");
-    let credential = DeviceCredential::sign(tbs, &identity_private).expect("sign");
+    // Issued by the real issuer, so this checks the `Debug` of the structure
+    // that actually ships rather than of a local stand-in.
+    let (credential, signer) = issue_credential("alice", 0xCD, 0xAB, 0, NOW * 2);
 
     let rendered = format!("{credential:?}");
 
-    assert_redacted("DeviceCredential identity_pk", &rendered, &identity_public);
+    assert_redacted(
+        "DeviceCredential identity_pk",
+        &rendered,
+        credential.credential.identity_pk.as_bytes(),
+    );
     assert_redacted("DeviceCredential device_pk", &rendered, signer.public_key());
-    assert_redacted("DeviceCredential device_kem_pk", &rendered, &[0xEFu8; 8]);
+    // `device_kem_pk` is 1216 bytes of the device seed, so a dump of it renders
+    // as a long run of the same value in either base.
+    assert_redacted("DeviceCredential device_kem_pk", &rendered, &[0xABu8; 8]);
+    assert_redacted(
+        "DeviceCredential signature",
+        &rendered,
+        &credential.signature.as_bytes()[..8],
+    );
 
     // The handle is the one field that is meant to be readable — it is public
     // by construction and is what a peer looks up in the directory. A `Debug`
@@ -149,37 +151,22 @@ fn the_storage_provider_redacts_its_journal() {
 
 #[test]
 fn the_engine_redacts_everything_it_holds() {
-    let identity_private = [0xCD; 32];
-    let mut identity_public = [0u8; 32];
-    libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
-    let signer = DeviceSigner::from_private_key([0xAB; 32]);
-    let public = *signer.public_key();
-
-    let tbs = DeviceCredentialTbs::new(
-        &identity_public,
-        "alice",
-        &public,
-        &[0xEF; 1216],
-        0,
-        u64::MAX,
-    )
-    .expect("tbs");
-    let credential = DeviceCredential::sign(tbs, &identity_private).expect("sign");
-    let engine = MlsEngine::new(MemoryBackend::new(), signer, credential, 1).expect("engine");
+    let engine = common::device("alice", 0xCD, 0xAB);
+    let credential = engine.credential().clone();
 
     let rendered = format!("{engine:?}");
-    assert_redacted("MlsEngine private key", &rendered, &[0xABu8; 4]);
-    assert_redacted("MlsEngine identity key", &rendered, &identity_public);
-    assert_redacted("MlsEngine device key", &rendered, &public);
+    assert_redacted("MlsEngine device private key", &rendered, &[0xABu8; 4]);
+    assert_redacted(
+        "MlsEngine identity key",
+        &rendered,
+        credential.credential.identity_pk.as_bytes(),
+    );
+    assert_redacted(
+        "MlsEngine device key",
+        &rendered,
+        credential.credential.device_pk.as_bytes(),
+    );
     assert!(rendered.contains("alice"), "{rendered}");
-}
-
-#[test]
-fn the_provider_redacts_its_store_and_names_its_crypto() {
-    let engine_store = F2zStorageProvider::new(MemoryBackend::new());
-    engine_store.put_app(b"k", &[0xAB; 64]).expect("put");
-    let rendered = format!("{engine_store:?}");
-    assert_redacted("F2zStorageProvider", &rendered, &[0xABu8; 4]);
 }
 
 /// The decrypted plaintext of a user's message is the sharpest thing in this

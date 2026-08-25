@@ -754,6 +754,9 @@ dependencies = [
 name = "f2z-msg-mls"
 version = "0.1.0"
 dependencies = [
+ "f2z-codec",
+ "f2z-kt-core",
+ "f2z-msg-identity",
  "f2z-msg-store",
  "getrandom 0.3.4",
  "getrandom 0.4.3",
