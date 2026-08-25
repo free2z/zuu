@@ -158,10 +158,13 @@ async fn handshake(
         Some(acceptor) => {
             let tls = acceptor.accept(stream).await.ok()?;
             // §5.3: the exporter is taken from the completed handshake, before
-            // the WebSocket upgrade consumes the stream.
+            // the WebSocket upgrade consumes the stream. No binding is a
+            // refusal, not a degradation to `none` — this relay publishes
+            // `channel_binding_mode: tls-exporter`, and §5.3 requires the
+            // connection to be refused rather than carry the `none` sentinel.
             let binding = {
                 let (_io, connection) = tls.get_ref();
-                crate::tls::export(connection)
+                crate::tls::export(connection)?
             };
             let socket = tokio_tungstenite::accept_hdr_async(tls, check_upgrade)
                 .await
