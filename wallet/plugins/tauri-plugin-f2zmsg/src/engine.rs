@@ -1003,12 +1003,22 @@ impl<B: StorageBackend> Engine<B> {
             }
         }
 
-        // §3.5: a hole, not an absence. `false` here means "no detected gap"
-        // and never "nothing is missing" — hash links do not detect tail
-        // truncation, and no string may imply they do. It is also not the same
-        // question as "is there an earlier page": a page boundary is bookkeeping
-        // and a gap is a certainty, and §7 says a hole in the sort order is not
-        // a hole in the conversation and vice versa.
+        // §3.5: a hole, not an absence — and this errs toward saying there is
+        // one.
+        //
+        // A detected gap is a `parents` hash this device does not hold, and a
+        // hash it does not hold cannot be placed in the order: §7 is explicit
+        // that a hole in the sort order is not a hole in the conversation and
+        // vice versa. So "is that gap before *this* window" is not answerable,
+        // and the honest approximation is the conservative one — any detected
+        // gap, plus content earlier than the window it could sit in.
+        //
+        // The direction is the part that matters. `false` here must never mean
+        // "nothing is missing": hash links do not detect tail truncation at
+        // all, so that claim is unavailable to any implementation, and §9 rule
+        // 7 forbids rendering a hole as nothing. Over-reporting shows a marker
+        // where the transcript is whole; under-reporting hides a message that
+        // is gone.
         let has_gap_before = start > 0 && !inner.records().gaps(conversation_id)?.is_empty();
 
         Ok(MessagePage {
