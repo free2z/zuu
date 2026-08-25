@@ -658,8 +658,9 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
         "appendFileSync(process.env.ZUULI_INSTALLER_LOG, `${JSON.stringify([command, ...args])}\\n`);",
         "const state = process.env.ZUULI_INSTALLER_STATE;",
         "const requireState = (name) => { if (!existsSync(resolve(state, name))) process.exit(91); };",
+        "const fail = (name, status) => { process.stderr.write(`injected ${name} failure\\n`); process.exit(status); };",
         'if (command === "curl") {',
-        '  if (process.env.ZUULI_INSTALLER_FAILURE === "curl") process.exit(22);',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "curl") fail("curl", 22);',
         '  const output = args[args.indexOf("--output") + 1];',
         "  if (!output) process.exit(92);",
         '  writeFileSync(output, "mock crate archive\\n");',
@@ -667,10 +668,11 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
         '} else if (command === "sha256sum") {',
         '  requireState("curl");',
         '  writeFileSync(resolve(state, "checksum-input"), readFileSync(0));',
-        '  if (process.env.ZUULI_INSTALLER_FAILURE === "checksum") process.exit(1);',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "checksum") fail("checksum", 1);',
         '  writeFileSync(resolve(state, "checksum"), "ok\\n");',
         '} else if (command === "tar") {',
         '  requireState("checksum");',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "tar") fail("tar", 2);',
         '  const destination = args[args.indexOf("-C") + 1];',
         "  if (!destination) process.exit(93);",
         '  mkdirSync(resolve(destination, "cargo-auditable-0.7.5"), { recursive: true });',
@@ -680,12 +682,12 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
         '  const input = args.find((arg) => arg.startsWith("--input="))?.slice("--input=".length);',
         "  if (!input) process.exit(96);",
         '  writeFileSync(resolve(state, "patch-input"), readFileSync(input));',
-        '  if (process.env.ZUULI_INSTALLER_FAILURE === "patch") process.exit(1);',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "patch") fail("patch", 1);',
         '  writeFileSync(resolve(state, "patch"), "ok\\n");',
         '} else if (command === "cargo") {',
         '  if (args[0] === "install" && args[1] !== "--list") {',
         '    requireState("patch");',
-        '    if (process.env.ZUULI_INSTALLER_FAILURE === "install") process.exit(1);',
+        '    if (process.env.ZUULI_INSTALLER_FAILURE === "install") fail("install", 101);',
         '    writeFileSync(resolve(state, "install"), "ok\\n");',
         '  } else if (args[0] === "install" && args[1] === "--list") {',
         '    requireState("install");',
@@ -723,6 +725,8 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
       }
       return {
         error,
+        status: error?.status,
+        stderr: error?.stderr?.toString("utf8"),
         state,
         commands: existsSync(log)
           ? readFileSync(log, "utf8")
@@ -782,11 +786,90 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
       resolve(sourceRoot, "cargo-auditable-0.7.5"),
     ]);
     assert.deepEqual(installed, ["cargo", "install", "--list"]);
-    for (const failure of ["curl", "checksum", "patch", "install", "version"])
-      assert.ok(
-        invoke(`failure-${failure}`, failure).error,
-        `${failure} failure must stop installation`,
+    const expectedCommandsFor = (archivePath) => {
+      const extractedRoot = dirname(archivePath);
+      return [
+        [
+          "curl",
+          "--fail",
+          "--location",
+          "--proto",
+          "=https",
+          "--tlsv1.2",
+          "https://static.crates.io/crates/cargo-auditable/cargo-auditable-0.7.5.crate",
+          "--output",
+          archivePath,
+        ],
+        ["sha256sum", "--check"],
+        ["tar", "-xzf", archivePath, "-C", extractedRoot],
+        [
+          "patch",
+          "--fuzz=0",
+          "--batch",
+          "--forward",
+          "-d",
+          extractedRoot,
+          "-p0",
+          `--input=${resolve(scriptDirectory, "cargo-auditable-0.7.5-root.patch")}`,
+        ],
+        [
+          "cargo",
+          "install",
+          "--force",
+          "--locked",
+          "--path",
+          resolve(extractedRoot, "cargo-auditable-0.7.5"),
+        ],
+        ["cargo", "install", "--list"],
+      ];
+    };
+    for (const [failure, status, message, commandCount] of [
+      ["curl", 22, "injected curl failure\n", 1],
+      ["checksum", 1, "injected checksum failure\n", 2],
+      ["tar", 2, "injected tar failure\n", 3],
+      ["patch", 1, "injected patch failure\n", 4],
+      ["install", 101, "injected install failure\n", 5],
+    ]) {
+      const failed = invoke(`failure-${failure}`, failure);
+      assert.ok(failed.error, `${failure} failure must stop installation`);
+      const failedArchive = failed.commands[0]?.at(-1);
+      assert.match(
+        failedArchive,
+        /\/zuuli-cargo-auditable-source\.[^/]+\/cargo-auditable-0\.7\.5\.crate$/,
       );
+      assert.deepEqual(
+        failed.commands,
+        expectedCommandsFor(failedArchive).slice(0, commandCount),
+        `${failure} must be the final invoked command`,
+      );
+      assert.equal(
+        failed.status,
+        status,
+        `${failure} must preserve its exit status`,
+      );
+      assert.equal(
+        failed.stderr,
+        message,
+        `${failure} must preserve its diagnostic`,
+      );
+    }
+
+    const wrongVersion = invoke("failure-version", "version");
+    assert.ok(
+      wrongVersion.error,
+      "wrong installed version must fail verification",
+    );
+    assert.equal(wrongVersion.status, 1);
+    assert.equal(wrongVersion.stderr, "");
+    const wrongVersionArchive = wrongVersion.commands[0]?.at(-1);
+    assert.match(
+      wrongVersionArchive,
+      /\/zuuli-cargo-auditable-source\.[^/]+\/cargo-auditable-0\.7\.5\.crate$/,
+    );
+    assert.deepEqual(
+      wrongVersion.commands,
+      expectedCommandsFor(wrongVersionArchive),
+    );
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
