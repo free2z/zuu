@@ -4982,6 +4982,7 @@ dependencies = [
 name = "tauri-plugin-f2zmsg"
 version = "0.1.0"
 dependencies = [
+ "chacha20poly1305",
  "f2z-codec",
  "f2z-kt-core",
  "f2z-msg-identity",
@@ -4991,6 +4992,8 @@ dependencies = [
  "f2z-relay-testkit",
  "futures-util",
  "hex",
+ "openmls",
+ "openmls_traits",
  "rand 0.9.5",
  "serde",
  "serde_json",

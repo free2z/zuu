@@ -78,6 +78,25 @@ hex = "0.4"
 f2z-msg-identity = { path = "../../../rs/crates/f2z-msg-identity", version = "0.1.0" }
 # The MLS (RFC 9420) engine: X-Wing hybrid PQ, DeviceCredential-bound membership.
 f2z-msg-mls = { path = "../../../rs/crates/f2z-msg-mls", version = "0.1.0" }
+# `MlsGroup` is OpenMLS's own type and `f2z-msg-mls` hands it back by value —
+# there is no engine-side group registry — so the plugin has to name it to hold
+# a group across command invocations and to reload one after a restart with
+# `MlsGroup::load`. The feature list is `rs/Cargo.toml`'s, restated rather than
+# inherited by unification: `libcrux-provider` because ADR 0001 has exactly one
+# crypto core, and `draft-ietf-mls-pq-ciphersuites` because 0.9.0 moved every
+# post-quantum codepoint behind it and §5.2's X-Wing ciphersuite cannot be
+# named without it.
+openmls = { version = "0.9.0", default-features = false, features = [
+  "libcrux-provider",
+  "draft-ietf-mls-pq-ciphersuites",
+] }
+# `OpenMlsProvider::storage()`, which is how `MlsGroup::load` reaches the store
+# `f2z-msg-mls` owns.
+openmls_traits = { version = "0.6", default-features = false }
+# The seal over the device signing key, under the seed-derived `BackupWrapKey`
+# (§6.1's `locked`). Already the wallet graph's AEAD — `tauri-plugin-zcash`
+# resolves the same version — so this adds no second cipher.
+chacha20poly1305 = "0.10"
 # The OpenMLS `StorageProvider`. `sqlite` is the default and is what makes
 # `Durability::Durable` — and therefore ACKing at all — reachable (§11.2).
 f2z-msg-store = { path = "../../../rs/crates/f2z-msg-store", version = "0.1.0" }

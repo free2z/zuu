@@ -54,6 +54,24 @@ impl Error {
     pub fn context(&self) -> &str {
         &self.context
     }
+
+    /// §8: `engine-not-running` is retryable — the UI calls `start_engine`
+    /// once, then retries once.
+    pub fn engine_not_running(what: &str) -> Self {
+        Self::new(
+            ErrorCode::EngineNotRunning,
+            format!("{what} requires a running engine"),
+        )
+    }
+
+    /// §8: `not-enrolled` routes to enrollment, which is an app-crate command
+    /// (§2.2) and not something this plugin can perform.
+    pub fn not_enrolled(what: &str) -> Self {
+        Self::new(
+            ErrorCode::NotEnrolled,
+            format!("{what} requires a directory entry"),
+        )
+    }
 }
 
 impl core::fmt::Display for Error {
@@ -93,29 +111,15 @@ impl From<std::io::Error> for Error {
     }
 }
 
-/// Shorthand for the two refusals every command that touches the engine may
-/// make, so that each command body does not restate them.
-pub trait EngineGuard {
-    /// §8: `engine-not-running` is retryable — the UI calls `start_engine`
-    /// once, then retries once.
-    fn engine_not_running(what: &str) -> Error {
-        Error::new(
-            ErrorCode::EngineNotRunning,
-            format!("{what} requires a running engine"),
-        )
-    }
-
-    /// §8: `not-enrolled` routes to enrollment, which is an app-crate command
-    /// (§2.2) and not something this plugin can perform.
-    fn not_enrolled(what: &str) -> Error {
-        Error::new(
-            ErrorCode::NotEnrolled,
-            format!("{what} requires a directory entry"),
-        )
+impl From<crate::framing::FramingError> for Error {
+    fn from(error: crate::framing::FramingError) -> Self {
+        // A malformed envelope from a peer is not `relay-protocol-violation`:
+        // the relay never saw inside it. It is our own engine failing to make
+        // sense of an authenticated payload, which is what `internal` means.
+        Self::internal(error.to_string())
     }
 }
 
-impl EngineGuard for Error {}
 
 #[cfg(test)]
 mod tests {
