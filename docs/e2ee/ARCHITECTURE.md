@@ -682,9 +682,10 @@ deliberate belt-and-braces, not redundancy.
 - **Causal ordering:** the DAG's partial order. For display, a deterministic
   total order breaks ties by `(epoch, sender_leaf_index, msg_id)`. Wall-clock
   timestamps are never used to order, because a clock is an attacker-controlled
-  input. All three components are hashed fields of the message, so the sort key
-  is a property of the **message** and not of the delivery that carried it —
-  which is what makes the guarantee below a guarantee about a *set of messages*.
+  input. `epoch` and `sender_leaf_index` are hashed fields and `msg_id` is the
+  commitment over them, so all three are properties of the **message** rather
+  than of the delivery that carried it — which is what makes the guarantee below
+  a guarantee about a *set of messages*.
   On direct delivery a receiver MUST check the message's `epoch` and
   `sender_leaf_index` against the MLS framing's and treat a disagreement as an
   error; the hashed fields are authoritative and the framing is the cross-check.

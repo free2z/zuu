@@ -230,6 +230,34 @@ mod tests {
         assert_eq!(order, vec![id(0xff), id(0x01), id(0x00)]);
     }
 
+    /// **Filling a gap can reorder messages already rendered.**
+    ///
+    /// The property `CLIENT-CONTRACT.md` §7's correction rejects an insertion
+    /// index for. Hold `A` and `C` while `C`'s parent `B` is missing: nothing
+    /// orders `A` against `C` but the sort key, which here puts `C` first. When
+    /// `B` lands, `A → B → C` forces `A` before `C` and the two swap. A single
+    /// index in `message-received` cannot express that, which is why the UI
+    /// re-reads the window instead of patching a position.
+    #[test]
+    fn filling_a_gap_can_reorder_messages_already_held() {
+        let a = node(0xaa, 7, 1, &[]);
+        let b = node(0xbb, 7, 1, &[0xaa]);
+        let c = node(0xcc, 7, 0, &[0xbb]);
+
+        // Before the repair: B is not held, so C's edge constrains nothing and
+        // the sort key alone separates them — C first, on the lower leaf index.
+        assert_eq!(
+            linearise(&[a.clone(), c.clone()]).unwrap(),
+            vec![id(0xcc), id(0xaa)]
+        );
+
+        // After: the chain forces the other order, and the two rows swap.
+        assert_eq!(
+            linearise(&[a, b, c]).unwrap(),
+            vec![id(0xaa), id(0xbb), id(0xcc)]
+        );
+    }
+
     #[test]
     fn a_parent_the_receiver_does_not_hold_imposes_no_constraint() {
         let orphan = node(0x01, 7, 0, &[0xee]);

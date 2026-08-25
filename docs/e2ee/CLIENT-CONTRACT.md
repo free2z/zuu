@@ -1412,13 +1412,14 @@ Practical consequences for the transcript component:
 
 - **Insertion is not append, and it is not even insertion.** An inbound message
   can land in the middle of the transcript, and — when it fills a gap — it can
-  also **reorder messages already on screen**, because a message that was
-  concurrent with others becomes their ancestor the moment its parent arrives.
-  So the component does not compute a position and does not maintain one: on
-  `message-received` it **re-reads the visible window** with `list_messages` and
-  renders the sequence it gets back. See the correction below for why an
-  insertion index in the event would have been a lie in exactly the case that
-  matters.
+  **reorder rows already on screen**. Two held messages are incomparable while
+  the message that links them is missing, so the sort key alone separates them;
+  the moment the missing one lands, the causal chain forces an order, and it may
+  be the other one. So the component does not compute a position and does not
+  maintain one: on `message-received` it **re-reads the visible window** with
+  `list_messages` and renders the sequence it gets back. See the correction below
+  for why an insertion index in the event would have been a lie in exactly the
+  case that matters.
 - **`msgId` is the dedup key**, not `clientRef` and not any tuple involving
   `sentAt`. Duplicates are expected: a device may publish queue addresses on *k*
   relays and senders send to all *k*
@@ -1483,7 +1484,7 @@ Practical consequences for the transcript component:
 >
 > | Option | Verdict |
 > |---|---|
-> | An **insertion index** in `message-received` | **Rejected as incorrect.** An arriving message that fills a gap does not merely insert: two messages already rendered can be concurrent, and become ordered the moment their common ancestor lands. One index cannot express that, and it would be wrong in exactly the gap-repair case §3.5 exists for. |
+> | An **insertion index** in `message-received` | **Rejected as incorrect.** An arriving message that fills a gap does not merely insert. Hold `A` and `C`, where `C`'s parent `B` is missing: nothing orders `A` against `C` but the sort key, which can place `C` first. When `B` arrives, `A → B → C` forces `A` before `C` and the two rows swap. One index cannot express that, and it would be wrong in exactly the gap-repair case §3.5 exists for. |
 > | A **small ordered-window API** | **Already present.** `list_messages` takes `before` / `after` / `limit`; a window is what the transcript reads. Adding a second such command would be duplication. |
 > | **Re-read the visible window on `message-received`** | **Chosen.** |
 >
