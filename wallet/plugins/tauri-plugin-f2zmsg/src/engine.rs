@@ -2509,6 +2509,31 @@ impl<B: StorageBackend> Inner<B> {
     }
 }
 
+/// The highest queue index that may be acknowledged, given each message's
+/// outcome in index order.
+///
+/// **`ACK` is cumulative** (`WIRE.md` §8.2): acknowledging index 5 deletes 3 as
+/// well. So one failure has to stop the acknowledgement *there*, not merely
+/// exclude itself — otherwise a message this device could not write is deleted
+/// at the relay by the `ACK` for a later one, which is §9 rule 1's failure mode
+/// reached by the back door and is exactly as permanent.
+///
+/// This is a free function taking outcomes rather than a `bool` threaded
+/// through the read loop, because the property is worth a test and a flag
+/// inside an async loop over a socket is not testable. `pump_conversation`'s
+/// local read cursor still advances past a failure, so the next pass does not
+/// spin on it; what does not advance is the deletion.
+fn acknowledgeable(outcomes: &[(u64, bool)]) -> Option<u64> {
+    let mut highest = None;
+    for (index, committed) in outcomes {
+        if !committed {
+            break;
+        }
+        highest = Some(*index);
+    }
+    highest
+}
+
 // ----------------------------------------------------------------------
 // Views and small helpers
 // ----------------------------------------------------------------------
@@ -2981,6 +3006,12 @@ impl<B: StorageBackend> Inner<B> {
         let blocked = self.records().blocked()?;
         let mut requests = self.records().contact_requests()?;
         let mut events = Vec::new();
+        // Same cumulative-ACK discipline as `pump_conversation`: a payload this
+        // device could not record must not be deleted at the relay by an `ACK`
+        // for a later one. Here every failure is a *discard* — a stranger can
+        // put anything in a contact queue — so the acknowledgement follows the
+        // read cursor, and the one thing that would stop it is the durable
+        // write below failing.
         let mut highest = None;
         let mut queue = queue;
         for queued in response.messages.as_slice() {
@@ -3036,6 +3067,8 @@ impl<B: StorageBackend> Inner<B> {
 
         if highest.is_some() {
             let snapshot = queue.clone();
+            // If this fails, `?` leaves the function before the ACK below and
+            // the relay keeps every one of them.
             self.records().commit(|records| {
                 records.put_contact_requests(&requests)?;
                 records.put_contact_queue(&snapshot)
@@ -3142,7 +3175,20 @@ impl<B: StorageBackend> Inner<B> {
         };
 
         let mut events = Vec::new();
-        let mut highest: Option<u64> = None;
+        // The highest index every message up to and including it was durably
+        // handled at. **Not** "the last index seen".
+        //
+        // `ACK` is cumulative: acknowledging 5 deletes 3 as well. So a single
+        // failure has to stop the acknowledgement there, or a message this
+        // device could not write is deleted at the relay by an `ACK` for a
+        // later one — §9 rule 1's failure mode reached by the back door. The
+        // local read cursor still advances past the failure, so the next pass
+        // does not spin on it; what does not advance is the deletion.
+        //
+        // The consequence is the correct one and §8's `storage-full` row says
+        // so in as many words: an un-ACKed message stays on the relay until its
+        // TTL, and any device that can write it still receives it.
+        let mut outcomes: Vec<(u64, bool)> = Vec::with_capacity(response.messages.as_slice().len());
         for queued in response.messages.as_slice() {
             let index = queued.index;
             let outcome = match crate::relay::unpad(queued.payload.as_slice()) {
@@ -3150,19 +3196,23 @@ impl<B: StorageBackend> Inner<B> {
                 Err(error) => Err(error),
             };
             match outcome {
-                Ok(mut produced) => events.append(&mut produced),
+                Ok(mut produced) => {
+                    events.append(&mut produced);
+                    outcomes.push((index, true));
+                }
                 Err(error) => {
+                    outcomes.push((index, false));
                     tracing::info!(conversation = %conversation_id, index, code = %error.code(), "inbound");
                 }
             }
-            highest = Some(index);
         }
+        let acknowledged = acknowledgeable(&outcomes);
 
         // Only now, and only if this store can promise durability. §11.2: a
         // client that cannot must never ACK, because the relay deletes the
         // instant it receives one and IndexedDB — or a store opened in memory —
         // can be discarded as a unit.
-        if let Some(highest) = highest {
+        if let Some(highest) = acknowledged {
             if self.records().may_acknowledge() {
                 let Some(connection) = self.connections.get_mut(&queue.relay_url) else {
                     return Ok(events);
@@ -3781,5 +3831,56 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
         },
         per_source_limits: capabilities.per_source_limits != 0,
         operator: operator_of(capabilities),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::acknowledgeable;
+
+    #[test]
+    fn a_clean_batch_is_acknowledged_to_its_end() {
+        assert_eq!(acknowledgeable(&[(0, true), (1, true), (2, true)]), Some(2));
+    }
+
+    #[test]
+    fn nothing_read_is_nothing_acknowledged() {
+        assert_eq!(acknowledgeable(&[]), None);
+    }
+
+    #[test]
+    fn a_failure_stops_the_acknowledgement_at_the_message_before_it() {
+        // The whole point. `ACK` is cumulative, so acknowledging 2 would delete
+        // 1 — the one this device could not write — from the relay, and there
+        // is no second copy anywhere. §9 rule 1.
+        assert_eq!(
+            acknowledgeable(&[(0, true), (1, false), (2, true)]),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_failure_on_the_first_message_acknowledges_nothing() {
+        assert_eq!(acknowledgeable(&[(0, false), (1, true)]), None);
+    }
+
+    #[test]
+    fn later_successes_never_resume_the_acknowledgement() {
+        // A `max()` over the committed indices would answer 4 here and delete
+        // three messages this device does not hold. The fold has to stop.
+        assert_eq!(
+            acknowledgeable(&[(0, true), (1, false), (2, true), (3, true), (4, true)]),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_batch_that_does_not_start_at_zero_is_still_bounded_by_its_first_failure() {
+        // A queue read resumes from `next_index`, so a batch's first index is
+        // whatever the last pass reached.
+        assert_eq!(
+            acknowledgeable(&[(97, true), (98, true), (99, false)]),
+            Some(98)
+        );
     }
 }
