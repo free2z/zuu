@@ -14,8 +14,26 @@ const DIRECTIONAL_ICONS = new Set([
   "LogIn",
   "LogOut",
   "Reply",
-  "SendIcon",
+  "Send",
 ]);
+
+const REQUIRED_DIRECTIONAL_TRANSFORMS = Object.freeze({
+  "src/components/ui/switch.tsx": Object.freeze({
+    anchors: Object.freeze(["data-[state=unchecked]:translate-x-0", "h-5", "w-5"]),
+    ltr: "ltr:data-[state=checked]:translate-x-5",
+    rtl: "rtl:data-[state=checked]:-translate-x-5",
+  }),
+  "src/features/auth/ZcashLoginFlow.tsx": Object.freeze({
+    anchors: Object.freeze(["absolute", "start-4", "top-9", "w-px"]),
+    ltr: "ltr:-translate-x-1/2",
+    rtl: "rtl:translate-x-1/2",
+  }),
+  "src/features/profile/LinkedAccounts.tsx": Object.freeze({
+    anchors: Object.freeze(["absolute", "start-4", "top-9", "w-px"]),
+    ltr: "ltr:-translate-x-1/2",
+    rtl: "rtl:translate-x-1/2",
+  }),
+});
 
 // Messaging is owned by the parallel E2EE effort. This is deliberately an
 // exact residual inventory, not a directory exemption: a new path, a removed
@@ -119,22 +137,133 @@ function styleAttributeExpression(attributes) {
   return attribute.initializer.expression;
 }
 
-function collectVariableInitializers(file) {
-  const initializers = new Map();
+function collectVariableDeclarations(file) {
+  const declarations = new Map();
   const visit = (node) => {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
       node.initializer
     ) {
-      const current = initializers.get(node.name.text) ?? [];
-      current.push(node.initializer);
-      initializers.set(node.name.text, current);
+      const current = declarations.get(node.name.text) ?? [];
+      current.push(node);
+      declarations.set(node.name.text, current);
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
-  return initializers;
+  return declarations;
+}
+
+function collectLocalBindings(file) {
+  const bindings = new Map();
+  const add = (name, declaration) => {
+    if (!name) return;
+    const current = bindings.get(name.text) ?? [];
+    current.push(declaration);
+    bindings.set(name.text, current);
+  };
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) {
+      if (ts.isIdentifier(node.name)) add(node.name, node);
+    } else if (
+      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) &&
+      node.name
+    ) {
+      add(node.name, node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return bindings;
+}
+
+function lexicalScope(node) {
+  let current = node.parent;
+  while (current) {
+    if (
+      ts.isSourceFile(current) ||
+      ts.isBlock(current) ||
+      ts.isModuleBlock(current) ||
+      ts.isCaseBlock(current) ||
+      ts.isFunctionLike(current)
+    ) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function scopeDepth(scope) {
+  let depth = 0;
+  for (let current = scope; current; current = current.parent) depth += 1;
+  return depth;
+}
+
+function resolveVariableDeclaration(identifier, declarations) {
+  const candidates = (declarations.get(identifier.text) ?? [])
+    .map((declaration) => ({ declaration, scope: lexicalScope(declaration) }))
+    .filter(
+      ({ declaration, scope }) =>
+        scope &&
+        declaration.pos < identifier.pos &&
+        scope.pos <= identifier.pos &&
+        identifier.end <= scope.end,
+    )
+    .sort(
+      (left, right) =>
+        scopeDepth(right.scope) - scopeDepth(left.scope) ||
+        right.declaration.pos - left.declaration.pos,
+    );
+  return candidates[0]?.declaration ?? null;
+}
+
+function hasLexicalShadow(identifier, bindings) {
+  return Boolean(resolveVariableDeclaration(identifier, bindings));
+}
+
+function collectLucideBindings(file) {
+  const named = new Map();
+  const namespaces = new Set();
+  for (const statement of file.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      literalText(statement.moduleSpecifier) !== "lucide-react" ||
+      !statement.importClause?.namedBindings
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause.namedBindings;
+    if (ts.isNamespaceImport(bindings)) {
+      namespaces.add(bindings.name.text);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (DIRECTIONAL_ICONS.has(importedName)) {
+        named.set(element.name.text, importedName);
+      }
+    }
+  }
+  return { named, namespaces };
+}
+
+function directionalIcon(tagName, bindings, localBindings) {
+  if (ts.isIdentifier(tagName)) {
+    if (hasLexicalShadow(tagName, localBindings)) return null;
+    return bindings.named.get(tagName.text) ?? null;
+  }
+  if (
+    ts.isPropertyAccessExpression(tagName) &&
+    ts.isIdentifier(tagName.expression) &&
+    !hasLexicalShadow(tagName.expression, localBindings) &&
+    bindings.namespaces.has(tagName.expression.text) &&
+    DIRECTIONAL_ICONS.has(tagName.name.text)
+  ) {
+    return tagName.name.text;
+  }
+  return null;
 }
 
 function unwrapExpression(expression) {
@@ -151,7 +280,7 @@ function unwrapExpression(expression) {
   return current;
 }
 
-function resolveStyleObjects(fileName, expression, initializers, resolving = new Set()) {
+function resolveStyleObjects(fileName, expression, declarations, resolving = new Set()) {
   const current = unwrapExpression(expression);
   if (ts.isObjectLiteralExpression(current)) return [current];
   if (
@@ -163,8 +292,8 @@ function resolveStyleObjects(fileName, expression, initializers, resolving = new
   if (current.kind === ts.SyntaxKind.NullKeyword) return [];
   if (ts.isConditionalExpression(current)) {
     return [
-      ...resolveStyleObjects(fileName, current.whenTrue, initializers, resolving),
-      ...resolveStyleObjects(fileName, current.whenFalse, initializers, resolving),
+      ...resolveStyleObjects(fileName, current.whenTrue, declarations, resolving),
+      ...resolveStyleObjects(fileName, current.whenFalse, declarations, resolving),
     ];
   }
   if (
@@ -173,23 +302,23 @@ function resolveStyleObjects(fileName, expression, initializers, resolving = new
       current.operatorToken.kind === ts.SyntaxKind.BarBarToken)
   ) {
     return [
-      ...resolveStyleObjects(fileName, current.left, initializers, resolving),
-      ...resolveStyleObjects(fileName, current.right, initializers, resolving),
+      ...resolveStyleObjects(fileName, current.left, declarations, resolving),
+      ...resolveStyleObjects(fileName, current.right, declarations, resolving),
     ];
   }
   if (ts.isIdentifier(current)) {
-    const candidates = initializers.get(current.text) ?? [];
-    if (candidates.length !== 1 || resolving.has(current.text)) {
+    const declaration = resolveVariableDeclaration(current, declarations);
+    if (!declaration || resolving.has(declaration)) {
       throw new Error(
-        `${fileName} inline style expression ${current.text} is not uniquely resolvable`,
+        `${fileName} inline style expression ${current.text} is not lexically resolvable`,
       );
     }
     const nextResolving = new Set(resolving);
-    nextResolving.add(current.text);
+    nextResolving.add(declaration);
     return resolveStyleObjects(
       fileName,
-      candidates[0],
-      initializers,
+      declaration.initializer,
+      declarations,
       nextResolving,
     );
   }
@@ -213,7 +342,7 @@ function assertStyleObjectsUseLogicalProperties(
   fileName,
   file,
   objects,
-  initializers,
+  declarations,
 ) {
   const inspect = (object) => {
     for (const property of object.properties) {
@@ -221,7 +350,7 @@ function assertStyleObjectsUseLogicalProperties(
         for (const spread of resolveStyleObjects(
           fileName,
           property.expression,
-          initializers,
+          declarations,
         )) {
           inspect(spread);
         }
@@ -263,16 +392,89 @@ function utilityBase(token) {
 
 function isPhysicalUtility(token) {
   const base = utilityBase(token);
-  return /^(?:-?(?:ml|mr|pl|pr)-.+|-?(?:left|right)-.+|border-(?:l|r)(?:-.+)?|text-(?:left|right)|rounded-(?:l|r)(?:-.+)?|float-(?:left|right)|clear-(?:left|right)|space-x(?:-.+)?|divide-x(?:-.+)?)$/.test(
+  return /^(?:-?(?:ml|mr|pl|pr)-.+|-?(?:left|right)-.+|border-(?:l|r)(?:-.+)?|text-(?:left|right)|rounded-(?:l|r|tl|tr|bl|br)(?:-.+)?|float-(?:left|right)|clear-(?:left|right)|space-x(?:-.+)?|divide-x(?:-.+)?)$/.test(
     base,
   );
+}
+
+function splitVariants(token) {
+  const parts = [];
+  let start = 0;
+  let squareDepth = 0;
+  let roundDepth = 0;
+  for (let index = 0; index < token.length; index += 1) {
+    const character = token[index];
+    if (character === "[") squareDepth += 1;
+    else if (character === "]") squareDepth = Math.max(0, squareDepth - 1);
+    else if (character === "(") roundDepth += 1;
+    else if (character === ")") roundDepth = Math.max(0, roundDepth - 1);
+    else if (character === ":" && squareDepth === 0 && roundDepth === 0) {
+      parts.push(token.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(token.slice(start));
+  return parts;
 }
 
 function isUnqualifiedHorizontalTranslation(token) {
   const base = utilityBase(token);
   if (!/^-?translate-x-(?!0(?:$|\/))/.test(base)) return false;
-  const variants = token.slice(0, token.length - base.length).split(":");
+  const variants = splitVariants(token).slice(0, -1);
   return !variants.includes("ltr") && !variants.includes("rtl");
+}
+
+function assertPairedDirectionalTranslations(fileName, tokens) {
+  const translations = tokens.flatMap((token) => {
+    const parts = splitVariants(token);
+    const base = parts.at(-1) ?? "";
+    if (!/^-?translate-x-(?!0(?:$|\/))/.test(base)) return [];
+    const direction = parts.includes("ltr")
+      ? "ltr"
+      : parts.includes("rtl")
+        ? "rtl"
+        : null;
+    if (!direction) return [];
+    return [{
+      direction,
+      variants: parts.slice(0, -1).filter((part) => part !== "ltr" && part !== "rtl"),
+      magnitude: base.replace(/^-/, ""),
+      negative: base.startsWith("-"),
+      token,
+    }];
+  });
+  for (const translation of translations) {
+    const counterpart = translations.find(
+      (candidate) =>
+        candidate.direction !== translation.direction &&
+        candidate.magnitude === translation.magnitude &&
+        candidate.negative !== translation.negative &&
+        JSON.stringify(candidate.variants) === JSON.stringify(translation.variants),
+    );
+    if (!counterpart) {
+      throw new Error(
+        `${fileName} directional translation ${translation.token} must have an exact opposite-sign LTR/RTL pair`,
+      );
+    }
+  }
+}
+
+function classAttributeTokens(attributes) {
+  const attribute = attributes.properties.find(
+    (property) =>
+      ts.isJsxAttribute(property) &&
+      ts.isIdentifier(property.name) &&
+      property.name.text === "className",
+  );
+  if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer) return [];
+  const texts = [];
+  const visit = (node) => {
+    const text = literalText(node);
+    if (text !== null) texts.push(text);
+    else ts.forEachChild(node, visit);
+  };
+  visit(attribute.initializer);
+  return texts.flatMap((text) => text.split(/\s+/).filter(Boolean));
 }
 
 function addResidual(residuals, fileName, token) {
@@ -283,7 +485,11 @@ function addResidual(residuals, fileName, token) {
 
 function scanTypeScript(fileName, source, residuals) {
   const file = parse(fileName, source);
-  const initializers = collectVariableInitializers(file);
+  const declarations = collectVariableDeclarations(file);
+  const localBindings = collectLocalBindings(file);
+  const lucideBindings = collectLucideBindings(file);
+  const requiredTransform = REQUIRED_DIRECTIONAL_TRANSFORMS[fileName];
+  let requiredTransformMatches = 0;
   const visit = (node) => {
     const text = literalText(node);
     if (text !== null) {
@@ -309,12 +515,28 @@ function scanTypeScript(fileName, source, residuals) {
     }
 
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      const name = ts.isIdentifier(node.tagName) ? node.tagName.text : null;
-      if (name && DIRECTIONAL_ICONS.has(name)) {
+      const icon = directionalIcon(node.tagName, lucideBindings, localBindings);
+      if (icon && !Object.hasOwn(CHAT_OWNED_RESIDUALS, fileName)) {
         const classes = classAttributeText(node.attributes);
         if (!classes?.split(/\s+/).includes("rtl:-scale-x-100")) {
           throw new Error(
-            `${fileName} ${name} must mirror with literal rtl:-scale-x-100`,
+            `${fileName} ${node.tagName.getText(file)} (${icon}) must mirror with literal rtl:-scale-x-100`,
+          );
+        }
+      }
+      const classTokens = classAttributeTokens(node.attributes);
+      assertPairedDirectionalTranslations(fileName, classTokens);
+      if (
+        requiredTransform &&
+        requiredTransform.anchors.every((token) => classTokens.includes(token))
+      ) {
+        requiredTransformMatches += 1;
+        if (
+          !classTokens.includes(requiredTransform.ltr) ||
+          !classTokens.includes(requiredTransform.rtl)
+        ) {
+          throw new Error(
+            `${fileName} reviewed directional transform must retain exact opposite-sign LTR and RTL tokens`,
           );
         }
       }
@@ -323,14 +545,100 @@ function scanTypeScript(fileName, source, residuals) {
         assertStyleObjectsUseLogicalProperties(
           fileName,
           file,
-          resolveStyleObjects(fileName, style, initializers),
-          initializers,
+          resolveStyleObjects(fileName, style, declarations),
+          declarations,
         );
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(file);
+  if (requiredTransform && requiredTransformMatches !== 1) {
+    throw new Error(
+      `${fileName} must contain exactly one reviewed directional transform site`,
+    );
+  }
+}
+
+function cssValueTokens(value) {
+  const tokens = [];
+  let current = "";
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      current += character;
+      if (character === "\\") current += value[++index] ?? "";
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+    } else if (character === "(" || character === "[") {
+      depth += 1;
+      current += character;
+    } else if (character === ")" || character === "]") {
+      depth = Math.max(0, depth - 1);
+      current += character;
+    } else if (/\s/.test(character) && depth === 0) {
+      if (current) tokens.push(current);
+      current = "";
+    } else if (character === "/" && depth === 0) {
+      if (current) tokens.push(current);
+      tokens.push("/");
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function cssDeclarations(source) {
+  const declarations = [];
+  const pattern = /(?:^|[;{])\s*([\w-]+)\s*:/gm;
+  for (const match of source.matchAll(pattern)) {
+    const start = match.index + match[0].length;
+    let depth = 0;
+    let quote = null;
+    let end = start;
+    for (; end < source.length; end += 1) {
+      const character = source[end];
+      if (quote) {
+        if (character === "\\") end += 1;
+        else if (character === quote) quote = null;
+      } else if (character === '"' || character === "'") quote = character;
+      else if (character === "(" || character === "[") depth += 1;
+      else if (character === ")" || character === "]") depth = Math.max(0, depth - 1);
+      else if ((character === ";" || character === "}") && depth === 0) break;
+    }
+    declarations.push({ property: match[1], value: source.slice(start, end).trim() });
+  }
+  return declarations;
+}
+
+function shorthandIsDirectionNeutral(property, value) {
+  const tokens = cssValueTokens(value).filter((token) => token !== "!important");
+  const groups = [[]];
+  for (const token of tokens) {
+    if (property === "border-radius" && token === "/") groups.push([]);
+    else groups.at(-1).push(token);
+  }
+  return groups.every((tokens) => {
+    if (tokens.length <= 1) return true;
+    if (property === "margin" || property === "padding") {
+      return tokens.length < 4 || tokens[1] === tokens[3];
+    }
+    const corners = tokens.length === 2
+      ? [tokens[0], tokens[1], tokens[0], tokens[1]]
+      : tokens.length === 3
+        ? [tokens[0], tokens[1], tokens[2], tokens[1]]
+        : tokens.slice(0, 4);
+    return corners.length === 4 && corners[0] === corners[1] && corners[2] === corners[3];
+  });
 }
 
 function assertCssUsesLogicalProperties(fileName, source) {
@@ -344,6 +652,14 @@ function assertCssUsesLogicalProperties(fileName, source) {
     physicalValue.test(withoutComments)
   ) {
     throw new Error(`${fileName} contains a physical-direction CSS declaration`);
+  }
+  for (const { property, value } of cssDeclarations(withoutComments)) {
+    if (
+      ["margin", "padding", "border-radius"].includes(property) &&
+      !shorthandIsDirectionNeutral(property, value)
+    ) {
+      throw new Error(`${fileName} contains an asymmetric physical CSS shorthand`);
+    }
   }
 }
 

@@ -743,7 +743,7 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="flex animate-slide-up justify-end gap-3">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-base leading-relaxed text-foreground">
+        <div className="max-w-[85%] rounded-2xl rounded-se-sm border border-primary/30 bg-primary/15 px-4 py-2.5 text-base leading-relaxed text-foreground">
           <span className="whitespace-pre-wrap break-words">
             {message.content}
           </span>
@@ -761,7 +761,7 @@ function MessageRow({
     <div className="flex animate-slide-up justify-start gap-3">
       <AssistantGlyph />
       <div className="min-w-0 max-w-[85%]">
-        <div className="overflow-hidden rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3">
+        <div className="overflow-hidden rounded-2xl rounded-ss-sm border border-border bg-card px-4 py-3">
           {message.pending ? (
             <ThinkingDots />
           ) : (
