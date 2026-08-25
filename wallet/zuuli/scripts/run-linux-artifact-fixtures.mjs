@@ -3,14 +3,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const EXPECTED_LINUX_ARTIFACT_FIXTURE_COUNT = 4;
+const EXPECTED_LINUX_ARTIFACT_FIXTURE_COUNT = 5;
 const EXPECTED_LINUX_ARTIFACT_FIXTURE_PATTERN =
-  "^(?:real AppImage, deb, and rpm fixtures expose undeclared shipped canaries|AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations|AppImage listing rejects a SquashFS member with invalid UTF-8 bytes|a real deb with an escaping payload symlink fails before extraction)$";
+  "^(?:real AppImage, deb, and rpm fixtures expose undeclared shipped canaries|real cargo-auditable executable evidence is complete, lock-bound, and mandatory|AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations|AppImage listing rejects a SquashFS member with invalid UTF-8 bytes|a real deb with an escaping payload symlink fails before extraction)$";
 
 export const REQUIRE_LINUX_ARTIFACT_FIXTURES =
   "ZUULI_REQUIRE_LINUX_ARTIFACT_FIXTURES";
 export const LINUX_ARTIFACT_FIXTURE_TITLES = Object.freeze([
   "real AppImage, deb, and rpm fixtures expose undeclared shipped canaries",
+  "real cargo-auditable executable evidence is complete, lock-bound, and mandatory",
   "AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations",
   "AppImage listing rejects a SquashFS member with invalid UTF-8 bytes",
   "a real deb with an escaping payload symlink fails before extraction",

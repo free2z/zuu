@@ -1,0 +1,15 @@
+--- cargo-auditable-0.7.5/src/sbom_precursor.rs
++++ cargo-auditable-0.7.5/src/sbom_precursor.rs
+@@ -58,6 +58,11 @@ impl From<SbomPrecursor> for VersionInfo {
+             },
+         );
+-
++
++        // Cargo can list the root package more than once for distinct build
++        // units (for example, a Tauri binary and its same-package library).
++        // Bind the root flag to Cargo's exact root unit after deduplication.
++        packages[indices[sbom.root]].root = true;
++
+         // Traverse the graph as given by the sbom to fill in the dependencies with the new indices.
+         //
+         // Keep track of whether the dependency is a runtime dependency.

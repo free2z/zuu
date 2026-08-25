@@ -36,6 +36,12 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
+import {
+  CARGO_RUNTIME_PACKAGE,
+  cargoRuntimeComponents,
+  cargoRuntimeMetadataProperties,
+  collectLinuxCargoRuntime,
+} from "./linux-cargo-runtime.mjs";
 
 const INVENTORY_SCOPE = "free2z:inventory-scope";
 const ARTIFACT_NAME = "free2z:artifact-name";
@@ -1153,7 +1159,7 @@ export function prepareArtifact({ artifact, root }) {
   return inventory;
 }
 
-function inventoryArtifactFresh(artifact) {
+function inventoryArtifactFresh(artifact, inspect) {
   const temporary = mkdtempSync(
     resolve(tmpdir(), "zuuli-artifact-sbom-verify-"),
   );
@@ -1163,6 +1169,7 @@ function inventoryArtifactFresh(artifact) {
     return {
       inventory,
       packageMetadata: readPackageMetadata(root, artifactFormat(artifact)),
+      inspected: inspect ? inspect(root) : undefined,
     };
   } finally {
     rmSync(temporary, { recursive: true, force: true });
@@ -1319,7 +1326,15 @@ function regularComponentHash(component) {
   return matches[0].content;
 }
 
-export function verifyArtifactSbom({ artifact, sbom: sbomPath, binding }) {
+export function verifyArtifactSbom({
+  artifact,
+  sbom: sbomPath,
+  binding,
+  cargoLock,
+  cargoManifest,
+  cargoTarget,
+  cargoFeatures,
+}) {
   const artifactInfo = artifactMetadata(artifact);
   const sbomInfo = {
     path: basename(sbomPath),
@@ -1355,7 +1370,28 @@ export function verifyArtifactSbom({ artifact, sbom: sbomPath, binding }) {
   // This is intentionally derived from the bound archive in a fresh, private
   // extraction directory. The root Syft scanned is mutable workspace state and
   // cannot be trusted as verification evidence for the shipped archive.
-  const fresh = inventoryArtifactFresh(artifact);
+  const cargoOptions = [cargoLock, cargoManifest, cargoTarget, cargoFeatures];
+  if (
+    cargoOptions.some((value) => value !== undefined) &&
+    cargoOptions.some((value) => value === undefined)
+  ) {
+    throw new Error(
+      "Linux Cargo runtime verification options must be complete",
+    );
+  }
+  const fresh = inventoryArtifactFresh(
+    artifact,
+    cargoOptions.every((value) => value !== undefined)
+      ? (root) =>
+          collectLinuxCargoRuntime({
+            root,
+            cargoLock,
+            cargoManifest,
+            cargoTarget,
+            cargoFeatures,
+          })
+      : undefined,
+  );
   const expected = new Map(fresh.inventory.map((entry) => [entry.path, entry]));
   const expectedPackageComponent = packageMetadataComponent(
     fresh.packageMetadata,
@@ -1426,6 +1462,39 @@ export function verifyArtifactSbom({ artifact, sbom: sbomPath, binding }) {
   if (record.inventoryEntries !== expected.size) {
     throw new Error("artifact-SBOM binding inventory count is stale");
   }
+  if (cargoOptions.some((value) => value !== undefined)) {
+    const runtime = fresh.inspected;
+    if (
+      JSON.stringify(record.cargoRuntime) !== JSON.stringify(runtime.binding)
+    ) {
+      throw new Error(
+        "artifact-SBOM binding does not match exact Cargo runtime evidence and Cargo.lock",
+      );
+    }
+    const expectedComponents = cargoRuntimeComponents(runtime);
+    const actualComponents = (sbom.components ?? []).filter((component) =>
+      propertyMap(component?.properties).has(CARGO_RUNTIME_PACKAGE),
+    );
+    if (
+      JSON.stringify(actualComponents) !== JSON.stringify(expectedComponents)
+    ) {
+      throw new Error(
+        "SBOM Cargo runtime components do not match the exact linked executable",
+      );
+    }
+    const runtimeMetadata = cargoRuntimeMetadataProperties(runtime);
+    for (const [name, value] of Object.entries(runtimeMetadata)) {
+      if (metadata.get(name) !== value) {
+        throw new Error(
+          `SBOM metadata ${name} does not match linked Cargo runtime evidence`,
+        );
+      }
+    }
+  } else if (record.cargoRuntime !== undefined) {
+    throw new Error(
+      "Cargo runtime evidence is present but was not independently verified",
+    );
+  }
   return {
     artifact: artifactInfo,
     sbom: sbomInfo,
@@ -1439,6 +1508,10 @@ export function finalizeArtifactSbom({
   rawSbom,
   sbom: sbomPath,
   binding,
+  cargoLock,
+  cargoManifest,
+  cargoTarget,
+  cargoFeatures,
 }) {
   const document = parseJson(rawSbom, "raw Syft SBOM");
   requireCycloneDx(document, "raw Syft SBOM");
@@ -1454,9 +1527,28 @@ export function finalizeArtifactSbom({
       "package metadata sidecar does not match the exact artifact",
     );
   }
+  const cargoOptions = [cargoLock, cargoManifest, cargoTarget, cargoFeatures];
+  if (
+    cargoOptions.some((value) => value !== undefined) &&
+    cargoOptions.some((value) => value === undefined)
+  ) {
+    throw new Error(
+      "Linux Cargo runtime finalization options must be complete",
+    );
+  }
+  const cargoRuntime = cargoOptions.every((value) => value !== undefined)
+    ? collectLinuxCargoRuntime({
+        root,
+        cargoLock,
+        cargoManifest,
+        cargoTarget,
+        cargoFeatures,
+      })
+    : undefined;
   const packageComponents = (document.components ?? []).filter((component) => {
     const properties = propertyMap(component?.properties);
     if (properties.has(PACKAGE_METADATA_FORMAT)) return false;
+    if (properties.has(CARGO_RUNTIME_PACKAGE)) return false;
     if (component?.type !== "file") return true;
     return !properties.has(ARTIFACT_PATH);
   });
@@ -1472,10 +1564,12 @@ export function finalizeArtifactSbom({
     [ARTIFACT_NAME]: artifactInfo.path,
     [ARTIFACT_SHA256]: artifactInfo.sha256,
     [ARTIFACT_BYTES]: artifactInfo.bytes,
+    ...(cargoRuntime ? cargoRuntimeMetadataProperties(cargoRuntime) : {}),
   });
   document.components = [
     ...packageComponents,
     ...(packageMetadata ? [packageMetadataComponent(packageMetadata)] : []),
+    ...(cargoRuntime ? cargoRuntimeComponents(cargoRuntime) : []),
     ...inventory.map(inventoryComponent),
   ];
   canonicalWrite(sbomPath, document);
@@ -1490,6 +1584,7 @@ export function finalizeArtifactSbom({
     artifact: artifactInfo,
     sbom: sbomInfo,
     inventoryEntries: inventory.length,
+    ...(cargoRuntime ? { cargoRuntime: cargoRuntime.binding } : {}),
   });
   console.log(
     `wrote ${sbomInfo.path} (${inventory.length} scanned entries) bound to sha256:${artifactInfo.sha256}; independent artifact verification is still required`,
@@ -1644,6 +1739,17 @@ export function artifactSbomWorkflowFailures(packaging, release) {
   const failures = [];
   const packagingLinux = jobBlock(packaging, "desktop");
   const releaseLinux = jobBlock(release, "linux");
+  const linuxCargoOptions =
+    " --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol";
+  const bindLinuxCargoOptions = (line) =>
+    line.includes("ZUULI-linux-") &&
+    (line.startsWith("node scripts/artifact-sbom.mjs finalize-artifact ") ||
+      line.startsWith("node scripts/artifact-sbom.mjs verify-artifact "))
+      ? `${line}${linuxCargoOptions}`
+      : line;
+  const cargoAuditInstallLines = [
+    "scripts/install-cargo-auditable.sh",
+  ];
   requireExactCommandStep(
     "packaging linux",
     packagingLinux,
@@ -1670,7 +1776,44 @@ export function artifactSbomWorkflowFailures(packaging, release) {
     'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
     'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json',
     'node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json',
-  ];
+  ].map(bindLinuxCargoOptions);
+  requireExactRunStep(
+    "packaging linux",
+    packagingLinux,
+    "Install pinned Cargo audit instrumentation",
+    cargoAuditInstallLines,
+    failures,
+    "runner.os == 'Linux'",
+  );
+  requireExactRunStep(
+    "release linux artifacts",
+    releaseLinux,
+    "Install pinned Cargo audit instrumentation",
+    cargoAuditInstallLines,
+    failures,
+  );
+  requireExactRunStep(
+    "packaging linux",
+    packagingLinux,
+    "Build packages",
+    [
+      'if [[ "${{ runner.os }}" == macOS ]]; then',
+      "./node_modules/.bin/tauri build --target universal-apple-darwin --bundles '${{ matrix.bundles }}' -- --locked",
+      "else",
+      "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked --features custom-protocol",
+      "fi",
+    ],
+    failures,
+  );
+  requireExactRunStep(
+    "release linux artifacts",
+    releaseLinux,
+    "Build Linux packages with Cargo audit instrumentation",
+    [
+      "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles appimage,deb,rpm -- --locked --features custom-protocol",
+    ],
+    failures,
+  );
   requireExactRunStep(
     "packaging linux",
     packagingLinux,
@@ -1875,7 +2018,12 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       ],
     ],
   ]) {
-    requireOrdered(label, block, markers, failures);
+    requireOrdered(
+      label,
+      block,
+      label.includes("linux") ? markers.map(bindLinuxCargoOptions) : markers,
+      failures,
+    );
   }
   for (const [label, block, expectedLines] of [
     [
@@ -1967,7 +2115,9 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       label,
       block,
       "Record checksums and provenance",
-      expectedLines,
+      label.includes("linux") || label === "packaging desktop"
+        ? expectedLines.map(bindLinuxCargoOptions)
+        : expectedLines,
       failures,
     );
   }
@@ -2007,7 +2157,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
 }
 
 function optionsFor(command, args) {
-  const allowed = new Set(
+  const base =
     command === "prepare"
       ? ["artifact", "root"]
       : command === "finalize-artifact"
@@ -2016,7 +2166,17 @@ function optionsFor(command, args) {
           ? ["artifact", "sbom", "binding"]
           : command === "label-source"
             ? ["raw-sbom", "sbom", "source-root", "source-commit"]
-            : [],
+            : [];
+  const cargoOptions = [
+    "cargo-lock",
+    "cargo-manifest",
+    "cargo-target",
+    "cargo-features",
+  ];
+  const allowed = new Set(
+    command === "finalize-artifact" || command === "verify-artifact"
+      ? [...base, ...cargoOptions]
+      : base,
   );
   if (allowed.size === 0) throw new Error(`unknown command: ${command}`);
   const result = {};
@@ -2027,7 +2187,7 @@ function optionsFor(command, args) {
     }
     result[match[1]] = match[2];
   }
-  for (const name of allowed) {
+  for (const name of base) {
     if (name === "source-commit" && command === "label-source") continue;
     if (result[name] === undefined) throw new Error(`missing --${name}=...`);
   }
@@ -2036,7 +2196,15 @@ function optionsFor(command, args) {
 
 function absoluteOptions(options) {
   const result = { ...options };
-  for (const name of ["artifact", "root", "raw-sbom", "sbom", "binding"]) {
+  for (const name of [
+    "artifact",
+    "root",
+    "raw-sbom",
+    "sbom",
+    "binding",
+    "cargo-lock",
+    "cargo-manifest",
+  ]) {
     if (result[name]) result[name] = resolve(process.cwd(), result[name]);
   }
   return result;
@@ -2054,9 +2222,21 @@ async function main() {
       rawSbom: options["raw-sbom"],
       sbom: options.sbom,
       binding: options.binding,
+      cargoLock: options["cargo-lock"],
+      cargoManifest: options["cargo-manifest"],
+      cargoTarget: options["cargo-target"],
+      cargoFeatures: options["cargo-features"],
     });
   } else if (command === "verify-artifact") {
-    verifyArtifactSbom(options);
+    verifyArtifactSbom({
+      artifact: options.artifact,
+      sbom: options.sbom,
+      binding: options.binding,
+      cargoLock: options["cargo-lock"],
+      cargoManifest: options["cargo-manifest"],
+      cargoTarget: options["cargo-target"],
+      cargoFeatures: options["cargo-features"],
+    });
   } else if (command === "label-source") {
     const sourceCommit =
       options["source-commit"] ??
