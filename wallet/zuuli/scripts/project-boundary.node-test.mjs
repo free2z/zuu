@@ -414,6 +414,74 @@ test("accepts effective rootDirs that stay canonically inside their owner", asyn
   });
 });
 
+test("rejects an inherited include root from an invoked build tsconfig", async () => {
+  await withFixture(
+    { "zuuallet/src/included-by-build.ts": "export const crossed = true;\n" },
+    async (root) => {
+      const configFile = path.join(root, "zuuli/tsconfig.build.json");
+      await writeFile(
+        configFile,
+        JSON.stringify({
+          extends: "./tsconfig.json",
+          include: ["src", "../zuuallet/src/included-by-build.ts"],
+        }),
+      );
+      const parsed = ts.getParsedCommandLineOfConfigFile(configFile, {}, ts.sys);
+      assert.ok(parsed, "TypeScript must parse the build include fixture");
+      assert.ok(
+        parsed.fileNames.includes(path.join(root, "zuuallet/src/included-by-build.ts")),
+        "the compiler must prove the build include compiles sibling-app source",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /zuuli\/tsconfig\.build\.json: TypeScript root file escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("rejects an explicit files root from a sibling application", async () => {
+  await withFixture(
+    { "zuuallet/src/compiled-by-files.ts": "export const crossed = true;\n" },
+    async (root) => {
+      const configFile = path.join(root, "zuuli/tsconfig.json");
+      await writeFile(
+        configFile,
+        JSON.stringify({
+          compilerOptions: { baseUrl: ".", paths: { "@/*": ["./src/*"] } },
+          files: [
+            "src/local.ts",
+            "src/lib/wallet/bridge.ts",
+            "src/lib/wallet/mock.ts",
+            "src/lib/wallet/sensitive-entry.ts",
+            "../zuuallet/src/compiled-by-files.ts",
+          ],
+        }),
+      );
+      const parsed = ts.getParsedCommandLineOfConfigFile(configFile, {}, ts.sys);
+      assert.ok(parsed, "TypeScript must parse the files fixture");
+      assert.ok(
+        parsed.fileNames.includes(path.join(root, "zuuallet/src/compiled-by-files.ts")),
+        "the compiler must prove files compiles sibling-app source",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /zuuli\/tsconfig\.json: TypeScript root file escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("accepts compiler roots inside the owner and exact shared package", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.build.json"),
+      JSON.stringify({ files: ["src/local.ts", "../shared/src/index.ts"] }),
+    );
+    await assert.doesNotReject(() => assertProjectBoundaries(root));
+  });
+});
+
 test("rejects a Vite alias only after a real build proves the app crossing", async () => {
   await withFixture(
     {
@@ -457,6 +525,143 @@ test("accepts Vite aliases that stay in the owner or use the exact shared name",
         "@": ${JSON.stringify(path.join(root, "zuuli/src"))},
         "@free2z/wallet-shared": ${JSON.stringify(path.join(root, "shared/src/index.ts"))}
       } } };\n`,
+    );
+    await assert.doesNotReject(() => assertProjectBoundaries(root));
+  });
+});
+
+test("rejects a custom Vite resolver only after a real build proves the crossing", async () => {
+  await withFixture(
+    {
+      "zuuli/src/plugin-leak.ts":
+        'import { classicOnly } from "classic-plugin"; console.log(classicOnly);\n',
+      "zuuallet/src/classic-plugin.ts": "export const classicOnly = true;\n",
+    },
+    async (root) => {
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/classic-plugin.ts");
+      await writeFile(
+        path.join(zuuliRoot, "index.html"),
+        '<script type="module" src="/src/plugin-leak.ts"></script>\n',
+      );
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `export default { plugins: [{ name: "cross-app-resolver", resolveId(id) { return id === "classic-plugin" ? ${JSON.stringify(sibling)} : null; } }] };\n`,
+      );
+      await assert.doesNotReject(
+        () => viteBuild({
+          root: zuuliRoot,
+          configFile: path.join(zuuliRoot, "vite.config.ts"),
+          logLevel: "silent",
+          build: { write: false },
+        }),
+        "Vite must prove the custom resolver bundles sibling-app production code",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /Vite plugin cross-app-resolver resolution of classic-plugin escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("rejects a custom Rollup resolver in effective Vite build options", async () => {
+  await withFixture(
+    {
+      "zuuli/src/rollup-plugin-leak.ts":
+        'import { classicOnly } from "classic-rollup-plugin"; console.log(classicOnly);\n',
+      "zuuallet/src/classic-rollup-plugin.ts": "export const classicOnly = true;\n",
+    },
+    async (root) => {
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/classic-rollup-plugin.ts");
+      await writeFile(
+        path.join(zuuliRoot, "index.html"),
+        '<script type="module" src="/src/rollup-plugin-leak.ts"></script>\n',
+      );
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `export default { build: { rollupOptions: { plugins: [{ name: "cross-app-rollup-resolver", resolveId(id) { return id === "classic-rollup-plugin" ? ${JSON.stringify(sibling)} : null; } }] } } };\n`,
+      );
+      await assert.doesNotReject(
+        () => viteBuild({ root: zuuliRoot, configFile: path.join(zuuliRoot, "vite.config.ts"), logLevel: "silent", build: { write: false } }),
+        "Vite must prove a Rollup resolver bundles sibling-app production code",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /Vite plugin cross-app-rollup-resolver resolution of classic-rollup-plugin escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("rejects a Rollup input only after a real Vite build proves the crossing", async () => {
+  await withFixture(
+    { "zuuallet/src/rollup-entry.ts": "export const siblingEntry = true;\n" },
+    async (root) => {
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/rollup-entry.ts");
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `export default { build: { rollupOptions: { input: ${JSON.stringify(sibling)} } } };\n`,
+      );
+      await assert.doesNotReject(
+        () => viteBuild({
+          root: zuuliRoot,
+          configFile: path.join(zuuliRoot, "vite.config.ts"),
+          logLevel: "silent",
+          build: { write: false },
+        }),
+        "Vite must prove Rollup can bundle a sibling-app production entry",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /Vite build\.rollupOptions\.input escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("rejects a Vite-resolved bare module symlink after a real build proves the crossing", async () => {
+  await withFixture(
+    {
+      "zuuli/src/resolved-leak.ts":
+        'import { classicOnly } from "classic-link/src/classic-linked"; console.log(classicOnly);\n',
+      "zuuallet/src/classic-linked.ts": "export const classicOnly = true;\n",
+    },
+    async (root) => {
+      const zuuliRoot = path.join(root, "zuuli");
+      await mkdir(path.join(zuuliRoot, "node_modules"), { recursive: true });
+      await symlink(path.join(root, "zuuallet"), path.join(zuuliRoot, "node_modules/classic-link"));
+      await writeFile(
+        path.join(zuuliRoot, "index.html"),
+        '<script type="module" src="/src/resolved-leak.ts"></script>\n',
+      );
+      await assert.doesNotReject(
+        () => viteBuild({
+          root: zuuliRoot,
+          configFile: path.join(zuuliRoot, "vite.config.ts"),
+          logLevel: "silent",
+          build: { write: false },
+        }),
+        "Vite must prove a bare module symlink bundles sibling-app production code",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /Vite build resolution of classic-link\/src\/classic-linked escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("accepts Vite build inputs inside the owner and exact shared package", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/vite.config.ts"),
+      `export default { build: { rollupOptions: { input: {
+        owner: ${JSON.stringify(path.join(root, "zuuli/src/local.ts"))},
+        shared: ${JSON.stringify(path.join(root, "shared/src/index.ts"))}
+      } } } };\n`,
     );
     await assert.doesNotReject(() => assertProjectBoundaries(root));
   });

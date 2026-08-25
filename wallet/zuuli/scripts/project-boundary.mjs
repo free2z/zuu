@@ -3,7 +3,7 @@ import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { loadConfigFromFile } from "vite";
+import { loadConfigFromFile, resolveConfig } from "vite";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
 const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Map([
@@ -262,9 +262,7 @@ function compilerDiagnostic(diagnostic) {
   return ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
 }
 
-function compilerOptions(project) {
-  const configFile = path.join(project.projectRoot, "tsconfig.json");
-  if (!ts.sys.fileExists(configFile)) return {};
+function parseTypeScriptConfiguration(project, configFile) {
   const diagnostics = [];
   const parsed = ts.getParsedCommandLineOfConfigFile(configFile, {}, {
     ...ts.sys,
@@ -276,7 +274,53 @@ function compilerOptions(project) {
       `${configFile}: TypeScript configuration is not auditable: ${diagnostics.map(compilerDiagnostic).join("; ") || "unknown parse failure"}`,
     );
   }
-  return parsed.options;
+  return { configFile, fileNames: parsed.fileNames, options: parsed.options };
+}
+
+async function typeScriptConfigurations(project) {
+  const configurations = [];
+  const entries = await readdir(project.projectRoot, { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    if (!/^tsconfig(?:\.[^.]+)*\.json$/.test(entry.name)) continue;
+    const configFile = path.join(project.projectRoot, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`${project.directory}/${entry.name}: TypeScript configuration may not be a symbolic link`);
+    }
+    if (!entry.isFile()) {
+      throw new Error(`${project.directory}/${entry.name}: TypeScript configuration must be a regular file`);
+    }
+    configurations.push(parseTypeScriptConfiguration(project, configFile));
+  }
+  return configurations;
+}
+
+function typeScriptRootFileViolations(project, configuration, sharedRoot) {
+  const violations = [];
+  const canonicalProjectRoot = realpathSync(project.projectRoot);
+  const canonicalSharedRoot = realpathSync(sharedRoot);
+  for (const file of configuration.fileNames) {
+    const lexical = path.resolve(file);
+    let canonical;
+    try {
+      canonical = projectedRealpath(
+        lexical,
+        `${project.directory}/${path.basename(configuration.configFile)} root file`,
+      );
+    } catch (error) {
+      violations.push(error.message);
+      continue;
+    }
+    const ownerLocal =
+      inside(project.projectRoot, lexical) && inside(canonicalProjectRoot, canonical);
+    const namedShared = inside(sharedRoot, lexical) && inside(canonicalSharedRoot, canonical);
+    if (!ownerLocal && !namedShared) {
+      violations.push(
+        `${project.directory}/${path.basename(configuration.configFile)}: TypeScript root file escapes wallet/${project.directory}: ${file}`,
+      );
+    }
+  }
+  return violations;
 }
 
 function pathPatternMatches(pattern, specifier) {
@@ -290,30 +334,30 @@ function pathPatternMatches(pattern, specifier) {
     : null;
 }
 
-function pathAliasViolations(project, options, sharedRoot) {
+function pathAliasViolations(project, options, sharedRoot, configName) {
   const violations = [];
   const paths = options.paths ?? {};
   const base = options.pathsBasePath ?? options.baseUrl ?? project.projectRoot;
   const canonicalProjectRoot = realpathSync(project.projectRoot);
   const canonicalSharedRoot = realpathSync(sharedRoot);
-  const canonicalBase = projectedRealpath(base, `${project.directory}/tsconfig.json base path`);
+  const canonicalBase = projectedRealpath(base, `${project.directory}/${configName} base path`);
   if (
     options.baseUrl &&
     (!inside(project.projectRoot, options.baseUrl) ||
       !inside(canonicalProjectRoot, canonicalBase))
   ) {
     violations.push(
-      `${project.directory}/tsconfig.json: TypeScript baseUrl escapes wallet/${project.directory}`,
+      `${project.directory}/${configName}: TypeScript baseUrl escapes wallet/${project.directory}`,
     );
   }
   for (const [pattern, targets] of Object.entries(paths)) {
     if (!Array.isArray(targets) || targets.length === 0) {
-      violations.push(`${project.directory}/tsconfig.json: TypeScript path alias ${pattern} has no targets`);
+      violations.push(`${project.directory}/${configName}: TypeScript path alias ${pattern} has no targets`);
       continue;
     }
     for (const target of targets) {
       if (typeof target !== "string") {
-        violations.push(`${project.directory}/tsconfig.json: TypeScript path alias ${pattern} has a non-string target`);
+        violations.push(`${project.directory}/${configName}: TypeScript path alias ${pattern} has a non-string target`);
         continue;
       }
       const sharedPattern =
@@ -324,7 +368,7 @@ function pathAliasViolations(project, options, sharedRoot) {
           base,
           target,
           "__wallet_boundary_probe__",
-          `${project.directory}/tsconfig.json path alias ${pattern}`,
+          `${project.directory}/${configName} path alias ${pattern}`,
         );
       } catch (error) {
         violations.push(error.message);
@@ -340,7 +384,7 @@ function pathAliasViolations(project, options, sharedRoot) {
           ? "named shared TypeScript path alias must resolve inside wallet/shared"
           : `TypeScript path alias ${pattern} escapes wallet/${project.directory}`;
         violations.push(
-          `${project.directory}/tsconfig.json: ${description}: ${target}`,
+          `${project.directory}/${configName}: ${description}: ${target}`,
         );
       }
     }
@@ -348,7 +392,7 @@ function pathAliasViolations(project, options, sharedRoot) {
   return violations;
 }
 
-function rootDirViolations(project, options) {
+function rootDirViolations(project, options, configName) {
   const violations = [];
   const canonicalProjectRoot = realpathSync(project.projectRoot);
   for (const rootDir of options.rootDirs ?? []) {
@@ -357,7 +401,7 @@ function rootDirViolations(project, options) {
     try {
       canonical = projectedRealpath(
         lexical,
-        `${project.directory}/tsconfig.json rootDirs entry`,
+        `${project.directory}/${configName} rootDirs entry`,
       );
     } catch (error) {
       violations.push(error.message);
@@ -368,7 +412,7 @@ function rootDirViolations(project, options) {
       !inside(canonicalProjectRoot, canonical)
     ) {
       violations.push(
-        `${project.directory}/tsconfig.json: TypeScript rootDirs entry escapes wallet/${project.directory}: ${rootDir}`,
+        `${project.directory}/${configName}: TypeScript rootDirs entry escapes wallet/${project.directory}: ${rootDir}`,
       );
     }
   }
@@ -396,7 +440,117 @@ function normalizedViteAliases(alias) {
   throw new Error("resolve.alias must be an object or array");
 }
 
-async function viteAliasViolations(project, sharedRoot) {
+async function normalizedVitePlugins(option) {
+  const resolved = await option;
+  if (!resolved) return [];
+  if (Array.isArray(resolved)) {
+    const plugins = [];
+    for (const nested of resolved) plugins.push(...(await normalizedVitePlugins(nested)));
+    return plugins;
+  }
+  if (typeof resolved !== "object") throw new Error("plugins must resolve to plugin objects");
+  return [resolved];
+}
+
+function viteInputEntries(value, label) {
+  if (value === undefined || value === false) return [];
+  if (typeof value === "string") return [{ label, value }];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => viteInputEntries(entry, `${label}[${index}]`));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([name, entry]) =>
+      viteInputEntries(entry, `${label}.${name}`),
+    );
+  }
+  throw new Error(`${label} must contain only filesystem path strings`);
+}
+
+function viteFilesystemViolation(
+  project,
+  sharedRoot,
+  candidate,
+  label,
+  { allowShared = true } = {},
+) {
+  const query = candidate.search(/[?#]/);
+  let identifier = query < 0 ? candidate : candidate.slice(0, query);
+  if (identifier.startsWith("\0")) return `${label} resolves to an opaque virtual module`;
+  if (identifier.startsWith("file:")) {
+    try {
+      identifier = fileURLToPath(identifier);
+    } catch (error) {
+      return `${label} has an invalid file URL: ${error.message}`;
+    }
+  } else if (identifier.startsWith("/@fs/")) {
+    identifier = identifier.slice(4);
+  }
+  if (!path.isAbsolute(identifier)) {
+    return `${label} resolves to a non-filesystem module id: ${candidate}`;
+  }
+  const lexical = path.resolve(identifier);
+  let canonical;
+  try {
+    canonical = projectedRealpath(lexical, label);
+  } catch (error) {
+    return error.message;
+  }
+  const canonicalProjectRoot = realpathSync(project.projectRoot);
+  const canonicalSharedRoot = realpathSync(sharedRoot);
+  const ownerLocal = inside(project.projectRoot, lexical) && inside(canonicalProjectRoot, canonical);
+  const namedShared = inside(sharedRoot, lexical) && inside(canonicalSharedRoot, canonical);
+  return ownerLocal || (allowShared && namedShared)
+    ? null
+    : `${label} escapes wallet/${project.directory}: ${candidate}`;
+}
+
+function viteInputViolations(project, sharedRoot, resolved) {
+  const violations = [];
+  const configName = path.basename(resolved.configFile);
+  for (const [label, candidate] of [
+    ["root", resolved.root],
+    ["publicDir", resolved.publicDir === false ? undefined : resolved.publicDir],
+  ]) {
+    if (candidate === undefined) continue;
+    const violation = viteFilesystemViolation(
+      project,
+      sharedRoot,
+      path.resolve(project.projectRoot, candidate),
+      `${project.directory}/${configName} Vite ${label}`,
+      { allowShared: false },
+    );
+    if (violation) violations.push(violation);
+  }
+  const inputs = [
+    ...viteInputEntries(resolved.build?.rollupOptions?.input, "build.rollupOptions.input"),
+    ...viteInputEntries(resolved.build?.lib?.entry, "build.lib.entry"),
+    ...viteInputEntries(
+      typeof resolved.build?.ssr === "string" ? resolved.build.ssr : undefined,
+      "build.ssr",
+    ),
+  ];
+  for (const input of inputs) {
+    const violation = viteFilesystemViolation(
+      project,
+      sharedRoot,
+      path.resolve(resolved.root, input.value),
+      `${project.directory}/${configName} Vite ${input.label}`,
+    );
+    if (violation) violations.push(violation);
+  }
+  return violations;
+}
+
+function viteResolveHandler(plugin) {
+  if (typeof plugin.resolveId === "function") return plugin.resolveId;
+  if (plugin.resolveId && typeof plugin.resolveId === "object" && typeof plugin.resolveId.handler === "function") {
+    return plugin.resolveId.handler;
+  }
+  if (plugin.resolveId === undefined) return null;
+  throw new Error(`plugin ${plugin.name ?? "<unnamed>"} has an unauditable resolveId hook`);
+}
+
+async function viteConfigurationViolations(project, sharedRoot, moduleReferences) {
   const configFiles = [];
   for (const name of VITE_CONFIG_NAMES) {
     const candidate = path.join(project.projectRoot, name);
@@ -421,6 +575,7 @@ async function viteAliasViolations(project, sharedRoot) {
     { command: "serve", mode: "development" },
   ]) {
     let loaded;
+    let resolved;
     try {
       loaded = await loadConfigFromFile(
         {
@@ -433,11 +588,23 @@ async function viteAliasViolations(project, sharedRoot) {
         project.projectRoot,
         "silent",
       );
+      resolved = await resolveConfig(
+        { configFile, logLevel: "silent", mode: environment.mode, root: project.projectRoot },
+        environment.command,
+        environment.mode,
+      );
     } catch (error) {
       violations.push(
         `${project.directory}/${path.basename(configFile)}: Vite ${environment.command} configuration is not auditable: ${error.message}`,
       );
       continue;
+    }
+    try {
+      violations.push(...viteInputViolations(project, sharedRoot, resolved));
+    } catch (error) {
+      violations.push(
+        `${project.directory}/${path.basename(configFile)}: Vite ${environment.command} inputs are not auditable: ${error.message}`,
+      );
     }
     let aliases;
     try {
@@ -495,6 +662,99 @@ async function viteAliasViolations(project, sharedRoot) {
         violations.push(
           `${project.directory}/${path.basename(configFile)}: Vite alias ${alias.find} escapes wallet/${project.directory}: ${alias.replacement}`,
         );
+      }
+    }
+    const resolver = resolved.createResolver();
+    for (const reference of moduleReferences) {
+      let standard;
+      try {
+        standard = await resolver(reference.specifier, reference.importer);
+      } catch (error) {
+        violations.push(
+          `${reference.location}: Vite ${environment.command} resolution is not auditable: ${error.message}`,
+        );
+        continue;
+      }
+      if (standard) {
+        const violation = viteFilesystemViolation(
+          project,
+          sharedRoot,
+          typeof standard === "string" ? standard : standard.id,
+          `${reference.location} Vite ${environment.command} resolution of ${reference.specifier}`,
+        );
+        if (violation) violations.push(violation);
+      }
+    }
+    let plugins;
+    try {
+      plugins = await normalizedVitePlugins([
+        loaded?.config?.plugins,
+        loaded?.config?.build?.rollupOptions?.plugins,
+      ]);
+    } catch (error) {
+      violations.push(
+        `${project.directory}/${path.basename(configFile)}: Vite plugins are not auditable: ${error.message}`,
+      );
+      continue;
+    }
+    const pluginContext = new Proxy(
+      {
+        async resolve(specifier, importer) {
+          const id = await resolver(specifier, importer);
+          return id ? { id: typeof id === "string" ? id : id.id } : null;
+        },
+      },
+      {
+        get(target, property) {
+          if (property in target) return target[property];
+          throw new Error(`unsupported Rollup plugin context member ${String(property)}`);
+        },
+      },
+    );
+    for (const plugin of plugins) {
+      let handler;
+      try {
+        handler = viteResolveHandler(plugin);
+      } catch (error) {
+        violations.push(`${project.directory}/${path.basename(configFile)}: ${error.message}`);
+        continue;
+      }
+      if (!handler) continue;
+      for (const reference of moduleReferences) {
+        let result;
+        try {
+          result = await handler.call(
+            pluginContext,
+            reference.specifier,
+            reference.importer,
+            { attributes: {}, custom: {}, isEntry: false },
+          );
+        } catch (error) {
+          violations.push(
+            `${reference.location}: Vite plugin ${plugin.name ?? "<unnamed>"} resolveId is not independently auditable: ${error.message}`,
+          );
+          continue;
+        }
+        if (!result) continue;
+        const resolvedId = typeof result === "string" ? result : result.id;
+        if (typeof resolvedId !== "string" || resolvedId.length === 0) {
+          violations.push(
+            `${reference.location}: Vite plugin ${plugin.name ?? "<unnamed>"} returned an unauditable module id`,
+          );
+          continue;
+        }
+        const candidate = path.isAbsolute(resolvedId)
+          ? resolvedId
+          : resolvedId.startsWith(".")
+            ? path.resolve(path.dirname(reference.importer), resolvedId)
+            : resolvedId;
+        const violation = viteFilesystemViolation(
+          project,
+          sharedRoot,
+          candidate,
+          `${reference.location} Vite plugin ${plugin.name ?? "<unnamed>"} resolution of ${reference.specifier}`,
+        );
+        if (violation) violations.push(violation);
       }
     }
   }
@@ -848,13 +1108,20 @@ export async function scanProjectBoundaries(walletRoot) {
   let importCount = 0;
   for (const project of projects) {
     const dependencies = project.manifest.dependencies ?? {};
-    project.compilerOptions = compilerOptions(project);
-    violations.push(...dependencyViolations(project, projects));
-    violations.push(...rootDirViolations(project, project.compilerOptions));
-    violations.push(
-      ...pathAliasViolations(project, project.compilerOptions, shared.projectRoot),
+    const configurations = await typeScriptConfigurations(project);
+    const primaryConfiguration = configurations.find(
+      (configuration) => path.basename(configuration.configFile) === "tsconfig.json",
     );
-    violations.push(...(await viteAliasViolations(project, shared.projectRoot)));
+    project.compilerOptions = primaryConfiguration?.options ?? {};
+    violations.push(...dependencyViolations(project, projects));
+    for (const configuration of configurations) {
+      const configName = path.basename(configuration.configFile);
+      violations.push(
+        ...rootDirViolations(project, configuration.options, configName),
+        ...pathAliasViolations(project, configuration.options, shared.projectRoot, configName),
+        ...typeScriptRootFileViolations(project, configuration, shared.projectRoot),
+      );
+    }
     if (
       requiredSharedDependencyProjects.has(project.directory) &&
       dependencies[SHARED_PACKAGE] !== "file:../shared"
@@ -868,6 +1135,7 @@ export async function scanProjectBoundaries(walletRoot) {
       noEmit: true,
     });
     const checker = program.getTypeChecker();
+    const moduleReferences = [];
     for (const file of projectFiles) {
       fileCount += 1;
       const source = await readFile(file, "utf8");
@@ -892,6 +1160,15 @@ export async function scanProjectBoundaries(walletRoot) {
       }
       for (const imported of importedModules(parsed)) {
         importCount += 1;
+        const literal = literalModule(imported.node);
+        if (literal !== null) {
+          const position = parsed.getLineAndCharacterOfPosition(imported.node.getStart(parsed));
+          moduleReferences.push({
+            importer: file,
+            location: `${file}:${position.line + 1}:${position.character + 1}`,
+            specifier: literal,
+          });
+        }
         const violation = validateSpecifier({
           project,
           projects,
@@ -904,6 +1181,9 @@ export async function scanProjectBoundaries(walletRoot) {
         if (violation) violations.push(violation);
       }
     }
+    violations.push(
+      ...(await viteConfigurationViolations(project, shared.projectRoot, moduleReferences)),
+    );
   }
   for (const required of REQUIRED_PRODUCTION_SHARED_CONSUMERS.keys()) {
     if (!productionSharedConsumers.has(required)) {
