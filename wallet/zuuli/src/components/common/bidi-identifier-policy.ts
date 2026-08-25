@@ -392,9 +392,35 @@ function objectPropertyValues(
   if (ts.isIdentifier(current)) {
     const symbol = checker.getSymbolAtLocation(current);
     if (!symbol || resolving.has(symbol)) return [];
+    const binding = symbol.declarations?.find(ts.isBindingElement);
+    if (binding) {
+      const nextResolving = new Set(resolving);
+      nextResolving.add(symbol);
+      if (binding.dotDotDotToken && ts.isObjectBindingPattern(binding.parent)) {
+        const excluded = new Set(
+          binding.parent.elements
+            .filter((element) => element !== binding && !element.dotDotDotToken)
+            .map((element) => bindingPropertyName(element, checker))
+            .filter((name): name is string => name !== null),
+        );
+        if (excluded.has(propertyName)) return [];
+        return bindingPatternSources(
+          binding.parent,
+          checker,
+          nextResolving,
+        ).flatMap((source) =>
+          objectPropertyValues(source, propertyName, checker, nextResolving),
+        );
+      }
+      return bindingElementValues(binding, checker, nextResolving).flatMap(
+        (value) =>
+          objectPropertyValues(value, propertyName, checker, nextResolving),
+      );
+    }
     const declaration = symbol.declarations?.find(
-      (candidate): candidate is ts.VariableDeclaration =>
-        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+      (candidate): candidate is ts.VariableDeclaration | ts.ParameterDeclaration =>
+        (ts.isVariableDeclaration(candidate) || ts.isParameter(candidate)) &&
+        candidate.initializer !== undefined,
     );
     if (!declaration?.initializer) return [];
     const nextResolving = new Set(resolving);
@@ -441,9 +467,35 @@ function arrayElementValues(
   if (ts.isIdentifier(current)) {
     const symbol = checker.getSymbolAtLocation(current);
     if (!symbol || resolving.has(symbol)) return [];
+    const binding = symbol.declarations?.find(ts.isBindingElement);
+    if (binding) {
+      const nextResolving = new Set(resolving);
+      nextResolving.add(symbol);
+      if (binding.dotDotDotToken && ts.isArrayBindingPattern(binding.parent)) {
+        const restIndex = binding.parent.elements.indexOf(binding);
+        return restIndex < 0
+          ? []
+          : bindingPatternSources(
+              binding.parent,
+              checker,
+              nextResolving,
+            ).flatMap((source) =>
+              arrayElementValues(
+                source,
+                restIndex + index,
+                checker,
+                nextResolving,
+              ),
+            );
+      }
+      return bindingElementValues(binding, checker, nextResolving).flatMap(
+        (value) => arrayElementValues(value, index, checker, nextResolving),
+      );
+    }
     const declaration = symbol.declarations?.find(
-      (candidate): candidate is ts.VariableDeclaration =>
-        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+      (candidate): candidate is ts.VariableDeclaration | ts.ParameterDeclaration =>
+        (ts.isVariableDeclaration(candidate) || ts.isParameter(candidate)) &&
+        candidate.initializer !== undefined,
     );
     if (!declaration?.initializer) return [];
     const nextResolving = new Set(resolving);
@@ -482,6 +534,9 @@ function bindingPatternSources(
   if (ts.isVariableDeclaration(parent)) {
     return parent.initializer ? [parent.initializer] : [];
   }
+  if (ts.isParameter(parent)) {
+    return parent.initializer ? [parent.initializer] : [];
+  }
   return ts.isBindingElement(parent)
     ? bindingElementValues(parent, checker, resolving)
     : [];
@@ -492,22 +547,134 @@ function bindingElementValues(
   checker: ts.TypeChecker,
   resolving: ReadonlySet<ResolutionKey>,
 ): ts.Expression[] {
-  if (binding.dotDotDotToken) return [];
   const pattern = binding.parent;
   const sources = bindingPatternSources(pattern, checker, resolving);
+  if (binding.dotDotDotToken) {
+    if (ts.isArrayBindingPattern(pattern)) {
+      const start = pattern.elements.indexOf(binding);
+      if (start < 0) return [];
+      return sources.flatMap((source) =>
+        arrayRestValues(source, start, checker, new Set(resolving)),
+      );
+    }
+    const excluded = new Set(
+      pattern.elements
+        .filter((element) => element !== binding && !element.dotDotDotToken)
+        .map((element) => bindingPropertyName(element, checker))
+        .filter((name): name is string => name !== null),
+    );
+    return sources.flatMap((source) =>
+      objectRestValues(source, excluded, checker, new Set(resolving)),
+    );
+  }
+  let selected: ts.Expression[];
   if (ts.isObjectBindingPattern(pattern)) {
     const propertyName = bindingPropertyName(binding, checker);
     if (propertyName === null) return [];
-    return sources.flatMap((source) =>
+    selected = sources.flatMap((source) =>
       objectPropertyValues(source, propertyName, checker, new Set(resolving)),
     );
+  } else {
+    const index = pattern.elements.indexOf(binding);
+    selected = index < 0
+      ? []
+      : sources.flatMap((source) =>
+          arrayElementValues(source, index, checker, new Set(resolving)),
+        );
   }
-  const index = pattern.elements.indexOf(binding);
-  return index < 0
-    ? []
-    : sources.flatMap((source) =>
-        arrayElementValues(source, index, checker, new Set(resolving)),
+  const defaultCanRun =
+    selected.length === 0 || selected.some(expressionCanBeUndefined);
+  return binding.initializer && defaultCanRun
+    ? [...selected, binding.initializer]
+    : selected;
+}
+
+function expressionCanBeUndefined(expression: ts.Expression): boolean {
+  const current = unwrapExpression(expression);
+  if (
+    ts.isStringLiteralLike(current) ||
+    ts.isNumericLiteral(current) ||
+    ts.isObjectLiteralExpression(current) ||
+    ts.isArrayLiteralExpression(current) ||
+    ts.isArrowFunction(current) ||
+    ts.isFunctionExpression(current) ||
+    current.kind === ts.SyntaxKind.TrueKeyword ||
+    current.kind === ts.SyntaxKind.FalseKeyword ||
+    current.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function arrayRestValues(
+  expression: ts.Expression,
+  start: number,
+  checker: ts.TypeChecker,
+  resolving: Set<ResolutionKey>,
+): ts.Expression[] {
+  const current = unwrapExpression(expression);
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || resolving.has(symbol)) return [];
+    const declaration = symbol.declarations?.find(
+      (candidate): candidate is ts.VariableDeclaration =>
+        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+    );
+    if (!declaration?.initializer) return [];
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
+    return arrayRestValues(declaration.initializer, start, checker, nextResolving);
+  }
+  if (!ts.isArrayLiteralExpression(current)) return [];
+  return current.elements.slice(start).flatMap((element) =>
+    ts.isOmittedExpression(element)
+      ? []
+      : ts.isSpreadElement(element)
+        ? arrayRestValues(element.expression, 0, checker, new Set(resolving))
+        : [element],
+  );
+}
+
+function objectRestValues(
+  expression: ts.Expression,
+  excluded: ReadonlySet<string>,
+  checker: ts.TypeChecker,
+  resolving: Set<ResolutionKey>,
+): ts.Expression[] {
+  const current = unwrapExpression(expression);
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || resolving.has(symbol)) return [];
+    const declaration = symbol.declarations?.find(
+      (candidate): candidate is ts.VariableDeclaration =>
+        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+    );
+    if (!declaration?.initializer) return [];
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
+    return objectRestValues(declaration.initializer, excluded, checker, nextResolving);
+  }
+  if (!ts.isObjectLiteralExpression(current)) return [];
+  return current.properties.flatMap((property) => {
+    if (ts.isSpreadAssignment(property)) {
+      return objectRestValues(
+        property.expression,
+        excluded,
+        checker,
+        new Set(resolving),
       );
+    }
+    const name = property.name
+      ? ts.isComputedPropertyName(property.name)
+        ? staticStringValue(property.name.expression, checker)
+        : property.name.text
+      : null;
+    if (name === null || excluded.has(name)) return [];
+    if (ts.isPropertyAssignment(property)) return [property.initializer];
+    if (ts.isShorthandPropertyAssignment(property)) return [property.name];
+    return [];
+  });
 }
 
 function destructuredBindingMatchesAuditedSource(
@@ -720,9 +887,14 @@ function rendersAuditedValue(
       (candidate): candidate is ts.VariableDeclaration =>
         ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
     );
-    if (!declaration?.initializer) return false;
+    const parameter = symbol.declarations?.find(
+      (candidate): candidate is ts.ParameterDeclaration =>
+        ts.isParameter(candidate) && candidate.initializer !== undefined,
+    );
+    const initializer = declaration?.initializer ?? parameter?.initializer;
+    if (!initializer) return false;
     return rendersAuditedValue(
-      declaration.initializer,
+      initializer,
       auditedSources,
       checker,
       nextResolving,
@@ -846,7 +1018,7 @@ function rendersAuditedValue(
     }
     if (current.arguments.length === 0) {
       const local = localCallable(current.expression, checker, resolving);
-      if (local && local.callable.parameters.length === 0) {
+      if (local) {
         const nextResolving = new Set(resolving);
         nextResolving.add(local.key);
         if (

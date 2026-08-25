@@ -812,10 +812,147 @@ function imageBorderShorthandIsDirectionNeutral(value) {
   );
 }
 
-function physicalShorthandIsDirectionNeutral(property, value) {
-  return property === "border-image" || property === "mask-border"
-    ? imageBorderShorthandIsDirectionNeutral(value)
-    : shorthandIsDirectionNeutral(property, value);
+function firstCssVarCall(value) {
+  let quote = null;
+  for (let index = 0; index < value.length - 3; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (value.slice(index, index + 4).toLowerCase() !== "var(") continue;
+    let depth = 1;
+    let innerQuote = null;
+    for (let end = index + 4; end < value.length; end += 1) {
+      const inner = value[end];
+      if (innerQuote) {
+        if (inner === "\\") end += 1;
+        else if (inner === innerQuote) innerQuote = null;
+      } else if (inner === '"' || inner === "'") innerQuote = inner;
+      else if (inner === "(") depth += 1;
+      else if (inner === ")" && --depth === 0) {
+        return { start: index, end: end + 1, contents: value.slice(index + 4, end) };
+      }
+    }
+    return null;
+  }
+  return null;
+}
+
+function splitCssVarArguments(contents) {
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < contents.length; index += 1) {
+    const character = contents[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") quote = character;
+    else if (character === "(" || character === "[") depth += 1;
+    else if (character === ")" || character === "]") depth -= 1;
+    else if (character === "," && depth === 0) {
+      return [contents.slice(0, index).trim(), contents.slice(index + 1).trim()];
+    }
+  }
+  return [contents.trim(), null];
+}
+
+function expandCssCustomProperties(
+  value,
+  customProperties,
+  resolving = new Set(),
+  expansionCount = { value: 0 },
+) {
+  if (expansionCount.value > 128) return [];
+  const call = firstCssVarCall(value);
+  if (!call) return [value];
+  const [name, fallback] = splitCssVarArguments(call.contents);
+  if (!/^--[\w-]+$/.test(name)) return [];
+  let replacements = [];
+  if (!resolving.has(name)) {
+    const nextResolving = new Set(resolving);
+    nextResolving.add(name);
+    for (const definition of customProperties.get(name) ?? []) {
+      replacements.push(
+        ...expandCssCustomProperties(
+          definition,
+          customProperties,
+          nextResolving,
+          expansionCount,
+        ),
+      );
+    }
+  }
+  if (fallback !== null) {
+    replacements.push(
+      ...expandCssCustomProperties(
+        fallback,
+        customProperties,
+        resolving,
+        expansionCount,
+      ),
+    );
+  }
+  const expanded = [];
+  for (const replacement of replacements) {
+    expansionCount.value += 1;
+    expanded.push(
+      ...expandCssCustomProperties(
+        `${value.slice(0, call.start)}${replacement}${value.slice(call.end)}`,
+        customProperties,
+        resolving,
+        expansionCount,
+      ),
+    );
+  }
+  return expanded;
+}
+
+function unresolvedCustomPropertyShapeIsNeutral(property, value) {
+  const tokens = cssValueTokens(value).filter(
+    (token) => token.toLowerCase() !== "!important",
+  );
+  if (property === "border-image" || property === "mask-border") {
+    const firstSlash = tokens.indexOf("/");
+    if (firstSlash < 0) return !/var\(/i.test(value);
+    const secondSlash = tokens.indexOf("/", firstSlash + 1);
+    const widthTokens = tokens.slice(
+      firstSlash + 1,
+      secondSlash < 0 ? tokens.length : secondSlash,
+    );
+    return widthTokens.length > 1 && imageBorderShorthandIsDirectionNeutral(value);
+  }
+  const groups = [[]];
+  for (const token of tokens) {
+    if (property === "border-radius" && token === "/") groups.push([]);
+    else groups.at(-1).push(token);
+  }
+  return (
+    groups.every(
+      (group) =>
+        group.length > 1 || !group.some((token) => /var\(/i.test(token)),
+    ) && shorthandIsDirectionNeutral(property, value)
+  );
+}
+
+function physicalShorthandIsDirectionNeutral(
+  property,
+  value,
+  customProperties = new Map(),
+) {
+  const check = property === "border-image" || property === "mask-border"
+    ? imageBorderShorthandIsDirectionNeutral
+    : (candidate) => shorthandIsDirectionNeutral(property, candidate);
+  if (!/var\(/i.test(value)) return check(value);
+  const expanded = expandCssCustomProperties(value, customProperties);
+  return expanded.length > 0
+    ? expanded.every(check)
+    : unresolvedCustomPropertyShapeIsNeutral(property, value);
 }
 
 function isPhysicalCssProperty(property) {
@@ -831,7 +968,15 @@ function isPhysicalCssValue(property, value) {
 
 function assertCssUsesLogicalProperties(fileName, source) {
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const { property, value } of cssDeclarations(withoutComments)) {
+  const declarations = cssDeclarations(withoutComments);
+  const customProperties = new Map();
+  for (const { property, value } of declarations) {
+    if (!property.startsWith("--")) continue;
+    const definitions = customProperties.get(property) ?? [];
+    definitions.push(value);
+    customProperties.set(property, definitions);
+  }
+  for (const { property, value } of declarations) {
     const canonicalProperty = property.toLowerCase();
     if (
       isPhysicalCssProperty(canonicalProperty) ||
@@ -844,7 +989,11 @@ function assertCssUsesLogicalProperties(fileName, source) {
         canonicalProperty === "border-radius" ||
         canonicalProperty === "border-image" ||
         canonicalProperty === "mask-border") &&
-      !physicalShorthandIsDirectionNeutral(canonicalProperty, value)
+      !physicalShorthandIsDirectionNeutral(
+        canonicalProperty,
+        value,
+        customProperties,
+      )
     ) {
       throw new Error(`${fileName} contains an asymmetric physical CSS shorthand`);
     }

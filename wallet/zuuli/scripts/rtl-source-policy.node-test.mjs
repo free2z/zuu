@@ -533,11 +533,47 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
     "border-image: url(frame.png) 1 / 1px 2px 1px 2px / 0;",
     "mask-border: url(mask.png) 1 / 1px 2px 1px 2px / 0;",
     "border-radius: calc(1px + 2px) calc(1px + 2px) var(--bottom) var(--bottom);",
-    "border-radius: var(--all) / max(2px, 3px);",
+    "--all: 1px; border-radius: var(--all) / max(2px, 3px);",
   ]) {
     assert.doesNotThrow(
       () => assertRtlSourcePolicy(withCss(declaration)),
       declaration,
+    );
+  }
+});
+
+test("directional shorthands resolve same-file custom properties and fail closed", () => {
+  const cssFile = "src/components/common/markdown.css";
+  const withCss = (declarations) => ({
+    ...BASELINE,
+    [cssFile]: `${BASELINE[cssFile]}\n.rtl-custom-property-probe { ${declarations} }\n`,
+  });
+  for (const declarations of [
+    "--review-spacing: 0 1px 0 2px; margin: var(--review-spacing);",
+    "--review-width: 1px 2px 1px 3px; border-image: url(frame.png) 1 / var(--review-width) / 0;",
+    "--review-width: 1px 2px 1px 3px; mask-border: url(mask.png) 1 / var(--review-width) / 0;",
+    "margin: var(--missing-review-spacing);",
+    "--review-spacing: 0 1px 0 1px; margin: var(--review-spacing, 0 1px 0 2px);",
+    "--review-a: var(--review-b); --review-b: var(--review-a); margin: var(--review-a, 0 1px 0 2px);",
+  ]) {
+    assert.throws(
+      () => assertRtlSourcePolicy(withCss(declarations)),
+      /asymmetric physical CSS shorthand/,
+      declarations,
+    );
+  }
+  for (const declarations of [
+    "--review-spacing: 0 1px 0 1px; margin: var(--review-spacing);",
+    "margin: 0 var(--shared-inline) 0 var(--shared-inline);",
+    "padding: var(--block-start) var(--shared-inline) var(--block-end);",
+    "--review-width: 1px 2px 1px 2px; border-image: url(frame.png) 1 / var(--review-width) / 0;",
+    "--review-color: rebeccapurple; color: var(--review-color);",
+    "--Review-Spacing: 0 1px 0 2px; margin: var(--review-spacing, 0 1px 0 1px);",
+    "--review-a: var(--review-b); --review-b: var(--review-a); margin: var(--review-a, 0 1px 0 1px);",
+  ]) {
+    assert.doesNotThrow(
+      () => assertRtlSourcePolicy(withCss(declarations)),
+      declarations,
     );
   }
 });
