@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   appendFileSync,
+  chmodSync,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -16,6 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import test, { after, beforeEach } from "node:test";
 import { fileURLToPath } from "node:url";
+import { deflateSync, inflateSync } from "node:zlib";
 
 import {
   appImagePayloadOffset,
@@ -141,7 +144,11 @@ if (
 
 const registeredLinuxFixtureTitles = [];
 const completedLinuxFixtureTitles = [];
-function linuxArtifactFixture(title, implementation) {
+function linuxArtifactFixture(
+  title,
+  implementation,
+  { available = canBuildLinuxFixtures } = {},
+) {
   assert.ok(
     LINUX_ARTIFACT_FIXTURE_TITLES.includes(title),
     `Linux artifact fixture has an unregistered title: ${title}`,
@@ -149,7 +156,7 @@ function linuxArtifactFixture(title, implementation) {
   registeredLinuxFixtureTitles.push(title);
   test(
     title,
-    { skip: !canBuildLinuxFixtures, timeout: 120_000 },
+    { skip: !available, timeout: 120_000 },
     async () => {
       await implementation();
       completedLinuxFixtureTitles.push(title);
@@ -186,13 +193,14 @@ after(() => {
 test("Linux packaging runner binds every selected fixture to a real passing test", () => {
   const expectedTitles = [
     "real AppImage, deb, and rpm fixtures expose undeclared shipped canaries",
+    "real cargo-auditable executable evidence is complete, lock-bound, and mandatory",
     "AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations",
     "AppImage listing rejects a SquashFS member with invalid UTF-8 bytes",
     "a real deb with an escaping payload symlink fails before extraction",
   ];
   assert.deepEqual(LINUX_ARTIFACT_FIXTURE_TITLES, expectedTitles);
   const expectedPattern =
-    "^(?:real AppImage, deb, and rpm fixtures expose undeclared shipped canaries|AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations|AppImage listing rejects a SquashFS member with invalid UTF-8 bytes|a real deb with an escaping payload symlink fails before extraction)$";
+    "^(?:real AppImage, deb, and rpm fixtures expose undeclared shipped canaries|real cargo-auditable executable evidence is complete, lock-bound, and mandatory|AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations|AppImage listing rejects a SquashFS member with invalid UTF-8 bytes|a real deb with an escaping payload symlink fails before extraction)$";
   assert.equal(linuxArtifactFixturePattern(), expectedPattern);
 
   let invocation;
@@ -250,13 +258,18 @@ test("Linux packaging runner binds every selected fixture to a real passing test
   );
 });
 
-function writeCanaryPayload(root) {
+function writeCanaryPayload(root, executableSource) {
   const canary = resolve(root, "usr/lib/zuuli/libundeclared-canary.so");
   const executable = resolve(root, "usr/bin/zuuli");
   mkdirSync(dirname(canary), { recursive: true });
   mkdirSync(dirname(executable), { recursive: true });
   writeFileSync(canary, "undeclared native Linux library bytes\n");
-  writeFileSync(executable, "native Linux executable bytes\n");
+  if (executableSource) {
+    copyFileSync(executableSource, executable);
+    chmodSync(executable, 0o755);
+  } else {
+    writeFileSync(executable, "native Linux executable bytes\n");
+  }
   symlinkSync("../../bin/zuuli", resolve(root, "usr/lib/zuuli/current"));
 }
 
@@ -303,9 +316,12 @@ function makeAppImageFixture(root, { invalidUtf8Name = false } = {}) {
   return artifact;
 }
 
-function makeDebFixture(root, { escapingSymlink = false } = {}) {
+function makeDebFixture(
+  root,
+  { escapingSymlink = false, executableSource } = {},
+) {
   const source = resolve(root, "deb-root");
-  writeCanaryPayload(source);
+  writeCanaryPayload(source, executableSource);
   if (escapingSymlink) {
     const link = resolve(source, "usr/lib/zuuli/current");
     rmSync(link);
@@ -576,6 +592,1451 @@ linuxArtifactFixture(
       rmSync(temporary, { recursive: true, force: true });
     }
   },
+);
+
+const cargoRuntimeFixtureTools = [
+  "cargo",
+  "cargo-auditable",
+  "dpkg-deb",
+  "objcopy",
+  "rustc",
+];
+const canBuildCargoRuntimeFixture =
+  process.platform === "linux" && cargoRuntimeFixtureTools.every(commandExists);
+
+function cargoRuntimeOptions(project, target) {
+  return {
+    cargoLock: resolve(project, "Cargo.lock"),
+    cargoManifest: resolve(project, "Cargo.toml"),
+    cargoTarget: target,
+    cargoFeatures: "default",
+  };
+}
+
+function mutateAuditableBinary(source, destination, temporary, mutate) {
+  const section = resolve(temporary, `${basename(destination)}.dep-v0`);
+  const replacement = resolve(
+    temporary,
+    `${basename(destination)}.replacement.dep-v0`,
+  );
+  execFileSync("objcopy", ["--dump-section", `.dep-v0=${section}`, source]);
+  const document = JSON.parse(
+    inflateSync(readFileSync(section)).toString("utf8"),
+  );
+  mutate(document);
+  writeFileSync(
+    replacement,
+    deflateSync(Buffer.from(JSON.stringify(document))),
+  );
+  execFileSync("objcopy", [
+    "--update-section",
+    `.dep-v0=${replacement}`,
+    source,
+    destination,
+  ]);
+  chmodSync(destination, 0o755);
+}
+
+function cargoRuntimeArtifact(temporary, name, executable) {
+  const packageRoot = resolve(temporary, name);
+  mkdirSync(packageRoot);
+  return makeDebFixture(packageRoot, { executableSource: executable });
+}
+
+function finalizeCargoRuntimeFixture(temporary, name, artifact, options) {
+  const work = resolve(temporary, `${name}-work`);
+  const root = resolve(work, "root");
+  const rawSbom = resolve(work, "raw.cdx.json");
+  const sbom = resolve(work, "artifact.sbom.cdx.json");
+  const binding = resolve(work, "artifact.sbom-binding.json");
+  mkdirSync(work);
+  writeJson(rawSbom, minimalCycloneDx());
+  prepareArtifact({ artifact, root });
+  finalizeArtifactSbom({
+    artifact,
+    root,
+    rawSbom,
+    sbom,
+    binding,
+    ...options,
+  });
+  return { root, sbom, binding };
+}
+
+function fixtureSha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function fixtureFileSha256(path) {
+  return fixtureSha256(readFileSync(path));
+}
+
+function exactProperties(entries) {
+  const result = Object.fromEntries(
+    (entries ?? []).map(({ name, value }) => [name, value]),
+  );
+  assert.equal(
+    Object.keys(result).length,
+    (entries ?? []).length,
+    "fixture properties must not hide duplicate names",
+  );
+  return result;
+}
+
+function extractFixtureEvidence(executable, temporary) {
+  const section = resolve(temporary, "independent.dep-v0.zlib");
+  execFileSync("objcopy", ["--dump-section", `.dep-v0=${section}`, executable]);
+  const compressed = readFileSync(section);
+  const json = inflateSync(compressed);
+  return {
+    compressedBytes: compressed.length,
+    compressedSha256: fixtureSha256(compressed),
+    jsonSha256: fixtureSha256(json),
+    document: JSON.parse(json.toString("utf8")),
+  };
+}
+
+function runArtifactSbomCli(args) {
+  return execFileSync(
+    process.execPath,
+    [resolve(scriptDirectory, "artifact-sbom.mjs"), ...args],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+}
+
+function artifactSbomCliFailure(args) {
+  try {
+    runArtifactSbomCli(args);
+  } catch (error) {
+    return error.stderr?.toString() ?? error.message;
+  }
+  assert.fail("artifact-sbom CLI unexpectedly succeeded");
+}
+
+test(
+  "real cargo-auditable executable evidence wrapper preserves Cargo dispatch",
+  () => {
+    const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-wrapper-"));
+    try {
+      const fakeCargo = resolve(temporary, "fake-cargo.mjs");
+      writeFileSync(
+        fakeCargo,
+        [
+          "#!/usr/bin/env node",
+          'import { writeFileSync } from "node:fs";',
+          "writeFileSync(",
+          "  process.env.ZUULI_CARGO_WRAPPER_PROBE,",
+          "  JSON.stringify(process.argv.slice(2)),",
+          ");",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(fakeCargo, 0o755);
+      const invoke = (name, args) => {
+        const probe = resolve(temporary, `${name}.json`);
+        execFileSync(
+          resolve(scriptDirectory, "cargo-auditable-cargo.sh"),
+          args,
+          {
+            env: {
+              ...process.env,
+              ZUULI_REAL_CARGO: fakeCargo,
+              ZUULI_CARGO_WRAPPER_PROBE: probe,
+            },
+          },
+        );
+        return JSON.parse(readFileSync(probe, "utf8"));
+      };
+      assert.deepEqual(
+        invoke("selector", ["+1.97.1", "build", "--locked"]),
+        ["+1.97.1", "auditable", "build", "--locked"],
+      );
+      assert.deepEqual(invoke("ordinary", ["build", "--locked"]), [
+        "auditable",
+        "build",
+        "--locked",
+      ]);
+      assert.deepEqual(
+        invoke("multiple-selectors", ["+1.97.1", "+stable", "build"]),
+        ["+1.97.1", "+stable", "build"],
+        "Cargo itself must reject a second selector instead of cargo-auditable reinterpreting it",
+      );
+      assert.deepEqual(invoke("invalid-selector", ["+", "build"]), [
+        "+",
+        "auditable",
+        "build",
+      ]);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test("Cargo audit launcher confines the bootstrap unlock to Cargo", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-launcher-"));
+  try {
+    const fakeCargo = resolve(temporary, "cargo");
+    const launched = resolve(temporary, "launched.mjs");
+    const probe = resolve(temporary, "launcher.json");
+    writeFileSync(fakeCargo, "#!/bin/sh\nexit 97\n");
+    writeFileSync(
+      launched,
+      [
+        "#!/usr/bin/env node",
+        'import { writeFileSync } from "node:fs";',
+        "writeFileSync(process.env.ZUULI_LAUNCHER_PROBE, JSON.stringify({",
+        "  args: process.argv.slice(2),",
+        "  cargo: process.env.ZUULI_REAL_CARGO,",
+        "  bootstrap: process.env.RUSTC_BOOTSTRAP,",
+        "  rustcWrapper: process.env.RUSTC_WRAPPER,",
+        "  unstableSbom: process.env.CARGO_UNSTABLE_SBOM,",
+        "  buildSbom: process.env.CARGO_BUILD_SBOM,",
+        "}));",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(fakeCargo, 0o755);
+    chmodSync(launched, 0o755);
+    execFileSync(
+      resolve(scriptDirectory, "run-with-cargo-auditable.sh"),
+      [launched, "--literal", "argument with spaces"],
+      {
+        env: {
+          ...process.env,
+          PATH: `${temporary}:${process.env.PATH}`,
+          RUNNER_TEMP: temporary,
+          ZUULI_LAUNCHER_PROBE: probe,
+        },
+      },
+    );
+    assert.deepEqual(JSON.parse(readFileSync(probe, "utf8")), {
+      args: ["--literal", "argument with spaces"],
+      cargo: fakeCargo,
+      bootstrap: "1",
+      rustcWrapper: resolve(scriptDirectory, "rustc-without-bootstrap.sh"),
+      unstableSbom: "true",
+      buildSbom: "true",
+    });
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("rustc wrapper scrubs bootstrap and preserves the compiler contract", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-rustc-wrapper-"));
+  try {
+    const fakeRustc = resolve(temporary, "fake-rustc.mjs");
+    const probe = resolve(temporary, "rustc.json");
+    writeFileSync(
+      fakeRustc,
+      [
+        "#!/usr/bin/env node",
+        'import { writeFileSync } from "node:fs";',
+        "writeFileSync(process.env.ZUULI_RUSTC_WRAPPER_PROBE, JSON.stringify({",
+        "  args: process.argv.slice(2),",
+        '  hasBootstrap: Object.hasOwn(process.env, "RUSTC_BOOTSTRAP"),',
+        "}));",
+        'process.stderr.write("injected rustc failure\\n");',
+        "process.exit(23);",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(fakeRustc, 0o755);
+    let failed;
+    try {
+      execFileSync(
+        resolve(scriptDirectory, "rustc-without-bootstrap.sh"),
+        [fakeRustc, "--crate-name", "demo", "argument with spaces", ""],
+        {
+          env: {
+            ...process.env,
+            RUSTC_BOOTSTRAP: "1",
+            ZUULI_RUSTC_WRAPPER_PROBE: probe,
+          },
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+    } catch (error) {
+      failed = error;
+    }
+    assert.ok(failed);
+    assert.equal(failed.status, 23);
+    assert.equal(failed.stderr.toString("utf8"), "injected rustc failure\n");
+    assert.deepEqual(JSON.parse(readFileSync(probe, "utf8")), {
+      args: ["--crate-name", "demo", "argument with spaces", ""],
+      hasBootstrap: false,
+    });
+
+    let missing;
+    try {
+      execFileSync(resolve(scriptDirectory, "rustc-without-bootstrap.sh"), [], {
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    } catch (error) {
+      missing = error;
+    }
+    assert.ok(missing);
+    assert.equal(missing.status, 64);
+    assert.equal(
+      missing.stderr.toString("utf8"),
+      "ZUULI rustc wrapper requires the real rustc command\n",
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("real cargo-auditable executable evidence installer is exact and fail-closed", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-installer-"));
+  try {
+    const fakeBin = resolve(temporary, "bin");
+    const runnerTemp = resolve(temporary, "runner-temp");
+    const mock = resolve(fakeBin, "mock-command.mjs");
+    mkdirSync(fakeBin);
+    mkdirSync(runnerTemp);
+    writeFileSync(
+      mock,
+      [
+        "#!/usr/bin/env node",
+        'import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+        'import { basename, resolve } from "node:path";',
+        "const command = basename(process.argv[1]);",
+        "const args = process.argv.slice(2);",
+        "appendFileSync(process.env.ZUULI_INSTALLER_LOG, `${JSON.stringify([command, ...args])}\\n`);",
+        "const state = process.env.ZUULI_INSTALLER_STATE;",
+        "const requireState = (name) => { if (!existsSync(resolve(state, name))) process.exit(91); };",
+        "const fail = (name, status) => { process.stderr.write(`injected ${name} failure\\n`); process.exit(status); };",
+        'if (command === "curl") {',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "curl") fail("curl", 22);',
+        '  const output = args[args.indexOf("--output") + 1];',
+        "  if (!output) process.exit(92);",
+        '  writeFileSync(output, "mock crate archive\\n");',
+        '  writeFileSync(resolve(state, "curl"), "ok\\n");',
+        '} else if (command === "sha256sum") {',
+        '  requireState("curl");',
+        '  writeFileSync(resolve(state, "checksum-input"), readFileSync(0));',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "checksum") fail("checksum", 1);',
+        '  writeFileSync(resolve(state, "checksum"), "ok\\n");',
+        '} else if (command === "tar") {',
+        '  requireState("checksum");',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "tar") fail("tar", 2);',
+        '  const destination = args[args.indexOf("-C") + 1];',
+        "  if (!destination) process.exit(93);",
+        '  mkdirSync(resolve(destination, "cargo-auditable-0.7.5"), { recursive: true });',
+        '  writeFileSync(resolve(state, "extract"), "ok\\n");',
+        '} else if (command === "patch") {',
+        '  requireState("extract");',
+        '  const input = args.find((arg) => arg.startsWith("--input="))?.slice("--input=".length);',
+        "  if (!input) process.exit(96);",
+        '  writeFileSync(resolve(state, "patch-input"), readFileSync(input));',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "patch") fail("patch", 1);',
+        '  writeFileSync(resolve(state, "patch"), "ok\\n");',
+        '} else if (command === "cargo") {',
+        '  if (args[0] === "install" && args[1] !== "--list") {',
+        '    requireState("patch");',
+        '    if (process.env.ZUULI_INSTALLER_FAILURE === "install") fail("install", 101);',
+        '    writeFileSync(resolve(state, "install"), "ok\\n");',
+        '  } else if (args[0] === "install" && args[1] === "--list") {',
+        '    requireState("install");',
+        '    const version = process.env.ZUULI_INSTALLER_FAILURE === "version" ? "9.9.9" : "0.7.5";',
+        "    process.stdout.write(`cargo-auditable v${version} (/mock/source):\\n    cargo-auditable\\n`);",
+        '    if (process.env.ZUULI_INSTALLER_FAILURE === "list-exit") fail("list", 17);',
+        "  } else process.exit(94);",
+        "} else process.exit(95);",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(mock, 0o755);
+    for (const command of ["cargo", "curl", "patch", "sha256sum", "tar"])
+      symlinkSync("mock-command.mjs", resolve(fakeBin, command));
+
+    const invoke = (name, failure) => {
+      const state = resolve(temporary, name);
+      const log = resolve(state, "commands.jsonl");
+      mkdirSync(state);
+      const env = {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        RUNNER_TEMP: runnerTemp,
+        ZUULI_INSTALLER_LOG: log,
+        ZUULI_INSTALLER_STATE: state,
+      };
+      if (failure) env.ZUULI_INSTALLER_FAILURE = failure;
+      let error;
+      try {
+        execFileSync(resolve(scriptDirectory, "install-cargo-auditable.sh"), {
+          env,
+          stdio: ["ignore", "ignore", "pipe"],
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return {
+        error,
+        status: error?.status,
+        stderr: error?.stderr?.toString("utf8"),
+        state,
+        commands: existsSync(log)
+          ? readFileSync(log, "utf8")
+              .trim()
+              .split("\n")
+              .filter(Boolean)
+              .map((line) => JSON.parse(line))
+          : [],
+      };
+    };
+
+    const success = invoke("success");
+    assert.equal(success.error, undefined);
+    assert.equal(success.commands.length, 6);
+    const [curl, checksum, tar, patch, install, installed] = success.commands;
+    const archive = curl.at(-1);
+    const sourceRoot = dirname(archive);
+    assert.deepEqual(curl, [
+      "curl",
+      "--fail",
+      "--location",
+      "--proto",
+      "=https",
+      "--tlsv1.2",
+      "https://static.crates.io/crates/cargo-auditable/cargo-auditable-0.7.5.crate",
+      "--output",
+      archive,
+    ]);
+    assert.deepEqual(checksum, ["sha256sum", "--check"]);
+    assert.equal(
+      readFileSync(resolve(success.state, "checksum-input"), "utf8"),
+      `cd121127b91d68074770a620544182345d7db56d03dcbd85316ab11e54a5b1bc  ${archive}\n`,
+    );
+    assert.deepEqual(tar, ["tar", "-xzf", archive, "-C", sourceRoot]);
+    assert.deepEqual(patch, [
+      "patch",
+      "--fuzz=0",
+      "--batch",
+      "--forward",
+      "-d",
+      sourceRoot,
+      "-p0",
+      `--input=${resolve(scriptDirectory, "cargo-auditable-0.7.5-root.patch")}`,
+    ]);
+    assert.equal(
+      createHash("sha256")
+        .update(readFileSync(resolve(success.state, "patch-input")))
+        .digest("hex"),
+      "a4073f47d0f868d276bb8eaf07a784dcb49fa96c743831c0b32bafd9c19e616a",
+    );
+    assert.deepEqual(install, [
+      "cargo",
+      "install",
+      "--force",
+      "--locked",
+      "--path",
+      resolve(sourceRoot, "cargo-auditable-0.7.5"),
+    ]);
+    assert.deepEqual(installed, ["cargo", "install", "--list"]);
+    const expectedCommandsFor = (archivePath) => {
+      const extractedRoot = dirname(archivePath);
+      return [
+        [
+          "curl",
+          "--fail",
+          "--location",
+          "--proto",
+          "=https",
+          "--tlsv1.2",
+          "https://static.crates.io/crates/cargo-auditable/cargo-auditable-0.7.5.crate",
+          "--output",
+          archivePath,
+        ],
+        ["sha256sum", "--check"],
+        ["tar", "-xzf", archivePath, "-C", extractedRoot],
+        [
+          "patch",
+          "--fuzz=0",
+          "--batch",
+          "--forward",
+          "-d",
+          extractedRoot,
+          "-p0",
+          `--input=${resolve(scriptDirectory, "cargo-auditable-0.7.5-root.patch")}`,
+        ],
+        [
+          "cargo",
+          "install",
+          "--force",
+          "--locked",
+          "--path",
+          resolve(extractedRoot, "cargo-auditable-0.7.5"),
+        ],
+        ["cargo", "install", "--list"],
+      ];
+    };
+    for (const [failure, status, message, commandCount] of [
+      ["curl", 22, "injected curl failure\n", 1],
+      ["checksum", 1, "injected checksum failure\n", 2],
+      ["tar", 2, "injected tar failure\n", 3],
+      ["patch", 1, "injected patch failure\n", 4],
+      ["install", 101, "injected install failure\n", 5],
+    ]) {
+      const failed = invoke(`failure-${failure}`, failure);
+      assert.ok(failed.error, `${failure} failure must stop installation`);
+      const failedArchive = failed.commands[0]?.at(-1);
+      assert.match(
+        failedArchive,
+        /\/zuuli-cargo-auditable-source\.[^/]+\/cargo-auditable-0\.7\.5\.crate$/,
+      );
+      assert.deepEqual(
+        failed.commands,
+        expectedCommandsFor(failedArchive).slice(0, commandCount),
+        `${failure} must be the final invoked command`,
+      );
+      assert.equal(
+        failed.status,
+        status,
+        `${failure} must preserve its exit status`,
+      );
+      assert.equal(
+        failed.stderr,
+        message,
+        `${failure} must preserve its diagnostic`,
+      );
+    }
+
+    const failedList = invoke("failure-list-exit", "list-exit");
+    assert.ok(
+      failedList.error,
+      "a failed cargo install --list must stop installation even after valid output",
+    );
+    const failedListArchive = failedList.commands[0]?.at(-1);
+    assert.match(
+      failedListArchive,
+      /\/zuuli-cargo-auditable-source\.[^/]+\/cargo-auditable-0\.7\.5\.crate$/,
+    );
+    assert.deepEqual(
+      failedList.commands,
+      expectedCommandsFor(failedListArchive),
+      "cargo install --list must be the final invoked command",
+    );
+    assert.equal(failedList.status, 17);
+    assert.equal(failedList.stderr, "injected list failure\n");
+
+    const wrongVersion = invoke("failure-version", "version");
+    assert.ok(
+      wrongVersion.error,
+      "wrong installed version must fail verification",
+    );
+    assert.equal(wrongVersion.status, 1);
+    assert.equal(wrongVersion.stderr, "");
+    const wrongVersionArchive = wrongVersion.commands[0]?.at(-1);
+    assert.match(
+      wrongVersionArchive,
+      /\/zuuli-cargo-auditable-source\.[^/]+\/cargo-auditable-0\.7\.5\.crate$/,
+    );
+    assert.deepEqual(
+      wrongVersion.commands,
+      expectedCommandsFor(wrongVersionArchive),
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+linuxArtifactFixture(
+  "real cargo-auditable executable evidence is complete, lock-bound, and mandatory",
+  () => {
+    const temporary = mkdtempSync(
+      resolve(tmpdir(), "zuuli-linux-cargo-runtime-"),
+    );
+    try {
+      const project = resolve(temporary, "app");
+      const linked = resolve(project, "linked");
+      const featured = resolve(project, "featured");
+      const linuxOnly = resolve(project, "linux-only");
+      const wrongTarget = resolve(project, "wrong-target");
+      const localMacro = resolve(project, "local-macro");
+      const macroHelper = resolve(project, "macro-helper");
+      const inactiveRuntime = resolve(project, "inactive-runtime");
+      mkdirSync(resolve(project, "src"), { recursive: true });
+      for (const crate of [
+        linked,
+        featured,
+        linuxOnly,
+        wrongTarget,
+        localMacro,
+        macroHelper,
+        inactiveRuntime,
+      ]) {
+        mkdirSync(resolve(crate, "src"), { recursive: true });
+      }
+      writeFileSync(
+        resolve(project, "Cargo.toml"),
+        [
+          '[package]\nname="zuuli"\nversion="0.1.0"\nedition="2021"',
+          '[features]\ndefault=["ship","weak-forward"]\nship=["dep:featured"]\nweak-forward=["inactive-runtime?/spark"]',
+          '[dependencies]\nitoa="=1.0.15"\nlinked={path="linked",features=["spark"]}\nfeatured={path="featured",optional=true}\nlocal-macro={path="local-macro"}',
+          '[target.\'cfg(target_os = "linux")\'.dependencies]\nlinux-only={path="linux-only"}\ninactive-runtime={path="inactive-runtime",optional=true}',
+          '[target.\'cfg(target_os = "windows")\'.dependencies]\nwrong-target={path="wrong-target"}',
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        resolve(project, "src/app.rs"),
+        [
+          "#[local_macro::marker]",
+          "fn marked() {}",
+          "pub fn run() {",
+          "    marked();",
+          '    println!("{} {} {}", linked::answer(), featured::answer(), itoa::Buffer::new().format(42));',
+          '    #[cfg(target_os = "linux")] println!("{}", linux_only::answer());',
+          '    #[cfg(target_os = "windows")] println!("{}", wrong_target::answer());',
+          "}",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        resolve(project, "src/lib.rs"),
+        "mod app;\npub use app::run;\n",
+      );
+      writeFileSync(
+        resolve(project, "src/main.rs"),
+        "fn main() { zuuli::run(); }\n",
+      );
+      writeFileSync(
+        resolve(linked, "Cargo.toml"),
+        '[package]\nname="linked"\nversion="1.2.3"\nedition="2021"\n[features]\ndefault=[]\nspark=[]\n',
+      );
+      writeFileSync(
+        resolve(linked, "src/lib.rs"),
+        "pub fn answer() -> u8 { 42 }\n",
+      );
+      for (const [crate, name, version, answer] of [
+        [featured, "featured", "2.0.0", 2],
+        [linuxOnly, "linux-only", "3.0.0", 3],
+        [wrongTarget, "wrong-target", "4.0.0", 4],
+      ]) {
+        writeFileSync(
+          resolve(crate, "Cargo.toml"),
+          `[package]\nname="${name}"\nversion="${version}"\nedition="2021"\n`,
+        );
+        writeFileSync(
+          resolve(crate, "src/lib.rs"),
+          `pub fn answer() -> u8 { ${answer} }\n`,
+        );
+      }
+      writeFileSync(
+        resolve(macroHelper, "Cargo.toml"),
+        '[package]\nname="macro-helper"\nversion="6.0.0"\nedition="2021"\n',
+      );
+      writeFileSync(
+        resolve(macroHelper, "src/lib.rs"),
+        "pub fn identity(value: String) -> String { value }\n",
+      );
+      writeFileSync(
+        resolve(localMacro, "Cargo.toml"),
+        '[package]\nname="local-macro"\nversion="5.0.0"\nedition="2021"\n[lib]\nproc-macro=true\n[dependencies]\nmacro-helper={path="../macro-helper"}\n',
+      );
+      writeFileSync(
+        resolve(localMacro, "src/lib.rs"),
+        [
+          "extern crate proc_macro;",
+          "use proc_macro::TokenStream;",
+          "#[proc_macro_attribute]",
+          "pub fn marker(_attribute: TokenStream, item: TokenStream) -> TokenStream {",
+          "    macro_helper::identity(item.to_string()).parse().unwrap()",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        resolve(inactiveRuntime, "Cargo.toml"),
+        '[package]\nname="inactive-runtime"\nversion="7.0.0"\nedition="2021"\n[features]\nspark=[]\n[dependencies]\nmacro-helper={path="../macro-helper"}\n',
+      );
+      writeFileSync(
+        resolve(inactiveRuntime, "src/lib.rs"),
+        "pub fn answer(value: String) -> String { macro_helper::identity(value) }\n",
+      );
+      execFileSync("cargo", ["generate-lockfile", "--offline"], {
+        cwd: project,
+      });
+      const impreciseTarget = resolve(project, "imprecise-target");
+      const impreciseEnvironment = {
+        ...process.env,
+        CARGO_TARGET_DIR: impreciseTarget,
+      };
+      delete impreciseEnvironment.CARGO_BUILD_SBOM;
+      delete impreciseEnvironment.CARGO_UNSTABLE_SBOM;
+      delete impreciseEnvironment.RUSTC_BOOTSTRAP;
+      execFileSync(
+        "cargo",
+        ["auditable", "build", "--release", "--locked", "--offline"],
+        { cwd: project, env: impreciseEnvironment },
+      );
+      const imprecise = resolve(impreciseTarget, "release/zuuli");
+      const impreciseEvidence = extractFixtureEvidence(imprecise, temporary);
+      assert.equal(impreciseEvidence.document.format, 1);
+      const impreciseKinds = new Map(
+        impreciseEvidence.document.packages.map((entry) => [
+          entry.name,
+          entry.kind ?? "runtime",
+        ]),
+      );
+      assert.equal(impreciseKinds.get("local-macro"), "build");
+      assert.equal(
+        impreciseKinds.get("inactive-runtime"),
+        "runtime",
+        "format 1 must reproduce Cargo metadata's inactive optional package false positive",
+      );
+      assert.equal(
+        impreciseKinds.get("macro-helper"),
+        "runtime",
+        "format 1 must reproduce promotion of a shared build-only package",
+      );
+      const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(
+        /^host: (.+)$/m,
+      )?.[1];
+      assert.equal(host, "x86_64-unknown-linux-gnu");
+      const options = cargoRuntimeOptions(project, host);
+      execFileSync(
+        resolve(scriptDirectory, "run-with-cargo-auditable.sh"),
+        ["cargo", "build", "--release", "--locked", "--offline"],
+        {
+          cwd: project,
+          env: {
+            ...process.env,
+            CARGO_TARGET_DIR: resolve(project, "target"),
+          },
+        },
+      );
+      const audited = resolve(project, "target/release/zuuli");
+      assert.ok(
+        existsSync(audited),
+        "the default-target build must emit the host artifact at target/release",
+      );
+      assert.equal(
+        existsSync(resolve(project, "target", host, "release/zuuli")),
+        false,
+        "the reviewed build must not silently become an explicit cross-target build",
+      );
+      const expectedRuntimePackages = [
+        { name: "featured", version: "2.0.0", source: "local", features: [] },
+        {
+          name: "itoa",
+          version: "1.0.15",
+          source: "crates.io",
+          features: [],
+        },
+        {
+          name: "linked",
+          version: "1.2.3",
+          source: "local",
+          features: ["default", "spark"],
+        },
+        {
+          name: "linux-only",
+          version: "3.0.0",
+          source: "local",
+          features: [],
+        },
+        {
+          name: "zuuli",
+          version: "0.1.0",
+          source: "local",
+          features: ["default", "ship", "weak-forward"],
+        },
+      ].sort((left, right) =>
+        `${left.name}\0${left.version}\0${left.source}`.localeCompare(
+          `${right.name}\0${right.version}\0${right.source}`,
+        ),
+      );
+      const expectedGraph = {
+        target: host,
+        features: ["default"],
+        packages: expectedRuntimePackages,
+      };
+      const independentEvidence = extractFixtureEvidence(audited, temporary);
+      assert.equal(independentEvidence.document.format, 8);
+      assert.deepEqual(
+        independentEvidence.document.packages
+          .filter((entry) => entry.root === true)
+          .map(({ name, version, source }) => ({ name, version, source })),
+        [{ name: "zuuli", version: "0.1.0", source: "local" }],
+        "the Cargo precursor's binary root must survive same-package lib/bin unit deduplication",
+      );
+      assert.deepEqual(
+        independentEvidence.document.packages
+          .filter((entry) => entry.kind === "build")
+          .map((entry) => entry.name)
+          .sort(),
+        ["local-macro", "macro-helper"],
+        "the fixture must exercise a local/path proc-macro and its build-only subtree",
+      );
+      assert.equal(
+        independentEvidence.document.packages.some(
+          (entry) => entry.name === "inactive-runtime",
+        ),
+        false,
+        "precise evidence must omit the inactive optional runtime package",
+      );
+      const impreciseArtifact = cargoRuntimeArtifact(
+        temporary,
+        "imprecise-package",
+        imprecise,
+      );
+      assert.throws(
+        () =>
+          finalizeCargoRuntimeFixture(
+            temporary,
+            "imprecise",
+            impreciseArtifact,
+            options,
+          ),
+        /embedded Cargo audit evidence must be precise format 8/,
+      );
+      const artifact = cargoRuntimeArtifact(temporary, "good-package", audited);
+      const finalized = finalizeCargoRuntimeFixture(
+        temporary,
+        "good",
+        artifact,
+        options,
+      );
+      const finalizedBinding = JSON.parse(
+        readFileSync(finalized.binding, "utf8"),
+      );
+      assert.deepEqual(finalizedBinding.cargoRuntime, {
+        target: host,
+        features: ["default"],
+        cargoLock: {
+          path: "Cargo.lock",
+          bytes: lstatSync(options.cargoLock).size,
+          sha256: fixtureFileSha256(options.cargoLock),
+        },
+        executable: {
+          path: "usr/bin/zuuli",
+          bytes: lstatSync(audited).size,
+          sha256: fixtureFileSha256(audited),
+        },
+        evidence: {
+          format: 8,
+          compressedBytes: independentEvidence.compressedBytes,
+          compressedSha256: independentEvidence.compressedSha256,
+          jsonSha256: independentEvidence.jsonSha256,
+          runtimePackages: expectedRuntimePackages.length,
+          graphSha256: fixtureSha256(
+            Buffer.from(`${JSON.stringify(expectedGraph)}\n`),
+          ),
+        },
+      });
+      const finalizedSbom = JSON.parse(readFileSync(finalized.sbom, "utf8"));
+      const runtimeComponents = (finalizedSbom.components ?? []).filter(
+        (component) =>
+          (component.properties ?? []).some(
+            ({ name, value }) =>
+              name === "free2z:cargo-runtime:package" && value === "true",
+          ),
+      );
+      assert.deepEqual(
+        runtimeComponents.map((component) => component.name),
+        expectedRuntimePackages.map((entry) => entry.name),
+      );
+      for (const expected of expectedRuntimePackages) {
+        const component = runtimeComponents.find(
+          (candidate) => candidate.name === expected.name,
+        );
+        assert.ok(
+          component,
+          `missing exact ${expected.name} runtime component`,
+        );
+        assert.equal(
+          component.type,
+          expected.name === "zuuli" ? "application" : "library",
+        );
+        assert.equal(component.version, expected.version);
+        assert.equal(
+          component["bom-ref"],
+          `cargo-runtime:${fixtureSha256(
+            Buffer.from(
+              `${expected.name}\0${expected.version}\0${expected.source}`,
+            ),
+          )}`,
+        );
+        if (expected.source === "crates.io") {
+          assert.equal(
+            component.purl,
+            `pkg:cargo/${expected.name}@${expected.version}`,
+          );
+        } else {
+          assert.equal(
+            Object.hasOwn(component, "purl"),
+            false,
+            "local/path Cargo packages must not claim a registry purl",
+          );
+        }
+        assert.deepEqual(exactProperties(component.properties), {
+          "free2z:cargo-runtime:package": "true",
+          "free2z:cargo-runtime:package-features": JSON.stringify(
+            expected.features,
+          ),
+          "free2z:cargo-runtime:source": expected.source,
+        });
+      }
+      const runtimeMetadata = exactProperties(
+        finalizedSbom.metadata?.properties,
+      );
+      assert.deepEqual(
+        Object.fromEntries(
+          Object.entries(runtimeMetadata).filter(([name]) =>
+            name.startsWith("free2z:cargo-runtime:"),
+          ),
+        ),
+        {
+          "free2z:cargo-runtime:cargo-lock-sha256": fixtureFileSha256(
+            options.cargoLock,
+          ),
+          "free2z:cargo-runtime:evidence-sha256":
+            independentEvidence.compressedSha256,
+          "free2z:cargo-runtime:executable": "usr/bin/zuuli",
+          "free2z:cargo-runtime:executable-sha256": fixtureFileSha256(audited),
+          "free2z:cargo-runtime:features": '["default"]',
+          "free2z:cargo-runtime:graph-sha256": fixtureSha256(
+            Buffer.from(`${JSON.stringify(expectedGraph)}\n`),
+          ),
+          "free2z:cargo-runtime:scope": "linked-linux-executable",
+          "free2z:cargo-runtime:target": host,
+        },
+      );
+      rmSync(finalized.root, { recursive: true, force: true });
+      assert.doesNotThrow(() =>
+        verifyArtifactSbom({
+          artifact,
+          sbom: finalized.sbom,
+          binding: finalized.binding,
+          ...options,
+        }),
+      );
+
+      const assertSbomRejected = (name, mutate, expected) => {
+        const sbomPath = resolve(temporary, `${name}.sbom.cdx.json`);
+        const bindingPath = resolve(temporary, `${name}.binding.json`);
+        const document = structuredClone(finalizedSbom);
+        mutate(document);
+        writeJson(sbomPath, document);
+        const record = structuredClone(finalizedBinding);
+        record.sbom = {
+          path: basename(sbomPath),
+          bytes: lstatSync(sbomPath).size,
+          sha256: fixtureFileSha256(sbomPath),
+        };
+        writeJson(bindingPath, record);
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: sbomPath,
+              binding: bindingPath,
+              ...options,
+            }),
+          expected,
+        );
+      };
+      const runtimeComponent = (document, name) =>
+        document.components.find(
+          (component) =>
+            component.name === name &&
+            (component.properties ?? []).some(
+              (entry) =>
+                entry.name === "free2z:cargo-runtime:package" &&
+                entry.value === "true",
+            ),
+        );
+      const runtimeProperty = (entries, name) =>
+        entries.find((entry) => entry.name === name);
+      assertSbomRejected(
+        "missing-zuuli-component",
+        (document) => {
+          const component = runtimeComponent(document, "zuuli");
+          document.components.splice(document.components.indexOf(component), 1);
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "missing-linked-component",
+        (document) => {
+          const component = runtimeComponent(document, "linked");
+          document.components.splice(document.components.indexOf(component), 1);
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "invented-linked-purl",
+        (document) => {
+          runtimeComponent(document, "linked").purl = "pkg:cargo/linked@1.2.3";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "missing-itoa-purl",
+        (document) => {
+          delete runtimeComponent(document, "itoa").purl;
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "wrong-itoa-purl",
+        (document) => {
+          runtimeComponent(document, "itoa").purl = "pkg:cargo/itoa@9.9.9";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "wrong-itoa-source",
+        (document) => {
+          runtimeProperty(
+            runtimeComponent(document, "itoa").properties,
+            "free2z:cargo-runtime:source",
+          ).value = "local";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "wrong-linked-source",
+        (document) => {
+          runtimeProperty(
+            runtimeComponent(document, "linked").properties,
+            "free2z:cargo-runtime:source",
+          ).value = "crates.io";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      assertSbomRejected(
+        "wrong-linked-features",
+        (document) => {
+          runtimeProperty(
+            runtimeComponent(document, "linked").properties,
+            "free2z:cargo-runtime:package-features",
+          ).value = "[]";
+        },
+        /SBOM Cargo runtime components/,
+      );
+      for (const [name, propertyName, replacement] of [
+        [
+          "wrong-runtime-target",
+          "free2z:cargo-runtime:target",
+          "x86_64-pc-windows-gnu",
+        ],
+        ["wrong-runtime-features", "free2z:cargo-runtime:features", "[]"],
+        [
+          "wrong-graph-digest",
+          "free2z:cargo-runtime:graph-sha256",
+          "0".repeat(64),
+        ],
+        [
+          "wrong-evidence-digest",
+          "free2z:cargo-runtime:evidence-sha256",
+          "0".repeat(64),
+        ],
+      ]) {
+        assertSbomRejected(
+          name,
+          (document) => {
+            runtimeProperty(document.metadata.properties, propertyName).value =
+              replacement;
+          },
+          new RegExp(`SBOM metadata ${propertyName}`),
+        );
+      }
+
+      const assertBinaryRejected = (name, binary, expected) => {
+        const mutatedArtifact = cargoRuntimeArtifact(
+          temporary,
+          `${name}-package`,
+          binary,
+        );
+        assert.throws(
+          () =>
+            finalizeCargoRuntimeFixture(
+              temporary,
+              name,
+              mutatedArtifact,
+              options,
+            ),
+          expected,
+        );
+      };
+
+      {
+        execFileSync("cargo", ["build", "--release", "--locked", "--offline"], {
+          cwd: project,
+          env: {
+            ...process.env,
+            CARGO_TARGET_DIR: resolve(project, "plain-target"),
+          },
+        });
+        assertBinaryRejected(
+          "build-without-instrumentation",
+          resolve(project, "plain-target/release/zuuli"),
+          /missing embedded Cargo audit evidence/,
+        );
+      }
+
+      const stripped = resolve(temporary, "missing-evidence-zuuli");
+      execFileSync("objcopy", [
+        "--remove-section",
+        ".dep-v0",
+        audited,
+        stripped,
+      ]);
+      chmodSync(stripped, 0o755);
+      assertBinaryRejected(
+        "missing-evidence",
+        stripped,
+        /missing embedded Cargo audit evidence/,
+      );
+
+      const missingRoot = resolve(temporary, "missing-root-zuuli");
+      mutateAuditableBinary(audited, missingRoot, temporary, (document) => {
+        delete document.packages.find((entry) => entry.root === true).root;
+      });
+      assertBinaryRejected(
+        "missing-root",
+        missingRoot,
+        /evidence must have exactly one root package/,
+      );
+
+      const multipleRoots = resolve(temporary, "multiple-roots-zuuli");
+      mutateAuditableBinary(audited, multipleRoots, temporary, (document) => {
+        document.packages.find((entry) => entry.name === "linked").root = true;
+      });
+      assertBinaryRejected(
+        "multiple-roots",
+        multipleRoots,
+        /evidence must have exactly one root package/,
+      );
+
+      const wrongRoot = resolve(temporary, "wrong-root-zuuli");
+      mutateAuditableBinary(audited, wrongRoot, temporary, (document) => {
+        delete document.packages.find((entry) => entry.root === true).root;
+        document.packages.find((entry) => entry.name === "linked").root = true;
+      });
+      assertBinaryRejected(
+        "wrong-root",
+        wrongRoot,
+        /evidence contains an unreachable package/,
+      );
+
+      const omitted = resolve(temporary, "omitted-linked-crate-zuuli");
+      mutateAuditableBinary(audited, omitted, temporary, (document) => {
+        const linkedIndex = document.packages.findIndex(
+          (entry) => entry.name === "linked",
+        );
+        assert.notEqual(linkedIndex, -1);
+        document.packages.splice(linkedIndex, 1);
+        for (const entry of document.packages) {
+          entry.dependencies = (entry.dependencies ?? [])
+            .filter((index) => index !== linkedIndex)
+            .map((index) => (index > linkedIndex ? index - 1 : index));
+          if (entry.dependencies.length === 0) delete entry.dependencies;
+        }
+      });
+      assertBinaryRejected(
+        "omitted-linked-crate",
+        omitted,
+        /omits locked package linked 1\.2\.3/,
+      );
+
+      const wrongVersion = resolve(temporary, "wrong-version-zuuli");
+      mutateAuditableBinary(audited, wrongVersion, temporary, (document) => {
+        document.packages.find((entry) => entry.name === "linked").version =
+          "9.9.9";
+      });
+      assertBinaryRejected(
+        "wrong-version",
+        wrongVersion,
+        /omits locked package linked 1\.2\.3|unknown or wrong-version package linked 9\.9\.9/,
+      );
+
+      const unknown = resolve(temporary, "unknown-package-zuuli");
+      mutateAuditableBinary(audited, unknown, temporary, (document) => {
+        const root = document.packages.find((entry) => entry.root === true);
+        const index = document.packages.length;
+        document.packages.push({
+          name: "unknown-runtime",
+          version: "7.0.0",
+          source: "local",
+        });
+        root.dependencies = [...(root.dependencies ?? []), index];
+      });
+      assertBinaryRejected(
+        "unknown-package",
+        unknown,
+        /unknown or wrong-version package unknown-runtime 7\.0\.0/,
+      );
+
+      const wrongSource = resolve(temporary, "wrong-source-zuuli");
+      mutateAuditableBinary(audited, wrongSource, temporary, (document) => {
+        document.packages.find((entry) => entry.name === "linked").source =
+          "crates.io";
+      });
+      assertBinaryRejected(
+        "wrong-source",
+        wrongSource,
+        /omits locked package linked 1\.2\.3|unknown or wrong-version package linked 1\.2\.3/,
+      );
+
+      const duplicate = resolve(temporary, "duplicate-package-zuuli");
+      mutateAuditableBinary(audited, duplicate, temporary, (document) => {
+        const root = document.packages.find((entry) => entry.root === true);
+        const linkedPackage = document.packages.find(
+          (entry) => entry.name === "linked",
+        );
+        const index = document.packages.length;
+        document.packages.push(structuredClone(linkedPackage));
+        root.dependencies = [...(root.dependencies ?? []), index];
+      });
+      assertBinaryRejected(
+        "duplicate-package",
+        duplicate,
+        /runtime package is duplicated: linked 1\.2\.3/,
+      );
+
+      const malformed = resolve(temporary, "malformed-document-zuuli");
+      mutateAuditableBinary(audited, malformed, temporary, (document) => {
+        document.format = 2;
+      });
+      assertBinaryRejected(
+        "malformed-document",
+        malformed,
+        /must be precise format 8 with a bounded package list/,
+      );
+
+      const cyclic = resolve(temporary, "cyclic-graph-zuuli");
+      mutateAuditableBinary(audited, cyclic, temporary, (document) => {
+        const rootIndex = document.packages.findIndex(
+          (entry) => entry.root === true,
+        );
+        const linkedPackage = document.packages.find(
+          (entry) => entry.name === "linked",
+        );
+        linkedPackage.dependencies = [
+          ...(linkedPackage.dependencies ?? []),
+          rootIndex,
+        ];
+      });
+      assertBinaryRejected("cyclic-graph", cyclic, /evidence contains a cycle/);
+
+      const unreachable = resolve(temporary, "unreachable-graph-zuuli");
+      mutateAuditableBinary(audited, unreachable, temporary, (document) => {
+        document.packages.push({
+          name: "unreachable-runtime",
+          version: "8.0.0",
+          source: "local",
+          kind: "build",
+        });
+      });
+      assertBinaryRejected(
+        "unreachable-graph",
+        unreachable,
+        /evidence contains an unreachable package/,
+      );
+
+      {
+        assert.throws(
+          () =>
+            finalizeCargoRuntimeFixture(
+              temporary,
+              "wrong-feature-selection",
+              artifact,
+              { ...options, cargoFeatures: "none" },
+            ),
+          /unknown or wrong-version package featured 2\.0\.0/,
+        );
+      }
+      {
+        assert.throws(
+          () =>
+            finalizeCargoRuntimeFixture(
+              temporary,
+              "wrong-target-selection",
+              artifact,
+              { ...options, cargoTarget: "x86_64-pc-windows-gnu" },
+            ),
+          /omits locked package wrong-target 4\.0\.0|unknown or wrong-version package linux-only 3\.0\.0/,
+        );
+      }
+
+      {
+        const incompleteWork = resolve(temporary, "incomplete-options");
+        const incompleteRoot = resolve(incompleteWork, "root");
+        const incompleteRaw = resolve(incompleteWork, "raw.cdx.json");
+        mkdirSync(incompleteWork);
+        writeJson(incompleteRaw, minimalCycloneDx());
+        prepareArtifact({ artifact, root: incompleteRoot });
+        assert.throws(
+          () =>
+            finalizeArtifactSbom({
+              artifact,
+              root: incompleteRoot,
+              rawSbom: incompleteRaw,
+              sbom: resolve(incompleteWork, "partial.sbom.cdx.json"),
+              binding: resolve(incompleteWork, "partial.binding.json"),
+              cargoLock: options.cargoLock,
+            }),
+          /Linux Cargo runtime finalization options must be complete/,
+        );
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: finalized.sbom,
+              binding: finalized.binding,
+              cargoLock: options.cargoLock,
+            }),
+          /Linux Cargo runtime verification options must be complete/,
+        );
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: finalized.sbom,
+              binding: finalized.binding,
+            }),
+          /Cargo runtime evidence is present but was not independently verified/,
+        );
+      }
+
+      {
+        const cliWork = resolve(temporary, "cli");
+        const cliRoot = resolve(cliWork, "root");
+        const cliRaw = resolve(cliWork, "raw.cdx.json");
+        const cliSbom = resolve(cliWork, "artifact.sbom.cdx.json");
+        const cliBinding = resolve(cliWork, "artifact.binding.json");
+        mkdirSync(cliWork);
+        writeJson(cliRaw, minimalCycloneDx());
+        runArtifactSbomCli([
+          "prepare",
+          `--artifact=${artifact}`,
+          `--root=${cliRoot}`,
+        ]);
+        const cargoCliOptions = [
+          `--cargo-lock=${options.cargoLock}`,
+          `--cargo-manifest=${options.cargoManifest}`,
+          `--cargo-target=${options.cargoTarget}`,
+          `--cargo-features=${options.cargoFeatures}`,
+        ];
+        runArtifactSbomCli([
+          "finalize-artifact",
+          `--artifact=${artifact}`,
+          `--root=${cliRoot}`,
+          `--raw-sbom=${cliRaw}`,
+          `--sbom=${cliSbom}`,
+          `--binding=${cliBinding}`,
+          ...cargoCliOptions,
+        ]);
+        runArtifactSbomCli([
+          "verify-artifact",
+          `--artifact=${artifact}`,
+          `--sbom=${cliSbom}`,
+          `--binding=${cliBinding}`,
+          ...cargoCliOptions,
+        ]);
+        assert.match(
+          artifactSbomCliFailure([
+            "verify-artifact",
+            `--artifact=${artifact}`,
+            `--sbom=${cliSbom}`,
+            `--binding=${cliBinding}`,
+          ]),
+          /Cargo runtime evidence is present but was not independently verified/,
+        );
+        assert.match(
+          artifactSbomCliFailure([
+            "verify-artifact",
+            `--artifact=${artifact}`,
+            `--sbom=${cliSbom}`,
+            `--binding=${cliBinding}`,
+            `--cargo-lock=${options.cargoLock}`,
+          ]),
+          /Linux Cargo runtime verification options must be complete/,
+        );
+        assert.match(
+          artifactSbomCliFailure([
+            "finalize-artifact",
+            `--artifact=${artifact}`,
+            `--root=${cliRoot}`,
+            `--raw-sbom=${cliRaw}`,
+            `--sbom=${resolve(cliWork, "partial.sbom.cdx.json")}`,
+            `--binding=${resolve(cliWork, "partial.binding.json")}`,
+            `--cargo-lock=${options.cargoLock}`,
+          ]),
+          /Linux Cargo runtime finalization options must be complete/,
+        );
+      }
+
+      const originalBinding = finalizedBinding;
+      const assertBindingRejected = (name, mutate, expected) => {
+        const path = resolve(temporary, `${name}.binding.json`);
+        const record = structuredClone(originalBinding);
+        mutate(record);
+        writeJson(path, record);
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: finalized.sbom,
+              binding: path,
+              ...options,
+            }),
+          expected,
+        );
+      };
+      assertBindingRejected(
+        "unbound-evidence",
+        (record) => delete record.cargoRuntime,
+        /does not match exact Cargo runtime evidence/,
+      );
+      assertBindingRejected(
+        "substituted-evidence-digest",
+        (record) => {
+          record.cargoRuntime.evidence.compressedSha256 = "0".repeat(64);
+        },
+        /does not match exact Cargo runtime evidence/,
+      );
+
+      {
+        const exactLock = readFileSync(options.cargoLock);
+        appendFileSync(options.cargoLock, "\n");
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: finalized.sbom,
+              binding: finalized.binding,
+              ...options,
+            }),
+          /does not match exact Cargo runtime evidence and Cargo\.lock/,
+        );
+        writeFileSync(options.cargoLock, exactLock);
+      }
+
+      {
+        const exactArtifact = readFileSync(artifact);
+        appendFileSync(artifact, "substituted artifact bytes");
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: finalized.sbom,
+              binding: finalized.binding,
+              ...options,
+            }),
+          /binding does not match exact artifact and SBOM bytes/,
+        );
+        writeFileSync(artifact, exactArtifact);
+      }
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+  { available: canBuildCargoRuntimeFixture },
 );
 
 linuxArtifactFixture(
@@ -1647,5 +3108,81 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
       failure.includes("release linux artifacts"),
     ),
     "the policy must require exact AppImage re-extraction before release provenance",
+  );
+  const uninstrumentedBuild = packaging.replace(
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked --features custom-protocol",
+    "./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(uninstrumentedBuild, release).some((failure) =>
+      failure.includes("Build packages executable lines changed"),
+    ),
+    "the policy must reject a Linux build without Cargo audit instrumentation",
+  );
+  const featurelessBuild = packaging.replace(
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked --features custom-protocol",
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+  );
+  assert.notEqual(featurelessBuild, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(featurelessBuild, release).some((failure) =>
+      failure.includes("Build packages executable lines changed"),
+    ),
+    "the shipping build and Cargo evidence must retain custom-protocol together",
+  );
+  const explicitCrossTargetBuild = packaging.replace(
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}'",
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --target aarch64-unknown-linux-gnu --bundles '${{ matrix.bundles }}'",
+  );
+  assert.notEqual(explicitCrossTargetBuild, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(explicitCrossTargetBuild, release).some(
+      (failure) => failure.includes("Build packages executable lines changed"),
+    ),
+    "the Linux build must retain reviewed default-host target semantics",
+  );
+  const unpinnedInstrumentation = release.replace(
+    "scripts/install-cargo-auditable.sh",
+    "cargo install cargo-auditable",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, unpinnedInstrumentation).some(
+      (failure) =>
+        failure.includes(
+          "Install pinned Cargo audit instrumentation executable lines changed",
+        ),
+    ),
+    "the policy must reject unpinned Cargo audit instrumentation",
+  );
+  const unboundFinalization = packaging.replace(
+    " --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol",
+    " --cargo-target=x86_64-unknown-linux-gnu",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(unboundFinalization, release).some((failure) =>
+      failure.includes("Bind Linux shipped-artifact SBOMs"),
+    ),
+    "every Linux finalization must bind the exact Cargo feature set",
+  );
+  const wrongFinalizationTarget = packaging.replace(
+    " --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol",
+    " --cargo-target=aarch64-unknown-linux-gnu --cargo-features=custom-protocol",
+  );
+  assert.notEqual(wrongFinalizationTarget, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(wrongFinalizationTarget, release).some(
+      (failure) => failure.includes("Bind Linux shipped-artifact SBOMs"),
+    ),
+    "finalization must describe the x86_64 Linux host artifact built by default",
+  );
+  const unboundVerification = release.replace(
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock',
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, unboundVerification).some(
+      (failure) => failure.includes("release linux artifacts"),
+    ),
+    "every Linux verification must independently supply the exact Cargo lock",
   );
 });
