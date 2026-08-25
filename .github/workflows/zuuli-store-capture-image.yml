@@ -1,0 +1,142 @@
+name: ZUULI / Store capture image
+
+# Phase A publishes an immutable Playwright + Rust/WASM worker. The screenshot
+# capture contract continues using its old image until a follow-up PR reviews
+# and pins the digest produced from main by this workflow.
+on:
+  pull_request:
+    paths:
+      - .github/containers/zuuli-store-capture/**
+      - .github/workflows/zuuli-store-capture-image.yml
+      - .github/workflows/zuuli.yml
+      - docs/ZUULI-STORE-CAPTURE-IMAGE.md
+      - scripts/check-zuuli-store-capture-image.mjs
+  push:
+    branches: [main]
+    paths:
+      - .github/containers/zuuli-store-capture/**
+      - .github/workflows/zuuli-store-capture-image.yml
+      - .github/workflows/zuuli.yml
+      - docs/ZUULI-STORE-CAPTURE-IMAGE.md
+      - scripts/check-zuuli-store-capture-image.mjs
+  schedule:
+    - cron: "41 9 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zuuli-store-capture-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE_NAME: ghcr.io/free2z/zuuli-store-capture
+
+jobs:
+  validate:
+    name: Validate store-capture image policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          node scripts/check-zuuli-store-capture-image.mjs --self-test
+          node scripts/check-zuuli-store-capture-image.mjs
+
+  pull-request-build:
+    name: Build and inspect store-capture image
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build the reviewed amd64 image locally
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .github/containers/zuuli-store-capture
+          file: .github/containers/zuuli-store-capture/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: zuuli-store-capture:pr-${{ github.event.pull_request.number }}
+      - name: Verify the built image inventory
+        run: >-
+          docker run --rm
+          zuuli-store-capture:pr-${{ github.event.pull_request.number }}
+          /usr/local/bin/verify-zuuli-store-capture-image
+
+  publish:
+    name: Publish immutable store-capture image
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch')
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Authenticate to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish amd64 image with OCI SBOM and provenance
+        id: publish
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .github/containers/zuuli-store-capture
+          file: .github/containers/zuuli-store-capture/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:rust-1.97.1-playwright-1.62.1
+            ${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          sbom: true
+          provenance: mode=max
+      - name: Attest the published registry digest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+      - name: Verify the published digest and inventory
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker buildx imagetools inspect "$IMAGE_NAME@$IMAGE_DIGEST"
+          docker pull "$IMAGE_NAME@$IMAGE_DIGEST"
+          docker run --rm "$IMAGE_NAME@$IMAGE_DIGEST" \
+            /usr/local/bin/verify-zuuli-store-capture-image
+          {
+            echo '### Published ZUULI store-capture image'
+            echo
+            echo "\`$IMAGE_NAME@$IMAGE_DIGEST\`"
+            echo
+            echo 'A follow-up PR must review and pin this exact digest before capture consumes it.'
+          } >> "$GITHUB_STEP_SUMMARY"
