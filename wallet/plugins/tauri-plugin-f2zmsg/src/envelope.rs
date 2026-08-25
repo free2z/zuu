@@ -108,6 +108,12 @@ pub const fn is_transcript_vertex(message_type: MessageType) -> bool {
 /// ascending order the crate requires, because a head *set* has to encode one
 /// way or `msg_id` is not a function of the content.
 ///
+/// `sender_leaf_index` is this device's own MLS leaf. It is a hashed field
+/// rather than something the receiver reads off the framing — see the field's
+/// documentation on [`AppMessageTbs`] — so passing the wrong one produces a
+/// message the peer refuses with `DagError::LeafIndexMismatch` rather than one
+/// that quietly sorts to the wrong place.
+///
 /// # Errors
 ///
 /// `internal` when the body or the parent list is longer than its length prefix
@@ -117,6 +123,7 @@ pub fn seal(
     message_type: MessageType,
     parents: &[MsgId],
     epoch: u64,
+    sender_leaf_index: u32,
     sent_at_ms: i64,
     retention_class: RetentionClass,
     body: &[u8],
@@ -125,6 +132,14 @@ pub fn seal(
         message_type,
         parents: Parents::new(parents.to_vec()).map_err(dag_error)?,
         epoch,
+        // Hashed, and authoritative (#734). The MLS framing carries the same
+        // value on a direct delivery and `DagEntry::from_delivered` refuses a
+        // message where the two disagree — one source of truth, cross-checked.
+        // It has to be in the preimage because repair delivers a message
+        // outside the framing it was authored in, and a sort key readable only
+        // off the delivery gave two receivers who learned one message by
+        // different routes different transcripts.
+        sender_leaf_index,
         // Advisory, and the type says so: `SentAt` implements neither `Ord` nor
         // `PartialOrd`, so nothing downstream can order by it even by accident.
         sent_at: SentAt::new(u64::try_from(sent_at_ms).unwrap_or_default()),
@@ -266,6 +281,7 @@ mod tests {
             MessageType::CHAT,
             &[],
             3,
+            0,
             1_700_000_000_000,
             RetentionClass::Chat,
             b"hello",
@@ -279,10 +295,10 @@ mod tests {
 
     #[test]
     fn parents_are_canonicalised_so_a_head_set_encodes_one_way() {
-        let a = seal(MessageType::CHAT, &[], 1, 0, RetentionClass::Chat, b"a")
+        let a = seal(MessageType::CHAT, &[], 1, 0, 0, RetentionClass::Chat, b"a")
             .expect("seal")
             .msg_id();
-        let b = seal(MessageType::CHAT, &[], 1, 0, RetentionClass::Chat, b"b")
+        let b = seal(MessageType::CHAT, &[], 1, 0, 0, RetentionClass::Chat, b"b")
             .expect("seal")
             .msg_id();
 
@@ -290,15 +306,32 @@ mod tests {
         // `msg_id`, or the id is a function of iteration order rather than of
         // content — and two clients would disagree about the name of the same
         // message.
-        let one = seal(MessageType::CHAT, &[a, b], 1, 0, RetentionClass::Chat, b"x").expect("seal");
-        let other =
-            seal(MessageType::CHAT, &[b, a], 1, 0, RetentionClass::Chat, b"x").expect("seal");
+        let one = seal(
+            MessageType::CHAT,
+            &[a, b],
+            1,
+            0,
+            0,
+            RetentionClass::Chat,
+            b"x",
+        )
+        .expect("seal");
+        let other = seal(
+            MessageType::CHAT,
+            &[b, a],
+            1,
+            0,
+            0,
+            RetentionClass::Chat,
+            b"x",
+        )
+        .expect("seal");
         assert_eq!(one.msg_id(), other.msg_id());
     }
 
     #[test]
     fn a_msg_id_round_trips_through_the_contracts_hex_form() {
-        let id = seal(MessageType::CHAT, &[], 1, 0, RetentionClass::Chat, b"x")
+        let id = seal(MessageType::CHAT, &[], 1, 0, 0, RetentionClass::Chat, b"x")
             .expect("seal")
             .msg_id();
         assert_eq!(from_hex(&to_hex(id)).expect("hex"), id);

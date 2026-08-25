@@ -812,6 +812,7 @@ impl<B: StorageBackend> Engine<B> {
                 MessageType::CHAT,
                 &parents,
                 epoch,
+                leaf,
                 now,
                 RetentionClass::Chat,
                 body.as_bytes(),
@@ -2055,7 +2056,7 @@ impl<B: StorageBackend> Inner<B> {
                     // `from_delivered`'s equality check. That is the crate's
                     // rule, not a defect here.
                     Err(_) => {
-                        dag.insert(DagEntry::from_repair(&framed, stored.sender_leaf_index));
+                        dag.insert(DagEntry::from_repair(&framed));
                     }
                 }
             }
@@ -2469,6 +2470,7 @@ impl<B: StorageBackend> Inner<B> {
                 message_type,
                 &parents,
                 epoch,
+                leaf,
                 now,
                 RetentionClass::Chat,
                 body,
@@ -3453,13 +3455,11 @@ impl<B: StorageBackend> Inner<B> {
                         conversation_id: conversation_id.clone(),
                         outbound: false,
                         epoch: recovered.tbs().epoch,
-                        // §7's total order needs a leaf index and `msg_id` does
-                        // not commit to one, so a repaired message takes the
-                        // repairing peer's. `DagEntry::from_repair` states the
-                        // consequence: a repaired transcript can differ from
-                        // one that never lost anything, in the tie-break
-                        // between concurrent messages only.
-                        sender_leaf_index: sender,
+                        // The *author's* leaf, read out of the envelope rather
+                        // than off the delivery — which is what #734 changed
+                        // and why a repaired transcript now matches one that
+                        // never lost anything.
+                        sender_leaf_index: recovered.tbs().sender_leaf_index,
                         parents: recovered
                             .tbs()
                             .parents
@@ -3495,8 +3495,13 @@ impl<B: StorageBackend> Inner<B> {
                         records.put_message(&message)?;
                         records.remember_message(&conversation_id, &recovered_id)
                     })?;
+                    // No leaf index parameter: it is a hashed field of the
+                    // envelope now (#734), so a third-party repair produces a
+                    // byte-identical entry to a first-party one and two
+                    // receivers who learned this message by different routes
+                    // render the same transcript.
                     self.dag(&conversation_id)?
-                        .insert(DagEntry::from_repair(&recovered, sender));
+                        .insert(DagEntry::from_repair(&recovered));
                     for gap in &mut gaps {
                         gap.missing_msg_ids.retain(|id| id != &recovered_id);
                     }

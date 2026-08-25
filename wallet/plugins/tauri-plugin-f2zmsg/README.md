@@ -105,6 +105,16 @@ tie-break for the whole rule, which is a good argument for one crate.
 with a min-heap on the sort key, deterministic over the graph and the keys and
 nothing else.
 
+### `msg_id` commits to `sender_leaf_index` (#734)
+
+The second component of §7's sort key used to live only in MLS framing, and §7's
+repair path delivers a message **outside** the framing it was authored in — so
+two receivers who learned one message by different routes could render different
+transcripts. It is a hashed field of the envelope now, cross-checked against the
+framing on direct delivery (`DagError::LeafIndexMismatch`), and
+`DagEntry::from_repair` takes no leaf index because there is nowhere else for one
+to come from.
+
 ### Three codepoints this plugin had to allocate
 
 `MessageType` names seven types, which is `ARCHITECTURE.md` §7's list.
@@ -149,16 +159,20 @@ instead; that is right for a plugin whose client reads errors as English and
 wrong here. If a future contract wants detail alongside the code, it needs a
 declared envelope in `types.ts` first.
 
-**3. `compareMessages` implements the tie-break and not the order.**
-`f2z-msg-dag`'s `tests/typescript_parity.rs` pins this deliberately and calls it
-"a defect in the TypeScript client, not a difference of opinion". §5.2 says the
-UI recomputes the display order, and
-`wallet/zuuli/src/features/messages/Transcript.tsx` does so with
-`[...messages].sort(compareMessages)` — which undoes the causal order this
-plugin returns, in exactly the pairs where it matters. A `.sort()` comparator
-cannot see a graph, so the fix is a topological pass before the sort, or
-trusting the order `list_messages` already returns. **That is a frontend change
-and is not in this pull request**; it is the single highest-value follow-up.
+**3. ~~`compareMessages` implements the tie-break and not the order.~~ Fixed
+upstream while this was in flight (#736), and the fix went further than the
+report.** §5.2 used to say display order was *"recomputed by the UI, always"* —
+a sentence that mandated a second implementation of a normative protocol rule in
+another language, which is what ADR 0001 exists to prevent, and it duly
+diverged. That sentence is withdrawn, `compareMessages` is deleted, and §9 rule
+10 is now *"never order a transcript in the frontend"*.
+
+The consequence for this plugin is a **requirement**, not a nicety:
+`list_messages` returns a contiguous window of the order induced by every
+message the conversation holds — not a locally sorted page — because the UI
+renders the sequence as given. §7 also fixes the cursor: it is a `msgId`, never
+an offset, since positions in a topological order are not stable under arrival.
+Both hold here.
 
 ## What is not wired yet, and exactly why
 
