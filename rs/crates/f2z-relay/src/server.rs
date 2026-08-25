@@ -38,6 +38,24 @@
 //! leaves the load balancer with no endpoint to send traffic to. That is the
 //! correct trade under delete-on-ack, and it is the one the health-probe work
 //! of #665 assumed was already true.
+//!
+//! # The write path is supervised too, and it is not a task (zuu#685)
+//!
+//! The four tasks above were the whole of #683's supervision, and the relay has
+//! a **fifth** long-lived worker that owns the entire write path: the
+//! group-commit writer, which is an OS thread because an fsync is a blocking
+//! syscall of unbounded duration. `Supervised` holds `JoinHandle`s, so a thread
+//! could not be in it — a type boundary, not a missed name — and a dead writer
+//! left the relay returning `ERR_UNAVAILABLE` for every `APPEND` and
+//! `CONTACT_APPEND` while `/healthz` answered `200` and every probe passed.
+//! Under delete-on-ack that is the worst failure in the system: `accepted` for
+//! messages that never became durable.
+//!
+//! It is covered by supervising a **task that waits on the writer thread's
+//! liveness signal** ([`crate::commit::WriterStopped`]) and registering that
+//! task in the same list as the other four. The watchdog is therefore itself
+//! supervised: it cannot be the unsupervised thing that closes a supervision
+//! gap.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -105,6 +123,14 @@ pub const ADMIN_TASK: &str = "admin listener";
 pub const HEALTH_TASK: &str = "health listener";
 /// §7.7's TTL sweep and §5.5's seen-set aging.
 pub const EXPIRY_TASK: &str = "queue expiry tick";
+/// The group-commit writer — **the entire write path** (zuu#685).
+///
+/// The worker is an OS thread rather than a tokio task, for the reason
+/// `commit.rs` argues at length: an fsync is a blocking syscall of unbounded
+/// duration. Supervision reaches it anyway through a task that waits on the
+/// thread's liveness signal, and that task is registered here like every other,
+/// so the watchdog is supervised by the same mechanism it feeds.
+pub const COMMIT_TASK: &str = "group-commit writer";
 
 /// How long a failing relay is given to close its sockets politely.
 ///
@@ -121,6 +147,10 @@ pub struct Server {
     health_addr: Option<std::net::SocketAddr>,
     shutdown: watch::Sender<bool>,
     tasks: Vec<Supervised>,
+    /// A second handle on the group-commit writer, so that a test can kill it.
+    /// See [`Server::stop_commit_writer`].
+    #[cfg(any(test, feature = "testing"))]
+    writer: CommitWriter,
 }
 
 /// A task the relay cannot serve without, and the name an operator sees when it
@@ -213,7 +243,7 @@ impl Server {
             crate::rng::seed().map_err(|_| StartError::NoRandomness)?,
         ));
 
-        let writer = CommitWriter::start(
+        let (writer, writer_stopped) = CommitWriter::start(
             Arc::clone(&store),
             Arc::clone(&metrics),
             Duration::from_millis(u64::from(config.commit.window_ms)),
@@ -275,6 +305,9 @@ impl Server {
             .as_ref()
             .and_then(|listener| listener.local_addr().ok());
 
+        #[cfg(any(test, feature = "testing"))]
+        let writer_handle = writer.clone();
+
         let relay = Arc::new(Relay::new(
             config,
             identity,
@@ -288,13 +321,36 @@ impl Server {
         ));
 
         let (shutdown, watcher) = watch::channel(false);
-        let mut tasks = Vec::with_capacity(4);
+        let mut tasks = Vec::with_capacity(5);
         let mut supervise = |name, handle| {
             tasks.push(Supervised {
                 name,
                 handle: Some(handle),
             })
         };
+        // zuu#685. The write path is an OS thread, so what is supervised here
+        // is a **task that waits for that thread to end**. It is in the same
+        // list as everything else on purpose: a watchdog outside the mechanism
+        // would move the fail-open rather than close it, and this one's own
+        // death is reported exactly as the writer's would be.
+        //
+        // It ends on an ordinary shutdown too, like every other task here —
+        // the writer thread is left to be reaped with the process, which is
+        // what it did before this fix. Waiting for it would mean waiting for a
+        // `recv` that only returns when the last `Sender` is dropped, and the
+        // connection tasks hold those.
+        {
+            let mut shutting_down = watcher.clone();
+            supervise(
+                COMMIT_TASK,
+                tokio::spawn(async move {
+                    tokio::select! {
+                        () = writer_stopped.wait() => {}
+                        _ = shutting_down.changed() => {}
+                    }
+                }),
+            );
+        }
         supervise(
             PROTOCOL_TASK,
             tokio::spawn(crate::listener::serve(
@@ -342,6 +398,8 @@ impl Server {
             health_addr,
             shutdown,
             tasks,
+            #[cfg(any(test, feature = "testing"))]
+            writer: writer_handle,
         })
     }
 
@@ -443,6 +501,20 @@ impl Server {
             core::task::Poll::Pending
         })
         .await
+    }
+
+    /// Kill the group-commit writer **thread**, so that a test can produce the
+    /// failure [`COMMIT_TASK`]'s supervision exists for. Returns whether the
+    /// message could be delivered.
+    ///
+    /// Not [`Self::abort_task`]: aborting the watchdog would prove only that
+    /// the watchdog is in the supervised list, and would pass identically if
+    /// nothing connected it to the writer. This kills the thread that owns the
+    /// write path, and the assertion is that the process stops — which is the
+    /// chain the defect broke.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn stop_commit_writer(&self) -> bool {
+        self.writer.stop_for_test()
     }
 
     /// Abort a supervised task by name, so that a test can produce the failure
