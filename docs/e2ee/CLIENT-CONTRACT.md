@@ -1446,13 +1446,15 @@ Practical consequences for the transcript component:
 > The sentence that said otherwise is withdrawn, and the code it produced is
 > deleted.**
 >
-> [`§5.2`](#52-ordering-guarantees--read-this-before-writing-a-reducer) said, and
-> this section implied:
+> [`§5.2`](#52-ordering-guarantees--read-this-before-writing-a-reducer), as
+> written in [#574](https://github.com/free2z/zuu/pull/574), said — and this
+> section implied:
 >
 > > *"Display order is §7's total order, **recomputed by the UI, always**."*
 > > ← superseded
 >
-> **What that produced.** `compareMessages` in
+> **What that produced**, in
+> [#664](https://github.com/free2z/zuu/pull/664). `compareMessages` in
 > `wallet/zuuli/src/lib/messaging/types.ts`, applied by `Transcript.tsx` as
 > `[...messages].sort(compareMessages)`, sorted by
 > `(epoch, senderLeafIndex, msgId)` and **never read `parents`**. It was the

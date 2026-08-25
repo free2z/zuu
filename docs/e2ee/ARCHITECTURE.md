@@ -718,8 +718,8 @@ deliberate belt-and-braces, not redundancy.
 > **Correction (2026-08-25) — `msg_id` did not commit to `sender_leaf_index`,
 > and now it does. This is a wire change.**
 >
-> The revision of `AppMessage` above that shipped in
-> [#694](https://github.com/free2z/zuu/pull/694) had no `sender_leaf_index`
+> The revision of `AppMessage` above, unchanged since Phase 0
+> ([#318](https://github.com/free2z/zuu/pull/318)), had no `sender_leaf_index`
 > field:
 >
 > ```
