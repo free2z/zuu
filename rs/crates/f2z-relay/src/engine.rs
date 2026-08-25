@@ -127,8 +127,6 @@ pub struct Connection {
     /// read loop that awaited each commit before reading the next frame would
     /// deny exactly that.
     pub inflight: Arc<Mutex<BTreeSet<u32>>>,
-    /// The receive addresses this connection is subscribed to.
-    pub subscriptions: BTreeSet<QueueAddress>,
     /// Where responses and pushes go.
     pub pushes: tokio::sync::mpsc::Sender<Outbound>,
     /// This connection's transcript builder: the relay's own `relay_id` and
@@ -270,7 +268,6 @@ impl Relay {
             id,
             hello_done: false,
             inflight: Arc::new(Mutex::new(BTreeSet::new())),
-            subscriptions: BTreeSet::new(),
             pushes,
             transcripts: TranscriptBuilder::new(PROTOCOL_VERSION, self.relay_id, binding),
             source,
@@ -280,9 +277,7 @@ impl Relay {
 
     /// Release a connection's subscriptions (§6.2).
     pub fn close_connection(&self, connection: &Connection) {
-        let addresses: Vec<QueueAddress> = connection.subscriptions.iter().copied().collect();
-        self.subscriptions
-            .drop_connection(connection.id, &addresses);
+        self.subscriptions.drop_connection(connection.id);
     }
 
     // ---------------------------------------------------------------------
@@ -781,7 +776,6 @@ impl Relay {
 
         self.subscriptions
             .subscribe(recv_addr, connection.id, connection.pushes.clone());
-        connection.subscriptions.insert(recv_addr);
 
         let response = SubscribeResponse {
             next_index: record.state.next_index(),
@@ -812,7 +806,6 @@ impl Relay {
             .queue_by_recv(&recv_addr, &signer)
             .map_err(|error| self.recv_error(&error))?;
         self.subscriptions.unsubscribe(&recv_addr, connection.id);
-        connection.subscriptions.remove(&recv_addr);
         Ok(Vec::new())
     }
 
@@ -960,7 +953,6 @@ impl Relay {
         self.subscriptions
             .notify_queue_event(recv_addr, QUEUE_EVENT_DELETED, &self.metrics);
         self.subscriptions.unsubscribe(&recv_addr, connection.id);
-        connection.subscriptions.remove(&recv_addr);
         Ok(Vec::new())
     }
 
