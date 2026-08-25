@@ -33,7 +33,13 @@ sqlite = ["dep:rusqlite"]
 # code does not exist in a dependency build. Mirrors `f2z-relay-store`.
 crash-injection = []
 
-# Forwarded, never decided here. `openmls_traits`'s `extensions-draft-08`
+# Forwarded, never decided here. **Renamed in `openmls_traits 0.6.0`** — it was
+# `extensions-draft-08` against 0.5.0, and the "-08" went away when the draft
+# moved on. The feature this crate exposes is renamed with it rather than kept
+# as an alias: an alias would let a consumer name a draft revision that no
+# longer exists anywhere in the graph.
+#
+# `openmls_traits`'s `extensions-draft`
 # feature adds three methods to the trait this crate implements
 # (`write_application_export_tree`, `application_export_tree`,
 # `delete_application_export_tree`). They are implemented under the same gate,
@@ -48,13 +54,13 @@ crash-injection = []
 # dependency of `openmls_libcrux_crypto` — would then also have to implement, so
 # turning it on for `openmls_traits` without turning it on for `openmls` (which
 # forwards to that crate) is a compile error in someone else's code. Enabling it
-# for real means enabling `openmls/extensions-draft-08` at the same time.
+# for real means enabling `openmls/extensions-draft` at the same time.
 # `rs/deny.toml` already sets `all-features = false`, and
 # `scripts/check-rust-clippy.sh` lints with `--all-targets` and not
 # `--all-features`, so no gate builds the broken combination — but a person
 # running `cargo build --all-features` out of habit will meet it, and this is
 # where they find out why.
-extensions-draft-08 = ["openmls_traits/extensions-draft-08"]
+extensions-draft = ["openmls_traits/extensions-draft"]
 
 [lints]
 workspace = true

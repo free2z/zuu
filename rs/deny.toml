@@ -59,187 +59,61 @@ yanked = "warn"
 # finding the crate in `cargo tree`, and deciding whether this tree's code can
 # reach the affected function — not by copying an id out of a red CI log.
 #
-# All eleven arrive with **one** dependency: `openmls_libcrux_crypto 0.3.1`, the
-# libcrux-backed crypto provider #385 measured and ADR 0001 requires. libcrux
-# publishes as `0.0.x`, so every one of those releases is semver-incompatible
-# with the next and `cargo update` cannot move any of them: the fix has to come
-# from `openmls_libcrux_crypto` and `hpke-rs-libcrux` bumping their own
-# requirements. That single sentence is the "why we are not on that version yet"
-# for every entry, and each entry adds what is specific to it.
+# **It has one entry.** It had ten until #723, and the nine that went were the
+# whole libcrux family that arrived with `openmls_libcrux_crypto 0.3.1`:
 #
-# **Read this before treating the list as settled:** #385 evaluated this
-# provider on nine targets against real NIST/RFC vectors and did *not* run
-# cargo-deny, so none of the eleven was visible when the library choice was
-# made. The reachability arguments below are the agent's, made from the advisory
-# text and the dependency graph; the two marked NEEDS AN OWNER DECISION are the
-# ones reasoning cannot close.
+#   RUSTSEC-2026-0073  libcrux-poly1305           standalone MAC panic
+#   RUSTSEC-2026-0075  libcrux-ed25519            all-zero key on RNG failure
+#   RUSTSEC-2026-0124  libcrux-chacha20poly1305   encrypt panics on a long buffer
+#   RUSTSEC-2026-0207  libcrux-sha3               incremental SHAKE squeeze
+#   RUSTSEC-2026-0208  libcrux-sha3               AVX2 SHAKE-256 panic
+#   RUSTSEC-2026-0209  libcrux-aesgcm             AES-GCM AAD length limit
+#   RUSTSEC-2026-0210  libcrux-aesgcm             unmaintained (renamed)
+#   RUSTSEC-2026-0211  libcrux-aesgcm             non-constant-time tag check
+#   RUSTSEC-2026-0212  libcrux-secrets            aarch64 constant-time defect
+#
+# They are **fixed, not re-argued**. The 0.9 train resolves to
+# `libcrux-secrets 0.0.6`, `libcrux-sha3 0.0.10`, `libcrux-ed25519 0.0.9`,
+# `libcrux-poly1305 0.0.6`, `libcrux-chacha20poly1305 0.0.9` and
+# `libcrux-aes 0.0.9`, none of which is affected. The per-advisory reachability
+# reasoning that stood here — which of them our ciphersuite could reach, and why
+# — has been **deleted rather than kept as history**: a justification for a risk
+# that no longer exists teaches the next reader that the risk is still being
+# accepted, which is worse than saying nothing. #701 and #723 hold the record.
+#
+# The one that mattered was RUSTSEC-2026-0212. `libcrux-secrets 0.0.5`'s
+# constant-time swap/select returned incorrect results on **aarch64** — every
+# phone we ship to and every Apple Silicon desktop — underneath the AEAD we
+# actually use, and #701 established that it could not be patched around
+# without forking the libcrux release train. It was carried as an accepted risk
+# for one day. It is now simply fixed.
+#
+# =============================================================================
+# THE `[patch.crates-io]` WARNING, AND IT OUTLIVES THIS MIGRATION.
+# =============================================================================
+#
+# #701 tried to force `libcrux-secrets 0.0.6` under the old graph with a
+# `[patch.crates-io]` entry. **The build went green and linked 0.0.5.** Cargo's
+# `[patch]` replaces a package's *source*, not its version, so a 0.0.6 patch
+# cannot satisfy `libcrux-aead`'s `=0.0.5`; cargo emits
+#
+#     warning: patch `libcrux-secrets v0.0.6 (...)` was not used in the crate graph
+#
+# and carries on. Trusting the exit code would have meant reporting the advisory
+# fixed while the vulnerable code was still in the binary.
+#
+# **Anyone patching a pinned transitive dependency must check
+# `cargo tree -i <crate>`, not the build result.** That is a fact about cargo,
+# not about libcrux, and it will be true again the next time someone tries this.
 ignore = [
   # ---------------------------------------------------------------------------
-  # NOT REACHED: AES-GCM. Our ciphersuite is
-  # MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519 — ChaCha20-Poly1305 for the
-  # MLS AEAD *and* for the HPKE AEAD (`openmls_libcrux_crypto`'s `supports()`
-  # accepts only `HpkeAeadType::ChaCha20Poly1305`). `libcrux-aesgcm` is linked
-  # because `libcrux-aead` offers every algorithm; nothing in this tree selects
-  # it. `f2z-msg-mls`'s `the_ciphersuite_uses_chacha20poly1305_and_not_aes_gcm`
-  # is what makes that a checked fact rather than a claim.
-  # Fixed in libcrux-aes 0.0.9 (the crate was renamed).
-  { id = "RUSTSEC-2026-0209", reason = "AES-GCM AAD length limit; AES-GCM is not in our ciphersuite" },
-  { id = "RUSTSEC-2026-0211", reason = "non-constant-time AES-GCM tag check; AES-GCM is not in our ciphersuite" },
-  { id = "RUSTSEC-2026-0210", reason = "libcrux-aesgcm renamed to libcrux-aes; unmaintained-by-rename, and not on our path" },
-
-  # ---------------------------------------------------------------------------
-  # NOT REACHED: the standalone Poly1305 MAC. The advisory says so explicitly —
-  # "The use of libcrux-poly1305 in libcrux-chacha20poly1305 is unaffected" —
-  # and libcrux-chacha20poly1305 is the only caller in this graph.
-  # Fixed in libcrux-poly1305 0.0.5.
-  { id = "RUSTSEC-2026-0073", reason = "panic in the standalone MAC API; the AEAD path the advisory names as unaffected is the only one we use" },
-
-  # ---------------------------------------------------------------------------
-  # NOT REACHED: SHAKE. Both advisories state their own scope, and both exclude
-  # ML-KEM — which is the only consumer of SHAKE in this graph, via X-Wing.
-  # 0207 affects multi-call incremental `squeeze` with a non-RATE-divisible
-  # length ("does not impact the use of libcrux-sha3 in libcrux-ml-kem"); 0208
-  # affects `avx2::x4::shake256` with an output length > 32 not divisible by 8
-  # ("does not impact the use in ML-KEM or ML-DSA"). Nothing here calls the SHAKE
-  # API directly.
-  # Both fixed in libcrux-sha3 0.0.10.
-  { id = "RUSTSEC-2026-0207", reason = "incremental SHAKE squeeze; the advisory excludes ML-KEM, our only SHAKE consumer" },
-  { id = "RUSTSEC-2026-0208", reason = "AVX2 SHAKE-256 panic; the advisory excludes ML-KEM, our only SHAKE consumer" },
-
-  # ---------------------------------------------------------------------------
-  # NOT REACHED: libcrux Ed25519 *key generation*. The defect is in
-  # `generate_key_pair`, which silently returns an all-zero secret key if the
-  # supplied CSPRNG fails 100 times in a row. This tree never calls it:
-  # `f2z-msg-mls::DeviceSigner::from_private_key` takes the key from its caller,
-  # and `ARCHITECTURE.md` §4.2 makes `DeviceSignatureKey` a value the *device*
-  # generates from the OS CSPRNG. `openmls_libcrux_crypto::signature_key_gen`
-  # does call it, and nothing in this tree calls `signature_key_gen`.
-  # Fixed in libcrux-ed25519 0.0.7.
-  #
-  # Worth a reviewer's attention anyway: whoever writes `f2z-msg-identity` must
-  # not reach for `libcrux_ed25519::generate_key_pair` while this version is
-  # pinned, and this comment is where they will find out.
-  { id = "RUSTSEC-2026-0075", reason = "all-zero Ed25519 key on catastrophic RNG failure; we never call generate_key_pair" },
-
-  # ---------------------------------------------------------------------------
-  # REACHED, AND ACCEPTED. NEEDS AN OWNER DECISION.
-  #
-  # `libcrux-chacha20poly1305` panics if `encrypt` is handed an output buffer
-  # LONGER than `ptxt.len() + TAG_LEN`. This is our AEAD, so the crate is very
-  # much on our path. What is not on our path is the *trigger*: the buffer is
-  # sized by `hpke-rs-libcrux` and `openmls_libcrux_crypto`, never by a peer or
-  # a relay, so "the length of the ciphertext buffer under attacker control" —
-  # the advisory's own impact statement — does not describe this caller. A
-  # remote attacker would have to first change how OpenMLS sizes its own
-  # buffers.
-  #
-  # It is still a panic reachable by a caller bug in a crypto core, in a tree
-  # whose clippy policy denies `panic` for exactly that reason. Fixed upstream;
-  # unreachable from here until `libcrux-aead` bumps.
-  { id = "RUSTSEC-2026-0124", reason = "ChaCha20-Poly1305 encrypt panics on an overlong output buffer; the buffer is sized by OpenMLS, not by any peer" },
-
-  # ---------------------------------------------------------------------------
-  # REACHED. NEEDS AN OWNER DECISION. This is the one that cannot be reasoned
-  # away, and it should not be buried.
-  #
-  # `libcrux-secrets 0.0.5`'s constant-time swap/select on **aarch64** compares
-  # an 8-bit selector with a 32-bit `cmp`, including 24 bits of unspecified
-  # register content, so "in certain circumstances the swap and select
-  # instructions on aarch64 platforms returned incorrect results". aarch64 is
-  # every phone we ship to and every Apple Silicon desktop, and `libcrux-secrets`
-  # sits under `libcrux-aead` — the AEAD we do use.
-  #
-  # What we have on the other side is evidence rather than proof: #385 ran the
-  # full NIST ACVP ML-KEM, RFC 7748, RFC 8032 and X-Wing Appendix C known-answer
-  # suite green on `aarch64-apple-darwin` and on a real Android API-29 arm64
-  # device, and a swap/select returning the wrong branch would show up as a
-  # wrong answer. That is a strong negative result on two aarch64 environments;
-  # it is not a proof of absence, because the advisory says the fault depends on
-  # the execution environment.
-  #
-  # ## The fix exists and CANNOT be applied from here. This was measured, not
-  # ## assumed — do not spend the afternoon rediscovering it.
-  #
-  # `libcrux-secrets 0.0.6` is published and is the fix. Three things were tried
-  # against the graph in this lockfile, in increasing force:
-  #
-  #   1. `cargo update -p libcrux-secrets --precise 0.0.6` — **refused.**
-  #      `libcrux-aead 0.0.6` *and* `0.0.7` both require `libcrux-secrets`
-  #      `"=0.0.5"`, an exact pin, not a caret.
-  #
-  #   2. `[patch.crates-io]` pointing `libcrux-secrets` at a 0.0.6 source —
-  #      **silently ignored.** Cargo's `[patch]` replaces a package's *source*,
-  #      not its version, so a 0.0.6 patch cannot satisfy `=0.0.5`; cargo emits
-  #      `warning: patch ... was not used in the crate graph` and carries on.
-  #      **The build goes green on 0.0.5.** That is the dangerous shape here: a
-  #      patch that appears to work, changes nothing, and would have let us
-  #      report the advisory fixed while the vulnerable code was still linked.
-  #      Anyone repeating this must check `cargo tree -i libcrux-secrets`, not
-  #      the exit code.
-  #
-  #   3. Forcing it — a vendored 0.0.6 whose manifest claims `version = "0.0.5"`
-  #      — **fails to resolve, and not over anything to do with this crate's
-  #      API.** `libcrux-secrets 0.0.6` requires `hax-lib "0.3.7"`, while
-  #      `libcrux-intrinsics 0.0.6`, `libcrux-ml-kem 0.0.8` and `libcrux-sha3
-  #      0.0.8` each require `hax-lib "=0.3.6"`. `hax-lib` is libcrux's
-  #      formal-verification annotation crate and every one of those pins is
-  #      exact, so the two constraints are unsatisfiable together.
-  #
-  # So this is not a one-crate override. Taking `libcrux-secrets 0.0.6` means
-  # simultaneously forking `libcrux-intrinsics`, `libcrux-ml-kem` and
-  # `libcrux-sha3` off `hax-lib =0.3.6` — and those are in turn exactly pinned
-  # by `libcrux-aead`, `libcrux-kem` and `hpke-rs`, so the fork propagates all
-  # the way up to `openmls_libcrux_crypto`. It is forking the libcrux release
-  # train, not patching a dependency.
-  #
-  # Two further facts a decision should have. `libcrux-secrets 0.0.6` carries
-  # deliberate **API breaks** (upstream #1499 replaced the `IntOps`/`EncodeOps`
-  # traits with inherent methods on `Secret`, #1446 removed the const
-  # qualifier from the secret constructors, #1484 sealed the scalar trait), so
-  # `libcrux-aead`'s `=0.0.5` is a considered pin rather than an oversight —
-  # even a resolvable patch would have had to survive those. And libcrux has
-  # moved organisation: the advisory's fix PR is `celabshq/libcrux#1461`, while
-  # the crates still name `cryspen/libcrux`.
-  #
-  # **Remove this entry when `openmls_libcrux_crypto` ships against a
-  # `libcrux-aead` whose `libcrux-secrets` requirement admits `>= 0.0.6`.** That
-  # is the only condition under which it goes away without a fork. See #701.
-  #
-  # ## UPDATE 2026-08-25: that condition is already met. Do not re-run the
-  # ## experiment above — upgrade instead. See #723.
-  #
-  # The whole OpenMLS 0.9 train shipped on 2026-08-25, one day after the analysis
-  # above was written: `openmls 0.9.0`, `openmls_traits 0.6.0`,
-  # `openmls_libcrux_crypto 0.4.0`. That provider requires `libcrux-aead 0.0.9`,
-  # which requires `libcrux-secrets = "=0.0.6"` — the fixed version.
-  #
-  # Resolved and measured, not inferred: `cargo deny check advisories` over a
-  # crate depending only on `openmls 0.9.0` + `openmls_libcrux_crypto 0.4.0`,
-  # with an **empty** ignore list, reports exactly one finding —
-  # RUSTSEC-2026-0173, the build-host-only `proc-macro-error2` below. The 0.9
-  # train pulls `libcrux-secrets 0.0.6`, `libcrux-sha3 0.0.10`,
-  # `libcrux-ed25519 0.0.9`, `libcrux-poly1305 0.0.6`,
-  # `libcrux-chacha20poly1305 0.0.9` and `libcrux-aes 0.0.9`, which between them
-  # clear **every libcrux advisory in this list**.
-  #
-  # These entries stay until that migration lands, because they are accurate
-  # about the graph this repository actually ships — `openmls 0.8.1`, the version
-  # #385 validated on nine triples with real NIST/RFC vectors on Android
-  # hardware. What has changed is their status: they are a **migration backlog
-  # item with a known fix**, not a standing risk anyone has to keep accepting.
-  # #723 tracks it and takes "these ten entries come out" as its acceptance
-  # criterion.
-  { id = "RUSTSEC-2026-0212", reason = "aarch64 constant-time swap/select may return incorrect results; #385's aarch64 KATs are green but this is evidence, not proof — owner decision required" },
-
-  # ---------------------------------------------------------------------------
-  # BUILD-TIME ONLY. `proc-macro-error2` is unmaintained (a fork of an already
-  # unmaintained crate). It reaches this graph as a proc-macro dependency of
-  # `hax-lib-macros`, which libcrux uses for its formal-verification
-  # annotations: `proc-macro-error2 -> hax-lib-macros -> hax-lib -> core-models
-  # -> libcrux-intrinsics -> libcrux-aesgcm -> libcrux-aead`. It runs on the
-  # build host and no code from it is linked into any shipped artifact, so
-  # "unmaintained" here is a supply-chain-of-the-build concern and not a
-  # runtime one. Nothing we control can drop it while libcrux is in the graph.
+  # BUILD-TIME ONLY, and the only entry left. `proc-macro-error2` is
+  # unmaintained (a fork of an already unmaintained crate). It reaches this
+  # graph as a proc-macro dependency of `hax-lib-macros`, which libcrux uses for
+  # its formal-verification annotations. It runs on the build host and no code
+  # from it is linked into any shipped artifact, so "unmaintained" here is a
+  # supply-chain-of-the-build concern and not a runtime one. Nothing we control
+  # can drop it while libcrux is in the graph.
   { id = "RUSTSEC-2026-0173", reason = "unmaintained proc-macro; build-host only, nothing from it is linked into a shipped artifact" },
 ]
 
@@ -331,7 +205,7 @@ exceptions = [
   # ---------------------------------------------------------------------------
   # MPL-2.0, arriving with HPKE, and **this one needs an owner's eye**.
   #
-  # `openmls_libcrux_crypto 0.3.1` reaches HPKE (RFC 9180) through Cryspen's
+  # `openmls_libcrux_crypto 0.4.0` reaches HPKE (RFC 9180) through Cryspen's
   # `hpke-rs` family, and all three of those crates are MPL-2.0. There is no
   # alternative inside the decision #385 settled: HPKE is how MLS does its
   # asymmetric encryption, and this is the HPKE the libcrux provider uses.
@@ -406,28 +280,43 @@ version = "<0.13.0"
 name = "akd_mysql"
 
 [[bans.deny]]
-# openmls < 0.8.1 carries a High-severity MAC authentication defect. 0.8.1 is
-# the floor `ARCHITECTURE.md` §5 and #385 are written against, and it is the
-# version whose X-Wing behaviour was measured on all nine shipping triples.
+# The floor carries **two** defects now, and it is raised rather than replaced.
+#
+#   * openmls < 0.8.1 carries a High-severity MAC authentication defect
+#     (GHSA-3wpg-h9qc-hjwj / RUSTSEC-2025-0069).
+#   * openmls < 0.9.0 resolves, through `openmls_libcrux_crypto <= 0.3.1`, to a
+#     `libcrux-aead` pinned at `libcrux-secrets =0.0.5` — RUSTSEC-2026-0212,
+#     the aarch64 constant-time swap/select defect. `openmls_libcrux_crypto` is
+#     the crate that actually carries that, but a floor on the provider alone
+#     would leave `openmls 0.8.1` free to select it, and 0.9.0 is the release
+#     that requires 0.4.0.
 #
 # The same reasoning as the `akd` floor above applies and is the reason this is
 # an entry rather than a comment: a `[patch.crates-io]`, a path dependency or a
-# vendored copy all satisfy a manifest requirement of `"0.8.1"` without a word,
+# vendored copy all satisfy a manifest requirement of `"0.9.0"` without a word,
 # and a floor nobody enforces is a wish. This is the mechanism.
-#
-# It is deliberately `<0.8.1` and not `<0.8`: the defect is fixed *in* the 0.8
-# line, so the dangerous versions and the required one share a minor.
 name = "openmls"
-version = "<0.8.1"
+version = "<0.9.0"
+
+[[bans.deny]]
+# The provider, floored in its own right. `openmls 0.9.0` requires
+# `openmls_libcrux_crypto 0.4.0` today, so this is redundant with the entry
+# above *given today's manifests* — which is exactly why it is written down: it
+# is the crate that resolves `libcrux-secrets`, and a future `openmls` that
+# widened its provider requirement back across the 0.3 line would otherwise
+# reintroduce RUSTSEC-2026-0212 without changing a single version this file
+# names.
+name = "openmls_libcrux_crypto"
+version = "<0.4.0"
 
 [[bans.deny]]
 # The trait crate that ships with it. Held at the release matching the audited
-# `openmls 0.8.1` for the same reason: `f2z-msg-store` implements
+# `openmls 0.9.0` for the same reason: `f2z-msg-store` implements
 # `StorageProvider` against this trait, and an older trait would silently mean
 # fewer methods — a storage provider that compiles while never being asked to
 # persist something OpenMLS now persists.
 name = "openmls_traits"
-version = "<0.5.0"
+version = "<0.6.0"
 
 [[bans.deny]]
 # `openmls_basic_credential` must not enter this graph. It signs with
@@ -452,7 +341,7 @@ name = "openmls_rust_crypto"
 # `openmls_memory_storage` is deliberately NOT banned, and the reason is worth
 # recording because banning it was the first instinct. It is the reference
 # implementation `f2z-msg-store` is a port of, and it is also a **hard,
-# non-optional dependency of `openmls_libcrux_crypto 0.3.1`**, whose `Provider`
+# non-optional dependency of `openmls_libcrux_crypto 0.4.0`**, whose `Provider`
 # struct owns a `MemoryStorage` field. A ban would therefore be unsatisfiable
 # without forking the provider. What matters is that nothing in this tree
 # *hands it to OpenMLS*: `f2z-msg-mls::F2zProvider` implements `OpenMlsProvider`

@@ -5,7 +5,7 @@
 //! There is no cleverness here and there must not be any. Every method reduces
 //! to one of six helpers on [`F2zStorageProvider`] — `write`, `append`,
 //! `remove_item`, `read`, `read_list`, `delete` — named after
-//! `openmls_memory_storage 0.5.0`'s and doing the same thing to the same bytes.
+//! `openmls_memory_storage 0.6.0`'s and doing the same thing to the same bytes.
 //! The order is the **trait's** order, not the reference implementation's,
 //! because the trait is the specification and a reviewer checking that all 57
 //! are present and correctly wired should be able to read this file and
@@ -23,7 +23,7 @@
 //! | deleters for crypto objects | 6 |
 //!
 //! Three of those (`write_application_export_tree`, `application_export_tree`,
-//! `delete_application_export_tree`) exist only under `extensions-draft-08`,
+//! `delete_application_export_tree`) exist only under `extensions-draft`,
 //! which the trait gates and this crate forwards.
 //!
 //! # Where this deliberately differs from the reference
@@ -51,6 +51,18 @@
 //! fix is one line: go through the same `delete` helper every other deleter
 //! uses. `tests/provider.rs` pins it.
 //!
+//! **It is reported and it is still not fixed.** [openmls/openmls#2188][2188]
+//! carries a self-contained reproduction; the defect is present unchanged in
+//! `openmls_memory_storage` **0.6.0**, which this tree re-read line by line
+//! during the 0.9 migration (#723) rather than assuming the port still applied.
+//! Both differences above still stand against 0.6.0 — `clear_proposal_queue`
+//! still calls `values.remove(&serde_json::to_vec(&(group_id, proposal_ref))?)`
+//! against entries written through `write::<CURRENT_VERSION>(…)`, and
+//! `queued_proposals` still `unwrap()`s a dangling reference. **Do not "resync
+//! with upstream" by copying either of them back.**
+//!
+//! [2188]: https://github.com/openmls/openmls/issues/2188
+//!
 //! [`F2zStorageProvider`]: crate::F2zStorageProvider
 //! [`StoreError`]: crate::StoreError
 
@@ -58,7 +70,7 @@ use openmls_traits::storage::{CURRENT_VERSION, StorageProvider, traits};
 
 use crate::backend::StorageBackend;
 use crate::error::{Result, StoreError};
-#[cfg(feature = "extensions-draft-08")]
+#[cfg(feature = "extensions-draft")]
 use crate::keys::APPLICATION_EXPORT_TREE_LABEL;
 use crate::keys::{
     CONFIRMATION_TAG_LABEL, ENCRYPTION_KEY_PAIR_LABEL, EPOCH_KEY_PAIRS_LABEL, EPOCH_SECRETS_LABEL,
@@ -276,7 +288,7 @@ impl<B: StorageBackend> StorageProvider<CURRENT_VERSION> for F2zStorageProvider<
         )
     }
 
-    #[cfg(feature = "extensions-draft-08")]
+    #[cfg(feature = "extensions-draft")]
     fn write_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
@@ -617,7 +629,7 @@ impl<B: StorageBackend> StorageProvider<CURRENT_VERSION> for F2zStorageProvider<
         self.read::<CURRENT_VERSION, _>(PSK_LABEL, &encode(psk_id, PSK_LABEL)?)
     }
 
-    #[cfg(feature = "extensions-draft-08")]
+    #[cfg(feature = "extensions-draft")]
     fn application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,
@@ -823,7 +835,7 @@ impl<B: StorageBackend> StorageProvider<CURRENT_VERSION> for F2zStorageProvider<
         self.delete::<CURRENT_VERSION>(PSK_LABEL, &encode(psk_id, PSK_LABEL)?)
     }
 
-    #[cfg(feature = "extensions-draft-08")]
+    #[cfg(feature = "extensions-draft")]
     fn delete_application_export_tree<
         GroupId: traits::GroupId<CURRENT_VERSION>,
         ApplicationExportTree: traits::ApplicationExportTree<CURRENT_VERSION>,

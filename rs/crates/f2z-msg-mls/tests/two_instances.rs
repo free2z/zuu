@@ -226,6 +226,69 @@ fn both_sides_record_the_protocol_version_beside_the_group() {
 
 /// A device may publish queue addresses on *k* relays and senders send to all
 /// *k* (`ARCHITECTURE.md` §9.4), so the same message arriving twice is routine.
+/// A device's own `PrivateMessage`, handed back by the relay, is an outcome and
+/// not an error.
+///
+/// # This is a behaviour change the 0.9 migration brought with it
+///
+/// `ARCHITECTURE.md` §9.4 makes it routine rather than exotic: a device may
+/// publish queue addresses on *k* relays and a sender sends to all *k*, so a
+/// device that is also a member sees its own traffic come back. Under
+/// `openmls 0.8.1` that failed to decrypt — the own sender ratchet is
+/// encryption-only — and [`MlsEngine::receive`] returned `EngineError::Mls`,
+/// which put the caller in the position of having to distinguish "the relay
+/// echoed me" from "something is wrong with this group" by guessing.
+///
+/// `openmls 0.9` surfaces it as `ProcessedMessageContent::OwnPrivateMessage`,
+/// and this engine maps it to [`Received::Own`]. The consequences the test
+/// pins are the ones that matter under delete-on-ack (§6.4):
+///
+/// * the plaintext is **not** returned — `payload()` is `None`, because the
+///   content of our own message is the caller's and the engine has nothing to
+///   decrypt;
+/// * the durable "handled" record **is** written, so the caller may `ACK` and
+///   the relay may drop its copy. That is the whole reason for surfacing it
+///   rather than failing: an echo that always errored would be an echo that
+///   could never be acknowledged, and the relay would keep redelivering it.
+#[test]
+fn a_devices_own_message_handed_back_is_an_outcome_and_not_an_error() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let wire = alice.send(&mut alice_group, b"hello, bob").expect("send");
+
+    // The relay hands Alice her own message back.
+    let received = alice
+        .receive(&mut alice_group, &wire, b"echo-1", NOW)
+        .expect("an echo is not an error");
+    assert_eq!(received, Received::Own);
+    assert_eq!(received.payload(), None);
+
+    // The record was written in the same transaction, so a second delivery of
+    // the same echo is a duplicate rather than a second `Own`. This is what
+    // makes the `ACK` safe.
+    assert!(matches!(
+        alice.receive(&mut alice_group, &wire, b"echo-1", NOW),
+        Err(EngineError::Duplicate)
+    ));
+
+    // Neither side moved, and the group still works in both directions.
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+    assert_eq!(
+        bob.receive(&mut bob_group, &wire, b"msg-1", NOW)
+            .expect("bob still decrypts it")
+            .payload(),
+        Some(b"hello, bob".as_slice())
+    );
+    let reply = bob.send(&mut bob_group, b"hello, alice").expect("send");
+    assert_eq!(
+        alice
+            .receive(&mut alice_group, &reply, b"msg-2", NOW)
+            .expect("receive")
+            .payload(),
+        Some(b"hello, alice".as_slice())
+    );
+}
+
 #[test]
 fn a_duplicate_delivery_is_refused_and_changes_nothing() {
     let (alice, mut alice_group, bob, mut bob_group) = paired();
@@ -331,22 +394,28 @@ fn a_truncated_message_is_refused_and_leaves_the_group_usable() {
 
 /// A flipped ciphertext byte must be a refusal, not a crash.
 ///
-/// # Why this is gated on `not(debug_assertions)`
+/// # This used to be gated on `not(debug_assertions)`, and no longer is
 ///
-/// **This is an upstream defect, and it is worth stating rather than working
-/// around silently.** `openmls 0.8.1`'s
-/// `private_message_in.rs:136` runs `debug_assert!(false, "Ciphertext
-/// decryption failed")` on the AEAD-open failure path — a path any peer, or any
-/// relay that flips one byte, can reach at will. In a release build the
-/// `debug_assert` compiles out and the function correctly returns
-/// `MessageDecryptionError::AeadError`; in a **debug** build, which is what
-/// `cargo test` produces, the process aborts.
+/// `openmls 0.8.1`'s `private_message_in.rs:136` ran
+/// `debug_assert!(false, "Ciphertext decryption failed")` on the AEAD-open
+/// failure path — a path any peer, or any relay that flips one byte, can reach
+/// at will. The assertion compiled out in release and the function correctly
+/// returned `MessageDecryptionError::AeadError`, but in a **debug** build,
+/// which is what `cargo test` produces, the process aborted. The property was
+/// therefore true of what shipped and unassertable by the suite CI ran, so the
+/// case was gated and CI ran it in a separate `--release` step.
 ///
-/// So the property below is true of what ships, and cannot be asserted by the
-/// suite that CI runs. Gating it is the honest option: the alternative is
-/// deleting the test and losing the record that the release behaviour was ever
-/// checked. Run it with `cargo test --release -p f2z-msg-mls`.
-#[cfg(not(debug_assertions))]
+/// **0.9.0 removed that path**: both AEAD-open failures in
+/// `private_message_in.rs` are now `log::error!` followed by a returned
+/// `MessageDecryptionError::AeadError`, with no `debug_assert` anywhere in
+/// `src/framing/` except an unrelated key-package version check. The gate and
+/// the extra CI step both came off with #723 — verified by running this case in
+/// an ordinary debug `cargo test`, not by reading the changelog.
+///
+/// It is left as its own named case rather than folded into
+/// `a_truncated_message_is_refused_…` because the two exercise different
+/// refusals: a truncation fails to parse, and this one parses and fails to
+/// open.
 #[test]
 fn a_corrupted_ciphertext_is_refused_and_leaves_the_group_usable() {
     let (alice, mut alice_group, bob, mut bob_group) = paired();

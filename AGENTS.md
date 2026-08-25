@@ -144,11 +144,15 @@ integrate, and move it forward alongside everything else.
   `wallet/zuuli/src-tauri` links that plugin together with the rest of the app,
   so **rusqlite 0.37 is a repo-wide singleton**: any new crate that needs SQLite
   must resolve to it. All three lockfiles currently agree on `rusqlite 0.37.0` /
-  `libsqlite3-sys 0.35.0`. Worked example: `openmls_sqlite_storage` 0.2.0 — the
-  latest *release* — requires `rusqlite ^0.32` and is therefore unusable here;
-  its `0.3.0-rc` line moved to `^0.37` and would fit. Check the requirement
-  before adopting, because the conflict appears only once the app links both: a
-  crate that builds fine on its own can still be off-limits.
+  `libsqlite3-sys 0.35.0`. Worked example, **and note how it ended**:
+  `openmls_sqlite_storage` 0.2.0 required `rusqlite ^0.32` and was therefore
+  unusable here, which is part of why `rs/crates/f2z-msg-store` exists; its
+  0.3.0 release (2026-08-25) moved to `rusqlite = "0.37"` and now fits. The
+  singleton did not change — upstream moved. Check the requirement before
+  adopting *and* re-check it when the upstream releases, because the conflict
+  appears only once the app links both: a crate that builds fine on its own can
+  still be off-limits, and one that was off-limits can stop being so without
+  anyone noticing.
 
 ## Guardrails that keep us honest
 

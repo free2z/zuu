@@ -55,7 +55,24 @@
 
 use f2z_msg_store::{Durability, StorageBackend};
 use openmls::prelude::*;
-use tls_codec::{Deserialize as _, Serialize as _};
+// **Through the prelude, deliberately, and not as a dependency of this crate.**
+//
+// `openmls 0.9` moved to `tls_codec 0.5`, while `f2z-codec` and `f2z-kt-core`
+// — the crates that define free2z's own wire structures — are on `tls_codec
+// 0.4`. Both live in this graph. The two `tls_codec` traits below are used on
+// **OpenMLS's** types (`MlsMessageOut`, `MlsMessageIn`) and on nothing else, so
+// they must be the version OpenMLS derived them with; naming the crate directly
+// would let a future workspace bump resolve them to the other one and produce a
+// trait-not-implemented error whose cause is invisible. `openmls::prelude`
+// re-exports `tls_codec::{self, *}`, so this import cannot drift from what
+// OpenMLS itself uses.
+//
+// Nothing crosses the seam. A `DeviceCredential` reaches MLS as the opaque
+// identity bytes of a `BasicCredential` (`credential::encode`, which is
+// `f2z-codec`'s canonical encoding), so no `tls_codec` *type* from either
+// version appears in an interface between the two halves — the same shape as
+// the two `ed25519-dalek` majors this workspace already carries.
+use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 
 use crate::credential::{DeviceCredential, encode as encode_credential, validate_for_leaf};
 use crate::error::{CredentialError, EngineError, Result};
@@ -120,6 +137,27 @@ pub enum Received {
     },
     /// A proposal was queued. It changes nothing until a commit covers it.
     ProposalQueued,
+    /// A message **this device authored**, handed back by the relay.
+    ///
+    /// New in the `openmls 0.9` migration (#723) and it is a behaviour change
+    /// worth knowing about. Under 0.8.1 a `PrivateMessage` whose sender data
+    /// named our own leaf failed to decrypt — the own sender ratchet is
+    /// encryption-only — and [`MlsEngine::receive`] returned
+    /// [`EngineError::Mls`]. 0.9 surfaces it as a distinct outcome instead
+    /// (`ProcessedMessageContent::OwnPrivateMessage`), because "I cannot
+    /// decrypt this" and "this is mine and there is nothing to decrypt" are
+    /// different facts and only the first is an error.
+    ///
+    /// The content is **not** available and never will be: the plaintext of
+    /// our own message is the caller's, not the engine's. What the engine does
+    /// do is write the durable "handled" record for it in the same
+    /// transaction, so the caller may `ACK` and the relay may drop its copy —
+    /// which is the whole point of surfacing it rather than failing.
+    ///
+    /// `ARCHITECTURE.md` §9.4 makes this routine rather than exotic: a device
+    /// may publish queue addresses on *k* relays and a sender sends to all *k*,
+    /// so a device that is also a member sees its own traffic come back.
+    Own,
 }
 
 impl core::fmt::Debug for Received {
@@ -146,6 +184,7 @@ impl core::fmt::Debug for Received {
                 .field("epoch", epoch)
                 .finish(),
             Self::ProposalQueued => f.write_str("ProposalQueued"),
+            Self::Own => f.write_str("Own"),
         }
     }
 }
@@ -476,6 +515,39 @@ impl<B: StorageBackend> MlsEngine<B> {
                 self.validate_members(group, now_ms)?;
                 Received::EpochChanged {
                     epoch: group.epoch().as_u64(),
+                }
+            }
+            // Both of these are **new in openmls 0.9** and both mean "this
+            // device authored it and the delivery service handed it back".
+            ProcessedMessageContent::OwnPrivateMessage => Received::Own,
+            ProcessedMessageContent::OwnPendingCommit => {
+                // 0.9 returns this when an incoming Commit's confirmation tag
+                // matches a commit *this* device has pending, so that the
+                // caller merges the pending commit rather than staging the
+                // echo. This engine never leaves one pending: `update` and
+                // `add_member` call `merge_pending_commit` before their bytes
+                // leave the method, precisely so that the device is in the new
+                // epoch the moment the caller has something to send. So the
+                // `Some` arm is not reachable today.
+                //
+                // It is written anyway, and it is not defensive padding: the
+                // alternative — assuming the invariant and returning
+                // `Received::Own` — would silently *skip an epoch change* if
+                // anyone ever split those two steps, and a group whose tree is
+                // one epoch behind its peers' is exactly the failure the
+                // transaction in this method exists to prevent. Merging is the
+                // only correct action when a pending commit exists, and doing
+                // nothing is the only correct action when none does.
+                if group.pending_commit().is_some() {
+                    group
+                        .merge_pending_commit(&self.provider)
+                        .map_err(|_| EngineError::Mls("merge pending commit"))?;
+                    self.validate_members(group, now_ms)?;
+                    Received::EpochChanged {
+                        epoch: group.epoch().as_u64(),
+                    }
+                } else {
+                    Received::Own
                 }
             }
         };

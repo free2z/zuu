@@ -86,10 +86,20 @@ zeroize = { version = "1", default-features = false, features = ["derive"] }
 f2z-codec = { path = "crates/f2z-codec", version = "0.1.0" }
 
 # ---------------------------------------------------------------------------
-# MLS (RFC 9420), ARCHITECTURE.md §5. Every version here is the one #385
-# measured on real hardware across all nine shipping triples; none of them is
-# free to move on a whim, and the floor beneath `openmls` is enforced by
-# `[[bans.deny]]` in rs/deny.toml rather than by these lines.
+# MLS (RFC 9420), ARCHITECTURE.md §5.
+#
+# The 0.9 train (`openmls 0.9.0`, `openmls_traits 0.6.0`,
+# `openmls_libcrux_crypto 0.4.0`), taken for a **security** reason and not for
+# freshness: 0.4.0 of the provider moves to `libcrux-aead 0.0.9` /
+# `libcrux-ed25519 0.0.9`, which is the first libcrux release train whose
+# `libcrux-secrets` requirement admits `0.0.6` — the fix for RUSTSEC-2026-0212,
+# the aarch64 constant-time swap/select defect that #701 could not patch around
+# without forking libcrux. Ten `ignore` entries came out of `rs/deny.toml` with
+# this bump; see #723.
+#
+# None of these is free to move on a whim, and the floor beneath `openmls` and
+# `openmls_traits` is enforced by `[[bans.deny]]` in rs/deny.toml rather than by
+# these lines.
 # ---------------------------------------------------------------------------
 
 # The storage trait, and nothing else. `f2z-msg-store` implements
@@ -97,32 +107,62 @@ f2z-codec = { path = "crates/f2z-codec", version = "0.1.0" }
 # depend on `openmls`: the storage layer is defined entirely by the trait, and
 # keeping the engine out of that crate's graph is what lets a browser build the
 # store without the crypto core.
-openmls_traits = { version = "0.5", default-features = false }
-# 0.8.1 is a HARD FLOOR: every earlier release carries the High-severity MAC
-# authentication defect (GHSA-3wpg-h9qc-hjwj / RUSTSEC-2025-0069), and a floor
-# nobody enforces is a comment. rs/deny.toml holds it with `[[bans.deny]]`,
-# because a `[patch.crates-io]`, a path dependency or a vendored copy all walk
-# under a manifest requirement without a word.
 #
-# `default-features = false` and then `libcrux-provider` by name: the default
-# provider is `openmls_rust_crypto`, which is a *second* crypto core, and
-# ADR 0001 has exactly one. `test-utils` is deliberately absent — it pulls
-# `openmls_memory_storage` and `openmls_basic_credential` back in, which are
-# the two crates this tree replaces.
-openmls = { version = "0.8.1", default-features = false, features = [
+# 0.6.0's `StorageProvider` is byte-for-byte the same trait as 0.5.0's on the
+# surface this tree implements: every method 0.6.0 adds is behind
+# `virtual-clients-draft`, which nothing here enables. The one break that
+# reached us is a **feature rename** — `extensions-draft-08` became
+# `extensions-draft` — and `f2z-msg-store`'s forwarding feature is renamed with
+# it.
+openmls_traits = { version = "0.6", default-features = false }
+# 0.9.0 is a HARD FLOOR, and it subsumes the 0.8.1 one. Every release before
+# 0.8.1 carries the High-severity MAC authentication defect
+# (GHSA-3wpg-h9qc-hjwj / RUSTSEC-2025-0069); every release before 0.9.0 resolves
+# to a `libcrux-secrets 0.0.5` carrying RUSTSEC-2026-0212. A floor nobody
+# enforces is a comment, so rs/deny.toml holds this one with `[[bans.deny]]`:
+# a `[patch.crates-io]`, a path dependency or a vendored copy all walk under a
+# manifest requirement without a word.
+#
+# `default-features = false` and then features by name:
+#
+#   * `libcrux-provider` — the default provider is `openmls_rust_crypto`, which
+#     is a *second* crypto core, and ADR 0001 has exactly one.
+#   * `draft-ietf-mls-pq-ciphersuites` — **newly required in 0.9.0, and it is
+#     not optional for us.** 0.9.0 moved every post-quantum codepoint, X-Wing
+#     included, behind this feature; without it
+#     `Ciphersuite::MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519` and
+#     `HpkeKemType::XWingKemDraft6` do not exist and §5.2's hybrid ciphersuite
+#     cannot be named. It gates a set of codepoints, not an alternative
+#     implementation: `engine::CIPHERSUITE` is unchanged and
+#     `the_ciphersuite_uses_chacha20poly1305_and_not_aes_gcm` still checks it.
+#
+# `test-utils` is deliberately absent — it pulls `openmls_memory_storage` and
+# `openmls_basic_credential` back in, which are the two crates this tree
+# replaces.
+openmls = { version = "0.9.0", default-features = false, features = [
   "libcrux-provider",
+  "draft-ietf-mls-pq-ciphersuites",
 ] }
 # Cryspen's formally verified core, and the only one this tree links.
 # #385 proved `MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519` on it against the
 # NIST ACVP ML-KEM vectors, RFC 7748, RFC 8032 and draft-connolly-cfrg-xwing-06
-# Appendix C, on nine targets.
-openmls_libcrux_crypto = { version = "0.3.1", default-features = false }
+# Appendix C, on nine targets — against 0.3.1. #723 re-ran the two-instance
+# exchange, the crash suite and the cross-compilation matrix against 0.4.0;
+# what it could not re-run is recorded on that issue.
+openmls_libcrux_crypto = { version = "0.4.0", default-features = false }
 # Ed25519, straight from the libcrux core. This is the *same* crate and the same
 # functions `openmls_libcrux_crypto`'s `CryptoProvider::sign` /
 # `verify_signature` call, so naming it here adds nothing to the graph — it lets
 # `f2z-msg-mls` implement `openmls_traits::signatures::Signer` itself instead of
 # taking `openmls_basic_credential`, which is #693.
-libcrux-ed25519 = { version = "0.0.6", default-features = false }
+#
+# 0.0.9 rather than 0.0.6 because `openmls_libcrux_crypto 0.4.0` requires it,
+# and unifying is the point — a second copy would mean MLS framing signed by one
+# build of the primitive and verified by another. It is also the release that
+# fixes RUSTSEC-2026-0075: `generate_key_pair` now returns `Error::KeyGen`
+# instead of an all-zero secret key when the CSPRNG fails 100 times running.
+# `sign` is unchanged, which is the only function this tree calls.
+libcrux-ed25519 = { version = "0.0.9", default-features = false }
 # `openmls_basic_credential` is NOT here and must not be added. It signs with
 # `ed25519-dalek` and `p256` outside the libcrux provider (#693), which
 # contradicts ADR 0001's single crypto core; `f2z-msg-mls` implements
