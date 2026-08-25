@@ -1,11 +1,21 @@
 import { lstatSync, realpathSync, statSync } from "node:fs";
-import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { lstat, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import ts from "typescript";
 import { loadConfigFromFile, resolveConfig } from "vite";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
+const executeFile = promisify(execFile);
+const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+const CONSTRAINED_VITE_BUILD_HELPER = path.join(
+  SCRIPT_DIRECTORY,
+  "project-boundary-vite-build.mjs",
+);
+const BOUNDARY_NODE_MODULES = path.resolve(SCRIPT_DIRECTORY, "../node_modules");
 const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Map([
   [
     "zuuallet/src/lib/sensitive-entry.ts",
@@ -550,7 +560,51 @@ function viteResolveHandler(plugin) {
   throw new Error(`plugin ${plugin.name ?? "<unnamed>"} has an unauditable resolveId hook`);
 }
 
-async function viteConfigurationViolations(project, sharedRoot, moduleReferences) {
+async function constrainedViteBuildViolation(project, sharedRoot, configFile) {
+  if (!(await existsAs(BOUNDARY_NODE_MODULES, "directory"))) {
+    return `${project.directory}/${path.basename(configFile)}: constrained Vite graph build requires ${BOUNDARY_NODE_MODULES}`;
+  }
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), "wallet-boundary-vite-"));
+  try {
+    await executeFile(
+      process.execPath,
+      [
+        CONSTRAINED_VITE_BUILD_HELPER,
+        project.projectRoot,
+        configFile,
+        outputRoot,
+        JSON.stringify([
+          project.projectRoot,
+          sharedRoot,
+          path.join(path.dirname(project.projectRoot), "package.json"),
+          BOUNDARY_NODE_MODULES,
+          CONSTRAINED_VITE_BUILD_HELPER,
+        ]),
+      ],
+      {
+        cwd: project.projectRoot,
+        env: { ...process.env, NODE_OPTIONS: "" },
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+    return null;
+  } catch (error) {
+    const detail = [error.stderr, error.stdout, error.message]
+      .filter((part) => typeof part === "string" && part.trim())
+      .join("\n")
+      .trim();
+    return `${project.directory}/${path.basename(configFile)}: constrained production Vite graph build failed; a plugin or module may have read outside wallet/${project.directory} and wallet/shared: ${detail}`;
+  } finally {
+    await rm(outputRoot, { recursive: true, force: true });
+  }
+}
+
+async function viteConfigurationViolations(
+  project,
+  sharedRoot,
+  moduleReferences,
+  { verifyBuildGraph = false, statistics } = {},
+) {
   const configFiles = [];
   for (const name of VITE_CONFIG_NAMES) {
     const candidate = path.join(project.projectRoot, name);
@@ -756,6 +810,15 @@ async function viteConfigurationViolations(project, sharedRoot, moduleReferences
         );
         if (violation) violations.push(violation);
       }
+    }
+    if (verifyBuildGraph && environment.command === "build") {
+      const violation = await constrainedViteBuildViolation(
+        project,
+        sharedRoot,
+        configFile,
+      );
+      if (violation) violations.push(violation);
+      else statistics.viteBuildsVerified += 1;
     }
   }
   return [...new Set(violations)];
@@ -1061,7 +1124,11 @@ async function readJson(file) {
   }
 }
 
-export async function scanProjectBoundaries(walletRoot) {
+export async function scanProjectBoundaries(
+  walletRoot,
+  { verifyViteBuildGraph = false } = {},
+) {
+  const statistics = { viteBuildsVerified: 0 };
   const absoluteWalletRoot = await realpath(walletRoot);
   const projects = await discoverProjects(absoluteWalletRoot);
   const workspace = await readJson(path.join(absoluteWalletRoot, "package.json"));
@@ -1182,7 +1249,12 @@ export async function scanProjectBoundaries(walletRoot) {
       }
     }
     violations.push(
-      ...(await viteConfigurationViolations(project, shared.projectRoot, moduleReferences)),
+      ...(await viteConfigurationViolations(
+        project,
+        shared.projectRoot,
+        moduleReferences,
+        { verifyBuildGraph: verifyViteBuildGraph, statistics },
+      )),
     );
   }
   for (const required of REQUIRED_PRODUCTION_SHARED_CONSUMERS.keys()) {
@@ -1196,21 +1268,25 @@ export async function scanProjectBoundaries(walletRoot) {
     fileCount,
     importCount,
     productionSharedConsumerCount: productionSharedConsumers.size,
+    viteBuildsVerified: statistics.viteBuildsVerified,
     violations,
   };
 }
 
-export async function assertProjectBoundaries(walletRoot) {
-  const result = await scanProjectBoundaries(walletRoot);
+export async function assertProjectBoundaries(walletRoot, options) {
+  const result = await scanProjectBoundaries(walletRoot, options);
   if (result.violations.length > 0) throw new Error(result.violations.join("\n"));
   return result;
 }
 
-export async function main() {
-  const walletRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  const result = await assertProjectBoundaries(walletRoot);
+export async function main({
+  walletRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
+} = {}) {
+  const result = await assertProjectBoundaries(walletRoot, {
+    verifyViteBuildGraph: true,
+  });
   console.log(
-    `Wallet project boundaries verified across ${result.projectCount} discovered projects, ${result.fileCount} source files, ${result.importCount} parsed module references, and ${result.productionSharedConsumerCount} production shared-package consumers.`,
+    `Wallet project boundaries verified across ${result.projectCount} discovered projects, ${result.fileCount} source files, ${result.importCount} parsed module references, ${result.productionSharedConsumerCount} production shared-package consumers, and ${result.viteBuildsVerified} constrained production Vite builds.`,
   );
 }
 

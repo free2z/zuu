@@ -14,7 +14,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { build as viteBuild } from "vite";
-import { assertProjectBoundaries } from "./project-boundary.mjs";
+import {
+  assertProjectBoundaries,
+  main as runProductionBoundary,
+} from "./project-boundary.mjs";
 
 const SHARED_DEPENDENCY = { "@free2z/wallet-shared": "file:../shared" };
 const REQUIRED_PRODUCTION_CONSUMERS = [
@@ -129,12 +132,27 @@ async function withFixture(files, assertion, dependencies) {
   }
 }
 
+async function addMinimalViteEntries(root) {
+  for (const project of ["zuuli", "zuuallet"]) {
+    await writeFile(
+      path.join(root, project, "index.html"),
+      '<script type="module" src="/src/main.ts"></script>\n',
+    );
+    await writeFile(
+      path.join(root, project, "src/main.ts"),
+      "console.log('owner');\n",
+    );
+  }
+}
+
 test("current wallet source graph has no undeclared project crossing", async () => {
   const walletRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../..",
   );
-  const result = await assertProjectBoundaries(walletRoot);
+  const result = await assertProjectBoundaries(walletRoot, {
+    verifyViteBuildGraph: true,
+  });
   assert.ok(result.fileCount > 100, "live census must traverse both application source trees");
   assert.ok(result.importCount > 300, "live census must parse the production module graph");
   assert.deepEqual(
@@ -146,6 +164,11 @@ test("current wallet source graph has no undeclared project crossing", async () 
     result.productionSharedConsumerCount,
     5,
     "all five production shared consumers must use the named package",
+  );
+  assert.equal(
+    result.viteBuildsVerified,
+    2,
+    "both shipping wallet applications must complete the constrained production Vite graph build",
   );
 });
 
@@ -665,6 +688,162 @@ test("accepts Vite build inputs inside the owner and exact shared package", asyn
     );
     await assert.doesNotReject(() => assertProjectBoundaries(root));
   });
+});
+
+test("rejects a Vite transform that reads sibling-app source after a real build proves injection", async () => {
+  await withFixture(
+    { "zuuallet/src/transform-secret.ts": "export const siblingSecret = 424242;\n" },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/transform-secret.ts");
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { readFileSync } from "node:fs";
+export default { plugins: [{
+  name: "cross-app-transform",
+  transform(code, id) {
+    if (!id.endsWith("/src/main.ts")) return null;
+    const sibling = readFileSync(${JSON.stringify(sibling)}, "utf8");
+    return code + "\\nconsole.log(" + JSON.stringify(sibling) + ");";
+  },
+}] };
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /siblingSecret/,
+        "the unrestricted production build must contain sibling source read by transform",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /constrained production Vite graph build failed[\s\S]*transform-secret\.ts/,
+      );
+    },
+  );
+});
+
+test("production boundary rejects a Vite load hook that reads sibling-app source", async () => {
+  await withFixture(
+    { "zuuallet/src/load-secret.ts": "export const siblingLoadSecret = 515151;\n" },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/load-secret.ts");
+      await writeFile(
+        path.join(zuuliRoot, "src/main.ts"),
+        'import { injected } from "./local"; console.log(injected);\n',
+      );
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { readFileSync } from "node:fs";
+export default { plugins: [{
+  name: "cross-app-load",
+  load(id) {
+    if (!id.endsWith("/src/local.ts")) return null;
+    const sibling = readFileSync(${JSON.stringify(sibling)}, "utf8");
+    return "export const injected = " + JSON.stringify(sibling) + ";";
+  },
+}] };
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /siblingLoadSecret/,
+        "the unrestricted production build must contain sibling source read by load",
+      );
+      await assert.rejects(
+        () => runProductionBoundary({ walletRoot: root }),
+        /constrained production Vite graph build failed[\s\S]*load-secret\.ts/,
+      );
+    },
+  );
+});
+
+test("rejects a CSS import of sibling-app source after a real build proves bundling", async () => {
+  await withFixture(
+    {
+      "zuuli/src/main.ts": 'import "./index.css";\n',
+      "zuuli/src/index.css":
+        '@import "../../zuuallet/src/index.css";\n.owner { color: blue; }\n',
+      "zuuallet/src/index.css": ".classic-secret { color: rgb(1, 2, 3); }\n",
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      await writeFile(path.join(root, "zuuli/src/main.ts"), 'import "./index.css";\n');
+      const zuuliRoot = path.join(root, "zuuli");
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "asset")
+        .map((output) => String(output.source))
+        .join("\n");
+      assert.match(
+        generated,
+        /classic-secret/,
+        "the unrestricted production build must bundle sibling CSS",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /constrained production Vite graph build failed[\s\S]*zuuallet\/src\/index\.css/,
+      );
+    },
+  );
+});
+
+test("accepts constrained Vite transforms and CSS imports that stay owner-local or shared", async () => {
+  await withFixture(
+    {
+      "zuuli/src/main.ts": 'import "./index.css";\n',
+      "zuuli/src/index.css": '@import "./local.css";\n.owner { color: blue; }\n',
+      "zuuli/src/local.css": ".local { color: green; }\n",
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      await writeFile(path.join(root, "zuuli/src/main.ts"), 'import "./index.css";\n');
+      await writeFile(
+        path.join(root, "zuuli/vite.config.ts"),
+        `import { readFileSync } from "node:fs";
+export default { plugins: [{
+  name: "owner-transform",
+  transform(code, id) {
+    if (!id.endsWith("/src/main.ts")) return null;
+    const local = readFileSync(new URL("./src/local.ts", import.meta.url), "utf8");
+    const shared = readFileSync(new URL("../shared/src/index.ts", import.meta.url), "utf8");
+    return code + "\\nconsole.log(" + JSON.stringify(local.length + shared.length) + ");";
+  },
+}] };
+`,
+      );
+      await assert.doesNotReject(() =>
+        assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+      );
+    },
+  );
 });
 
 test("rejects parent traversal supplied through an otherwise local path alias", async () => {
