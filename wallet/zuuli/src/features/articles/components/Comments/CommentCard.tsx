@@ -170,7 +170,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
               onClick={() => setReplying((r) => !r)}
               aria-expanded={replying}
             >
-              <Reply className="h-4 w-4" aria-hidden />
+              <Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
               Reply
             </Button>
             {childCount > 0 ? (

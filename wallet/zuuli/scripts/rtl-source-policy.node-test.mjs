@@ -60,6 +60,39 @@ test("a directional adornment that stops mirroring fails", () => {
     '<ArrowLeft className="h-5 w-5"',
     /ArrowLeft must mirror/,
   );
+  rejectsMutation(
+    "src/features/articles/components/Comments/CommentCard.tsx",
+    '<Reply className="rtl:-scale-x-100 h-4 w-4"',
+    '<Reply className="h-4 w-4"',
+    /Reply must mirror/,
+  );
+  rejectsMutation(
+    "src/features/articles/components/Comments/CommentForm.tsx",
+    '<SendIcon className="rtl:-scale-x-100 h-4 w-4"',
+    '<SendIcon className="h-4 w-4"',
+    /SendIcon must mirror/,
+  );
+});
+
+test("direction-sensitive horizontal translations require explicit LTR and RTL signs", () => {
+  rejectsMutation(
+    "src/components/ui/switch.tsx",
+    "ltr:data-[state=checked]:translate-x-5 rtl:data-[state=checked]:-translate-x-5",
+    "data-[state=checked]:translate-x-5",
+    /residual paths/,
+  );
+  rejectsMutation(
+    "src/features/auth/ZcashLoginFlow.tsx",
+    "ltr:-translate-x-1/2 rtl:translate-x-1/2",
+    "-translate-x-1/2",
+    /residual paths/,
+  );
+  rejectsMutation(
+    "src/features/profile/LinkedAccounts.tsx",
+    "ltr:-translate-x-1/2 rtl:translate-x-1/2",
+    "-translate-x-1/2",
+    /residual paths/,
+  );
 });
 
 test("a numeric typography site that loses bidi isolation fails", () => {
@@ -155,6 +188,41 @@ test("physical CSS declarations fail even without Tailwind", () => {
     "src/main.tsx",
     "paddingInlineStart:",
     "paddingLeft:",
+    /inline style must use a logical-direction property/,
+  );
+
+  const section = BASELINE["src/features/home/parts.tsx"];
+  const withNamedDeclaration = section.replace(
+    "  return (\n    <section",
+    '  const badStyle = { left: "1px" };\n  return (\n    <section',
+  );
+  assert.notEqual(
+    withNamedDeclaration,
+    section,
+    "named-style declaration mutation did not apply",
+  );
+  const withNamedStyle = withNamedDeclaration.replace(
+    '      style={{ animationDelay: `${delay}ms` }}',
+    "      style={badStyle}",
+  );
+  assert.notEqual(
+    withNamedStyle,
+    withNamedDeclaration,
+    "named-style use mutation did not apply",
+  );
+  assert.throws(
+    () =>
+      assertRtlSourcePolicy({
+        ...BASELINE,
+        "src/features/home/parts.tsx": withNamedStyle,
+      }),
+    /inline style must use a logical-direction property/,
+  );
+
+  rejectsMutation(
+    "src/features/articles/components/ArticleCard.tsx",
+    "{ backgroundImage: coverTone(article.title) }",
+    '{ marginLeft: "1px" }',
     /inline style must use a logical-direction property/,
   );
 });

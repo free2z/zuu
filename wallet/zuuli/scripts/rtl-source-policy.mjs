@@ -13,6 +13,8 @@ const DIRECTIONAL_ICONS = new Set([
   "ArrowUpRight",
   "LogIn",
   "LogOut",
+  "Reply",
+  "SendIcon",
 ]);
 
 // Messaging is owned by the parallel E2EE effort. This is deliberately an
@@ -98,7 +100,7 @@ function classAttributeText(attributes) {
   return null;
 }
 
-function styleAttributeObject(attributes) {
+function styleAttributeExpression(attributes) {
   const attribute = attributes.properties.find(
     (property) =>
       ts.isJsxAttribute(property) &&
@@ -110,12 +112,149 @@ function styleAttributeObject(attributes) {
     !ts.isJsxAttribute(attribute) ||
     !attribute.initializer ||
     !ts.isJsxExpression(attribute.initializer) ||
-    !attribute.initializer.expression ||
-    !ts.isObjectLiteralExpression(attribute.initializer.expression)
+    !attribute.initializer.expression
   ) {
     return null;
   }
   return attribute.initializer.expression;
+}
+
+function collectVariableInitializers(file) {
+  const initializers = new Map();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
+      const current = initializers.get(node.name.text) ?? [];
+      current.push(node.initializer);
+      initializers.set(node.name.text, current);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return initializers;
+}
+
+function unwrapExpression(expression) {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function resolveStyleObjects(fileName, expression, initializers, resolving = new Set()) {
+  const current = unwrapExpression(expression);
+  if (ts.isObjectLiteralExpression(current)) return [current];
+  if (
+    ts.isIdentifier(current) &&
+    (current.text === "undefined" || current.text === "null")
+  ) {
+    return [];
+  }
+  if (current.kind === ts.SyntaxKind.NullKeyword) return [];
+  if (ts.isConditionalExpression(current)) {
+    return [
+      ...resolveStyleObjects(fileName, current.whenTrue, initializers, resolving),
+      ...resolveStyleObjects(fileName, current.whenFalse, initializers, resolving),
+    ];
+  }
+  if (
+    ts.isBinaryExpression(current) &&
+    (current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      current.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return [
+      ...resolveStyleObjects(fileName, current.left, initializers, resolving),
+      ...resolveStyleObjects(fileName, current.right, initializers, resolving),
+    ];
+  }
+  if (ts.isIdentifier(current)) {
+    const candidates = initializers.get(current.text) ?? [];
+    if (candidates.length !== 1 || resolving.has(current.text)) {
+      throw new Error(
+        `${fileName} inline style expression ${current.text} is not uniquely resolvable`,
+      );
+    }
+    const nextResolving = new Set(resolving);
+    nextResolving.add(current.text);
+    return resolveStyleObjects(
+      fileName,
+      candidates[0],
+      initializers,
+      nextResolving,
+    );
+  }
+  throw new Error(`${fileName} inline style must be statically resolvable`);
+}
+
+function propertyNameText(fileName, file, property) {
+  if (ts.isComputedPropertyName(property.name)) {
+    const computed = literalText(property.name.expression);
+    if (computed === null) {
+      throw new Error(
+        `${fileName} inline style computed property is not statically resolvable`,
+      );
+    }
+    return computed;
+  }
+  return property.name.getText(file).replace(/["']/g, "");
+}
+
+function assertStyleObjectsUseLogicalProperties(
+  fileName,
+  file,
+  objects,
+  initializers,
+) {
+  const inspect = (object) => {
+    for (const property of object.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        for (const spread of resolveStyleObjects(
+          fileName,
+          property.expression,
+          initializers,
+        )) {
+          inspect(spread);
+        }
+        continue;
+      }
+      if (
+        !ts.isPropertyAssignment(property) &&
+        !ts.isShorthandPropertyAssignment(property)
+      ) {
+        throw new Error(`${fileName} inline style property is not declarative`);
+      }
+      const propertyName = propertyNameText(fileName, file, property);
+      if (
+        /^(?:margin|padding)(?:Left|Right)$/.test(propertyName) ||
+        /^border(?:Left|Right)(?:Width|Style|Color)?$/.test(propertyName) ||
+        /^border(?:Top|Bottom)(?:Left|Right)Radius$/.test(propertyName) ||
+        propertyName === "left" ||
+        propertyName === "right"
+      ) {
+        throw new Error(
+          `${fileName} inline style must use a logical-direction property`,
+        );
+      }
+      if (
+        propertyName === "textAlign" &&
+        ts.isPropertyAssignment(property) &&
+        literalText(property.initializer)?.match(/^(?:left|right)$/)
+      ) {
+        throw new Error(`${fileName} inline textAlign must be logical`);
+      }
+    }
+  };
+  for (const object of objects) inspect(object);
 }
 
 function utilityBase(token) {
@@ -129,6 +268,13 @@ function isPhysicalUtility(token) {
   );
 }
 
+function isUnqualifiedHorizontalTranslation(token) {
+  const base = utilityBase(token);
+  if (!/^-?translate-x-(?!0(?:$|\/))/.test(base)) return false;
+  const variants = token.slice(0, token.length - base.length).split(":");
+  return !variants.includes("ltr") && !variants.includes("rtl");
+}
+
 function addResidual(residuals, fileName, token) {
   const current = residuals.get(fileName) ?? [];
   current.push(token);
@@ -137,12 +283,16 @@ function addResidual(residuals, fileName, token) {
 
 function scanTypeScript(fileName, source, residuals) {
   const file = parse(fileName, source);
+  const initializers = collectVariableInitializers(file);
   const visit = (node) => {
     const text = literalText(node);
     if (text !== null) {
       const tokens = text.split(/\s+/).filter(Boolean);
       for (const token of tokens) {
         if (isPhysicalUtility(token)) {
+          addResidual(residuals, fileName, utilityBase(token));
+        }
+        if (isUnqualifiedHorizontalTranslation(token)) {
           addResidual(residuals, fileName, utilityBase(token));
         }
       }
@@ -168,25 +318,14 @@ function scanTypeScript(fileName, source, residuals) {
           );
         }
       }
-      const style = styleAttributeObject(node.attributes);
-      for (const property of style?.properties ?? []) {
-        if (!ts.isPropertyAssignment(property)) continue;
-        const propertyName = property.name.getText(file).replace(/["']/g, "");
-        if (
-          /^(?:margin|padding|border)(?:Left|Right)$/.test(propertyName) ||
-          propertyName === "left" ||
-          propertyName === "right"
-        ) {
-          throw new Error(
-            `${fileName} inline style must use a logical-direction property`,
-          );
-        }
-        if (
-          propertyName === "textAlign" &&
-          literalText(property.initializer)?.match(/^(?:left|right)$/)
-        ) {
-          throw new Error(`${fileName} inline textAlign must be logical`);
-        }
+      const style = styleAttributeExpression(node.attributes);
+      if (style) {
+        assertStyleObjectsUseLogicalProperties(
+          fileName,
+          file,
+          resolveStyleObjects(fileName, style, initializers),
+          initializers,
+        );
       }
     }
     ts.forEachChild(node, visit);

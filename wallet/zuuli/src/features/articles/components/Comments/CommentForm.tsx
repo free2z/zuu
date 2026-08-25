@@ -1,6 +1,13 @@
 import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Eye, EyeOff, Loader2, LogIn, Send } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  LogIn,
+  Send as SendIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -226,7 +233,7 @@ export function CommentForm({
                 </>
               ) : (
                 <>
-                  <Send className="h-4 w-4" aria-hidden />
+                  <SendIcon className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
                   Post
                 </>
               )}

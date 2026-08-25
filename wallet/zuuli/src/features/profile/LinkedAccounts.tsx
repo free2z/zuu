@@ -219,7 +219,7 @@ function ZcashLinkDialogBody({ onDone }: { onDone: () => void }) {
               {!isLast && (
                 <span
                   className={cn(
-                    "absolute start-4 top-9 h-[calc(100%-1.5rem)] w-px -translate-x-1/2 transition-colors",
+                    "absolute start-4 top-9 h-[calc(100%-1.5rem)] w-px transition-colors ltr:-translate-x-1/2 rtl:translate-x-1/2",
                     status === "done" ? "bg-success/40" : "bg-border",
                   )}
                   aria-hidden
