@@ -244,16 +244,6 @@ function isImportedBidiTag(
   );
 }
 
-function directDisplayExpression(node: ts.JsxExpression): ts.Expression | null {
-  if (
-    !node.expression ||
-    (!ts.isJsxElement(node.parent) && !ts.isJsxFragment(node.parent))
-  ) {
-    return null;
-  }
-  return node.expression;
-}
-
 function unwrapExpression(expression: ts.Expression): ts.Expression {
   let current = expression;
   while (
@@ -313,17 +303,20 @@ function auditedReferenceCandidates(expression: ts.Expression): ts.Expression[] 
   return [current];
 }
 
-const STRING_PRODUCING_METHODS = new Set([
+const IDENTIFIER_DERIVING_METHODS = new Set([
   "at",
   "charAt",
   "concat",
+  "join",
   "normalize",
   "padEnd",
   "padStart",
   "repeat",
   "replace",
   "replaceAll",
+  "reverse",
   "slice",
+  "split",
   "substr",
   "substring",
   "toLocaleLowerCase",
@@ -335,6 +328,66 @@ const STRING_PRODUCING_METHODS = new Set([
   "trimEnd",
   "trimStart",
 ]);
+
+function exactNamedImport(
+  tagName: ts.JsxTagNameExpression,
+  checker: ts.TypeChecker,
+  importedName: string,
+  moduleName: string,
+): boolean {
+  if (!ts.isIdentifier(tagName)) return false;
+  const symbol = checker.getSymbolAtLocation(tagName);
+  return (
+    symbol?.declarations?.some((declaration) => {
+      if (!ts.isImportSpecifier(declaration)) return false;
+      const actualImportedName = declaration.propertyName?.text ?? declaration.name.text;
+      const importDeclaration = declaration.parent.parent.parent;
+      return (
+        actualImportedName === importedName &&
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        importDeclaration.moduleSpecifier.text === moduleName
+      );
+    }) ?? false
+  );
+}
+
+function isAllowedIdentifierAttributeSink(
+  attribute: ts.JsxAttribute,
+  importBinding: ts.Identifier,
+  checker: ts.TypeChecker,
+): boolean {
+  if (!ts.isIdentifier(attribute.name) || attribute.name.text !== "value") {
+    return false;
+  }
+  const element = attribute.parent.parent;
+  if (!ts.isJsxOpeningElement(element) && !ts.isJsxSelfClosingElement(element)) {
+    return false;
+  }
+  if (isImportedBidiTag(element.tagName, importBinding, checker)) return true;
+  return (
+    exactNamedImport(element.tagName, checker, "QRCodeSVG", "qrcode.react") ||
+    exactNamedImport(element.tagName, checker, "CopyButton", "./shared")
+  );
+}
+
+function displayedJsxExpression(
+  node: ts.JsxExpression,
+  importBinding: ts.Identifier,
+  checker: ts.TypeChecker,
+): ts.Expression | null {
+  if (!node.expression) return null;
+  if (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)) {
+    return node.expression;
+  }
+  if (
+    ts.isJsxAttribute(node.parent) &&
+    !isAllowedIdentifierAttributeSink(node.parent, importBinding, checker)
+  ) {
+    return node.expression;
+  }
+  return null;
+}
 
 function rendersAuditedValue(
   expression: ts.Expression,
@@ -374,10 +427,82 @@ function rendersAuditedValue(
       rendersAuditedValue(span.expression, auditedSources, checker, resolving),
     );
   }
+  if (ts.isElementAccessExpression(current)) {
+    return rendersAuditedValue(
+      current.expression,
+      auditedSources,
+      checker,
+      resolving,
+    );
+  }
+  if (ts.isArrayLiteralExpression(current)) {
+    return current.elements.some((element) =>
+      rendersAuditedValue(element, auditedSources, checker, resolving),
+    );
+  }
+  if (ts.isObjectLiteralExpression(current)) {
+    return current.properties.some((property) => {
+      if (ts.isPropertyAssignment(property)) {
+        return rendersAuditedValue(
+          property.initializer,
+          auditedSources,
+          checker,
+          resolving,
+        );
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        const valueSymbol = checker.getShorthandAssignmentValueSymbol(property);
+        if (!valueSymbol || resolving.has(valueSymbol)) return false;
+        if (
+          auditedSources.some((source) =>
+            auditedReferenceCandidates(source).some((candidate) => {
+              const reference = unwrapExpression(candidate);
+              return (
+                ts.isIdentifier(reference) &&
+                checker.getSymbolAtLocation(reference) === valueSymbol
+              );
+            }),
+          )
+        ) {
+          return true;
+        }
+        const declaration = valueSymbol.declarations?.find(
+          (candidate): candidate is ts.VariableDeclaration =>
+            ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+        );
+        if (!declaration?.initializer) return false;
+        const nextResolving = new Set(resolving);
+        nextResolving.add(valueSymbol);
+        return rendersAuditedValue(
+          declaration.initializer,
+          auditedSources,
+          checker,
+          nextResolving,
+        );
+      }
+      if (ts.isSpreadAssignment(property)) {
+        return rendersAuditedValue(
+          property.expression,
+          auditedSources,
+          checker,
+          resolving,
+        );
+      }
+      return false;
+    });
+  }
+  if (ts.isSpreadElement(current)) {
+    return rendersAuditedValue(
+      current.expression,
+      auditedSources,
+      checker,
+      resolving,
+    );
+  }
   if (ts.isCallExpression(current)) {
     if (
       ts.isPropertyAccessExpression(current.expression) &&
-      STRING_PRODUCING_METHODS.has(current.expression.name.text) &&
+      IDENTIFIER_DERIVING_METHODS.has(current.expression.name.text) &&
       rendersAuditedValue(
         current.expression.expression,
         auditedSources,
@@ -467,7 +592,7 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
     const rawDisplays: string[] = [];
     const visitDisplays = (node: ts.Node) => {
       if (ts.isJsxExpression(node)) {
-        const expression = directDisplayExpression(node);
+        const expression = displayedJsxExpression(node, importBinding, checker);
         const functionName = enclosingFunctionName(node) ?? "";
         const auditedSources = auditedSourcesByFunction.get(functionName) ?? [];
         if (
@@ -476,6 +601,16 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
           rendersAuditedValue(expression, auditedSources, checker)
         ) {
           rawDisplays.push(`${functionName}|${expression.getText(file)}`);
+        }
+      }
+      if (ts.isJsxSpreadAttribute(node)) {
+        const functionName = enclosingFunctionName(node) ?? "";
+        const auditedSources = auditedSourcesByFunction.get(functionName) ?? [];
+        if (
+          auditedSources.length > 0 &&
+          rendersAuditedValue(node.expression, auditedSources, checker)
+        ) {
+          rawDisplays.push(`${functionName}|...${node.expression.getText(file)}`);
         }
       }
       ts.forEachChild(node, visitDisplays);

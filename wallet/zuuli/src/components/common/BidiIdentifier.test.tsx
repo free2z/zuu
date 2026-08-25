@@ -182,6 +182,10 @@ describe("opaque identifier production inventory", () => {
     ["substring conversion", "address.substring(0, 8)"],
     ["replace conversion", 'address.replace(/^u/, "z")'],
     ["lowercase conversion", "address.toLowerCase()"],
+    ["split/join conversion", 'address.split("").join("")'],
+    ["chained collection conversion", 'address.split("").reverse().join("")'],
+    ["spread/join conversion", '[...address].join("")'],
+    ["element access", "address[0]"],
     ["logical-and wrapper", "true && address"],
     ["conditional wrapper", 'true ? address : "unavailable"'],
     ["nullish wrapper", 'address ?? "unavailable"'],
@@ -192,6 +196,94 @@ describe("opaque identifier production inventory", () => {
       `              <CopyButton
                 value={address}`,
       `              <span>{${expression}}</span>
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it.each([
+    ["title", '<span title={address}>Address</span>'],
+    ["accessible label", '<span aria-label={address}>Address</span>'],
+  ])("rejects an audited identifier in the %s attribute", (_name, element) => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `${element}
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects an audited identifier in an arbitrary component display prop", () => {
+    let mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "export function Receive() {",
+      [
+        "function AddressBadge({ displayText }: { displayText: string }) {",
+        "  return <span>{displayText}</span>;",
+        "}",
+        "",
+        "export function Receive() {",
+      ].join("\n"),
+    );
+    mutant = mutate(
+      mutant,
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `<AddressBadge displayText={address} />
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it.each([
+    ["property assignment", "{ title: address }"],
+    ["shorthand property", "{ address }"],
+    ["nested spread", "{ ...{ title: address } }"],
+  ])("rejects an audited identifier in spread JSX %s", (_name, props) => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `<span {...${props}}>Address</span>
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("does not authorize a local lookalike of an allowed non-text sink", () => {
+    let mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "export function Receive() {",
+      [
+        "function Receive() {",
+        "  const QRCodeSVG = ({ value }: { value: string }) => <span>{value}</span>;",
+      ].join("\n"),
+    );
+    mutant = mutate(
+      mutant,
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `<QRCodeSVG value={address} />
               <CopyButton
                 value={address}`,
     );
@@ -281,6 +373,14 @@ describe("opaque identifier production inventory", () => {
         "              <span>{safeLabel.substring(0, 6)}</span>",
         '              <span>{safeLabel.replace("Wallet", "Account")}</span>',
         "              <span>{safeLabel.toLowerCase()}</span>",
+        '              <span>{safeLabel.split("").join("")}</span>',
+        '              <span>{safeLabel.split("").reverse().join("")}</span>',
+        '              <span>{[...safeLabel].join("")}</span>',
+        "              <span>{safeLabel[0]}</span>",
+        "              <span title={safeLabel}>Safe label</span>",
+        "              <span {...{ title: safeLabel }}>Safe label</span>",
+        "              <span {...{ safeLabel }}>Safe label</span>",
+        "              <span {...{ ...{ title: safeLabel } }}>Safe label</span>",
         "              <span>{decorateLabel(safeLabel)}</span>",
         "              <CopyButton",
         "                value={address}",
