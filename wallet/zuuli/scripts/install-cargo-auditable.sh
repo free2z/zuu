@@ -16,4 +16,5 @@ tar -xzf "$archive" -C "$temporary"
 patch --fuzz=0 --batch --forward -d "$temporary" -p0 \
   --input="$script_directory/cargo-auditable-0.7.5-root.patch"
 cargo install --force --locked --path "$temporary/cargo-auditable-$version"
-cargo install --list | grep -Eq "^cargo-auditable v${version}( \\([^)]*\\))?:$"
+installed=$(cargo install --list)
+printf '%s\n' "$installed" | grep -Eq "^cargo-auditable v${version}( \\([^)]*\\))?:$"

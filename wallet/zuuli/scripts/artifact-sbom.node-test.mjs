@@ -693,6 +693,7 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
         '    requireState("install");',
         '    const version = process.env.ZUULI_INSTALLER_FAILURE === "version" ? "9.9.9" : "0.7.5";',
         "    process.stdout.write(`cargo-auditable v${version} (/mock/source):\\n    cargo-auditable\\n`);",
+        '    if (process.env.ZUULI_INSTALLER_FAILURE === "list-exit") fail("list", 17);',
         "  } else process.exit(94);",
         "} else process.exit(95);",
         "",
@@ -853,6 +854,24 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
         `${failure} must preserve its diagnostic`,
       );
     }
+
+    const failedList = invoke("failure-list-exit", "list-exit");
+    assert.ok(
+      failedList.error,
+      "a failed cargo install --list must stop installation even after valid output",
+    );
+    const failedListArchive = failedList.commands[0]?.at(-1);
+    assert.match(
+      failedListArchive,
+      /\/zuuli-cargo-auditable-source\.[^/]+\/cargo-auditable-0\.7\.5\.crate$/,
+    );
+    assert.deepEqual(
+      failedList.commands,
+      expectedCommandsFor(failedListArchive),
+      "cargo install --list must be the final invoked command",
+    );
+    assert.equal(failedList.status, 17);
+    assert.equal(failedList.stderr, "injected list failure\n");
 
     const wrongVersion = invoke("failure-version", "version");
     assert.ok(
