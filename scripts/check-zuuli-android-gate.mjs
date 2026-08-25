@@ -13,12 +13,14 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "1de7e96daff410630c5a04ec293d3a99ddce6eeb6c2835a62dd37a7a5e69fe46";
+  "7d11ec92c07b5c88a3ec8737ee3d969bba2e9fdd1154c6fe5d54206221e89ad6";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const classicSeedBoundaryInputs = [
+  "wallet/shared/sensitive-entry-session.ts",
   "wallet/zuuallet/src/hooks/useWallet.ts",
   "wallet/zuuallet/src/lib/mnemonic.ts",
+  "wallet/zuuallet/src/lib/sensitive-entry.ts",
   "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
   "wallet/zuuallet/src/lib/sensitive-seed.ts",
   "wallet/zuuallet/src/lib/tauri.ts",

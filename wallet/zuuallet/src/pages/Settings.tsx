@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { SeedPhraseGrid } from "../components/SeedPhraseGrid";
 import { formatHeight } from "../lib/format";
@@ -8,6 +8,7 @@ import {
   SensitiveSeedSession,
   sensitiveSeedAuthority,
 } from "../lib/sensitive-seed";
+import { useSensitiveMnemonicEntry } from "../lib/sensitive-entry";
 
 const SERVERS = [
   { label: "zec.rocks (default)", url: "https://zec.rocks:443" },
@@ -78,13 +79,19 @@ function RevealSection({
   );
 }
 
-function SeedPhraseSection() {
+export function SeedPhraseSection() {
   const [phrase, setPhrase] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUnlock, setShowUnlock] = useState(false);
   const [unlockPhrase, setUnlockPhrase] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  const clearUnlockPhrase = useCallback(() => setUnlockPhrase(""), []);
+  const sensitiveEntry = useSensitiveMnemonicEntry(
+    "zuualletRelink",
+    showUnlock,
+    clearUnlockPhrase,
+  );
   const operationInFlight = useRef(false);
   const sensitiveSession = useRef<SensitiveSeedSession | null>(null);
   if (!sensitiveSession.current) {
@@ -156,9 +163,9 @@ function SeedPhraseSection() {
     setError(null);
     try {
       await api.unlockWallet(unlockPhrase.trim());
-      await readSeedUnderLease();
+      await sensitiveEntry.clear();
       setShowUnlock(false);
-      setUnlockPhrase("");
+      await readSeedUnderLease();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -196,10 +203,31 @@ function SeedPhraseSection() {
           <textarea
             value={unlockPhrase}
             onChange={(e) => setUnlockPhrase(e.target.value)}
+            disabled={!sensitiveEntry.editable || unlocking}
             placeholder="Enter your seed phrase words separated by spaces..."
             rows={3}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
             className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
           />
+          {!sensitiveEntry.editable && (
+            <div className="flex items-center justify-between gap-3 mt-1 text-xs text-zinc-500">
+              <span>
+                {sensitiveEntry.error ?? "Securing recovery-phrase entry…"}
+              </span>
+              {sensitiveEntry.error && (
+                <button
+                  type="button"
+                  className="min-tap underline"
+                  onClick={() => void sensitiveEntry.retry()}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-1 mb-2">
             {wordCount > 0 ? (
               <span
@@ -213,7 +241,9 @@ function SeedPhraseSection() {
           </div>
           <button
             onClick={handleUnlock}
-            disabled={unlocking || !validWordCount}
+            disabled={
+              unlocking || !sensitiveEntry.editable || !validWordCount
+            }
             className="px-5 py-2 bg-purple-500 hover:bg-purple-600 text-white text-sm rounded-xl font-semibold transition-colors disabled:opacity-50"
           >
             {unlocking ? "Verifying..." : "Unlock"}

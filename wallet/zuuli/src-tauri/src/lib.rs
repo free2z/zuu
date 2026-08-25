@@ -1,5 +1,9 @@
 mod oauth;
 
+fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -37,6 +41,79 @@ pub fn run() {
             oauth::oauth_mobile_finish,
             oauth::oauth_mobile_cancel,
         ])
-        .run(tauri::generate_context!())
+        .run(app_context())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use tauri::WebviewWindowBuilder;
+
+    #[test]
+    fn shipping_mobile_capability_authorizes_sensitive_entry_lifecycle() {
+        let capabilities: serde_json::Value =
+            serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/capabilities.json")))
+                .expect("Tauri must emit valid shipping capabilities");
+        let permissions = capabilities["mobile"]["permissions"]
+            .as_array()
+            .expect("shipping mobile capability permissions");
+        let permission_ids = permissions
+            .iter()
+            .map(|permission| {
+                permission
+                    .as_str()
+                    .or_else(|| permission["identifier"].as_str())
+                    .expect("shipping mobile permission identifier")
+            })
+            .collect::<Vec<_>>();
+
+        for permission in [
+            "zcash:allow-begin-sensitive-entry",
+            "zcash:allow-end-sensitive-display",
+        ] {
+            assert!(
+                permission_ids.contains(&permission),
+                "shipping mobile capability must authorize {permission}"
+            );
+        }
+    }
+
+    #[test]
+    fn shipping_zcash_router_registers_sensitive_entry_commands() {
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_zcash::command_router())
+            .build(super::app_context())
+            .expect("mock ZUULI app with shipping zcash router");
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("mock main webview");
+
+        for command in ["begin_sensitive_entry", "end_sensitive_display"] {
+            let error = tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: format!("plugin:zcash|{command}"),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "tauri://localhost".parse().expect("invoke URL"),
+                    body: tauri::ipc::InvokeBody::Json(json!({})),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+                },
+            )
+            .expect_err("registered command must reject its missing arguments");
+            assert_eq!(
+                error,
+                json!(
+                    "invalid args `args` for command `".to_owned()
+                        + command
+                        + "`: command "
+                        + command
+                        + " missing required key args"
+                ),
+                "the shipping plugin must route {command} before argument validation",
+            );
+        }
+    }
 }

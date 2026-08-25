@@ -34,6 +34,9 @@ tiny_http = "0.12"
 url = "2"
 getrandom = "0.3"
 
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
 # ---------------------------------------------------------------------------
 # Build profiles. DO NOT DELETE — this is load-bearing for `tauri dev` usability.
 #

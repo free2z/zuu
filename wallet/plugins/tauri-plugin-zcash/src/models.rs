@@ -13,10 +13,20 @@ pub struct SensitiveDisplayLease {
     pub token: String,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SensitiveDisplayPurpose {
+    SeedReveal,
+    ZuuliRestore,
+    ZuualletRestore,
+    ZuualletRelink,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SensitiveDisplayState {
     pub token: String,
-    pub wallet_id: String,
+    pub purpose: SensitiveDisplayPurpose,
+    pub wallet_id: Option<String>,
     pub consumed: bool,
 }
 
@@ -24,6 +34,13 @@ pub struct SensitiveDisplayState {
 #[serde(rename_all = "camelCase")]
 pub struct EndSensitiveDisplayArgs {
     pub token: String,
+    pub purpose: SensitiveDisplayPurpose,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeginSensitiveEntryArgs {
+    pub purpose: SensitiveDisplayPurpose,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

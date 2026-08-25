@@ -536,9 +536,29 @@ pub(crate) async fn begin_sensitive_display<R: Runtime>(
     zcash.set_sensitive_display(true, &token)?;
     *current = Some(SensitiveDisplayState {
         token: token.clone(),
-        wallet_id,
+        purpose: SensitiveDisplayPurpose::SeedReveal,
+        wallet_id: Some(wallet_id),
         consumed: false,
     });
+    Ok(SensitiveDisplayLease { token })
+}
+
+/// Acquire capture protection before a renderer makes a mnemonic-entry field
+/// editable. Entry leases are purpose-bound and immediately non-replaceable:
+/// unlike a reveal, user input can enter the renderer at any time after this
+/// command returns.
+#[command]
+pub(crate) async fn begin_sensitive_entry<R: Runtime>(
+    app: AppHandle<R>,
+    args: BeginSensitiveEntryArgs,
+) -> Result<SensitiveDisplayLease> {
+    let zcash = app.zcash();
+    let mut current = zcash.sensitive_display.lock().await;
+    ensure_sensitive_entry_available(&current)?;
+    let token = uuid::Uuid::new_v4().to_string();
+    let state = sensitive_entry_state(&token, args.purpose)?;
+    zcash.set_sensitive_display(true, &token)?;
+    *current = Some(state);
     Ok(SensitiveDisplayLease { token })
 }
 
@@ -551,7 +571,7 @@ pub(crate) async fn end_sensitive_display<R: Runtime>(
 ) -> Result<()> {
     let zcash = app.zcash();
     let mut current = zcash.sensitive_display.lock().await;
-    if !owns_sensitive_display(&current, &args.token) {
+    if !owns_sensitive_display(&current, &args.token, args.purpose) {
         return Ok(());
     }
     zcash.set_sensitive_display(false, &args.token)?;
@@ -559,8 +579,14 @@ pub(crate) async fn end_sensitive_display<R: Runtime>(
     Ok(())
 }
 
-fn owns_sensitive_display(current: &Option<SensitiveDisplayState>, token: &str) -> bool {
-    current.as_ref().is_some_and(|lease| lease.token == token)
+fn owns_sensitive_display(
+    current: &Option<SensitiveDisplayState>,
+    token: &str,
+    purpose: SensitiveDisplayPurpose,
+) -> bool {
+    current
+        .as_ref()
+        .is_some_and(|lease| lease.token == token && lease.purpose == purpose)
 }
 
 fn ensure_sensitive_display_replaceable(current: &Option<SensitiveDisplayState>) -> Result<()> {
@@ -570,6 +596,32 @@ fn ensure_sensitive_display_replaceable(current: &Option<SensitiveDisplayState>)
         ));
     }
     Ok(())
+}
+
+fn ensure_sensitive_entry_available(current: &Option<SensitiveDisplayState>) -> Result<()> {
+    if current.is_some() {
+        return Err(Error::Other(
+            "another sensitive-display lease is already active".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn sensitive_entry_state(
+    token: &str,
+    purpose: SensitiveDisplayPurpose,
+) -> Result<SensitiveDisplayState> {
+    if purpose == SensitiveDisplayPurpose::SeedReveal {
+        return Err(Error::Other(
+            "seed reveal requires the custody-bound display command".into(),
+        ));
+    }
+    Ok(SensitiveDisplayState {
+        token: token.to_owned(),
+        purpose,
+        wallet_id: None,
+        consumed: true,
+    })
 }
 
 async fn consume_sensitive_display<'a>(
@@ -583,7 +635,12 @@ async fn consume_sensitive_display<'a>(
             "sensitive-display lease is missing or stale".into(),
         ));
     };
-    if token.is_empty() || lease.token != token || lease.wallet_id != wallet_id || lease.consumed {
+    if token.is_empty()
+        || lease.token != token
+        || lease.purpose != SensitiveDisplayPurpose::SeedReveal
+        || lease.wallet_id.as_deref() != Some(wallet_id)
+        || lease.consumed
+    {
         return Err(Error::Other(
             "sensitive-display lease is missing, stale, or already used".into(),
         ));
@@ -595,27 +652,128 @@ async fn consume_sensitive_display<'a>(
 #[cfg(test)]
 mod sensitive_display_tests {
     use super::{
-        consume_sensitive_display, ensure_sensitive_display_replaceable, owns_sensitive_display,
+        begin_sensitive_entry, consume_sensitive_display, end_sensitive_display,
+        ensure_sensitive_display_replaceable, ensure_sensitive_entry_available,
+        owns_sensitive_display, sensitive_entry_state,
     };
-    use crate::models::SensitiveDisplayState;
+    use crate::models::{
+        BeginSensitiveEntryArgs, EndSensitiveDisplayArgs, SensitiveDisplayPurpose,
+        SensitiveDisplayState,
+    };
     use std::sync::Arc;
+    use tauri::Manager;
     use tokio::sync::{Mutex, oneshot};
+
+    struct TempWalletDir(std::path::PathBuf);
+
+    impl Drop for TempWalletDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     fn lease(token: &str, wallet_id: &str) -> SensitiveDisplayState {
         SensitiveDisplayState {
             token: token.to_owned(),
-            wallet_id: wallet_id.to_owned(),
+            purpose: SensitiveDisplayPurpose::SeedReveal,
+            wallet_id: Some(wallet_id.to_owned()),
             consumed: false,
         }
+    }
+
+    fn entry(token: &str, purpose: SensitiveDisplayPurpose) -> SensitiveDisplayState {
+        SensitiveDisplayState {
+            token: token.to_owned(),
+            purpose,
+            wallet_id: None,
+            consumed: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn native_entry_commands_install_and_release_the_exact_lease() {
+        let app = tauri::test::mock_app();
+        let data_dir = TempWalletDir(std::env::temp_dir().join(format!(
+            "zuuli-sensitive-entry-command-test-{}",
+            uuid::Uuid::new_v4()
+        )));
+        std::fs::create_dir_all(&data_dir.0).expect("temporary wallet directory");
+        let seed_store = crate::wallet::keychain::SeedStore::platform(data_dir.0.clone());
+        let state = crate::wallet::WalletState::new(
+            data_dir.0.clone(),
+            zcash_protocol::consensus::Network::MainNetwork,
+            seed_store,
+        )
+        .expect("empty wallet state");
+        assert!(app.manage(crate::desktop::Zcash {
+            _app: app.handle().clone(),
+            state,
+            legacy_app_data: crate::models::LegacyAppDataStatus::default(),
+            sensitive_display: Mutex::new(None),
+        }));
+
+        let lease = begin_sensitive_entry(
+            app.handle().clone(),
+            BeginSensitiveEntryArgs {
+                purpose: SensitiveDisplayPurpose::ZuuliRestore,
+            },
+        )
+        .await
+        .expect("native entry acquisition");
+        assert!(
+            !lease.token.is_empty(),
+            "native token must not be decorative"
+        );
+        {
+            let zcash = app.state::<crate::desktop::Zcash<tauri::test::MockRuntime>>();
+            let active = zcash.sensitive_display.lock().await;
+            assert_eq!(
+                active.as_ref(),
+                Some(&entry(&lease.token, SensitiveDisplayPurpose::ZuuliRestore)),
+                "the returned token must own the installed native state",
+            );
+        }
+
+        end_sensitive_display(
+            app.handle().clone(),
+            EndSensitiveDisplayArgs {
+                token: lease.token,
+                purpose: SensitiveDisplayPurpose::ZuuliRestore,
+            },
+        )
+        .await
+        .expect("native exact release");
+        let zcash = app.state::<crate::desktop::Zcash<tauri::test::MockRuntime>>();
+        assert!(
+            zcash.sensitive_display.lock().await.is_none(),
+            "native release must clear the installed lease",
+        );
     }
 
     #[test]
     fn stale_release_never_owns_a_newer_sensitive_display() {
         let mut current = Some(lease("new-reveal", "wallet-a"));
         current.as_mut().expect("lease").consumed = true;
-        assert!(owns_sensitive_display(&current, "new-reveal"));
-        assert!(!owns_sensitive_display(&current, "old-reveal"));
-        assert!(!owns_sensitive_display(&None, "old-reveal"));
+        assert!(owns_sensitive_display(
+            &current,
+            "new-reveal",
+            SensitiveDisplayPurpose::SeedReveal
+        ));
+        assert!(!owns_sensitive_display(
+            &current,
+            "old-reveal",
+            SensitiveDisplayPurpose::SeedReveal
+        ));
+        assert!(!owns_sensitive_display(
+            &current,
+            "new-reveal",
+            SensitiveDisplayPurpose::ZuuliRestore
+        ));
+        assert!(!owns_sensitive_display(
+            &None,
+            "old-reveal",
+            SensitiveDisplayPurpose::SeedReveal
+        ));
     }
 
     #[test]
@@ -631,24 +789,74 @@ mod sensitive_display_tests {
             "a delivered mnemonic must retain its authoritative native lease"
         );
         assert!(
-            owns_sensitive_display(&consumed, "displayed"),
+            owns_sensitive_display(&consumed, "displayed", SensitiveDisplayPurpose::SeedReveal),
             "the exact owner can still release a consumed lease after renderer clear"
         );
-        assert!(!owns_sensitive_display(&consumed, "stale"));
+        assert!(!owns_sensitive_display(
+            &consumed,
+            "stale",
+            SensitiveDisplayPurpose::SeedReveal
+        ));
 
-        if owns_sensitive_display(&consumed, "stale") {
+        if owns_sensitive_display(&consumed, "stale", SensitiveDisplayPurpose::SeedReveal) {
             consumed = None;
         }
         assert!(
             ensure_sensitive_display_replaceable(&consumed).is_err(),
             "stale release must retain the consumed lease"
         );
-        if owns_sensitive_display(&consumed, "displayed") {
+        if owns_sensitive_display(&consumed, "displayed", SensitiveDisplayPurpose::SeedReveal) {
             consumed = None;
         }
         assert!(
             ensure_sensitive_display_replaceable(&consumed).is_ok(),
             "only exact release makes a new acquisition eligible"
+        );
+    }
+
+    #[test]
+    fn typed_entry_population_is_exact_and_never_replaces_an_active_purpose() {
+        let purposes = [
+            SensitiveDisplayPurpose::ZuuliRestore,
+            SensitiveDisplayPurpose::ZuualletRestore,
+            SensitiveDisplayPurpose::ZuualletRelink,
+        ];
+        assert_eq!(purposes.len(), 3);
+        for purpose in purposes {
+            let state = sensitive_entry_state("entry-token", purpose).expect("entry purpose");
+            assert_eq!(state, entry("entry-token", purpose));
+            assert!(
+                state.consumed,
+                "editable entry is immediately non-replaceable"
+            );
+            assert!(state.wallet_id.is_none(), "restore entry is pre-wallet");
+            let active = Some(state);
+            assert!(ensure_sensitive_entry_available(&active).is_err());
+            assert!(ensure_sensitive_display_replaceable(&active).is_err());
+            assert!(owns_sensitive_display(&active, "entry-token", purpose));
+            for other in purposes {
+                if other != purpose {
+                    assert!(!owns_sensitive_display(&active, "entry-token", other));
+                }
+            }
+        }
+        assert!(
+            sensitive_entry_state("wrong-command", SensitiveDisplayPurpose::SeedReveal).is_err(),
+            "seed reveals must use their wallet- and custody-bound acquisition"
+        );
+        assert!(ensure_sensitive_entry_available(&None).is_ok());
+    }
+
+    #[tokio::test]
+    async fn typed_entry_token_cannot_authorize_a_seed_read() {
+        let mut wrong_purpose = entry("typed-entry", SensitiveDisplayPurpose::ZuuliRestore);
+        wrong_purpose.wallet_id = Some("wallet-a".to_owned());
+        wrong_purpose.consumed = false;
+        let current = Mutex::new(Some(wrong_purpose));
+        assert!(
+            consume_sensitive_display(&current, "typed-entry", "wallet-a")
+                .await
+                .is_err()
         );
     }
 

@@ -302,8 +302,10 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/.clippy.toml",
 ];
 const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
+  "wallet/shared/sensitive-entry-session.ts",
   "wallet/zuuallet/src/hooks/useWallet.ts",
   "wallet/zuuallet/src/lib/mnemonic.ts",
+  "wallet/zuuallet/src/lib/sensitive-entry.ts",
   "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
   "wallet/zuuallet/src/lib/sensitive-seed.ts",
   "wallet/zuuallet/src/lib/tauri.ts",

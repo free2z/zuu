@@ -109,5 +109,5 @@ export class SensitiveSeedSession {
 
 export const walletSensitiveSeedAuthority: SensitiveSeedAuthority = {
   begin: () => wallet.beginSensitiveDisplay().then(({ token }) => token),
-  end: (token) => wallet.endSensitiveDisplay(token),
+  end: (token) => wallet.endSensitiveDisplay(token, "seedReveal"),
 };

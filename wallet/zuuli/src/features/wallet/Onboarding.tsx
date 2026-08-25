@@ -26,6 +26,7 @@ import {
   SensitiveSeedSession,
   walletSensitiveSeedAuthority,
 } from "@/lib/wallet/sensitive-seed";
+import { useSensitiveMnemonicEntry } from "@/lib/wallet/sensitive-entry";
 
 export function Onboarding() {
   const bootstrap = useWallet((s) => s.bootstrap);
@@ -110,11 +111,20 @@ function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
   );
 }
 
-function RestorePane({ onRestored }: { onRestored: () => void }) {
+export function RestorePane({ onRestored }: { onRestored: () => void }) {
   const [seed, setSeed] = useState("");
   const [birthday, setBirthday] = useState("");
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const clearSeed = useCallback(() => {
+    setSeed("");
+    setReveal(false);
+  }, []);
+  const sensitiveEntry = useSensitiveMnemonicEntry(
+    "zuuliRestore",
+    true,
+    clearSeed,
+  );
 
   const wordCount = seed.trim() ? seed.trim().split(/\s+/).length : 0;
   const validWordCount = isSupportedBip39WordCount(wordCount);
@@ -134,6 +144,7 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
     try {
       const res = await wallet.restoreWallet(phrase, height);
       if (res.success) {
+        void sensitiveEntry.clear();
         toast.success("Wallet restored");
         onRestored();
       } else {
@@ -144,7 +155,7 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
     } finally {
       setBusy(false);
     }
-  }, [seed, birthday, validWordCount, onRestored]);
+  }, [seed, birthday, validWordCount, onRestored, sensitiveEntry]);
 
   return (
     <Card className="rounded-xl">
@@ -158,6 +169,7 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
             <button
               type="button"
               onClick={() => setReveal((r) => !r)}
+              disabled={!sensitiveEntry.editable}
               className="min-tap inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-pressed={reveal}
             >
@@ -176,9 +188,12 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
             id="seed"
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
+            disabled={!sensitiveEntry.editable || busy}
             placeholder="Enter your recovery phrase, separated by spaces"
             spellCheck={false}
             autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
             className={cn(
               "min-h-[104px] resize-none font-mono",
               !reveal &&
@@ -186,6 +201,22 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
                 "[-webkit-text-security:disc] [text-security:disc]",
             )}
           />
+          {!sensitiveEntry.editable ? (
+            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>
+                {sensitiveEntry.error ?? "Securing recovery-phrase entry…"}
+              </span>
+              {sensitiveEntry.error ? (
+                <button
+                  type="button"
+                  className="min-tap rounded-md underline"
+                  onClick={() => void sensitiveEntry.retry()}
+                >
+                  Retry
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">
               Words are never sent anywhere but the local wallet engine.
@@ -228,7 +259,7 @@ function RestorePane({ onRestored }: { onRestored: () => void }) {
           size="lg"
           className="w-full"
           onClick={onRestore}
-          disabled={busy || !validWordCount}
+          disabled={busy || !sensitiveEntry.editable || !validWordCount}
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />

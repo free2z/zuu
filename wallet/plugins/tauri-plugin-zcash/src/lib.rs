@@ -3,6 +3,14 @@ use tauri::{
     plugin::{Builder, TauriPlugin},
 };
 
+include!("../command_registry.rs");
+
+macro_rules! command_handler {
+    ($($command:ident),* $(,)?) => {
+        tauri::generate_handler![$(commands::$command),*]
+    };
+}
+
 pub use models::*;
 
 mod app_data_migration;
@@ -35,52 +43,24 @@ impl<R: Runtime, T: Manager<R>> ZcashExt<R> for T {
     }
 }
 
+/// Builds the command handler shared by the shipping plugin and IPC probe.
+fn command_builder<R: Runtime>() -> Builder<R> {
+    Builder::new("zcash").invoke_handler(with_zcash_commands!(command_handler))
+}
+
+/// Builds the exact production command router without platform setup hooks.
+/// This exists for compiler-bound IPC probes in the consuming Tauri apps.
+#[doc(hidden)]
+pub fn command_router<R: Runtime>() -> TauriPlugin<R> {
+    command_builder().build()
+}
+
 /// Initializes the plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     // Install the rustls crypto provider before any TLS connections
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    Builder::new("zcash")
-        .invoke_handler(tauri::generate_handler![
-            commands::create_wallet,
-            commands::restore_wallet,
-            commands::get_wallet_status,
-            commands::preview_legacy_wallet_import,
-            commands::retry_wallet_cleanup,
-            commands::get_seed_phrase,
-            commands::get_backup_seed_phrase,
-            commands::confirm_wallet_backup,
-            commands::begin_sensitive_display,
-            commands::end_sensitive_display,
-            commands::get_viewing_key,
-            commands::get_spending_key,
-            commands::list_wallets,
-            commands::switch_wallet,
-            commands::rename_wallet,
-            commands::delete_wallet,
-            commands::unlock_wallet,
-            commands::create_account,
-            commands::list_accounts,
-            commands::get_account_balance,
-            commands::get_unified_address,
-            commands::start_sync,
-            commands::stop_sync,
-            commands::get_sync_status,
-            commands::ensure_sapling_params,
-            commands::propose_send,
-            commands::propose_send_all,
-            commands::confirm_send,
-            commands::execute_send,
-            commands::discard_send_proposal,
-            commands::get_pending_send,
-            commands::retry_pending_send,
-            commands::discard_unrecoverable_send,
-            commands::get_transaction_history,
-            commands::set_lightwalletd_url,
-            commands::parse_payment_uri,
-            commands::validate_address,
-            commands::sign_challenge,
-        ])
+    command_builder()
         .setup(|app, api| {
             #[cfg(mobile)]
             {
@@ -126,4 +106,33 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             }
         })
         .build()
+}
+
+#[cfg(test)]
+mod command_registry_tests {
+    macro_rules! command_names {
+        ($($command:ident),* $(,)?) => {
+            &[$(stringify!($command)),*]
+        };
+    }
+
+    #[test]
+    fn sensitive_entry_is_in_the_runtime_and_permission_registry() {
+        let commands: &[&str] = with_zcash_commands!(command_names);
+        assert_eq!(commands.len(), 39, "command registry population changed");
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| **command == "begin_sensitive_entry")
+                .count(),
+            1,
+            "sensitive entry must have exactly one shared registration",
+        );
+    }
+
+    #[test]
+    fn build_script_uses_the_shared_command_population() {
+        let commands: &[&str] = with_zcash_commands!(command_names);
+        assert_eq!(env!("ZCASH_BUILD_COMMANDS"), commands.join(","));
+    }
 }

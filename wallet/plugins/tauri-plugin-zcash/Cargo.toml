@@ -90,6 +90,7 @@ tauri-plugin = { version = "2", features = ["build"] }
 tauri-build = "2"
 
 [dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 # The behavioral send tests exercise the same generic production boundary with
 # librustzcash's real in-memory wallet DSL. These features expose test support;
 # they do not replace proposal or transaction behavior with mocks.
