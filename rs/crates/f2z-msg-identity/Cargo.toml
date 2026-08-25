@@ -1,0 +1,60 @@
+[package]
+name = "f2z-msg-identity"
+version = "0.1.0"
+description = "Seed-derived messaging key hierarchy for free2z (docs/e2ee/ARCHITECTURE.md §4.2): the ZIP-32-idiom messaging tree, the four account leaves, per-device keys and DeviceCredential issuance"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. This crate holds a *user's* identity
+# keys, so it is linked by ZUULI, by the WASM web client and by any third-party
+# client that wants to restore an identity from the same mnemonic. The AGPL-3.0
+# boundary starts at the server binaries, not here — and a copyleft key
+# derivation would mean a second implementation, which is the one thing a key
+# hierarchy must never have. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# BLAKE2b-512 with a 16-byte personalization — the ZIP 32 idiom
+# `ARCHITECTURE.md` §4.2 is written in. See `src/blake.rs` for why this crate's
+# `Blake2bMac512` is *not* the API used.
+blake2 = { workspace = true }
+# HKDF-SHA256, the expansion §4.2 uses for the four account leaves.
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+# Ed25519 for the three signing leaves, the device signature key and the queue
+# keys. `zeroize` is on (workspace default) and it is load-bearing here rather
+# than merely nice: `SigningKey` is `ZeroizeOnDrop`, which is most of this
+# crate's zeroization story.
+ed25519-dalek = { workspace = true }
+# The CSPRNG *boundary*, not a CSPRNG. §4.1 requires device keys to come from
+# the OS generator, and this crate is `no_std` with no I/O, so it cannot read
+# one. `CryptoRng` is the marker the caller has to justify.
+rand_core = { workspace = true }
+zeroize = { workspace = true }
+
+# `DeviceCredential` is defined once, in `f2z-kt-core`, and issued here. A
+# second definition of the structure the whole directory is built on would be a
+# second chance to disagree about its bytes — which is the disagreement this
+# crate exists to make impossible.
+#
+# `default-features = false` drops `verifier` and `auditor`, so neither `akd`
+# nor `akd_core` reaches a client that only wants to derive its own keys.
+# `f2z-kt-core`'s §4.4 submission validator — the acceptance test for this
+# crate's credential bytes — is in `submit`, which is not behind either feature.
+#
+# Spelled as a path dependency, like `f2z-kt`'s and `f2z-witness`'s, rather than
+# through `[workspace.dependencies]`: `version` is carried alongside `path`
+# because `rs/deny.toml` sets `wildcards = "deny"` for our own crates too.
+f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0", default-features = false }
+f2z-codec = { workspace = true }
+tls_codec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

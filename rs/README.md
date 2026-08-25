@@ -117,6 +117,25 @@ prevent.
 | [`crates/f2z-relay`](./crates/f2z-relay) | **The relay daemon** — the server that runs in production. `wss://` listener, §4 framing, §5 signed-command verification with the TLS-exporter binding, the full §6 command set over `RelayStore`, a group-commit writer, TTL expiry, §13 anti-abuse, the signed capability document, a loopback-only `/healthz` + `/metrics` admin listener, and an opt-in health-only listener that may bind off loopback so a Kubernetes probe and a load-balancer health check can reach `/healthz` at all. **AGPL-3.0**, native only, never on the wasm line. |
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
+| [`crates/f2z-msg-identity`](./crates/f2z-msg-identity) | The messaging key hierarchy, [`docs/e2ee/ARCHITECTURE.md`](../docs/e2ee/ARCHITECTURE.md) §4.2: the ZIP-32-idiom seed-derived tree (`MSK`, hardened-only `CKDh`, `account_node`), the four HKDF account leaves, the per-device keys the OS CSPRNG generates, and `DeviceCredential` issuance. **The one crate here that holds a user's secret keys.** `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no clock, and its randomness is a `rand_core::CryptoRng` parameter so it reaches `wasm32-unknown-unknown`. |
+
+`f2z-msg-identity` is the **only** crate in this tree that holds secrets. Every
+other crate here verifies, encodes or stores; this one derives an identity from a
+mnemonic and signs with it. Two consequences worth knowing before opening it:
+
+- **Its constants are not editable.** The BLAKE2b personalizations and the four
+  HKDF labels in `src/labels.rs` are inputs to a one-way derivation from a user's
+  seed. Changing one byte moves every existing user's `IdentitySigningKey`,
+  invalidates every directory entry, breaks every pinned safety number, and
+  leaves no migration path — `KT.md` §4.4 requires the *outgoing* identity key to
+  sign a rotation. `tests/derivation_vectors.rs` pins the whole hierarchy from
+  BIP-39's published all-`abandon` seed, computed independently in Python, so an
+  accidental change fails there first.
+- **It issues what `f2z-kt-core` validates.** `DeviceCredentialTBS` is
+  `f2z-kt-core`'s type, not a second copy, and `tests/kt_core_agreement.rs` puts
+  a credential issued here through `validate_submission` — the same function the
+  log runs. The two crates cannot drift apart about those bytes without a red
+  test.
 
 `f2z-kt-core` is the **one** crate the log server, the witness and the client all
 link (`KT.md` §11.4). That is not tidiness: a witness that verified with a
@@ -183,7 +202,8 @@ boundary in practice: every crate above is MIT because a third-party relay, ZUUL
 and the WASM web client all compile the same rules, and a rule that two implementations
 disagree about is how ciphertext gets deleted before it is read.
 
-**The clients link `f2z-codec` and `f2z-relay-proto`; the relay links those two
+**The clients link `f2z-codec`, `f2z-relay-proto`, `f2z-kt-core`'s verifier and
+`f2z-msg-identity`; the relay links the first two
 plus `f2z-relay-store`.** That is the licence boundary in practice: the shared
 crates are MIT because a third-party relay, ZUULI and the WASM web client all
 compile the same rules, and a rule that two implementations disagree about is how
@@ -357,7 +377,7 @@ cargo test
 # The client-linked crates only. `f2z-kt` and `f2z-witness` are native server
 # binaries and are deliberately absent from this line.
 cargo build --target wasm32-unknown-unknown --lib \
-  -p f2z-codec -p f2z-relay-proto -p f2z-authority
+  -p f2z-codec -p f2z-relay-proto -p f2z-authority -p f2z-msg-identity
 cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
             --no-default-features --features verifier
 

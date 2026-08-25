@@ -371,6 +371,14 @@ jobs:
       # `f2z-relay` — the server binary the paragraph above anticipated — is all
       # three at once: AGPL-3.0, tokio and SQLite, and never a browser. Adding a
       # crate to this line is a claim that a client links it.
+      #
+      # `f2z-msg-identity` is on it because it is the *most* client-linked crate
+      # in the tree: it derives the user's messaging identity from the wallet
+      # mnemonic (ARCHITECTURE.md §4.2), and a user who cannot reach that
+      # derivation in the browser cannot restore their identity there. It reads
+      # no clock and no generator — the CSPRNG is a `rand_core::CryptoRng`
+      # parameter precisely so the crate can compile here — so this step is what
+      # keeps that promise honest.
       - name: Build the client-linked crates for the browser target
         working-directory: rs
         run: |
@@ -379,7 +387,8 @@ jobs:
             --target "${{ steps.rust_toolchain.outputs.target }}" \
             -p f2z-codec \
             -p f2z-relay-proto \
-            -p f2z-authority
+            -p f2z-authority \
+            -p f2z-msg-identity
 
       # KT.md §11.4: the log, the witness and the client link one crate. Only
       # the *client* half reaches the browser — `akd::auditor::audit_verify`

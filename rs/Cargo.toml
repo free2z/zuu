@@ -49,6 +49,32 @@ ed25519-dalek = { version = "3", default-features = false, features = [
 # constant time. Already in the graph beneath ed25519-dalek; named here so the
 # dependency is a decision rather than an accident of resolution.
 subtle = { version = "2", default-features = false }
+# HKDF-SHA256, and the SHA-256 beneath it. `ARCHITECTURE.md` §4.2 expands the
+# four account leaves out of one account key with
+# `HKDF-Expand(PRK = ik_account, info = label, L)`; only the Expand half is
+# used, because the PRK is already a uniformly random BLAKE2b output and an
+# Extract over it would buy nothing. `sha2` is pinned to the 0.10 line so that
+# it resolves to the copy `akd_core`'s graph already carries rather than adding
+# a third: 0.11 is in this lock only because `ed25519-dalek` 3 uses it
+# internally, and a hash this crate names should be one a reader can find.
+hkdf = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+# The CSPRNG **boundary** for `ARCHITECTURE.md` §4.1's device keys, and not a
+# CSPRNG: this graph reaches wasm32 and is `no_std` with no I/O, so the crate
+# that derives keys cannot read an OS generator itself. `rand_core` supplies the
+# `CryptoRng` marker a caller has to satisfy, and nothing else — it has no
+# features, pulls nothing, and cannot itself produce a byte.
+#
+# It is already in this lock as `ed25519-dalek` 3's optional `rand_core`
+# dependency, which stays **off**: dalek's `SigningKey::generate` is behind that
+# feature and enabling it would also switch on `curve25519-dalek/rand_core` for
+# every crate here. Filling a `Zeroizing<[u8; 32]>` and calling
+# `SigningKey::from_bytes` is the same operation with none of that reach.
+rand_core = { version = "0.10", default-features = false }
+# Zeroization on drop for the secrets `f2z-msg-identity` holds that are not
+# already a dalek `SigningKey`. Already in the graph beneath ed25519-dalek's
+# `zeroize` feature; named here for the same reason `subtle` is.
+zeroize = { version = "1", default-features = false, features = ["derive"] }
 
 # First-party. `f2z-kt-core` builds the transparency envelope on top of
 # `f2z-codec`'s canonical encoding, so the re-encode-equality rule of WIRE.md
