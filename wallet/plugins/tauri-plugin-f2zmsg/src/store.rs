@@ -49,8 +49,6 @@
 //! nothing else. That is a real gap, it belongs to `f2z-msg-store`, and it is
 //! recorded here rather than in a commit message so the next reader finds it.
 
-use std::collections::BTreeMap;
-
 use f2z_msg_store::{Durability, F2zStorageProvider, StorageBackend};
 use serde::{Deserialize, Serialize};
 
@@ -133,9 +131,6 @@ mod keys {
     }
     pub fn message(msg_id: &str) -> Vec<u8> {
         format!("{PREFIX}msg/{msg_id}").into_bytes()
-    }
-    pub fn heads(conversation_id: &str) -> Vec<u8> {
-        format!("{PREFIX}heads/{conversation_id}").into_bytes()
     }
     pub fn gaps(conversation_id: &str) -> Vec<u8> {
         format!("{PREFIX}gaps/{conversation_id}").into_bytes()
@@ -284,12 +279,17 @@ pub struct StoredConversation {
     pub read_through: Option<String>,
 }
 
-/// One entry in a conversation's transcript index.
+/// Every `msg_id` a conversation holds, in the order this device first wrote
+/// them.
 ///
-/// The cursor is `SortKey::to_cursor`, which sorts lexicographically in exactly
-/// §7's total order, so the index is a `BTreeMap` and `list_messages` is a
-/// range over it rather than a sort of the whole conversation.
-pub type Transcript = BTreeMap<String, String>;
+/// **Not the display order**, and the distinction is §7's: the display order is
+/// the causal DAG linearised, with `(epoch, senderLeafIndex, msgId)` breaking
+/// ties between *concurrent* messages only. `f2z-msg-dag` computes that from
+/// the graph, and this list is just the population it is computed over. An
+/// earlier version of this file keyed the index by the sort key and paged over
+/// it directly, which is the same defect `f2z_msg_dag::order` documents: a
+/// reply from the lower leaf index sorts above the message it answers.
+pub type Transcript = Vec<String>;
 
 /// A message, as it survives a restart.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -515,7 +515,6 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
         self.put(&keys::conversation_index(), &ids)?;
         self.delete(&keys::conversation(id))?;
         self.delete(&keys::transcript(id))?;
-        self.delete(&keys::heads(id))?;
         self.delete(&keys::gaps(id))?;
         self.delete(&keys::purges(id))
     }
@@ -532,6 +531,20 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
         self.put(&keys::transcript(conversation_id), transcript)
     }
 
+    /// Append one `msg_id`, if the conversation does not already hold it.
+    ///
+    /// Idempotent because duplicates are the normal case, not an error: §9.4's
+    /// *k*-relay fan-out means a device may publish queue addresses on several
+    /// relays and a sender sends to all of them.
+    pub fn remember_message(&self, conversation_id: &str, msg_id: &str) -> Result<()> {
+        let mut transcript = self.transcript(conversation_id)?;
+        if transcript.iter().any(|known| known == msg_id) {
+            return Ok(());
+        }
+        transcript.push(msg_id.to_owned());
+        self.put_transcript(conversation_id, &transcript)
+    }
+
     pub fn message(&self, msg_id: &str) -> Result<Option<StoredMessage>> {
         self.get(&keys::message(msg_id))
     }
@@ -544,41 +557,6 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
         self.provider
             .has_app(&keys::message(msg_id))
             .map_err(|error| store_error("probing a record", &error))
-    }
-
-    /// The DAG heads: every message this device holds that nothing it holds
-    /// references. `parents` on the next send.
-    pub fn heads(&self, conversation_id: &str) -> Result<Vec<String>> {
-        Ok(self.get(&keys::heads(conversation_id))?.unwrap_or_default())
-    }
-
-    pub fn put_heads(&self, conversation_id: &str, heads: &[String]) -> Result<()> {
-        self.put(&keys::heads(conversation_id), &heads.to_vec())
-    }
-
-    /// Fold one message into the head set: it covers everything it references,
-    /// and becomes a head itself.
-    ///
-    /// **The set matters, and a single "latest message" is not it.** Two
-    /// participants who send before either has heard the other produce two
-    /// messages that reference nothing in common — that is what *concurrent*
-    /// means in a causal DAG, and it is the ordinary case in a live
-    /// conversation, not an edge case. Collapsing the head set to whichever
-    /// message this device saw last would silently drop the other from the next
-    /// message's `parents`, and a receiver would then have no dangling hash to
-    /// notice a gap by (§3.5). Gap detection is only a certainty if `parents`
-    /// really is every unreferenced message.
-    pub fn advance_heads(
-        &self,
-        conversation_id: &str,
-        msg_id: &str,
-        parents: &[String],
-    ) -> Result<Vec<String>> {
-        let mut heads = self.heads(conversation_id)?;
-        heads.retain(|head| !parents.iter().any(|parent| parent == head) && head != msg_id);
-        heads.push(msg_id.to_owned());
-        self.put_heads(conversation_id, &heads)?;
-        Ok(heads)
     }
 
     // -- gaps, purges, contact requests, alarms ----------------------------
@@ -809,7 +787,7 @@ mod tests {
         records
             .commit(|records| {
                 records.put_conversation(&conversation("a"))?;
-                records.put_heads("a", &["deadbeef".to_owned()])?;
+                records.remember_message("a", "deadbeef")?;
                 records.put_gaps(
                     "a",
                     &[Gap {
@@ -830,7 +808,7 @@ mod tests {
 
         assert!(records.conversation_ids().expect("ids").is_empty());
         assert!(records.conversation("a").expect("read").is_none());
-        assert!(records.heads("a").expect("heads").is_empty());
+        assert!(records.transcript("a").expect("transcript").is_empty());
         assert!(records.gaps("a").expect("gaps").is_empty());
     }
 
@@ -856,7 +834,6 @@ mod tests {
             keys::conversation("x"),
             keys::transcript("x"),
             keys::message("x"),
-            keys::heads("x"),
             keys::gaps("x"),
             keys::purges("x"),
             keys::contact_requests(),

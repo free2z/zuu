@@ -90,6 +90,12 @@ tracing-subscriber = { version = "0.3", optional = true, default-features = fals
 # integration tests run against.
 # ---------------------------------------------------------------------------
 
+# `ARCHITECTURE.md` §7: the application envelope, `msg_id`, the causal DAG,
+# gap detection and repair. It landed on main (#732) while this plugin was being
+# written, and adopting it deleted this crate's `src/framing.rs` — which had the
+# defect its `order` module documents, sorting by the tie-break alone and
+# therefore placing replies above the messages they answer.
+f2z-msg-dag = { path = "../../../rs/crates/f2z-msg-dag", version = "0.1.0" }
 # §4.2's seed-derived key hierarchy and `DeviceCredential` issuance.
 f2z-msg-identity = { path = "../../../rs/crates/f2z-msg-identity", version = "0.1.0" }
 # The MLS (RFC 9420) engine: X-Wing hybrid PQ, DeviceCredential-bound membership.

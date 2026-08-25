@@ -114,15 +114,6 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<crate::framing::FramingError> for Error {
-    fn from(error: crate::framing::FramingError) -> Self {
-        // A malformed envelope from a peer is not `relay-protocol-violation`:
-        // the relay never saw inside it. It is our own engine failing to make
-        // sense of an authenticated payload, which is what `internal` means.
-        Self::internal(error.to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

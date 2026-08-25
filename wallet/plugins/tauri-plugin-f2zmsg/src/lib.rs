@@ -65,9 +65,9 @@ macro_rules! command_handler {
 
 pub mod directory;
 pub mod engine;
+pub mod envelope;
 pub mod error;
 pub mod events;
-pub mod framing;
 pub mod handle;
 pub mod models;
 pub mod relay;

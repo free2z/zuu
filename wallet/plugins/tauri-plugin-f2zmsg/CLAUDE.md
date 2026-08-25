@@ -51,8 +51,8 @@ against each other and the checker names whichever one you missed.
 
 ## Where the seams are
 
-`framing.rs` is `f2z-msg-dag`'s work, done narrowly here because that crate does
-not exist. `relay.rs` belongs in `rs/crates/f2z-relay-client` so the WASM client
+`envelope.rs` is the adapter over `f2z-msg-dag`; §7 is that crate's and no
+longer this one's. `relay.rs` belongs in `rs/crates/f2z-relay-client` so the WASM client
 can share it. `directory.rs` needs an HTTP client over `/kt/v1/lookup` and
 `f2z_kt_core::verify`. Each says so at the top of the file, with what must not
 change when it moves.

@@ -44,7 +44,7 @@ $ cd ../../../rs/deploy && docker compose -f docker-compose.dev.yml up
 | `command_registry.rs` | The one command inventory. `include!`d by `build.rs` **and** `src/lib.rs`. |
 | `src/models.rs` | Every wire shape, mirroring `types.ts`. camelCase structs, kebab-case unions. |
 | `src/error.rs` | A refusal reaches the webview as one §8 code and nothing else. |
-| `src/framing.rs` | §7's envelope, `msg_id`, the total order. **The `f2z-msg-dag` seam.** |
+| `src/envelope.rs` | The adapter over `f2z-msg-dag`, and three plugin codepoints. |
 | `src/store.rs` | Durable records over `f2z-msg-store`'s application namespace. |
 | `src/relay.rs` | ZUULI's `WIRE.md` v1 client over a real WebSocket. |
 | `src/directory.rs` | The key-transparency seam. Fails closed, deliberately. |
@@ -87,6 +87,43 @@ the seed either.
 Steps 1, 2 and 4 are machine-enforced against each other, and since 2026-08-25
 so are 3 and the capability files.
 
+## §7 comes from `f2z-msg-dag`, and adopting it fixed a defect
+
+`src/framing.rs` was §7 written here because the crate did not exist on any
+branch when this plugin was started. It landed mid-flight (#732) and this crate
+now uses it; `src/envelope.rs` is the adapter and `framing.rs` is deleted.
+
+That was not merely deduplication. `framing.rs` linearised a conversation by the
+sort key **alone**, and `f2z_msg_dag::order` documents what that costs:
+applying `(epoch, senderLeafIndex, msgId)` to *every* pair — rather than only to
+the pairs the causal DAG leaves incomparable — **puts replies above the messages
+they answer**, in every one-to-one conversation where the replier holds the
+lower leaf index. Two independent readings of the same paragraph both took the
+tie-break for the whole rule, which is a good argument for one crate.
+
+`list_messages` now pages over `MessageDag::display_order()` — Kahn's algorithm
+with a min-heap on the sort key, deterministic over the graph and the keys and
+nothing else.
+
+### Three codepoints this plugin had to allocate
+
+`MessageType` names seven types, which is `ARCHITECTURE.md` §7's list.
+`CLIENT-CONTRACT.md` needs three it does not: §3.8's ephemeral hint and §3.9's
+purge request and acknowledgement. They travel inside MLS — a hint is only
+meaningful because it is attributable — so they need codepoints, and
+`src/envelope.rs` allocates 8, 9 and 10 pending registration upstream.
+
+### Control payloads carry `parents` but are not DAG vertices
+
+A vertex has to survive a restart or it manufactures gaps: this plugin persists
+the transcript and rebuilds the DAG from it, so a vertex with no store record
+disappears and the next message referencing it produces a dangling parent for
+something nothing lost. The two-process harness found exactly that with the
+in-band `queue_advert`. `envelope::is_transcript_vertex` draws the line and
+states the cost: a lost advert or hint is undetectable — which for an advert
+surfaces immediately as a conversation that cannot send, and for a hint is what
+§3.8 already says a hint is.
+
 ## Disagreements found between the TypeScript and the contract
 
 Two independent implementations meeting is how these surface. Neither is
@@ -112,12 +149,16 @@ instead; that is right for a plugin whose client reads errors as English and
 wrong here. If a future contract wants detail alongside the code, it needs a
 declared envelope in `types.ts` first.
 
-**3. `parents` has no home in a receipt or a hint.** §5.1's payload table and
-§3's shapes cover chat messages; §7's envelope covers everything travelling
-inside MLS. This crate advances the DAG for control payloads too — a receiver
-must be able to see that it holds every parent — but nothing in the contract says
-whether a `queue_advert` or a `PurgeAck` should be a DAG vertex. It is treated as
-one here; if that is wrong the fix is one line in `Engine::send_control`.
+**3. `compareMessages` implements the tie-break and not the order.**
+`f2z-msg-dag`'s `tests/typescript_parity.rs` pins this deliberately and calls it
+"a defect in the TypeScript client, not a difference of opinion". §5.2 says the
+UI recomputes the display order, and
+`wallet/zuuli/src/features/messages/Transcript.tsx` does so with
+`[...messages].sort(compareMessages)` — which undoes the causal order this
+plugin returns, in exactly the pairs where it matters. A `.sort()` comparator
+cannot see a graph, so the fix is a topological pass before the sort, or
+trusting the order `list_messages` already returns. **That is a frontend change
+and is not in this pull request**; it is the single highest-value follow-up.
 
 ## What is not wired yet, and exactly why
 
@@ -156,14 +197,6 @@ witnesses have cosigned anything. §6.4's matrix and §9 rule 5 make that the
 required behaviour rather than a placeholder — an unverified key at first
 contact *is* the MITM. Manual safety-number verification, which §8 tells the UI
 to offer instead, works in this build.
-
-**§7's framing lives here rather than in `f2z-msg-dag`.** That crate did not
-exist on `main`, on any remote branch, or in any open pull request when this was
-written, and nothing anywhere in the tree constructed an `AppMessage` or
-computed a `msg_id`. `src/framing.rs` is the smallest correct implementation of
-the envelope and the total order, deliberately narrow so replacing it is a
-delete-and-reimport. What it settles and must not change is the `msg_id`
-preimage.
 
 **A credential does not attest the key a peer encrypts to.** `DeviceCredential`
 binds a `device_kem_pk`, and the HPKE init key MLS actually uses is the one
