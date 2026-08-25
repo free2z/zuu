@@ -303,6 +303,8 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
 ];
 const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
   "wallet/shared/sensitive-entry-session.ts",
+  "wallet/zuuallet/package.json",
+  "wallet/zuuallet/package-lock.json",
   "wallet/zuuallet/src/hooks/useWallet.ts",
   "wallet/zuuallet/src/lib/mnemonic.ts",
   "wallet/zuuallet/src/lib/sensitive-entry.ts",
@@ -313,6 +315,7 @@ const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
   "wallet/zuuallet/src/pages/RestoreWallet.tsx",
   "wallet/zuuallet/src/pages/Settings.tsx",
   "wallet/zuuallet/src/pages/Welcome.tsx",
+  "wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx",
   "wallet/zuuallet/src/types/index.ts",
 ];
 const REQUIRED_FRONTEND_JOB_LINES = [
@@ -331,7 +334,9 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        with:",
   "          node-version: '24'",
   "          cache: npm",
-  "          cache-dependency-path: wallet/zuuli/package-lock.json",
+  "          cache-dependency-path: |",
+  "            wallet/zuuli/package-lock.json",
+  "            wallet/zuuallet/package-lock.json",
   "      - name: Resolve the pinned frontend Rust toolchain",
   "        id: frontend_rust_toolchain",
   "        run: |",
@@ -344,7 +349,9 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "          toolchain: ${{ steps.frontend_rust_toolchain.outputs.version }}",
   "          targets: wasm32-unknown-unknown",
   "      - name: Install locked dependencies",
-  "        run: npm ci",
+  "        run: |",
+  "          npm ci",
+  "          npm ci --prefix ../zuuallet",
   "      - name: Verify release cache security policy",
   "        run: |",
   "          node scripts/verify-ci-cache-policy.mjs --self-test",
@@ -365,11 +372,15 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "            sleep $((attempt * 5))",
   "          done",
   "      - name: Typecheck",
-  "        run: npm run typecheck",
+  "        run: |",
+  "          npm run typecheck",
+  "          npm run typecheck:tests",
   "      - name: Verify the viewport-test browser",
   "        run: google-chrome --version",
   "      - name: Test frontend contracts",
-  "        run: npm run test",
+  "        run: |",
+  "          npm run test",
+  "          npm --prefix ../zuuallet run test:sensitive-entry",
   "      - name: Build production frontend",
   "        run: npm run build",
 ];
@@ -1405,9 +1416,12 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   );
   exactNamedStep(
     "Test frontend contracts",
-    ["      - name: Test frontend contracts", "        run: npm run test"].join(
-      "\n",
-    ),
+    [
+      "      - name: Test frontend contracts",
+      "        run: |",
+      "          npm run test",
+      "          npm --prefix ../zuuallet run test:sensitive-entry",
+    ].join("\n"),
     "frontend tests must invoke the exact package contract unconditionally",
   );
   exactNamedStep(
@@ -4079,8 +4093,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        "      - name: Install locked dependencies\n        run: npm ci",
-        "      - name: Install locked dependencies\n        run: cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli && npm ci",
+        "      - name: Install locked dependencies\n        run: |\n          npm ci\n          npm ci --prefix ../zuuallet",
+        "      - name: Install locked dependencies\n        run: |\n          cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli && npm ci\n          npm ci --prefix ../zuuallet",
       ),
     },
     {

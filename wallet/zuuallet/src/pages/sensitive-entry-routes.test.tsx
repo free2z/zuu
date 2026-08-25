@@ -14,24 +14,24 @@ const route = vi.hoisted(() => ({
   revealEvents: [] as string[],
 }));
 
-vi.mock("../../../../zuuallet/src/lib/sensitive-entry", () => ({
+vi.mock("../lib/sensitive-entry", () => ({
   useSensitiveMnemonicEntry: route.useEntry,
 }));
-vi.mock("../../../../zuuallet/src/store/wallet", () => ({
+vi.mock("../store/wallet", () => ({
   useWalletStore: () => ({
     setPage: route.setPage,
     error: null,
     walletStatus: { walletCount: 1 },
   }),
 }));
-vi.mock("../../../../zuuallet/src/hooks/useWallet", () => ({
+vi.mock("../hooks/useWallet", () => ({
   useWallet: () => ({ restoreWallet: route.restore }),
 }));
-vi.mock("../../../../zuuallet/src/lib/tauri", () => ({
+vi.mock("../lib/tauri", () => ({
   unlockWallet: route.unlock,
   getSeedPhrase: vi.fn(async () => "unused"),
 }));
-vi.mock("../../../../zuuallet/src/lib/sensitive-seed", () => ({
+vi.mock("../lib/sensitive-seed", () => ({
   sensitiveSeedAuthority: {},
   SensitiveSeedSession: class {
     constructor(
@@ -53,8 +53,8 @@ vi.mock("../../../../zuuallet/src/lib/sensitive-seed", () => ({
   },
 }));
 
-import { RestoreWallet } from "../../../../zuuallet/src/pages/RestoreWallet";
-import { SeedPhraseSection } from "../../../../zuuallet/src/pages/Settings";
+import { RestoreWallet } from "./RestoreWallet";
+import { SeedPhraseSection } from "./Settings";
 
 let root: Root;
 let container: HTMLElement;
