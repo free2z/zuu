@@ -86,7 +86,10 @@ impl core::fmt::Display for Error {
 impl core::error::Error for Error {}
 
 impl serde::Serialize for Error {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> core::result::Result<S::Ok, S::Error> {
         // Logged here rather than at every construction site so that an error
         // which is caught and handled internally costs nothing, and one that
         // actually reaches the frontend is always recorded.
@@ -120,7 +123,6 @@ impl From<crate::framing::FramingError> for Error {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,7 +141,10 @@ mod tests {
     fn the_context_never_appears_in_the_serialized_form() {
         let secret = "queue addr 0xdeadbeef";
         let json = serde_json::to_string(&Error::internal(secret)).expect("serialize");
-        assert!(!json.contains("deadbeef"), "context must not cross IPC: {json}");
+        assert!(
+            !json.contains("deadbeef"),
+            "context must not cross IPC: {json}"
+        );
     }
 
     #[test]

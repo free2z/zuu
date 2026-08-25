@@ -474,10 +474,16 @@ pub struct DeliveryStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum MessageBody {
-    Text { text: String },
-    Unrecoverable { reason: UnrecoverableReason },
+    Text {
+        text: String,
+    },
+    Unrecoverable {
+        reason: UnrecoverableReason,
+    },
     #[serde(rename_all = "camelCase")]
-    Unsupported { type_tag: String },
+    Unsupported {
+        type_tag: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -227,11 +227,7 @@ mod tests {
         // the same thing, which is what §10's existence-oracle rule wants.
         assert_eq!(
             from_relay(WireCode::NoAccess, CommandSide::Send, BindAttempt::Later),
-            from_relay(
-                WireCode::Unavailable,
-                CommandSide::Send,
-                BindAttempt::Later
-            )
+            from_relay(WireCode::Unavailable, CommandSide::Send, BindAttempt::Later)
         );
         assert_eq!(
             from_relay(WireCode::NoAccess, CommandSide::Send, BindAttempt::Later),

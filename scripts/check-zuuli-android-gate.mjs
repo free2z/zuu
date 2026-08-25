@@ -13,7 +13,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "f2aa1e7462714c0ebace75367cc33e159b64d85a4d4e88cb6863dba6aa3af56b";
+  "9ae342aa8bad7732e83c017882bb67c239adcddde5a734f9e599407ce4d04710";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -409,7 +409,16 @@ function runSelfTest(workflow, toolchainEnv) {
 
 const workflow = readFileSync(resolve(repoRoot, workflowPath), "utf8");
 const toolchainEnv = readFileSync(resolve(repoRoot, toolchainEnvPath), "utf8");
-if (process.argv.includes("--self-test")) {
+// The digest is a reviewed constant, and re-deriving it by hand is how a
+// deliberate edit to the change detector turns into a wrong literal. This
+// prints what the current file hashes to, so updating the constant is a copy
+// rather than an experiment — the same affordance
+// `scripts/check-librustzcash-compat.mjs --print-scope-digest` provides.
+if (process.argv.includes("--print-change-detector-digest")) {
+  const changes = job(workflow, "changes");
+  const detector = namedStep(changes, "Detect release-impacting ZUULI changes");
+  console.log(createHash("sha256").update(detector).digest("hex"));
+} else if (process.argv.includes("--self-test")) {
   runSelfTest(workflow, toolchainEnv);
 } else {
   const failures = check(workflow, toolchainEnv);

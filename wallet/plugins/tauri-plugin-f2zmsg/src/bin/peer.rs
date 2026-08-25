@@ -98,7 +98,10 @@ impl Directory for FileDirectory {
             resolution: self.resolve(handle)?,
             identity_pk: published.identity_pk,
             key_package: hex::decode(&published.key_package).map_err(|_| {
-                Error::new(ErrorCode::DirectoryProtocolViolation, "key package is not hex")
+                Error::new(
+                    ErrorCode::DirectoryProtocolViolation,
+                    "key package is not hex",
+                )
             })?,
             contact_relay_url: published.contact_relay_url,
             contact_addr: published.contact_addr,
@@ -159,7 +162,9 @@ fn parse() -> std::result::Result<Options, String> {
             "--send" => send = Some(value()?),
             "--expect" => expect = Some(value()?),
             "--seed" => seed = value()?.parse().map_err(|_| "--seed is a byte")?,
-            "--timeout-seconds" => timeout = value()?.parse().map_err(|_| "--timeout is seconds")?,
+            "--timeout-seconds" => {
+                timeout = value()?.parse().map_err(|_| "--timeout is seconds")?
+            }
             other => return Err(format!("unknown flag {other}")),
         }
     }
@@ -217,11 +222,17 @@ async fn run() -> std::result::Result<String, String> {
             shared: options.shared.clone(),
         }));
 
-    enroll(&engine, &options).await.map_err(|error| describe(&error))?;
-    connect(&engine, &options).await.map_err(|error| describe(&error))?;
+    enroll(&engine, &options)
+        .await
+        .map_err(|error| describe(&error))?;
+    connect(&engine, &options)
+        .await
+        .map_err(|error| describe(&error))?;
     engine.start().await.map_err(|error| describe(&error))?;
 
-    publish(&engine, &options).await.map_err(|error| describe(&error))?;
+    publish(&engine, &options)
+        .await
+        .map_err(|error| describe(&error))?;
     wait_for_peer(&options)?;
 
     let conversation_id = if options.initiator {
@@ -327,7 +338,9 @@ async fn enroll(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()>
             device_pk: PublicKey::new(device.device_pk),
             device_kem_pk: KemPublicKey::new(device.device_kem_pk.clone())
                 .map_err(|error| Error::internal(format!("kem key: {error}")))?,
-            not_before_ms: u64::try_from(now).unwrap_or_default().saturating_sub(3_600_000),
+            not_before_ms: u64::try_from(now)
+                .unwrap_or_default()
+                .saturating_sub(3_600_000),
             not_after_ms: u64::try_from(now)
                 .unwrap_or_default()
                 .saturating_add(31_536_000_000),
@@ -379,7 +392,11 @@ async fn publish(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()
         .ok_or_else(|| Error::internal("start_engine did not open a contact queue"))?;
     let published = Published {
         handle: options.handle.clone(),
-        identity_pk: engine.device_info().await?.identity_fingerprint.replace(' ', ""),
+        identity_pk: engine
+            .device_info()
+            .await?
+            .identity_fingerprint
+            .replace(' ', ""),
         key_package: hex::encode(engine.key_package().await?),
         contact_relay_url,
         contact_addr,
@@ -419,7 +436,11 @@ fn readable(path: &Path) -> bool {
 /// The pump is what the plugin's receive task calls on a timer; here it is
 /// called directly so the harness controls the pace and a failure is a timeout
 /// with a message rather than a hang.
-async fn poll<T, F, Fut>(engine: &Engine<SqliteBackend>, timeout: Duration, mut check: F) -> Option<T>
+async fn poll<T, F, Fut>(
+    engine: &Engine<SqliteBackend>,
+    timeout: Duration,
+    mut check: F,
+) -> Option<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Option<T>>,

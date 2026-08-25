@@ -12,6 +12,9 @@ fn main() {
     // CI changes this value for every attempt so a restored Cargo target cache
     // cannot skip permission and schema generation side effects.
     println!("cargo:rerun-if-env-changed=TAURI_PERMISSION_GENERATION_NONCE");
-    println!("cargo:rustc-env=F2ZMSG_BUILD_COMMANDS={}", COMMANDS.join(","));
+    println!(
+        "cargo:rustc-env=F2ZMSG_BUILD_COMMANDS={}",
+        COMMANDS.join(",")
+    );
     tauri_plugin::Builder::new(COMMANDS).build();
 }

@@ -473,8 +473,15 @@ mod tests {
     use super::*;
 
     fn sample(parents: &[MsgId], body: &[u8]) -> AppMessage {
-        AppMessage::new(AppKind::Chat, parents, 3, 1_700_000_000_000, RetentionClass::Chat, body)
-            .expect("envelope")
+        AppMessage::new(
+            AppKind::Chat,
+            parents,
+            3,
+            1_700_000_000_000,
+            RetentionClass::Chat,
+            body,
+        )
+        .expect("envelope")
     }
 
     #[test]
@@ -496,22 +503,43 @@ mod tests {
         // identical messages sent twice from colliding.
         assert_ne!(sample(&[], b"hellp").msg_id(), base.msg_id());
         assert_ne!(
-            AppMessage::new(AppKind::Chat, &[], 4, 1_700_000_000_000, RetentionClass::Chat, b"hello")
-                .expect("envelope")
-                .msg_id(),
+            AppMessage::new(
+                AppKind::Chat,
+                &[],
+                4,
+                1_700_000_000_000,
+                RetentionClass::Chat,
+                b"hello"
+            )
+            .expect("envelope")
+            .msg_id(),
             base.msg_id()
         );
         assert_ne!(
-            AppMessage::new(AppKind::Chat, &[], 3, 1_700_000_000_001, RetentionClass::Chat, b"hello")
-                .expect("envelope")
-                .msg_id(),
+            AppMessage::new(
+                AppKind::Chat,
+                &[],
+                3,
+                1_700_000_000_001,
+                RetentionClass::Chat,
+                b"hello"
+            )
+            .expect("envelope")
+            .msg_id(),
             base.msg_id()
         );
         assert_ne!(sample(&[base.msg_id()], b"hello").msg_id(), base.msg_id());
         assert_ne!(
-            AppMessage::new(AppKind::Receipt, &[], 3, 1_700_000_000_000, RetentionClass::Chat, b"hello")
-                .expect("envelope")
-                .msg_id(),
+            AppMessage::new(
+                AppKind::Receipt,
+                &[],
+                3,
+                1_700_000_000_000,
+                RetentionClass::Chat,
+                b"hello"
+            )
+            .expect("envelope")
+            .msg_id(),
             base.msg_id()
         );
     }
@@ -569,9 +597,18 @@ mod tests {
         let low = MsgId::from_bytes([0x00; 32]);
         let high = MsgId::from_bytes([0xff; 32]);
 
-        assert!(SortKey::new(1, 9, high) < SortKey::new(2, 0, low), "epoch dominates");
-        assert!(SortKey::new(2, 0, high) < SortKey::new(2, 1, low), "then leaf index");
-        assert!(SortKey::new(2, 1, low) < SortKey::new(2, 1, high), "then msg_id");
+        assert!(
+            SortKey::new(1, 9, high) < SortKey::new(2, 0, low),
+            "epoch dominates"
+        );
+        assert!(
+            SortKey::new(2, 0, high) < SortKey::new(2, 1, low),
+            "then leaf index"
+        );
+        assert!(
+            SortKey::new(2, 1, low) < SortKey::new(2, 1, high),
+            "then msg_id"
+        );
     }
 
     #[test]

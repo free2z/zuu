@@ -172,14 +172,26 @@ mod command_registry_tests {
     #[test]
     fn the_registry_is_the_contracts_plugin_surface() {
         let commands: &[&str] = with_f2zmsg_commands!(command_names);
-        assert_eq!(commands.len(), EXPECTED, "command registry population changed");
+        assert_eq!(
+            commands.len(),
+            EXPECTED,
+            "command registry population changed"
+        );
 
         let mut sorted = commands.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), commands.len(), "a command is registered twice");
+        assert_eq!(
+            sorted.len(),
+            commands.len(),
+            "a command is registered twice"
+        );
 
-        for forbidden in ["f2zmsg_enroll", "f2zmsg_enrollment_status", "f2zmsg_unenroll"] {
+        for forbidden in [
+            "f2zmsg_enroll",
+            "f2zmsg_enrollment_status",
+            "f2zmsg_unenroll",
+        ] {
             assert!(
                 !commands.contains(&forbidden),
                 "{forbidden} needs the wallet seed and belongs in the app crate (§2.2)"

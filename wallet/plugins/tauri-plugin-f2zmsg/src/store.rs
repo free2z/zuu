@@ -493,7 +493,10 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
             ids.push(conversation.conversation_id.clone());
             self.put(&keys::conversation_index(), &ids)?;
         }
-        self.put(&keys::conversation(&conversation.conversation_id), conversation)
+        self.put(
+            &keys::conversation(&conversation.conversation_id),
+            conversation,
+        )
     }
 
     pub fn remove_conversation(&self, id: &str) -> Result<()> {
@@ -513,7 +516,9 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
     // -- transcript and messages -------------------------------------------
 
     pub fn transcript(&self, conversation_id: &str) -> Result<Transcript> {
-        Ok(self.get(&keys::transcript(conversation_id))?.unwrap_or_default())
+        Ok(self
+            .get(&keys::transcript(conversation_id))?
+            .unwrap_or_default())
     }
 
     pub fn put_transcript(&self, conversation_id: &str, transcript: &Transcript) -> Result<()> {
@@ -555,7 +560,9 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
     }
 
     pub fn purges(&self, conversation_id: &str) -> Result<Vec<PurgeRequestStatus>> {
-        Ok(self.get(&keys::purges(conversation_id))?.unwrap_or_default())
+        Ok(self
+            .get(&keys::purges(conversation_id))?
+            .unwrap_or_default())
     }
 
     pub fn put_purges(&self, conversation_id: &str, purges: &[PurgeRequestStatus]) -> Result<()> {
@@ -624,12 +631,14 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
     /// silently discarded history would be making a retention decision on the
     /// user's behalf in the direction that loses data.
     pub fn global_retention(&self) -> Result<RetentionPolicy> {
-        Ok(self.get(&keys::global_retention())?.unwrap_or(RetentionPolicy {
-            scope: RetentionScope::Global,
-            mode: RetentionMode::Keep,
-            ttl_seconds: None,
-            effective_from: 0,
-        }))
+        Ok(self
+            .get(&keys::global_retention())?
+            .unwrap_or(RetentionPolicy {
+                scope: RetentionScope::Global,
+                mode: RetentionMode::Keep,
+                ttl_seconds: None,
+                effective_from: 0,
+            }))
     }
 
     pub fn put_global_retention(&self, policy: &RetentionPolicy) -> Result<()> {

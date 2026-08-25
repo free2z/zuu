@@ -45,9 +45,9 @@ use std::time::{Duration, Instant};
 use f2z_codec::canonical::{Canonical as _, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose, ChallengeRequest,
-    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
-    CreateQueueResponse, HelloRequest, PushEvent, ReadRequest, ReadResponse, SignedCapabilities,
-    SubscribeResponse,
+    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
+    CreateQueueRequest, CreateQueueResponse, HelloRequest, PushEvent, ReadRequest, ReadResponse,
+    SignedCapabilities, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, Push, RelayFrame, Response};
 use f2z_codec::padding::PaddingBuckets;
@@ -295,8 +295,14 @@ impl RelayConnection {
             flags: 0,
             stamp,
         };
-        self.call_signed::<ops::CreateQueue>(recv_key, QueueAddress::zero(), &body, CommandSide::Receive, BindAttempt::Later)
-            .await
+        self.call_signed::<ops::CreateQueue>(
+            recv_key,
+            QueueAddress::zero(),
+            &body,
+            CommandSide::Receive,
+            BindAttempt::Later,
+        )
+        .await
     }
 
     /// `CREATE_CONTACT_QUEUE` (§12.2) — the queue a first-contact `Welcome`
@@ -321,8 +327,14 @@ impl RelayConnection {
             req_idle_ttl_seconds: idle_ttl_seconds,
             stamp,
         };
-        self.call_signed::<ops::CreateContactQueue>(recv_key, QueueAddress::zero(), &body, CommandSide::Receive, BindAttempt::Later)
-            .await
+        self.call_signed::<ops::CreateContactQueue>(
+            recv_key,
+            QueueAddress::zero(),
+            &body,
+            CommandSide::Receive,
+            BindAttempt::Later,
+        )
+        .await
     }
 
     /// `SUBSCRIBE` (§6.2).
@@ -335,8 +347,14 @@ impl RelayConnection {
         recv_key: &SigningKey,
         recv_addr: QueueAddress,
     ) -> Result<SubscribeResponse> {
-        self.call_signed::<ops::Subscribe>(recv_key, recv_addr, &Empty, CommandSide::Receive, BindAttempt::Later)
-            .await
+        self.call_signed::<ops::Subscribe>(
+            recv_key,
+            recv_addr,
+            &Empty,
+            CommandSide::Receive,
+            BindAttempt::Later,
+        )
+        .await
     }
 
     /// `READ` (§6.2). Never mutates: reading does not delete, and that
@@ -358,8 +376,14 @@ impl RelayConnection {
             max_messages,
             max_bytes,
         };
-        self.call_signed::<ops::Read>(recv_key, recv_addr, &body, CommandSide::Receive, BindAttempt::Later)
-            .await
+        self.call_signed::<ops::Read>(
+            recv_key,
+            recv_addr,
+            &body,
+            CommandSide::Receive,
+            BindAttempt::Later,
+        )
+        .await
     }
 
     /// `ACK` (§6.2) — **the relay deletes its copy at this instant.**
@@ -383,8 +407,14 @@ impl RelayConnection {
         up_to_index: u64,
     ) -> Result<AckResponse> {
         let body = AckRequest { up_to_index };
-        self.call_signed::<ops::Ack>(recv_key, recv_addr, &body, CommandSide::Receive, BindAttempt::Later)
-            .await
+        self.call_signed::<ops::Ack>(
+            recv_key,
+            recv_addr,
+            &body,
+            CommandSide::Receive,
+            BindAttempt::Later,
+        )
+        .await
     }
 
     /// `BIND_SEND` (§6.3). Once-only and irreversible.
@@ -428,9 +458,15 @@ impl RelayConnection {
     ) -> Result<()> {
         let payload = self.pad(ciphertext)?;
         let body = AppendRequest { payload };
-        self.call_signed::<ops::Append>(send_key, send_addr, &body, CommandSide::Send, BindAttempt::Later)
-            .await
-            .map(|_: Empty| ())
+        self.call_signed::<ops::Append>(
+            send_key,
+            send_addr,
+            &body,
+            CommandSide::Send,
+            BindAttempt::Later,
+        )
+        .await
+        .map(|_: Empty| ())
     }
 
     /// `CONTACT_APPEND` (§12.2), with a stamp scoped to `contact_addr`.
@@ -451,7 +487,11 @@ impl RelayConnection {
     ) -> Result<()> {
         let payload = self.pad(ciphertext)?;
         let stamp = self
-            .stamp_for(ChallengePurpose::ContactAppend, contact_addr.as_bytes(), pow)
+            .stamp_for(
+                ChallengePurpose::ContactAppend,
+                contact_addr.as_bytes(),
+                pow,
+            )
             .await?;
         let body = ContactAppendRequest {
             contact_addr,
@@ -547,7 +587,10 @@ impl RelayConnection {
         side: CommandSide,
         attempt: BindAttempt,
     ) -> Result<C::Response> {
-        match self.call_signed_once::<C>(key, address, body, side, attempt).await {
+        match self
+            .call_signed_once::<C>(key, address, body, side, attempt)
+            .await
+        {
             Err(error) if error.code() == ErrorCode::DeviceClockSkew => {
                 // §8's `device-clock-skew` row, exactly: re-learn the relay's
                 // time from `GET_CHALLENGE`, apply the offset **locally**, and
@@ -805,14 +848,15 @@ pub fn unpad(payload: &[u8]) -> Result<Vec<u8>> {
         prefix[0], prefix[1], prefix[2], prefix[3],
     ]))
     .map_err(|_| Error::internal("a length that does not fit this platform"))?;
-    rest.get(..declared)
-        .map(<[u8]>::to_vec)
-        .ok_or_else(|| {
-            Error::new(
-                ErrorCode::RelayProtocolViolation,
-                format!("a payload declaring {declared} bytes but carrying {}", rest.len()),
-            )
-        })
+    rest.get(..declared).map(<[u8]>::to_vec).ok_or_else(|| {
+        Error::new(
+            ErrorCode::RelayProtocolViolation,
+            format!(
+                "a payload declaring {declared} bytes but carrying {}",
+                rest.len()
+            ),
+        )
+    })
 }
 
 fn proto(error: f2z_relay_proto::ProtoError, side: CommandSide, attempt: BindAttempt) -> Error {
@@ -894,7 +938,9 @@ async fn hello(
                 }
             }
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
-            Message::Close(_) => return Err(Error::new(ErrorCode::RelayUnreachable, "relay closed")),
+            Message::Close(_) => {
+                return Err(Error::new(ErrorCode::RelayUnreachable, "relay closed"));
+            }
             Message::Text(_) => {
                 return Err(Error::new(
                     ErrorCode::RelayProtocolViolation,

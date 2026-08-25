@@ -64,7 +64,7 @@ use crate::models::*;
 use crate::relay::{ConnectionPolicy, RelayConnection};
 use crate::store::{
     DeviceSecrets, InboundQueue, OutboundQueue, RecordStore, SealedSecrets, SharedBackend,
-    StoredConversation, StoredContactRequest, StoredDelivery, StoredIdentity, StoredMessage,
+    StoredContactRequest, StoredConversation, StoredDelivery, StoredIdentity, StoredMessage,
     StoredQueues, StoredRelay, StoredWitnessSet, UnrecoverableCause,
 };
 
@@ -464,9 +464,8 @@ impl<B: StorageBackend> Engine<B> {
             .ok_or_else(|| Error::internal("an identity with no sealed secrets"))?;
         let secrets = open(&sealed, wrap_key)?;
 
-        let signer = f2z_msg_mls::DeviceSigner::from_private_key(decode_key(
-            &secrets.device_signing_key,
-        )?);
+        let signer =
+            f2z_msg_mls::DeviceSigner::from_private_key(decode_key(&secrets.device_signing_key)?);
         let credential_bytes = hex::decode(&identity.credential)
             .map_err(|_| Error::internal("the stored credential is not hex"))?;
         let credential = f2z_msg_mls::credential::parse(&credential_bytes)
@@ -730,12 +729,11 @@ impl<B: StorageBackend> Engine<B> {
             .filter(|request| request.request_id != request_id)
             .collect();
         let mut blocked = inner.records().blocked()?;
-        if block {
-            if let Some(rejected) = &rejected {
-                if !blocked.contains(&rejected.peer_handle) {
-                    blocked.push(rejected.peer_handle.clone());
-                }
-            }
+        if let Some(rejected) = rejected
+            .as_ref()
+            .filter(|rejected| block && !blocked.contains(&rejected.peer_handle))
+        {
+            blocked.push(rejected.peer_handle.clone());
         }
         inner.records().commit(|records| {
             records.put_contact_requests(&remaining)?;
@@ -858,7 +856,7 @@ impl<B: StorageBackend> Engine<B> {
             transcript.insert(key.to_cursor(), msg_id.clone());
             records.put_transcript(conversation_id, &transcript)?;
             // The DAG advances: this message now covers every previous head.
-            records.put_heads(conversation_id, &[msg_id.clone()])
+            records.put_heads(conversation_id, std::slice::from_ref(&msg_id))
         })?;
 
         let delivery = inner.deliver(&stored, &msg_id, &ciphertext, now).await?;
@@ -919,7 +917,9 @@ impl<B: StorageBackend> Engine<B> {
         message.delivery.state = "failed".into();
         message.delivery.updated_at = now_ms();
         message.retry_ciphertext = None;
-        inner.records().commit(|records| records.put_message(&message))?;
+        inner
+            .records()
+            .commit(|records| records.put_message(&message))?;
         self.sink.message_state(&delivery_view(&message));
         Ok(())
     }
@@ -984,10 +984,12 @@ impl<B: StorageBackend> Engine<B> {
         // and never "nothing is missing" — hash links do not detect tail
         // truncation, and no string may imply they do.
         let first_cursor = selected.first().map(|(cursor, _)| cursor.clone());
-        let has_gap_before = first_cursor
-            .as_ref()
-            .is_some_and(|cursor| transcript.range::<String, _>(..cursor.clone()).next().is_some())
-            && !inner.records().gaps(conversation_id)?.is_empty();
+        let has_gap_before = first_cursor.as_ref().is_some_and(|cursor| {
+            transcript
+                .range::<String, _>(..cursor.clone())
+                .next()
+                .is_some()
+        }) && !inner.records().gaps(conversation_id)?.is_empty();
 
         Ok(MessagePage {
             messages,
@@ -1144,7 +1146,10 @@ impl<B: StorageBackend> Engine<B> {
         inner
             .send_control(&stored, AppKind::GapRequest, &body)
             .await?;
-        for gap in gaps.iter().filter(|gap| gap.state == GapState::RepairRequested) {
+        for gap in gaps
+            .iter()
+            .filter(|gap| gap.state == GapState::RepairRequested)
+        {
             self.sink.gap_detected(gap);
         }
         Ok(statuses)
@@ -1161,10 +1166,7 @@ impl<B: StorageBackend> Engine<B> {
     /// # Errors
     ///
     /// `internal` when a named conversation does not exist.
-    pub async fn retention_policy(
-        &self,
-        conversation_id: Option<&str>,
-    ) -> Result<RetentionPolicy> {
+    pub async fn retention_policy(&self, conversation_id: Option<&str>) -> Result<RetentionPolicy> {
         let inner = self.inner.lock().await;
         let global = inner.records().global_retention()?;
         let Some(conversation_id) = conversation_id else {
@@ -1419,7 +1421,10 @@ impl<B: StorageBackend> Engine<B> {
         // Symmetric by construction: both devices sort the two identity keys
         // before hashing, so both compute the same number without agreeing on
         // who is "first".
-        let mut keys = [identity.identity_pk.clone(), stored.peer_identity_fingerprint.clone()];
+        let mut keys = [
+            identity.identity_pk.clone(),
+            stored.peer_identity_fingerprint.clone(),
+        ];
         keys.sort();
         let digest = hex::encode(
             hash2(
@@ -1535,7 +1540,9 @@ impl<B: StorageBackend> Engine<B> {
             .ok_or_else(|| Error::internal("no such alarm"))?;
         alarm.acknowledged_at = Some(now_ms());
         let acknowledged = alarm.clone();
-        inner.records().commit(|records| records.put_alarms(&alarms))?;
+        inner
+            .records()
+            .commit(|records| records.put_alarms(&alarms))?;
         self.sink.alarm(&acknowledged);
         Ok(acknowledged)
     }
@@ -1595,11 +1602,11 @@ impl<B: StorageBackend> Engine<B> {
         let capabilities = signed.capabilities.clone();
         f2z_relay_proto::capabilities::verify(&signed, &connection.session().relay_identity_pk())
             .map_err(|error| {
-                Error::new(
-                    ErrorCode::RelayCapabilityMismatch,
-                    format!("the capability document does not verify: {error:?}"),
-                )
-            })?;
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                format!("the capability document does not verify: {error:?}"),
+            )
+        })?;
 
         // 2026-08-24's correction, and there is deliberately no override for it:
         // v1's `CREATE_QUEUE` has no field a token can go in, so a relay
@@ -1660,7 +1667,9 @@ impl<B: StorageBackend> Engine<B> {
         let mut relays = inner.records().relays()?;
         relays.retain(|existing| existing.relay_url != relay.relay_url);
         relays.push(relay.clone());
-        inner.records().commit(|records| records.put_relays(&relays))?;
+        inner
+            .records()
+            .commit(|records| records.put_relays(&relays))?;
 
         if let Some(refusal) = consentable {
             // Stored, but not connected: §3.11's `connection: "refused"`. The
@@ -1693,7 +1702,10 @@ impl<B: StorageBackend> Engine<B> {
     pub async fn remove_relay(&self, relay_id: &str) -> Result<()> {
         let mut inner = self.inner.lock().await;
         let relays = inner.records().relays()?;
-        let removed = relays.iter().find(|relay| relay.relay_id == relay_id).cloned();
+        let removed = relays
+            .iter()
+            .find(|relay| relay.relay_id == relay_id)
+            .cloned();
         let remaining: Vec<StoredRelay> = relays
             .into_iter()
             .filter(|relay| relay.relay_id != relay_id)
@@ -1701,10 +1713,10 @@ impl<B: StorageBackend> Engine<B> {
         inner
             .records()
             .commit(|records| records.put_relays(&remaining))?;
-        if let Some(removed) = removed {
-            if let Some(mut connection) = inner.connections.remove(&removed.relay_url) {
-                connection.close().await;
-            }
+        if let Some(mut connection) =
+            removed.and_then(|removed| inner.connections.remove(&removed.relay_url))
+        {
+            connection.close().await;
         }
         Ok(())
     }
@@ -1757,7 +1769,9 @@ impl<B: StorageBackend> Engine<B> {
         relay.allow_insecure_transport = allow_insecure_transport;
         relay.allow_no_channel_binding = allow_no_channel_binding;
         let updated = relay.clone();
-        inner.records().commit(|records| records.put_relays(&relays))?;
+        inner
+            .records()
+            .commit(|records| records.put_relays(&relays))?;
         let config = inner.relay_config(&updated);
         self.sink.relay_state(&config);
         Ok(config)
@@ -1802,7 +1816,9 @@ impl<B: StorageBackend> Engine<B> {
                 .collect(),
             threshold,
         };
-        inner.records().commit(|records| records.put_witnesses(&set))?;
+        inner
+            .records()
+            .commit(|records| records.put_witnesses(&set))?;
         Ok(witness_state(&set))
     }
 
@@ -1865,7 +1881,9 @@ impl<B: StorageBackend> Engine<B> {
                 Inbound::ContactRequest(request) => self.sink.contact_request(&request),
                 Inbound::Gap(gap) => self.sink.gap_detected(&gap),
                 Inbound::GapRepaired(gap) => self.sink.gap_repaired(&gap),
-                Inbound::Conversation(conversation) => self.sink.conversation_updated(&conversation),
+                Inbound::Conversation(conversation) => {
+                    self.sink.conversation_updated(&conversation)
+                }
                 Inbound::Purge(status) => self.sink.purge_progress(&status),
                 Inbound::Delivery(status) => self.sink.message_state(&status),
             }
@@ -2167,10 +2185,11 @@ impl<B: StorageBackend> Inner<B> {
             let Ok(recv_addr) = queue_address(&queue.recv_addr) else {
                 continue;
             };
-            if let Some(connection) = self.connections.get_mut(&queue.relay_url) {
-                if let Err(error) = connection.subscribe(&recv_key, recv_addr).await {
-                    tracing::info!(conversation = %id, code = %error.code(), "subscribe");
-                }
+            let Some(connection) = self.connections.get_mut(&queue.relay_url) else {
+                continue;
+            };
+            if let Err(error) = connection.subscribe(&recv_key, recv_addr).await {
+                tracing::info!(conversation = %id, code = %error.code(), "subscribe");
             }
         }
     }
@@ -2219,7 +2238,11 @@ impl<B: StorageBackend> Inner<B> {
             // relay is forbidden from telling the sender queue state at all.
             Ok(()) => self.mark_delivery(msg_id, "accepted", None, now),
             Err(error) => {
-                let state = if error.code().retryable() { "pending" } else { "failed" };
+                let state = if error.code().retryable() {
+                    "pending"
+                } else {
+                    "failed"
+                };
                 self.mark_delivery(msg_id, state, Some(error.code()), now)
             }
         }
@@ -2320,7 +2343,8 @@ impl<B: StorageBackend> Inner<B> {
         };
         let mut alarms = self.records().alarms()?;
         alarms.push(alarm.clone());
-        self.records().commit(|records| records.put_alarms(&alarms))?;
+        self.records()
+            .commit(|records| records.put_alarms(&alarms))?;
         Ok(alarm)
     }
 
@@ -2362,11 +2386,10 @@ impl<B: StorageBackend> Inner<B> {
         let ciphertext = sealed?;
 
         self.ensure_bound(stored).await?;
-        let outbound = stored
-            .queues
-            .outbound
-            .clone()
-            .ok_or_else(|| Error::new(ErrorCode::SendUnavailable, "no advertised send address"))?;
+        let outbound =
+            stored.queues.outbound.clone().ok_or_else(|| {
+                Error::new(ErrorCode::SendUnavailable, "no advertised send address")
+            })?;
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
         let connection = self
@@ -2421,9 +2444,9 @@ fn message_view(stored: &StoredMessage) -> Message {
     }
 }
 
+use crate::models::RelayConnection as RelayConnectionState;
 /// The models' retention class, distinct from the wire one in `framing`.
 use crate::models::RetentionClass as RetentionClass2;
-use crate::models::RelayConnection as RelayConnectionState;
 
 fn delivery_view(stored: &StoredMessage) -> DeliveryStatus {
     DeliveryStatus {
@@ -2479,11 +2502,7 @@ fn kind_slug(kind: AlarmKind) -> &'static str {
     }
 }
 
-fn expiry_for(
-    stored: &StoredConversation,
-    now: i64,
-    global: RetentionPolicy,
-) -> Option<i64> {
+fn expiry_for(stored: &StoredConversation, now: i64, global: RetentionPolicy) -> Option<i64> {
     let policy = stored.retention.clone().unwrap_or(global);
     match (policy.mode, policy.ttl_seconds) {
         (RetentionMode::Expire, Some(ttl)) => {
@@ -2840,7 +2859,13 @@ impl<B: StorageBackend> Inner<B> {
                 return Ok(Vec::new());
             };
             connection
-                .read(&recv_key, recv_addr, queue.next_index, READ_BATCH, READ_MAX_BYTES)
+                .read(
+                    &recv_key,
+                    recv_addr,
+                    queue.next_index,
+                    READ_BATCH,
+                    READ_MAX_BYTES,
+                )
                 .await?
         };
 
@@ -2908,12 +2933,12 @@ impl<B: StorageBackend> Inner<B> {
             })?;
         }
         // Same rule as every other queue: the durable write is above this line.
-        if let (Some(highest), true) = (highest, self.records().may_acknowledge()) {
-            if let Some(connection) = self.connections.get_mut(&queue.relay_url) {
-                if let Err(error) = connection.ack(&recv_key, recv_addr, highest).await {
-                    tracing::info!(code = %error.code(), "contact-queue ACK not delivered");
-                }
-            }
+        let acknowledgeable = highest.filter(|_| self.records().may_acknowledge());
+        if let (Some(highest), Some(connection)) =
+            (acknowledgeable, self.connections.get_mut(&queue.relay_url))
+            && let Err(error) = connection.ack(&recv_key, recv_addr, highest).await
+        {
+            tracing::info!(code = %error.code(), "contact-queue ACK not delivered");
         }
         Ok(events)
     }
@@ -2997,7 +3022,13 @@ impl<B: StorageBackend> Inner<B> {
             // device was disconnected.
             let _ = connection.drain_pushes();
             connection
-                .read(&recv_key, recv_addr, queue.next_index, READ_BATCH, READ_MAX_BYTES)
+                .read(
+                    &recv_key,
+                    recv_addr,
+                    queue.next_index,
+                    READ_BATCH,
+                    READ_MAX_BYTES,
+                )
                 .await?
         };
 
@@ -3195,7 +3226,7 @@ impl<B: StorageBackend> Inner<B> {
                     let mut transcript = records.transcript(&conversation_id)?;
                     transcript.insert(key.to_cursor(), msg_id.clone());
                     records.put_transcript(&conversation_id, &transcript)?;
-                    records.put_heads(&conversation_id, &[msg_id.clone()])?;
+                    records.put_heads(&conversation_id, std::slice::from_ref(&msg_id))?;
                     records.put_conversation(&stored_snapshot)
                 })?;
 
@@ -3234,10 +3265,12 @@ impl<B: StorageBackend> Inner<B> {
                     serde_json::from_slice(envelope.body()).unwrap_or_default();
                 let mut held = Vec::new();
                 for id in wanted {
-                    if let Some(message) = self.records().message(&id)? {
-                        if message.unrecoverable.is_none() {
-                            held.push(message.envelope);
-                        }
+                    if let Some(message) = self
+                        .records()
+                        .message(&id)?
+                        .filter(|message| message.unrecoverable.is_none())
+                    {
+                        held.push(message.envelope);
                     }
                 }
                 // §7's repair: the ORIGINAL envelope, re-encrypted under the
@@ -3345,15 +3378,15 @@ impl<B: StorageBackend> Inner<B> {
                 let snapshot = stored.clone();
                 let body = serde_json::to_vec(&before_epoch)
                     .map_err(|error| Error::internal(format!("purge ack: {error}")))?;
-                self.send_control(&snapshot, AppKind::PurgeAck, &body).await?;
+                self.send_control(&snapshot, AppKind::PurgeAck, &body)
+                    .await?;
             }
             AppKind::PurgeAck => {
                 self.advance(stored, index)?;
                 let mut purges = self.records().purges(&conversation_id)?;
                 if let Some(status) = purges
                     .iter_mut()
-                    .filter(|status| status.direction == Direction::Outbound)
-                    .next_back()
+                    .rfind(|status| status.direction == Direction::Outbound)
                 {
                     status.confirmed_participants = status.confirmed_participants.saturating_add(1);
                     events.push(Inbound::Purge(status.clone()));
@@ -3374,12 +3407,13 @@ impl<B: StorageBackend> Inner<B> {
                     // and that coincidence is why the states must not collapse.
                     message.delivery.devices_receipted =
                         message.delivery.devices_receipted.saturating_add(1);
-                    message.delivery.state =
-                        if message.delivery.devices_receipted >= message.delivery.devices_expected {
-                            "delivered".into()
-                        } else {
-                            "device-delivered".into()
-                        };
+                    message.delivery.state = if message.delivery.devices_receipted
+                        >= message.delivery.devices_expected
+                    {
+                        "delivered".into()
+                    } else {
+                        "device-delivered".into()
+                    };
                     message.delivery.updated_at = now;
                     self.records()
                         .commit(|records| records.put_message(&message))?;

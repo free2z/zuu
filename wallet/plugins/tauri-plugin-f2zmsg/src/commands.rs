@@ -170,10 +170,7 @@ pub(crate) async fn list_messages<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn get_message<R: Runtime>(
-    app: AppHandle<R>,
-    args: MsgIdArgs,
-) -> Result<Message> {
+pub(crate) async fn get_message<R: Runtime>(app: AppHandle<R>, args: MsgIdArgs) -> Result<Message> {
     app.f2zmsg().engine().get_message(&args.msg_id).await
 }
 
@@ -384,9 +381,7 @@ pub(crate) async fn set_verification<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn get_self_audit_state<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<SelfAuditState> {
+pub(crate) async fn get_self_audit_state<R: Runtime>(app: AppHandle<R>) -> Result<SelfAuditState> {
     app.f2zmsg().engine().self_audit_state().await
 }
 
@@ -426,10 +421,7 @@ pub(crate) async fn add_relay<R: Runtime>(
 }
 
 #[command]
-pub(crate) async fn remove_relay<R: Runtime>(
-    app: AppHandle<R>,
-    args: RelayIdArgs,
-) -> Result<()> {
+pub(crate) async fn remove_relay<R: Runtime>(app: AppHandle<R>, args: RelayIdArgs) -> Result<()> {
     app.f2zmsg().engine().remove_relay(&args.relay_id).await
 }
 

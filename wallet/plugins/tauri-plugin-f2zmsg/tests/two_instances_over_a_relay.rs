@@ -138,12 +138,18 @@ async fn two_instances_exchange_a_message_over_a_real_relay() {
             report.handle
         );
         assert!(
-            report.events.iter().any(|event| event == "f2zmsg://message-received"),
+            report
+                .events
+                .iter()
+                .any(|event| event == "f2zmsg://message-received"),
             "{}: the durable-write event never fired",
             report.handle
         );
         assert!(
-            report.events.iter().any(|event| event == "f2zmsg://engine-state"),
+            report
+                .events
+                .iter()
+                .any(|event| event == "f2zmsg://engine-state"),
             "{}: no engine-state transition was announced",
             report.handle
         );
@@ -243,7 +249,10 @@ fn report(subject: &Transcript, other: &Transcript) -> Report {
         .next_back()
         .unwrap_or_else(|| panic!("{} printed nothing:\n{subject}\n{other}", subject.name));
     serde_json::from_str(line).unwrap_or_else(|error| {
-        panic!("{}: report is not the expected JSON: {error}\n{line}", subject.name)
+        panic!(
+            "{}: report is not the expected JSON: {error}\n{line}",
+            subject.name
+        )
     })
 }
 

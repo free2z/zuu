@@ -199,7 +199,10 @@ impl RecordingSink {
     /// Every `(name, payload)` recorded so far, oldest first.
     #[must_use]
     pub fn seen(&self) -> Vec<(&'static str, serde_json::Value)> {
-        self.seen.lock().map(|seen| seen.clone()).unwrap_or_default()
+        self.seen
+            .lock()
+            .map(|seen| seen.clone())
+            .unwrap_or_default()
     }
 
     /// The payloads recorded under one event name.
