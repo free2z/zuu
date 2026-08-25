@@ -219,6 +219,31 @@ test("physical CSS declarations fail even without Tailwind", () => {
     /inline style must use a logical-direction property/,
   );
 
+  const withLogicalDeclaration = section.replace(
+    "  return (\n    <section",
+    '  const logicalStyle = { marginInlineStart: "1px" };\n  return (\n    <section',
+  );
+  assert.notEqual(
+    withLogicalDeclaration,
+    section,
+    "logical named-style declaration mutation did not apply",
+  );
+  const withLogicalStyle = withLogicalDeclaration.replace(
+    '      style={{ animationDelay: `${delay}ms` }}',
+    "      style={logicalStyle}",
+  );
+  assert.notEqual(
+    withLogicalStyle,
+    withLogicalDeclaration,
+    "logical named-style use mutation did not apply",
+  );
+  assert.doesNotThrow(() =>
+    assertRtlSourcePolicy({
+      ...BASELINE,
+      "src/features/home/parts.tsx": withLogicalStyle,
+    }),
+  );
+
   rejectsMutation(
     "src/features/articles/components/ArticleCard.tsx",
     "{ backgroundImage: coverTone(article.title) }",
