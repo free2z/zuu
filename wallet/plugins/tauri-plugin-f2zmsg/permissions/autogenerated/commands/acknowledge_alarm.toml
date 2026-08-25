@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-acknowledge-alarm"
+description = "Enables the acknowledge_alarm command without any pre-configured scope."
+commands.allow = ["acknowledge_alarm"]
+
+[[permission]]
+identifier = "deny-acknowledge-alarm"
+description = "Denies the acknowledge_alarm command without any pre-configured scope."
+commands.deny = ["acknowledge_alarm"]

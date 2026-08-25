@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-send-purge-request"
+description = "Enables the send_purge_request command without any pre-configured scope."
+commands.allow = ["send_purge_request"]
+
+[[permission]]
+identifier = "deny-send-purge-request"
+description = "Denies the send_purge_request command without any pre-configured scope."
+commands.deny = ["send_purge_request"]

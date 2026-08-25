@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-gaps"
+description = "Enables the list_gaps command without any pre-configured scope."
+commands.allow = ["list_gaps"]
+
+[[permission]]
+identifier = "deny-list-gaps"
+description = "Denies the list_gaps command without any pre-configured scope."
+commands.deny = ["list_gaps"]

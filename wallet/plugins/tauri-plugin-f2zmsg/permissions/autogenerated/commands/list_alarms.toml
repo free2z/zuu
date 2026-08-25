@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-alarms"
+description = "Enables the list_alarms command without any pre-configured scope."
+commands.allow = ["list_alarms"]
+
+[[permission]]
+identifier = "deny-list-alarms"
+description = "Denies the list_alarms command without any pre-configured scope."
+commands.deny = ["list_alarms"]

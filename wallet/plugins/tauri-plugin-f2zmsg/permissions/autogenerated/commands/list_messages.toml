@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-messages"
+description = "Enables the list_messages command without any pre-configured scope."
+commands.allow = ["list_messages"]
+
+[[permission]]
+identifier = "deny-list-messages"
+description = "Denies the list_messages command without any pre-configured scope."
+commands.deny = ["list_messages"]

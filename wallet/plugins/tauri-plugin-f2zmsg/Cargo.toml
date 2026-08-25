@@ -1,0 +1,125 @@
+[package]
+name = "tauri-plugin-f2zmsg"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+# Never goes to a registry: the wallet crates are consumed by path only. This is
+# also what lets wallet/deny.toml skip them under `licenses.private.ignore`.
+publish = false
+description = "Tauri plugin for free2z end-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3)"
+# `tauri_plugin::Builder` requires it, and the value is the crate name. The
+# plugin's *identifier* — the `f2zmsg` in `plugin:f2zmsg|send_message` and in
+# `f2zmsg:allow-send-message` — is the crate name minus the `tauri-plugin-`
+# prefix, which is why this crate is `tauri-plugin-f2zmsg` and not
+# `tauri-plugin-f2z-msg`: the frontend's `bridge.ts` hard-codes
+# `plugin:f2zmsg|`, and a capability entry under any other namespace would not
+# authorize it.
+links = "tauri-plugin-f2zmsg"
+
+[features]
+default = []
+# Native-only integration coverage: the two-process relay harness in
+# `tests/`. Off in shipping builds, and it turns on nothing that changes the
+# library's behaviour — it only compiles the extra test binaries' support code.
+relay-harness = []
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+tauri-build = "2"
+
+[dependencies]
+tauri = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+# The engine holds relay connections and timers across command invocations, so
+# it needs a runtime of its own rather than borrowing Tauri's per-command one.
+tokio = { version = "1", features = [
+  "macros",
+  "net",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+# The relay transport of `WIRE.md` §2. Same major line as `f2z-relay` and
+# `f2z-relay-testkit` so that one RFC 6455 implementation is exercised by the
+# relay, its conformance harness and this client alike.
+tokio-tungstenite = { version = "0.30", features = [
+  "rustls-tls-webpki-roots",
+] }
+futures-util = { version = "0.3", default-features = false, features = [
+  "sink",
+  "std",
+] }
+# The OS CSPRNG, and the `CryptoRng` marker `f2z-msg-identity` requires of a
+# caller. Device keys are generated here and are deliberately not seed-derivable
+# (`ARCHITECTURE.md` §4.2).
+rand = "0.9"
+zeroize = { version = "1.8", features = ["derive"] }
+hex = "0.4"
+
+# ---------------------------------------------------------------------------
+# The messaging core, by path into the `rs/` workspace. Each of these is MIT and
+# is on the client side of the AGPL boundary described in rs/README.md; the two
+# server binaries (`f2z-kt`, `f2z-witness`) and the relay daemon (`f2z-relay`)
+# are deliberately absent, and adding one here would relicense ZUULI.
+#
+# `f2z-relay-testkit` is absent for a different reason and must stay absent: it
+# is MIT and it does contain the only complete relay client in the tree, but its
+# own crate documentation says "ZUULI's engine and the WASM web client are the
+# clients, and neither links this", and it carries a relay *server* with a fault
+# injector. `src/relay/` is this plugin's own client over `f2z-relay-proto`; the
+# testkit is a dev-dependency below, where it belongs — as the relay the
+# integration tests run against.
+# ---------------------------------------------------------------------------
+
+# §4.2's seed-derived key hierarchy and `DeviceCredential` issuance.
+f2z-msg-identity = { path = "../../../rs/crates/f2z-msg-identity", version = "0.1.0" }
+# The MLS (RFC 9420) engine: X-Wing hybrid PQ, DeviceCredential-bound membership.
+f2z-msg-mls = { path = "../../../rs/crates/f2z-msg-mls", version = "0.1.0" }
+# The OpenMLS `StorageProvider`. `sqlite` is the default and is what makes
+# `Durability::Durable` — and therefore ACKing at all — reachable (§11.2).
+f2z-msg-store = { path = "../../../rs/crates/f2z-msg-store", version = "0.1.0" }
+# `Handle`, `KemPublicKey` and `DeviceCredential` itself live here; issuing a
+# credential needs them, so this is a direct dependency rather than something
+# reached through `f2z-msg-identity`'s re-exports.
+f2z-kt-core = { path = "../../../rs/crates/f2z-kt-core", version = "0.1.0", default-features = false }
+# The canonical wire encoding, the frame layer, BLAKE2b with labelled domains
+# and the padding buckets.
+f2z-codec = { path = "../../../rs/crates/f2z-codec", version = "0.1.0" }
+# Signed commands, the HELLO handshake and its client-side verification, the
+# in-flight window, the queue state machine and `ClientPolicy`.
+f2z-relay-proto = { path = "../../../rs/crates/f2z-relay-proto", version = "0.1.0" }
+# `tls_codec`'s traits are in `f2z-codec`'s public API (`Canonical`), so the
+# 0.4 line is named here rather than inherited by luck.
+tls_codec = { version = "0.4", default-features = false, features = ["derive"] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+tempfile = "3"
+tokio = { version = "1", features = ["test-util"] }
+# The relay the integration tests run against. A dev-dependency, never a
+# dependency: see the comment above the `[dependencies]` block.
+f2z-relay-testkit = { path = "../../../rs/crates/f2z-relay-testkit", version = "0.1.0" }
+
+# ---------------------------------------------------------------------------
+# Build profiles. Mirrors `tauri-plugin-zcash`'s block for the same reason: this
+# package is its own workspace root, so `[profile.*]` here is honored for the
+# whole dependency graph. The messaging graph has its own expensive half —
+# libcrux's ML-KEM and X25519, and BLAKE2b — and an unoptimized X-Wing key
+# generation makes `tauri dev` first contact feel broken rather than slow.
+# ---------------------------------------------------------------------------
+
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

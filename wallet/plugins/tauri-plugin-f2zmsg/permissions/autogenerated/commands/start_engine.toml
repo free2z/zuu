@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-start-engine"
+description = "Enables the start_engine command without any pre-configured scope."
+commands.allow = ["start_engine"]
+
+[[permission]]
+identifier = "deny-start-engine"
+description = "Denies the start_engine command without any pre-configured scope."
+commands.deny = ["start_engine"]

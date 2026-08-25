@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-witness-set"
+description = "Enables the set_witness_set command without any pre-configured scope."
+commands.allow = ["set_witness_set"]
+
+[[permission]]
+identifier = "deny-set-witness-set"
+description = "Denies the set_witness_set command without any pre-configured scope."
+commands.deny = ["set_witness_set"]

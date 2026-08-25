@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-verification"
+description = "Enables the set_verification command without any pre-configured scope."
+commands.allow = ["set_verification"]
+
+[[permission]]
+identifier = "deny-set-verification"
+description = "Denies the set_verification command without any pre-configured scope."
+commands.deny = ["set_verification"]
