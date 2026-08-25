@@ -54,6 +54,9 @@ use f2z_msg_store::MemoryBackend;
 
 const NOW: u64 = 1_700_000_000_000;
 const GROUP_ID: &[u8] = b"conversation-alice-bob";
+/// Alice creates the group, so she is leaf 0; Bob joins and is leaf 1.
+const ALICE_LEAF: u32 = 0;
+const BOB_LEAF: u32 = 1;
 
 /// One device, built the way enrollment builds one.
 fn device(handle: &str, account_seed: u8, device_seed: u8) -> MlsEngine<MemoryBackend> {
@@ -94,16 +97,24 @@ macro_rules! paired {
     };
 }
 
-fn chat(parents: Parents, epoch: u64, body: &[u8]) -> AppMessage {
+/// Alice authors at leaf 0, Bob at leaf 1 — the indices the paired group above
+/// actually assigns. The value is hashed now, so it has to be the real one.
+fn chat_from(parents: Parents, epoch: u64, leaf: u32, body: &[u8]) -> AppMessage {
     AppMessage::seal(AppMessageTbs {
         message_type: MessageType::CHAT,
         parents,
         epoch,
+        sender_leaf_index: leaf,
         sent_at: SentAt::new(NOW),
         retention_class: RetentionClass::Chat,
         body: Body::new(body.to_vec()).unwrap(),
     })
     .unwrap()
+}
+
+/// Alice's leaf, which is 0 in every group she creates.
+fn chat(parents: Parents, epoch: u64, body: &[u8]) -> AppMessage {
+    chat_from(parents, epoch, ALICE_LEAF, body)
 }
 
 /// The acceptance criterion.
@@ -139,13 +150,14 @@ fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
     );
 
     // Bob notices the hole and asks for it.
-    let later = chat(
+    let later = chat_from(
         Parents::new(vec![message.msg_id()]).unwrap(),
         current_epoch,
+        BOB_LEAF,
         b"did you say something?",
     );
     let mut bob_dag = MessageDag::new();
-    bob_dag.insert(DagEntry::from_delivered(&later, current_epoch, 0).unwrap());
+    bob_dag.insert(DagEntry::from_delivered(&later, current_epoch, BOB_LEAF).unwrap());
     let missing = bob_dag.take_gap_request();
     assert_eq!(missing, vec![message.msg_id()]);
     let request = GapRequest::new(missing).unwrap();
@@ -165,6 +177,7 @@ fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
         message_type: MessageType::GAP_RESPONSE,
         parents: Parents::empty(),
         epoch: current_epoch,
+        sender_leaf_index: ALICE_LEAF,
         sent_at: SentAt::new(NOW + 1_000),
         retention_class: RetentionClass::Chat,
         body: response.to_body().unwrap(),
@@ -215,12 +228,21 @@ fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
         "the message keeps the epoch it was authored in; only the framing moved"
     );
 
-    let entry = DagEntry::from_repair(&repaired, sender);
+    let entry = DagEntry::from_repair(&repaired);
     assert_eq!(
         entry.provenance(),
         Provenance::Repaired,
-        "the receiver must be able to tell a repaired message from a delivered one: \
-         its sender_leaf_index is the repairing peer's, not a committed value"
+        "the receiver must still be able to tell what the framing authenticated"
+    );
+    assert_eq!(
+        entry.sort_key().sender_leaf_index,
+        ALICE_LEAF,
+        "the sort key is the AUTHOR's leaf index, read out of the hashed message"
+    );
+    assert_eq!(
+        sender, ALICE_LEAF,
+        "here the repairer is the author, so the framing agrees — which is \
+         exactly the coincidence §7's correction stopped depending on"
     );
     bob_dag.insert(entry);
     assert!(!bob_dag.has_detected_gaps());
@@ -298,13 +320,14 @@ fn an_expired_outbox_window_produces_an_explicit_unrecoverable_state() {
     outbox.store(message.msg_id(), message.encode().unwrap(), NOW);
 
     // Bob asks, well after Alice's window elapsed.
-    let later = chat(
+    let later = chat_from(
         Parents::new(vec![message.msg_id()]).unwrap(),
         epoch,
+        BOB_LEAF,
         b"and then?",
     );
     let mut bob_dag = MessageDag::new();
-    bob_dag.insert(DagEntry::from_delivered(&later, epoch, 0).unwrap());
+    bob_dag.insert(DagEntry::from_delivered(&later, epoch, BOB_LEAF).unwrap());
     let requested: MsgId = bob_dag.take_gap_request()[0];
 
     let RepairOutcome::Unrecoverable(reason) = outbox.repair(&requested, NOW + 60_000) else {
@@ -317,6 +340,7 @@ fn an_expired_outbox_window_produces_an_explicit_unrecoverable_state() {
         message_type: MessageType::GAP_RESPONSE,
         parents: Parents::empty(),
         epoch,
+        sender_leaf_index: ALICE_LEAF,
         sent_at: SentAt::new(NOW + 60_000),
         retention_class: RetentionClass::Chat,
         body: GapResponse::new(vec![refusal]).to_body().unwrap(),

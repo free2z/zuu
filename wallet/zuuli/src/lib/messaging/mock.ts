@@ -9,7 +9,6 @@ import { emitMockEvent } from "./events";
 import {
   HANDLE_PATTERN,
   MAX_HANDLE_LENGTH,
-  compareMessages,
   type Alarm,
   type ContactRequest,
   type Conversation,
@@ -287,7 +286,21 @@ function seedTranscript(active: Scenario | null): Message[] {
     deliveryStatus("aa01", "delivered"),
   );
 
-  if (active !== "gap-unrecoverable") return [first];
+  // zuu#733's counterexample, as a fixture: a reply at the SAME epoch from the
+  // LOWER leaf index. The tie-break `(epoch, senderLeafIndex, msgId)` applied on
+  // its own puts this above the message it answers; §7's causal order does not.
+  // It is here so a transcript that is ordered wrongly looks wrong on the first
+  // screen a developer opens, rather than in a corner case nobody reaches.
+  const reply = textMessage(
+    "aa0b",
+    "outbound",
+    0,
+    "…and a reply to it, from the lower leaf index, in the same epoch.",
+    ["aa01"],
+    deliveryStatus("aa0b", "delivered"),
+  );
+
+  if (active !== "gap-unrecoverable") return [first, reply];
 
   // A short local retention TTL shortens the plaintext outbox used for gap
   // repair, so some gaps cannot be repaired. That is an explicit marker in the
@@ -303,7 +316,7 @@ function seedTranscript(active: Scenario | null): Message[] {
     ),
     body: { kind: "unrecoverable", reason: "gap-unrecoverable" },
   };
-  return [first, hole];
+  return [first, reply, hole];
 }
 
 const OPERATOR: RelayOperator = {
@@ -658,6 +671,18 @@ export const mockMessaging = {
     state.messages.delete(msgId);
   },
 
+  // CLIENT-CONTRACT.md §7 and §9 rule 10: a mock stands in for the ENGINE, so
+  // it owes a page already in §7's order — and it must not satisfy that by
+  // sorting, which would put a second implementation of the ordering rule back
+  // in TypeScript by the side door.
+  //
+  // It does not need to. This mock only ever appends causally: the seed comes
+  // first, `send_message` references the current heads, and the echo reply
+  // references the message it answers. A `Map` preserves insertion order and
+  // re-`set`ting an existing key does not move it, so the values are already a
+  // linear extension of the causal DAG — and since the fixture is a chain with
+  // no concurrency, it is the unique §7 order rather than merely one valid one.
+  // `mock.ordering.test.ts` asserts that rather than trusting this comment.
   async listMessages(
     conversationId: string,
     limit: number,
@@ -668,7 +693,6 @@ export const mockMessaging = {
     void after;
     const messages = [...state.messages.values()]
       .filter((message) => message.conversationId === conversationId)
-      .sort(compareMessages)
       .slice(-limit);
 
     return {

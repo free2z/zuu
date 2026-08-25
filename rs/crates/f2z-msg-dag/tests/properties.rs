@@ -87,6 +87,7 @@ fn authored_dag(count: usize) -> impl Strategy<Value = Vec<Authored>> {
                 message_type: MessageType::CHAT,
                 parents: Parents::new(parents).unwrap(),
                 epoch,
+                sender_leaf_index: leaf,
                 // Deliberately random and deliberately unordered. If anything
                 // in this crate started ordering by it, these properties would
                 // fail — which is the second line of defence behind `SentAt`
@@ -287,9 +288,11 @@ proptest! {
     /// **A repaired message closes the gap and lands in the right place.**
     ///
     /// The message the receiver missed, admitted through the repair path, must
-    /// produce the same transcript as if it had never been dropped — because
-    /// the repairing peer here *is* the original sender, which is the case §7
-    /// specifies.
+    /// produce the same transcript as if it had never been dropped. Since §7's
+    /// 2026-08-25 correction that holds for *any* repairer: the sort key is
+    /// read out of the hashed message, so `from_repair` has nothing to learn
+    /// from whoever answered. `tests/two_routes.rs` is the two-receiver form of
+    /// the same claim.
     #[test]
     fn a_repaired_message_restores_the_transcript_exactly(
         authored in authored_dag(10),
@@ -308,10 +311,7 @@ proptest! {
             }
         }
         // Repair arrives last, out of order, as it would in practice.
-        repaired.insert(DagEntry::from_repair(
-            &authored[drop_at].message,
-            authored[drop_at].leaf,
-        ));
+        repaired.insert(DagEntry::from_repair(&authored[drop_at].message));
 
         prop_assert!(!repaired.has_detected_gaps());
         prop_assert_eq!(
@@ -352,6 +352,7 @@ proptest! {
                     message_type: MessageType::CHAT,
                     parents,
                     epoch,
+                    sender_leaf_index: leaves[index],
                     sent_at: SentAt::new(clock(index)),
                     retention_class: RetentionClass::Chat,
                     body: Body::new(format!("m{index}").into_bytes()).unwrap(),
@@ -403,11 +404,12 @@ proptest! {
         right_clock in any::<u64>(),
         swap in any::<bool>(),
     ) {
-        let make = |epoch: u64, clock: u64, tag: &str| {
+        let make = |epoch: u64, leaf: u32, clock: u64, tag: &str| {
             AppMessage::seal(AppMessageTbs {
                 message_type: MessageType::CHAT,
                 parents: Parents::empty(),
                 epoch,
+                sender_leaf_index: leaf,
                 sent_at: SentAt::new(clock),
                 retention_class: RetentionClass::Chat,
                 body: Body::new(tag.as_bytes().to_vec()).unwrap(),
@@ -415,8 +417,8 @@ proptest! {
             .unwrap()
         };
 
-        let left = Authored { message: make(left_epoch, left_clock, "left"), epoch: left_epoch, leaf: left_leaf };
-        let right = Authored { message: make(right_epoch, right_clock, "right"), epoch: right_epoch, leaf: right_leaf };
+        let left = Authored { message: make(left_epoch, left_leaf, left_clock, "left"), epoch: left_epoch, leaf: left_leaf };
+        let right = Authored { message: make(right_epoch, right_leaf, right_clock, "right"), epoch: right_epoch, leaf: right_leaf };
 
         let mut dag = MessageDag::new();
         if swap {

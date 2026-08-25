@@ -32,12 +32,16 @@
 //! from a `parents` hash it does not hold, and a transcript that can place a
 //! child before its parent makes "the hole is here" unanswerable.
 //!
-//! **`compareMessages` in `wallet/zuuli/src/lib/messaging/types.ts` implements
-//! the tie-break only**, which is what a JavaScript comparator can express — a
-//! `.sort()` comparator cannot see the graph. The two implementations therefore
-//! disagree on exactly the pairs above, and [`compare_sort_keys`] exists so the
-//! disagreement is a testable thing in this tree rather than a discovery
-//! somebody makes from a screenshot. See `tests/typescript_parity.rs`.
+//! **The TypeScript client used to implement the tie-break alone** — which is
+//! all a JavaScript `.sort()` comparator can express, because a comparator
+//! never sees the graph — and therefore disagreed with this module on exactly
+//! the pairs above. `CLIENT-CONTRACT.md` §7's 2026-08-25 correction resolved
+//! that in the direction ADR 0001 always implied: **this function is the only
+//! implementation of §7's order**, `msg_list_messages` returns messages already
+//! linearised, and the UI renders what it is given. [`compare_sort_keys`]
+//! remains public so `tests/typescript_parity.rs` can keep pinning the
+//! properties the removed comparator depended on — chiefly that lowercase hex
+//! reproduces byte ordering across the FFI.
 //!
 //! # Determinism
 //!
@@ -64,10 +68,12 @@ use crate::message::MsgId;
 
 /// §7's tie-break key: `(epoch, sender_leaf_index, msg_id)`.
 ///
-/// All three components are protocol-authenticated — `epoch` and
-/// `sender_leaf_index` come from MLS framing, `msg_id` is a hash commitment
-/// over the content. The sender's wall clock is not here and cannot be added:
-/// [`crate::message::SentAt`] has no `Ord`.
+/// All three components are protocol-authenticated, and since §7's 2026-08-25
+/// correction all three are covered by `msg_id`'s commitment: `epoch` and
+/// `sender_leaf_index` are hashed fields cross-checked against the MLS framing
+/// that delivered them, and `msg_id` is the commitment itself. The sender's
+/// wall clock is not here and cannot be added: [`crate::message::SentAt`] has
+/// no `Ord`.
 ///
 /// The derived `Ord` is field order, which is the specified order. Do not
 /// reorder the fields.
@@ -75,11 +81,14 @@ use crate::message::MsgId;
 pub struct SortKey {
     /// The MLS epoch the message was authored in.
     pub epoch: u64,
-    /// The sender's MLS leaf index.
+    /// The author's MLS leaf index.
     ///
-    /// **Not covered by `msg_id`.** It comes from the framing, not from the
-    /// hashed message, so a message learned through gap repair carries the
-    /// repairing peer's framing rather than the original sender's. See
+    /// **Covered by `msg_id`** since §7's 2026-08-25 correction: it is a
+    /// hashed field of [`crate::message::AppMessageTbs`], cross-checked
+    /// against the framing on direct delivery. That is what makes this a sort
+    /// key of the *message* rather than of the delivery, so a message learned
+    /// through gap repair — in framing that is not the framing it was authored
+    /// in — sorts identically to one delivered directly. See
     /// [`crate::dag::DagEntry::from_repair`].
     pub sender_leaf_index: u32,
     /// The message's name.
@@ -219,6 +228,34 @@ mod tests {
         let higher_leaf = node(0x00, 7, 1, &[]);
         let order = linearise(&[higher_leaf, lower_leaf, older_epoch]).unwrap();
         assert_eq!(order, vec![id(0xff), id(0x01), id(0x00)]);
+    }
+
+    /// **Filling a gap can reorder messages already rendered.**
+    ///
+    /// The property `CLIENT-CONTRACT.md` §7's correction rejects an insertion
+    /// index for. Hold `A` and `C` while `C`'s parent `B` is missing: nothing
+    /// orders `A` against `C` but the sort key, which here puts `C` first. When
+    /// `B` lands, `A → B → C` forces `A` before `C` and the two swap. A single
+    /// index in `message-received` cannot express that, which is why the UI
+    /// re-reads the window instead of patching a position.
+    #[test]
+    fn filling_a_gap_can_reorder_messages_already_held() {
+        let a = node(0xaa, 7, 1, &[]);
+        let b = node(0xbb, 7, 1, &[0xaa]);
+        let c = node(0xcc, 7, 0, &[0xbb]);
+
+        // Before the repair: B is not held, so C's edge constrains nothing and
+        // the sort key alone separates them — C first, on the lower leaf index.
+        assert_eq!(
+            linearise(&[a.clone(), c.clone()]).unwrap(),
+            vec![id(0xcc), id(0xaa)]
+        );
+
+        // After: the chain forces the other order, and the two rows swap.
+        assert_eq!(
+            linearise(&[a, b, c]).unwrap(),
+            vec![id(0xaa), id(0xbb), id(0xcc)]
+        );
     }
 
     #[test]

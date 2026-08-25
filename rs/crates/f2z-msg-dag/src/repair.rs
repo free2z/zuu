@@ -351,6 +351,7 @@ mod tests {
             message_type: MessageType::CHAT,
             parents: Parents::empty(),
             epoch: 7,
+            sender_leaf_index: 0,
             sent_at: SentAt::new(0),
             retention_class: RetentionClass::Chat,
             body: Body::new(body.to_vec()).unwrap(),
