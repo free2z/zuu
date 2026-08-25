@@ -13,9 +13,10 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "7d11ec92c07b5c88a3ec8737ee3d969bba2e9fdd1154c6fe5d54206221e89ad6";
+  "f2aa1e7462714c0ebace75367cc33e159b64d85a4d4e88cb6863dba6aa3af56b";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
+const requiredMessagingSelector = "wallet/zuuli/*";
 const classicSeedBoundaryInputs = [
   "wallet/shared/sensitive-entry-session.ts",
   "wallet/zuuallet/src/hooks/useWallet.ts",
@@ -97,6 +98,11 @@ function check(
   const selectedPatterns = zuuliCase?.[1].split("|").map((entry) => entry.trim()) ?? [];
   if (!selectedPatterns.includes(policyPath)) {
     failures.push("Android gate policy changes must select the full ZUULI suite");
+  }
+  if (!selectedPatterns.includes(requiredMessagingSelector)) {
+    failures.push(
+      "messaging changes must retain the full wallet/zuuli/* selector",
+    );
   }
   for (const input of classicSeedBoundaryInputs) {
     if (!selectedPatterns.includes(input)) {
@@ -295,6 +301,24 @@ function runSelfTest(workflow, toolchainEnv) {
       "      - name: Verify required jobs succeeded or legitimately skipped\n        if: false\n        env:",
     ],
     ["the policy no longer selects itself", `|${policyPath}|`, "|"],
+    [
+      "the messaging selector is deleted",
+      `|${requiredMessagingSelector}|`,
+      "|",
+      "messaging changes must retain the full wallet/zuuli/* selector",
+    ],
+    [
+      "the messaging selector is narrowed to one current directory",
+      `|${requiredMessagingSelector}|`,
+      "|wallet/zuuli/src/features/messages/*|",
+      "messaging changes must retain the full wallet/zuuli/* selector",
+    ],
+    [
+      "the messaging selector is substituted with an unrelated path",
+      `|${requiredMessagingSelector}|`,
+      "|wallet/zuuli/src/features/chat/*|",
+      "messaging changes must retain the full wallet/zuuli/* selector",
+    ],
     ...classicSeedBoundaryInputs.map((input) => [
       `classic seed-boundary input no longer selects ZUULI: ${input}`,
       `|${input}|`,
@@ -333,10 +357,15 @@ function runSelfTest(workflow, toolchainEnv) {
     }
     console.log(`self-test: ${name}: passed`);
   }
-  for (const [name, from, to] of mutations) {
+  for (const [name, from, to, expectedFailure] of mutations) {
     if (!workflow.includes(from)) throw new Error(`self-test fixture missing: ${name}`);
     const failures = check(workflow.replace(from, to), toolchainEnv);
     if (failures.length === 0) throw new Error(`mutation escaped policy: ${name}`);
+    if (expectedFailure && !failures.includes(expectedFailure)) {
+      throw new Error(
+        `mutation failed for the wrong reason: ${name}: ${failures.join("; ")}`,
+      );
+    }
   }
   const decoratedSelector = workflow
     .replace(`|${policyPath}|`, "|")
