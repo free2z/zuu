@@ -14,7 +14,7 @@ export {
 
 export const sensitiveSeedAuthority: SensitiveSeedAuthority = {
   begin: () => api.beginSensitiveDisplay().then(({ token }) => token),
-  end: (token) => api.endSensitiveDisplay(token),
+  end: (token) => api.endSensitiveDisplay(token, "seedReveal"),
 };
 
 // Creation starts in Welcome and renders on a different page. This module-

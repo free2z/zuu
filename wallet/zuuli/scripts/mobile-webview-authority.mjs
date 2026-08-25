@@ -17,6 +17,7 @@ export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-get-backup-seed-phrase",
   "zcash:allow-confirm-wallet-backup",
   "zcash:allow-begin-sensitive-display",
+  "zcash:allow-begin-sensitive-entry",
   "zcash:allow-end-sensitive-display",
   "zcash:allow-list-accounts",
   "zcash:allow-get-account-balance",

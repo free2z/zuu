@@ -34,6 +34,12 @@ tiny_http = "0.12"
 url = "2"
 getrandom = "0.3"
 
+# Keep Tauri's mock runtime out of Windows test executables; the hosted runner
+# cannot load that linkage. The shipping router still compiles on Windows, and
+# its behavioral IPC probe runs on macOS/Linux.
+[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
 # ---------------------------------------------------------------------------
 # Build profiles. DO NOT DELETE — this is load-bearing for `tauri dev` usability.
 #

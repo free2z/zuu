@@ -13,12 +13,19 @@ const sources = Object.fromEntries(
       ios: "../plugins/tauri-plugin-zcash/ios/Sources/ZcashPlugin.swift",
       rustCommands: "../plugins/tauri-plugin-zcash/src/commands.rs",
       rustKeys: "../plugins/tauri-plugin-zcash/src/wallet/keys.rs",
+      pluginCargo: "../plugins/tauri-plugin-zcash/Cargo.toml",
+      pluginLib: "../plugins/tauri-plugin-zcash/src/lib.rs",
+      pluginBuild: "../plugins/tauri-plugin-zcash/build.rs",
+      commandRegistry: "../plugins/tauri-plugin-zcash/command_registry.rs",
       models: "../plugins/tauri-plugin-zcash/src/models.rs",
       defaults: "../plugins/tauri-plugin-zcash/permissions/default.toml",
       session: "src/lib/wallet/sensitive-seed.ts",
+      entrySession: "../shared/sensitive-entry-session.ts",
+      entryHook: "src/lib/wallet/sensitive-entry.ts",
       bridge: "src/lib/wallet/bridge.ts",
       desktopSession: "../zuuallet/src/lib/sensitive-seed.ts",
       desktopSessionCore: "../zuuallet/src/lib/sensitive-seed-session.ts",
+      desktopEntryHook: "../zuuallet/src/lib/sensitive-entry.ts",
       desktopBridge: "../zuuallet/src/lib/tauri.ts",
       desktopMnemonicPolicy: "../zuuallet/src/lib/mnemonic.ts",
       desktopSettings: "../zuuallet/src/pages/Settings.tsx",
@@ -37,6 +44,8 @@ const sources = Object.fromEntries(
       onboarding: "src/features/wallet/Onboarding.tsx",
       restoreIdentity: "src/features/auth/RestoreIdentity.tsx",
       reveal: "src/features/auth/SeedReveal.tsx",
+      zuuliCargo: "src-tauri/Cargo.toml",
+      zuuliRust: "src-tauri/src/lib.rs",
     }).map(async ([key, path]) => [key, await read(path)]),
   ),
 );
@@ -277,7 +286,7 @@ for (const [name, key, search, replacement] of [
   [
     "Rust accepts stale release",
     "rustCommands",
-    "if !owns_sensitive_display(&current, &args.token)",
+    "if !owns_sensitive_display(&current, &args.token, args.purpose)",
     "if current.is_none()",
   ],
   [
@@ -349,7 +358,7 @@ for (const [name, key, search, replacement] of [
   [
     "native display lease drops wallet binding",
     "rustCommands",
-    "lease.wallet_id != wallet_id",
+    "lease.wallet_id.as_deref() != Some(wallet_id)",
     "false",
   ],
   [
@@ -361,8 +370,8 @@ for (const [name, key, search, replacement] of [
   [
     "native display acquisition omits active wallet identity",
     "rustCommands",
-    "        wallet_id,\n        consumed: false,",
-    '        wallet_id: "decorative".to_owned(),\n        consumed: false,',
+    "        wallet_id: Some(wallet_id),\n        consumed: false,",
+    "        wallet_id: None,\n        consumed: false,",
   ],
   [
     "native display acquisition replaces a consumed lease",
@@ -537,6 +546,137 @@ for (const [name, key, search, replacement] of [
     "verificationDocs",
     "active iOS still-screenshot protection is a known residual",
     "active iOS still-screenshot protection is verified",
+  ],
+  [
+    "typed entry permission is removed",
+    "defaults",
+    '    "allow-begin-sensitive-entry",',
+    "    # omitted",
+  ],
+  [
+    "typed entry runtime command is unregistered",
+    "pluginLib",
+    'include!("../command_registry.rs");',
+    "// shared registry omitted",
+  ],
+  [
+    "typed entry permission command is unregistered",
+    "pluginBuild",
+    'include!("command_registry.rs");',
+    "// shared registry omitted",
+  ],
+  [
+    "typed entry is omitted from the shared command registry",
+    "commandRegistry",
+    "            begin_sensitive_entry,",
+    "            // omitted",
+  ],
+  [
+    "plugin mock runtime is linked into Windows tests",
+    "pluginCargo",
+    '[target.\'cfg(not(target_os = "windows"))\'.dev-dependencies]\n' +
+      'tauri = { version = "2", features = ["test"] }\n\n' +
+      "[dev-dependencies]",
+    '[dev-dependencies]\n' +
+      'tauri = { version = "2", features = ["test"] }',
+  ],
+  [
+    "ZUULI mock runtime is linked into Windows tests",
+    "zuuliCargo",
+    '[target.\'cfg(not(target_os = "windows"))\'.dev-dependencies]',
+    "[dev-dependencies]",
+  ],
+  [
+    "plugin mock-runtime command test runs on Windows",
+    "rustCommands",
+    '    #[cfg(not(target_os = "windows"))]\n    #[tokio::test]\n    async fn native_entry_commands_install_and_release_the_exact_lease()',
+    "    #[tokio::test]\n    async fn native_entry_commands_install_and_release_the_exact_lease()",
+  ],
+  [
+    "plugin mock-only command imports compile on Windows",
+    "rustCommands",
+    '    #[cfg(not(target_os = "windows"))]\n' +
+      "    use super::{begin_sensitive_entry, end_sensitive_display};",
+    "    use super::{begin_sensitive_entry, end_sensitive_display};",
+  ],
+  [
+    "plugin mock-only argument imports compile on Windows",
+    "rustCommands",
+    '    #[cfg(not(target_os = "windows"))]\n' +
+      "    use crate::models::{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs};",
+    "    use crate::models::{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs};",
+  ],
+  [
+    "ZUULI mock-router test runs on Windows",
+    "zuuliRust",
+    '    #[cfg(not(target_os = "windows"))]\n    #[test]\n    fn shipping_zcash_router_registers_sensitive_entry_commands()',
+    "    #[test]\n    fn shipping_zcash_router_registers_sensitive_entry_commands()",
+  ],
+  [
+    "ZUULI restore borrows another purpose",
+    "onboarding",
+    '    "zuuliRestore",',
+    '    "zuualletRestore",',
+  ],
+  [
+    "Zuuallet restore borrows another purpose",
+    "desktopRestore",
+    '    "zuualletRestore",',
+    '    "zuuliRestore",',
+  ],
+  [
+    "Zuuallet re-link borrows another purpose",
+    "desktopSettings",
+    '    "zuualletRelink",',
+    '    "zuuliRestore",',
+  ],
+  [
+    "ZUULI mnemonic is editable before acquisition",
+    "onboarding",
+    "            disabled={!sensitiveEntry.editable || busy}",
+    "            disabled={busy}",
+  ],
+  [
+    "Zuuallet restore mnemonic is editable before acquisition",
+    "desktopRestore",
+    "          disabled={!sensitiveEntry.editable}",
+    "          disabled={false}",
+  ],
+  [
+    "Zuuallet re-link mnemonic is editable before acquisition",
+    "desktopSettings",
+    "            disabled={!sensitiveEntry.editable || unlocking}",
+    "            disabled={unlocking}",
+  ],
+  [
+    "ZUULI restore leaves before clearing",
+    "onboarding",
+    "        void sensitiveEntry.clear();",
+    "        // omitted",
+  ],
+  [
+    "Zuuallet restore submits before entry release",
+    "desktopRestore",
+    "    await sensitiveEntry.clear();",
+    "    // omitted",
+  ],
+  [
+    "Zuuallet re-link reveals before entry release",
+    "desktopSettings",
+    "      await sensitiveEntry.clear();",
+    "      // omitted",
+  ],
+  [
+    "ZUULI typed entry omits lifecycle binding",
+    "entryHook",
+    "    return bindSensitiveEntryLifecycle(",
+    "    return () => { // lifecycle omitted",
+  ],
+  [
+    "Zuuallet typed entry omits lifecycle binding",
+    "desktopEntryHook",
+    "    return bindSensitiveEntryLifecycle(",
+    "    return () => { // lifecycle omitted",
   ],
 ]) {
   test(`rejects mutation: ${name}`, () => {

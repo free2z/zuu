@@ -6,6 +6,7 @@
 // import from here, never call `invoke()` directly.
 
 import { useMock } from "../platform";
+import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-session";
 import { mockWallet } from "./mock";
 import type {
   AccountBalance,
@@ -81,13 +82,23 @@ export const wallet = {
   },
 
   async beginSensitiveDisplay(): Promise<SensitiveDisplayLease> {
-    if (useMock()) return mockWallet.beginSensitiveDisplay();
+    if (useMock()) return mockWallet.beginSensitiveDisplay("seedReveal");
     return invoke("begin_sensitive_display");
   },
 
-  async endSensitiveDisplay(token: string): Promise<void> {
-    if (useMock()) return mockWallet.endSensitiveDisplay(token);
-    return invoke("end_sensitive_display", { args: { token } });
+  async beginSensitiveEntry(
+    purpose: SensitiveEntryPurpose,
+  ): Promise<SensitiveDisplayLease> {
+    if (useMock()) return mockWallet.beginSensitiveDisplay(purpose);
+    return invoke("begin_sensitive_entry", { args: { purpose } });
+  },
+
+  async endSensitiveDisplay(
+    token: string,
+    purpose: SensitiveEntryPurpose | "seedReveal",
+  ): Promise<void> {
+    if (useMock()) return mockWallet.endSensitiveDisplay(token, purpose);
+    return invoke("end_sensitive_display", { args: { token, purpose } });
   },
 
   async confirmWalletBackup(walletId: string): Promise<void> {

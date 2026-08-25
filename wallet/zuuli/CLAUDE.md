@@ -19,8 +19,9 @@ apps share the Zcash engine in `../plugins/tauri-plugin-zcash` (the "guts").
 ```bash
 cd wallet/zuuli
 npm install
-npm run typecheck          # tsc --noEmit
-npm run build              # tsc && vite build
+npm run typecheck          # production sources via tsconfig.build.json
+npm run typecheck:tests    # production and test sources
+npm run build              # WASM build + production typecheck + Vite + WASM verification
 ZUULI_PW_PORT=1433 npm run test # use a distinct Playwright port in parallel worktrees (default: 1432)
 VITE_MOCK=1 npm run dev    # browser fixtures on :1423 (UI/demo only)
 npm run dev                # real staging API on :1423; no native wallet

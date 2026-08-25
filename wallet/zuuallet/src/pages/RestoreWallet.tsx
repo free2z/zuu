@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useWalletStore } from "../store/wallet";
 import { useWallet } from "../hooks/useWallet";
 import { isSupportedBip39WordCount } from "../lib/mnemonic";
+import { useSensitiveMnemonicEntry } from "../lib/sensitive-entry";
 
 export function RestoreWallet() {
   const { setPage, error, walletStatus } = useWalletStore();
@@ -9,10 +10,18 @@ export function RestoreWallet() {
   const [phrase, setPhrase] = useState("");
   const [birthday, setBirthday] = useState("");
   const [name, setName] = useState("");
+  const clearPhrase = useCallback(() => setPhrase(""), []);
+  const sensitiveEntry = useSensitiveMnemonicEntry(
+    "zuualletRestore",
+    true,
+    clearPhrase,
+  );
 
   const handleRestore = async () => {
     const height = birthday ? parseInt(birthday, 10) : undefined;
-    await restoreWallet(phrase.trim(), height, name.trim() || undefined);
+    const recoveryPhrase = phrase.trim();
+    await sensitiveEntry.clear();
+    await restoreWallet(recoveryPhrase, height, name.trim() || undefined);
   };
 
   const wordCount = phrase.trim() ? phrase.trim().split(/\s+/).length : 0;
@@ -51,13 +60,31 @@ export function RestoreWallet() {
         <textarea
           value={phrase}
           onChange={(e) => setPhrase(e.target.value)}
+          disabled={!sensitiveEntry.editable}
           placeholder="Enter your seed phrase words separated by spaces..."
           rows={4}
+          spellCheck={false}
+          autoComplete="off"
           autoCapitalize="none"
           autoCorrect="off"
-          spellCheck={false}
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
         />
+        {!sensitiveEntry.editable && (
+          <div className="flex items-center justify-between gap-3 mt-1 text-xs text-zinc-500">
+            <span>
+              {sensitiveEntry.error ?? "Securing recovery-phrase entry…"}
+            </span>
+            {sensitiveEntry.error && (
+              <button
+                type="button"
+                className="min-tap underline"
+                onClick={() => void sensitiveEntry.retry()}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 mt-1">
           {wordCount > 0 && (
             <span className={`text-xs px-2 py-0.5 rounded-full ${badgeClass}`}>
@@ -92,14 +119,17 @@ export function RestoreWallet() {
 
       <button
         onClick={handleRestore}
-        disabled={!validWordCount}
+        disabled={!sensitiveEntry.editable || !validWordCount}
         className="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
       >
         Restore Wallet
       </button>
 
       <button
-        onClick={() => setPage(hasWallets ? "wallet-picker" : "welcome")}
+        onClick={() => {
+          void sensitiveEntry.clear();
+          setPage(hasWallets ? "wallet-picker" : "welcome");
+        }}
         className="mt-3 w-full py-2.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors min-tap"
       >
         Cancel

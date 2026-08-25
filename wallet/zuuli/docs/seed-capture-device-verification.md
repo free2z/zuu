@@ -28,12 +28,14 @@ recorder, or external display behaves.
 - Recovery words are excluded from the accessibility tree. Seed-copy UI was
   removed; ZUULI therefore places no mnemonic on the clipboard.
 
-This slice does not yet protect user-entered restore mnemonics in
-`RestoreIdentity.tsx`, Onboarding's `RestorePane`, classic Zuuallet's
-`RestoreWallet`, or its Settings re-link field with the native display lease.
-Those inputs remain renderer-visible while the user types or pastes them. Issue
-#381 therefore remains open for restore-input protection as well as the
-physical-device evidence below.
+The three wallet mnemonic-entry surfaces—Onboarding's `RestorePane`, classic
+Zuuallet's `RestoreWallet`, and its Settings re-link field—now acquire a
+purpose-bound native display lease before becoming editable. Blur, page hide,
+visibility loss, navigation/unmount, and successful submission clear renderer
+state before the exact lease is released. `RestoreIdentity.tsx` is a separate
+identity-recovery flow and is not part of this wallet-entry slice. Issue #381
+remains open for physical-device evidence and any separately reviewed identity
+recovery expansion.
 
 Run the automated contract with:
 
