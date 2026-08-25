@@ -1156,7 +1156,7 @@ jobs:
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
       - name: Build Linux packages with Cargo audit instrumentation
         run: |
-          scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles appimage,deb,rpm -- --locked
+          scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles appimage,deb,rpm -- --locked --features custom-protocol
       - run: git diff --exit-code
       - name: Collect packages
         run: |
@@ -1209,9 +1209,9 @@ jobs:
           appimages=(release-artifacts/*.AppImage)
           debs=(release-artifacts/*.deb)
           rpms=(release-artifacts/*.rpm)
-          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
-          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
-          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
       - name: Prepare explicitly labeled source inventory
         run: mkdir -p artifact-sbom-work
       - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
@@ -1231,9 +1231,9 @@ jobs:
           appimages=(release-artifacts/*.AppImage)
           debs=(release-artifacts/*.deb)
           rpms=(release-artifacts/*.rpm)
-          node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
-          node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
-          node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
+          node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
           jq -e '(.metadata.properties // [] | any(.name == "free2z:inventory-scope" and .value == "source-tree")) and ((.components // []) | length >= 50)' release-artifacts/ZUULI-linux.source.sbom.cdx.json
           npm run release:manifest -- --artifacts=release-artifacts --checksums=release-artifacts/CHECKSUMS.sha256 --output=release-artifacts/provenance.json
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3

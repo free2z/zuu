@@ -7,4 +7,9 @@ wrapper_parent=${RUNNER_TEMP:-/tmp}
 wrapper_directory=$(mktemp -d "$wrapper_parent/zuuli-cargo-auditable.XXXXXX")
 ln -s "$script_directory/cargo-auditable-cargo.sh" "$wrapper_directory/cargo"
 
-PATH="$wrapper_directory:$PATH" ZUULI_REAL_CARGO="$real_cargo" exec "$@"
+PATH="$wrapper_directory:$PATH" \
+  ZUULI_REAL_CARGO="$real_cargo" \
+  RUSTC_BOOTSTRAP=1 \
+  CARGO_UNSTABLE_SBOM=true \
+  CARGO_BUILD_SBOM=true \
+  exec "$@"

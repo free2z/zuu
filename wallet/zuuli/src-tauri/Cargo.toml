@@ -12,6 +12,9 @@ description = "ZUULI by 2Z Inc — Zcash-native wallet, AI, livestreaming and ar
 name = "zuuli_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

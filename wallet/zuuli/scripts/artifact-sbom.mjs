@@ -1712,7 +1712,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
   const packagingLinux = jobBlock(packaging, "desktop");
   const releaseLinux = jobBlock(release, "linux");
   const linuxCargoOptions =
-    " --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default";
+    " --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol";
   const bindLinuxCargoOptions = (line) =>
     line.includes("ZUULI-linux-") &&
     (line.startsWith("node scripts/artifact-sbom.mjs finalize-artifact ") ||
@@ -1775,7 +1775,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       'if [[ "${{ runner.os }}" == macOS ]]; then',
       "./node_modules/.bin/tauri build --target universal-apple-darwin --bundles '${{ matrix.bundles }}' -- --locked",
       "else",
-      "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+      "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked --features custom-protocol",
       "fi",
     ],
     failures,
@@ -1785,7 +1785,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
     releaseLinux,
     "Build Linux packages with Cargo audit instrumentation",
     [
-      "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles appimage,deb,rpm -- --locked",
+      "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles appimage,deb,rpm -- --locked --features custom-protocol",
     ],
     failures,
   );

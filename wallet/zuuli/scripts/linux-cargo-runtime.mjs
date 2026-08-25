@@ -256,13 +256,13 @@ function validateAuditableDocument(document) {
     !document ||
     Array.isArray(document) ||
     typeof document !== "object" ||
-    document.format !== 1 ||
+    document.format !== 8 ||
     !Array.isArray(document.packages) ||
     document.packages.length === 0 ||
     document.packages.length > MAX_PACKAGES
   ) {
     throw new Error(
-      "embedded Cargo audit evidence must be format 1 with a bounded package list",
+      "embedded Cargo audit evidence must be precise format 8 with a bounded package list",
     );
   }
   const roots = [];

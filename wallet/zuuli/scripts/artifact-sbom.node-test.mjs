@@ -654,6 +654,7 @@ test(
       const wrongTarget = resolve(project, "wrong-target");
       const localMacro = resolve(project, "local-macro");
       const macroHelper = resolve(project, "macro-helper");
+      const inactiveRuntime = resolve(project, "inactive-runtime");
       mkdirSync(resolve(project, "src"), { recursive: true });
       for (const crate of [
         linked,
@@ -662,6 +663,7 @@ test(
         wrongTarget,
         localMacro,
         macroHelper,
+        inactiveRuntime,
       ]) {
         mkdirSync(resolve(crate, "src"), { recursive: true });
       }
@@ -669,9 +671,9 @@ test(
         resolve(project, "Cargo.toml"),
         [
           '[package]\nname="zuuli"\nversion="0.1.0"\nedition="2021"',
-          '[features]\ndefault=["ship"]\nship=["dep:featured"]',
+          '[features]\ndefault=["ship","weak-forward"]\nship=["dep:featured"]\nweak-forward=["inactive-runtime?/spark"]',
           '[dependencies]\nitoa="=1.0.15"\nlinked={path="linked",features=["spark"]}\nfeatured={path="featured",optional=true}\nlocal-macro={path="local-macro"}',
-          '[target.\'cfg(target_os = "linux")\'.dependencies]\nlinux-only={path="linux-only"}',
+          '[target.\'cfg(target_os = "linux")\'.dependencies]\nlinux-only={path="linux-only"}\ninactive-runtime={path="inactive-runtime",optional=true}',
           '[target.\'cfg(target_os = "windows")\'.dependencies]\nwrong-target={path="wrong-target"}',
           "",
         ].join("\n"),
@@ -736,9 +738,50 @@ test(
           "",
         ].join("\n"),
       );
+      writeFileSync(
+        resolve(inactiveRuntime, "Cargo.toml"),
+        '[package]\nname="inactive-runtime"\nversion="7.0.0"\nedition="2021"\n[features]\nspark=[]\n[dependencies]\nmacro-helper={path="../macro-helper"}\n',
+      );
+      writeFileSync(
+        resolve(inactiveRuntime, "src/lib.rs"),
+        "pub fn answer(value: String) -> String { macro_helper::identity(value) }\n",
+      );
       execFileSync("cargo", ["generate-lockfile", "--offline"], {
         cwd: project,
       });
+      const impreciseTarget = resolve(project, "imprecise-target");
+      const impreciseEnvironment = {
+        ...process.env,
+        CARGO_TARGET_DIR: impreciseTarget,
+      };
+      delete impreciseEnvironment.CARGO_BUILD_SBOM;
+      delete impreciseEnvironment.CARGO_UNSTABLE_SBOM;
+      delete impreciseEnvironment.RUSTC_BOOTSTRAP;
+      execFileSync(
+        "cargo",
+        ["auditable", "build", "--release", "--locked", "--offline"],
+        { cwd: project, env: impreciseEnvironment },
+      );
+      const imprecise = resolve(impreciseTarget, "release/zuuli");
+      const impreciseEvidence = extractFixtureEvidence(imprecise, temporary);
+      assert.equal(impreciseEvidence.document.format, 1);
+      const impreciseKinds = new Map(
+        impreciseEvidence.document.packages.map((entry) => [
+          entry.name,
+          entry.kind ?? "runtime",
+        ]),
+      );
+      assert.equal(impreciseKinds.get("local-macro"), "build");
+      assert.equal(
+        impreciseKinds.get("inactive-runtime"),
+        "runtime",
+        "format 1 must reproduce Cargo metadata's inactive optional package false positive",
+      );
+      assert.equal(
+        impreciseKinds.get("macro-helper"),
+        "runtime",
+        "format 1 must reproduce promotion of a shared build-only package",
+      );
       execFileSync(
         resolve(scriptDirectory, "run-with-cargo-auditable.sh"),
         ["cargo", "build", "--release", "--locked", "--offline"],
@@ -780,7 +823,7 @@ test(
           name: "zuuli",
           version: "0.1.0",
           source: "local",
-          features: ["default", "ship"],
+          features: ["default", "ship", "weak-forward"],
         },
       ].sort((left, right) =>
         `${left.name}\0${left.version}\0${left.source}`.localeCompare(
@@ -793,6 +836,7 @@ test(
         packages: expectedRuntimePackages,
       };
       const independentEvidence = extractFixtureEvidence(audited, temporary);
+      assert.equal(independentEvidence.document.format, 8);
       assert.deepEqual(
         independentEvidence.document.packages
           .filter((entry) => entry.kind === "build")
@@ -800,6 +844,28 @@ test(
           .sort(),
         ["local-macro", "macro-helper"],
         "the fixture must exercise a local/path proc-macro and its build-only subtree",
+      );
+      assert.equal(
+        independentEvidence.document.packages.some(
+          (entry) => entry.name === "inactive-runtime",
+        ),
+        false,
+        "precise evidence must omit the inactive optional runtime package",
+      );
+      const impreciseArtifact = cargoRuntimeArtifact(
+        temporary,
+        "imprecise-package",
+        imprecise,
+      );
+      assert.throws(
+        () =>
+          finalizeCargoRuntimeFixture(
+            temporary,
+            "imprecise",
+            impreciseArtifact,
+            options,
+          ),
+        /embedded Cargo audit evidence must be precise format 8/,
       );
       const artifact = cargoRuntimeArtifact(temporary, "good-package", audited);
       const finalized = finalizeCargoRuntimeFixture(
@@ -825,7 +891,7 @@ test(
           sha256: fixtureFileSha256(audited),
         },
         evidence: {
-          format: 1,
+          format: 8,
           compressedBytes: independentEvidence.compressedBytes,
           compressedSha256: independentEvidence.compressedSha256,
           jsonSha256: independentEvidence.jsonSha256,
@@ -1183,7 +1249,7 @@ test(
       assertBinaryRejected(
         "malformed-document",
         malformed,
-        /must be format 1 with a bounded package list/,
+        /must be precise format 8 with a bounded package list/,
       );
 
       const cyclic = resolve(temporary, "cyclic-graph-zuuli");
@@ -2459,7 +2525,7 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "the policy must require exact AppImage re-extraction before release provenance",
   );
   const uninstrumentedBuild = packaging.replace(
-    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked --features custom-protocol",
     "./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
   );
   assert.ok(
@@ -2482,7 +2548,7 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "the policy must reject unpinned Cargo audit instrumentation",
   );
   const unboundFinalization = packaging.replace(
-    " --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default",
+    " --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol",
     " --cargo-target=x86_64-unknown-linux-gnu",
   );
   assert.ok(
