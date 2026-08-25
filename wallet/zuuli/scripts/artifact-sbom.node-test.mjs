@@ -772,6 +772,120 @@ test(
   },
 );
 
+test("Cargo audit launcher confines the bootstrap unlock to Cargo", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-launcher-"));
+  try {
+    const fakeCargo = resolve(temporary, "cargo");
+    const launched = resolve(temporary, "launched.mjs");
+    const probe = resolve(temporary, "launcher.json");
+    writeFileSync(fakeCargo, "#!/bin/sh\nexit 97\n");
+    writeFileSync(
+      launched,
+      [
+        "#!/usr/bin/env node",
+        'import { writeFileSync } from "node:fs";',
+        "writeFileSync(process.env.ZUULI_LAUNCHER_PROBE, JSON.stringify({",
+        "  args: process.argv.slice(2),",
+        "  cargo: process.env.ZUULI_REAL_CARGO,",
+        "  bootstrap: process.env.RUSTC_BOOTSTRAP,",
+        "  rustcWrapper: process.env.RUSTC_WRAPPER,",
+        "  unstableSbom: process.env.CARGO_UNSTABLE_SBOM,",
+        "  buildSbom: process.env.CARGO_BUILD_SBOM,",
+        "}));",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(fakeCargo, 0o755);
+    chmodSync(launched, 0o755);
+    execFileSync(
+      resolve(scriptDirectory, "run-with-cargo-auditable.sh"),
+      [launched, "--literal", "argument with spaces"],
+      {
+        env: {
+          ...process.env,
+          PATH: `${temporary}:${process.env.PATH}`,
+          RUNNER_TEMP: temporary,
+          ZUULI_LAUNCHER_PROBE: probe,
+        },
+      },
+    );
+    assert.deepEqual(JSON.parse(readFileSync(probe, "utf8")), {
+      args: ["--literal", "argument with spaces"],
+      cargo: fakeCargo,
+      bootstrap: "1",
+      rustcWrapper: resolve(scriptDirectory, "rustc-without-bootstrap.sh"),
+      unstableSbom: "true",
+      buildSbom: "true",
+    });
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("rustc wrapper scrubs bootstrap and preserves the compiler contract", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-rustc-wrapper-"));
+  try {
+    const fakeRustc = resolve(temporary, "fake-rustc.mjs");
+    const probe = resolve(temporary, "rustc.json");
+    writeFileSync(
+      fakeRustc,
+      [
+        "#!/usr/bin/env node",
+        'import { writeFileSync } from "node:fs";',
+        "writeFileSync(process.env.ZUULI_RUSTC_WRAPPER_PROBE, JSON.stringify({",
+        "  args: process.argv.slice(2),",
+        '  hasBootstrap: Object.hasOwn(process.env, "RUSTC_BOOTSTRAP"),',
+        "}));",
+        'process.stderr.write("injected rustc failure\\n");',
+        "process.exit(23);",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(fakeRustc, 0o755);
+    let failed;
+    try {
+      execFileSync(
+        resolve(scriptDirectory, "rustc-without-bootstrap.sh"),
+        [fakeRustc, "--crate-name", "demo", "argument with spaces", ""],
+        {
+          env: {
+            ...process.env,
+            RUSTC_BOOTSTRAP: "1",
+            ZUULI_RUSTC_WRAPPER_PROBE: probe,
+          },
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+    } catch (error) {
+      failed = error;
+    }
+    assert.ok(failed);
+    assert.equal(failed.status, 23);
+    assert.equal(failed.stderr.toString("utf8"), "injected rustc failure\n");
+    assert.deepEqual(JSON.parse(readFileSync(probe, "utf8")), {
+      args: ["--crate-name", "demo", "argument with spaces", ""],
+      hasBootstrap: false,
+    });
+
+    let missing;
+    try {
+      execFileSync(resolve(scriptDirectory, "rustc-without-bootstrap.sh"), [], {
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    } catch (error) {
+      missing = error;
+    }
+    assert.ok(missing);
+    assert.equal(missing.status, 64);
+    assert.equal(
+      missing.stderr.toString("utf8"),
+      "ZUULI rustc wrapper requires the real rustc command\n",
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("real cargo-auditable executable evidence installer is exact and fail-closed", () => {
   const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-installer-"));
   try {
@@ -1194,6 +1308,15 @@ linuxArtifactFixture(
         },
       );
       const audited = resolve(project, "target/release/zuuli");
+      assert.ok(
+        existsSync(audited),
+        "the default-target build must emit the host artifact at target/release",
+      );
+      assert.equal(
+        existsSync(resolve(project, "target", host, "release/zuuli")),
+        false,
+        "the reviewed build must not silently become an explicit cross-target build",
+      );
       const expectedRuntimePackages = [
         { name: "featured", version: "2.0.0", source: "local", features: [] },
         {
@@ -2996,6 +3119,28 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     ),
     "the policy must reject a Linux build without Cargo audit instrumentation",
   );
+  const featurelessBuild = packaging.replace(
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked --features custom-protocol",
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+  );
+  assert.notEqual(featurelessBuild, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(featurelessBuild, release).some((failure) =>
+      failure.includes("Build packages executable lines changed"),
+    ),
+    "the shipping build and Cargo evidence must retain custom-protocol together",
+  );
+  const explicitCrossTargetBuild = packaging.replace(
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}'",
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --target aarch64-unknown-linux-gnu --bundles '${{ matrix.bundles }}'",
+  );
+  assert.notEqual(explicitCrossTargetBuild, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(explicitCrossTargetBuild, release).some(
+      (failure) => failure.includes("Build packages executable lines changed"),
+    ),
+    "the Linux build must retain reviewed default-host target semantics",
+  );
   const unpinnedInstrumentation = release.replace(
     "scripts/install-cargo-auditable.sh",
     "cargo install cargo-auditable",
@@ -3018,6 +3163,17 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
       failure.includes("Bind Linux shipped-artifact SBOMs"),
     ),
     "every Linux finalization must bind the exact Cargo feature set",
+  );
+  const wrongFinalizationTarget = packaging.replace(
+    " --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol",
+    " --cargo-target=aarch64-unknown-linux-gnu --cargo-features=custom-protocol",
+  );
+  assert.notEqual(wrongFinalizationTarget, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(wrongFinalizationTarget, release).some(
+      (failure) => failure.includes("Bind Linux shipped-artifact SBOMs"),
+    ),
+    "finalization must describe the x86_64 Linux host artifact built by default",
   );
   const unboundVerification = release.replace(
     'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock',
