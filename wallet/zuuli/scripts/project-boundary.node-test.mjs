@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
+import { build as viteBuild } from "vite";
 import { assertProjectBoundaries } from "./project-boundary.mjs";
 
 const SHARED_DEPENDENCY = { "@free2z/wallet-shared": "file:../shared" };
@@ -74,7 +84,16 @@ async function fixture(files = {}, dependencyOverrides = {}) {
     const dependencies = dependencyOverrides[project] ?? SHARED_DEPENDENCY;
     await writeFile(
       path.join(root, project, "package.json"),
-      JSON.stringify({ name: project, private: true, dependencies }),
+      JSON.stringify({
+        name: project,
+        private: true,
+        dependencies,
+        devDependencies: { vite: "*" },
+      }),
+    );
+    await writeFile(
+      path.join(root, project, "vite.config.ts"),
+      "export default {};\n",
     );
     await writeFile(path.join(root, project, "src/local.ts"), "export const local = true;\n");
     await writeFile(
@@ -98,7 +117,7 @@ async function fixture(files = {}, dependencyOverrides = {}) {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, source);
   }
-  return root;
+  return realpath(root);
 }
 
 async function withFixture(files, assertion, dependencies) {
@@ -340,6 +359,106 @@ test("rejects an effective TypeScript baseUrl that escapes its owner", async () 
       () => assertProjectBoundaries(root),
       /TypeScript baseUrl escapes wallet\/zuuli/,
     );
+  });
+});
+
+test("rejects effective rootDirs after TypeScript proves a relative app crossing", async () => {
+  await withFixture(
+    {
+      "zuuli/src/root-dirs-leak.ts": 'import "./classic-only";\n',
+      "zuuallet/src/classic-only.ts": "export const classicOnly = true;\n",
+    },
+    async (root) => {
+      const configFile = path.join(root, "zuuli/tsconfig.json");
+      await writeFile(
+        configFile,
+        JSON.stringify({
+          compilerOptions: {
+            rootDirs: ["src", "../zuuallet/src"],
+          },
+          include: ["src"],
+        }),
+      );
+      const parsed = ts.getParsedCommandLineOfConfigFile(configFile, {}, ts.sys);
+      assert.ok(parsed, "TypeScript must parse the rootDirs fixture");
+      const resolved = ts.resolveModuleName(
+        "./classic-only",
+        path.join(root, "zuuli/src/root-dirs-leak.ts"),
+        parsed.options,
+        ts.sys,
+      ).resolvedModule;
+      assert.equal(
+        path.resolve(resolved?.resolvedFileName ?? ""),
+        path.join(root, "zuuallet/src/classic-only.ts"),
+        "the compiler must prove that rootDirs resolves into the sibling app",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /TypeScript rootDirs entry escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("accepts effective rootDirs that stay canonically inside their owner", async () => {
+  await withFixture({}, async (root) => {
+    await mkdir(path.join(root, "zuuli/generated"), { recursive: true });
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { rootDirs: ["src", "generated"] },
+        include: ["src"],
+      }),
+    );
+    await assert.doesNotReject(() => assertProjectBoundaries(root));
+  });
+});
+
+test("rejects a Vite alias only after a real build proves the app crossing", async () => {
+  await withFixture(
+    {
+      "zuuli/src/vite-leak.ts":
+        'import { classicOnly } from "classic/classic-only"; console.log(classicOnly);\n',
+      "zuuallet/src/classic-only.ts": "export const classicOnly = true;\n",
+    },
+    async (root) => {
+      const zuuliRoot = path.join(root, "zuuli");
+      await writeFile(
+        path.join(zuuliRoot, "index.html"),
+        '<script type="module" src="/src/vite-leak.ts"></script>\n',
+      );
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `export default { resolve: { alias: { classic: ${JSON.stringify(path.join(root, "zuuallet/src"))} } } };\n`,
+      );
+      await assert.doesNotReject(
+        () =>
+          viteBuild({
+            root: zuuliRoot,
+            configFile: path.join(zuuliRoot, "vite.config.ts"),
+            logLevel: "silent",
+            build: { write: false },
+          }),
+        "Vite must prove that its alias can bundle sibling-app production code",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /Vite alias classic escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("accepts Vite aliases that stay in the owner or use the exact shared name", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/vite.config.ts"),
+      `export default { resolve: { alias: {
+        "@": ${JSON.stringify(path.join(root, "zuuli/src"))},
+        "@free2z/wallet-shared": ${JSON.stringify(path.join(root, "shared/src/index.ts"))}
+      } } };\n`,
+    );
+    await assert.doesNotReject(() => assertProjectBoundaries(root));
   });
 });
 

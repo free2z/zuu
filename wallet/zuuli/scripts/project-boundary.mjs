@@ -3,6 +3,7 @@ import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { loadConfigFromFile } from "vite";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
 const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Map([
@@ -345,6 +346,159 @@ function pathAliasViolations(project, options, sharedRoot) {
     }
   }
   return violations;
+}
+
+function rootDirViolations(project, options) {
+  const violations = [];
+  const canonicalProjectRoot = realpathSync(project.projectRoot);
+  for (const rootDir of options.rootDirs ?? []) {
+    const lexical = path.resolve(rootDir);
+    let canonical;
+    try {
+      canonical = projectedRealpath(
+        lexical,
+        `${project.directory}/tsconfig.json rootDirs entry`,
+      );
+    } catch (error) {
+      violations.push(error.message);
+      continue;
+    }
+    if (
+      !inside(project.projectRoot, lexical) ||
+      !inside(canonicalProjectRoot, canonical)
+    ) {
+      violations.push(
+        `${project.directory}/tsconfig.json: TypeScript rootDirs entry escapes wallet/${project.directory}: ${rootDir}`,
+      );
+    }
+  }
+  return violations;
+}
+
+const VITE_CONFIG_NAMES = [
+  "vite.config.cjs",
+  "vite.config.cts",
+  "vite.config.js",
+  "vite.config.mjs",
+  "vite.config.mts",
+  "vite.config.ts",
+];
+
+function normalizedViteAliases(alias) {
+  if (alias === undefined) return [];
+  if (Array.isArray(alias)) return alias;
+  if (alias && typeof alias === "object") {
+    return Object.entries(alias).map(([find, replacement]) => ({
+      find,
+      replacement,
+    }));
+  }
+  throw new Error("resolve.alias must be an object or array");
+}
+
+async function viteAliasViolations(project, sharedRoot) {
+  const configFiles = [];
+  for (const name of VITE_CONFIG_NAMES) {
+    const candidate = path.join(project.projectRoot, name);
+    if (await existsAs(candidate, "file")) configFiles.push(candidate);
+  }
+  if (configFiles.length > 1) {
+    return [
+      `${project.directory}: Vite configuration is ambiguous: ${configFiles.map(path.basename).join(", ")}`,
+    ];
+  }
+  if (configFiles.length === 0) return [];
+  const configFile = configFiles[0];
+  if ((await lstat(configFile)).isSymbolicLink()) {
+    return [`${project.directory}: Vite configuration may not be a symbolic link: ${configFile}`];
+  }
+
+  const violations = [];
+  const canonicalProjectRoot = realpathSync(project.projectRoot);
+  const canonicalSharedRoot = realpathSync(sharedRoot);
+  for (const environment of [
+    { command: "build", mode: "production" },
+    { command: "serve", mode: "development" },
+  ]) {
+    let loaded;
+    try {
+      loaded = await loadConfigFromFile(
+        {
+          command: environment.command,
+          mode: environment.mode,
+          isSsrBuild: false,
+          isPreview: false,
+        },
+        configFile,
+        project.projectRoot,
+        "silent",
+      );
+    } catch (error) {
+      violations.push(
+        `${project.directory}/${path.basename(configFile)}: Vite ${environment.command} configuration is not auditable: ${error.message}`,
+      );
+      continue;
+    }
+    let aliases;
+    try {
+      aliases = normalizedViteAliases(loaded?.config?.resolve?.alias);
+    } catch (error) {
+      violations.push(
+        `${project.directory}/${path.basename(configFile)}: ${error.message}`,
+      );
+      continue;
+    }
+    for (const alias of aliases) {
+      if (
+        !alias ||
+        typeof alias !== "object" ||
+        typeof alias.find !== "string" ||
+        alias.find.length === 0 ||
+        typeof alias.replacement !== "string" ||
+        alias.replacement.length === 0 ||
+        alias.customResolver !== undefined
+      ) {
+        violations.push(
+          `${project.directory}/${path.basename(configFile)}: Vite alias entries must use auditable string find/replacement pairs without custom resolvers`,
+        );
+        continue;
+      }
+      if (
+        !path.isAbsolute(alias.replacement) &&
+        !alias.replacement.startsWith(".")
+      ) {
+        violations.push(
+          `${project.directory}/${path.basename(configFile)}: Vite alias ${alias.find} must use a filesystem replacement`,
+        );
+        continue;
+      }
+      const lexical = path.resolve(project.projectRoot, alias.replacement);
+      let canonical;
+      try {
+        canonical = projectedRealpath(
+          lexical,
+          `${project.directory}/${path.basename(configFile)} Vite alias ${alias.find}`,
+        );
+      } catch (error) {
+        violations.push(error.message);
+        continue;
+      }
+      const sharedAlias = alias.find === SHARED_PACKAGE;
+      const boundary = sharedAlias ? sharedRoot : project.projectRoot;
+      const canonicalBoundary = sharedAlias
+        ? canonicalSharedRoot
+        : canonicalProjectRoot;
+      if (
+        !inside(boundary, lexical) ||
+        !inside(canonicalBoundary, canonical)
+      ) {
+        violations.push(
+          `${project.directory}/${path.basename(configFile)}: Vite alias ${alias.find} escapes wallet/${project.directory}: ${alias.replacement}`,
+        );
+      }
+    }
+  }
+  return [...new Set(violations)];
 }
 
 function matchingPathAliases(options, specifier) {
@@ -696,9 +850,11 @@ export async function scanProjectBoundaries(walletRoot) {
     const dependencies = project.manifest.dependencies ?? {};
     project.compilerOptions = compilerOptions(project);
     violations.push(...dependencyViolations(project, projects));
+    violations.push(...rootDirViolations(project, project.compilerOptions));
     violations.push(
       ...pathAliasViolations(project, project.compilerOptions, shared.projectRoot),
     );
+    violations.push(...(await viteAliasViolations(project, shared.projectRoot)));
     if (
       requiredSharedDependencyProjects.has(project.directory) &&
       dependencies[SHARED_PACKAGE] !== "file:../shared"
