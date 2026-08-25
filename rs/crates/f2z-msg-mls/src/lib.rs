@@ -83,6 +83,20 @@
 //! ```
 
 #![forbid(unsafe_code)]
+// The workspace denies these because a panic inside a crypto core is a crash of
+// the whole client. Neither hazard exists in a test harness run on the host by
+// a person reading the failure, and the same `cfg_attr` sits at the root of
+// `f2z-authority` and `f2z-relay-store` for the same reason.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )
+)]
 
 pub mod credential;
 pub mod engine;

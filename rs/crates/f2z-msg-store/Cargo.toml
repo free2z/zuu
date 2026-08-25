@@ -39,6 +39,21 @@ crash-injection = []
 # `delete_application_export_tree`). They are implemented under the same gate,
 # so a consumer that turns the extension on in `openmls` gets a provider that
 # still satisfies the trait rather than a compile error.
+# `ARCHITECTURE.md` §5.4 names the Safe Extension API as the mechanism we intend
+# to use for component-scoped exports "as it stabilizes"; nothing uses it yet.
+#
+# **It cannot be turned on from here alone, and `--all-features` over this
+# workspace does not build.** The feature is a property of the whole graph: it
+# adds three methods to a trait that `openmls_memory_storage` — a hard
+# dependency of `openmls_libcrux_crypto` — would then also have to implement, so
+# turning it on for `openmls_traits` without turning it on for `openmls` (which
+# forwards to that crate) is a compile error in someone else's code. Enabling it
+# for real means enabling `openmls/extensions-draft-08` at the same time.
+# `rs/deny.toml` already sets `all-features = false`, and
+# `scripts/check-rust-clippy.sh` lints with `--all-targets` and not
+# `--all-features`, so no gate builds the broken combination — but a person
+# running `cargo build --all-features` out of habit will meet it, and this is
+# where they find out why.
 extensions-draft-08 = ["openmls_traits/extensions-draft-08"]
 
 [lints]

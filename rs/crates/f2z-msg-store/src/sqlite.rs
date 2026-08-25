@@ -284,23 +284,23 @@ mod tests {
 
     #[test]
     fn an_in_memory_store_is_empty_and_refuses_to_call_itself_durable() {
-        let backend = SqliteBackend::open_in_memory().expect("open");
-        assert!(backend.is_empty().expect("is_empty"));
+        let backend = SqliteBackend::open_in_memory().unwrap();
+        assert!(backend.is_empty().unwrap());
         assert_eq!(backend.durability(), Durability::None);
         assert!(!backend.durability().may_acknowledge());
     }
 
     #[test]
     fn a_file_backed_store_is_wal_and_durable() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let backend = SqliteBackend::open(&dir.path().join("mls.sqlite")).expect("open");
+        let dir = tempfile::tempdir().unwrap();
+        let backend = SqliteBackend::open(&dir.path().join("mls.sqlite")).unwrap();
         assert_eq!(backend.durability(), Durability::Durable);
         assert!(backend.durability().may_acknowledge());
     }
 
     #[test]
     fn a_batch_round_trips() {
-        let backend = SqliteBackend::open_in_memory().expect("open");
+        let backend = SqliteBackend::open_in_memory().unwrap();
         backend
             .apply(&[
                 Op::Put {
@@ -312,16 +312,16 @@ mod tests {
                     value: b"2".to_vec(),
                 },
             ])
-            .expect("apply");
-        assert_eq!(backend.get(b"a").expect("get"), Some(b"1".to_vec()));
-        assert_eq!(backend.get(b"b").expect("get"), Some(b"2".to_vec()));
-        assert_eq!(backend.len().expect("len"), 2);
-        assert_eq!(backend.get(b"missing").expect("get"), None);
+            .unwrap();
+        assert_eq!(backend.get(b"a").unwrap(), Some(b"1".to_vec()));
+        assert_eq!(backend.get(b"b").unwrap(), Some(b"2".to_vec()));
+        assert_eq!(backend.len().unwrap(), 2);
+        assert_eq!(backend.get(b"missing").unwrap(), None);
     }
 
     #[test]
     fn a_put_then_a_delete_of_the_same_key_in_one_batch_leaves_nothing() {
-        let backend = SqliteBackend::open_in_memory().expect("open");
+        let backend = SqliteBackend::open_in_memory().unwrap();
         backend
             .apply(&[
                 Op::Put {
@@ -330,54 +330,54 @@ mod tests {
                 },
                 Op::Delete { key: b"k".to_vec() },
             ])
-            .expect("apply");
-        assert_eq!(backend.get(b"k").expect("get"), None);
+            .unwrap();
+        assert_eq!(backend.get(b"k").unwrap(), None);
     }
 
     #[test]
     fn deleting_an_absent_key_is_not_an_error() {
-        let backend = SqliteBackend::open_in_memory().expect("open");
+        let backend = SqliteBackend::open_in_memory().unwrap();
         backend
             .apply(&[Op::Delete {
                 key: b"nope".to_vec(),
             }])
-            .expect("delete of an absent key must succeed");
+            .unwrap();
     }
 
     #[test]
     fn an_empty_batch_succeeds_and_touches_nothing() {
-        let backend = SqliteBackend::open_in_memory().expect("open");
-        backend.apply(&[]).expect("empty batch");
-        assert!(backend.is_empty().expect("is_empty"));
+        let backend = SqliteBackend::open_in_memory().unwrap();
+        backend.apply(&[]).unwrap();
+        assert!(backend.is_empty().unwrap());
     }
 
     #[test]
     fn a_file_backed_store_survives_being_closed_and_reopened() {
-        let dir = tempfile::tempdir().expect("tempdir");
+        let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mls.sqlite");
         {
-            let backend = SqliteBackend::open(&path).expect("open");
+            let backend = SqliteBackend::open(&path).unwrap();
             backend
                 .apply(&[Op::Put {
                     key: b"k".to_vec(),
                     value: b"v".to_vec(),
                 }])
-                .expect("apply");
-            backend.checkpoint().expect("checkpoint");
+                .unwrap();
+            backend.checkpoint().unwrap();
         }
-        let reopened = SqliteBackend::open(&path).expect("reopen");
-        assert_eq!(reopened.get(b"k").expect("get"), Some(b"v".to_vec()));
+        let reopened = SqliteBackend::open(&path).unwrap();
+        assert_eq!(reopened.get(b"k").unwrap(), Some(b"v".to_vec()));
     }
 
     #[test]
     fn debug_prints_nothing_about_the_rows() {
-        let backend = SqliteBackend::open_in_memory().expect("open");
+        let backend = SqliteBackend::open_in_memory().unwrap();
         backend
             .apply(&[Op::Put {
                 key: b"k".to_vec(),
                 value: vec![0xAB, 0xCD, 0xEF, 0x12],
             }])
-            .expect("apply");
+            .unwrap();
         let rendered = format!("{backend:?}");
         assert!(!rendered.contains("abcdef12"), "{rendered}");
         assert!(!rendered.contains("171, 205, 239, 18"), "{rendered}");

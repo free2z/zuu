@@ -135,14 +135,14 @@ mod tests {
     #[test]
     fn a_signature_verifies_against_the_derived_public_key() {
         let signer = signer();
-        let signature = signer.sign_bytes(b"transcript").expect("sign");
-        verify(b"transcript", signer.public_key(), &signature).expect("verify");
+        let signature = signer.sign_bytes(b"transcript").unwrap();
+        verify(b"transcript", signer.public_key(), &signature).unwrap();
     }
 
     #[test]
     fn a_flipped_bit_is_rejected() {
         let signer = signer();
-        let mut signature = signer.sign_bytes(b"transcript").expect("sign");
+        let mut signature = signer.sign_bytes(b"transcript").unwrap();
         signature[0] ^= 0x01;
         assert!(verify(b"transcript", signer.public_key(), &signature).is_err());
     }
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn a_different_payload_is_rejected() {
         let signer = signer();
-        let signature = signer.sign_bytes(b"transcript").expect("sign");
+        let signature = signer.sign_bytes(b"transcript").unwrap();
         assert!(verify(b"transcripT", signer.public_key(), &signature).is_err());
     }
 
@@ -158,7 +158,7 @@ mod tests {
     fn a_different_key_is_rejected() {
         let signer = signer();
         let other = DeviceSigner::from_private_key([8u8; PRIVATE_LEN]);
-        let signature = signer.sign_bytes(b"transcript").expect("sign");
+        let signature = signer.sign_bytes(b"transcript").unwrap();
         assert!(verify(b"transcript", other.public_key(), &signature).is_err());
     }
 
@@ -169,8 +169,8 @@ mod tests {
     #[test]
     fn the_openmls_signer_and_the_direct_path_agree() {
         let signer = signer();
-        let via_trait = Signer::sign(&signer, b"payload").expect("sign");
-        let direct = signer.sign_bytes(b"payload").expect("sign");
+        let via_trait = Signer::sign(&signer, b"payload").unwrap();
+        let direct = signer.sign_bytes(b"payload").unwrap();
         assert_eq!(via_trait, direct.to_vec());
         assert_eq!(signer.signature_scheme(), SignatureScheme::ED25519);
     }

@@ -386,9 +386,9 @@ mod tests {
             NOW - 1000,
             NOW + 1000,
         )
-        .expect("tbs");
+        .unwrap();
         (
-            DeviceCredential::sign(tbs, &identity_private).expect("sign"),
+            DeviceCredential::sign(tbs, &identity_private).unwrap(),
             device,
         )
     }
@@ -396,10 +396,10 @@ mod tests {
     #[test]
     fn a_credential_round_trips_through_its_encoding() {
         let (credential, _) = credential();
-        let bytes = credential.to_bytes().expect("encode");
-        let parsed = DeviceCredential::parse(&bytes).expect("parse");
+        let bytes = credential.to_bytes().unwrap();
+        let parsed = DeviceCredential::parse(&bytes).unwrap();
         assert_eq!(parsed, credential);
-        assert_eq!(parsed.to_bytes().expect("re-encode"), bytes);
+        assert_eq!(parsed.to_bytes().unwrap(), bytes);
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
         let (credential, device) = credential();
         credential
             .validate_for_leaf(device.public_key(), NOW)
-            .expect("validate");
+            .unwrap();
     }
 
     #[test]
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn trailing_bytes_are_refused() {
         let (credential, _) = credential();
-        let mut bytes = credential.to_bytes().expect("encode");
+        let mut bytes = credential.to_bytes().unwrap();
         bytes.push(0);
         assert_eq!(
             DeviceCredential::parse(&bytes),

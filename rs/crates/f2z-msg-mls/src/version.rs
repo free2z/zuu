@@ -102,8 +102,8 @@ mod tests {
 
     #[test]
     fn the_version_round_trips_through_the_encoding_the_store_uses() {
-        let encoded = serde_json::to_vec(&ProtocolVersion::CURRENT).expect("encode");
-        let decoded: ProtocolVersion = serde_json::from_slice(&encoded).expect("decode");
+        let encoded = serde_json::to_vec(&ProtocolVersion::CURRENT).unwrap();
+        let decoded: ProtocolVersion = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(decoded, ProtocolVersion::CURRENT);
     }
 }

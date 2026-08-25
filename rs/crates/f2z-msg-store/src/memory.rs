@@ -124,11 +124,11 @@ mod tests {
                     value: b"2".to_vec(),
                 },
             ])
-            .expect("apply");
+            .unwrap();
 
-        assert_eq!(backend.get(b"a").expect("get"), Some(b"1".to_vec()));
-        assert_eq!(backend.get(b"b").expect("get"), Some(b"2".to_vec()));
-        assert_eq!(backend.len().expect("len"), 2);
+        assert_eq!(backend.get(b"a").unwrap(), Some(b"1".to_vec()));
+        assert_eq!(backend.get(b"b").unwrap(), Some(b"2".to_vec()));
+        assert_eq!(backend.len().unwrap(), 2);
     }
 
     #[test]
@@ -138,15 +138,15 @@ mod tests {
             .apply(&[Op::Delete {
                 key: b"missing".to_vec(),
             }])
-            .expect("delete of an absent key must succeed");
-        assert!(backend.is_empty().expect("is_empty"));
+            .unwrap();
+        assert!(backend.is_empty().unwrap());
     }
 
     #[test]
     fn an_empty_batch_succeeds() {
         let backend = MemoryBackend::new();
-        backend.apply(&[]).expect("empty batch");
-        assert!(backend.is_empty().expect("is_empty"));
+        backend.apply(&[]).unwrap();
+        assert!(backend.is_empty().unwrap());
     }
 
     #[test]
@@ -166,8 +166,8 @@ mod tests {
                     key: b"gone".to_vec(),
                 },
             ])
-            .expect("apply");
-        assert_eq!(backend.get(b"k").expect("get"), Some(b"second".to_vec()));
+            .unwrap();
+        assert_eq!(backend.get(b"k").unwrap(), Some(b"second".to_vec()));
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
                 key: b"k".to_vec(),
                 value: vec![0xAB, 0xCD, 0xEF, 0x12],
             }])
-            .expect("apply");
+            .unwrap();
         let rendered = format!("{backend:?}");
         assert!(rendered.contains("entries: 1"), "{rendered}");
         assert!(!rendered.contains("abcdef12"), "{rendered}");

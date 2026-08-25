@@ -233,10 +233,10 @@ impl<B: StorageBackend> F2zStorageProvider<B> {
     pub(crate) fn get_raw(&self, storage_key: &[u8]) -> Result<Option<Vec<u8>>> {
         {
             let journal = self.journal.lock().map_err(|_| StoreError::Poisoned)?;
-            if let Some(staged) = journal.as_ref() {
-                if let Some(entry) = staged.get(storage_key) {
-                    return Ok(entry.clone());
-                }
+            if let Some(staged) = journal.as_ref()
+                && let Some(entry) = staged.get(storage_key)
+            {
+                return Ok(entry.clone());
             }
         }
         self.backend.get(storage_key)

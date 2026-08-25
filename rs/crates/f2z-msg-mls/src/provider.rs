@@ -95,11 +95,8 @@ mod tests {
 
     #[test]
     fn the_provider_supports_the_ciphersuite_the_architecture_requires() {
-        let provider = F2zProvider::new(MemoryBackend::new()).expect("provider");
-        provider
-            .crypto()
-            .supports(crate::CIPHERSUITE)
-            .expect("MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519 must be supported");
+        let provider = F2zProvider::new(MemoryBackend::new()).unwrap();
+        provider.crypto().supports(crate::CIPHERSUITE).unwrap();
     }
 
     /// `rs/deny.toml` cites this test by name. Three RustSec advisories against
@@ -135,9 +132,9 @@ mod tests {
 
     #[test]
     fn the_randomness_provider_produces_distinct_values() {
-        let provider = F2zProvider::new(MemoryBackend::new()).expect("provider");
-        let a: [u8; 32] = provider.rand().random_array().expect("random");
-        let b: [u8; 32] = provider.rand().random_array().expect("random");
+        let provider = F2zProvider::new(MemoryBackend::new()).unwrap();
+        let a: [u8; 32] = provider.rand().random_array().unwrap();
+        let b: [u8; 32] = provider.rand().random_array().unwrap();
         assert_ne!(a, b);
     }
 }
