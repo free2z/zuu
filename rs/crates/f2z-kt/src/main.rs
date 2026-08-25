@@ -115,12 +115,26 @@ fn serve(args: &[String]) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    runtime.block_on(async {
+    let stopped = runtime.block_on(async {
         let state = server::build(&config).await.map_err(|e| e.to_string())?;
         server::serve(state, &config.listen)
             .await
             .map_err(|e| e.to_string())
-    })
+    })?;
+    // Exhaustive on purpose (zuu#684). `Stopped` is not `#[non_exhaustive]`, so
+    // a future stop reason is a compile error here rather than a wildcard arm
+    // that silently exits zero — the same shape zuu#666 fixed in the witness's
+    // liveness predicate.
+    match stopped {
+        server::Stopped::Requested => Ok(()),
+        // Non-zero, and loud. The pod restarts and is visibly not `Ready` while
+        // it does; a log that stays up with a dead scheduler publishes nothing
+        // and reports nothing, and no client can tell.
+        server::Stopped::TaskEnded(name) => Err(format!(
+            "the {name} ended while the log was running; the log cannot publish epochs and is \
+             stopping rather than serving a directory that has silently frozen"
+        )),
+    }
 }
 
 fn check(args: &[String]) -> Result<(), String> {

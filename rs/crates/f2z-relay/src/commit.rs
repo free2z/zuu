@@ -47,6 +47,37 @@
 //! `recv_timeout`, which is the one place a blocking receive is exactly the
 //! right primitive.
 //!
+//! # …and why that thread is nevertheless supervised (zuu#685)
+//!
+//! Being a thread put this worker **outside** zuu#683's supervision, which
+//! holds `tokio::task::JoinHandle`s and polls them. That is a type boundary and
+//! not an oversight in a list of names, and it left the relay with the worst
+//! shape in the system: when this thread died, [`CommitWriter::append`] began
+//! returning [`CommitError::WriterStopped`], `engine.rs` turned that into a
+//! per-request `ERR_UNAVAILABLE`, and the process went on answering `/healthz`
+//! with `200` while it could not store a single message. Under delete-on-ack
+//! that is not downtime; a sender told `accepted` by a relay that never wrote
+//! the message has had data destroyed between them.
+//!
+//! So [`CommitWriter::start`] hands back a [`WriterStopped`] alongside the
+//! handle: the thread owns a `oneshot::Sender` it never sends on, and dropping
+//! it — by returning, or by unwinding out of a panic — resolves the receiver.
+//! `server.rs` supervises a task that awaits exactly that, so the writer's
+//! death arrives at [`crate::server::Server::run_until_stopped`] in the same
+//! shape every other task's does.
+//!
+//! **The bridging task is itself supervised**, which is the point: it is
+//! registered in the same `Vec<Supervised>` as the four tokio tasks, so a
+//! watchdog that is itself killed is reported exactly as the thing it watches
+//! would be. Solving a supervision gap by adding an unsupervised supervisor
+//! would move the hole rather than close it.
+//!
+//! The alternative — `spawn_blocking`, whose handle is pollable — was
+//! considered and rejected: an aborted blocking task cannot be cancelled once
+//! it is running, so the shutdown path would have to wait out
+//! `SHUTDOWN_GRACE` on **every** ordinary stop, and the test that proves the
+//! supervision works could not produce the failure at all.
+//!
 //! The other store operations — `create_queue`, `read`, `ack`, `delete_queue` —
 //! are called inline from the connection tasks. They contend on the same
 //! connection mutex, so they queue behind a batch rather than racing it, and
@@ -66,6 +97,23 @@ use f2z_codec::types::{Payload, QueueAddress};
 use f2z_relay_store::{Append, Appended, Durability, RelayStore, SendAuth, StoreError};
 
 use crate::metrics::Metrics;
+
+/// What the writer takes over the channel.
+///
+/// An enum with one shipped variant, so that the testing-only way to kill the
+/// thread is a *message* rather than a magic value inside a real [`Job`]. The
+/// shipped binary contains `Append` and nothing else.
+enum Message {
+    /// One append, waiting for a transaction.
+    Append(Job),
+    /// Die here, exactly where a panic inside the writer would leave the
+    /// relay. Behind the `testing` feature, like `Server::abort_task`, and for
+    /// the same reason: the real cause is a bug rather than an input, and a
+    /// fault-injection hook that reached the shipped binary would be a far
+    /// worse thing to carry than one that cannot.
+    #[cfg(any(test, feature = "testing"))]
+    Stop,
+}
 
 /// One append, waiting for a transaction.
 struct Job {
@@ -114,10 +162,30 @@ pub enum CommitError {
     WriterStopped,
 }
 
+/// Resolves when the group-commit writer thread has ended, for any reason.
+///
+/// The thread holds the matching `oneshot::Sender` and never sends on it, so
+/// the only thing that can complete this is the sender being **dropped** —
+/// which happens when `run` returns and when a panic unwinds out of it. There
+/// is nothing for the writer to remember to do, which is the property that
+/// makes this trustworthy: a liveness signal the worker has to publish is a
+/// liveness signal a panicking worker does not publish.
+#[derive(Debug)]
+pub struct WriterStopped(tokio::sync::oneshot::Receiver<core::convert::Infallible>);
+
+impl WriterStopped {
+    /// Wait for the writer thread to end.
+    pub async fn wait(self) {
+        // `Ok` is unreachable — `Infallible` has no values — so this resolves
+        // only on the sender's drop.
+        let Err(_dropped) = self.0.await;
+    }
+}
+
 /// A handle on the writer.
 #[derive(Clone, Debug)]
 pub struct CommitWriter {
-    sender: std::sync::mpsc::Sender<Job>,
+    sender: std::sync::mpsc::Sender<Message>,
     durability: Durability,
 }
 
@@ -127,6 +195,10 @@ impl CommitWriter {
     /// `window` is how long a batch gathers after its first job; `max_batch` is
     /// the most appends one transaction takes.
     ///
+    /// Returns the handle **and** a [`WriterStopped`] that resolves when the
+    /// thread ends (zuu#685). The caller is expected to supervise it: a relay
+    /// whose write path is gone must stop, not answer probes.
+    ///
     /// # Errors
     ///
     /// The thread could not be spawned.
@@ -135,13 +207,28 @@ impl CommitWriter {
         metrics: Arc<Metrics>,
         window: Duration,
         max_batch: usize,
-    ) -> std::io::Result<Self> {
+    ) -> std::io::Result<(Self, WriterStopped)> {
         let durability = store.durability();
-        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
+        let (sender, receiver) = std::sync::mpsc::channel::<Message>();
+        let (alive, stopped) = tokio::sync::oneshot::channel();
         std::thread::Builder::new()
             .name("f2z-relay-commit".to_owned())
-            .spawn(move || run(&store, &metrics, &receiver, window, max_batch.max(1)))?;
-        Ok(Self { sender, durability })
+            .spawn(move || {
+                // Moved in and never used: it exists to be dropped when this
+                // closure ends, however it ends.
+                let _alive = alive;
+                run(&store, &metrics, &receiver, window, max_batch.max(1));
+            })?;
+        Ok((Self { sender, durability }, WriterStopped(stopped)))
+    }
+
+    /// Make the writer thread exit, exactly where a panic inside it would.
+    ///
+    /// Returns whether the message could be delivered. See [`Message::Stop`]
+    /// for why this is behind a feature that never reaches the binary.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn stop_for_test(&self) -> bool {
+        self.sender.send(Message::Stop).is_ok()
     }
 
     /// What this writer's commits promise — §11.1's `durability_mode`.
@@ -167,13 +254,13 @@ impl CommitWriter {
     ) -> Result<Reply, CommitError> {
         let (reply, answer) = tokio::sync::oneshot::channel();
         self.sender
-            .send(Job {
+            .send(Message::Append(Job {
                 send_addr,
                 auth,
                 payload,
                 received_at_ms,
                 reply,
-            })
+            }))
             .map_err(|_| CommitError::WriterStopped)?;
         answer.await.map_err(|_| CommitError::WriterStopped)
     }
@@ -182,7 +269,7 @@ impl CommitWriter {
 fn run(
     store: &Arc<dyn RelayStore + Send + Sync>,
     metrics: &Arc<Metrics>,
-    receiver: &std::sync::mpsc::Receiver<Job>,
+    receiver: &std::sync::mpsc::Receiver<Message>,
     window: Duration,
     max_batch: usize,
 ) {
@@ -190,11 +277,18 @@ fn run(
     loop {
         // Block until there is anything to do. A relay with no traffic costs no
         // wakeups, which on a shared VPS is a real number.
-        let Ok(first) = receiver.recv() else {
+        let Ok(message) = receiver.recv() else {
             return;
+        };
+        let first = match message {
+            Message::Append(job) => job,
+            #[cfg(any(test, feature = "testing"))]
+            Message::Stop => return,
         };
         let deadline = Instant::now().checked_add(window);
         let mut batch = vec![first];
+        #[cfg(any(test, feature = "testing"))]
+        let mut stopping = false;
 
         // Gather. The window starts at the *first* job rather than being a
         // fixed tick, so a lone append waits at most `window` and a burst
@@ -208,7 +302,15 @@ fn run(
                 break;
             }
             match receiver.recv_timeout(remaining) {
-                Ok(job) => batch.push(job),
+                Ok(Message::Append(job)) => batch.push(job),
+                // Commit what is in hand first: those jobs' senders are waiting
+                // on a durable answer, and §13.2 says a message accepted into
+                // this batch must not be thrown away.
+                #[cfg(any(test, feature = "testing"))]
+                Ok(Message::Stop) => {
+                    stopping = true;
+                    break;
+                }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                 // The last sender went away. Commit what is in hand — those
                 // clients are gone, but their queues' readers are not, and a
@@ -218,6 +320,11 @@ fn run(
         }
 
         commit(store, metrics, durability, batch);
+
+        #[cfg(any(test, feature = "testing"))]
+        if stopping {
+            return;
+        }
     }
 }
 
@@ -336,7 +443,7 @@ mod tests {
     async fn an_append_is_answered_only_after_its_transaction() {
         let (store, send_addr, send_key) = store_with_queue();
         let metrics = Arc::new(Metrics::new());
-        let writer =
+        let (writer, _stopped) =
             CommitWriter::start(store, Arc::clone(&metrics), Duration::from_millis(1), 16).unwrap();
         let payload = Payload::new(vec![0u8; 1024]).unwrap();
         let accepted = writer
@@ -358,7 +465,7 @@ mod tests {
     async fn many_concurrent_appends_share_transactions() {
         let (store, send_addr, send_key) = store_with_queue();
         let metrics = Arc::new(Metrics::new());
-        let writer = CommitWriter::start(
+        let (writer, _stopped) = CommitWriter::start(
             Arc::clone(&store),
             Arc::clone(&metrics),
             Duration::from_millis(20),
@@ -400,7 +507,7 @@ mod tests {
     async fn one_writers_refusal_does_not_undo_the_batch() {
         let (store, send_addr, send_key) = store_with_queue();
         let metrics = Arc::new(Metrics::new());
-        let writer =
+        let (writer, _stopped) =
             CommitWriter::start(store, Arc::clone(&metrics), Duration::from_millis(20), 8).unwrap();
 
         let good = writer.append(
@@ -418,6 +525,26 @@ mod tests {
         let (good, absent) = tokio::join!(good, absent);
         assert!(good.unwrap().is_ok());
         assert!(absent.unwrap().is_err());
+    }
+
+    /// zuu#685's mechanism, with **no injection hook involved at all**.
+    ///
+    /// Dropping the last `Sender` makes `receiver.recv()` fail and `run`
+    /// return, which is a genuine end of the writer thread. The signal has to
+    /// arrive from the thread unwinding its own locals — there is nothing the
+    /// writer remembers to do — and that is exactly why a panic inside it is
+    /// covered too. Without this, `stop_for_test` could be proving only that
+    /// one testing path works.
+    #[tokio::test]
+    async fn the_liveness_signal_fires_when_the_writer_thread_really_ends() {
+        let (store, _send_addr, _send_key) = store_with_queue();
+        let (writer, stopped) =
+            CommitWriter::start(store, Arc::new(Metrics::new()), Duration::from_millis(1), 8)
+                .unwrap();
+        drop(writer);
+        tokio::time::timeout(Duration::from_secs(5), stopped.wait())
+            .await
+            .expect("the writer thread's death is observable to a supervisor");
     }
 
     #[test]

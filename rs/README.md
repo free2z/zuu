@@ -317,8 +317,9 @@ answers from process state and nothing else, deliberately — a probe that queri
 the store would fail during exactly the backpressure it exists to survive. That
 makes it a true statement about a relay only if the process cannot outlive the
 tasks that do its work, so `f2z-relay` supervises the protocol listener, the
-admin and health listeners and the expiry tick: if any of them ends before a
-shutdown was asked for, the relay closes its listeners, prints
+admin and health listeners, the expiry tick and — since [#685] — the
+**group-commit writer**: if any of them ends before a shutdown was asked for,
+the relay closes its listeners, prints
 `the <task> stopped while the relay was running` to stderr and **exits 1**. A
 crash-looping pod is the correct outcome. At `replicas: 1` with
 `strategy: Recreate` that is a brief, visible outage, and the alternative — a
@@ -327,7 +328,26 @@ crash-looping pod is the correct outcome. At `replicas: 1` with
 `accepted` and a relay that then loses the message have between them destroyed
 it.
 
+The commit writer is the one that is not a task. It is an **OS thread**, because
+an fsync is a blocking syscall of unbounded duration and parking a Tokio worker
+on a 1 GB VPS is worse; `Supervised` holds `JoinHandle`s, so the thread could not
+be in it, and a dead writer used to leave every listener open and every probe
+green over a relay answering `ERR_UNAVAILABLE` to every `APPEND`. It is covered
+by supervising a task that waits on the thread's liveness signal — a task
+registered in the same list as the other four, so the watchdog is not itself
+the unsupervised thing.
+
+**`f2z-kt` has the same rule and a quieter failure** ([#684]). Its epoch
+scheduler is what publishes `KT.md` §5.1's epochs, heartbeats included, and a
+log that has stopped publishing errors on *nothing*: clients keep verifying
+against the last signed tree head, lookups keep succeeding, and heartbeats
+cannot be missed because there is nothing left to emit them. So the scheduler
+and the HTTP listener are supervised the same way, and `f2z-kt serve` exits
+non-zero when either ends.
+
 [#671]: https://github.com/free2z/zuu/issues/671
+[#684]: https://github.com/free2z/zuu/issues/684
+[#685]: https://github.com/free2z/zuu/issues/685
 
 ## Working in this tree
 
