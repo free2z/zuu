@@ -51,6 +51,21 @@ test("physical margin, padding, position, border, and alignment mutants fail", (
     "text-left",
     /residual paths/,
   );
+  for (const arbitrary of ["[margin-left:1px]", "[MARGIN-LEFT:1px]"]) {
+    rejectsMutation(
+      "src/features/messages/BrowserGuarantee.tsx",
+      'className="space-y-4"',
+      `className="${arbitrary} space-y-4"`,
+      /residual paths/,
+    );
+  }
+
+  const logicalArbitrary = mutate(
+    "src/features/messages/BrowserGuarantee.tsx",
+    'className="space-y-4"',
+    'className="[margin-inline-start:1px] space-y-4"',
+  );
+  assert.doesNotThrow(() => assertRtlSourcePolicy(logicalArbitrary));
 });
 
 test("a directional adornment that stops mirroring fails", () => {
@@ -314,6 +329,21 @@ test("physical CSS declarations fail even without Tailwind", () => {
     "paddingLeft:",
     /inline style must use a logical-direction property/,
   );
+  const cssFile = "src/components/common/markdown.css";
+  assert.throws(
+    () =>
+      assertRtlSourcePolicy({
+        ...BASELINE,
+        [cssFile]: `${BASELINE[cssFile]}\n.uppercase-probe { MARGIN-LEFT: 1px; }\n`,
+      }),
+    /physical-direction CSS/,
+  );
+  assert.doesNotThrow(() =>
+    assertRtlSourcePolicy({
+      ...BASELINE,
+      [cssFile]: `${BASELINE[cssFile]}\n.uppercase-safe { TEXT-ALIGN: CENTER; }\n`,
+    }),
+  );
 
   const section = BASELINE["src/features/home/parts.tsx"];
   const withNamedDeclaration = section.replace(
@@ -448,5 +478,26 @@ test("named inline styles resolve by lexical declaration and retain deep red con
   assert.throws(
     () => assertRtlSourcePolicy({ ...BASELINE, [fileName]: deepPhysical }),
     /inline style must use a logical-direction property/,
+  );
+
+  const alignmentAliases = (secondValue) => source.replace(
+    'import { cn } from "@/lib/utils";\n',
+    [
+      'import { cn } from "@/lib/utils";',
+      "",
+      'function SafeAlignmentScope() { const alignment = "start" as const; return <i style={{ textAlign: alignment }} />; }',
+      `function SecondAlignmentScope() { const alignment = ${JSON.stringify(secondValue)} as const; const alias = alignment; return <i style={{ textAlign: alias }} />; }`,
+      "void SafeAlignmentScope; void SecondAlignmentScope;",
+      "",
+    ].join("\n"),
+  );
+  const safeAlignmentAliases = alignmentAliases("end");
+  assert.notEqual(safeAlignmentAliases, source, "alignment alias mutation did not apply");
+  assert.doesNotThrow(() =>
+    assertRtlSourcePolicy({ ...BASELINE, [fileName]: safeAlignmentAliases }),
+  );
+  assert.throws(
+    () => assertRtlSourcePolicy({ ...BASELINE, [fileName]: alignmentAliases("left") }),
+    /inline textAlign must be logical/,
   );
 });

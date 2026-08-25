@@ -132,6 +132,49 @@ describe("opaque identifier production inventory", () => {
     expect(() => assertBidiIdentifierPolicy(mutant)).toThrow();
   });
 
+  it("binds an audited BidiIdentifier site to the imported component symbol", () => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "export function Receive() {",
+      "export function Receive() {\n  const BidiIdentifier = ({ value }: { value: string }) => <span>{value}</span>;",
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(/bidi sites changed/);
+  });
+
+  it("rejects an additional raw display of an audited identifier value", () => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `              <span>{address}</span>
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("allows an unrelated locally scoped component with the same name", () => {
+    const mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "export function Receive() {",
+      [
+        "function LocalBadge() {",
+        "  const BidiIdentifier = () => <span>decorative</span>;",
+        "  return <BidiIdentifier />;",
+        "}",
+        "void LocalBadge;",
+        "",
+        "export function Receive() {",
+      ].join("\n"),
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).not.toThrow();
+  });
+
   it.each([
     ["src/features/wallet/Send.tsx", '              dir="ltr"'],
     ["src/features/profile/index.tsx", '              dir="ltr"'],

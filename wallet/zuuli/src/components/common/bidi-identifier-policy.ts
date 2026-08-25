@@ -82,10 +82,6 @@ function parse(fileName: string, source: string): ts.SourceFile {
   return file;
 }
 
-function jsxName(node: ts.JsxTagNameExpression): string | null {
-  return ts.isIdentifier(node) ? node.text : null;
-}
-
 function stringAttribute(
   attributes: ts.JsxAttributes,
   name: string,
@@ -178,23 +174,75 @@ function assertExactMultiset(fileName: string, actual: string[], expected: strin
   }
 }
 
-function hasExactImport(file: ts.SourceFile): boolean {
+function exactImportBinding(file: ts.SourceFile): ts.Identifier | null {
   const imports = file.statements.filter(
     (statement): statement is ts.ImportDeclaration =>
       ts.isImportDeclaration(statement) &&
       ts.isStringLiteral(statement.moduleSpecifier) &&
       statement.moduleSpecifier.text === "@/components/common/BidiIdentifier",
   );
-  if (imports.length !== 1) return false;
+  if (imports.length !== 1) return null;
   const clause = imports[0].importClause;
   if (!clause || clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) {
-    return false;
+    return null;
   }
-  return (
+  if (
     clause.namedBindings.elements.length === 1 &&
     clause.namedBindings.elements[0].name.text === "BidiIdentifier" &&
     clause.namedBindings.elements[0].propertyName === undefined
+  ) {
+    return clause.namedBindings.elements[0].name;
+  }
+  return null;
+}
+
+function checkerFor(fileName: string, file: ts.SourceFile): ts.TypeChecker {
+  const options: ts.CompilerOptions = {
+    jsx: ts.JsxEmit.ReactJSX,
+    module: ts.ModuleKind.ESNext,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const host = ts.createCompilerHost(options, true);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (candidate, languageVersion, onError, shouldCreateNewSourceFile) =>
+    candidate === fileName
+      ? file
+      : getSourceFile(candidate, languageVersion, onError, shouldCreateNewSourceFile);
+  const program = ts.createProgram([fileName], options, host);
+  return program.getTypeChecker();
+}
+
+function isImportedBidiTag(
+  tagName: ts.JsxTagNameExpression,
+  importBinding: ts.Identifier,
+  checker: ts.TypeChecker,
+): boolean {
+  return (
+    ts.isIdentifier(tagName) &&
+    checker.getSymbolAtLocation(tagName) === checker.getSymbolAtLocation(importBinding)
   );
+}
+
+function directDisplayExpression(file: ts.SourceFile, node: ts.JsxExpression): string | null {
+  if (
+    !node.expression ||
+    (!ts.isJsxElement(node.parent) && !ts.isJsxFragment(node.parent))
+  ) {
+    return null;
+  }
+  let expression = node.expression;
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isSatisfiesExpression(expression) ||
+    ts.isNonNullExpression(expression)
+  ) {
+    expression = expression.expression;
+  }
+  return expression.getText(file);
 }
 
 /**
@@ -207,11 +255,20 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
     const source = sources[fileName];
     if (source === undefined) throw new Error(`missing production source: ${fileName}`);
     const file = parse(fileName, source);
-    if (!hasExactImport(file)) {
+    const importBinding = exactImportBinding(file);
+    if (!importBinding) {
       throw new Error(`${fileName} must import BidiIdentifier without an alias`);
+    }
+    const checker = checkerFor(fileName, file);
+    const expectedValuesByFunction = new Map<string, Set<string>>();
+    for (const site of expectedSites) {
+      const values = expectedValuesByFunction.get(site.functionName) ?? new Set<string>();
+      values.add(site.value);
+      expectedValuesByFunction.set(site.functionName, values);
     }
 
     const actualSites: string[] = [];
+    const rawDisplays: string[] = [];
     const visit = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
@@ -222,9 +279,16 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
       }
       if (
         ts.isJsxSelfClosingElement(node) &&
-        jsxName(node.tagName) === "BidiIdentifier"
+        isImportedBidiTag(node.tagName, importBinding, checker)
       ) {
         actualSites.push(actualSiteKey(file, node));
+      }
+      if (ts.isJsxExpression(node)) {
+        const value = directDisplayExpression(file, node);
+        const functionName = enclosingFunctionName(node) ?? "";
+        if (value && expectedValuesByFunction.get(functionName)?.has(value)) {
+          rawDisplays.push(`${functionName}|${value}`);
+        }
       }
       ts.forEachChild(node, visit);
     };
@@ -234,6 +298,11 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
       actualSites,
       expectedSites.map(siteKey),
     );
+    if (rawDisplays.length > 0) {
+      throw new Error(
+        `${fileName} renders audited identifier values outside imported BidiIdentifier: ${rawDisplays.join(", ")}`,
+      );
+    }
   }
 
   for (const [fileName, expectedIds] of Object.entries(EXPECTED_LTR_INPUTS)) {
@@ -244,7 +313,8 @@ export function assertBidiIdentifierPolicy(sources: BidiProductionSources): void
     const visit = (node: ts.Node) => {
       if (
         ts.isJsxSelfClosingElement(node) &&
-        jsxName(node.tagName) === "Input"
+        ts.isIdentifier(node.tagName) &&
+        node.tagName.text === "Input"
       ) {
         const id = stringAttribute(node.attributes, "id");
         if (id && expectedIds.includes(id)) {

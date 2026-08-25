@@ -344,6 +344,39 @@ function assertStyleObjectsUseLogicalProperties(
   objects,
   declarations,
 ) {
+  const resolveStaticStrings = (expression, resolving = new Set()) => {
+    const current = unwrapExpression(expression);
+    const literal = literalText(current);
+    if (literal !== null) return [literal];
+    if (ts.isConditionalExpression(current)) {
+      return [
+        ...resolveStaticStrings(current.whenTrue, resolving),
+        ...resolveStaticStrings(current.whenFalse, resolving),
+      ];
+    }
+    if (
+      ts.isBinaryExpression(current) &&
+      (current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+        current.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    ) {
+      return [
+        ...resolveStaticStrings(current.left, resolving),
+        ...resolveStaticStrings(current.right, resolving),
+      ];
+    }
+    if (ts.isIdentifier(current)) {
+      const declaration = resolveVariableDeclaration(current, declarations);
+      if (!declaration || resolving.has(declaration)) {
+        throw new Error(
+          `${fileName} inline style value ${current.text} is not lexically resolvable`,
+        );
+      }
+      const nextResolving = new Set(resolving);
+      nextResolving.add(declaration);
+      return resolveStaticStrings(declaration.initializer, nextResolving);
+    }
+    throw new Error(`${fileName} inline style value is not statically resolvable`);
+  };
   const inspect = (object) => {
     for (const property of object.properties) {
       if (ts.isSpreadAssignment(property)) {
@@ -376,8 +409,11 @@ function assertStyleObjectsUseLogicalProperties(
       }
       if (
         propertyName === "textAlign" &&
-        ts.isPropertyAssignment(property) &&
-        literalText(property.initializer)?.match(/^(?:left|right)$/)
+        resolveStaticStrings(
+          ts.isPropertyAssignment(property) ? property.initializer : property.name,
+        ).some((value) =>
+          /^(?:left|right)$/i.test(value),
+        )
       ) {
         throw new Error(`${fileName} inline textAlign must be logical`);
       }
@@ -387,11 +423,22 @@ function assertStyleObjectsUseLogicalProperties(
 }
 
 function utilityBase(token) {
-  return token.slice(token.lastIndexOf(":") + 1);
+  return splitVariants(token).at(-1) ?? "";
 }
 
 function isPhysicalUtility(token) {
-  const base = utilityBase(token);
+  const base = utilityBase(token).toLowerCase();
+  const arbitrary = /^\[([\w-]+):(.+)\]$/.exec(base);
+  if (arbitrary) {
+    const [, property, value] = arbitrary;
+    const normalizedValue = value.replaceAll("_", " ");
+    return (
+      isPhysicalCssProperty(property) ||
+      isPhysicalCssValue(property, normalizedValue) ||
+      (["margin", "padding", "border-radius"].includes(property) &&
+        !shorthandIsDirectionNeutral(property, normalizedValue))
+    );
+  }
   return /^(?:-?(?:ml|mr|pl|pr)-.+|-?(?:left|right)-.+|border-(?:l|r)(?:-.+)?|text-(?:left|right)|rounded-(?:l|r|tl|tr|bl|br)(?:-.+)?|float-(?:left|right)|clear-(?:left|right)|space-x(?:-.+)?|divide-x(?:-.+)?)$/.test(
     base,
   );
@@ -621,7 +668,9 @@ function cssDeclarations(source) {
 }
 
 function shorthandIsDirectionNeutral(property, value) {
-  const tokens = cssValueTokens(value).filter((token) => token !== "!important");
+  const tokens = cssValueTokens(value).filter(
+    (token) => token.toLowerCase() !== "!important",
+  );
   const groups = [[]];
   for (const token of tokens) {
     if (property === "border-radius" && token === "/") groups.push([]);
@@ -641,22 +690,30 @@ function shorthandIsDirectionNeutral(property, value) {
   });
 }
 
+function isPhysicalCssProperty(property) {
+  return /^(?:(?:margin|padding)-(?:left|right)|(?:left|right)|border-(?:left|right)(?:-(?:width|style|color))?|border-(?:top|bottom)-(?:left|right)-radius)$/i.test(
+    property,
+  );
+}
+
+function isPhysicalCssValue(property, value) {
+  if (!/^(?:text-align|float|clear)$/i.test(property)) return false;
+  return /^(?:left|right)(?:\s*!important)?$/i.test(value.trim());
+}
+
 function assertCssUsesLogicalProperties(fileName, source) {
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
-  const physicalProperty =
-    /(?:^|[;{]\s*)(?:(?:margin|padding|border(?:-width|-style|-color)?)-(?:left|right)|left|right)\s*:/m;
-  const physicalValue =
-    /(?:^|[;{]\s*)(?:text-align|float|clear)\s*:\s*(?:left|right)\b/m;
-  if (
-    physicalProperty.test(withoutComments) ||
-    physicalValue.test(withoutComments)
-  ) {
-    throw new Error(`${fileName} contains a physical-direction CSS declaration`);
-  }
   for (const { property, value } of cssDeclarations(withoutComments)) {
+    const canonicalProperty = property.toLowerCase();
     if (
-      ["margin", "padding", "border-radius"].includes(property) &&
-      !shorthandIsDirectionNeutral(property, value)
+      isPhysicalCssProperty(canonicalProperty) ||
+      isPhysicalCssValue(canonicalProperty, value)
+    ) {
+      throw new Error(`${fileName} contains a physical-direction CSS declaration`);
+    }
+    if (
+      ["margin", "padding", "border-radius"].includes(canonicalProperty) &&
+      !shorthandIsDirectionNeutral(canonicalProperty, value)
     ) {
       throw new Error(`${fileName} contains an asymmetric physical CSS shorthand`);
     }
