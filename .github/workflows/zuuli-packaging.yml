@@ -391,7 +391,7 @@ jobs:
       - run: npm ci
       - name: Test Linux artifact inspectors against real packages
         if: runner.os == 'Linux'
-        run: node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping' scripts/artifact-sbom.node-test.mjs
+        run: node scripts/run-linux-artifact-fixtures.mjs
       - run: npm run release:verify
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
