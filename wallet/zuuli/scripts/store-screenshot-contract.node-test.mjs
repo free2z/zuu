@@ -252,6 +252,7 @@ test("creator capture pins the authoritative first catalog page and rejects deco
   for (const drifted of [
     "GET https://free2z.cash/api/zpage/?ordering=-created_at&page_size=12&username=example_editorial",
     "GET https://free2z.cash/api/zpage/?ordering=-created_at&page=2&page_size=12&username=example_editorial",
+    "GET https://free2z.cash/api/zpage/?ordering=-created_at&page=1&page_size=24&username=example_editorial",
     "GET https://free2z.cash/api/zpage/?note=page%3D1&ordering=-created_at&page_size=12&username=example_editorial",
     "GET https://free2z.cash/api/creator/example_editorial/?page=1",
   ]) {
