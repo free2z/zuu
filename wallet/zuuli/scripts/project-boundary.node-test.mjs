@@ -48,6 +48,16 @@ async function fixture(files = {}, dependencyOverrides = {}) {
       JSON.stringify({ name: project, private: true, dependencies }),
     );
     await writeFile(path.join(root, project, "src/local.ts"), "export const local = true;\n");
+    await writeFile(
+      path.join(root, project, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions:
+          project === "zuuli"
+            ? { baseUrl: ".", paths: { "@/*": ["./src/*"] } }
+            : {},
+        include: ["src"],
+      }),
+    );
   }
   for (const relative of REQUIRED_PRODUCTION_CONSUMERS) {
     const target = path.join(root, relative);
@@ -79,6 +89,11 @@ test("current wallet source graph has no undeclared project crossing", async () 
   const result = await assertProjectBoundaries(walletRoot);
   assert.ok(result.fileCount > 100, "live census must traverse both application source trees");
   assert.ok(result.importCount > 300, "live census must parse the production module graph");
+  assert.deepEqual(
+    result.projectDirectories,
+    ["shared", "zuuallet", "zuuli"],
+    "live project population must match every manifest-backed wallet source tree",
+  );
   assert.equal(
     result.productionSharedConsumerCount,
     5,
@@ -137,6 +152,16 @@ for (const [label, source, expected] of [
     "relative import escapes wallet/zuuli",
   ],
   [
+    "CommonJS require.resolve app import",
+    'const secret = require.resolve("../../../../../zuuallet/src/local");',
+    "relative import escapes wallet/zuuli",
+  ],
+  [
+    "TypeScript import-equals app import",
+    'import secret = require("../../../../../zuuallet/src/local");',
+    "relative import escapes wallet/zuuli",
+  ],
+  [
     "relative shared import",
     'import shared from "../../../../shared/session";',
     "relative import escapes wallet/zuuli",
@@ -189,6 +214,174 @@ test("keeps the shared package from depending back on either application", async
       );
     },
   );
+});
+
+test("discovers a future manifest-backed wallet source project", async () => {
+  await withFixture({}, async (root) => {
+    await mkdir(path.join(root, "future-wallet/src"), { recursive: true });
+    await writeFile(
+      path.join(root, "future-wallet/package.json"),
+      JSON.stringify({ name: "future-wallet", private: true }),
+    );
+    await writeFile(
+      path.join(root, "future-wallet/src/local.ts"),
+      "export const future = true;\n",
+    );
+    const result = await assertProjectBoundaries(root);
+    assert.deepEqual(result.projectDirectories, [
+      "future-wallet",
+      "shared",
+      "zuuallet",
+      "zuuli",
+    ]);
+  });
+});
+
+test("rejects a crossing from a future manifest-backed wallet project", async () => {
+  await withFixture({}, async (root) => {
+    await mkdir(path.join(root, "future-wallet/src"), { recursive: true });
+    await writeFile(
+      path.join(root, "future-wallet/package.json"),
+      JSON.stringify({ name: "future-wallet", private: true }),
+    );
+    await writeFile(
+      path.join(root, "future-wallet/src/leak.ts"),
+      'import "../../zuuallet/src/local";\n',
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /relative import escapes wallet\/future-wallet/,
+    );
+  });
+});
+
+test("rejects an inherited TypeScript path alias that escapes its owner", async () => {
+  await withFixture(
+    { "zuuli/src/aliased.ts": 'import "@classic/local";\n' },
+    async (root) => {
+      await writeFile(
+        path.join(root, "zuuli/tsconfig.base.json"),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: ".",
+            paths: { "@classic/*": ["../zuuallet/src/*"] },
+          },
+        }),
+      );
+      await writeFile(
+        path.join(root, "zuuli/tsconfig.json"),
+        JSON.stringify({ extends: "./tsconfig.base.json", include: ["src"] }),
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /TypeScript path alias @classic\/\* escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("rejects an unused effective TypeScript path alias that escapes its owner", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.base.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@classic/*": ["../zuuallet/src/*"] },
+        },
+      }),
+    );
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({ extends: "./tsconfig.base.json", include: ["src"] }),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /TypeScript path alias @classic\/\* escapes wallet\/zuuli/,
+    );
+  });
+});
+
+test("rejects an effective TypeScript baseUrl that escapes its owner", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({ compilerOptions: { baseUrl: "../zuuallet" }, include: ["src"] }),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /TypeScript baseUrl escapes wallet\/zuuli/,
+    );
+  });
+});
+
+test("rejects parent traversal supplied through an otherwise local path alias", async () => {
+  await withFixture(
+    { "zuuli/src/aliased.ts": 'import "@/../../../zuuallet/src/local";\n' },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /TypeScript path alias @\/\* resolves outside wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("allows the named shared alias only when it resolves inside wallet/shared", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: {
+            "@/*": ["./src/*"],
+            "@free2z/wallet-shared": ["../shared/src/index.ts"],
+          },
+        },
+        include: ["src"],
+      }),
+    );
+    await assert.doesNotReject(() => assertProjectBoundaries(root));
+  });
+});
+
+test("rejects a named shared alias that shadows the package inside an app", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@free2z/wallet-shared": ["./src/local.ts"] },
+        },
+        include: ["src"],
+      }),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /named shared TypeScript path alias must resolve inside wallet\/shared/,
+    );
+  });
+});
+
+test("rejects a broad path alias that shadows the named shared package", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@free2z/*": ["./src/*"] },
+        },
+        include: ["src"],
+      }),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /named shared import is shadowed by TypeScript path alias @free2z\/\*/,
+    );
+  });
 });
 
 test("rejects a source symlink that could cross a project boundary", async () => {
@@ -270,23 +463,45 @@ test("rejects a decorative workspace list that omits the shared package", async 
   });
 });
 
-test("rejects a shared manifest that drops its resolvable source export", async () => {
-  await withFixture({}, async (root) => {
-    await writeFile(
-      path.join(root, "shared/package.json"),
-      JSON.stringify({
+for (const [label, mutate, expected] of [
+  [
+    "name",
+    (manifest) => { manifest.name = "@free2z/not-wallet-shared"; },
+    /wallet\/shared package name must equal @free2z\/wallet-shared/,
+  ],
+  [
+    "private flag",
+    (manifest) => { manifest.private = false; },
+    /wallet\/shared package must remain private/,
+  ],
+  [
+    "module type",
+    (manifest) => { manifest.type = "commonjs"; },
+    /wallet\/shared package type must equal "module"/,
+  ],
+  [
+    "source export",
+    (manifest) => { manifest.exports = {}; },
+    /wallet\/shared package export "\." must equal "\.\/src\/index\.ts"/,
+  ],
+]) {
+  test(`rejects a shared manifest with the wrong ${label}`, async () => {
+    await withFixture({}, async (root) => {
+      const manifest = {
         name: "@free2z/wallet-shared",
         private: true,
         type: "module",
-        exports: {},
-      }),
-    );
-    await assert.rejects(
-      () => assertProjectBoundaries(root),
-      /must retain its private ESM @free2z\/wallet-shared package identity and source export/,
-    );
+        exports: { ".": "./src/index.ts" },
+      };
+      mutate(manifest);
+      await writeFile(
+        path.join(root, "shared/package.json"),
+        JSON.stringify(manifest),
+      );
+      await assert.rejects(() => assertProjectBoundaries(root), expected);
+    });
   });
-});
+}
 
 test("rejects a lockfile that does not resolve shared as a workspace link", async () => {
   await withFixture({}, async (root) => {

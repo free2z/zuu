@@ -301,12 +301,30 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
-const REQUIRED_WALLET_PROJECT_BOUNDARY_INPUTS = [
-  "wallet/package.json",
-  "wallet/package-lock.json",
-  "wallet/shared/*",
-  "wallet/zuuallet/*",
-];
+function walletProjectBoundaryInputs(repoRoot) {
+  const walletRoot = path.join(repoRoot, "wallet");
+  const projects = fs
+    .readdirSync(walletRoot, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .filter((entry) => {
+      if (entry.isSymbolicLink()) {
+        throw new Error(`wallet project population contains a symbolic link: wallet/${entry.name}`);
+      }
+      if (!entry.isDirectory()) return false;
+      const projectRoot = path.join(walletRoot, entry.name);
+      return (
+        fs.existsSync(path.join(projectRoot, "package.json")) &&
+        fs.statSync(path.join(projectRoot, "package.json")).isFile() &&
+        fs.existsSync(path.join(projectRoot, "src")) &&
+        fs.statSync(path.join(projectRoot, "src")).isDirectory()
+      );
+    })
+    .map((entry) => `wallet/${entry.name}/*`);
+  if (projects.length === 0) {
+    throw new Error("wallet project population contains no package manifest with a src directory");
+  }
+  return ["wallet/package.json", "wallet/package-lock.json", ...projects];
+}
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
     "test",
@@ -1478,7 +1496,7 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   return failures;
 }
 
-function requiredWasmSelectorFailures(relativeFile, lines, changes) {
+function requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes) {
   const failures = [];
   const steps = policyJobSteps(
     relativeFile,
@@ -1532,7 +1550,7 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
       .filter((line) => line.endsWith(")"))
       .flatMap((line) => line.slice(0, -1).split("|")),
   );
-  for (const input of REQUIRED_WALLET_PROJECT_BOUNDARY_INPUTS) {
+  for (const input of walletProjectBoundaryInputs(repoRoot)) {
     if (!allZuuliPatterns.has(input)) {
       failures.push(
         `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the project boundary for ${input}`,
@@ -2652,7 +2670,7 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     );
     if (enforceWasmBoundary) {
       failures.push(
-        ...requiredWasmSelectorFailures(relativeFile, lines, changes),
+        ...requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes),
       );
     }
     if (enforceNativeClippy) {
@@ -3590,6 +3608,80 @@ function runRustRootWorkflowMutationTests(repoRoot) {
   return cases;
 }
 
+function runWalletProjectDiscoveryTests(repoRoot) {
+  const fixtureRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "wallet-workflow-project-discovery-"),
+  );
+  try {
+    const walletRoot = path.join(fixtureRoot, "wallet");
+    fs.mkdirSync(walletRoot, { recursive: true });
+    for (const project of ["future-wallet", "shared", "zuuallet", "zuuli"]) {
+      const projectRoot = path.join(walletRoot, project);
+      fs.mkdirSync(path.join(projectRoot, "src"), { recursive: true });
+      fs.writeFileSync(
+        path.join(projectRoot, "package.json"),
+        `${JSON.stringify({ name: project, private: true })}\n`,
+      );
+    }
+    fs.mkdirSync(path.join(walletRoot, "documentation", "src"), {
+      recursive: true,
+    });
+    const inputs = walletProjectBoundaryInputs(fixtureRoot);
+    const expected = [
+      "wallet/package.json",
+      "wallet/package-lock.json",
+      "wallet/future-wallet/*",
+      "wallet/shared/*",
+      "wallet/zuuallet/*",
+      "wallet/zuuli/*",
+    ];
+    if (JSON.stringify(inputs) !== JSON.stringify(expected)) {
+      throw new Error(
+        `wallet project discovery population drifted: ${JSON.stringify(inputs)}`,
+      );
+    }
+    console.log("self-test: future wallet source project joins selector population: passed");
+
+    const relative = path.join(".github", "workflows", "zuuli.yml");
+    const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
+    const selectorFailures = (workflowSource) => {
+      const lines = workflowSource.split(/\r?\n/);
+      const failures = [];
+      const changes = policyWorkflowJobs(relative, lines, failures).get("changes");
+      if (!changes) {
+        failures.push(`${relative}: required workflow must contain the changes job`);
+        return failures;
+      }
+      failures.push(
+        ...requiredWasmSelectorFailures(fixtureRoot, relative, lines, changes),
+      );
+      return failures;
+    };
+    const missing = selectorFailures(source);
+    const needle =
+      "ZUULI selector must run the project boundary for wallet/future-wallet/*";
+    if (!missing.some((failure) => failure.includes(needle))) {
+      throw new Error(
+        `future wallet selector drift escaped policy: ${missing.join("; ") || "success"}`,
+      );
+    }
+    console.log("self-test: future wallet without selector coverage is rejected: passed");
+
+    const coveredSource = source.replace(
+      "|wallet/shared/*",
+      "|wallet/future-wallet/*|wallet/shared/*",
+    );
+    const covered = selectorFailures(coveredSource);
+    if (covered.some((failure) => failure.includes(needle))) {
+      throw new Error(`future wallet selector coverage was not recognized: ${covered.join("; ")}`);
+    }
+    console.log("self-test: future wallet exact selector coverage is recognized: passed");
+    return 3;
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 function runCurrentWorkflowMutationTests(repoRoot) {
   const relative = path.join(".github", "workflows", "zuuli.yml");
   const source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
@@ -4169,9 +4261,12 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "Zuuallet schema selector must cover scripts/check-librustzcash-compat.mjs",
       source: replaceLast(source, "|scripts/check-librustzcash-compat.mjs", ""),
     },
-    ...REQUIRED_WALLET_PROJECT_BOUNDARY_INPUTS.map((input) => ({
+    ...walletProjectBoundaryInputs(repoRoot).map((input) => ({
       name: `real workflow selects project-boundary input ${input}`,
-      needle: `ZUULI selector must run the project boundary for ${input}`,
+      needle:
+        input === "wallet/zuuli/*"
+          ? "ZUULI selector must contain one active wallet/zuuli/* case pattern"
+          : `ZUULI selector must run the project boundary for ${input}`,
       source: source.replace(`|${input}`, ""),
     })),
     {
@@ -5915,12 +6010,14 @@ function runSelfTest(repoRoot) {
     console.log(`self-test: gate verdict: ${testCase.name}: passed`);
   }
   const currentWorkflowMutations = runCurrentWorkflowMutationTests(repoRoot);
+  const projectDiscoveryMutations = runWalletProjectDiscoveryTests(repoRoot);
   const frontendBuildMutations =
     runFrontendBuildContractMutationTests(repoRoot);
   const rustRootWorkflowMutations = runRustRootWorkflowMutationTests(repoRoot);
   console.log(
     `self-test: ${cases.length} source-policy, ${gateResultCases.length} gate-verdict, ` +
-      `${currentWorkflowMutations} current-workflow, ${frontendBuildMutations} frontend-build, ` +
+      `${currentWorkflowMutations} current-workflow, ${projectDiscoveryMutations} project-discovery, ` +
+      `${frontendBuildMutations} frontend-build, ` +
       `and ${rustRootWorkflowMutations} Rust-root ownership mutation case(s) passed.`,
   );
 }
