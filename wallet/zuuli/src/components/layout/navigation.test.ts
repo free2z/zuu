@@ -29,8 +29,13 @@ describe("app navigation information architecture", () => {
       "articles",
       "sign-in",
     ]);
+    // Messaging is signed-in only, so it appears here and not in the
+    // signed-out list above. CLIENT-CONTRACT.md §2.4 places it at
+    // `{ area: "more", order: 0 }`; articles already holds that order, so the
+    // two tie and declaration order puts messaging second.
     expect(mobileMoreNavigation(true).map((item) => item.id)).toEqual([
       "articles",
+      "messages",
       "profile",
       "revenue-share",
     ]);
@@ -48,11 +53,14 @@ describe("app navigation information architecture", () => {
       "wallet",
       "sign-in",
     ]);
+    // Messaging is `tools` order 1, directly after AI at order 0, and before
+    // the `money` group (CLIENT-CONTRACT.md §2.4).
     expect(desktopNavigation(true).map((item) => item.id)).toEqual([
       "home",
       "live",
       "articles",
       "ai",
+      "messages",
       "wallet",
       "profile",
       "revenue-share",

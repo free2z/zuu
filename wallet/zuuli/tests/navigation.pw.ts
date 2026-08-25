@@ -130,8 +130,11 @@ for (const signedIn of [false, true]) {
       );
       const moreNavigation = dialog.getByRole("navigation", { name: "More navigation" });
       const rows = moreNavigation.getByRole("link");
+      // Messaging is signed-in only, and CLIENT-CONTRACT.md §2.4 places it at
+      // `{ area: "more", order: 0 }`. Articles already holds that order, so the
+      // two tie and declaration order puts Messages second.
       const expectedNames = signedIn
-        ? ["Articles", "Edit profile", "Revenue share"]
+        ? ["Articles", "Messages", "Edit profile", "Revenue share"]
         : ["Articles", "Log in"];
       await expect(rows).toHaveCount(expectedNames.length);
       for (const name of expectedNames) {

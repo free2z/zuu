@@ -4,6 +4,7 @@ import {
   Home,
   LogIn,
   Menu,
+  MessagesSquare,
   Radio,
   ShieldCheck,
   Sparkles,
@@ -97,6 +98,19 @@ export const NAVIGATION: readonly NavigationItem[] = [
     auth: "always",
     desktop: { group: "tools", order: 0 },
     mobile: { area: "primary", label: "AI", order: 2 },
+  },
+  {
+    id: "messages",
+    kind: "route",
+    to: "/messages",
+    label: "Messages",
+    accessibleLabel: "Encrypted messages",
+    icon: MessagesSquare,
+    auth: "signed-in",
+    desktop: { group: "tools", order: 1 },
+    // Mobile's primary area is full; promoting messaging means demoting
+    // something else, which is a product decision this does not make.
+    mobile: { area: "more", order: 0 },
   },
   {
     id: "wallet",
