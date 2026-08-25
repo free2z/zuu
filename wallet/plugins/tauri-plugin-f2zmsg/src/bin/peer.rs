@@ -298,13 +298,24 @@ async fn run() -> std::result::Result<String, String> {
     // Every message this device holds, in §7's order, so the test can assert
     // that a `parents` hash always names something held — which is the property that makes gap
     // detection a certainty rather than a guess (§3.5).
-    let held: Vec<String> = engine
+    let page = engine
         .list_messages(&conversation_id, 100, None, None)
         .await
-        .map_err(|error| describe(&error))?
+        .map_err(|error| describe(&error))?;
+    let held: Vec<String> = page
         .messages
-        .into_iter()
-        .map(|message| message.msg_id)
+        .iter()
+        .map(|message| message.msg_id.clone())
+        .collect();
+    // Each held message's parents, in the same order, so the test can assert
+    // §7's primary half: every parent appears *earlier* in the page than the
+    // message referencing it. That is the property the sort key alone does not
+    // give — a reply from the lower leaf index sorts above what it answers —
+    // and it is what `list_messages` exists to have already decided.
+    let held_parents: Vec<Vec<String>> = page
+        .messages
+        .iter()
+        .map(|message| message.parents.clone())
         .collect();
     let gaps = engine
         .list_gaps(&conversation_id)
@@ -342,6 +353,7 @@ async fn run() -> std::result::Result<String, String> {
         "receivedSecondMsgId": received_second.msg_id,
         "receivedSecondParents": received_second.parents,
         "held": held,
+        "heldParents": held_parents,
         "gaps": gaps,
         "unreadAfterFirst": unread_after_first,
         "unreadAfterLast": unread_after_last,

@@ -61,6 +61,7 @@ struct Report {
     received_second_msg_id: String,
     received_second_parents: Vec<String>,
     held: Vec<String>,
+    held_parents: Vec<Vec<String>>,
     gaps: usize,
     unread_after_first: u32,
     unread_after_last: u32,
@@ -197,6 +198,30 @@ async fn two_instances_exchange_a_message_over_a_real_relay() {
     // ancestor and whether one references the other is scheduling's to decide.
     // An earlier version of this test asserted an edge there and was flaky for
     // exactly that reason.
+
+    // §7's primary half, over a real transcript: every parent appears earlier
+    // in the page than the message referencing it.
+    //
+    // This is the defect zuu#733 filed against the TypeScript comparator and
+    // that this plugin had in Rust for the same reason — the tie-break mistaken
+    // for the order. `f2z-msg-dag` owns the linearisation and has its own test
+    // for it; what this asserts is that *paging* over the result preserves it,
+    // which is the plugin's half and is not covered there.
+    for report in [&alice, &bob] {
+        assert_eq!(report.held.len(), report.held_parents.len());
+        for (position, parents) in report.held_parents.iter().enumerate() {
+            for parent in parents {
+                let parent_at = report.held.iter().position(|id| id == parent);
+                assert!(
+                    parent_at.is_some_and(|at| at < position),
+                    "{}: {parent} is a parent of the message at {position} and is not before it \
+                     (order: {:?})",
+                    report.handle,
+                    report.held,
+                );
+            }
+        }
+    }
 
     for report in [&alice, &bob] {
         assert!(
