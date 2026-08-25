@@ -387,8 +387,7 @@ fn a_credential_that_describes_another_device_cannot_build_an_engine() {
     let alice = device("alice", 11, 111);
 
     // Mallory's credential names device key 44; her engine would sign with 55.
-    let (credential, _real_device) =
-        issue_credential("mallory", 33, 44, NOW - 1000, NOW + 1000);
+    let (credential, _real_device) = issue_credential("mallory", 33, 44, NOW - 1000, NOW + 1000);
     let other_signer = f2z_msg_mls::DeviceSigner::from_private_key([55u8; 32]);
 
     assert!(matches!(
