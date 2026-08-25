@@ -830,6 +830,7 @@ impl<B: StorageBackend> Engine<B> {
             envelope: hex::encode(envelope.as_bytes()),
             retry_ciphertext: Some(hex::encode(&ciphertext)),
             text: Some(body.to_owned()),
+            client_ref: Some(client_ref.to_owned()),
             unrecoverable: None,
             type_tag: None,
             ceremony: false,
@@ -855,8 +856,10 @@ impl<B: StorageBackend> Engine<B> {
             let mut transcript = records.transcript(conversation_id)?;
             transcript.insert(key.to_cursor(), msg_id.clone());
             records.put_transcript(conversation_id, &transcript)?;
-            // The DAG advances: this message now covers every previous head.
-            records.put_heads(conversation_id, std::slice::from_ref(&msg_id))
+            // The DAG advances: this message covers every head it referenced.
+            records
+                .advance_heads(conversation_id, &msg_id, &heads)
+                .map(|_| ())
         })?;
 
         let delivery = inner.deliver(&stored, &msg_id, &ciphertext, now).await?;
@@ -898,7 +901,11 @@ impl<B: StorageBackend> Engine<B> {
         self.sink.message_state(&delivery);
         Ok(SendAccepted {
             msg_id: msg_id.to_owned(),
-            client_ref: String::new(),
+            // The one the original `send_message` was given. `retry_send` takes
+            // only a `msgId`, so without retaining it this would answer with a
+            // key the frontend never issued and the optimistic row it is meant
+            // to reconcile would be stranded.
+            client_ref: message.client_ref.clone().unwrap_or_default(),
             state: delivery.state,
         })
     }
@@ -2033,6 +2040,11 @@ impl<B: StorageBackend> Inner<B> {
             relays_configured: u32::try_from(relays.len()).unwrap_or(0),
             witness_threshold_met: directory.threshold_met(),
             independent_witnesses: directory.independent_witnesses(),
+            // Zero by construction rather than by omission: every durable
+            // inbound write emits `f2zmsg://message-received` before this
+            // function could next be called, so nothing is ever written and
+            // unsurfaced. It stops being a constant the day a batch write
+            // lands between the store commit and the emit.
             pending_inbound: 0,
             unacknowledged_alarms: u32::try_from(
                 alarms
@@ -2349,9 +2361,15 @@ impl<B: StorageBackend> Inner<B> {
     }
 
     /// Encrypt and append a non-chat §7 payload: a hint, a purge request, a gap
-    /// request or response. Not recorded in the transcript — none of these is a
-    /// message — but it does advance the DAG, because a receiver must be able to
-    /// see that it holds every parent.
+    /// request or response.
+    ///
+    /// It **carries** `parents` but does not **become** one. Carrying them lets
+    /// a receiver notice a hole in the chat history it is about to act on;
+    /// becoming a head would put a courtesy signal into the causal history of
+    /// every message after it, and a receiver that missed one would then see a
+    /// permanent gap for something that is not a message. §7's `type` list
+    /// includes these, so the choice is the contract's to settle rather than
+    /// this file's — it is recorded in the plugin README under "Disagreements".
     async fn send_control(
         &mut self,
         stored: &StoredConversation,
@@ -3193,6 +3211,9 @@ impl<B: StorageBackend> Inner<B> {
                     envelope: hex::encode(envelope.as_bytes()),
                     retry_ciphertext: None,
                     text,
+                    // Inbound. `clientRef` is the *sender's* optimistic-row key
+                    // and never crosses the wire.
+                    client_ref: None,
                     unrecoverable: None,
                     type_tag: match envelope.kind() {
                         AppKind::Chat => None,
@@ -3226,7 +3247,7 @@ impl<B: StorageBackend> Inner<B> {
                     let mut transcript = records.transcript(&conversation_id)?;
                     transcript.insert(key.to_cursor(), msg_id.clone());
                     records.put_transcript(&conversation_id, &transcript)?;
-                    records.put_heads(&conversation_id, std::slice::from_ref(&msg_id))?;
+                    records.advance_heads(&conversation_id, &msg_id, &message.parents)?;
                     records.put_conversation(&stored_snapshot)
                 })?;
 
@@ -3314,6 +3335,7 @@ impl<B: StorageBackend> Inner<B> {
                         envelope: hex_envelope.clone(),
                         retry_ciphertext: None,
                         text: Some(String::from_utf8_lossy(recovered.body()).into_owned()),
+                        client_ref: None,
                         unrecoverable: None,
                         type_tag: None,
                         ceremony: false,
@@ -3465,6 +3487,7 @@ impl<B: StorageBackend> Inner<B> {
             envelope: String::new(),
             retry_ciphertext: None,
             text: None,
+            client_ref: None,
             unrecoverable: Some(UnrecoverableCause::GapUnrecoverable),
             type_tag: None,
             ceremony: false,

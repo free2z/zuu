@@ -57,6 +57,11 @@ struct Report {
     received_epoch: u64,
     received_sender_leaf_index: u32,
     received_parents: Vec<String>,
+    sent_second_msg_id: String,
+    received_second_msg_id: String,
+    received_second_parents: Vec<String>,
+    held: Vec<String>,
+    gaps: usize,
     events: Vec<String>,
 }
 
@@ -155,13 +160,64 @@ async fn two_instances_exchange_a_message_over_a_real_relay() {
         );
     }
 
-    // Bob answered alice, so his reply references hers: the DAG is real and not
-    // an empty parent set on both sides.
+    // Round two crossed as well.
+    assert_eq!(alice.sent_second_msg_id, bob.received_second_msg_id);
+    assert_eq!(bob.sent_second_msg_id, alice.received_second_msg_id);
+
+    // The DAG, asserted without racing on it.
+    //
+    // Round one is deliberately *not* asserted to be linked: both peers send
+    // without waiting, so those two messages are genuinely concurrent — neither
+    // references the other, and which of the four possible interleavings
+    // happens is a matter of scheduling. An earlier version of this test
+    // asserted a direct edge there and was flaky for exactly that reason. What
+    // is true in every interleaving is stated instead:
+    //
+    //   * a message sent after a round trip has a non-empty `parents`;
+    //   * every hash in it names a message the receiver holds;
+    //   * and therefore no gap was ever detected.
+    //
+    // The last one is the load-bearing assertion. §3.5: a receiver holding a
+    // `parents` hash it does not have knows a message is missing, with no
+    // server assistance — so a non-empty gap list here would mean the head set
+    // dropped something. That is the defect the flake found: heads were
+    // collapsed to "the last message seen", so a concurrent message vanished
+    // from the next `parents` and the peer could never have noticed its loss.
+    // Round one is concurrent, and this states that rather than leaving it to
+    // the reader: at least one side saw an empty parent set, because at least
+    // one of the two sent before hearing anything. Which side is scheduling's
+    // to decide, so the assertion is over the pair.
     assert!(
-        alice.received_parents.contains(&alice.sent_msg_id)
-            || bob.received_parents.contains(&bob.sent_msg_id),
-        "neither reply referenced the message it answered; the DAG is not being carried"
+        alice.received_parents.is_empty() || bob.received_parents.is_empty(),
+        "neither round-one message was concurrent, which this handshake cannot arrange"
     );
+
+    for report in [&alice, &bob] {
+        assert!(
+            !report.received_second_parents.is_empty(),
+            "{}: a message sent after a full round trip referenced nothing",
+            report.handle
+        );
+        for parent in &report.received_second_parents {
+            assert!(
+                report.held.contains(parent),
+                "{}: a parent hash names {parent}, which this device does not hold",
+                report.handle
+            );
+        }
+        assert_eq!(
+            report.gaps, 0,
+            "{}: a gap was detected in a conversation that lost nothing",
+            report.handle
+        );
+        assert_eq!(
+            report.held.len(),
+            4,
+            "{}: expected two messages each way, held {:?}",
+            report.handle,
+            report.held
+        );
+    }
 
     // Printed rather than only asserted, because this transcript is the
     // evidence the pull request quotes and a reviewer should be able to

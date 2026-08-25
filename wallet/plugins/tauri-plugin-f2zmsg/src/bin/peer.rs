@@ -274,26 +274,43 @@ async fn run() -> std::result::Result<String, String> {
     .await
     .ok_or("the conversation never became sendable")?;
 
+    // Round one. Both peers send without waiting, so the two messages are
+    // genuinely concurrent in the DAG — neither references the other, which is
+    // what concurrent *means* and is the ordinary case in a live conversation.
     let accepted = engine
         .send_message(&conversation_id, &options.send, "harness-ref-1")
         .await
         .map_err(|error| describe(&error))?;
+    let received = await_text(&engine, &conversation_id, &options.expect, options.timeout).await?;
 
-    let received = poll(&engine, options.timeout, || async {
-        let page = engine
-            .list_messages(&conversation_id, 50, None, None)
-            .await
-            .ok()?;
-        page.messages.into_iter().find(|message| {
-            matches!(
-                &message.body,
-                tauri_plugin_f2zmsg::models::MessageBody::Text { text }
-                    if text == &options.expect
-            )
-        })
-    })
-    .await
-    .ok_or_else(|| format!("{:?} never arrived", options.expect))?;
+    // Round two, sent strictly after round one arrived. This one is *causally
+    // after* the peer's first message, so its `parents` must contain it — which
+    // is the assertion round one cannot make without racing.
+    let second_send = format!("{} (2)", options.send);
+    let second_expect = format!("{} (2)", options.expect);
+    let accepted_second = engine
+        .send_message(&conversation_id, &second_send, "harness-ref-2")
+        .await
+        .map_err(|error| describe(&error))?;
+    let received_second =
+        await_text(&engine, &conversation_id, &second_expect, options.timeout).await?;
+
+    // Every message this device holds, so the test can assert that a `parents`
+    // hash always names something held — which is the property that makes gap
+    // detection a certainty rather than a guess (§3.5).
+    let held: Vec<String> = engine
+        .list_messages(&conversation_id, 100, None, None)
+        .await
+        .map_err(|error| describe(&error))?
+        .messages
+        .into_iter()
+        .map(|message| message.msg_id)
+        .collect();
+    let gaps = engine
+        .list_gaps(&conversation_id)
+        .await
+        .map_err(|error| describe(&error))?
+        .len();
 
     let events: Vec<&'static str> = sink.seen().into_iter().map(|(name, _)| name).collect();
     let report = serde_json::json!({
@@ -304,6 +321,11 @@ async fn run() -> std::result::Result<String, String> {
         "receivedEpoch": received.epoch,
         "receivedSenderLeafIndex": received.sender_leaf_index,
         "receivedParents": received.parents,
+        "sentSecondMsgId": accepted_second.msg_id,
+        "receivedSecondMsgId": received_second.msg_id,
+        "receivedSecondParents": received_second.parents,
+        "held": held,
+        "gaps": gaps,
         "events": events,
     });
     Ok(report.to_string())
@@ -429,6 +451,29 @@ fn wait_for_peer(options: &Options) -> std::result::Result<(), String> {
 
 fn readable(path: &Path) -> bool {
     std::fs::read(path).is_ok_and(|bytes| serde_json::from_slice::<Published>(&bytes).is_ok())
+}
+
+/// Pump until a message with exactly this text has been durably written.
+async fn await_text(
+    engine: &Engine<SqliteBackend>,
+    conversation_id: &str,
+    text: &str,
+    timeout: Duration,
+) -> std::result::Result<tauri_plugin_f2zmsg::models::Message, String> {
+    poll(engine, timeout, || async {
+        let page = engine
+            .list_messages(conversation_id, 100, None, None)
+            .await
+            .ok()?;
+        page.messages.into_iter().find(|message| {
+            matches!(
+                &message.body,
+                tauri_plugin_f2zmsg::models::MessageBody::Text { text: body } if body == text
+            )
+        })
+    })
+    .await
+    .ok_or_else(|| format!("{text:?} never arrived"))
 }
 
 /// Drive the inbound pump until a condition holds, or give up.

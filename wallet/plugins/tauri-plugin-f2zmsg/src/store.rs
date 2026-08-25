@@ -319,6 +319,13 @@ pub struct StoredMessage {
     pub retry_ciphertext: Option<String>,
     /// `None` for a message whose body this build does not understand.
     pub text: Option<String>,
+    /// The frontend's own idempotency key for its optimistic row (§3.4).
+    ///
+    /// Retained so `retry_send` can echo the same one back. It is the client's
+    /// dedup key and not the protocol's — `msg_id` is that — and a retry that
+    /// answered with a different `clientRef` would leave the optimistic row it
+    /// was supposed to reconcile stranded.
+    pub client_ref: Option<String>,
     /// Set when the plaintext is gone — a repair that could not be made, or a
     /// retention sweep. The transcript renders the §3.4 marker, never nothing.
     pub unrecoverable: Option<UnrecoverableCause>,
@@ -547,6 +554,31 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
 
     pub fn put_heads(&self, conversation_id: &str, heads: &[String]) -> Result<()> {
         self.put(&keys::heads(conversation_id), &heads.to_vec())
+    }
+
+    /// Fold one message into the head set: it covers everything it references,
+    /// and becomes a head itself.
+    ///
+    /// **The set matters, and a single "latest message" is not it.** Two
+    /// participants who send before either has heard the other produce two
+    /// messages that reference nothing in common — that is what *concurrent*
+    /// means in a causal DAG, and it is the ordinary case in a live
+    /// conversation, not an edge case. Collapsing the head set to whichever
+    /// message this device saw last would silently drop the other from the next
+    /// message's `parents`, and a receiver would then have no dangling hash to
+    /// notice a gap by (§3.5). Gap detection is only a certainty if `parents`
+    /// really is every unreferenced message.
+    pub fn advance_heads(
+        &self,
+        conversation_id: &str,
+        msg_id: &str,
+        parents: &[String],
+    ) -> Result<Vec<String>> {
+        let mut heads = self.heads(conversation_id)?;
+        heads.retain(|head| !parents.iter().any(|parent| parent == head) && head != msg_id);
+        heads.push(msg_id.to_owned());
+        self.put_heads(conversation_id, &heads)?;
+        Ok(heads)
     }
 
     // -- gaps, purges, contact requests, alarms ----------------------------
