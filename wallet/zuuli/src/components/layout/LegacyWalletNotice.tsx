@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { wallet } from "@/lib/wallet/bridge";
@@ -70,21 +70,61 @@ function PreviewResult({ preview }: { preview: LegacyImportPreview }) {
 
 export function LegacyWalletNotice() {
   const legacy = useWallet((state) => state.status?.legacyAppData);
+  const authorityActive = legacy?.state === "importPending";
   const [preview, setPreview] = useState<LegacyImportPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
-  if (legacy?.state !== "importPending") return null;
+  const sequence = useRef(0);
+  const activeRequest = useRef<number | null>(null);
+  const authority = useRef(authorityActive);
+
+  if (authority.current && !authorityActive) {
+    sequence.current += 1;
+    activeRequest.current = null;
+  }
+  authority.current = authorityActive;
+
+  useEffect(() => {
+    if (!authorityActive) {
+      setPreview(null);
+      setFailed(false);
+      setLoading(false);
+    }
+  }, [authorityActive]);
+
+  useEffect(
+    () => () => {
+      authority.current = false;
+      sequence.current += 1;
+      activeRequest.current = null;
+    },
+    [],
+  );
+
+  if (!authorityActive) return null;
 
   const inspect = async () => {
+    if (activeRequest.current !== null) return;
+    const request = sequence.current + 1;
+    sequence.current = request;
+    activeRequest.current = request;
     setLoading(true);
     setFailed(false);
     try {
-      setPreview(await wallet.previewLegacyWalletImport());
+      const result = await wallet.previewLegacyWalletImport();
+      if (activeRequest.current === request) {
+        setPreview(result);
+      }
     } catch {
-      setPreview(null);
-      setFailed(true);
+      if (activeRequest.current === request) {
+        setPreview(null);
+        setFailed(true);
+      }
     } finally {
-      setLoading(false);
+      if (activeRequest.current === request) {
+        activeRequest.current = null;
+        setLoading(false);
+      }
     }
   };
 

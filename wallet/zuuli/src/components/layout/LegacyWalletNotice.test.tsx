@@ -141,15 +141,35 @@ describe("legacy wallet preview notice", () => {
     const button = container.querySelector("button");
     await act(async () => {
       button?.dispatchEvent(new window.Event("click", { bubbles: true }));
+      button?.dispatchEvent(new window.Event("click", { bubbles: true }));
     });
     expect(button?.disabled).toBe(true);
     expect(container.textContent).toContain("Inspecting…");
-    await act(async () => {
-      button?.dispatchEvent(new window.Event("click", { bubbles: true }));
-    });
     expect(controls.preview).toHaveBeenCalledTimes(1);
     await act(async () => resolvePreview(fixture({ state: "absent", layout: null, wallets: [] })));
     expect(button?.disabled).toBe(false);
+  });
+
+  it("discards an in-flight result when native import authority disappears", async () => {
+    let resolvePreview: (value: LegacyImportPreview) => void = () => {};
+    controls.preview.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePreview = resolve;
+      }),
+    );
+    await renderNotice();
+    await clickPreview();
+
+    controls.legacyState = "none";
+    await renderNotice();
+    expect(container.innerHTML).toBe("");
+    controls.legacyState = "importPending";
+    await renderNotice();
+    await act(async () => resolvePreview(fixture()));
+    expect(container.textContent).toContain("Earlier wallet preserved");
+    expect(container.textContent).toContain("Inspect preserved wallet");
+    expect(container.textContent).not.toContain("preserved wallets inspected");
+    expect(controls.preview).toHaveBeenCalledTimes(1);
   });
 
   it.each([
