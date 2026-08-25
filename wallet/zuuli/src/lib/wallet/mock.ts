@@ -6,6 +6,7 @@ import type {
   AccountBalance,
   AccountInfo,
   AddressValidation,
+  LegacyImportPreview,
   PaymentRequest,
   SendProposal,
   SignedChallenge,
@@ -58,6 +59,7 @@ function mockWalletScenario():
   | "empty"
   | "sign-error"
   | "identity-switch"
+  | "legacy-import"
   | "wallet-switch"
   | "slow-restore"
   | "slow-restore-error"
@@ -67,6 +69,7 @@ function mockWalletScenario():
     return value === "empty" ||
       value === "sign-error" ||
       value === "identity-switch" ||
+      value === "legacy-import" ||
       value === "wallet-switch" ||
       value === "slow-restore" ||
       value === "slow-restore-error"
@@ -175,9 +178,13 @@ export const mockWallet = {
         diagnostics: [],
       },
       legacyAppData: {
-        state: "none",
-        legacyIdentifier: null,
-        diagnostic: null,
+        state: scenario === "legacy-import" ? "importPending" : "none",
+        legacyIdentifier:
+          scenario === "legacy-import" ? "com.2zinc.zuuli" : null,
+        diagnostic:
+          scenario === "legacy-import"
+            ? "An earlier ZUULI wallet remains safely preserved."
+            : null,
       },
     };
   },
@@ -188,6 +195,43 @@ export const mockWallet = {
       pendingStages: 0,
       completedStages: 0,
       diagnostics: [],
+    };
+  },
+  previewLegacyWalletImport(): LegacyImportPreview {
+    if (mockWalletScenario() === "legacy-import") {
+      return {
+        state: "ready",
+        layout: "multi",
+        wallets: [
+          {
+            walletId: "browser-fixture-secret-wallet-a",
+            walletName: "browser-fixture-secret-name-a",
+            dbFilename: "browser-fixture-secret-a.sqlite",
+            accountCount: 2,
+            ufvkFingerprints: ["browser-fixture-secret-fingerprint-a"],
+            walPresent: true,
+            shmPresent: true,
+            encryptedCustodyPresent: true,
+          },
+          {
+            walletId: "browser-fixture-secret-wallet-b",
+            walletName: "browser-fixture-secret-name-b",
+            dbFilename: "browser-fixture-secret-b.sqlite",
+            accountCount: 1,
+            ufvkFingerprints: ["browser-fixture-secret-fingerprint-b"],
+            walPresent: false,
+            shmPresent: false,
+            encryptedCustodyPresent: false,
+          },
+        ],
+        diagnostics: ["Browser fixture preview is read-only."],
+      };
+    }
+    return {
+      state: "absent",
+      layout: null,
+      wallets: [],
+      diagnostics: ["No preserved wallet data is available in browser demo mode."],
     };
   },
   createWallet(): WalletCreated {

@@ -13,6 +13,7 @@ import type {
   AccountInfo,
   AddressValidation,
   ExecuteSendResult,
+  LegacyImportPreview,
   PaymentRequest,
   PendingSendStatus,
   SendConfirmation,
@@ -69,6 +70,11 @@ export const wallet = {
   async retryWalletCleanup(): Promise<WalletCleanupStatus> {
     if (useMock()) return mockWallet.retryWalletCleanup();
     return invoke("retry_wallet_cleanup");
+  },
+
+  async previewLegacyWalletImport(): Promise<LegacyImportPreview> {
+    if (useMock()) return mockWallet.previewLegacyWalletImport();
+    return invoke("preview_legacy_wallet_import");
   },
 
   async getSeedPhrase(token: string): Promise<string> {
