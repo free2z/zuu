@@ -85,6 +85,50 @@ zeroize = { version = "1", default-features = false, features = ["derive"] }
 # `wildcards = "deny"` for every dependency including ours.
 f2z-codec = { path = "crates/f2z-codec", version = "0.1.0" }
 
+# ---------------------------------------------------------------------------
+# MLS (RFC 9420), ARCHITECTURE.md §5. Every version here is the one #385
+# measured on real hardware across all nine shipping triples; none of them is
+# free to move on a whim, and the floor beneath `openmls` is enforced by
+# `[[bans.deny]]` in rs/deny.toml rather than by these lines.
+# ---------------------------------------------------------------------------
+
+# The storage trait, and nothing else. `f2z-msg-store` implements
+# `openmls_traits::storage::StorageProvider` and deliberately does **not**
+# depend on `openmls`: the storage layer is defined entirely by the trait, and
+# keeping the engine out of that crate's graph is what lets a browser build the
+# store without the crypto core.
+openmls_traits = { version = "0.5", default-features = false }
+# 0.8.1 is a HARD FLOOR: every earlier release carries the High-severity MAC
+# authentication defect (GHSA-3wpg-h9qc-hjwj / RUSTSEC-2025-0069), and a floor
+# nobody enforces is a comment. rs/deny.toml holds it with `[[bans.deny]]`,
+# because a `[patch.crates-io]`, a path dependency or a vendored copy all walk
+# under a manifest requirement without a word.
+#
+# `default-features = false` and then `libcrux-provider` by name: the default
+# provider is `openmls_rust_crypto`, which is a *second* crypto core, and
+# ADR 0001 has exactly one. `test-utils` is deliberately absent — it pulls
+# `openmls_memory_storage` and `openmls_basic_credential` back in, which are
+# the two crates this tree replaces.
+openmls = { version = "0.8.1", default-features = false, features = [
+  "libcrux-provider",
+] }
+# Cryspen's formally verified core, and the only one this tree links.
+# #385 proved `MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519` on it against the
+# NIST ACVP ML-KEM vectors, RFC 7748, RFC 8032 and draft-connolly-cfrg-xwing-06
+# Appendix C, on nine targets.
+openmls_libcrux_crypto = { version = "0.3.1", default-features = false }
+# `openmls_basic_credential` is NOT here and must not be added. It signs with
+# `ed25519-dalek` and `p256` outside the libcrux provider (#693), which
+# contradicts ADR 0001's single crypto core; `f2z-msg-mls` implements
+# `openmls_traits::signatures::Signer` over the libcrux provider instead.
+
+# The `Entity`/`Key` bounds of `openmls_traits::storage` are serde bounds, so
+# a storage provider cannot avoid serde. `serde_json` is the encoding
+# `openmls_memory_storage` uses, kept identical so that a store written by
+# either implementation is readable by the other.
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
 # The append-only zero-knowledge set, ADR 0013.
 #
 # `>= 0.13.0` is a HARD FLOOR and it is NOT held by these lines. A

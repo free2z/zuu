@@ -1,0 +1,73 @@
+[package]
+name = "f2z-msg-store"
+version = "0.1.0"
+description = "The OpenMLS StorageProvider for free2z messaging: one labelled key/value map, two backends, and an explicit transaction (docs/e2ee/ARCHITECTURE.md §5)"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. Every client links this — ZUULI
+# native, the WASM web client, and any third-party implementation of
+# docs/e2ee/ — and the AGPL-3.0 boundary starts at the server binaries, not
+# here. Stated literally rather than inherited so it is visible to anyone
+# opening the crate. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The native durable backend. On by default so that `cargo test` in CI judges
+# the backend that ships on the desktop and on the phone; the browser target
+# turns it off, and `.github/workflows/rs.yml`'s wasm job builds this crate
+# with `--no-default-features` for exactly that reason. `rusqlite` links
+# SQLite's C amalgamation and cannot reach wasm32 by construction.
+default = ["sqlite"]
+sqlite = ["dep:rusqlite"]
+
+# Off by default, and it must stay off in anything that ships: it compiles a
+# conditional `abort()` into the transaction commit path so that
+# `tests/crash_safety.rs` can kill a real process at a chosen instant. A
+# `[features]` entry rather than `#[cfg(test)]` because the crash has to happen
+# inside the library, in a *separate binary* the test spawns, and `#[cfg(test)]`
+# code does not exist in a dependency build. Mirrors `f2z-relay-store`.
+crash-injection = []
+
+# Forwarded, never decided here. `openmls_traits`'s `extensions-draft-08`
+# feature adds three methods to the trait this crate implements
+# (`write_application_export_tree`, `application_export_tree`,
+# `delete_application_export_tree`). They are implemented under the same gate,
+# so a consumer that turns the extension on in `openmls` gets a provider that
+# still satisfies the trait rather than a compile error.
+extensions-draft-08 = ["openmls_traits/extensions-draft-08"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# The trait this crate exists to implement. Pinned to the line audited in #385;
+# `openmls` itself is not a dependency here — the storage layer is defined
+# entirely by `openmls_traits::storage`, and keeping the engine out of this
+# crate's graph is what lets the browser build it without the crypto core.
+openmls_traits = { workspace = true }
+serde = { workspace = true }
+# The serialisation the trait's `Entity`/`Key` bounds are expressed in. Every
+# value that reaches a backend is `serde_json`, exactly as
+# `openmls_memory_storage` does it, so a store written by one implementation is
+# readable by the other and a reviewer can diff them side by side.
+serde_json = { workspace = true }
+# Native only. `default-features = false` on the dependency is not possible —
+# see the workspace manifest — and the feature gate above is what keeps it off
+# the browser build.
+rusqlite = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+# Already a dependency of the library. Named again here so that
+# `tests/provider.rs` can build the one corrupt store shape no sequence of
+# public calls can produce — see the test that needs it.
+serde_json = { workspace = true }
+# The crash test needs a real file in a real directory that a **child process**
+# can open, so an in-memory database is not an option there. Already in this
+# workspace's dev graph beneath proptest's `rusty-fork`.
+tempfile = "3"
