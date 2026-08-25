@@ -258,6 +258,24 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
   return current;
 }
 
+function staticMemberReference(
+  expression: ts.Expression,
+): { base: ts.Expression; name: string } | null {
+  const current = unwrapExpression(expression);
+  if (ts.isPropertyAccessExpression(current)) {
+    return { base: current.expression, name: current.name.text };
+  }
+  if (
+    ts.isElementAccessExpression(current) &&
+    current.argumentExpression &&
+    (ts.isStringLiteral(current.argumentExpression) ||
+      ts.isNoSubstitutionTemplateLiteral(current.argumentExpression))
+  ) {
+    return { base: current.expression, name: current.argumentExpression.text };
+  }
+  return null;
+}
+
 function sameReference(
   left: ts.Expression,
   right: ts.Expression,
@@ -268,6 +286,14 @@ function sameReference(
   if (ts.isIdentifier(actual) && ts.isIdentifier(expected)) {
     const actualSymbol = checker.getSymbolAtLocation(actual);
     return actualSymbol !== undefined && actualSymbol === checker.getSymbolAtLocation(expected);
+  }
+  const actualMember = staticMemberReference(actual);
+  const expectedMember = staticMemberReference(expected);
+  if (actualMember && expectedMember) {
+    return (
+      actualMember.name === expectedMember.name &&
+      sameReference(actualMember.base, expectedMember.base, checker)
+    );
   }
   if (
     ts.isPropertyAccessExpression(actual) &&
@@ -290,6 +316,36 @@ function sameReference(
     );
   }
   return false;
+}
+
+function destructuredBindingMatchesAuditedSource(
+  binding: ts.BindingElement,
+  auditedSources: readonly ts.Expression[],
+  checker: ts.TypeChecker,
+): boolean {
+  if (!ts.isObjectBindingPattern(binding.parent)) return false;
+  const declaration = binding.parent.parent;
+  if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) {
+    return false;
+  }
+  const property = binding.propertyName ?? binding.name;
+  const propertyName =
+    ts.isIdentifier(property) ||
+    ts.isStringLiteral(property) ||
+    ts.isNoSubstitutionTemplateLiteral(property)
+      ? property.text
+      : null;
+  if (propertyName === null) return false;
+  return auditedSources.some((source) =>
+    auditedReferenceCandidates(source).some((candidate) => {
+      const member = staticMemberReference(candidate);
+      return (
+        member !== null &&
+        member.name === propertyName &&
+        sameReference(declaration.initializer!, member.base, checker)
+      );
+    }),
+  );
 }
 
 function auditedReferenceCandidates(expression: ts.Expression): ts.Expression[] {
@@ -408,6 +464,17 @@ function rendersAuditedValue(
   if (ts.isIdentifier(current)) {
     const symbol = checker.getSymbolAtLocation(current);
     if (!symbol || resolving.has(symbol)) return false;
+    const destructuredBinding = symbol.declarations?.find(ts.isBindingElement);
+    if (
+      destructuredBinding &&
+      destructuredBindingMatchesAuditedSource(
+        destructuredBinding,
+        auditedSources,
+        checker,
+      )
+    ) {
+      return true;
+    }
     const declaration = symbol.declarations?.find(
       (candidate): candidate is ts.VariableDeclaration =>
         ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,

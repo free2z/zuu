@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import walletComponents from "@/features/wallet/components.tsx?raw";
 import historySource from "@/features/wallet/History.tsx?raw";
@@ -51,6 +52,81 @@ function mutate(
   const changed = original.replace(before, after);
   expect(changed, `mutation did not apply to ${file}`).not.toBe(original);
   return { ...sources, [file]: changed };
+}
+
+function parsedSource(file: string, source: string): ts.SourceFile {
+  return ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+}
+
+function insertAfterBidiValue(
+  sources: BidiProductionSources,
+  fileName: (typeof FILES)[number],
+  valueText: string,
+  insertion: string,
+): BidiProductionSources {
+  const source = sources[fileName];
+  const file = parsedSource(fileName, source);
+  const matches: ts.JsxSelfClosingElement[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isJsxSelfClosingElement(node) &&
+      ts.isIdentifier(node.tagName) &&
+      node.tagName.text === "BidiIdentifier" &&
+      node.attributes.properties.some(
+        (property) =>
+          ts.isJsxAttribute(property) &&
+          ts.isIdentifier(property.name) &&
+          property.name.text === "value" &&
+          property.initializer &&
+          ts.isJsxExpression(property.initializer) &&
+          property.initializer.expression?.getText(file) === valueText,
+      )
+    ) {
+      matches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  expect(matches, `unique ${fileName} BidiIdentifier value=${valueText}`).toHaveLength(1);
+  const position = matches[0].end;
+  return {
+    ...sources,
+    [fileName]: `${source.slice(0, position)}${insertion}${source.slice(position)}`,
+  };
+}
+
+function insertIntoFunction(
+  sources: BidiProductionSources,
+  fileName: (typeof FILES)[number],
+  functionName: string,
+  insertion: string,
+): BidiProductionSources {
+  const source = sources[fileName];
+  const file = parsedSource(fileName, source);
+  const matches: ts.FunctionDeclaration[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isFunctionDeclaration(node) &&
+      node.name?.text === functionName &&
+      node.body
+    ) {
+      matches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  expect(matches, `unique function ${functionName} in ${fileName}`).toHaveLength(1);
+  const position = matches[0].body!.getStart(file) + 1;
+  return {
+    ...sources,
+    [fileName]: `${source.slice(0, position)}${insertion}${source.slice(position)}`,
+  };
 }
 
 describe("BidiIdentifier", () => {
@@ -331,6 +407,36 @@ describe("opaque identifier production inventory", () => {
       `              <span>{rawAlias}</span>
               <CopyButton
                 value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects bracket notation for an audited dotted transaction ID", () => {
+    const mutant = insertAfterBidiValue(
+      productionSources(),
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      '<span>{tx["txid"]}</span>',
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects a destructured alias of an audited transaction ID", () => {
+    let mutant = insertIntoFunction(
+      productionSources(),
+      "src/features/wallet/History.tsx",
+      "HistoryRow",
+      "\n  const { txid: leakedTxid } = tx;",
+    );
+    mutant = insertAfterBidiValue(
+      mutant,
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      "<span>{leakedTxid}</span>",
     );
     expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
       /renders audited identifier values outside imported BidiIdentifier/,

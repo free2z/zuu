@@ -35,6 +35,17 @@ const REQUIRED_DIRECTIONAL_TRANSFORMS = Object.freeze({
   }),
 });
 
+const FOUR_SIDE_SHORTHANDS = new Set([
+  "margin",
+  "padding",
+  "inset",
+  "border-width",
+  "border-style",
+  "border-color",
+  "scroll-margin",
+  "scroll-padding",
+]);
+
 // Messaging is owned by the parallel E2EE effort. This is deliberately an
 // exact residual inventory, not a directory exemption: a new path, a removed
 // residual, or one extra occurrence fails the same policy as non-chat code.
@@ -98,14 +109,27 @@ function literalText(node) {
   return null;
 }
 
-function classAttributeText(attributes) {
-  const attribute = attributes.properties.find(
-    (property) =>
+function effectiveJsxAttribute(attributes, name) {
+  let effective = null;
+  for (const property of attributes.properties) {
+    if (ts.isJsxSpreadAttribute(property)) {
+      effective = null;
+      continue;
+    }
+    if (
       ts.isJsxAttribute(property) &&
       ts.isIdentifier(property.name) &&
-      property.name.text === "className",
-  );
-  if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer) {
+      property.name.text === name
+    ) {
+      effective = property;
+    }
+  }
+  return effective;
+}
+
+function classAttributeText(attributes) {
+  const attribute = effectiveJsxAttribute(attributes, "className");
+  if (!attribute?.initializer) {
     return null;
   }
   if (ts.isStringLiteral(attribute.initializer)) return attribute.initializer.text;
@@ -119,15 +143,9 @@ function classAttributeText(attributes) {
 }
 
 function styleAttributeExpression(attributes) {
-  const attribute = attributes.properties.find(
-    (property) =>
-      ts.isJsxAttribute(property) &&
-      ts.isIdentifier(property.name) &&
-      property.name.text === "style",
-  );
+  const attribute = effectiveJsxAttribute(attributes, "style");
   if (
     !attribute ||
-    !ts.isJsxAttribute(attribute) ||
     !attribute.initializer ||
     !ts.isJsxExpression(attribute.initializer) ||
     !attribute.initializer.expression
@@ -435,7 +453,7 @@ function isPhysicalUtility(token) {
     return (
       isPhysicalCssProperty(property) ||
       isPhysicalCssValue(property, normalizedValue) ||
-      (["margin", "padding", "border-radius"].includes(property) &&
+      ((FOUR_SIDE_SHORTHANDS.has(property) || property === "border-radius") &&
         !shorthandIsDirectionNeutral(property, normalizedValue))
     );
   }
@@ -507,13 +525,8 @@ function assertPairedDirectionalTranslations(fileName, tokens) {
 }
 
 function classAttributeTokens(attributes) {
-  const attribute = attributes.properties.find(
-    (property) =>
-      ts.isJsxAttribute(property) &&
-      ts.isIdentifier(property.name) &&
-      property.name.text === "className",
-  );
-  if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer) return [];
+  const attribute = effectiveJsxAttribute(attributes, "className");
+  if (!attribute?.initializer) return [];
   const texts = [];
   const visit = (node) => {
     const text = literalText(node);
@@ -678,7 +691,7 @@ function shorthandIsDirectionNeutral(property, value) {
   }
   return groups.every((tokens) => {
     if (tokens.length <= 1) return true;
-    if (property === "margin" || property === "padding") {
+    if (FOUR_SIDE_SHORTHANDS.has(property)) {
       return tokens.length < 4 || tokens[1] === tokens[3];
     }
     const corners = tokens.length === 2
@@ -712,7 +725,8 @@ function assertCssUsesLogicalProperties(fileName, source) {
       throw new Error(`${fileName} contains a physical-direction CSS declaration`);
     }
     if (
-      ["margin", "padding", "border-radius"].includes(canonicalProperty) &&
+      (FOUR_SIDE_SHORTHANDS.has(canonicalProperty) ||
+        canonicalProperty === "border-radius") &&
       !shorthandIsDirectionNeutral(canonicalProperty, value)
     ) {
       throw new Error(`${fileName} contains an asymmetric physical CSS shorthand`);

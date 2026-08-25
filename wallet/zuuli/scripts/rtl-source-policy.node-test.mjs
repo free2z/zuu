@@ -87,6 +87,20 @@ test("a directional adornment that stops mirroring fails", () => {
     '<SendIcon className="h-4 w-4"',
     /SendIcon.*must mirror/,
   );
+
+  rejectsMutation(
+    "src/features/articles/components/Comments/CommentCard.tsx",
+    '<Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />',
+    '<Reply className="rtl:-scale-x-100 h-4 w-4" {...{ className: "h-4 w-4" }} aria-hidden />',
+    /Reply.*must mirror/,
+  );
+
+  const earlierSpread = mutate(
+    "src/features/articles/components/Comments/CommentCard.tsx",
+    '<Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />',
+    '<Reply {...{ className: "h-4 w-4" }} className="rtl:-scale-x-100 h-4 w-4" aria-hidden />',
+  );
+  assert.doesNotThrow(() => assertRtlSourcePolicy(earlierSpread));
 });
 
 test("directional Lucide aliases and namespace JSX resolve to imported symbols", () => {
@@ -415,6 +429,12 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
   for (const declaration of [
     "margin: calc(1px + 2px) 4px 0 8px;",
     "padding: var(--block) min(2px, 3px) 0 max(4px, 5px);",
+    "inset: 0 1rem 0 2rem;",
+    "border-width: 1px 2px 1px 3px;",
+    "border-style: solid dashed solid dotted;",
+    "border-color: red green red blue;",
+    "scroll-margin: 0 1rem 0 2rem;",
+    "scroll-padding: 0 1rem 0 2rem;",
     "border-radius: 1px 2px 3px;",
     "border-radius: calc(1px + 2px) 4px 8px 16px / var(--a) var(--b) var(--c) var(--d);",
   ]) {
@@ -427,6 +447,12 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
   for (const declaration of [
     "margin: calc(1px + 2px) var(--inline) 0 var(--inline);",
     "padding: var(--top) min(2px, 3px) var(--bottom);",
+    "inset: 0 var(--inline) 0 var(--inline);",
+    "border-width: 1px 2px 1px 2px;",
+    "border-style: solid dashed solid dashed;",
+    "border-color: red green red green;",
+    "scroll-margin: 0 var(--inline) 0 var(--inline);",
+    "scroll-padding: 0 var(--inline) 0 var(--inline);",
     "border-radius: calc(1px + 2px) calc(1px + 2px) var(--bottom) var(--bottom);",
     "border-radius: var(--all) / max(2px, 3px);",
   ]) {
