@@ -1183,8 +1183,20 @@ The default mock conversation has an **echo peer**. On `send_message` the mock:
    `device-delivered` → `delivered` on a timer, so every indicator is
    exercisable;
 3. after a delay, emits `message-received` with an inbound reply that has
-   **correct `parents`, `epoch` and `senderLeafIndex`**, so the §7 ordering code
-   is exercised by real data rather than by a fixture that happens to be sorted.
+   **correct `parents`, `epoch` and `senderLeafIndex`**, because the mock stands
+   in for the **engine** and therefore owes §7's ordered page (§7's correction of
+   2026-08-25, §9 rule 10) — not a bag of messages for the UI to sort.
+
+**The mock owes the order, and must not implement it.** Sorting in the mock would
+reintroduce in fixtures the second implementation §7's correction removed. It
+does not need to: a mock that only ever *appends causally* — seed first, a send
+referencing the current heads, an echo reply referencing the message it answers —
+already emits a linear extension of the DAG, and the transcript component reads
+it back verbatim. The default fixture additionally **is**
+[#733](https://github.com/free2z/zuu/issues/733)'s counterexample — a reply in the
+same epoch from the lower leaf index — so a client that starts sorting again
+looks wrong on the first screen a developer opens rather than in a case nobody
+reaches.
 
 Scenarios are selected exactly the way the wallet mock already does it — a
 `localStorage` key read behind **both** a `try`/`catch` **and** optional chaining
