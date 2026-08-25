@@ -388,10 +388,16 @@ jobs:
         with:
           shared-key: zuuli-release-macos-universal-v2-rust-${{ env.ZUULI_RUST_VERSION }}-xcode-${{ env.ZUULI_XCODE_VERSION }}-macos-arm64-x86_64
           save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install pinned Cargo audit instrumentation
+        if: runner.os == 'Linux'
+        run: |
+          cargo install --locked cargo-auditable --version 0.7.5
+          cargo install --list | grep -Fx 'cargo-auditable v0.7.5:'
       - run: npm ci
       - name: Test Linux artifact inspectors against real packages
         if: runner.os == 'Linux'
-        run: node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping' scripts/artifact-sbom.node-test.mjs
+        run: |
+          node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping|real cargo-auditable executable evidence' scripts/artifact-sbom.node-test.mjs
       - run: npm run release:verify
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
@@ -400,7 +406,7 @@ jobs:
           if [[ "${{ runner.os }}" == macOS ]]; then
             ./node_modules/.bin/tauri build --target universal-apple-darwin --bundles '${{ matrix.bundles }}' -- --locked
           else
-            ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked
+            scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked
           fi
       - name: Verify generated projects remain clean
         run: git diff --exit-code
@@ -471,9 +477,9 @@ jobs:
           appimages=(release-artifacts/*.AppImage)
           debs=(release-artifacts/*.deb)
           rpms=(release-artifacts/*.rpm)
-          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json
-          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json
-          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root --raw-sbom=artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root --raw-sbom=artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
+          node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
       - name: Prepare macOS shipped-artifact inventories
         if: runner.os == 'macOS'
         run: |
@@ -528,9 +534,9 @@ jobs:
             appimages=(release-artifacts/*.AppImage)
             debs=(release-artifacts/*.deb)
             rpms=(release-artifacts/*.rpm)
-            node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json
-            node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json
-            node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json
+            node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
+            node scripts/artifact-sbom.mjs verify-artifact --artifact="${debs[0]}" --sbom=release-artifacts/ZUULI-linux-deb.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-deb.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
+            node scripts/artifact-sbom.mjs verify-artifact --artifact="${rpms[0]}" --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default
           else
             dmgs=(release-artifacts/*.dmg)
             zips=(release-artifacts/*-macos-universal-unsigned.zip)

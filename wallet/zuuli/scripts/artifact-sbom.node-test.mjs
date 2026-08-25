@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
+  chmodSync,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -16,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { deflateSync, inflateSync } from "node:zlib";
 
 import {
   appImagePayloadOffset,
@@ -105,6 +107,7 @@ const linuxFixtureTools = [
   "cc",
   "dpkg-deb",
   "mksquashfs",
+  "objcopy",
   "readelf",
   "rpm2archive",
   "rpmbuild",
@@ -120,13 +123,18 @@ function commandExists(command) {
 const canBuildLinuxFixtures =
   process.platform === "linux" && linuxFixtureTools.every(commandExists);
 
-function writeCanaryPayload(root) {
+function writeCanaryPayload(root, executableSource) {
   const canary = resolve(root, "usr/lib/zuuli/libundeclared-canary.so");
   const executable = resolve(root, "usr/bin/zuuli");
   mkdirSync(dirname(canary), { recursive: true });
   mkdirSync(dirname(executable), { recursive: true });
   writeFileSync(canary, "undeclared native Linux library bytes\n");
-  writeFileSync(executable, "native Linux executable bytes\n");
+  if (executableSource) {
+    copyFileSync(executableSource, executable);
+    chmodSync(executable, 0o755);
+  } else {
+    writeFileSync(executable, "native Linux executable bytes\n");
+  }
   symlinkSync("../../bin/zuuli", resolve(root, "usr/lib/zuuli/current"));
 }
 
@@ -173,9 +181,12 @@ function makeAppImageFixture(root, { invalidUtf8Name = false } = {}) {
   return artifact;
 }
 
-function makeDebFixture(root, { escapingSymlink = false } = {}) {
+function makeDebFixture(
+  root,
+  { escapingSymlink = false, executableSource } = {},
+) {
   const source = resolve(root, "deb-root");
-  writeCanaryPayload(source);
+  writeCanaryPayload(source, executableSource);
   if (escapingSymlink) {
     const link = resolve(source, "usr/lib/zuuli/current");
     rmSync(link);
@@ -443,6 +454,281 @@ test(
         "rpm",
         makeRpmFixture(temporary),
       );
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+const cargoRuntimeFixtureTools = [
+  "cargo",
+  "cargo-auditable",
+  "dpkg-deb",
+  "objcopy",
+  "rustc",
+];
+const canBuildCargoRuntimeFixture =
+  process.platform === "linux" && cargoRuntimeFixtureTools.every(commandExists);
+
+function cargoRuntimeOptions(project, target) {
+  return {
+    cargoLock: resolve(project, "Cargo.lock"),
+    cargoManifest: resolve(project, "Cargo.toml"),
+    cargoTarget: target,
+    cargoFeatures: "default",
+  };
+}
+
+function mutateAuditableBinary(source, destination, temporary, mutate) {
+  const section = resolve(temporary, `${basename(destination)}.dep-v0`);
+  const replacement = resolve(
+    temporary,
+    `${basename(destination)}.replacement.dep-v0`,
+  );
+  execFileSync("objcopy", ["--dump-section", `.dep-v0=${section}`, source]);
+  const document = JSON.parse(
+    inflateSync(readFileSync(section)).toString("utf8"),
+  );
+  mutate(document);
+  writeFileSync(
+    replacement,
+    deflateSync(Buffer.from(JSON.stringify(document))),
+  );
+  execFileSync("objcopy", [
+    "--update-section",
+    `.dep-v0=${replacement}`,
+    source,
+    destination,
+  ]);
+  chmodSync(destination, 0o755);
+}
+
+function cargoRuntimeArtifact(temporary, name, executable) {
+  const packageRoot = resolve(temporary, name);
+  mkdirSync(packageRoot);
+  return makeDebFixture(packageRoot, { executableSource: executable });
+}
+
+function finalizeCargoRuntimeFixture(temporary, name, artifact, options) {
+  const work = resolve(temporary, `${name}-work`);
+  const root = resolve(work, "root");
+  const rawSbom = resolve(work, "raw.cdx.json");
+  const sbom = resolve(work, "artifact.sbom.cdx.json");
+  const binding = resolve(work, "artifact.sbom-binding.json");
+  mkdirSync(work);
+  writeJson(rawSbom, minimalCycloneDx());
+  prepareArtifact({ artifact, root });
+  finalizeArtifactSbom({
+    artifact,
+    root,
+    rawSbom,
+    sbom,
+    binding,
+    ...options,
+  });
+  return { root, sbom, binding };
+}
+
+test(
+  "real cargo-auditable executable evidence is complete, lock-bound, and mandatory",
+  { skip: !canBuildCargoRuntimeFixture, timeout: 120_000 },
+  () => {
+    const temporary = mkdtempSync(
+      resolve(tmpdir(), "zuuli-linux-cargo-runtime-"),
+    );
+    try {
+      const project = resolve(temporary, "app");
+      const linked = resolve(project, "linked");
+      mkdirSync(resolve(project, "src"), { recursive: true });
+      mkdirSync(resolve(linked, "src"), { recursive: true });
+      writeFileSync(
+        resolve(project, "Cargo.toml"),
+        '[package]\nname="zuuli"\nversion="0.1.0"\nedition="2021"\n[dependencies]\nlinked={path="linked"}\n',
+      );
+      writeFileSync(
+        resolve(project, "src/main.rs"),
+        'fn main() { println!("{}", linked::answer()); }\n',
+      );
+      writeFileSync(
+        resolve(linked, "Cargo.toml"),
+        '[package]\nname="linked"\nversion="1.2.3"\nedition="2021"\n',
+      );
+      writeFileSync(
+        resolve(linked, "src/lib.rs"),
+        "pub fn answer() -> u8 { 42 }\n",
+      );
+      execFileSync("cargo", ["generate-lockfile", "--offline"], {
+        cwd: project,
+      });
+      execFileSync(
+        resolve(scriptDirectory, "run-with-cargo-auditable.sh"),
+        ["cargo", "build", "--release", "--locked", "--offline"],
+        {
+          cwd: project,
+          env: {
+            ...process.env,
+            CARGO_TARGET_DIR: resolve(project, "target"),
+          },
+        },
+      );
+      const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(
+        /^host: (.+)$/m,
+      )?.[1];
+      assert.equal(host, "x86_64-unknown-linux-gnu");
+      const options = cargoRuntimeOptions(project, host);
+      const audited = resolve(project, "target/release/zuuli");
+      const artifact = cargoRuntimeArtifact(temporary, "good-package", audited);
+      const finalized = finalizeCargoRuntimeFixture(
+        temporary,
+        "good",
+        artifact,
+        options,
+      );
+      rmSync(finalized.root, { recursive: true, force: true });
+      assert.doesNotThrow(() =>
+        verifyArtifactSbom({
+          artifact,
+          sbom: finalized.sbom,
+          binding: finalized.binding,
+          ...options,
+        }),
+      );
+
+      const assertBinaryRejected = (name, binary, expected) => {
+        const mutatedArtifact = cargoRuntimeArtifact(
+          temporary,
+          `${name}-package`,
+          binary,
+        );
+        assert.throws(
+          () =>
+            finalizeCargoRuntimeFixture(
+              temporary,
+              name,
+              mutatedArtifact,
+              options,
+            ),
+          expected,
+        );
+      };
+
+      execFileSync("cargo", ["build", "--release", "--locked", "--offline"], {
+        cwd: project,
+        env: {
+          ...process.env,
+          CARGO_TARGET_DIR: resolve(project, "plain-target"),
+        },
+      });
+      assertBinaryRejected(
+        "build-without-instrumentation",
+        resolve(project, "plain-target/release/zuuli"),
+        /missing embedded Cargo audit evidence/,
+      );
+
+      const stripped = resolve(temporary, "missing-evidence-zuuli");
+      execFileSync("objcopy", [
+        "--remove-section",
+        ".dep-v0",
+        audited,
+        stripped,
+      ]);
+      chmodSync(stripped, 0o755);
+      assertBinaryRejected(
+        "missing-evidence",
+        stripped,
+        /missing embedded Cargo audit evidence/,
+      );
+
+      const omitted = resolve(temporary, "omitted-linked-crate-zuuli");
+      mutateAuditableBinary(audited, omitted, temporary, (document) => {
+        const linkedIndex = document.packages.findIndex(
+          (entry) => entry.name === "linked",
+        );
+        assert.notEqual(linkedIndex, -1);
+        document.packages.splice(linkedIndex, 1);
+        for (const entry of document.packages) {
+          entry.dependencies = (entry.dependencies ?? [])
+            .filter((index) => index !== linkedIndex)
+            .map((index) => (index > linkedIndex ? index - 1 : index));
+          if (entry.dependencies.length === 0) delete entry.dependencies;
+        }
+      });
+      assertBinaryRejected(
+        "omitted-linked-crate",
+        omitted,
+        /omits locked package linked 1\.2\.3/,
+      );
+
+      const wrongVersion = resolve(temporary, "wrong-version-zuuli");
+      mutateAuditableBinary(audited, wrongVersion, temporary, (document) => {
+        document.packages.find((entry) => entry.name === "linked").version =
+          "9.9.9";
+      });
+      assertBinaryRejected(
+        "wrong-version",
+        wrongVersion,
+        /omits locked package linked 1\.2\.3|unknown or wrong-version package linked 9\.9\.9/,
+      );
+
+      const originalBinding = JSON.parse(
+        readFileSync(finalized.binding, "utf8"),
+      );
+      const assertBindingRejected = (name, mutate, expected) => {
+        const path = resolve(temporary, `${name}.binding.json`);
+        const record = structuredClone(originalBinding);
+        mutate(record);
+        writeJson(path, record);
+        assert.throws(
+          () =>
+            verifyArtifactSbom({
+              artifact,
+              sbom: finalized.sbom,
+              binding: path,
+              ...options,
+            }),
+          expected,
+        );
+      };
+      assertBindingRejected(
+        "unbound-evidence",
+        (record) => delete record.cargoRuntime,
+        /does not match exact Cargo runtime evidence/,
+      );
+      assertBindingRejected(
+        "substituted-evidence-digest",
+        (record) => {
+          record.cargoRuntime.evidence.compressedSha256 = "0".repeat(64);
+        },
+        /does not match exact Cargo runtime evidence/,
+      );
+
+      const exactLock = readFileSync(options.cargoLock);
+      appendFileSync(options.cargoLock, "\n");
+      assert.throws(
+        () =>
+          verifyArtifactSbom({
+            artifact,
+            sbom: finalized.sbom,
+            binding: finalized.binding,
+            ...options,
+          }),
+        /does not match exact Cargo runtime evidence and Cargo\.lock/,
+      );
+      writeFileSync(options.cargoLock, exactLock);
+
+      const exactArtifact = readFileSync(artifact);
+      appendFileSync(artifact, "substituted artifact bytes");
+      assert.throws(
+        () =>
+          verifyArtifactSbom({
+            artifact,
+            sbom: finalized.sbom,
+            binding: finalized.binding,
+            ...options,
+          }),
+        /binding does not match exact artifact and SBOM bytes/,
+      );
+      writeFileSync(artifact, exactArtifact);
     } finally {
       rmSync(temporary, { recursive: true, force: true });
     }
@@ -1463,7 +1749,7 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "the policy must keep all Linux scans and bindings before manifest/upload",
   );
   const skippedRealFixtures = packaging.replace(
-    "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
+    "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping|real cargo-auditable executable evidence' scripts/artifact-sbom.node-test.mjs",
     "node --test --test-name-pattern='nonexistent' scripts/artifact-sbom.node-test.mjs",
   );
   assert.ok(
@@ -1490,5 +1776,48 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
       failure.includes("release linux artifacts"),
     ),
     "the policy must require exact AppImage re-extraction before release provenance",
+  );
+  const uninstrumentedBuild = packaging.replace(
+    "scripts/run-with-cargo-auditable.sh ./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+    "./node_modules/.bin/tauri build --bundles '${{ matrix.bundles }}' -- --locked",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(uninstrumentedBuild, release).some((failure) =>
+      failure.includes("Build packages executable lines changed"),
+    ),
+    "the policy must reject a Linux build without Cargo audit instrumentation",
+  );
+  const unpinnedInstrumentation = release.replace(
+    "cargo install --locked cargo-auditable --version 0.7.5",
+    "cargo install cargo-auditable",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, unpinnedInstrumentation).some(
+      (failure) =>
+        failure.includes(
+          "Install pinned Cargo audit instrumentation executable lines changed",
+        ),
+    ),
+    "the policy must reject unpinned Cargo audit instrumentation",
+  );
+  const unboundFinalization = packaging.replace(
+    " --cargo-target=x86_64-unknown-linux-gnu --cargo-features=default",
+    " --cargo-target=x86_64-unknown-linux-gnu",
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(unboundFinalization, release).some((failure) =>
+      failure.includes("Bind Linux shipped-artifact SBOMs"),
+    ),
+    "every Linux finalization must bind the exact Cargo feature set",
+  );
+  const unboundVerification = release.replace(
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock',
+    'node scripts/artifact-sbom.mjs verify-artifact --artifact="${appimages[0]}" --sbom=release-artifacts/ZUULI-linux-appimage.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-appimage.artifact.sbom-binding.json',
+  );
+  assert.ok(
+    artifactSbomWorkflowFailures(packaging, unboundVerification).some(
+      (failure) => failure.includes("release linux artifacts"),
+    ),
+    "every Linux verification must independently supply the exact Cargo lock",
   );
 });
