@@ -4,7 +4,7 @@ import {
   SensitiveEntrySession,
   bindSensitiveEntryLifecycle,
   type SensitiveEntryAuthority,
-} from "../../../../shared/sensitive-entry-session";
+} from "@free2z/wallet-shared";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

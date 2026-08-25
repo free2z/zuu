@@ -20,7 +20,7 @@ const sources = Object.fromEntries(
       models: "../plugins/tauri-plugin-zcash/src/models.rs",
       defaults: "../plugins/tauri-plugin-zcash/permissions/default.toml",
       session: "src/lib/wallet/sensitive-seed.ts",
-      entrySession: "../shared/sensitive-entry-session.ts",
+      entrySession: "../shared/src/sensitive-entry-session.ts",
       entryHook: "src/lib/wallet/sensitive-entry.ts",
       bridge: "src/lib/wallet/bridge.ts",
       desktopSession: "../zuuallet/src/lib/sensitive-seed.ts",

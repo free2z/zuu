@@ -6,7 +6,7 @@
 // import from here, never call `invoke()` directly.
 
 import { useMock } from "../platform";
-import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-session";
+import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";
 import { mockWallet } from "./mock";
 import type {
   AccountBalance,

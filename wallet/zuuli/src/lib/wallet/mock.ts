@@ -17,7 +17,7 @@ import type {
   WalletStatus,
 } from "./types";
 import { parseZecToZatoshis } from "../format";
-import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-session";
+import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";
 
 const MOCK_UA =
   "u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexz";

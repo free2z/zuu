@@ -927,7 +927,7 @@ export async function main() {
     read("../plugins/tauri-plugin-zcash/src/models.rs"),
     read("../plugins/tauri-plugin-zcash/permissions/default.toml"),
     read("src/lib/wallet/sensitive-seed.ts"),
-    read("../shared/sensitive-entry-session.ts"),
+    read("../shared/src/sensitive-entry-session.ts"),
     read("src/lib/wallet/sensitive-entry.ts"),
     read("src/lib/wallet/bridge.ts"),
     read("../zuuallet/src/lib/sensitive-seed.ts"),

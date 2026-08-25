@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SensitiveEntryPurpose } from "../../../shared/sensitive-entry-session";
+import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";
 import type {
   WalletCreated,
   WalletStatus,

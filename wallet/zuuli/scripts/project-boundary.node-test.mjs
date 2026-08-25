@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url";
 import { assertProjectBoundaries } from "./project-boundary.mjs";
 
 const SHARED_DEPENDENCY = { "@free2z/wallet-shared": "file:../shared" };
+const REQUIRED_PRODUCTION_CONSUMERS = [
+  "zuuallet/src/lib/sensitive-entry.ts",
+  "zuuallet/src/lib/tauri.ts",
+  "zuuli/src/lib/wallet/bridge.ts",
+  "zuuli/src/lib/wallet/mock.ts",
+  "zuuli/src/lib/wallet/sensitive-entry.ts",
+];
 
 async function fixture(files = {}, dependencyOverrides = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "wallet-project-boundary-"));
@@ -25,7 +32,12 @@ async function fixture(files = {}, dependencyOverrides = {}) {
   );
   await writeFile(
     path.join(root, "shared/package.json"),
-    JSON.stringify({ name: "@free2z/wallet-shared", private: true }),
+    JSON.stringify({
+      name: "@free2z/wallet-shared",
+      private: true,
+      type: "module",
+      exports: { ".": "./src/index.ts" },
+    }),
   );
   await writeFile(path.join(root, "shared/src/index.ts"), "export {};\n");
   for (const project of ["zuuli", "zuuallet"]) {
@@ -36,6 +48,11 @@ async function fixture(files = {}, dependencyOverrides = {}) {
       JSON.stringify({ name: project, private: true, dependencies }),
     );
     await writeFile(path.join(root, project, "src/local.ts"), "export const local = true;\n");
+  }
+  for (const relative of REQUIRED_PRODUCTION_CONSUMERS) {
+    const target = path.join(root, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, 'import "@free2z/wallet-shared";\n');
   }
   for (const [relative, source] of Object.entries(files)) {
     const target = path.join(root, relative);
@@ -62,6 +79,11 @@ test("current wallet source graph has no undeclared project crossing", async () 
   const result = await assertProjectBoundaries(walletRoot);
   assert.ok(result.fileCount > 100, "live census must traverse both application source trees");
   assert.ok(result.importCount > 300, "live census must parse the production module graph");
+  assert.equal(
+    result.productionSharedConsumerCount,
+    5,
+    "all five production shared consumers must use the named package",
+  );
 });
 
 test("accepts local, aliased, external, and named shared imports", async () => {
@@ -169,6 +191,19 @@ test("keeps the shared package from depending back on either application", async
   );
 });
 
+test("rejects a source symlink that could cross a project boundary", async () => {
+  await withFixture({}, async (root) => {
+    await symlink(
+      path.join(root, "zuuallet/src/local.ts"),
+      path.join(root, "zuuli/src/linked-classic.ts"),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /project source contains a symbolic link/,
+    );
+  });
+});
+
 test("does not mistake comments or strings for imports", async () => {
   await withFixture(
     {
@@ -197,6 +232,31 @@ test("rejects the named shared package when the app does not declare it", async 
   );
 });
 
+test("rejects an application manifest that omits the shared dependency", async () => {
+  await withFixture(
+    {},
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /zuuli\/package\.json: zuuli must declare @free2z\/wallet-shared as file:\.\.\/shared/,
+      );
+    },
+    { zuuli: {}, zuuallet: SHARED_DEPENDENCY },
+  );
+});
+
+test("rejects a production consumer that drops its named shared import", async () => {
+  await withFixture(
+    { "zuuli/src/lib/wallet/bridge.ts": "export const bridge = true;\n" },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /zuuli\/src\/lib\/wallet\/bridge\.ts: production consumer must import @free2z\/wallet-shared/,
+      );
+    },
+  );
+});
+
 test("rejects a decorative workspace list that omits the shared package", async () => {
   await withFixture({}, async (root) => {
     await writeFile(
@@ -206,6 +266,24 @@ test("rejects a decorative workspace list that omits the shared package", async 
     await assert.rejects(
       () => assertProjectBoundaries(root),
       /must declare the exact shared workspace/,
+    );
+  });
+});
+
+test("rejects a shared manifest that drops its resolvable source export", async () => {
+  await withFixture({}, async (root) => {
+    await writeFile(
+      path.join(root, "shared/package.json"),
+      JSON.stringify({
+        name: "@free2z/wallet-shared",
+        private: true,
+        type: "module",
+        exports: {},
+      }),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /must retain its private ESM @free2z\/wallet-shared package identity and source export/,
     );
   });
 });

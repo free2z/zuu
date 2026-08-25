@@ -2,13 +2,11 @@ import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-session";
+import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";
 
 const native = vi.hoisted(() => ({
   zuuliBegin: vi.fn(async () => ({ token: "zuuli-token" })),
   zuuliEnd: vi.fn(async () => {}),
-  desktopBegin: vi.fn(async () => ({ token: "desktop-token" })),
-  desktopEnd: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/wallet/bridge", () => ({
@@ -17,13 +15,7 @@ vi.mock("@/lib/wallet/bridge", () => ({
     endSensitiveDisplay: native.zuuliEnd,
   },
 }));
-vi.mock("../../../../zuuallet/src/lib/tauri", () => ({
-  beginSensitiveEntry: native.desktopBegin,
-  endSensitiveDisplay: native.desktopEnd,
-}));
-
 import { useSensitiveMnemonicEntry as useZuuliEntry } from "./sensitive-entry";
-import { useSensitiveMnemonicEntry as useDesktopEntry } from "../../../../zuuallet/src/lib/sensitive-entry";
 
 type EntryHook = (
   purpose: SensitiveEntryPurpose,
@@ -86,10 +78,6 @@ function Probe({
 beforeEach(async () => {
   native.zuuliBegin.mockReset().mockResolvedValue({ token: "zuuli-token" });
   native.zuuliEnd.mockReset().mockResolvedValue(undefined);
-  native.desktopBegin
-    .mockReset()
-    .mockResolvedValue({ token: "desktop-token" });
-  native.desktopEnd.mockReset().mockResolvedValue(undefined);
   await installDom();
 });
 
@@ -150,16 +138,6 @@ describe("production sensitive-entry hook lifecycle wiring", () => {
       begin: native.zuuliBegin,
       end: native.zuuliEnd,
       token: "zuuli-token",
-    });
-  });
-
-  it("attaches Zuuallet blur/reacquire handling to its real native authority", async () => {
-    await provesLifecycleAttachment({
-      useEntry: useDesktopEntry,
-      purpose: "zuualletRestore",
-      begin: native.desktopBegin,
-      end: native.desktopEnd,
-      token: "desktop-token",
     });
   });
 });

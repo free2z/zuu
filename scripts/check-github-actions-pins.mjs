@@ -4788,6 +4788,23 @@ function runFrontendBuildContractMutationTests(repoRoot) {
     },
     'package script "test:sensitive-entry" must equal',
   );
+  for (const testPath of [
+    "src/pages/sensitive-entry-routes.test.tsx",
+    "src/lib/sensitive-seed-session.test.ts",
+    "src/lib/sensitive-entry-bridge.test.ts",
+    "src/lib/sensitive-entry-hook.test.tsx",
+  ]) {
+    addMutation(
+      `live classic package contract rejects missing owned test ${testPath}`,
+      "wallet/zuuallet/package.json",
+      (manifest) => {
+        manifest.scripts["test:sensitive-entry"] = manifest.scripts[
+          "test:sensitive-entry"
+        ].replace(` ${testPath}`, "");
+      },
+      'package script "test:sensitive-entry" must equal',
+    );
+  }
   addMutation(
     "live production tsconfig rejects noCheck",
     "wallet/zuuli/tsconfig.build.json",

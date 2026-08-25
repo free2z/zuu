@@ -4,6 +4,13 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
+const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Set([
+  "zuuallet/src/lib/sensitive-entry.ts",
+  "zuuallet/src/lib/tauri.ts",
+  "zuuli/src/lib/wallet/bridge.ts",
+  "zuuli/src/lib/wallet/mock.ts",
+  "zuuli/src/lib/wallet/sensitive-entry.ts",
+]);
 const SOURCE_EXTENSIONS = new Set([
   ".cjs",
   ".cts",
@@ -172,11 +179,19 @@ export async function scanProjectBoundaries(walletRoot) {
     throw new Error("wallet/package-lock.json must resolve the named shared workspace as a local link");
   }
   const sharedManifest = await readJson(path.join(absoluteWalletRoot, "shared/package.json"));
-  if (sharedManifest.name !== SHARED_PACKAGE || sharedManifest.private !== true) {
-    throw new Error("wallet/shared must retain its private @free2z/wallet-shared package identity");
+  if (
+    sharedManifest.name !== SHARED_PACKAGE ||
+    sharedManifest.private !== true ||
+    sharedManifest.type !== "module" ||
+    sharedManifest.exports?.["."] !== "./src/index.ts"
+  ) {
+    throw new Error(
+      "wallet/shared must retain its private ESM @free2z/wallet-shared package identity and source export",
+    );
   }
 
   const violations = [];
+  const productionSharedConsumers = new Set();
   let fileCount = 0;
   let importCount = 0;
   for (const project of PROJECTS) {
@@ -197,6 +212,14 @@ export async function scanProjectBoundaries(walletRoot) {
       }
       for (const imported of importedModules(parsed)) {
         importCount += 1;
+        const specifier = imported.node ? literalModule(imported.node) : null;
+        const relativeFile = path.relative(absoluteWalletRoot, file).split(path.sep).join("/");
+        if (
+          specifier === SHARED_PACKAGE &&
+          REQUIRED_PRODUCTION_SHARED_CONSUMERS.has(relativeFile)
+        ) {
+          productionSharedConsumers.add(relativeFile);
+        }
         const violation = validateSpecifier({
           project,
           projectRoot,
@@ -210,7 +233,17 @@ export async function scanProjectBoundaries(walletRoot) {
       }
     }
   }
-  return { fileCount, importCount, violations };
+  for (const required of REQUIRED_PRODUCTION_SHARED_CONSUMERS) {
+    if (!productionSharedConsumers.has(required)) {
+      violations.push(`${required}: production consumer must import ${SHARED_PACKAGE}`);
+    }
+  }
+  return {
+    fileCount,
+    importCount,
+    productionSharedConsumerCount: productionSharedConsumers.size,
+    violations,
+  };
 }
 
 export async function assertProjectBoundaries(walletRoot) {
@@ -222,7 +255,9 @@ export async function assertProjectBoundaries(walletRoot) {
 export async function main() {
   const walletRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const result = await assertProjectBoundaries(walletRoot);
-  console.log(`Wallet project boundaries verified across ${result.fileCount} source files and ${result.importCount} parsed module references.`);
+  console.log(
+    `Wallet project boundaries verified across ${result.fileCount} source files, ${result.importCount} parsed module references, and ${result.productionSharedConsumerCount} production shared-package consumers.`,
+  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
