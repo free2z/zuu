@@ -295,8 +295,8 @@ async fn run() -> std::result::Result<String, String> {
     let received_second =
         await_text(&engine, &conversation_id, &second_expect, options.timeout).await?;
 
-    // Every message this device holds, so the test can assert that a `parents`
-    // hash always names something held — which is the property that makes gap
+    // Every message this device holds, in §7's order, so the test can assert
+    // that a `parents` hash always names something held — which is the property that makes gap
     // detection a certainty rather than a guess (§3.5).
     let held: Vec<String> = engine
         .list_messages(&conversation_id, 100, None, None)
@@ -312,6 +312,23 @@ async fn run() -> std::result::Result<String, String> {
         .map_err(|error| describe(&error))?
         .len();
 
+    // §3.6's `mark_read`, exercised because it is the one command whose answer
+    // is a *recomputation* against §7's order rather than a stored counter.
+    // Both directions, since only the pair is race-free: which of the two
+    // concurrent round-one messages sorts first depends on the interleaving.
+    let unread_after_first = unread_after(
+        &engine,
+        &conversation_id,
+        held.first().map_or("", String::as_str),
+    )
+    .await?;
+    let unread_after_last = unread_after(
+        &engine,
+        &conversation_id,
+        held.last().map_or("", String::as_str),
+    )
+    .await?;
+
     let events: Vec<&'static str> = sink.seen().into_iter().map(|(name, _)| name).collect();
     let report = serde_json::json!({
         "handle": options.handle,
@@ -326,6 +343,8 @@ async fn run() -> std::result::Result<String, String> {
         "receivedSecondParents": received_second.parents,
         "held": held,
         "gaps": gaps,
+        "unreadAfterFirst": unread_after_first,
+        "unreadAfterLast": unread_after_last,
         "events": events,
     });
     Ok(report.to_string())
@@ -451,6 +470,23 @@ fn wait_for_peer(options: &Options) -> std::result::Result<(), String> {
 
 fn readable(path: &Path) -> bool {
     std::fs::read(path).is_ok_and(|bytes| serde_json::from_slice::<Published>(&bytes).is_ok())
+}
+
+/// `mark_read` up to one message, then read the counter back.
+async fn unread_after(
+    engine: &Engine<SqliteBackend>,
+    conversation_id: &str,
+    msg_id: &str,
+) -> std::result::Result<u32, String> {
+    engine
+        .mark_read(conversation_id, msg_id)
+        .await
+        .map_err(|error| describe(&error))?;
+    Ok(engine
+        .get_conversation(conversation_id)
+        .await
+        .map_err(|error| describe(&error))?
+        .unread_count)
 }
 
 /// Pump until a message with exactly this text has been durably written.

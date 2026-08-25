@@ -62,6 +62,8 @@ struct Report {
     received_second_parents: Vec<String>,
     held: Vec<String>,
     gaps: usize,
+    unread_after_first: u32,
+    unread_after_last: u32,
     events: Vec<String>,
 }
 
@@ -212,6 +214,24 @@ async fn two_instances_exchange_a_message_over_a_real_relay() {
         assert_eq!(
             report.gaps, 0,
             "{}: a gap was detected in a conversation that lost nothing",
+            report.handle
+        );
+        // §3.6: `upToMsgId` is a position, not a promise about the whole
+        // transcript. Reading up to the last message clears the counter;
+        // reading up to the first must not, or the UI tells the user there is
+        // nothing further down when there is.
+        //
+        // The exact count after the first is interleaving-dependent — which of
+        // the two concurrent round-one messages sorts first is scheduling's to
+        // decide — so the pair is asserted rather than a number.
+        assert_eq!(
+            report.unread_after_last, 0,
+            "{}: reading to the end left messages unread",
+            report.handle
+        );
+        assert!(
+            report.unread_after_first >= 1,
+            "{}: marking read up to the first message cleared the whole conversation",
             report.handle
         );
         assert_eq!(

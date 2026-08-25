@@ -305,6 +305,11 @@ impl<B: StorageBackend> Engine<B> {
             connection.close().await;
         }
         inner.groups.clear();
+        // The DAG is a derived view of the store and is rebuilt on next use.
+        // Holding it across a stop would survive an `unenroll` that emptied the
+        // store underneath it, and the engine would then answer `list_messages`
+        // from a graph describing messages that no longer exist.
+        inner.dags.clear();
         inner.state = EngineState::Stopped;
         let status = inner.status(&*self.directory)?;
         self.sink.engine_state(&status);
@@ -324,6 +329,7 @@ impl<B: StorageBackend> Engine<B> {
             connection.close().await;
         }
         inner.groups.clear();
+        inner.dags.clear();
         inner.mls = None;
         inner.pending_device = None;
         inner.queue_seed = None;
@@ -524,6 +530,7 @@ impl<B: StorageBackend> Engine<B> {
             connection.close().await;
         }
         inner.groups.clear();
+        inner.dags.clear();
         inner.mls = None;
         inner.queue_seed = None;
         let ids = inner.records().conversation_ids()?;
@@ -1066,10 +1073,38 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// `internal` when no such conversation exists.
     pub async fn mark_read(&self, conversation_id: &str, up_to_msg_id: &str) -> Result<()> {
-        let inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().await;
         let mut stored = inner.conversation(conversation_id)?;
+
+        // Recomputed against §7's order rather than zeroed. `upToMsgId` is a
+        // position in the transcript and not a promise about the whole of it:
+        // marking read up to a message the user scrolled back to must leave
+        // everything after it unread, and zeroing the counter would tell them
+        // there is nothing further down when there is.
+        let order = inner
+            .dag(conversation_id)?
+            .display_order()
+            .map_err(envelope::dag_error)?;
+        let read_through = order
+            .iter()
+            .position(|id| envelope::to_hex(*id) == up_to_msg_id);
+        let mut unread = 0u32;
+        for (position, msg_id) in order.iter().enumerate() {
+            if read_through.is_some_and(|through| position <= through) {
+                continue;
+            }
+            let hex_id = envelope::to_hex(*msg_id);
+            if inner
+                .records()
+                .message(&hex_id)?
+                .is_some_and(|message| !message.outbound)
+            {
+                unread = unread.saturating_add(1);
+            }
+        }
+
         stored.read_through = Some(up_to_msg_id.to_owned());
-        stored.unread_count = 0;
+        stored.unread_count = unread;
         inner
             .records()
             .commit(|records| records.put_conversation(&stored))?;
