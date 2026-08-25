@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
-import test, { after } from "node:test";
+import test, { after, beforeEach } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -140,6 +140,7 @@ if (
 }
 
 const registeredLinuxFixtureTitles = [];
+const completedLinuxFixtureTitles = [];
 function linuxArtifactFixture(title, implementation) {
   assert.ok(
     LINUX_ARTIFACT_FIXTURE_TITLES.includes(title),
@@ -149,9 +150,23 @@ function linuxArtifactFixture(title, implementation) {
   test(
     title,
     { skip: !canBuildLinuxFixtures, timeout: 120_000 },
-    implementation,
+    async () => {
+      await implementation();
+      completedLinuxFixtureTitles.push(title);
+    },
   );
 }
+
+beforeEach((context) => {
+  if (
+    requireLinuxFixtures &&
+    !LINUX_ARTIFACT_FIXTURE_TITLES.includes(context.name)
+  ) {
+    throw new Error(
+      `required Linux artifact selector reached a non-fixture test: ${context.name}`,
+    );
+  }
+});
 
 after(() => {
   assert.deepEqual(
@@ -159,6 +174,13 @@ after(() => {
     [...LINUX_ARTIFACT_FIXTURE_TITLES].sort(),
     "registered Linux artifact fixtures must exactly equal the shipping selector",
   );
+  if (requireLinuxFixtures) {
+    assert.deepEqual(
+      [...completedLinuxFixtureTitles].sort(),
+      [...LINUX_ARTIFACT_FIXTURE_TITLES].sort(),
+      "every required Linux artifact fixture body must complete successfully exactly once",
+    );
+  }
 });
 
 test("Linux packaging runner binds every selected fixture to a real passing test", () => {
@@ -169,6 +191,9 @@ test("Linux packaging runner binds every selected fixture to a real passing test
     "a real deb with an escaping payload symlink fails before extraction",
   ];
   assert.deepEqual(LINUX_ARTIFACT_FIXTURE_TITLES, expectedTitles);
+  const expectedPattern =
+    "^(?:real AppImage, deb, and rpm fixtures expose undeclared shipped canaries|AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations|AppImage listing rejects a SquashFS member with invalid UTF-8 bytes|a real deb with an escaping payload symlink fails before extraction)$";
+  assert.equal(linuxArtifactFixturePattern(), expectedPattern);
 
   let invocation;
   assert.doesNotThrow(() =>
@@ -182,7 +207,7 @@ test("Linux packaging runner binds every selected fixture to a real passing test
   assert.equal(invocation.command, process.execPath);
   assert.deepEqual(invocation.args, [
     "--test",
-    `--test-name-pattern=${linuxArtifactFixturePattern()}`,
+    `--test-name-pattern=${expectedPattern}`,
     resolve(scriptDirectory, "artifact-sbom.node-test.mjs"),
   ]);
   assert.equal(

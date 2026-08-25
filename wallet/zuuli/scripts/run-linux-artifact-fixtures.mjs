@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const EXPECTED_LINUX_ARTIFACT_FIXTURE_COUNT = 4;
+const EXPECTED_LINUX_ARTIFACT_FIXTURE_PATTERN =
+  "^(?:real AppImage, deb, and rpm fixtures expose undeclared shipped canaries|AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations|AppImage listing rejects a SquashFS member with invalid UTF-8 bytes|a real deb with an escaping payload symlink fails before extraction)$";
 
 export const REQUIRE_LINUX_ARTIFACT_FIXTURES =
   "ZUULI_REQUIRE_LINUX_ARTIFACT_FIXTURES";
@@ -33,11 +35,17 @@ export function linuxArtifactFixturePattern() {
 }
 
 export function runLinuxArtifactFixtures({ spawn = spawnSync } = {}) {
+  const pattern = linuxArtifactFixturePattern();
+  if (pattern !== EXPECTED_LINUX_ARTIFACT_FIXTURE_PATTERN) {
+    throw new Error(
+      "Linux artifact fixture selector does not match its independent exact authority",
+    );
+  }
   const result = spawn(
     process.execPath,
     [
       "--test",
-      `--test-name-pattern=${linuxArtifactFixturePattern()}`,
+      `--test-name-pattern=${pattern}`,
       resolve(scriptDirectory, "artifact-sbom.node-test.mjs"),
     ],
     {
