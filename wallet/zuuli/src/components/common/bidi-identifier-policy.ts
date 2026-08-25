@@ -258,10 +258,12 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
   return current;
 }
 
+type ResolutionKey = ts.Symbol | ts.Node;
+
 function staticStringValue(
   expression: ts.Expression,
   checker: ts.TypeChecker,
-  resolving = new Set<ts.Symbol>(),
+  resolving = new Set<ResolutionKey>(),
 ): string | null {
   const current = unwrapExpression(expression);
   if (
@@ -305,7 +307,7 @@ function sameReference(
   left: ts.Expression,
   right: ts.Expression,
   checker: ts.TypeChecker,
-  resolving = new Set<ts.Symbol>(),
+  resolving = new Set<ResolutionKey>(),
 ): boolean {
   const actual = unwrapExpression(left);
   const expected = unwrapExpression(right);
@@ -370,9 +372,23 @@ function objectPropertyValues(
   expression: ts.Expression,
   propertyName: string,
   checker: ts.TypeChecker,
-  resolving = new Set<ts.Symbol>(),
+  resolving = new Set<ResolutionKey>(),
 ): ts.Expression[] {
   const current = unwrapExpression(expression);
+  const member = staticMemberReference(current, checker);
+  if (member) {
+    if (resolving.has(current)) return [];
+    const nextResolving = new Set(resolving);
+    nextResolving.add(current);
+    return objectPropertyValues(
+      member.base,
+      member.name,
+      checker,
+      nextResolving,
+    ).flatMap((value) =>
+      objectPropertyValues(value, propertyName, checker, nextResolving),
+    );
+  }
   if (ts.isIdentifier(current)) {
     const symbol = checker.getSymbolAtLocation(current);
     if (!symbol || resolving.has(symbol)) return [];
@@ -415,41 +431,111 @@ function objectPropertyValues(
   return [];
 }
 
+function arrayElementValues(
+  expression: ts.Expression,
+  index: number,
+  checker: ts.TypeChecker,
+  resolving = new Set<ResolutionKey>(),
+): ts.Expression[] {
+  const current = unwrapExpression(expression);
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || resolving.has(symbol)) return [];
+    const declaration = symbol.declarations?.find(
+      (candidate): candidate is ts.VariableDeclaration =>
+        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+    );
+    if (!declaration?.initializer) return [];
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
+    return arrayElementValues(declaration.initializer, index, checker, nextResolving);
+  }
+  if (!ts.isArrayLiteralExpression(current)) return [];
+  const element = current.elements[index];
+  if (!element || ts.isOmittedExpression(element) || ts.isSpreadElement(element)) {
+    return [];
+  }
+  return [element];
+}
+
+function bindingPropertyName(
+  binding: ts.BindingElement,
+  checker: ts.TypeChecker,
+): string | null {
+  const property = binding.propertyName ?? binding.name;
+  if (ts.isComputedPropertyName(property)) {
+    return staticStringValue(property.expression, checker);
+  }
+  return ts.isIdentifier(property) ||
+    ts.isStringLiteral(property) ||
+    ts.isNoSubstitutionTemplateLiteral(property)
+    ? property.text
+    : null;
+}
+
+function bindingPatternSources(
+  pattern: ts.BindingPattern,
+  checker: ts.TypeChecker,
+  resolving: ReadonlySet<ResolutionKey>,
+): ts.Expression[] {
+  const parent = pattern.parent;
+  if (ts.isVariableDeclaration(parent)) {
+    return parent.initializer ? [parent.initializer] : [];
+  }
+  return ts.isBindingElement(parent)
+    ? bindingElementValues(parent, checker, resolving)
+    : [];
+}
+
+function bindingElementValues(
+  binding: ts.BindingElement,
+  checker: ts.TypeChecker,
+  resolving: ReadonlySet<ResolutionKey>,
+): ts.Expression[] {
+  if (binding.dotDotDotToken) return [];
+  const pattern = binding.parent;
+  const sources = bindingPatternSources(pattern, checker, resolving);
+  if (ts.isObjectBindingPattern(pattern)) {
+    const propertyName = bindingPropertyName(binding, checker);
+    if (propertyName === null) return [];
+    return sources.flatMap((source) =>
+      objectPropertyValues(source, propertyName, checker, new Set(resolving)),
+    );
+  }
+  const index = pattern.elements.indexOf(binding);
+  return index < 0
+    ? []
+    : sources.flatMap((source) =>
+        arrayElementValues(source, index, checker, new Set(resolving)),
+      );
+}
+
 function destructuredBindingMatchesAuditedSource(
   binding: ts.BindingElement,
   auditedSources: readonly ts.Expression[],
   checker: ts.TypeChecker,
-  resolving: ReadonlySet<ts.Symbol>,
+  resolving: ReadonlySet<ResolutionKey>,
 ): boolean {
-  if (!ts.isObjectBindingPattern(binding.parent)) return false;
-  const declaration = binding.parent.parent;
-  if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) {
-    return false;
-  }
-  const property = binding.propertyName ?? binding.name;
-  const propertyName =
-    ts.isIdentifier(property) ||
-    ts.isStringLiteral(property) ||
-    ts.isNoSubstitutionTemplateLiteral(property)
-      ? property.text
-      : null;
-  if (propertyName === null) return false;
-  const directlyMatches = auditedSources.some((source) =>
-    auditedReferenceCandidates(source).some((candidate) => {
-      const member = staticMemberReference(candidate, checker);
-      return (
-        member !== null &&
-        member.name === propertyName &&
-        sameReference(declaration.initializer!, member.base, checker)
+  const patternSources = bindingPatternSources(binding.parent, checker, resolving);
+  if (ts.isObjectBindingPattern(binding.parent)) {
+    const propertyName = bindingPropertyName(binding, checker);
+    const directlyMatches =
+      propertyName !== null &&
+      patternSources.some((patternSource) =>
+        auditedSources.some((source) =>
+          auditedReferenceCandidates(source).some((candidate) => {
+            const member = staticMemberReference(candidate, checker);
+            return (
+              member !== null &&
+              member.name === propertyName &&
+              sameReference(patternSource, member.base, checker)
+            );
+          }),
+        ),
       );
-    }),
-  );
-  if (directlyMatches) return true;
-  return objectPropertyValues(
-    declaration.initializer,
-    propertyName,
-    checker,
-  ).some((value) =>
+    if (directlyMatches) return true;
+  }
+  return bindingElementValues(binding, checker, resolving).some((value) =>
     rendersAuditedValue(value, auditedSources, checker, new Set(resolving)),
   );
 }
@@ -551,11 +637,57 @@ function displayedJsxExpression(
   return null;
 }
 
+function localCallable(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  resolving: ReadonlySet<ResolutionKey>,
+): { callable: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration; key: ResolutionKey } | null {
+  const current = unwrapExpression(expression);
+  if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+    return resolving.has(current) ? null : { callable: current, key: current };
+  }
+  if (!ts.isIdentifier(current)) return null;
+  const symbol = checker.getSymbolAtLocation(current);
+  if (!symbol || resolving.has(symbol)) return null;
+  for (const declaration of symbol.declarations ?? []) {
+    if (ts.isFunctionDeclaration(declaration) && declaration.body) {
+      return { callable: declaration, key: symbol };
+    }
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+      const initializer = unwrapExpression(declaration.initializer);
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+        return { callable: initializer, key: symbol };
+      }
+    }
+  }
+  return null;
+}
+
+function callableReturnExpressions(
+  callable: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+): ts.Expression[] {
+  if (ts.isArrowFunction(callable) && !ts.isBlock(callable.body)) {
+    return [callable.body];
+  }
+  if (!callable.body) return [];
+  const expressions: ts.Expression[] = [];
+  const visit = (node: ts.Node) => {
+    if (node !== callable && ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      expressions.push(node.expression);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(callable.body);
+  return expressions;
+}
+
 function rendersAuditedValue(
   expression: ts.Expression,
   auditedSources: readonly ts.Expression[],
   checker: ts.TypeChecker,
-  resolving = new Set<ts.Symbol>(),
+  resolving = new Set<ResolutionKey>(),
 ): boolean {
   const current = unwrapExpression(expression);
   if (
@@ -596,12 +728,38 @@ function rendersAuditedValue(
       nextResolving,
     );
   }
+  const member = staticMemberReference(current, checker);
+  if (
+    member &&
+    objectPropertyValues(member.base, member.name, checker, resolving).some((value) =>
+      rendersAuditedValue(value, auditedSources, checker, new Set(resolving)),
+    )
+  ) {
+    return true;
+  }
   if (ts.isTemplateExpression(current)) {
     return current.templateSpans.some((span) =>
       rendersAuditedValue(span.expression, auditedSources, checker, resolving),
     );
   }
   if (ts.isElementAccessExpression(current)) {
+    const argument = current.argumentExpression
+      ? unwrapExpression(current.argumentExpression)
+      : null;
+    const indexText = argument && ts.isNumericLiteral(argument)
+      ? argument.text
+      : current.argumentExpression
+        ? staticStringValue(current.argumentExpression, checker)
+        : null;
+    const index = indexText === null ? null : Number(indexText);
+    const selected = index !== null && Number.isInteger(index) && index >= 0
+      ? arrayElementValues(current.expression, index, checker, resolving)
+      : [];
+    if (selected.length > 0) {
+      return selected.some((value) =>
+        rendersAuditedValue(value, auditedSources, checker, new Set(resolving)),
+      );
+    }
     return rendersAuditedValue(
       current.expression,
       auditedSources,
@@ -686,6 +844,20 @@ function rendersAuditedValue(
     ) {
       return true;
     }
+    if (current.arguments.length === 0) {
+      const local = localCallable(current.expression, checker, resolving);
+      if (local && local.callable.parameters.length === 0) {
+        const nextResolving = new Set(resolving);
+        nextResolving.add(local.key);
+        if (
+          callableReturnExpressions(local.callable).some((returned) =>
+            rendersAuditedValue(returned, auditedSources, checker, nextResolving),
+          )
+        ) {
+          return true;
+        }
+      }
+    }
     // An arbitrary helper can return or embed any argument. Treat an audited
     // identifier passed to one as a display unless the call stays inside the
     // imported BidiIdentifier boundary checked by the caller.
@@ -700,6 +872,9 @@ function rendersAuditedValue(
     );
   }
   if (ts.isBinaryExpression(current)) {
+    if (current.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      return rendersAuditedValue(current.right, auditedSources, checker, resolving);
+    }
     if (current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
       return rendersAuditedValue(current.right, auditedSources, checker, resolving);
     }

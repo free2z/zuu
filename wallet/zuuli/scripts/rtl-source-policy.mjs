@@ -52,6 +52,26 @@ const FOUR_SIDE_SHORTHANDS = new Set([
   "mask-border-slice",
 ]);
 
+const REACT_PHYSICAL_SHORTHANDS = new Map([
+  ["margin", "margin"],
+  ["padding", "padding"],
+  ["inset", "inset"],
+  ["borderWidth", "border-width"],
+  ["borderStyle", "border-style"],
+  ["borderColor", "border-color"],
+  ["scrollMargin", "scroll-margin"],
+  ["scrollPadding", "scroll-padding"],
+  ["borderImageWidth", "border-image-width"],
+  ["borderImageOutset", "border-image-outset"],
+  ["borderImageSlice", "border-image-slice"],
+  ["maskBorderWidth", "mask-border-width"],
+  ["maskBorderOutset", "mask-border-outset"],
+  ["maskBorderSlice", "mask-border-slice"],
+  ["borderRadius", "border-radius"],
+  ["borderImage", "border-image"],
+  ["maskBorder", "mask-border"],
+]);
+
 // Messaging is owned by the parallel E2EE effort. This is deliberately an
 // exact residual inventory, not a directory exemption: a new path, a removed
 // residual, or one extra occurrence fails the same policy as non-chat code.
@@ -372,6 +392,7 @@ function assertStyleObjectsUseLogicalProperties(
     const current = unwrapExpression(expression);
     const literal = literalText(current);
     if (literal !== null) return [literal];
+    if (ts.isNumericLiteral(current)) return [current.text];
     if (ts.isConditionalExpression(current)) {
       return [
         ...resolveStaticStrings(current.whenTrue, resolving),
@@ -441,6 +462,17 @@ function assertStyleObjectsUseLogicalProperties(
       ) {
         throw new Error(`${fileName} inline textAlign must be logical`);
       }
+      const shorthand = REACT_PHYSICAL_SHORTHANDS.get(propertyName);
+      if (
+        shorthand &&
+        resolveStaticStrings(
+          ts.isPropertyAssignment(property) ? property.initializer : property.name,
+        ).some((value) => !physicalShorthandIsDirectionNeutral(shorthand, value))
+      ) {
+        throw new Error(
+          `${fileName} inline style contains an asymmetric physical shorthand`,
+        );
+      }
     }
   };
   for (const object of objects) inspect(object);
@@ -486,8 +518,11 @@ function isPhysicalUtility(token) {
     return (
       isPhysicalCssProperty(property) ||
       isPhysicalCssValue(property, normalizedValue) ||
-      ((FOUR_SIDE_SHORTHANDS.has(property) || property === "border-radius") &&
-        !shorthandIsDirectionNeutral(property, normalizedValue))
+      ((FOUR_SIDE_SHORTHANDS.has(property) ||
+        property === "border-radius" ||
+        property === "border-image" ||
+        property === "mask-border") &&
+        !physicalShorthandIsDirectionNeutral(property, normalizedValue))
     );
   }
   return /^(?:-?(?:ml|mr|pl|pr)-.+|-?(?:left|right)-.+|border-(?:l|r)(?:-.+)?|text-(?:left|right)|rounded-(?:l|r|tl|tr|bl|br)(?:-.+)?|float-(?:left|right)|clear-(?:left|right)|space-x(?:-.+)?|divide-x(?:-.+)?)$/.test(
@@ -759,6 +794,30 @@ function shorthandIsDirectionNeutral(property, value) {
   });
 }
 
+function imageBorderShorthandIsDirectionNeutral(value) {
+  const tokens = cssValueTokens(value).filter(
+    (token) => token.toLowerCase() !== "!important",
+  );
+  const firstSlash = tokens.indexOf("/");
+  if (firstSlash < 0) return true;
+  const secondSlash = tokens.indexOf("/", firstSlash + 1);
+  const repeatKeywords = new Set(["stretch", "repeat", "round", "space"]);
+  const end = secondSlash < 0 ? tokens.length : secondSlash;
+  const widthTokens = tokens
+    .slice(firstSlash + 1, end)
+    .filter((token) => !repeatKeywords.has(token.toLowerCase()));
+  return (
+    widthTokens.length <= 3 ||
+    (widthTokens.length === 4 && widthTokens[1] === widthTokens[3])
+  );
+}
+
+function physicalShorthandIsDirectionNeutral(property, value) {
+  return property === "border-image" || property === "mask-border"
+    ? imageBorderShorthandIsDirectionNeutral(value)
+    : shorthandIsDirectionNeutral(property, value);
+}
+
 function isPhysicalCssProperty(property) {
   return /^(?:(?:margin|padding)-(?:left|right)|(?:left|right)|border-(?:left|right)(?:-(?:width|style|color))?|border-(?:top|bottom)-(?:left|right)-radius)$/i.test(
     property,
@@ -782,8 +841,10 @@ function assertCssUsesLogicalProperties(fileName, source) {
     }
     if (
       (FOUR_SIDE_SHORTHANDS.has(canonicalProperty) ||
-        canonicalProperty === "border-radius") &&
-      !shorthandIsDirectionNeutral(canonicalProperty, value)
+        canonicalProperty === "border-radius" ||
+        canonicalProperty === "border-image" ||
+        canonicalProperty === "mask-border") &&
+      !physicalShorthandIsDirectionNeutral(canonicalProperty, value)
     ) {
       throw new Error(`${fileName} contains an asymmetric physical CSS shorthand`);
     }

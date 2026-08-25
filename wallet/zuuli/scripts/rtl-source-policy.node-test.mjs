@@ -500,6 +500,10 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
     "mask-border-width: 1px 2px 1px 3px;",
     "mask-border-outset: 1px 2px 1px 3px;",
     "mask-border-slice: fill 1 2 1 3;",
+    "border-image: url(frame.png) 1 / 1px 2px 1px 3px;",
+    "mask-border: url(mask.png) 1 / 1px 2px 1px 3px;",
+    "border-image: url(frame.png) 1 / 1px 2px 1px 3px / 0;",
+    "mask-border: url(mask.png) 1 / 1px 2px 1px 3px / 0;",
     "border-radius: 1px 2px 3px;",
     "border-radius: calc(1px + 2px) 4px 8px 16px / var(--a) var(--b) var(--c) var(--d);",
   ]) {
@@ -524,6 +528,10 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
     "mask-border-width: 1px 2px 1px 2px;",
     "mask-border-outset: 1px 2px 1px 2px;",
     "mask-border-slice: fill 1 2 1 2;",
+    "border-image: url(frame.png) 1 / 1px 2px 1px 2px;",
+    "mask-border: url(mask.png) 1 / 1px 2px 1px 2px;",
+    "border-image: url(frame.png) 1 / 1px 2px 1px 2px / 0;",
+    "mask-border: url(mask.png) 1 / 1px 2px 1px 2px / 0;",
     "border-radius: calc(1px + 2px) calc(1px + 2px) var(--bottom) var(--bottom);",
     "border-radius: var(--all) / max(2px, 3px);",
   ]) {
@@ -531,6 +539,42 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
       () => assertRtlSourcePolicy(withCss(declaration)),
       declaration,
     );
+  }
+});
+
+test("React physical shorthand values fail when asymmetric and allow symmetric controls", () => {
+  const fileName = "src/features/articles/components/Comments/CommentCard.tsx";
+  for (const style of [
+    'margin: "0 1px 0 2px"',
+    'borderImageWidth: "1px 2px 1px 3px"',
+    'maskBorderSlice: "1 2 1 3 fill"',
+    'borderImage: "url(frame.png) 1 / 1px 2px 1px 3px"',
+    'maskBorder: "url(mask.png) 1 / 1px 2px 1px 3px"',
+  ]) {
+    const mutant = insertJsxAttribute(
+      fileName,
+      "Reply",
+      `style={{ ${style} }}`,
+    );
+    assert.throws(
+      () => assertRtlSourcePolicy(mutant),
+      /inline style contains an asymmetric physical shorthand/,
+      style,
+    );
+  }
+  for (const style of [
+    'margin: "0 1px 0 1px"',
+    'borderImageWidth: "1px 2px 1px 2px"',
+    'maskBorderSlice: "1 2 1 2 fill"',
+    'borderImage: "url(frame.png) 1 / 1px 2px 1px 2px"',
+    'maskBorder: "url(mask.png) 1 / 1px 2px 1px 2px"',
+  ]) {
+    const control = insertJsxAttribute(
+      fileName,
+      "Reply",
+      `style={{ ${style} }}`,
+    );
+    assert.doesNotThrow(() => assertRtlSourcePolicy(control), style);
   }
 });
 

@@ -500,6 +500,66 @@ describe("opaque identifier production inventory", () => {
     );
   });
 
+  it.each([
+    ["an array destructure", "\n  const [reviewLeak] = [tx.txid];", "reviewLeak"],
+    [
+      "a nested object destructure",
+      "\n  const reviewWrapper = { nested: { leakedTxid: tx.txid } };\n  const { nested: { leakedTxid: reviewLeak } } = reviewWrapper;",
+      "reviewLeak",
+    ],
+    [
+      "a computed-key destructure",
+      '\n  const reviewKey: "leakedTxid" = "leakedTxid";\n  const reviewWrapper = { leakedTxid: tx.txid };\n  const { [reviewKey]: reviewLeak } = reviewWrapper;',
+      "reviewLeak",
+    ],
+    [
+      "a selected object-literal property",
+      "\n  const reviewWrapper = { leakedTxid: tx.txid };",
+      "reviewWrapper.leakedTxid",
+    ],
+    [
+      "a nested selected object-literal property",
+      "\n  const reviewWrapper = { nested: { leakedTxid: tx.txid } };",
+      "reviewWrapper.nested.leakedTxid",
+    ],
+    [
+      "a computed selected object-literal property",
+      '\n  const reviewKey: "leakedTxid" = "leakedTxid";\n  const reviewWrapper = { leakedTxid: tx.txid };',
+      "reviewWrapper[reviewKey]",
+    ],
+    [
+      "a selected array element",
+      '\n  const reviewValues = ["decorative", tx.txid];',
+      "reviewValues[1]",
+    ],
+    [
+      "a zero-argument local closure",
+      "\n  const reviewLeak = () => tx.txid;",
+      "reviewLeak()",
+    ],
+    ["a zero-argument IIFE", "", "(() => tx.txid)()"],
+    ["a sequence expression", "", "(0, tx.txid)"],
+  ] as const)("rejects an audited transaction ID through %s", (_, setup, display) => {
+    let mutant = productionSources();
+    if (setup) {
+      mutant = insertIntoFunction(
+        mutant,
+        "src/features/wallet/History.tsx",
+        "HistoryRow",
+        setup,
+      );
+    }
+    mutant = insertAfterBidiValue(
+      mutant,
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      `<span>{${display}}</span>`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
   it("allows equivalent member shapes that do not derive from the audited source", () => {
     let mutant = insertIntoFunction(
       productionSources(),
@@ -510,13 +570,37 @@ describe("opaque identifier production inventory", () => {
         '  const unrelatedTransaction = { txid: "decorative" };',
         '  const safeWrapper = { safeLeak: "decorative" };',
         "  const { safeLeak } = safeWrapper;",
+        '  const [safeArrayLeak] = ["decorative"];',
+        '  const nestedSafeWrapper = { nested: { safeLeak: "decorative" } };',
+        "  const { nested: { safeLeak: nestedSafeLeak } } = nestedSafeWrapper;",
+        '  const safeKey: "safeLeak" = "safeLeak";',
+        "  const { [safeKey]: computedSafeLeak } = safeWrapper;",
+        '  const safeClosure = () => "decorative";',
+        '  const mixedWrapper = { leakedTxid: tx.txid, safe: "decorative" };',
+        '  const mixedValues = ["decorative", tx.txid];',
+        "  const safeCycle = () => false && safeCycle();",
       ].join("\n"),
     );
     mutant = insertAfterBidiValue(
       mutant,
       "src/features/wallet/History.tsx",
       "tx.txid",
-      "<span>{unrelatedTransaction[unrelatedProperty]}</span><span>{safeLeak}</span>",
+      [
+        "<span>{unrelatedTransaction[unrelatedProperty]}</span>",
+        "<span>{safeLeak}</span>",
+        "<span>{safeArrayLeak}</span>",
+        "<span>{nestedSafeLeak}</span>",
+        "<span>{computedSafeLeak}</span>",
+        "<span>{safeWrapper.safeLeak}</span>",
+        "<span>{nestedSafeWrapper.nested.safeLeak}</span>",
+        "<span>{safeWrapper[safeKey]}</span>",
+        "<span>{mixedWrapper.safe}</span>",
+        "<span>{mixedValues[0]}</span>",
+        "<span>{safeClosure()}</span>",
+        "<span>{safeCycle()}</span>",
+        '<span>{(() => "decorative")()}</span>',
+        '<span>{(tx.txid, "decorative")}</span>',
+      ].join(""),
     );
     expect(() => assertBidiIdentifierPolicy(mutant)).not.toThrow();
   });
