@@ -1720,8 +1720,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       ? `${line}${linuxCargoOptions}`
       : line;
   const cargoAuditInstallLines = [
-    "cargo install --locked cargo-auditable --version 0.7.5",
-    "cargo install --list | grep -Fx 'cargo-auditable v0.7.5:'",
+    "scripts/install-cargo-auditable.sh",
   ];
   const prepareLinuxLines = [
     "appimages=(release-artifacts/*.AppImage)",

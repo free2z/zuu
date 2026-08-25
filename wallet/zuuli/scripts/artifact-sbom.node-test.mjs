@@ -679,11 +679,11 @@ test(
         ].join("\n"),
       );
       writeFileSync(
-        resolve(project, "src/main.rs"),
+        resolve(project, "src/app.rs"),
         [
           "#[local_macro::marker]",
           "fn marked() {}",
-          "fn main() {",
+          "pub fn run() {",
           "    marked();",
           '    println!("{} {} {}", linked::answer(), featured::answer(), itoa::Buffer::new().format(42));',
           '    #[cfg(target_os = "linux")] println!("{}", linux_only::answer());',
@@ -691,6 +691,14 @@ test(
           "}",
           "",
         ].join("\n"),
+      );
+      writeFileSync(
+        resolve(project, "src/lib.rs"),
+        "mod app;\npub use app::run;\n",
+      );
+      writeFileSync(
+        resolve(project, "src/main.rs"),
+        "fn main() { zuuli::run(); }\n",
       );
       writeFileSync(
         resolve(linked, "Cargo.toml"),
@@ -782,6 +790,11 @@ test(
         "runtime",
         "format 1 must reproduce promotion of a shared build-only package",
       );
+      const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(
+        /^host: (.+)$/m,
+      )?.[1];
+      assert.equal(host, "x86_64-unknown-linux-gnu");
+      const options = cargoRuntimeOptions(project, host);
       execFileSync(
         resolve(scriptDirectory, "run-with-cargo-auditable.sh"),
         ["cargo", "build", "--release", "--locked", "--offline"],
@@ -793,11 +806,6 @@ test(
           },
         },
       );
-      const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(
-        /^host: (.+)$/m,
-      )?.[1];
-      assert.equal(host, "x86_64-unknown-linux-gnu");
-      const options = cargoRuntimeOptions(project, host);
       const audited = resolve(project, "target/release/zuuli");
       const expectedRuntimePackages = [
         { name: "featured", version: "2.0.0", source: "local", features: [] },
@@ -837,6 +845,13 @@ test(
       };
       const independentEvidence = extractFixtureEvidence(audited, temporary);
       assert.equal(independentEvidence.document.format, 8);
+      assert.deepEqual(
+        independentEvidence.document.packages
+          .filter((entry) => entry.root === true)
+          .map(({ name, version, source }) => ({ name, version, source })),
+        [{ name: "zuuli", version: "0.1.0", source: "local" }],
+        "the Cargo precursor's binary root must survive same-package lib/bin unit deduplication",
+      );
       assert.deepEqual(
         independentEvidence.document.packages
           .filter((entry) => entry.kind === "build")
@@ -1165,6 +1180,37 @@ test(
         "missing-evidence",
         stripped,
         /missing embedded Cargo audit evidence/,
+      );
+
+      const missingRoot = resolve(temporary, "missing-root-zuuli");
+      mutateAuditableBinary(audited, missingRoot, temporary, (document) => {
+        delete document.packages.find((entry) => entry.root === true).root;
+      });
+      assertBinaryRejected(
+        "missing-root",
+        missingRoot,
+        /evidence must have exactly one root package/,
+      );
+
+      const multipleRoots = resolve(temporary, "multiple-roots-zuuli");
+      mutateAuditableBinary(audited, multipleRoots, temporary, (document) => {
+        document.packages.find((entry) => entry.name === "linked").root = true;
+      });
+      assertBinaryRejected(
+        "multiple-roots",
+        multipleRoots,
+        /evidence must have exactly one root package/,
+      );
+
+      const wrongRoot = resolve(temporary, "wrong-root-zuuli");
+      mutateAuditableBinary(audited, wrongRoot, temporary, (document) => {
+        delete document.packages.find((entry) => entry.root === true).root;
+        document.packages.find((entry) => entry.name === "linked").root = true;
+      });
+      assertBinaryRejected(
+        "wrong-root",
+        wrongRoot,
+        /evidence contains an unreachable package/,
       );
 
       const omitted = resolve(temporary, "omitted-linked-crate-zuuli");
@@ -2535,7 +2581,7 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "the policy must reject a Linux build without Cargo audit instrumentation",
   );
   const unpinnedInstrumentation = release.replace(
-    "cargo install --locked cargo-auditable --version 0.7.5",
+    "scripts/install-cargo-auditable.sh",
     "cargo install cargo-auditable",
   );
   assert.ok(
