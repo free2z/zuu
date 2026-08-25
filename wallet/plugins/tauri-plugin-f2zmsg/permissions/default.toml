@@ -1,0 +1,69 @@
+# The desktop grant: every command in `CLIENT-CONTRACT.md` §3.
+#
+# HAND-WRITTEN, and held to the command registry by
+# `scripts/check-tauri-plugin-permissions.mjs` — which asserts this file allows
+# exactly the registered set, no more and no less. Before that check existed,
+# nothing derived this file from anything and nothing failed when a command was
+# missing from it; §2.3 says so explicitly, and closing that gap was part of
+# writing the checker.
+#
+# `allow-set-relay-trust` is the one entry worth a second look. It is how a user
+# opts in to a relay with `transport_security: "none"` or
+# `channel_binding_mode: "none"` (`WIRE.md` §2.3, §5.3) — the only grant in this
+# set that is a security downgrade. It is granted here because the capability is
+# the wrong place to withhold it: a user who genuinely wants a developer relay
+# needs it, and the protection that belongs in front of it is an explicit
+# per-relay confirmation in the UI that states what travels in the clear.
+#
+# The MOBILE capability does not take this set. `capabilities/mobile.json`
+# enumerates an exact least-privilege list instead, and
+# `wallet/zuuli/scripts/mobile-webview-authority.mjs` holds that list against a
+# reviewed allowlist — mobile authority is granted by review, not by
+# registration.
+[default]
+description = "Default permissions for the free2z messaging plugin"
+permissions = [
+    "allow-get-engine-status",
+    "allow-start-engine",
+    "allow-stop-engine",
+    "allow-get-device-info",
+    "allow-list-conversations",
+    "allow-get-conversation",
+    "allow-start-conversation",
+    "allow-list-contact-requests",
+    "allow-accept-contact-request",
+    "allow-reject-contact-request",
+    "allow-leave-conversation",
+    "allow-send-message",
+    "allow-retry-send",
+    "allow-cancel-send",
+    "allow-list-messages",
+    "allow-get-message",
+    "allow-get-delivery-state",
+    "allow-mark-read",
+    "allow-get-receipt-policy",
+    "allow-set-receipt-policy",
+    "allow-list-gaps",
+    "allow-request-gap-repair",
+    "allow-get-retention-policy",
+    "allow-set-retention-policy",
+    "allow-send-ephemeral-hint",
+    "allow-get-ephemeral-hint",
+    "allow-send-purge-request",
+    "allow-list-purge-requests",
+    "allow-resolve-handle",
+    "allow-check-handle-eligibility",
+    "allow-get-safety-number",
+    "allow-set-verification",
+    "allow-get-self-audit-state",
+    "allow-list-alarms",
+    "allow-acknowledge-alarm",
+    "allow-list-relays",
+    "allow-add-relay",
+    "allow-remove-relay",
+    "allow-get-relay-capabilities",
+    "allow-set-relay-trust",
+    "allow-list-witnesses",
+    "allow-set-witness-set",
+    "allow-get-witness-set-state",
+]

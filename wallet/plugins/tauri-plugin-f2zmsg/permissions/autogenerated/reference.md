@@ -1,3 +1,53 @@
+## Default Permission
+
+Default permissions for the free2z messaging plugin
+
+#### This default permission set includes the following:
+
+- `allow-get-engine-status`
+- `allow-start-engine`
+- `allow-stop-engine`
+- `allow-get-device-info`
+- `allow-list-conversations`
+- `allow-get-conversation`
+- `allow-start-conversation`
+- `allow-list-contact-requests`
+- `allow-accept-contact-request`
+- `allow-reject-contact-request`
+- `allow-leave-conversation`
+- `allow-send-message`
+- `allow-retry-send`
+- `allow-cancel-send`
+- `allow-list-messages`
+- `allow-get-message`
+- `allow-get-delivery-state`
+- `allow-mark-read`
+- `allow-get-receipt-policy`
+- `allow-set-receipt-policy`
+- `allow-list-gaps`
+- `allow-request-gap-repair`
+- `allow-get-retention-policy`
+- `allow-set-retention-policy`
+- `allow-send-ephemeral-hint`
+- `allow-get-ephemeral-hint`
+- `allow-send-purge-request`
+- `allow-list-purge-requests`
+- `allow-resolve-handle`
+- `allow-check-handle-eligibility`
+- `allow-get-safety-number`
+- `allow-set-verification`
+- `allow-get-self-audit-state`
+- `allow-list-alarms`
+- `allow-acknowledge-alarm`
+- `allow-list-relays`
+- `allow-add-relay`
+- `allow-remove-relay`
+- `allow-get-relay-capabilities`
+- `allow-set-relay-trust`
+- `allow-list-witnesses`
+- `allow-set-witness-set`
+- `allow-get-witness-set-state`
+
 ## Permission Table
 
 <table>

@@ -263,6 +263,10 @@ impl<B: StorageBackend> Engine<B> {
             }
         }
         inner.subscribe_all().await;
+        if let Err(error) = inner.ensure_contact_queue().await {
+            tracing::info!(code = %error.code(), "contact queue not opened");
+            inner.last_error = Some(error.code());
+        }
 
         inner.state = if inner.connections.len() < relays.len() || !self.directory.threshold_met() {
             // §6.1: `degraded` is a **running** state. An established
@@ -588,16 +592,42 @@ impl<B: StorageBackend> Engine<B> {
         if !handle::is_handle(peer_handle) {
             // §11.3: a homograph does not match the charset, so the directory
             // refuses to resolve it at all, turning a silent impersonation into
-            // a lookup failure. That is the whole of the charset's mitigation.
+            // a lookup failure. That is the whole of the charset's mitigation,
+            // and it is why this check is before the lookup rather than after.
             return Err(Error::new(
                 ErrorCode::HandleIneligible,
                 format!("{peer_handle:?} is not a messaging handle"),
             ));
         }
-        let _resolution = self.directory.resolve(peer_handle)?;
-        Err(Error::internal(
-            "unreachable: NoDirectory::resolve never returns Ok",
-        ))
+        // §6.4's first row. Everything below this line is `WIRE.md` §12.5's
+        // handshake and is the same code the harness drives; the only step this
+        // build cannot take is this one.
+        let peer = self.directory.resolve_peer(peer_handle)?;
+
+        let mut inner = self.inner.lock().await;
+        inner.require_running("start_conversation")?;
+        let relay_url = inner.first_relay_url()?;
+        let introduction = inner
+            .create_conversation(
+                peer_handle,
+                &peer.identity_pk,
+                &peer.key_package,
+                &relay_url,
+            )
+            .await?;
+
+        // The `Welcome`, this device's queue advert and who is calling, on the
+        // peer's published contact queue. Unsigned at the relay and gated by a
+        // proof-of-work stamp: §12.2's whole design is that a stranger can
+        // reach you exactly once, expensively.
+        inner
+            .contact_append(&peer, &introduction, peer_handle)
+            .await?;
+
+        let stored = inner.conversation(&introduction.conversation_id)?;
+        let view = inner.view(&stored)?;
+        self.sink.conversation_updated(&view);
+        Ok(view)
     }
 
     /// §3.3 `list_contact_requests`.
@@ -629,12 +659,57 @@ impl<B: StorageBackend> Engine<B> {
     /// `Welcome` from a new handle in the same row as resolving one, for the
     /// same reason.
     pub async fn accept_contact_request(&self, request_id: &str) -> Result<Conversation> {
-        let _ = request_id;
-        Err(Error::new(
-            ErrorCode::WitnessThresholdUnmet,
-            "accepting a first-contact Welcome requires a witness-cosigned resolution \
-             of the sender's handle (CLIENT-CONTRACT.md §6.4)",
-        ))
+        let request = {
+            let inner = self.inner.lock().await;
+            inner
+                .records()
+                .contact_requests()?
+                .into_iter()
+                .find(|request| request.request_id == request_id)
+                .ok_or_else(|| Error::internal("no such contact request"))?
+        };
+        // §6.4 again: accepting a first-contact `Welcome` from a handle this
+        // device has never pinned is the same row as resolving one. The
+        // `Welcome` is authenticated by MLS, but nothing in it says the sender
+        // is who the handle says — that is exactly what the directory answers.
+        let peer = self.directory.resolve_peer(&request.peer_handle)?;
+
+        let mut inner = self.inner.lock().await;
+        inner.require_running("accept_contact_request")?;
+        let relay_url = inner.first_relay_url()?;
+        let welcome = hex::decode(&request.welcome)
+            .map_err(|_| Error::internal("a stored Welcome is not hex"))?;
+        let introduction = Introduction {
+            conversation_id: request.conversation_id.clone(),
+            welcome,
+            advert: QueueAdvert {
+                relay_url: request.peer_relay_url.clone(),
+                send_addr: request.peer_send_addr.clone(),
+            },
+        };
+        inner
+            .join_conversation(
+                &request.peer_handle,
+                &peer.identity_pk,
+                &introduction,
+                &relay_url,
+            )
+            .await?;
+
+        let remaining: Vec<StoredContactRequest> = inner
+            .records()
+            .contact_requests()?
+            .into_iter()
+            .filter(|existing| existing.request_id != request_id)
+            .collect();
+        inner
+            .records()
+            .commit(|records| records.put_contact_requests(&remaining))?;
+
+        let stored = inner.conversation(&introduction.conversation_id)?;
+        let view = inner.view(&stored)?;
+        self.sink.conversation_updated(&view);
+        Ok(view)
     }
 
     /// §3.3 `reject_contact_request`. `block` is **local only**: no server knows
@@ -1704,8 +1779,15 @@ impl<B: StorageBackend> Engine<B> {
         if inner.mls.is_none() {
             return Ok(0);
         }
+        let mut delivered = match inner.pump_contact_queue().await {
+            Ok(events) => events,
+            Err(error) => {
+                tracing::info!(code = %error.code(), "contact-queue pump");
+                inner.last_error = Some(error.code());
+                Vec::new()
+            }
+        };
         let ids = inner.records().conversation_ids()?;
-        let mut delivered = Vec::new();
         for id in ids {
             match inner.pump_conversation(&id).await {
                 Ok(mut events) => delivered.append(&mut events),
@@ -1720,6 +1802,7 @@ impl<B: StorageBackend> Engine<B> {
         for event in delivered {
             match event {
                 Inbound::Message(event) => self.sink.message_received(&event),
+                Inbound::ContactRequest(request) => self.sink.contact_request(&request),
                 Inbound::Gap(gap) => self.sink.gap_detected(&gap),
                 Inbound::GapRepaired(gap) => self.sink.gap_repaired(&gap),
                 Inbound::Conversation(conversation) => self.sink.conversation_updated(&conversation),
@@ -1731,23 +1814,19 @@ impl<B: StorageBackend> Engine<B> {
     }
 
     // ------------------------------------------------------------------
-    // The out-of-band bootstrap — the seam `start_conversation` will use
+    // The out-of-band bootstrap — the same path, with the resolution supplied
     // ------------------------------------------------------------------
     //
-    // **Not commands, and not compiled into a shipping build.** Everything
-    // downstream of a directory resolution is identical whether the resolution
-    // came from a witness-cosigned root or from a harness: the MLS group, the
-    // `Welcome`, the queue pair, the ciphertext, the durable write, the ACK and
-    // the events. These three functions are that downstream half, reachable
-    // without inventing a directory answer inside the shipping binary — which
-    // §6.4 and §9 rule 5 forbid, and which is exactly the defect a "temporary"
-    // permissive resolver would be.
-    //
-    // When a directory client lands, `start_conversation` becomes: resolve,
-    // then `create_conversation` with what the resolution named. Nothing below
-    // changes.
+    // **Not commands, and not compiled into a shipping build.** Every one of
+    // these is a thin wrapper over the `Inner` method `start_conversation` and
+    // `accept_contact_request` already call, so what the two-process relay
+    // harness exercises is the shipping path and not a parallel one. The single
+    // step it substitutes is the directory resolution — which §6.4 and §9 rule 5
+    // say a client must never fake, and which is exactly why a "temporary"
+    // permissive resolver would be the defect rather than the shortcut.
 
-    /// The `KeyPackage` this device offers.
+    /// The `KeyPackage` this device offers. In a real handshake the directory
+    /// publishes it; here the harness carries it.
     ///
     /// # Errors
     ///
@@ -1761,14 +1840,13 @@ impl<B: StorageBackend> Engine<B> {
             .map_err(|error| Error::internal(format!("key package: {error}")))
     }
 
-    /// Create the group, add the peer from its `KeyPackage`, and open this
-    /// device's receive queue.
+    /// [`Engine::start_conversation`] with the resolution supplied.
     ///
     /// # Errors
     ///
     /// `engine-not-running`, or §8's relay group.
     #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn create_conversation(
+    pub async fn create_conversation_out_of_band(
         &self,
         peer_handle: &str,
         peer_identity_pk: &str,
@@ -1777,67 +1855,22 @@ impl<B: StorageBackend> Engine<B> {
     ) -> Result<Introduction> {
         let mut inner = self.inner.lock().await;
         inner.require_running("create_conversation")?;
-        let now = now_ms();
-        let mut group_id = [0u8; 32];
-        rand::rng().fill_bytes(&mut group_id);
-        let conversation_id = hex::encode(group_id);
-
-        let welcome = {
-            let mls = inner.mls_ref("create_conversation")?;
-            let mut group = mls
-                .create_group(&group_id)
-                .map_err(|error| Error::internal(format!("creating a group: {error}")))?;
-            let (_commit, welcome) = mls
-                .add_member(
-                    &mut group,
-                    peer_key_package,
-                    u64::try_from(now).unwrap_or_default(),
-                )
-                .map_err(|error| Error::internal(format!("adding a member: {error}")))?;
-            inner.groups.insert(conversation_id.clone(), group);
-            welcome
-        };
-
-        let (advert, inbound) = inner.open_inbound_queue(&conversation_id, relay_url).await?;
-        let stored = StoredConversation {
-            conversation_id: conversation_id.clone(),
-            peer_handle: peer_handle.to_owned(),
-            peer_identity_fingerprint: peer_identity_pk.to_owned(),
-            group_id: hex::encode(group_id),
-            verification: VerificationState::Unverified,
-            created_at: now,
-            last_message_at: None,
-            unread_count: 0,
-            retention: None,
-            ephemeral_hint: None,
-            receipt_policy: ReceiptPolicy::default(),
-            queues: StoredQueues {
-                inbound: Some(inbound),
-                outbound: None,
-            },
-            send_address_stolen: false,
-            read_through: None,
-        };
-        inner
-            .records()
-            .commit(|records| records.put_conversation(&stored))?;
+        let introduction = inner
+            .create_conversation(peer_handle, peer_identity_pk, peer_key_package, relay_url)
+            .await?;
+        let stored = inner.conversation(&introduction.conversation_id)?;
         let view = inner.view(&stored)?;
         self.sink.conversation_updated(&view);
-        Ok(Introduction {
-            conversation_id,
-            welcome,
-            advert,
-        })
+        Ok(introduction)
     }
 
-    /// Join from a `Welcome`, open this device's receive queue, and record the
-    /// peer's advertised send address.
+    /// [`Engine::accept_contact_request`] with the resolution supplied.
     ///
     /// # Errors
     ///
     /// `engine-not-running`, or §8's relay group.
     #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn join_conversation(
+    pub async fn join_conversation_out_of_band(
         &self,
         peer_handle: &str,
         peer_identity_pk: &str,
@@ -1846,54 +1879,17 @@ impl<B: StorageBackend> Engine<B> {
     ) -> Result<QueueAdvert> {
         let mut inner = self.inner.lock().await;
         inner.require_running("join_conversation")?;
-        let now = now_ms();
-        let conversation_id = introduction.conversation_id.clone();
-        {
-            let mls = inner.mls_ref("join_conversation")?;
-            let group = mls
-                .join_from_welcome(
-                    &introduction.welcome,
-                    u64::try_from(now).unwrap_or_default(),
-                )
-                .map_err(|error| Error::internal(format!("joining: {error}")))?;
-            inner.groups.insert(conversation_id.clone(), group);
-        }
-
-        let (advert, inbound) = inner.open_inbound_queue(&conversation_id, relay_url).await?;
-        let stored = StoredConversation {
-            conversation_id: conversation_id.clone(),
-            peer_handle: peer_handle.to_owned(),
-            peer_identity_fingerprint: peer_identity_pk.to_owned(),
-            group_id: conversation_id.clone(),
-            verification: VerificationState::Unverified,
-            created_at: now,
-            last_message_at: None,
-            unread_count: 0,
-            retention: None,
-            ephemeral_hint: None,
-            receipt_policy: ReceiptPolicy::default(),
-            queues: StoredQueues {
-                inbound: Some(inbound),
-                outbound: Some(OutboundQueue {
-                    relay_url: introduction.advert.relay_url.clone(),
-                    send_addr: introduction.advert.send_addr.clone(),
-                    send_key_seed: hex::encode(inner.queue_key(&conversation_id, LABEL_QUEUE_SEND)?),
-                    bound: false,
-                }),
-            },
-            send_address_stolen: false,
-            read_through: None,
-        };
-        inner
-            .records()
-            .commit(|records| records.put_conversation(&stored))?;
+        let advert = inner
+            .join_conversation(peer_handle, peer_identity_pk, introduction, relay_url)
+            .await?;
+        let stored = inner.conversation(&introduction.conversation_id)?;
         let view = inner.view(&stored)?;
         self.sink.conversation_updated(&view);
         Ok(advert)
     }
 
-    /// Record the peer's advertised send address, which is what the directory's
-    /// queue advert (`WIRE.md` §12.2) would carry.
+    /// Record the peer's advertised send address, which is what the joiner's
+    /// first in-band message carries in a real handshake.
     ///
     /// # Errors
     ///
@@ -1905,16 +1901,23 @@ impl<B: StorageBackend> Engine<B> {
         advert: &QueueAdvert,
     ) -> Result<()> {
         let inner = self.inner.lock().await;
-        let mut stored = inner.conversation(conversation_id)?;
-        stored.queues.outbound = Some(OutboundQueue {
-            relay_url: advert.relay_url.clone(),
-            send_addr: advert.send_addr.clone(),
-            send_key_seed: hex::encode(inner.queue_key(conversation_id, LABEL_QUEUE_SEND)?),
-            bound: false,
-        });
-        inner
+        inner.set_peer_advert(conversation_id, advert)
+    }
+
+    /// This device's published contact address (§12.2), once `start_engine` has
+    /// opened one. In a real deployment enrollment publishes it in the
+    /// directory; here the harness carries it.
+    ///
+    /// # Errors
+    ///
+    /// `internal` if the store cannot be read.
+    #[cfg(any(test, feature = "relay-harness"))]
+    pub async fn contact_advert(&self) -> Result<Option<(String, String)>> {
+        let inner = self.inner.lock().await;
+        Ok(inner
             .records()
-            .commit(|records| records.put_conversation(&stored))
+            .contact_queue()?
+            .map(|queue| (queue.relay_url, queue.contact_addr)))
     }
 }
 
@@ -1927,6 +1930,25 @@ pub struct QueueAdvert {
     /// receive address: §7.3's asymmetry is the whole point, and a peer that
     /// held the receive address could read the queue.
     pub send_addr: String,
+}
+
+/// The first-contact payload, on the peer's contact queue (`WIRE.md` §12.2).
+///
+/// JSON rather than a `tls_codec` structure, and that is a deliberate narrowing
+/// rather than laziness: this is the one payload a *stranger* can put in front
+/// of this client, and it is parsed before anything about the sender is known.
+/// A parser for it should be the smallest, most-audited thing available, and
+/// `serde_json` refusing everything it does not recognise is exactly that. It
+/// is also the shape most likely to move when the directory lands, since the
+/// advert it carries is what a published queue advert will replace.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ContactEnvelope {
+    handle: String,
+    identity_pk: String,
+    conversation_id: String,
+    /// The MLS `Welcome`, hex.
+    welcome: String,
+    advert: QueueAdvert,
 }
 
 /// What the initiator hands the joiner out of band.
@@ -1943,6 +1965,7 @@ pub struct Introduction {
 /// the engine lock is released.
 enum Inbound {
     Message(MessageReceivedEvent),
+    ContactRequest(ContactRequest),
     Gap(Gap),
     GapRepaired(Gap),
     Conversation(Conversation),
@@ -2514,6 +2537,353 @@ fn open(sealed: &SealedSecrets, wrap_key: &[u8; 32]) -> Result<DeviceSecrets> {
 // ----------------------------------------------------------------------
 
 impl<B: StorageBackend> Inner<B> {
+    /// The relay a new conversation's queue is created on.
+    ///
+    /// The first configured one. `ARCHITECTURE.md` §9.4 wants a device to
+    /// publish queue addresses on *k* relays and senders to send to all *k*, so
+    /// that a single hostile relay cannot silently drop a conversation; *k* is
+    /// [§13-G](../../../docs/e2ee/ARCHITECTURE.md), still open, and this build
+    /// is `k = 1`. The `msg_id` dedup that makes *k* > 1 safe is already in
+    /// place — see `framing` — so raising it is a change here and nowhere else.
+    fn first_relay_url(&self) -> Result<String> {
+        self.records()
+            .relays()?
+            .first()
+            .map(|relay| relay.relay_url.clone())
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorCode::RelayUnreachable,
+                    "no relay is configured; add one before starting a conversation",
+                )
+            })
+    }
+
+    /// Create the group, add the peer from its `KeyPackage`, and open this
+    /// device's receive queue for the conversation.
+    ///
+    /// The shared half of `start_conversation` and the harness wrapper. It does
+    /// **not** deliver the `Welcome` — that is `contact_append`'s job and it
+    /// needs the peer's published contact address, which only a resolution has.
+    async fn create_conversation(
+        &mut self,
+        peer_handle: &str,
+        peer_identity_pk: &str,
+        peer_key_package: &[u8],
+        relay_url: &str,
+    ) -> Result<Introduction> {
+        let now = now_ms();
+        let mut group_id = [0u8; 32];
+        rand::rng().fill_bytes(&mut group_id);
+        let conversation_id = hex::encode(group_id);
+
+        let sealed: Result<Vec<u8>> = (|| {
+            let mls = self.mls_ref("create_conversation")?;
+            let mut group = mls
+                .create_group(&group_id)
+                .map_err(|error| Error::internal(format!("creating a group: {error}")))?;
+            let (_commit, welcome) = mls
+                .add_member(
+                    &mut group,
+                    peer_key_package,
+                    u64::try_from(now).unwrap_or_default(),
+                )
+                .map_err(|error| Error::internal(format!("adding a member: {error}")))?;
+            self.groups.insert(conversation_id.clone(), group);
+            Ok(welcome)
+        })();
+        let welcome = sealed?;
+
+        let (advert, inbound) = self.open_inbound_queue(&conversation_id, relay_url).await?;
+        let stored = StoredConversation {
+            conversation_id: conversation_id.clone(),
+            peer_handle: peer_handle.to_owned(),
+            peer_identity_fingerprint: peer_identity_pk.to_owned(),
+            group_id: conversation_id.clone(),
+            verification: VerificationState::Unverified,
+            created_at: now,
+            last_message_at: None,
+            unread_count: 0,
+            retention: None,
+            ephemeral_hint: None,
+            receipt_policy: ReceiptPolicy::default(),
+            queues: StoredQueues {
+                inbound: Some(inbound),
+                // Filled in when the peer answers with its own advert. Until
+                // then this conversation can receive and cannot send, which is
+                // the honest state rather than a guess at an address.
+                outbound: None,
+            },
+            send_address_stolen: false,
+            read_through: None,
+        };
+        self.records()
+            .commit(|records| records.put_conversation(&stored))?;
+        Ok(Introduction {
+            conversation_id,
+            welcome,
+            advert,
+        })
+    }
+
+    /// Join from a `Welcome`, open this device's receive queue, and record the
+    /// peer's advertised send address.
+    async fn join_conversation(
+        &mut self,
+        peer_handle: &str,
+        peer_identity_pk: &str,
+        introduction: &Introduction,
+        relay_url: &str,
+    ) -> Result<QueueAdvert> {
+        let now = now_ms();
+        let conversation_id = introduction.conversation_id.clone();
+        let sealed: Result<()> = (|| {
+            let mls = self.mls_ref("join_conversation")?;
+            let group = mls
+                .join_from_welcome(
+                    &introduction.welcome,
+                    u64::try_from(now).unwrap_or_default(),
+                )
+                .map_err(|error| Error::internal(format!("joining: {error}")))?;
+            self.groups.insert(conversation_id.clone(), group);
+            Ok(())
+        })();
+        sealed?;
+
+        let (advert, inbound) = self.open_inbound_queue(&conversation_id, relay_url).await?;
+        let send_key_seed = hex::encode(self.queue_key(&conversation_id, LABEL_QUEUE_SEND)?);
+        let stored = StoredConversation {
+            conversation_id: conversation_id.clone(),
+            peer_handle: peer_handle.to_owned(),
+            peer_identity_fingerprint: peer_identity_pk.to_owned(),
+            group_id: conversation_id.clone(),
+            verification: VerificationState::Unverified,
+            created_at: now,
+            last_message_at: None,
+            unread_count: 0,
+            retention: None,
+            ephemeral_hint: None,
+            receipt_policy: ReceiptPolicy::default(),
+            queues: StoredQueues {
+                inbound: Some(inbound),
+                outbound: Some(OutboundQueue {
+                    relay_url: introduction.advert.relay_url.clone(),
+                    send_addr: introduction.advert.send_addr.clone(),
+                    send_key_seed,
+                    bound: false,
+                }),
+            },
+            send_address_stolen: false,
+            read_through: None,
+        };
+        self.records()
+            .commit(|records| records.put_conversation(&stored))?;
+
+        // Tell the initiator where to write. Until this lands it holds a
+        // conversation it can receive on and cannot send to, which is the
+        // honest state — `transportHealth` says `degraded`, not `ok`.
+        let body = serde_json::to_vec(&advert)
+            .map_err(|error| Error::internal(format!("framing an advert: {error}")))?;
+        self.send_control(&stored, AppKind::QueueAdvert, &body)
+            .await?;
+        Ok(advert)
+    }
+
+    /// Record where this device writes to reach the peer.
+    fn set_peer_advert(&self, conversation_id: &str, advert: &QueueAdvert) -> Result<()> {
+        let mut stored = self.conversation(conversation_id)?;
+        stored.queues.outbound = Some(OutboundQueue {
+            relay_url: advert.relay_url.clone(),
+            send_addr: advert.send_addr.clone(),
+            send_key_seed: hex::encode(self.queue_key(conversation_id, LABEL_QUEUE_SEND)?),
+            bound: false,
+        });
+        self.records()
+            .commit(|records| records.put_conversation(&stored))
+    }
+
+    /// `CONTACT_APPEND` the introduction to the peer's published contact queue
+    /// (§12.2).
+    ///
+    /// Unsigned at the relay and gated by a proof-of-work stamp: that is the
+    /// whole design — a stranger can reach you exactly once, expensively — and
+    /// §12.4 is honest that the cost lands far harder on a phone than on rented
+    /// hardware. The solve runs on a blocking task so a slow one does not stall
+    /// the runtime; §3.3 tells the UI to show it as work, not as a network wait.
+    async fn contact_append(
+        &mut self,
+        peer: &crate::directory::ResolvedPeer,
+        introduction: &Introduction,
+        peer_handle: &str,
+    ) -> Result<()> {
+        let identity = self
+            .records()
+            .identity()?
+            .ok_or_else(|| Error::not_enrolled("start_conversation"))?;
+        let envelope = ContactEnvelope {
+            handle: identity.handle,
+            identity_pk: identity.identity_pk,
+            conversation_id: introduction.conversation_id.clone(),
+            welcome: hex::encode(&introduction.welcome),
+            advert: introduction.advert.clone(),
+        };
+        let body = serde_json::to_vec(&envelope)
+            .map_err(|error| Error::internal(format!("framing first contact: {error}")))?;
+        let contact_addr = queue_address(&peer.contact_addr)?;
+        let connection = self
+            .connections
+            .get_mut(&peer.contact_relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let pow = Some(
+            connection
+                .capabilities()
+                .await?
+                .capabilities
+                .contact_append_pow,
+        );
+        tracing::info!(peer = %peer_handle, "first contact: solving a proof-of-work stamp");
+        connection.contact_append(contact_addr, &body, pow).await
+    }
+
+    /// Open this device's contact queue if it has none.
+    ///
+    /// Called from `start_engine`. Its `contact_addr` is what enrollment
+    /// publishes in the directory, and it is the only address a stranger can
+    /// reach — an ordinary queue's send address is handed out per conversation.
+    async fn ensure_contact_queue(&mut self) -> Result<()> {
+        if self.records().contact_queue()?.is_some() {
+            return Ok(());
+        }
+        let Ok(relay_url) = self.first_relay_url() else {
+            return Ok(());
+        };
+        let recv_seed = self.queue_key("contact", LABEL_QUEUE_RECV)?;
+        let recv_key = SigningKey::from_seed(&recv_seed);
+        let connection = self
+            .connections
+            .get_mut(&relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let pow = Some(
+            connection
+                .capabilities()
+                .await?
+                .capabilities
+                .queue_creation_pow,
+        );
+        let created = connection
+            .create_contact_queue(&recv_key, MESSAGE_TTL_SECONDS, IDLE_TTL_SECONDS, pow)
+            .await?;
+        connection.subscribe(&recv_key, created.recv_addr).await?;
+        let queue = crate::store::ContactQueue {
+            relay_url,
+            recv_addr: hex::encode(created.recv_addr.as_bytes()),
+            contact_addr: hex::encode(created.contact_addr.as_bytes()),
+            recv_key_seed: hex::encode(recv_seed),
+            next_index: 0,
+            acked_through: None,
+        };
+        self.records()
+            .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    /// Read this device's contact queue and turn each arrival into a pending
+    /// [`ContactRequest`].
+    ///
+    /// Nothing here joins a group: §6.4 puts accepting a first-contact
+    /// `Welcome` in the same row as resolving a new handle, so the decision
+    /// waits for `accept_contact_request` and, behind it, a directory answer.
+    /// What this does is durably record the `Welcome` so the decision can be
+    /// made later without the relay having to still hold it.
+    async fn pump_contact_queue(&mut self) -> Result<Vec<Inbound>> {
+        let Some(queue) = self.records().contact_queue()? else {
+            return Ok(Vec::new());
+        };
+        let recv_key = signing_key(&queue.recv_key_seed)?;
+        let recv_addr = queue_address(&queue.recv_addr)?;
+        let response = {
+            let Some(connection) = self.connections.get_mut(&queue.relay_url) else {
+                return Ok(Vec::new());
+            };
+            connection
+                .read(&recv_key, recv_addr, queue.next_index, READ_BATCH, READ_MAX_BYTES)
+                .await?
+        };
+
+        let blocked = self.records().blocked()?;
+        let mut requests = self.records().contact_requests()?;
+        let mut events = Vec::new();
+        let mut highest = None;
+        let mut queue = queue;
+        for queued in response.messages.as_slice() {
+            highest = Some(queued.index);
+            queue.next_index = queued.index.saturating_add(1);
+            // The payload is padded to a bucket (§9), so trailing zeros are
+            // expected and are trimmed rather than treated as corruption.
+            let bytes = queued.payload.as_slice();
+            let trimmed = bytes
+                .iter()
+                .rposition(|byte| *byte != 0)
+                .map_or(&bytes[..0], |end| &bytes[..=end]);
+            let Ok(envelope) = serde_json::from_slice::<ContactEnvelope>(trimmed) else {
+                // A stranger can put anything in a contact queue. A payload
+                // that does not parse is discarded silently: it is not evidence
+                // of anything, and surfacing it would make the queue an abuse
+                // channel with a UI.
+                continue;
+            };
+            // §3.3: `block` is entirely local, because there is no server that
+            // knows who is talking to whom.
+            if blocked.contains(&envelope.handle) {
+                continue;
+            }
+            if requests
+                .iter()
+                .any(|existing| existing.conversation_id == envelope.conversation_id)
+            {
+                continue;
+            }
+            let request = StoredContactRequest {
+                request_id: format!("req-{}", envelope.conversation_id),
+                peer_handle: envelope.handle.clone(),
+                peer_identity_fingerprint: envelope.identity_pk.clone(),
+                conversation_id: envelope.conversation_id.clone(),
+                received_at: now_ms(),
+                // **PROVISIONAL** (§12.1), and `None` deliberately: showing any
+                // part of an unsolicited, unauthenticated-at-the-relay payload
+                // is a moderation and safety question nobody has answered, and
+                // shipping a preview would be answering it by accident.
+                body_preview: None,
+                welcome: envelope.welcome.clone(),
+                peer_send_addr: envelope.advert.send_addr.clone(),
+                peer_relay_url: envelope.advert.relay_url.clone(),
+            };
+            requests.push(request.clone());
+            events.push(Inbound::ContactRequest(ContactRequest {
+                request_id: request.request_id,
+                peer_handle: request.peer_handle,
+                peer_identity_fingerprint: request.peer_identity_fingerprint,
+                received_at: request.received_at,
+                body_preview: None,
+            }));
+        }
+
+        if highest.is_some() {
+            let snapshot = queue.clone();
+            self.records().commit(|records| {
+                records.put_contact_requests(&requests)?;
+                records.put_contact_queue(&snapshot)
+            })?;
+        }
+        // Same rule as every other queue: the durable write is above this line.
+        if let (Some(highest), true) = (highest, self.records().may_acknowledge()) {
+            if let Some(connection) = self.connections.get_mut(&queue.relay_url) {
+                if let Err(error) = connection.ack(&recv_key, recv_addr, highest).await {
+                    tracing::info!(code = %error.code(), "contact-queue ACK not delivered");
+                }
+            }
+        }
+        Ok(events)
+    }
+
     /// Derive a per-conversation queue key from this device's queue seed.
     ///
     /// Derived rather than stored so a restart re-derives them from the one
@@ -2799,6 +3169,14 @@ impl<B: StorageBackend> Inner<B> {
                     message: message_view(&message),
                 }));
                 events.push(Inbound::Conversation(self.view(stored)?));
+            }
+            AppKind::QueueAdvert => {
+                self.advance(stored, index)?;
+                if let Ok(advert) = serde_json::from_slice::<QueueAdvert>(envelope.body()) {
+                    self.set_peer_advert(&conversation_id, &advert)?;
+                    *stored = self.conversation(&conversation_id)?;
+                    events.push(Inbound::Conversation(self.view(stored)?));
+                }
             }
             AppKind::EphemeralHint => {
                 self.advance(stored, index)?;

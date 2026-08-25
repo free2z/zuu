@@ -146,6 +146,9 @@ mod keys {
     pub fn contact_requests() -> Vec<u8> {
         format!("{PREFIX}contact-requests").into_bytes()
     }
+    pub fn contact_queue() -> Vec<u8> {
+        format!("{PREFIX}contact-queue").into_bytes()
+    }
     pub fn alarms() -> Vec<u8> {
         format!("{PREFIX}alarms").into_bytes()
     }
@@ -559,6 +562,19 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
         self.put(&keys::purges(conversation_id), &purges.to_vec())
     }
 
+    /// This device's own contact queue (§12.2) — where a stranger's `Welcome`
+    /// arrives. One per device, not one per conversation: its address is what
+    /// enrollment publishes in the directory, and it is deliberately not
+    /// bindable, so nobody can take the write side of it the way §7.4 warns
+    /// about for ordinary queues.
+    pub fn contact_queue(&self) -> Result<Option<ContactQueue>> {
+        self.get(&keys::contact_queue())
+    }
+
+    pub fn put_contact_queue(&self, queue: &ContactQueue) -> Result<()> {
+        self.put(&keys::contact_queue(), queue)
+    }
+
     pub fn contact_requests(&self) -> Result<Vec<StoredContactRequest>> {
         Ok(self.get(&keys::contact_requests())?.unwrap_or_default())
     }
@@ -621,12 +637,28 @@ impl<'a, B: StorageBackend> RecordStore<'a, B> {
     }
 }
 
+/// This device's contact queue (`WIRE.md` §12.2).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContactQueue {
+    pub relay_url: String,
+    /// Where this device reads, hex. Signed by `recv_key`, like any queue.
+    pub recv_addr: String,
+    /// The **published** address, hex. Never bindable: `BIND_SEND` on it is
+    /// `ERR_NOT_PERMITTED`, always, for everyone.
+    pub contact_addr: String,
+    pub recv_key_seed: String,
+    pub next_index: u64,
+    pub acked_through: Option<u64>,
+}
+
 /// A pending first-contact request (§3.3), before it becomes a conversation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoredContactRequest {
     pub request_id: String,
     pub peer_handle: String,
     pub peer_identity_fingerprint: String,
+    /// The group the sender created, so accepting joins the same one.
+    pub conversation_id: String,
     pub received_at: i64,
     /// **PROVISIONAL** (§12.1). Showing any part of an unsolicited,
     /// unauthenticated-at-the-relay first-contact payload is a moderation and
@@ -787,6 +819,7 @@ mod tests {
             keys::gaps("x"),
             keys::purges("x"),
             keys::contact_requests(),
+            keys::contact_queue(),
             keys::alarms(),
             keys::relays(),
             keys::witnesses(),

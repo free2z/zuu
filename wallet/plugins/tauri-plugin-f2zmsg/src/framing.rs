@@ -88,6 +88,14 @@ pub enum AppKind {
     PurgeRequest,
     /// §3.9's `PurgeAck`.
     PurgeAck,
+    /// §7's `queue_advert`: where to write to reach the sender.
+    ///
+    /// It is in-band and inside MLS because that is the only place it can be
+    /// authenticated. The directory publishes the *contact* address, which is
+    /// how a stranger reaches you once; the per-conversation send address is
+    /// something only a member should learn, and a relay that could read it
+    /// could take the write side of the queue (`WIRE.md` §7.4).
+    QueueAdvert,
     /// Anything this build does not recognise. Carries the wire code so the
     /// contract's `typeTag` can name it.
     Unknown(u16),
@@ -101,6 +109,7 @@ impl AppKind {
     const EPHEMERAL_HINT: u16 = 5;
     const PURGE_REQUEST: u16 = 6;
     const PURGE_ACK: u16 = 7;
+    const QUEUE_ADVERT: u16 = 8;
 
     #[must_use]
     pub const fn code(self) -> u16 {
@@ -112,6 +121,7 @@ impl AppKind {
             Self::EphemeralHint => Self::EPHEMERAL_HINT,
             Self::PurgeRequest => Self::PURGE_REQUEST,
             Self::PurgeAck => Self::PURGE_ACK,
+            Self::QueueAdvert => Self::QUEUE_ADVERT,
             Self::Unknown(code) => code,
         }
     }
@@ -126,6 +136,7 @@ impl AppKind {
             Self::EPHEMERAL_HINT => Self::EphemeralHint,
             Self::PURGE_REQUEST => Self::PurgeRequest,
             Self::PURGE_ACK => Self::PurgeAck,
+            Self::QUEUE_ADVERT => Self::QueueAdvert,
             other => Self::Unknown(other),
         }
     }
@@ -142,6 +153,7 @@ impl AppKind {
             Self::EphemeralHint => "ephemeral_hint".into(),
             Self::PurgeRequest => "purge_request".into(),
             Self::PurgeAck => "purge_ack".into(),
+            Self::QueueAdvert => "queue_advert".into(),
             Self::Unknown(code) => format!("unknown/{code:#06x}"),
         }
     }

@@ -44,6 +44,29 @@
 use crate::error::Error;
 use crate::models::{DirectoryResolution, ErrorCode};
 
+/// Everything the engine needs about a peer before it can reach them.
+///
+/// `DirectoryResolution` is the *frontend's* view — what §3.10 shows a user
+/// about a lookup. This is the engine's, and it carries the two things a
+/// lookup has to produce for first contact to be possible at all: the peer's
+/// current `KeyPackage`, and the `contact_addr` its `Welcome` is delivered to
+/// (`WIRE.md` §12.2). Both are published by the peer through the directory;
+/// neither is guessable.
+#[derive(Clone, Debug)]
+pub struct ResolvedPeer {
+    /// What the UI is told (§3.10).
+    pub resolution: DirectoryResolution,
+    /// The peer's `identity_pk`, hex — the value a safety number is computed
+    /// over and a key change is detected against.
+    pub identity_pk: String,
+    /// An MLS `KeyPackage` the peer published, to add them to a new group.
+    pub key_package: Vec<u8>,
+    /// The relay the peer's contact queue lives on.
+    pub contact_relay_url: String,
+    /// The published, never-bindable contact address, hex (§12.2).
+    pub contact_addr: String,
+}
+
 /// What the engine needs from a key-transparency log.
 ///
 /// Deliberately narrow. Submission is the app crate's (§2.2 — it needs the
@@ -67,6 +90,19 @@ pub trait Directory: Send + Sync + 'static {
     /// network glitch — when a proof fails.
     fn resolve(&self, handle: &str) -> crate::error::Result<DirectoryResolution>;
 
+    /// The same lookup, plus the material first contact needs.
+    ///
+    /// Separate from [`Directory::resolve`] because `resolve_handle` is a
+    /// *question a user asked* and answers `found: false` for a handle nobody
+    /// has registered, while this is a step in a handshake that cannot proceed
+    /// without a key. A `found: false` here is a refusal, not an answer.
+    ///
+    /// # Errors
+    ///
+    /// As [`Directory::resolve`], plus `witness-threshold-unmet` when §6.4's
+    /// matrix refuses to resolve a **new** handle at all.
+    fn resolve_peer(&self, handle: &str) -> crate::error::Result<ResolvedPeer>;
+
     /// How many of the client's own configured witnesses are independent
     /// (`KT.md` §8.3). The number the UI displays; the configured count is
     /// deliberately not the headline.
@@ -88,6 +124,20 @@ impl Directory for NoDirectory {
                 "no key-transparency client is configured, so zero independent witnesses \
                  have cosigned any root; refusing to resolve {handle:?} rather than \
                  returning an unverified key"
+            ),
+        ))
+    }
+
+    fn resolve_peer(&self, handle: &str) -> crate::error::Result<ResolvedPeer> {
+        // Written as an explicit refusal rather than as `resolve(..)?` plus an
+        // `unreachable!()`: a panic in a crypto core is a crash of the client,
+        // and "this branch cannot be taken" is exactly the kind of claim that
+        // stops being true when somebody edits the function above it.
+        Err(Error::new(
+            ErrorCode::WitnessThresholdUnmet,
+            format!(
+                "first contact with {handle:?} needs a witness-cosigned KeyPackage and \
+                 contact address; no key-transparency client is configured"
             ),
         ))
     }
