@@ -2136,6 +2136,48 @@ port, no certificate and no domain. The log then serves the cosignatures it
 collected. §7.5 states the conflict of interest that creates and what a client
 should do about it.
 
+> **Correction (2026-08-24) — a log that recognises no witnesses accepts no
+> cosignatures.** §9.5's `ERR_NOT_A_WITNESS` row calls the log's witness list
+> *"advisory only"*, and the first implementation read that as licence to skip
+> the check entirely when the list was empty. It was measured, not inferred:
+> four freshly generated keys, named nowhere in a real log's configuration, were
+> all accepted, `fsync`ed to the append-only journal, replayed at every startup,
+> and served inside every `/kt/v1/sth` bundle
+> ([#669](https://github.com/free2z/zuu/issues/669)).
+>
+> **A log MUST refuse a cosignature whose `witness_pk` is not one it has been
+> configured to recognise, and an empty configured set recognises nobody.** A
+> log MAY be run with no witnesses; what it may not do is collect cosignatures
+> from strangers on their behalf.
+>
+> "Advisory" was and remains true of the *client*: §8.3's threshold is applied
+> over the client's own configured set, and the log's list has no cryptographic
+> bearing on it. It was never true of the *log*, which is where the list decides
+> what gets an `fsync` on an append-only journal with no backup, what is held in
+> memory for the life of the process, and what number a client sees in a
+> tree-head bundle. A count inflated by anonymous keys is worse than a count of
+> zero, because
+> [`ARCHITECTURE.md` §9.3](./ARCHITECTURE.md#93-anti-equivocation-without-a-blockchain)
+> already requires the UI to stop displaying a reassuring witness count that
+> nothing independent stands behind — and this made the number reassuring and
+> unfounded at the same time.
+>
+> Two consequences worth stating, because both are properties an implementation
+> can be checked against:
+>
+> - **The bound is structural, not a tuned number.** Storage is idempotent per
+>   `witness_pk` and every accepted key is on the configured list, so one epoch
+>   holds at most as many cosignatures as there are configured witnesses. No
+>   input grows the journal without bound.
+> - **The configuration is re-applied at every startup.** A record already in
+>   the journal from a key the log does not recognise MUST NOT be replayed into
+>   what the log serves. The journal is append-only and keeps the evidence;
+>   recovery from a period of fail-open operation is a configuration change and
+>   a restart, never hand-editing a security-sensitive append-only file.
+>
+> `ERR_NOT_A_WITNESS`'s meaning is unchanged — it is still "from a key the log
+> does not recognise" — and a log with no configured witnesses recognises none.
+
 `/kt/v1/lookup` and `/kt/v1/history` are `POST` with a body rather than `GET`
 with the handle in the path, so that the queried handle does not land in the
 log's access logs, any intermediary's logs, or a `Referer` header by default.
@@ -2199,7 +2241,7 @@ is never reused** — [`WIRE.md` §10](./WIRE.md#10-error-codes)'s rule, for
 | 7 | `ERR_EPOCH_UNAVAILABLE` | The requested epoch or audit range is outside the served horizon (§9.3). |
 | 8 | `ERR_RANGE_TOO_WIDE` | An audit range above the published maximum. |
 | 9 | `ERR_RATE_LIMITED` | Retry later. |
-| 10 | `ERR_NOT_A_WITNESS` | `/kt/v1/cosign` from a key the log does not recognise. Advisory only — the log's opinion of who is a witness has **no bearing** on a client's configured set (§8.3). |
+| 10 | `ERR_NOT_A_WITNESS` | `/kt/v1/cosign` from a key the log does not recognise, **including every key when the log recognises none** (§9.2's correction). Advisory to the *client* — the log's opinion of who is a witness has **no bearing** on a client's configured set (§8.3) — and binding on the *log*. |
 | 11 | `ERR_INTERNAL` | Log fault. Carries no detail, ever. |
 
 **There is no "unknown handle" code**, deliberately: an unregistered handle is

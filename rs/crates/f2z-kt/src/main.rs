@@ -157,6 +157,13 @@ fn check(args: &[String]) -> Result<(), String> {
         "handles          {}",
         state.log.authority().authorities().status()
     );
+    // zuu#669: an operator reading this needs to see that a log with no
+    // `witness_pk` collects nothing, because the previous behaviour — collecting
+    // from everyone — looked identical from the outside except that it was worse.
+    match config.witnesses.len() {
+        0 => println!("witnesses        NONE CONFIGURED — /kt/v1/cosign refuses every request"),
+        count => println!("witnesses        {count} configured"),
+    }
     Ok(())
 }
 

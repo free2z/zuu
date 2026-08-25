@@ -11,6 +11,15 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# `Server::abort_task`, and nothing else. A feature rather than `#[cfg(test)]`
+# because the supervision test in `tests/` is its own crate and cannot see one,
+# and a feature rather than an unconditional method because a way to kill the
+# protocol listener has no business existing in the shipped binary. See
+# `server::Server::abort_task`.
+testing = []
+
 [dependencies]
 f2z-codec = { path = "../f2z-codec", version = "0.1.0" }
 f2z-relay-proto = { path = "../f2z-relay-proto", version = "0.1.0" }
@@ -26,4 +35,8 @@ toml = { version = "0.9", default-features = false, features = ["parse", "serde"
 
 [dev-dependencies]
 f2z-relay-testkit = { path = "../f2z-relay-testkit", version = "0.1.0" }
+# A crate's own integration tests do not see its `[features]` unless it depends
+# on itself. This is the supported way to say "build my `testing` feature for
+# `tests/`, and never for the binary" — the same shape `f2z-kt` uses.
+f2z-relay = { path = ".", version = "0.1.0", features = ["testing"] }
 tokio = { version = "1", features = ["test-util"] }

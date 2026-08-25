@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use f2z_relay::caps;
 use f2z_relay::cli::{self, Mode};
 use f2z_relay::config::Config;
-use f2z_relay::server::Server;
+use f2z_relay::server::{Server, Stopped};
 
 fn main() -> ExitCode {
     let invocation = match cli::parse(std::env::args().skip(1), std::env::vars()) {
@@ -135,12 +135,31 @@ fn run(config: Config) -> ExitCode {
             eprintln!("f2z-relay: health on http://{health}/healthz (no /metrics)");
         }
 
-        wait_for_signal().await;
-        // §6.4's NOTICE(2) goes out here, before the sockets close: a client
-        // that learns the relay is going away can reconnect elsewhere rather
-        // than treating a closed socket as a fault.
-        server.shutdown().await;
-        ExitCode::SUCCESS
+        // Not `wait_for_signal().await; server.shutdown().await;` — that leaves
+        // the join handles unobserved, which is zuu#671: a panicking protocol
+        // task ends silently and the process goes on answering `/healthz` with
+        // `200` while completing nothing for a single client. Every probe and
+        // the load balancer's health check stay green over a relay that cannot
+        // serve, and under delete-on-ack a relay that accepts and then loses is
+        // data loss rather than an outage.
+        //
+        // §6.4's NOTICE(2) goes out inside `run_until_stopped` on both paths,
+        // before the sockets close: a client that learns the relay is going away
+        // can reconnect elsewhere rather than treating a closed socket as a
+        // fault.
+        match server.run_until_stopped(wait_for_signal()).await {
+            Stopped::Requested => ExitCode::SUCCESS,
+            Stopped::TaskEnded(name) => {
+                // Non-zero, and loud. A crash-looping pod is the correct
+                // outcome: `replicas: 1` with `strategy: Recreate` makes it a
+                // brief, visible outage, and the alternative is a `Ready`
+                // endpoint in the load balancer's rotation that serves nobody.
+                eprintln!(
+                    "f2z-relay: the {name} stopped while the relay was running; this process                      cannot serve and is exiting"
+                );
+                ExitCode::FAILURE
+            }
+        }
     })
 }
 

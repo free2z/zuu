@@ -506,7 +506,7 @@ impl Harness {
     ///
     /// If the log will not start, which is a bug in the fixture.
     pub async fn vouched(name: &str) -> Self {
-        Self::build(name, true).await
+        Self::build(name, true, Vec::new()).await
     }
 
     /// Stand up a log in the explicit no-authority mode (zuu#594).
@@ -515,10 +515,24 @@ impl Harness {
     ///
     /// If the log will not start.
     pub async fn unvouched(name: &str) -> Self {
-        Self::build(name, false).await
+        Self::build(name, false, Vec::new()).await
     }
 
-    async fn build(name: &str, vouched: bool) -> Self {
+    /// Stand up a log that **recognises** `witnesses` as cosigners.
+    ///
+    /// Separate from [`Harness::vouched`] on purpose: a log with no configured
+    /// witness keys accepts no cosignatures at all (zuu#669), so a fixture that
+    /// quietly configured one would hide the very rule that issue is about.
+    /// A test that wants a cosignature stored has to say whose.
+    ///
+    /// # Panics
+    ///
+    /// If the log will not start.
+    pub async fn vouched_with_witnesses(name: &str, witnesses: Vec<PublicKey>) -> Self {
+        Self::build(name, true, witnesses).await
+    }
+
+    async fn build(name: &str, vouched: bool, witnesses: Vec<PublicKey>) -> Self {
         let dir = temp_dir(name);
         let log_key = Key::from_byte(0xa1);
         let reset_authority = Key::from_byte(0xa2);
@@ -541,7 +555,7 @@ impl Harness {
 
         let signer = Arc::new(crate::signer::FileSigner::from_seed(&[0xa1; 32]));
         let vrf = crate::vrf::FileVrf::from_seed([0xb0; 32]).unwrap();
-        let log = crate::log::LogService::open(&dir, settings, signer, vrf, authority, Vec::new())
+        let log = crate::log::LogService::open(&dir, settings, signer, vrf, authority, witnesses)
             .await
             .unwrap();
 

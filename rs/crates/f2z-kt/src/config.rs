@@ -16,7 +16,7 @@
 //! vrf_key_file = /etc/f2z-kt/vrf.key
 //! reset_authority_pk = <64 hex>
 //! authority_pk = <64 hex>        # repeatable; omit entirely for no-authority
-//! witness_pk = <64 hex>          # repeatable, advisory only
+//! witness_pk = <64 hex>          # repeatable; NO line means no cosigning
 //! ```
 //!
 //! Every numeric knob has a default drawn from `KT.md`'s proposed placeholders,
@@ -133,7 +133,9 @@ pub struct Config {
     pub authority_max_validity_ms: u64,
     /// The clock skew allowed an issuer, in milliseconds.
     pub authority_clock_skew_ms: u64,
-    /// Cosigning keys this log recognises. Advisory only (`KT.md` §9.5).
+    /// Cosigning keys this log recognises. **Empty means nobody**: a log with
+    /// no `witness_pk` line refuses every `/kt/v1/cosign` request rather than
+    /// accepting one from anybody (zuu#669), and says so at startup.
     pub witnesses: Vec<PublicKey>,
     /// The published numbers.
     pub settings: LogSettings,

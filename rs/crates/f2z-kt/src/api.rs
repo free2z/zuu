@@ -207,6 +207,12 @@ async fn cosign(headers: HeaderMap, State(state): State<Arc<AppState>>, body: By
     if !state.limits.allow(Class::Cosign, (state.clock)()) {
         return error_response(&headers, &LogError::RateLimited);
     }
+    // A log with no configured witnesses recognises nobody (zuu#669), and that
+    // is a complete answer before the body is decoded — a cheap refusal for the
+    // one configuration in which every request on this endpoint is refused.
+    if !state.log.cosigning_enabled() {
+        return error_response(&headers, &LogError::NotAWitness);
+    }
     if body.len() > state.log.settings().max_request_bytes {
         return error_response(&headers, &LogError::Malformed);
     }

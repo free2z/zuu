@@ -546,6 +546,7 @@ name = "f2z-relay"
 version = "0.1.0"
 dependencies = [
  "f2z-codec",
+ "f2z-relay",
  "f2z-relay-proto",
  "f2z-relay-store",
  "f2z-relay-testkit",

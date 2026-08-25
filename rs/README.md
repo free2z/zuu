@@ -312,6 +312,23 @@ it is invoked unconditionally from `rs.yml` — not from the image workflow —
 because the image workflow's own `paths:` filter is one of the things it checks,
 and a drifted filter is a workflow that has silently stopped publishing.
 
+**A shallow probe is only safe over a supervised process** ([#671]). `/healthz`
+answers from process state and nothing else, deliberately — a probe that queried
+the store would fail during exactly the backpressure it exists to survive. That
+makes it a true statement about a relay only if the process cannot outlive the
+tasks that do its work, so `f2z-relay` supervises the protocol listener, the
+admin and health listeners and the expiry tick: if any of them ends before a
+shutdown was asked for, the relay closes its listeners, prints
+`the <task> stopped while the relay was running` to stderr and **exits 1**. A
+crash-looping pod is the correct outcome. At `replicas: 1` with
+`strategy: Recreate` that is a brief, visible outage, and the alternative — a
+`Ready` endpoint in the load balancer's rotation over a relay that serves nobody
+— is data loss under delete-on-ack rather than downtime: a sender that was told
+`accepted` and a relay that then loses the message have between them destroyed
+it.
+
+[#671]: https://github.com/free2z/zuu/issues/671
+
 ## Working in this tree
 
 ```bash

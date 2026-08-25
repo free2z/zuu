@@ -59,6 +59,19 @@ pub async fn build(config: &Config) -> Result<Arc<AppState>> {
         );
     }
 
+    if config.witnesses.is_empty() {
+        // Loud, once, at startup, in the shape zuu#594's warning above uses.
+        // zuu#669: this configuration used to make `/kt/v1/cosign` accept a
+        // cosignature from **any** key, permanently. It now accepts none, and an
+        // operator who meant to collect cosignatures should find that out here
+        // rather than from a witness whose polls have been refused all week.
+        log::warn!(
+            "NO WITNESS KEYS CONFIGURED: /kt/v1/cosign will refuse every cosignature with \
+             ERR_NOT_A_WITNESS, and this log will serve zero cosignatures in every tree-head \
+             bundle. Set one `witness_pk` line per witness you actually run."
+        );
+    }
+
     let log = LogService::open(
         &config.data_dir,
         settings.clone(),
