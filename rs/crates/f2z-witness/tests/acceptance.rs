@@ -41,7 +41,7 @@ use std::sync::{Arc, Mutex};
 
 use f2z_codec::Canonical as _;
 use f2z_kt::LogService;
-use f2z_kt::testing::{EntryBuilder, Harness, Identity};
+use f2z_kt::testing::{EntryBuilder, Harness, Identity, Key};
 use f2z_kt_core::api::TreeHeadBundle;
 use f2z_kt_core::types::Handle;
 use f2z_kt_core::{ConfiguredWitness, FaultKind, WitnessSet, verify_threshold};
@@ -49,6 +49,19 @@ use f2z_witness::witness::{Outcome, Settings, Witness};
 use f2z_witness::{Transport, WitnessError};
 
 const NOW: u64 = 1_700_000_100_000;
+
+/// The seed every witness in this file is built from.
+///
+/// Named rather than repeated because the **log** has to be configured with the
+/// matching public key: a log with no `witness_pk` accepts no cosignatures at
+/// all (zuu#669), so a fixture that stood up a log without naming its witness
+/// would be testing the refusal path and calling it a happy path.
+const WITNESS_SEED: u8 = 0xc1;
+
+/// A log that recognises this file's witness.
+fn log_for(name: &str) -> impl std::future::Future<Output = Harness> + use<'_> {
+    Harness::vouched_with_witnesses(name, vec![Key::from_byte(WITNESS_SEED).public])
+}
 
 /// A transport that reaches a real [`LogService`] in this process.
 ///
@@ -138,7 +151,7 @@ fn witness_for(harness: &Harness, transport: Box<dyn Transport>, name: &str) -> 
             evidence_dir: dir.join("evidence"),
             max_audit_span: 64,
         },
-        &[0xc1; 32],
+        &[WITNESS_SEED; 32],
         transport,
     )
     .unwrap()
@@ -168,7 +181,7 @@ fn register(runtime: &tokio::runtime::Runtime, harness: &Harness, handle: &str, 
 #[test]
 fn a_witness_verifies_real_proofs_and_the_log_serves_its_cosignature() {
     let setup = tokio::runtime::Runtime::new().unwrap();
-    let harness = setup.block_on(Harness::vouched("accept-happy"));
+    let harness = setup.block_on(log_for("accept-happy"));
     setup.block_on(harness.log.publish_epoch(NOW)).unwrap();
 
     let transport = Arc::new(DirectTransport::new(Arc::clone(&harness.log)));
@@ -260,8 +273,8 @@ fn a_witness_verifies_real_proofs_and_the_log_serves_its_cosignature() {
 /// bytes, but a server that has committed to two different roots for one epoch
 /// and shows each party one of them, with a perfectly valid signature on both.
 fn equivocating_pair(setup: &tokio::runtime::Runtime, name: &str) -> (Harness, Harness) {
-    let left = setup.block_on(Harness::vouched(&format!("{name}-left")));
-    let right = setup.block_on(Harness::vouched(&format!("{name}-right")));
+    let left = setup.block_on(log_for(&format!("{name}-left")));
+    let right = setup.block_on(log_for(&format!("{name}-right")));
     // `Harness` derives both logs from the same fixed seeds, so they share a
     // `log_id`, a signing key and a VRF key — and differ only in what they
     // published.

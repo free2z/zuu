@@ -237,10 +237,15 @@ pub struct LogService {
     log_id: LogId,
     kt_policy: LogPolicy,
     authority: AuthorityConfig,
-    /// Cosigning keys this log recognises. Advisory only: `KT.md` §9.5 is
-    /// explicit that the log's opinion of who is a witness has **no bearing**
-    /// on a client's configured set, so this decides one thing — whether
-    /// `/kt/v1/cosign` answers `ERR_NOT_A_WITNESS` — and nothing else.
+    /// Cosigning keys this log recognises.
+    ///
+    /// **Empty means nobody** (zuu#669). `KT.md` §9.5 is right that this list
+    /// has no *cryptographic* bearing — a client applies its own threshold over
+    /// keys it trusts, and nothing here can change that. It has an
+    /// **operational** bearing, and treating "advisory" as "therefore
+    /// unenforced" is what made `/kt/v1/cosign` an unauthenticated,
+    /// permanently-journalled amplification vector on every log whose operator
+    /// had not written a `witness_pk` line.
     known_witnesses: Vec<PublicKey>,
     state: tokio::sync::Mutex<State>,
 }
@@ -412,13 +417,40 @@ impl LogService {
             enqueue_pending(&mut state, &admitted)?;
         }
 
+        // The journal is append-only and nothing rewrites it, so the replay is
+        // where a configuration change actually takes effect (zuu#669). A log
+        // that ran fail-open has records in here from keys it never recognised;
+        // serving them again after the operator fixed the configuration would
+        // make the fix cosmetic and leave "hand-edit a security-sensitive
+        // append-only file" as the only recovery. Configuration decides what
+        // the log serves, at every startup; the journal keeps the evidence of
+        // what it was sent.
+        let mut unrecognised = 0usize;
         for cosignature in journal.cosignatures {
+            if !self.recognises_witness(&cosignature.statement.witness_pk) {
+                unrecognised = unrecognised.saturating_add(1);
+                continue;
+            }
             let epoch = cosignature.statement.epoch;
-            state
-                .cosignatures
-                .entry(epoch)
-                .or_default()
-                .push(cosignature);
+            let held = state.cosignatures.entry(epoch).or_default();
+            // The live path is idempotent per witness; the replay is too, so a
+            // journal that somehow holds two records for one witness at one
+            // epoch cannot inflate the count a client applies a threshold to.
+            if held
+                .iter()
+                .any(|other| other.statement.witness_pk == cosignature.statement.witness_pk)
+            {
+                continue;
+            }
+            held.push(cosignature);
+        }
+        if unrecognised > 0 {
+            log::warn!(
+                "IGNORED {unrecognised} JOURNALLED COSIGNATURES from keys this log does not \
+                 recognise: they are not served and not counted. A log that was running with no \
+                 `witness_pk` configured accepted cosignatures from anyone (zuu#669); the records \
+                 stay in cosignatures.log as evidence and nothing needs to be edited by hand."
+            );
         }
 
         log::info!(
@@ -859,29 +891,77 @@ impl LogService {
         })
     }
 
+    /// Whether this log recognises `witness_pk` as a cosigner.
+    ///
+    /// A log with no configured witnesses recognises nobody, so this is `false`
+    /// for every key. See [`LogService::accept_cosignature`].
+    #[must_use]
+    pub fn recognises_witness(&self, witness_pk: &PublicKey) -> bool {
+        self.known_witnesses.contains(witness_pk)
+    }
+
+    /// Whether `/kt/v1/cosign` can accept anything at all.
+    ///
+    /// `false` on a log with no `witness_pk` configured, which is a complete
+    /// answer to the endpoint before a body is decoded.
+    #[must_use]
+    pub fn cosigning_enabled(&self) -> bool {
+        !self.known_witnesses.is_empty()
+    }
+
     /// **`POST /kt/v1/cosign`.** Accept a witness cosignature.
     ///
     /// Verified before it is stored — a cosignature the log cannot check is a
     /// cosignature the log would be publishing on a witness's behalf — and
     /// checked to cover a head this log actually signed.
     ///
+    /// # An unconfigured log accepts nothing (zuu#669)
+    ///
+    /// This check used to be skipped entirely when no `witness_pk` was
+    /// configured — "empty means everyone" — which made a public,
+    /// unauthenticated endpoint on a log with a perfectly ordinary
+    /// configuration accept a correctly self-signed cosignature from any key at
+    /// all, `fsync` it to an append-only journal with no backup, replay it at
+    /// every startup, and serve it inside every tree-head bundle. Four
+    /// unrelated keys were accepted by a real log that way.
+    ///
+    /// **Empty now means nobody.** The alternative — a numeric cap on what one
+    /// epoch may accumulate — bounds the disk but not the lie: a client that
+    /// counts cosignatures would still be handed a reassuring number produced
+    /// by strangers, and a reassuring number that means nothing is worse than
+    /// no cosignatures at all, which is at least true.
+    ///
+    /// A log legitimately run with no witnesses is not broken by this. It has
+    /// no witnesses, so there are no cosignatures for it to collect; what it
+    /// loses is the ability to collect *somebody else's*, and
+    /// [`crate::server::build`] says so in capitals at startup.
+    ///
+    /// # The bound is now structural
+    ///
+    /// Storage is idempotent per `witness_pk` and every accepted key must be on
+    /// the configured list, so one epoch can hold at most as many cosignatures
+    /// as there are configured witnesses. No input grows the journal without
+    /// bound, in either configuration, without a magic number to tune.
+    ///
     /// # Errors
     ///
-    /// [`LogError::Kt`] if it does not verify or does not cover a known head,
-    /// [`LogError::NotAWitness`] if the log does not recognise the key
-    /// (advisory only; §9.5), [`LogError::Storage`] if it could not be
-    /// journalled.
+    /// [`LogError::NotAWitness`] if the log does not recognise the key —
+    /// checked **first**, so an unrecognised key costs a set lookup rather than
+    /// a signature verification and an `fsync`. [`LogError::Kt`] if it does not
+    /// verify or does not cover a known head, [`LogError::Storage`] if it could
+    /// not be journalled.
     pub async fn accept_cosignature(&self, cosignature: &WitnessCosignature) -> Result<()> {
+        // Recognition first. `witness_pk` is inside the signed bytes (§7.2), so
+        // a claim to be a listed witness is refused here or refused by the
+        // signature check below — checking it first cannot admit anything, and
+        // it keeps a flood of valid-but-unrecognised cosignatures away from the
+        // verification and the journal.
+        if !self.recognises_witness(&cosignature.statement.witness_pk) {
+            return Err(LogError::NotAWitness);
+        }
         cosignature.verify().map_err(LogError::Kt)?;
         if cosignature.statement.log_id != self.log_id {
             return Err(LogError::Kt(KtError::WrongLog));
-        }
-        if !self.known_witnesses.is_empty()
-            && !self
-                .known_witnesses
-                .contains(&cosignature.statement.witness_pk)
-        {
-            return Err(LogError::NotAWitness);
         }
 
         let mut state = self.state.lock().await;

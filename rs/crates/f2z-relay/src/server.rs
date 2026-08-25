@@ -18,7 +18,28 @@
 //! Shutdown is a `watch` flag every task selects on, plus a `NOTICE(2)` to
 //! subscribed readers (§6.4) so a client learns the relay is going away rather
 //! than inferring it from a closed socket.
+//!
+//! # Every task started here is supervised (zuu#671)
+//!
+//! The tasks below are spawned detached, and a panic in one of them ends that
+//! task and nothing else. That produced the worst shape available: a process
+//! whose protocol listener had died, whose health listener was still answering
+//! `/healthz` with `200`, and which therefore passed the startup, readiness and
+//! liveness probes *and* the load balancer's health check while completing
+//! nothing for a single client. Under delete-on-ack that is not a degraded
+//! service — a sender that is told `accepted` by a relay that then loses the
+//! message has had data destroyed between them.
+//!
+//! So [`Server::run_until_stopped`] selects over the join handles alongside the
+//! caller's signal, and **a supervised task that ends before shutdown was asked
+//! for takes the whole process down**. The deployment is `replicas: 1` with
+//! `strategy: Recreate`, so this is a brief outage rather than a silent wrong
+//! answer: a crash-looping pod fails its probes, is visibly not `Ready`, and
+//! leaves the load balancer with no endpoint to send traffic to. That is the
+//! correct trade under delete-on-ack, and it is the one the health-probe work
+//! of #665 assumed was already true.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -76,6 +97,22 @@ impl std::fmt::Display for StartError {
 
 impl std::error::Error for StartError {}
 
+/// The protocol listener — the only task that serves clients (§2.1).
+pub const PROTOCOL_TASK: &str = "protocol listener";
+/// The loopback-only operator surface: `/healthz` and `/metrics`.
+pub const ADMIN_TASK: &str = "admin listener";
+/// The health-only surface the kubelet and the load balancer probe (#665).
+pub const HEALTH_TASK: &str = "health listener";
+/// §7.7's TTL sweep and §5.5's seen-set aging.
+pub const EXPIRY_TASK: &str = "queue expiry tick";
+
+/// How long a failing relay is given to close its sockets politely.
+///
+/// It is a bound and not a promise: the point of the failure path is that the
+/// process stops, and a task that will not finish must not be able to keep the
+/// listener open by refusing to.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
 /// A running relay.
 pub struct Server {
     relay: Arc<Relay>,
@@ -83,7 +120,31 @@ pub struct Server {
     admin_addr: Option<std::net::SocketAddr>,
     health_addr: Option<std::net::SocketAddr>,
     shutdown: watch::Sender<bool>,
-    tasks: Vec<tokio::task::JoinHandle<()>>,
+    tasks: Vec<Supervised>,
+}
+
+/// A task the relay cannot serve without, and the name an operator sees when it
+/// is the one that ended.
+struct Supervised {
+    name: &'static str,
+    /// `None` once it has been observed to finish, so it is never polled twice.
+    handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Why a relay stopped serving.
+///
+/// Deliberately **not** `#[non_exhaustive]`: the binary is a separate crate, so
+/// that attribute would force a wildcard arm in `main`, and a wildcard arm is
+/// how a future stop reason silently becomes a zero exit. A new variant here
+/// should break every caller until each has decided what it means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stopped {
+    /// The caller's signal fired. An ordinary shutdown; exit zero.
+    Requested,
+    /// A supervised task ended before shutdown was asked for — it panicked, or
+    /// it was cancelled. The relay cannot do its job and the process must not
+    /// go on passing health checks; exit non-zero.
+    TaskEnded(&'static str),
 }
 
 impl std::fmt::Debug for Server {
@@ -228,32 +289,50 @@ impl Server {
 
         let (shutdown, watcher) = watch::channel(false);
         let mut tasks = Vec::with_capacity(4);
-        tasks.push(tokio::spawn(crate::listener::serve(
-            Arc::clone(&relay),
-            listener,
-            acceptor,
-            watcher.clone(),
-        )));
-        if let Some(admin_listener) = admin_listener {
-            tasks.push(tokio::spawn(crate::admin::serve(
+        let mut supervise = |name, handle| {
+            tasks.push(Supervised {
+                name,
+                handle: Some(handle),
+            })
+        };
+        supervise(
+            PROTOCOL_TASK,
+            tokio::spawn(crate::listener::serve(
                 Arc::clone(&relay),
-                admin_listener,
-                crate::admin::Scope::Operator,
+                listener,
+                acceptor,
                 watcher.clone(),
-            )));
+            )),
+        );
+        if let Some(admin_listener) = admin_listener {
+            supervise(
+                ADMIN_TASK,
+                tokio::spawn(crate::admin::serve(
+                    Arc::clone(&relay),
+                    admin_listener,
+                    crate::admin::Scope::Operator,
+                    watcher.clone(),
+                )),
+            );
         }
         if let Some(health_listener) = health_listener {
-            tasks.push(tokio::spawn(crate::admin::serve(
-                Arc::clone(&relay),
-                health_listener,
-                crate::admin::Scope::HealthOnly,
-                watcher.clone(),
-            )));
+            supervise(
+                HEALTH_TASK,
+                tokio::spawn(crate::admin::serve(
+                    Arc::clone(&relay),
+                    health_listener,
+                    crate::admin::Scope::HealthOnly,
+                    watcher.clone(),
+                )),
+            );
         }
-        tasks.push(tokio::spawn(crate::expiry::run(
-            Arc::clone(&relay),
-            watcher,
-        )));
+        // Supervised for a correctness reason rather than an availability one:
+        // §7.7's TTLs stop being enforced the moment this task is gone, and
+        // nothing a client can observe says so.
+        supervise(
+            EXPIRY_TASK,
+            tokio::spawn(crate::expiry::run(Arc::clone(&relay), watcher)),
+        );
 
         crate::log_info!("relay listening", "port" = protocol_addr.port());
         Ok(Self {
@@ -305,6 +384,88 @@ impl Server {
         )
     }
 
+    /// Serve until `signal` fires **or a supervised task ends**, then stop.
+    ///
+    /// This is the whole of zuu#671's fix and it is deliberately the only
+    /// supported way to run a relay: `Server::start` followed by an `await` on
+    /// a signal leaves the join handles unobserved, and an unobserved task that
+    /// panics is a relay that answers `/healthz` with `200` and serves nobody.
+    ///
+    /// Either way the listeners are closed before this returns — bounded by
+    /// [`SHUTDOWN_GRACE`], because on the failure path a wedged task must not be
+    /// able to hold the protocol port open. A [`Stopped::TaskEnded`] result is
+    /// the caller's instruction to exit **non-zero**: under `replicas: 1` and
+    /// `strategy: Recreate` a crash-loop is a short, visible outage, and the
+    /// alternative is a `Ready` pod in the load balancer's rotation that
+    /// silently drops what senders were told was accepted.
+    pub async fn run_until_stopped(mut self, signal: impl Future<Output = ()>) -> Stopped {
+        let stopped = {
+            let mut signal = core::pin::pin!(signal);
+            tokio::select! {
+                biased;
+                name = self.supervise() => Stopped::TaskEnded(name),
+                () = &mut signal => Stopped::Requested,
+            }
+        };
+        if matches!(stopped, Stopped::TaskEnded(_)) {
+            // The name is not in this line on purpose: `log::line` takes a
+            // literal message and numeric fields only, which is what keeps
+            // payloads, addresses and keys out of the operator log. `main`
+            // prints the name to stderr, where an operator reads a fatal.
+            crate::log_error!("a supervised task ended; stopping the relay");
+        }
+        if tokio::time::timeout(SHUTDOWN_GRACE, self.shutdown())
+            .await
+            .is_err()
+        {
+            crate::log_error!("shutdown did not finish in time; exiting anyway");
+        }
+        stopped
+    }
+
+    /// Resolve when any supervised task ends. Pending while all are alive.
+    ///
+    /// Each handle is polled at most to completion once — a `JoinHandle` polled
+    /// after it has finished panics, and this runs inside a `select!` that may
+    /// poll it many times.
+    async fn supervise(&mut self) -> &'static str {
+        let tasks = &mut self.tasks;
+        core::future::poll_fn(move |cx| {
+            for task in tasks.iter_mut() {
+                let Some(handle) = task.handle.as_mut() else {
+                    continue;
+                };
+                if core::pin::Pin::new(handle).poll(cx).is_ready() {
+                    task.handle = None;
+                    return core::task::Poll::Ready(task.name);
+                }
+            }
+            core::task::Poll::Pending
+        })
+        .await
+    }
+
+    /// Abort a supervised task by name, so that a test can produce the failure
+    /// this supervision exists for. Returns whether one was found.
+    ///
+    /// There is no other way to write that test. The failure it stands in for
+    /// is a **panic**, which comes from a bug rather than from an input, and a
+    /// fault-injection hook inside the shipped listener would be a far worse
+    /// thing to carry than a method behind a feature that never reaches the
+    /// binary. An aborted task and a panicked one are the same shape here:
+    /// the handle completes, and nothing else in the process notices.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn abort_task(&mut self, name: &str) -> bool {
+        self.tasks
+            .iter()
+            .find(|task| task.name == name)
+            .and_then(|task| task.handle.as_ref())
+            .is_some_and(|handle| {
+                handle.abort();
+                true
+            })
+    }
+
     /// Stop accepting, tell subscribed readers, and wait for the tasks.
     ///
     /// §6.4's `NOTICE(2)` is sent first: a client that learns the relay is
@@ -321,7 +482,9 @@ impl Server {
         tokio::time::sleep(Duration::from_millis(50)).await;
         let _ = self.shutdown.send(true);
         for task in self.tasks {
-            let _ = task.await;
+            if let Some(handle) = task.handle {
+                let _ = handle.await;
+            }
         }
         crate::log_info!("relay stopped");
     }
