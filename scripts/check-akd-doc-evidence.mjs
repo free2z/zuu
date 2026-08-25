@@ -327,22 +327,80 @@ function extractRustFunction(source, signature) {
   assert.fail(`unterminated body for ${signature}`);
 }
 
-async function fetchPinnedBytes(url) {
-  const response = await fetch(url, {
-    headers: { "User-Agent": "free2z-zuu-akd-evidence-check" },
-    signal: AbortSignal.timeout(30_000),
-  });
-  assert(response.ok, `unable to fetch pinned evidence ${url}: HTTP ${response.status}`);
-  return Buffer.from(await response.arrayBuffer());
+class EvidenceTransportError extends Error {
+  constructor(url, detail) {
+    super(`pinned evidence unavailable ${url}: ${detail}`);
+    this.name = "EvidenceTransportError";
+  }
 }
 
-async function fetchPinnedJson(url) {
-  const response = await fetch(url, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "free2z-zuu-akd-evidence-check" },
-    signal: AbortSignal.timeout(30_000),
+function evidenceHeaders(url, accept, token) {
+  const headers = { "User-Agent": "free2z-zuu-akd-evidence-check" };
+  if (accept) headers.Accept = accept;
+  if (token && new URL(url).origin === "https://api.github.com") {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function isTransientResponse(response) {
+  return response.status === 429 ||
+    response.status >= 500 && response.status <= 599 ||
+    response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0";
+}
+
+const delay = (milliseconds) => new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+const timeoutSignal = (milliseconds) => AbortSignal.timeout(milliseconds);
+
+async function fetchPinnedValue(url, {
+  accept,
+  attempts = 3,
+  consume,
+  fetchImpl = fetch,
+  signalForTimeout = timeoutSignal,
+  sleep = delay,
+  token = process.env.GITHUB_TOKEN,
+} = {}) {
+  let lastFailure;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, {
+        headers: evidenceHeaders(url, accept, token),
+        signal: signalForTimeout(30_000),
+      });
+      if (response.ok) {
+        return await consume(response);
+      } else {
+        lastFailure = `HTTP ${response.status}`;
+        if (!isTransientResponse(response) || attempt === attempts) {
+          throw new EvidenceTransportError(url, lastFailure);
+        }
+      }
+    } catch (error) {
+      if (error instanceof EvidenceTransportError) throw error;
+      lastFailure = error instanceof Error ? error.message : String(error);
+      if (attempt === attempts) {
+        throw new EvidenceTransportError(url, lastFailure);
+      }
+    }
+    await sleep(attempt * 250);
+  }
+  throw new EvidenceTransportError(url, lastFailure ?? "request failed");
+}
+
+async function fetchPinnedBytes(url, options) {
+  return fetchPinnedValue(url, {
+    ...options,
+    consume: async (response) => Buffer.from(await response.arrayBuffer()),
   });
-  assert(response.ok, `unable to fetch pinned evidence ${url}: HTTP ${response.status}`);
-  return response.json();
+}
+
+async function fetchPinnedJson(url, options = {}) {
+  return fetchPinnedValue(url, {
+    ...options,
+    accept: "application/vnd.github+json",
+    consume: (response) => response.json(),
+  });
 }
 
 function validateReportRecord(audit) {
@@ -630,7 +688,318 @@ async function selfTest() {
   validateBenchmarkAnchor(benchmark, benchmarkComment);
   validateMetricClaims(files, benchmark);
   validateClaimBlocks(files, audit);
-  const killed = { displayedMetrics: 0, benchmarkArtifacts: 0, coordinatedEvidence: 0, claims: 0, pinnedSource: 0, compileApi: 0 };
+  const killed = {
+    displayedMetrics: 0,
+    benchmarkArtifacts: 0,
+    coordinatedEvidence: 0,
+    claims: 0,
+    pinnedSource: 0,
+    compileApi: 0,
+    transportGuards: 0,
+  };
+
+  const inertSignal = AbortSignal.abort("self-test");
+  const savedToken = process.env.GITHUB_TOKEN;
+  let apiRequest;
+  const apiTimeouts = [];
+  process.env.GITHUB_TOKEN = "test-token";
+  try {
+    const apiResult = await fetchPinnedJson(benchmarkAnchor.apiUrl, {
+      fetchImpl: async (url, options) => {
+        apiRequest = { options, url };
+        return new Response('{"anchored":true}', { status: 200 });
+      },
+      signalForTimeout: (milliseconds) => {
+        apiTimeouts.push(milliseconds);
+        return inertSignal;
+      },
+      sleep: async () => assert.fail("successful API request slept"),
+    });
+    assert.deepEqual(apiResult, { anchored: true }, "real JSON consumer was not exercised");
+  } finally {
+    if (savedToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = savedToken;
+  }
+  assert.equal(apiRequest?.url, benchmarkAnchor.apiUrl, "real API request URL changed");
+  assert.equal(apiRequest?.options.headers.Authorization, "Bearer test-token", "real API request lost its token");
+  assert.equal(apiRequest?.options.headers.Accept, "application/vnd.github+json", "real JSON request lost its media type");
+  assert.equal(apiRequest?.options.signal, inertSignal, "real API request lost its timeout signal");
+  assert.deepEqual(apiTimeouts, [30_000], "real API request timeout changed");
+  killed.transportGuards += 5;
+
+  let unauthenticatedApiRequest;
+  await fetchPinnedJson(benchmarkAnchor.apiUrl, {
+    fetchImpl: async (_url, options) => {
+      unauthenticatedApiRequest = options;
+      return new Response("{}", { status: 200 });
+    },
+    signalForTimeout: () => inertSignal,
+    sleep: async () => assert.fail("successful unauthenticated API request slept"),
+    token: null,
+  });
+  assert(!("Authorization" in unauthenticatedApiRequest.headers), "tokenless API request invented credentials");
+  killed.transportGuards += 1;
+
+  let defaultSignal;
+  await fetchPinnedBytes("https://example.invalid/default-timeout", {
+    fetchImpl: async (_url, options) => {
+      defaultSignal = options.signal;
+      return new Response("anchored", { status: 200 });
+    },
+    sleep: async () => assert.fail("successful default-timeout request slept"),
+  });
+  assert(defaultSignal instanceof AbortSignal, "default timeout factory was detached from the real request");
+  killed.transportGuards += 1;
+
+  const realSetTimeout = globalThis.setTimeout;
+  const realAbortTimeout = AbortSignal.timeout;
+  const defaultDelayDurations = [];
+  const defaultTimeoutDurations = [];
+  const defaultTimeoutSignals = [];
+  const observedDefaultSignals = [];
+  let defaultAttempts = 0;
+  try {
+    globalThis.setTimeout = (callback, milliseconds) => {
+      defaultDelayDurations.push(milliseconds);
+      callback();
+      return 0;
+    };
+    AbortSignal.timeout = (milliseconds) => {
+      defaultTimeoutDurations.push(milliseconds);
+      const signal = AbortSignal.abort(`default-timeout-${defaultTimeoutSignals.length + 1}`);
+      defaultTimeoutSignals.push(signal);
+      return signal;
+    };
+    const result = await fetchPinnedBytes("https://example.invalid/default-adapters", {
+      fetchImpl: async (_url, options) => {
+        defaultAttempts += 1;
+        observedDefaultSignals.push(options.signal);
+        return defaultAttempts === 1
+          ? new Response(null, { status: 503 })
+          : new Response("anchored", { status: 200 });
+      },
+    });
+    assert.equal(result.toString(), "anchored", "default transport adapters did not recover");
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    AbortSignal.timeout = realAbortTimeout;
+  }
+  assert.equal(defaultAttempts, 2, "default transport adapters did not retry once");
+  assert.deepEqual(defaultDelayDurations, [250], "default scheduler lost its reviewed delay");
+  assert.deepEqual(defaultTimeoutDurations, [30_000, 30_000], "default timeout adapter lost its reviewed window");
+  assert.deepEqual(observedDefaultSignals, defaultTimeoutSignals, "default timeout signals were not attached per attempt");
+  killed.transportGuards += 1;
+
+  for (const url of [
+    reportAnchor.url,
+    fixAnchors.q3u_publish_only.patchUrl,
+    `https://raw.githubusercontent.com/facebook/akd/${releaseAnchors.selected.commit}/${releaseAnchors.path}`,
+    "https://api.github.com.evil/evidence",
+    "http://api.github.com/evidence",
+    "https://api.github.com:444/evidence",
+  ]) {
+    let request;
+    await fetchPinnedBytes(url, {
+      fetchImpl: async (actualUrl, options) => {
+        request = { options, url: actualUrl };
+        return new Response("anchored", { status: 200 });
+      },
+      signalForTimeout: () => inertSignal,
+      sleep: async () => assert.fail("successful third-party request slept"),
+      token: "test-token",
+    });
+    assert.equal(request?.url, url, "real third-party request URL changed");
+    assert(!("Authorization" in request.options.headers), `${url} received the GitHub token`);
+    killed.transportGuards += 1;
+  }
+
+  for (const { headers = {}, status } of [
+    { status: 429 },
+    { status: 500 },
+    { status: 502 },
+    { status: 503 },
+    { status: 599 },
+    { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+  ]) {
+    let attempts = 0;
+    const sleeps = [];
+    const value = await fetchPinnedBytes("https://example.invalid/transient", {
+      fetchImpl: async () => {
+        attempts += 1;
+        return attempts === 1
+          ? new Response(null, { status, headers })
+          : new Response("anchored", { status: 200 });
+      },
+      signalForTimeout: () => inertSignal,
+      sleep: async (milliseconds) => sleeps.push(milliseconds),
+    });
+    assert.equal(value.toString(), "anchored", `HTTP ${status} did not recover`);
+    assert.equal(attempts, 2, `HTTP ${status} did not traverse the real retry path`);
+    assert.deepEqual(sleeps, [250], `HTTP ${status} used the wrong retry delay`);
+    killed.transportGuards += 1;
+  }
+
+  for (const { headers = {}, status } of [
+    { status: 400 },
+    { status: 401 },
+    { status: 404 },
+    { status: 403 },
+    { status: 403, headers: { "x-ratelimit-remaining": "1" } },
+  ]) {
+    let attempts = 0;
+    const sleeps = [];
+    await assert.rejects(
+      fetchPinnedBytes("https://example.invalid/permanent", {
+        fetchImpl: async () => {
+          attempts += 1;
+          return new Response(null, { status, headers });
+        },
+        signalForTimeout: () => inertSignal,
+        sleep: async (milliseconds) => sleeps.push(milliseconds),
+      }),
+      EvidenceTransportError,
+      `HTTP ${status} lost its transport verdict`,
+    );
+    assert.equal(attempts, 1, `HTTP ${status} permanent failure was retried`);
+    assert.deepEqual(sleeps, [], `HTTP ${status} permanent failure slept`);
+    killed.transportGuards += 1;
+  }
+
+  const retryStatuses = [503, 429, 200];
+  let retryAttempts = 0;
+  const retrySleeps = [];
+  const retried = await fetchPinnedBytes("https://example.invalid/backoff", {
+    fetchImpl: async () => {
+      const status = retryStatuses[retryAttempts];
+      retryAttempts += 1;
+      return new Response(status === 200 ? "anchored" : null, { status });
+    },
+    signalForTimeout: () => inertSignal,
+    sleep: async (milliseconds) => retrySleeps.push(milliseconds),
+  });
+  assert.equal(retried.toString(), "anchored", "transient retry did not recover pinned bytes");
+  assert.equal(retryAttempts, 3, "transient retry-attempt guard survived");
+  assert.deepEqual(retrySleeps, [250, 500], "transient retry-backoff guard survived");
+  killed.transportGuards += 1;
+
+  let timeoutAttempts = 0;
+  const timeoutSleeps = [];
+  const timeoutDurations = [];
+  const timeoutRequests = [];
+  const timeoutSignals = [];
+  const observedTimeoutSignals = [];
+  await assert.rejects(
+    fetchPinnedJson("https://api.github.com/example", {
+      fetchImpl: async (url, options) => {
+        timeoutAttempts += 1;
+        timeoutRequests.push({ options, url });
+        observedTimeoutSignals.push(options.signal);
+        throw new DOMException("simulated request timeout", "TimeoutError");
+      },
+      signalForTimeout: (milliseconds) => {
+        timeoutDurations.push(milliseconds);
+        const signal = AbortSignal.abort(`timeout-${timeoutSignals.length + 1}`);
+        timeoutSignals.push(signal);
+        return signal;
+      },
+      sleep: async (milliseconds) => timeoutSleeps.push(milliseconds),
+      token: "test-token",
+    }),
+    (error) => {
+      assert(error instanceof EvidenceTransportError, "timeout lost its error class");
+      assert.equal(error.name, "EvidenceTransportError", "timeout lost its error name");
+      assert.match(error.message, /^pinned evidence unavailable /, "timeout lost its unavailable verdict");
+      assert(!/changed|mismatch|tamper/i.test(error.message), "timeout was mislabeled as evidence drift");
+      return true;
+    },
+  );
+  assert.equal(timeoutAttempts, 3, "timeout-exception retry guard survived");
+  assert.deepEqual(timeoutSleeps, [250, 500], "timeout-exception backoff guard survived");
+  assert.deepEqual(timeoutDurations, [30_000, 30_000, 30_000], "each timeout retry lost its full window");
+  assert.deepEqual(observedTimeoutSignals, timeoutSignals, "timeout signals were not attached to their own attempts");
+  assert.equal(new Set(observedTimeoutSignals).size, 3, "timeout retries reused an aborted signal");
+  assert.deepEqual(timeoutRequests.map(({ url }) => url), Array(3).fill("https://api.github.com/example"), "timeout retries changed URL");
+  assert.deepEqual(
+    timeoutRequests.map(({ options }) => options.headers.Authorization),
+    Array(3).fill("Bearer test-token"),
+    "timeout retries lost authenticated headers",
+  );
+  assert.deepEqual(
+    timeoutRequests.map(({ options }) => options.headers.Accept),
+    Array(3).fill("application/vnd.github+json"),
+    "timeout retries lost JSON media headers",
+  );
+  killed.transportGuards += 1;
+
+  let exhaustedAttempts = 0;
+  await assert.rejects(
+    fetchPinnedBytes("https://example.invalid/unavailable", {
+      fetchImpl: async () => {
+        exhaustedAttempts += 1;
+        return new Response(null, { status: 503 });
+      },
+      signalForTimeout: () => inertSignal,
+      sleep: async () => {},
+    }),
+    (error) => {
+      assert(error instanceof EvidenceTransportError, "exhausted HTTP retries lost their transport verdict");
+      assert.match(error.message, /pinned evidence unavailable .*HTTP 503/, "exhausted HTTP retries lost their status");
+      return true;
+    },
+  );
+  assert.equal(exhaustedAttempts, 3, "transient HTTP retry exhaustion guard survived");
+  killed.transportGuards += 1;
+
+  for (const [kind, consumeMethod] of [
+    ["byte", "arrayBuffer"],
+    ["JSON", "json"],
+  ]) {
+    let attempts = 0;
+    const sleeps = [];
+    const options = {
+      fetchImpl: async () => {
+        attempts += 1;
+        return {
+          ok: true,
+          [consumeMethod]: async () => { throw new TypeError("terminated response body"); },
+        };
+      },
+      signalForTimeout: () => inertSignal,
+      sleep: async (milliseconds) => sleeps.push(milliseconds),
+    };
+    const operation = kind === "byte"
+      ? fetchPinnedBytes("https://example.invalid/body", options)
+      : fetchPinnedJson("https://example.invalid/body", options);
+    await assert.rejects(operation, (error) => {
+      assert(error instanceof EvidenceTransportError, `${kind} body transport lost its error class`);
+      assert.match(error.message, /pinned evidence unavailable .*terminated response body/, `${kind} body transport lost its verdict`);
+      return true;
+    });
+    assert.equal(attempts, 3, `${kind} body transport was not retried`);
+    assert.deepEqual(sleeps, [250, 500], `${kind} body transport used the wrong backoff`);
+    killed.transportGuards += 1;
+  }
+
+  let malformedJsonAttempts = 0;
+  const malformedJsonSleeps = [];
+  await assert.rejects(
+    fetchPinnedJson("https://example.invalid/malformed-json", {
+      fetchImpl: async () => {
+        malformedJsonAttempts += 1;
+        return new Response("{", { status: 200 });
+      },
+      signalForTimeout: () => inertSignal,
+      sleep: async (milliseconds) => malformedJsonSleeps.push(milliseconds),
+    }),
+    (error) => {
+      assert(error instanceof EvidenceTransportError, "malformed JSON body lost its error class");
+      assert.match(error.message, /^pinned evidence unavailable /, "malformed JSON body lost its unavailable verdict");
+      return true;
+    },
+  );
+  assert.equal(malformedJsonAttempts, 3, "malformed JSON body was not retried");
+  assert.deepEqual(malformedJsonSleeps, [250, 500], "malformed JSON body used the wrong backoff");
+  killed.transportGuards += 1;
 
   const expectedMetrics = metricValues(benchmark);
   for (const [key] of metricInventory) {
@@ -815,6 +1184,14 @@ async function selfTest() {
   assert.notDeepEqual(selectedMutant, sources[1], "failed to construct pinned-source mutant");
   assert.throws(
     () => validatePinnedSource(selectedMutant, selected, audit.upstream.partition_signature, audit.upstream.partition_body_sha256),
+    (error) => {
+      assert(
+        !(error instanceof EvidenceTransportError),
+        "pinned-source drift was mislabeled as transport unavailability",
+      );
+      assert.match(error.message, /raw source hash changed/, "pinned-source drift lost its digest verdict");
+      return true;
+    },
     "pinned-source byte mutant survived",
   );
   killed.pinnedSource += 1;
