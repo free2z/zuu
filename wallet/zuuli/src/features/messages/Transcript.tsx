@@ -1,6 +1,6 @@
 // One conversation's transcript, plus the composer.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Send, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Callout } from "@/components/ui/callout";
@@ -8,7 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { messaging } from "@/lib/messaging/bridge";
 import { listenMessaging } from "@/lib/messaging/events";
 import {
-  compareMessages,
   type Conversation,
   type DeliveryState,
   type Message,
@@ -125,16 +124,14 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
     };
   }, [conversation.conversationId, reload]);
 
-  // Insertion is not append: a message can arrive whose sort key places it
-  // mid-transcript, so the list is re-sorted rather than pushed to (§7).
-  const ordered = useMemo(
-    () => (messages ? [...messages].sort(compareMessages) : null),
-    [messages],
-  );
-
+  // §7 and §9 rule 10: `list_messages` returns the page ALREADY in §7's order.
+  // This component renders that sequence and does not sort it. An inbound
+  // message can land mid-transcript, and one that fills a gap can reorder rows
+  // already on screen, so the event handlers above re-read the window rather
+  // than patching a position — which is also why nothing here maintains one.
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [ordered]);
+  }, [messages]);
 
   const send = useCallback(async () => {
     const body = draft.trim();
@@ -178,15 +175,15 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
         </Callout>
       )}
 
-      {ordered === null ? (
+      {messages === null ? (
         <Skeleton className="h-48 w-full" />
-      ) : ordered.length === 0 ? (
+      ) : messages.length === 0 ? (
         <p className="py-12 text-center text-muted-foreground">
           Nothing here yet. Send the first message.
         </p>
       ) : (
         <ul className="flex-1 space-y-3 overflow-y-auto">
-          {ordered.map((message) => (
+          {messages.map((message) => (
             <MessageRow key={message.msgId} message={message} />
           ))}
           <div ref={endRef} />

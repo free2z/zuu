@@ -461,8 +461,10 @@ interface Message {
   msgId: string;
   conversationId: string;
   direction: "outbound" | "inbound";
-  epoch: number;                 // MLS epoch — ordering key 1
-  senderLeafIndex: number;       // ordering key 2
+  epoch: number;                 // MLS epoch — ordering key 1, hashed
+  senderLeafIndex: number;       // ordering key 2, hashed (ARCHITECTURE.md §7's
+                                 // 2026-08-25 correction). Display and
+                                 // diagnostics only: the UI does not order.
   parents: string[];             // msg_ids — the DAG
   sentAt: number;                // ADVISORY ONLY — §7. Never order by this.
   receivedAt: number | null;     // local clock, inbound only. Display only.
@@ -478,8 +480,10 @@ type MessageBody =
   | { kind: "unsupported"; typeTag: string };
 
 interface MessagePage {
-  messages: Message[];           // in the §7 total order, oldest first
-  cursor: string | null;
+  messages: Message[];           // ALREADY in the §7 total order, oldest first.
+                                 // The engine linearises; the UI renders the
+                                 // sequence as given and never re-sorts (§7).
+  cursor: string | null;         // a msgId, never an offset — §7
   hasGapBefore: boolean;         // §3.5 — a hole, not an absence
 }
 ```
@@ -1104,8 +1108,21 @@ Names are `f2zmsg://…`, matching `zcash://sync-progress`'s existing scheme.
   event's job is to tell the UI when to re-read.
 - **Per conversation, `message-received` is emitted in the engine's insertion
   order.** That is *not* the display order. Display order is §7's total order,
-  recomputed by the UI, always. An inbound message can arrive whose position is
-  in the middle of the existing transcript, and it must land there.
+  **computed by the engine**, and a client reads it back with `list_messages`
+  rather than deriving it. An inbound message can arrive whose position is in the
+  middle of the existing transcript — and, if it fills a gap, can move messages
+  already rendered — so the handler re-reads the visible window and renders the
+  sequence it gets. It never sorts, and it never patches a position it computed
+  itself. See [§7](#7-ordering)'s correction of 2026-08-25, which withdrew this
+  bullet's previous claim that the UI recomputes the order.
+
+  > **Correction (2026-08-25).** This bullet read *"Display order is §7's total
+  > order, **recomputed by the UI, always**"* — the sentence that produced
+  > [#733](https://github.com/free2z/zuu/issues/733)'s defect by assigning a
+  > normative protocol rule to a second implementation in a second language,
+  > against [ADR 0001](./decisions/0001-platform-priority.md). §7 carries the
+  > full correction, the counterexample, and the ergonomics decision that
+  > replaces it.
 - **`message-state` transitions for a single `msgId` are monotone** and follow
   §6.2. A transition never runs backwards. Different `msgId`s have no ordering
   relationship at all.
@@ -1361,9 +1378,23 @@ order**:
 sort key = (epoch, senderLeafIndex, msgId)
 ```
 
-Three fields, in that order, all three of them protocol-authenticated. Every
-client that applies this rule to the same set of messages produces the same
-transcript, which is why the rule exists.
+Three fields, in that order, all three of them protocol-authenticated and all
+three committed to by `msgId`
+([`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering)'s
+correction of 2026-08-25 moved `senderLeafIndex` inside the hash). The key
+breaks ties — it decides the pairs the DAG leaves **incomparable**, and nothing
+else. Applying it to every pair, causally related ones included, is a different
+rule that renders a reply above the message it answers.
+
+**The engine computes this order. The UI never does.**
+`list_messages` returns `MessagePage.messages` already linearised, oldest first,
+and a client renders that sequence in the order it was given. The single
+implementation is `rs/crates/f2z-msg-dag` — natively in ZUULI, and through WASM
+in the browser client, which is what
+[ADR 0001](./decisions/0001-platform-priority.md) meant by *"the crypto core is
+Rust, built once … there is no second implementation."* See the correction below;
+an earlier revision of this section assigned the computation to the UI, and the
+UI got it wrong.
 
 **`sentAt` is advisory and is never used for ordering.** It is a
 sender-supplied wall-clock value, and a clock is an attacker-controlled input.
@@ -1379,8 +1410,15 @@ that does not affect order. It is not comparable across devices.
 
 Practical consequences for the transcript component:
 
-- **Insertion is not append.** A message can arrive whose sort key places it in
-  the middle. The list must re-sort, not push.
+- **Insertion is not append, and it is not even insertion.** An inbound message
+  can land in the middle of the transcript, and — when it fills a gap — it can
+  also **reorder messages already on screen**, because a message that was
+  concurrent with others becomes their ancestor the moment its parent arrives.
+  So the component does not compute a position and does not maintain one: on
+  `message-received` it **re-reads the visible window** with `list_messages` and
+  renders the sequence it gets back. See the correction below for why an
+  insertion index in the event would have been a lie in exactly the case that
+  matters.
 - **`msgId` is the dedup key**, not `clientRef` and not any tuple involving
   `sentAt`. Duplicates are expected: a device may publish queue addresses on *k*
   relays and senders send to all *k*
@@ -1388,6 +1426,84 @@ Practical consequences for the transcript component:
 - **A hole in the sort order is not a hole in the conversation** and vice versa.
   Gaps come from `list_gaps` / `gap-detected` (§3.5), never from inferring
   absence from the sort key.
+- **A cursor is a `msgId`, never an offset.** Positions in the total order are
+  not stable under arrival; the message a cursor names is.
+
+> **Correction (2026-08-25) — display order is the engine's, not the UI's.
+> The sentence that said otherwise is withdrawn, and the code it produced is
+> deleted.**
+>
+> [`§5.2`](#52-ordering-guarantees--read-this-before-writing-a-reducer) said, and
+> this section implied:
+>
+> > *"Display order is §7's total order, **recomputed by the UI, always**."*
+> > ← superseded
+>
+> **What that produced.** `compareMessages` in
+> `wallet/zuuli/src/lib/messaging/types.ts`, applied by `Transcript.tsx` as
+> `[...messages].sort(compareMessages)`, sorted by
+> `(epoch, senderLeafIndex, msgId)` and **never read `parents`**. It was the
+> tie-break on its own, mistaken for the order. Bob at leaf 1 sends `A`; Alice at
+> leaf 0 replies `B` with `parents = [A]` in the same epoch; the keys are
+> `(7, 1, …)` and `(7, 0, …)`, so the reply rendered **above** the message it
+> answered. Epochs are non-decreasing along causal edges, so it is confined to a
+> single epoch — which is little comfort, because it fires whenever the replier
+> holds the lower leaf index, about half of all one-to-one conversations. Found
+> by [#732](https://github.com/free2z/zuu/issues/732) implementing the same
+> ordering independently in Rust and comparing; filed as
+> [#733](https://github.com/free2z/zuu/issues/733).
+>
+> **The comparator was not the defect; this sentence was.** A JavaScript
+> `Array.prototype.sort` comparator *cannot* express a topological order — it
+> sees two elements and causal precedence is a relation over the whole graph — so
+> no repair to `compareMessages` was available. The repair on offer was a full
+> graph pass in TypeScript, and that is precisely what
+> [ADR 0001](./decisions/0001-platform-priority.md) rejects: *"two independent
+> implementations (Rust + TypeScript) … divergence between two implementations is
+> a reliable source of exploitable bugs."* §7's ordering is normative protocol
+> logic with correctness consequences, and this document had assigned it to the
+> UI — mandating a second implementation of a protocol rule, in a second
+> language, which then diverged. Fixing the comparator would have preserved the
+> mistake and made it harder to see.
+>
+> **The correction.** `list_messages` returns messages **already in §7's order**.
+> The UI renders what it is given. `compareMessages` is deleted from `types.ts`
+> rather than repaired; nothing in the TypeScript tree orders messages, and the
+> mock — which stands in for the engine, not for the UI — is bound by the same
+> contract and satisfies it by generating its transcript causally rather than by
+> sorting one. The browser client gets the identical order from the identical
+> Rust core compiled to WASM.
+>
+> **The ergonomic objection, answered honestly.** The withdrawn sentence gave a
+> real reason: *"an inbound message can arrive whose position is in the middle of
+> the existing transcript, and it must land there."* That is true, and it is a
+> **performance** argument, not a correctness one — it says the UI should not
+> have to refetch, never that the UI should compute. Three ways to give the UI
+> the new order without a full refetch were available:
+>
+> | Option | Verdict |
+> |---|---|
+> | An **insertion index** in `message-received` | **Rejected as incorrect.** An arriving message that fills a gap does not merely insert: two messages already rendered can be concurrent, and become ordered the moment their common ancestor lands. One index cannot express that, and it would be wrong in exactly the gap-repair case §3.5 exists for. |
+> | A **small ordered-window API** | **Already present.** `list_messages` takes `before` / `after` / `limit`; a window is what the transcript reads. Adding a second such command would be duplication. |
+> | **Re-read the visible window on `message-received`** | **Chosen.** |
+>
+> **The cost, stated.** One IPC round-trip and one re-render of the visible
+> window per inbound event — bounded by the page size (50 in ZUULI's transcript),
+> not by conversation length — where the withdrawn design paid a client-side sort
+> of the same window. §5.2 already **requires** a re-read after every event and
+> on window focus, because events may be coalesced and may be missed, so this
+> adds no machinery: it removes a comparator and keeps a read that had to exist.
+> `Transcript.tsx` already re-read on `message-received` before this correction;
+> what changes is that it now trusts the result. Under load the engine coalesces
+> events, so the read count is bounded by render cadence rather than by message
+> rate.
+>
+> **What the engine owes in exchange.** `MessagePage.messages` must be a
+> contiguous window of the total order induced by **every** message the engine
+> holds for that conversation — not a locally sorted page — so that paging
+> backwards cannot produce a sequence that contradicts the one on screen.
+> Maintaining that incrementally is an implementation concern; producing it is a
+> contract.
 
 ---
 
@@ -1583,8 +1699,8 @@ Short, blunt, and each one has a specific failure behind it.
    durability **must not ACK at all** — §11.2.
 
 2. **Never use `sentAt` for ordering, filtering, dedup, or any security
-   decision.** It is attacker-controlled. Order by `(epoch, senderLeafIndex,
-   msgId)`; dedup by `msgId`
+   decision.** It is attacker-controlled. Dedup by `msgId`. Ordering is §7's,
+   and since 2026-08-25 the frontend does not perform it at all — see rule 10
    ([`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering)).
 
 3. **Never claim web parity. Never describe an ephemeral hint as enforcement.
@@ -1646,6 +1762,18 @@ Short, blunt, and each one has a specific failure behind it.
    for that handle, the answer is a contradiction it **cannot prove to anyone**:
    raise an alarm and fail closed. Silently dropping the pin would complete the
    attack.
+
+10. **Never order a transcript in the frontend.** Added 2026-08-25.
+   `list_messages` returns messages already in §7's order; render the sequence
+   as given. Not a comparator, not a topological pass, not "just a stable sort
+   for safety" — §7's order is protocol logic, the engine owns it, and a second
+   implementation in TypeScript is what [ADR 0001](./decisions/0001-platform-priority.md)
+   exists to prevent. It has been written once already and it rendered replies
+   above the messages they answered in half of all one-to-one conversations
+   ([§7](#7-ordering)'s correction, [#733](https://github.com/free2z/zuu/issues/733)).
+   This binds the **mock** as well: a mock is a stand-in for the engine, so it
+   owes the same ordered page, and it satisfies that by generating its transcript
+   causally rather than by sorting one.
 
 ---
 

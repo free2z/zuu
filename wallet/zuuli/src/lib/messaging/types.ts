@@ -336,19 +336,22 @@ export const SendAcceptedSchema = z.object({
 });
 export type SendAccepted = z.infer<typeof SendAcceptedSchema>;
 
-/**
- * §7's total order: `(epoch, senderLeafIndex, msgId)`, all three
- * protocol-authenticated. Every client applying it to the same set produces
- * the same transcript. Insertion is not append — a message can arrive whose
- * key places it mid-transcript, so the list re-sorts rather than pushes.
- */
-export function compareMessages(a: Message, b: Message): number {
-  if (a.epoch !== b.epoch) return a.epoch - b.epoch;
-  if (a.senderLeafIndex !== b.senderLeafIndex) {
-    return a.senderLeafIndex - b.senderLeafIndex;
-  }
-  return a.msgId < b.msgId ? -1 : a.msgId > b.msgId ? 1 : 0;
-}
+// There is deliberately NO `compareMessages` here, and there must not be one.
+//
+// §7's display order is the causal DAG's partial order, with
+// `(epoch, senderLeafIndex, msgId)` breaking ties only between messages the DAG
+// leaves incomparable. A `.sort()` comparator cannot express that — it sees two
+// elements, and causal precedence is a relation over the whole graph — so the
+// comparator this file used to export was the tie-break mistaken for the order,
+// and it rendered a reply above the message it answered in about half of all
+// one-to-one conversations (zuu#733).
+//
+// The fix was not a better comparator. §7's ordering is protocol logic, the
+// engine owns it, and `list_messages` returns `MessagePage.messages` already
+// linearised by `rs/crates/f2z-msg-dag` — natively in ZUULI, through WASM in the
+// browser. A second implementation here is what ADR 0001 exists to prevent.
+// CLIENT-CONTRACT.md §7's 2026-08-25 correction and §9 rule 10 are normative:
+// render the sequence as given.
 
 export const GapStateSchema = z.enum([
   "detected",

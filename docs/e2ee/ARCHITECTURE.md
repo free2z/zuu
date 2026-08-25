@@ -656,16 +656,21 @@ transports can interleave freely without a sequencing authority.
 
 ```
 AppMessage = {
-  type:            "chat" | "receipt" | "gap_request" | "gap_response"
-                 | "ceremony" | "queue_advert" | "webrtc_offer" | ...,
-  msg_id:          BLAKE2b-256("free2z/msg/v1/msgid" || canonical(rest)),
-  parents:         [msg_id, ...],   // every message this sender had delivered
-                                    // and not yet referenced, at send time
-  epoch:           uint64,          // MLS epoch
-  sent_at:         uint64,          // sender-claimed; ADVISORY ONLY, never
-                                    // used for ordering or security decisions
-  retention_class: CHAT | CEREMONY, // §8
-  body:            opaque
+  type:              "chat" | "receipt" | "gap_request" | "gap_response"
+                   | "ceremony" | "queue_advert" | "webrtc_offer" | ...,
+  msg_id:            BLAKE2b-256("free2z/msg/v1/msgid" || canonical(rest)),
+  parents:           [msg_id, ...],   // every message this sender had delivered
+                                      // and not yet referenced, at send time
+  epoch:             uint64,          // MLS epoch
+  sender_leaf_index: uint32,          // the AUTHOR's MLS leaf index. Hashed,
+                                      // and authoritative. See the correction
+                                      // below: an earlier revision left this in
+                                      // MLS framing only, so msg_id did not
+                                      // commit to the sort key it decides.
+  sent_at:           uint64,          // sender-claimed; ADVISORY ONLY, never
+                                      // used for ordering or security decisions
+  retention_class:   CHAT | CEREMONY, // §8
+  body:              opaque
 }
 ```
 
@@ -677,7 +682,18 @@ deliberate belt-and-braces, not redundancy.
 - **Causal ordering:** the DAG's partial order. For display, a deterministic
   total order breaks ties by `(epoch, sender_leaf_index, msg_id)`. Wall-clock
   timestamps are never used to order, because a clock is an attacker-controlled
-  input.
+  input. All three components are hashed fields of the message, so the sort key
+  is a property of the **message** and not of the delivery that carried it —
+  which is what makes the guarantee below a guarantee about a *set of messages*.
+  On direct delivery a receiver MUST check the message's `epoch` and
+  `sender_leaf_index` against the MLS framing's and treat a disagreement as an
+  error; the hashed fields are authoritative and the framing is the cross-check.
+- **The guarantee:** every client that applies this rule to the same set of
+  messages produces the same transcript. **Computing it is the engine's job, not
+  the UI's** — see [`CLIENT-CONTRACT.md` §7](./CLIENT-CONTRACT.md#7-ordering)'s
+  correction of the same date and [ADR 0001](./decisions/0001-platform-priority.md).
+  `rs/crates/f2z-msg-dag` is the implementation, for ZUULI natively and for the
+  browser client through WASM; there is no second one.
 - **Gap detection:** a receiver that sees a `parents` hash it does not hold
   knows, with certainty and without any server assistance, that it is missing a
   message. It emits `gap_request{hashes}` to the sender over any available
@@ -685,7 +701,11 @@ deliberate belt-and-braces, not redundancy.
 - **Repair:** the sender re-encrypts the original plaintext under the *current*
   epoch and replies `gap_response`. It does not replay old ciphertext, so repair
   does not undermine forward secrecy. This requires the sender to hold a
-  bounded-window plaintext outbox, which interacts with retention (§8.4).
+  bounded-window plaintext outbox, which interacts with retention (§8.4). A
+  repaired message therefore arrives in framing that is **not** the framing it
+  was authored in: the responder's leaf index and a later epoch. Neither may
+  reach the sort key — a receiver takes the whole key from the message's own
+  hashed fields, which is what the correction below made possible.
 - **What hash links do NOT detect: tail truncation.** If a relay drops the last
   *k* messages from a sender and no later message arrives, there is no dangling
   parent to notice. Detecting suppression of the tail requires liveness signals
@@ -693,6 +713,76 @@ deliberate belt-and-braces, not redundancy.
   and even then, an adversary that partitions a peer entirely is
   indistinguishable from that peer being offline. Stated in
   [`THREAT-MODEL.md`](./THREAT-MODEL.md); no protocol fixes this.
+
+> **Correction (2026-08-25) — `msg_id` did not commit to `sender_leaf_index`,
+> and now it does. This is a wire change.**
+>
+> The revision of `AppMessage` above that shipped in
+> [#694](https://github.com/free2z/zuu/pull/694) had no `sender_leaf_index`
+> field:
+>
+> ```
+> AppMessage = { type, msg_id, parents, epoch, sent_at,
+>                retention_class, body }              ← superseded
+> ```
+>
+> The value lived only in MLS framing. So the second component of this section's
+> own sort key was **not covered by the commitment that names the message**,
+> while the repair bullet above delivers a message *outside* the framing it was
+> authored in.
+>
+> **Why that was sound, and why it would not have stayed sound.** It worked for
+> exactly one reason: the repair bullet says *the sender* re-encrypts. Because
+> only the original author ever repaired, its leaf index was whatever it had
+> always been and every receiver derived the same key. But this section never
+> **forbade** third-party repair, and third-party repair is the obvious
+> optimisation the moment a group exceeds two members — any member holding the
+> plaintext can answer a `gap_request`, and requiring the author to be online
+> defeats much of the point of having a DAG at all. Had that landed, two
+> receivers who learned one message by different routes — one directly, one
+> repaired by a third party — would have computed **different sort keys for the
+> same `msg_id`** and rendered **different transcripts while agreeing on every
+> message**, breaking this section's own guarantee. It is the kind of defect
+> that surfaces long after the change that causes it, in a feature nobody
+> connects to ordering.
+>
+> **What the correction settles.**
+>
+> - The hashed field is **authoritative**. On direct delivery the framing value
+>   is a cross-check and a mismatch is an error, not a preference: two sources of
+>   truth for one sort key is the thing being removed, so the specification says
+>   which one wins and refuses the case where they disagree.
+> - A repairer puts the **original author's** index there — necessarily, since
+>   the bytes must hash to the `msg_id` that was requested. It cannot put its
+>   own, and it no longer needs to know one: it is forwarding a sealed message,
+>   not re-authoring it. That the repairer would otherwise have to *know* the
+>   author's index is itself the argument for the field being in the message.
+> - **The metadata position is unchanged**, and this is stated rather than left
+>   to be inferred. `sender_leaf_index` was already visible to every group member
+>   through MLS framing, so committing to it exposes nothing new *inside* the
+>   group. Outside it, the field sits in the `PrivateMessage` payload like every
+>   other one: the relay sees ciphertext and its length, exactly as before. No
+>   row of [`THREAT-MODEL.md` §5](./THREAT-MODEL.md) moves.
+>
+> **The alternative, and why it was rejected.** This section could instead have
+> stated that only the original sender may repair, and that the ordering
+> guarantee depends on it. That is cheaper — no wire change — but it forecloses a
+> real optimisation, and an unstated-turned-stated dependency of this kind is
+> exactly what a later contributor violates without ever knowing it existed. The
+> correction makes third-party repair *sound*; whether to permit it stays open,
+> and the plaintext outbox still holds only a device's own sends.
+>
+> **The cost is zero today and unbounded after the first message.** Nothing has
+> shipped, no message has ever been sent, and `rs/crates/f2z-msg-dag` moves with
+> it — the field is hashed, `DagEntry::from_delivered` gained the cross-check,
+> `DagEntry::from_repair` **lost** its leaf-index parameter because there is
+> nowhere else for one to come from, and `tests/two_routes.rs` asserts that two
+> receivers on two routes render one transcript. There are no published test
+> vectors for this framing to regenerate. Found by
+> [#732](https://github.com/free2z/zuu/issues/732) while implementing this
+> section; filed as [#734](https://github.com/free2z/zuu/issues/734) and
+> corrected rather than coded around.
+
 
 ## 8. Retention (D3)
 
@@ -1335,6 +1425,24 @@ deliberate.
   is the same handle-with-no-entry case as **§13-S′** above — and as §13-S, which
   closed on 2026-08-24 and moved to §13.1.
   [#634](https://github.com/free2z/zuu/issues/634).
+
+- **U. Whether a third party may answer a `gap_request`.** Opened 2026-08-25 by
+  §7's correction above. §7 specifies **first-party** repair — the original
+  sender re-encrypts — and this document has never said whether another member
+  holding the plaintext may answer instead. The obvious argument for allowing it
+  is that requiring the author to be online defeats much of the point of having
+  a DAG, and the cost of a group of *n* where only one peer can heal a hole grows
+  with *n*. The correction above removed the reason it could not be allowed: the
+  sort key no longer depends on who repaired. What it did **not** decide is the
+  rest of the question, which is real and is about §8 rather than about §7:
+  whether a member should hold, and be willing to re-encrypt, plaintext it did
+  not author — which extends another participant's retention decision (§8.1)
+  beyond the device that made it, and hands a `gap_request` a second source to
+  ask. `rs/crates/f2z-msg-dag`'s `PlaintextOutbox` holds only a device's own
+  sends, so v1 is first-party repair by construction and nothing has to be
+  decided to ship.
+  [#734](https://github.com/free2z/zuu/issues/734).
+
 **S** — what authorizes a handle's first directory entry — was opened and closed
 on 2026-08-24 and has moved to §13.1.
 

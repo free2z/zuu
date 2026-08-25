@@ -205,6 +205,39 @@ direction that would have been tidier
   renders an unproved absence as a verified one is the downgrade in its final
   form.
 
+**Two more corrections landed on 2026-08-25, and they are the first against the
+*client* half of these documents.** Both were found by
+[#732](https://github.com/free2z/zuu/issues/732) implementing
+[`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering)
+in Rust and comparing it against the TypeScript that already existed — the
+two-implementations check doing exactly what
+[ADR 0001](./decisions/0001-platform-priority.md) says two implementations do:
+
+- [`ARCHITECTURE.md` §7](./ARCHITECTURE.md#7-application-framing--hash-linked-causal-ordering)
+  — **a wire change, made before anything shipped.** `msg_id` did not commit to
+  `sender_leaf_index`, which is the second component of §7's own sort key, while
+  §7's repair path delivers a message *outside* its original framing. It was
+  sound only because §7 says the original sender repairs — an unstated
+  dependency that third-party repair, the obvious optimisation past two members,
+  would have broken silently: two receivers who learned one message by different
+  routes would have rendered different transcripts while agreeing on every
+  message. The field is now hashed and authoritative, the framing value is a
+  cross-check, and the still-open half — whether third-party repair is
+  *permitted* — is [§13-U](./ARCHITECTURE.md#13-open-questions) rather than an
+  assumption. [#734](https://github.com/free2z/zuu/issues/734).
+- [`CLIENT-CONTRACT.md` §7](./CLIENT-CONTRACT.md#7-ordering) and
+  [§5.2](./CLIENT-CONTRACT.md#52-ordering-guarantees--read-this-before-writing-a-reducer)
+  — **this document caused a shipped defect, and the sentence is withdrawn.**
+  §5.2 said display order is *"recomputed by the UI, always"*, which mandated a
+  second implementation of a normative protocol rule in a second language. The
+  implementation that resulted sorted by the tie-break alone, never read
+  `parents`, and rendered replies above the messages they answered in about half
+  of all one-to-one conversations. The correction is not a better comparator —
+  a `.sort()` comparator cannot express a topological order — but the removal of
+  the second implementation: the engine returns messages already ordered, the UI
+  renders what it is given, and `compareMessages` is deleted rather than fixed.
+  §9 gains rule 10. [#733](https://github.com/free2z/zuu/issues/733).
+
 The two `akd` limits are limits of the **adopted library**, not of the
 construction, and the upstream capabilities that would lift them are named in
 [`KT.md` §11.5](./KT.md#115-what-akd-013-cannot-do-and-what-upstream-would-have-to-add)
