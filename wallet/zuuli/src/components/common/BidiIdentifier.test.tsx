@@ -443,6 +443,84 @@ describe("opaque identifier production inventory", () => {
     );
   });
 
+  it("rejects a statically computed property for an audited transaction ID", () => {
+    let mutant = insertIntoFunction(
+      productionSources(),
+      "src/features/wallet/History.tsx",
+      "HistoryRow",
+      '\n  const identifierProperty: "txid" = "txid";',
+    );
+    mutant = insertAfterBidiValue(
+      mutant,
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      "<span>{tx[identifierProperty]}</span>",
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects an audited member reached through an aliased base", () => {
+    let mutant = insertIntoFunction(
+      productionSources(),
+      "src/features/wallet/History.tsx",
+      "HistoryRow",
+      "\n  const leakedTransaction = tx;",
+    );
+    mutant = insertAfterBidiValue(
+      mutant,
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      "<span>{leakedTransaction.txid}</span>",
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects destructuring an audited member from an aliased object literal", () => {
+    let mutant = insertIntoFunction(
+      productionSources(),
+      "src/features/wallet/History.tsx",
+      "HistoryRow",
+      [
+        "\n  const wrappedIdentifier = { leakedTxid: tx.txid };",
+        "  const { leakedTxid } = wrappedIdentifier;",
+      ].join("\n"),
+    );
+    mutant = insertAfterBidiValue(
+      mutant,
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      "<span>{leakedTxid}</span>",
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("allows equivalent member shapes that do not derive from the audited source", () => {
+    let mutant = insertIntoFunction(
+      productionSources(),
+      "src/features/wallet/History.tsx",
+      "HistoryRow",
+      [
+        '\n  const unrelatedProperty: "txid" = "txid";',
+        '  const unrelatedTransaction = { txid: "decorative" };',
+        '  const safeWrapper = { safeLeak: "decorative" };',
+        "  const { safeLeak } = safeWrapper;",
+      ].join("\n"),
+    );
+    mutant = insertAfterBidiValue(
+      mutant,
+      "src/features/wallet/History.tsx",
+      "tx.txid",
+      "<span>{unrelatedTransaction[unrelatedProperty]}</span><span>{safeLeak}</span>",
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).not.toThrow();
+  });
+
   it("allows safe transparent expressions and same-name values in another scope", () => {
     let mutant = mutate(
       productionSources(),

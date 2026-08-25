@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import ts from "typescript";
 import {
   assertRtlSourcePolicy,
   collectRtlSources,
@@ -20,6 +21,46 @@ function rejectsMutation(fileName, before, after, pattern) {
     () => assertRtlSourcePolicy(mutate(fileName, before, after)),
     pattern,
   );
+}
+
+function insertJsxAttribute(
+  fileName,
+  tagName,
+  attributeSource,
+  placement = "end",
+  sources = BASELINE,
+) {
+  const source = sources[fileName];
+  assert.equal(typeof source, "string", `missing mutation source ${fileName}`);
+  const file = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  assert.equal(file.parseDiagnostics.length, 0, `cannot parse ${fileName}`);
+  const matches = [];
+  const visit = (node) => {
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText(file) === tagName
+    ) {
+      matches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  assert.equal(matches.length, 1, `expected one ${tagName} in ${fileName}`);
+  const attributes = matches[0].attributes;
+  const position =
+    placement === "start"
+      ? (attributes.properties[0]?.getStart(file) ?? attributes.end)
+      : attributes.end;
+  const insertion = placement === "start" ? `${attributeSource} ` : ` ${attributeSource}`;
+  const changed = `${source.slice(0, position)}${insertion}${source.slice(position)}`;
+  assert.notEqual(changed, source, `mutation did not apply to ${fileName}`);
+  return { ...sources, [fileName]: changed };
 }
 
 test("the current production tree satisfies the exact RTL source policy", () => {
@@ -88,19 +129,37 @@ test("a directional adornment that stops mirroring fails", () => {
     /SendIcon.*must mirror/,
   );
 
-  rejectsMutation(
+  const laterSpread = insertJsxAttribute(
     "src/features/articles/components/Comments/CommentCard.tsx",
-    '<Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />',
-    '<Reply className="rtl:-scale-x-100 h-4 w-4" {...{ className: "h-4 w-4" }} aria-hidden />',
-    /Reply.*must mirror/,
+    "Reply",
+    '{...{ className: "h-4 w-4" }}',
   );
+  assert.throws(() => assertRtlSourcePolicy(laterSpread), /Reply.*must mirror/);
 
-  const earlierSpread = mutate(
+  const earlierSpread = insertJsxAttribute(
     "src/features/articles/components/Comments/CommentCard.tsx",
-    '<Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />',
-    '<Reply {...{ className: "h-4 w-4" }} className="rtl:-scale-x-100 h-4 w-4" aria-hidden />',
+    "Reply",
+    '{...{ className: "h-4 w-4" }}',
+    "start",
   );
   assert.doesNotThrow(() => assertRtlSourcePolicy(earlierSpread));
+
+  const inlineCancellation = insertJsxAttribute(
+    "src/features/articles/components/Comments/CommentCard.tsx",
+    "Reply",
+    'style={{ transform: "none" }}',
+  );
+  assert.throws(
+    () => assertRtlSourcePolicy(inlineCancellation),
+    /Reply.*inline style.*directional transform/,
+  );
+
+  const harmlessInlineStyle = insertJsxAttribute(
+    "src/features/articles/components/Comments/CommentCard.tsx",
+    "Reply",
+    'style={{ color: "currentColor" }}',
+  );
+  assert.doesNotThrow(() => assertRtlSourcePolicy(harmlessInlineStyle));
 });
 
 test("directional Lucide aliases and namespace JSX resolve to imported symbols", () => {
@@ -435,6 +494,12 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
     "border-color: red green red blue;",
     "scroll-margin: 0 1rem 0 2rem;",
     "scroll-padding: 0 1rem 0 2rem;",
+    "border-image-width: 1px 2px 1px 3px;",
+    "border-image-outset: 1px 2px 1px 3px;",
+    "border-image-slice: 1 2 1 3 fill;",
+    "mask-border-width: 1px 2px 1px 3px;",
+    "mask-border-outset: 1px 2px 1px 3px;",
+    "mask-border-slice: fill 1 2 1 3;",
     "border-radius: 1px 2px 3px;",
     "border-radius: calc(1px + 2px) 4px 8px 16px / var(--a) var(--b) var(--c) var(--d);",
   ]) {
@@ -453,6 +518,12 @@ test("asymmetric CSS shorthands fail while symmetric function-valued forms pass"
     "border-color: red green red green;",
     "scroll-margin: 0 var(--inline) 0 var(--inline);",
     "scroll-padding: 0 var(--inline) 0 var(--inline);",
+    "border-image-width: 1px 2px 1px 2px;",
+    "border-image-outset: 1px 2px 1px 2px;",
+    "border-image-slice: 1 2 1 2 fill;",
+    "mask-border-width: 1px 2px 1px 2px;",
+    "mask-border-outset: 1px 2px 1px 2px;",
+    "mask-border-slice: fill 1 2 1 2;",
     "border-radius: calc(1px + 2px) calc(1px + 2px) var(--bottom) var(--bottom);",
     "border-radius: var(--all) / max(2px, 3px);",
   ]) {

@@ -258,8 +258,34 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
   return current;
 }
 
+function staticStringValue(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  resolving = new Set<ts.Symbol>(),
+): string | null {
+  const current = unwrapExpression(expression);
+  if (
+    ts.isStringLiteral(current) ||
+    ts.isNoSubstitutionTemplateLiteral(current)
+  ) {
+    return current.text;
+  }
+  if (!ts.isIdentifier(current)) return null;
+  const symbol = checker.getSymbolAtLocation(current);
+  if (!symbol || resolving.has(symbol)) return null;
+  const declaration = symbol.declarations?.find(
+    (candidate): candidate is ts.VariableDeclaration =>
+      ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+  );
+  if (!declaration?.initializer) return null;
+  const nextResolving = new Set(resolving);
+  nextResolving.add(symbol);
+  return staticStringValue(declaration.initializer, checker, nextResolving);
+}
+
 function staticMemberReference(
   expression: ts.Expression,
+  checker: ts.TypeChecker,
 ): { base: ts.Expression; name: string } | null {
   const current = unwrapExpression(expression);
   if (ts.isPropertyAccessExpression(current)) {
@@ -267,11 +293,10 @@ function staticMemberReference(
   }
   if (
     ts.isElementAccessExpression(current) &&
-    current.argumentExpression &&
-    (ts.isStringLiteral(current.argumentExpression) ||
-      ts.isNoSubstitutionTemplateLiteral(current.argumentExpression))
+    current.argumentExpression
   ) {
-    return { base: current.expression, name: current.argumentExpression.text };
+    const name = staticStringValue(current.argumentExpression, checker);
+    return name === null ? null : { base: current.expression, name };
   }
   return null;
 }
@@ -280,19 +305,42 @@ function sameReference(
   left: ts.Expression,
   right: ts.Expression,
   checker: ts.TypeChecker,
+  resolving = new Set<ts.Symbol>(),
 ): boolean {
   const actual = unwrapExpression(left);
   const expected = unwrapExpression(right);
   if (ts.isIdentifier(actual) && ts.isIdentifier(expected)) {
     const actualSymbol = checker.getSymbolAtLocation(actual);
-    return actualSymbol !== undefined && actualSymbol === checker.getSymbolAtLocation(expected);
+    const expectedSymbol = checker.getSymbolAtLocation(expected);
+    if (actualSymbol !== undefined && actualSymbol === expectedSymbol) return true;
+    for (const [identifier, symbol, other] of [
+      [actual, actualSymbol, expected],
+      [expected, expectedSymbol, actual],
+    ] as const) {
+      if (!symbol || resolving.has(symbol)) continue;
+      const declaration = symbol.declarations?.find(
+        (candidate): candidate is ts.VariableDeclaration =>
+          ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+      );
+      if (!declaration?.initializer) continue;
+      const nextResolving = new Set(resolving);
+      nextResolving.add(symbol);
+      if (
+        identifier === actual
+          ? sameReference(declaration.initializer, other, checker, nextResolving)
+          : sameReference(other, declaration.initializer, checker, nextResolving)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
-  const actualMember = staticMemberReference(actual);
-  const expectedMember = staticMemberReference(expected);
+  const actualMember = staticMemberReference(actual, checker);
+  const expectedMember = staticMemberReference(expected, checker);
   if (actualMember && expectedMember) {
     return (
       actualMember.name === expectedMember.name &&
-      sameReference(actualMember.base, expectedMember.base, checker)
+      sameReference(actualMember.base, expectedMember.base, checker, resolving)
     );
   }
   if (
@@ -301,7 +349,7 @@ function sameReference(
   ) {
     return (
       actual.name.text === expected.name.text &&
-      sameReference(actual.expression, expected.expression, checker)
+      sameReference(actual.expression, expected.expression, checker, resolving)
     );
   }
   if (
@@ -312,16 +360,66 @@ function sameReference(
   ) {
     return (
       actual.argumentExpression.getText() === expected.argumentExpression.getText() &&
-      sameReference(actual.expression, expected.expression, checker)
+      sameReference(actual.expression, expected.expression, checker, resolving)
     );
   }
   return false;
+}
+
+function objectPropertyValues(
+  expression: ts.Expression,
+  propertyName: string,
+  checker: ts.TypeChecker,
+  resolving = new Set<ts.Symbol>(),
+): ts.Expression[] {
+  const current = unwrapExpression(expression);
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || resolving.has(symbol)) return [];
+    const declaration = symbol.declarations?.find(
+      (candidate): candidate is ts.VariableDeclaration =>
+        ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
+    );
+    if (!declaration?.initializer) return [];
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
+    return objectPropertyValues(
+      declaration.initializer,
+      propertyName,
+      checker,
+      nextResolving,
+    );
+  }
+  if (!ts.isObjectLiteralExpression(current)) return [];
+  for (const property of [...current.properties].reverse()) {
+    if (ts.isSpreadAssignment(property)) {
+      const spreadValues = objectPropertyValues(
+        property.expression,
+        propertyName,
+        checker,
+        resolving,
+      );
+      if (spreadValues.length > 0) return spreadValues;
+      continue;
+    }
+    const name = property.name
+      ? ts.isComputedPropertyName(property.name)
+        ? staticStringValue(property.name.expression, checker)
+        : property.name.text
+      : null;
+    if (name !== propertyName) continue;
+    if (ts.isPropertyAssignment(property)) return [property.initializer];
+    if (ts.isShorthandPropertyAssignment(property)) return [property.name];
+    return [];
+  }
+  return [];
 }
 
 function destructuredBindingMatchesAuditedSource(
   binding: ts.BindingElement,
   auditedSources: readonly ts.Expression[],
   checker: ts.TypeChecker,
+  resolving: ReadonlySet<ts.Symbol>,
 ): boolean {
   if (!ts.isObjectBindingPattern(binding.parent)) return false;
   const declaration = binding.parent.parent;
@@ -336,15 +434,23 @@ function destructuredBindingMatchesAuditedSource(
       ? property.text
       : null;
   if (propertyName === null) return false;
-  return auditedSources.some((source) =>
+  const directlyMatches = auditedSources.some((source) =>
     auditedReferenceCandidates(source).some((candidate) => {
-      const member = staticMemberReference(candidate);
+      const member = staticMemberReference(candidate, checker);
       return (
         member !== null &&
         member.name === propertyName &&
         sameReference(declaration.initializer!, member.base, checker)
       );
     }),
+  );
+  if (directlyMatches) return true;
+  return objectPropertyValues(
+    declaration.initializer,
+    propertyName,
+    checker,
+  ).some((value) =>
+    rendersAuditedValue(value, auditedSources, checker, new Set(resolving)),
   );
 }
 
@@ -464,6 +570,8 @@ function rendersAuditedValue(
   if (ts.isIdentifier(current)) {
     const symbol = checker.getSymbolAtLocation(current);
     if (!symbol || resolving.has(symbol)) return false;
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
     const destructuredBinding = symbol.declarations?.find(ts.isBindingElement);
     if (
       destructuredBinding &&
@@ -471,6 +579,7 @@ function rendersAuditedValue(
         destructuredBinding,
         auditedSources,
         checker,
+        nextResolving,
       )
     ) {
       return true;
@@ -480,8 +589,6 @@ function rendersAuditedValue(
         ts.isVariableDeclaration(candidate) && candidate.initializer !== undefined,
     );
     if (!declaration?.initializer) return false;
-    const nextResolving = new Set(resolving);
-    nextResolving.add(symbol);
     return rendersAuditedValue(
       declaration.initializer,
       auditedSources,

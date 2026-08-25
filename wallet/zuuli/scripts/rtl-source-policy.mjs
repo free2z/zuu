@@ -44,6 +44,12 @@ const FOUR_SIDE_SHORTHANDS = new Set([
   "border-color",
   "scroll-margin",
   "scroll-padding",
+  "border-image-width",
+  "border-image-outset",
+  "border-image-slice",
+  "mask-border-width",
+  "mask-border-outset",
+  "mask-border-slice",
 ]);
 
 // Messaging is owned by the parallel E2EE effort. This is deliberately an
@@ -440,6 +446,33 @@ function assertStyleObjectsUseLogicalProperties(
   for (const object of objects) inspect(object);
 }
 
+function styleObjectsOverrideDirectionalTransform(
+  fileName,
+  file,
+  objects,
+  declarations,
+) {
+  const inspect = (object) => object.properties.some((property) => {
+    if (ts.isSpreadAssignment(property)) {
+      return resolveStyleObjects(
+        fileName,
+        property.expression,
+        declarations,
+      ).some(inspect);
+    }
+    if (
+      !ts.isPropertyAssignment(property) &&
+      !ts.isShorthandPropertyAssignment(property)
+    ) {
+      return true;
+    }
+    return ["transform", "translate", "scale"].includes(
+      propertyNameText(fileName, file, property),
+    );
+  });
+  return objects.some(inspect);
+}
+
 function utilityBase(token) {
   return splitVariants(token).at(-1) ?? "";
 }
@@ -586,6 +619,13 @@ function scanTypeScript(fileName, source, residuals) {
       }
       const classTokens = classAttributeTokens(node.attributes);
       assertPairedDirectionalTranslations(fileName, classTokens);
+      const hasDirectionalTransform =
+        icon !== null ||
+        classTokens.some((token) =>
+          /^(?:ltr|rtl):(?:(?:data-\[[^\]]+\]:)?-?(?:translate-x|scale-x)-)/.test(
+            token,
+          ),
+        );
       if (
         requiredTransform &&
         requiredTransform.anchors.every((token) => classTokens.includes(token))
@@ -602,12 +642,26 @@ function scanTypeScript(fileName, source, residuals) {
       }
       const style = styleAttributeExpression(node.attributes);
       if (style) {
+        const styleObjects = resolveStyleObjects(fileName, style, declarations);
         assertStyleObjectsUseLogicalProperties(
           fileName,
           file,
-          resolveStyleObjects(fileName, style, declarations),
+          styleObjects,
           declarations,
         );
+        if (
+          hasDirectionalTransform &&
+          styleObjectsOverrideDirectionalTransform(
+            fileName,
+            file,
+            styleObjects,
+            declarations,
+          )
+        ) {
+          throw new Error(
+            `${fileName} ${node.tagName.getText(file)} inline style must not override its directional transform`,
+          );
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -682,7 +736,9 @@ function cssDeclarations(source) {
 
 function shorthandIsDirectionNeutral(property, value) {
   const tokens = cssValueTokens(value).filter(
-    (token) => token.toLowerCase() !== "!important",
+    (token) =>
+      token.toLowerCase() !== "!important" &&
+      (!property.endsWith("-slice") || token.toLowerCase() !== "fill"),
   );
   const groups = [[]];
   for (const token of tokens) {
