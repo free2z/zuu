@@ -313,6 +313,29 @@ function auditedReferenceCandidates(expression: ts.Expression): ts.Expression[] 
   return [current];
 }
 
+const STRING_PRODUCING_METHODS = new Set([
+  "at",
+  "charAt",
+  "concat",
+  "normalize",
+  "padEnd",
+  "padStart",
+  "repeat",
+  "replace",
+  "replaceAll",
+  "slice",
+  "substr",
+  "substring",
+  "toLocaleLowerCase",
+  "toLocaleUpperCase",
+  "toLowerCase",
+  "toString",
+  "toUpperCase",
+  "trim",
+  "trimEnd",
+  "trimStart",
+]);
+
 function rendersAuditedValue(
   expression: ts.Expression,
   auditedSources: readonly ts.Expression[],
@@ -353,30 +376,23 @@ function rendersAuditedValue(
   }
   if (ts.isCallExpression(current)) {
     if (
-      ts.isIdentifier(current.expression) &&
-      current.expression.text === "String" &&
-      checker.getSymbolAtLocation(current.expression) === undefined &&
-      current.arguments.length === 1
-    ) {
-      return rendersAuditedValue(
-        current.arguments[0],
-        auditedSources,
-        checker,
-        resolving,
-      );
-    }
-    if (
       ts.isPropertyAccessExpression(current.expression) &&
-      current.expression.name.text === "toString" &&
-      current.arguments.length === 0
-    ) {
-      return rendersAuditedValue(
+      STRING_PRODUCING_METHODS.has(current.expression.name.text) &&
+      rendersAuditedValue(
         current.expression.expression,
         auditedSources,
         checker,
         resolving,
-      );
+      )
+    ) {
+      return true;
     }
+    // An arbitrary helper can return or embed any argument. Treat an audited
+    // identifier passed to one as a display unless the call stays inside the
+    // imported BidiIdentifier boundary checked by the caller.
+    return current.arguments.some((argument) =>
+      rendersAuditedValue(argument, auditedSources, checker, resolving),
+    );
   }
   if (ts.isConditionalExpression(current)) {
     return (

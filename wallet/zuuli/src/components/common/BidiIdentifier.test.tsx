@@ -178,16 +178,44 @@ describe("opaque identifier production inventory", () => {
     ["template interpolation", "`${address}`"],
     ["global String conversion", "String(address)"],
     ["toString conversion", "address.toString()"],
+    ["slice conversion", "address.slice(0, 8)"],
+    ["substring conversion", "address.substring(0, 8)"],
+    ["replace conversion", 'address.replace(/^u/, "z")'],
+    ["lowercase conversion", "address.toLowerCase()"],
     ["logical-and wrapper", "true && address"],
     ["conditional wrapper", 'true ? address : "unavailable"'],
     ["nullish wrapper", 'address ?? "unavailable"'],
-  ])("rejects an additional raw display through $name", (_name, expression) => {
+  ])("rejects an additional raw display through %s", (_name, expression) => {
     const mutant = mutate(
       productionSources(),
       "src/features/wallet/Receive.tsx",
       `              <CopyButton
                 value={address}`,
       `              <span>{${expression}}</span>
+              <CopyButton
+                value={address}`,
+    );
+    expect(() => assertBidiIdentifierPolicy(mutant)).toThrow(
+      /renders audited identifier values outside imported BidiIdentifier/,
+    );
+  });
+
+  it("rejects an audited identifier passed through an arbitrary display helper", () => {
+    let mutant = mutate(
+      productionSources(),
+      "src/features/wallet/Receive.tsx",
+      "  const address = useWallet((s) => s.unifiedAddress);",
+      [
+        "  const address = useWallet((s) => s.unifiedAddress);",
+        "  const displayAddress = (value: string) => value.slice(0, 8);",
+      ].join("\n"),
+    );
+    mutant = mutate(
+      mutant,
+      "src/features/wallet/Receive.tsx",
+      `              <CopyButton
+                value={address}`,
+      `              <span>{displayAddress(address)}</span>
               <CopyButton
                 value={address}`,
     );
@@ -236,7 +264,11 @@ describe("opaque identifier production inventory", () => {
       mutant,
       "src/features/wallet/Receive.tsx",
       "  const address = useWallet((s) => s.unifiedAddress);",
-      '  const address = useWallet((s) => s.unifiedAddress);\n  const safeLabel = "Wallet address";',
+      [
+        "  const address = useWallet((s) => s.unifiedAddress);",
+        '  const safeLabel = "Wallet address";',
+        "  const decorateLabel = (value: string) => value.toLowerCase();",
+      ].join("\n"),
     );
     mutant = mutate(
       mutant,
@@ -245,6 +277,11 @@ describe("opaque identifier production inventory", () => {
                 value={address}`,
       [
         '              <span>{`${safeLabel}`}</span>',
+        "              <span>{safeLabel.slice(0, 6)}</span>",
+        "              <span>{safeLabel.substring(0, 6)}</span>",
+        '              <span>{safeLabel.replace("Wallet", "Account")}</span>',
+        "              <span>{safeLabel.toLowerCase()}</span>",
+        "              <span>{decorateLabel(safeLabel)}</span>",
         "              <CopyButton",
         "                value={address}",
       ].join("\n"),
