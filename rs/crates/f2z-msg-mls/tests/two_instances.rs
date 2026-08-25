@@ -1,0 +1,447 @@
+//! Two independent engines exchange a message.
+//!
+//! **Two handles in one test are not two devices.** Everything below runs on
+//! two [`MlsEngine`]s that share nothing: separate storage, separate device
+//! signing keys, separate identity keys, separate credentials. The only things
+//! that cross between them are byte strings that would go over a relay — a
+//! `KeyPackage`, a `Welcome`, a commit, a `PrivateMessage`. If any state were
+//! accidentally shared, deleting one engine's store would not break the other,
+//! and `two_engines_share_no_state` is the test that would notice.
+//!
+//! Run with `cargo test -p f2z-msg-mls`.
+
+// Test code, run on the host by a person reading the failure. The workspace
+// denies these because a panic in a crypto core is a crash of the client;
+// neither hazard exists in a test harness.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects
+)]
+
+use f2z_msg_mls::{
+    DeviceCredential, DeviceCredentialTbs, DeviceSigner, EngineError, ExportLabel, MlsEngine,
+    ProtocolVersion, Received,
+};
+use f2z_msg_store::MemoryBackend;
+
+const NOW: u64 = 1_700_000_000_000;
+const GROUP_ID: &[u8] = b"conversation-alice-bob";
+
+/// One device: its own store, its own keys, its own credential.
+fn device(handle: &str, seed: u8) -> MlsEngine<MemoryBackend> {
+    let identity_private = [seed; 32];
+    let mut identity_public = [0u8; 32];
+    libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
+
+    let signer = DeviceSigner::from_private_key([seed.wrapping_add(128); 32]);
+    let tbs = DeviceCredentialTbs::new(
+        &identity_public,
+        handle,
+        signer.public_key(),
+        // A stand-in for `DeviceInitKey.public`. The engine does not read it —
+        // the HPKE init key that MLS actually uses is the one inside the
+        // KeyPackage — so a fixed value here keeps the test about the binding.
+        &[seed; 1216],
+        NOW - 1_000_000,
+        NOW + 1_000_000,
+    )
+    .expect("credential body");
+    let credential = DeviceCredential::sign(tbs, &identity_private).expect("sign credential");
+
+    MlsEngine::new(MemoryBackend::new(), signer, credential, NOW).expect("engine")
+}
+
+/// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
+fn paired() -> (
+    MlsEngine<MemoryBackend>,
+    openmls::prelude::MlsGroup,
+    MlsEngine<MemoryBackend>,
+    openmls::prelude::MlsGroup,
+) {
+    let alice = device("alice", 11);
+    let bob = device("bob", 22);
+
+    let bob_key_package = bob.generate_key_package().expect("key package");
+
+    let mut alice_group = alice.create_group(GROUP_ID).expect("create group");
+    let (_commit, welcome) = alice
+        .add_member(&mut alice_group, &bob_key_package, NOW)
+        .expect("add member");
+
+    let bob_group = bob.join_from_welcome(&welcome, NOW).expect("join");
+
+    (alice, alice_group, bob, bob_group)
+}
+
+// --- the acceptance criterion -----------------------------------------------
+
+#[test]
+fn two_engines_exchange_a_message_in_both_directions() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    assert_eq!(alice_group.group_id(), bob_group.group_id());
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+
+    let wire = alice.send(&mut alice_group, b"hello, bob").expect("send");
+    let received = bob
+        .receive(&mut bob_group, &wire, b"msg-1", NOW)
+        .expect("receive");
+    assert_eq!(received.payload(), Some(b"hello, bob".as_slice()));
+
+    let reply = bob.send(&mut bob_group, b"hello, alice").expect("send");
+    let received = alice
+        .receive(&mut alice_group, &reply, b"msg-2", NOW)
+        .expect("receive");
+    assert_eq!(received.payload(), Some(b"hello, alice".as_slice()));
+}
+
+#[test]
+fn an_update_advances_both_sides_to_the_same_epoch() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+    let before = alice_group.epoch().as_u64();
+
+    // §5.1's post-compromise security: a fresh leaf key, committed.
+    let commit = alice.update(&mut alice_group).expect("update");
+    let received = bob
+        .receive(&mut bob_group, &commit, b"commit-1", NOW)
+        .expect("process commit");
+
+    assert_eq!(
+        received,
+        Received::EpochChanged {
+            epoch: bob_group.epoch().as_u64()
+        }
+    );
+    assert_eq!(
+        alice_group.epoch(),
+        bob_group.epoch(),
+        "both sides must agree on the new epoch"
+    );
+    assert!(alice_group.epoch().as_u64() > before);
+
+    // …and the group still works afterwards, which is the property an Update
+    // that merely appeared to succeed would not have.
+    let wire = alice.send(&mut alice_group, b"after the update").expect("send");
+    assert_eq!(
+        bob.receive(&mut bob_group, &wire, b"msg-3", NOW)
+            .expect("receive")
+            .payload(),
+        Some(b"after the update".as_slice())
+    );
+}
+
+#[test]
+fn bob_can_update_too_and_alice_follows() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let commit = bob.update(&mut bob_group).expect("update");
+    alice
+        .receive(&mut alice_group, &commit, b"commit-1", NOW)
+        .expect("process commit");
+
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn both_sides_derive_the_same_bytes_for_every_exporter_label() {
+    let (alice, alice_group, bob, bob_group) = paired();
+
+    for label in ExportLabel::ALL {
+        let context = b"ceremony-or-session-or-conversation";
+        let from_alice = alice
+            .export_secret(&alice_group, *label, context, 32)
+            .expect("export");
+        let from_bob = bob
+            .export_secret(&bob_group, *label, context, 32)
+            .expect("export");
+        assert_eq!(from_alice, from_bob, "{label} disagreed across devices");
+        assert_eq!(from_alice.len(), 32);
+    }
+}
+
+#[test]
+fn different_exporter_labels_and_contexts_give_different_bytes() {
+    let (alice, alice_group, _bob, _bob_group) = paired();
+
+    let frost = alice
+        .export_secret(&alice_group, ExportLabel::Frost, b"c", 32)
+        .expect("export");
+    let webrtc = alice
+        .export_secret(&alice_group, ExportLabel::Webrtc, b"c", 32)
+        .expect("export");
+    let frost_other_context = alice
+        .export_secret(&alice_group, ExportLabel::Frost, b"d", 32)
+        .expect("export");
+
+    assert_ne!(frost, webrtc, "the label must separate the domains");
+    assert_ne!(frost, frost_other_context, "the context must matter");
+}
+
+/// Forward secrecy, as far as the exporter can show it: the epoch's material
+/// changes when the epoch does.
+#[test]
+fn an_update_changes_the_exported_material() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let before = alice
+        .export_secret(&alice_group, ExportLabel::History, b"conv", 32)
+        .expect("export");
+
+    let commit = alice.update(&mut alice_group).expect("update");
+    bob.receive(&mut bob_group, &commit, b"commit-1", NOW)
+        .expect("process commit");
+
+    let after = alice
+        .export_secret(&alice_group, ExportLabel::History, b"conv", 32)
+        .expect("export");
+    assert_ne!(before, after);
+    assert_eq!(
+        after,
+        bob.export_secret(&bob_group, ExportLabel::History, b"conv", 32)
+            .expect("export")
+    );
+}
+
+#[test]
+fn two_engines_share_no_state() {
+    let (alice, _alice_group, bob, _bob_group) = paired();
+
+    // Each store holds its own group, and neither is empty — if they were the
+    // same store, the counts would be identical for a trivial reason.
+    assert!(alice.provider().store().backend().len().expect("len") > 0);
+    assert!(bob.provider().store().backend().len().expect("len") > 0);
+    assert_ne!(
+        alice.credential().tbs().device_pk(),
+        bob.credential().tbs().device_pk()
+    );
+    assert_ne!(
+        alice.credential().tbs().identity_pk(),
+        bob.credential().tbs().identity_pk()
+    );
+}
+
+#[test]
+fn both_sides_record_the_protocol_version_beside_the_group() {
+    let (alice, _alice_group, bob, _bob_group) = paired();
+    assert_eq!(
+        alice.protocol_version(GROUP_ID).expect("version"),
+        Some(ProtocolVersion::CURRENT)
+    );
+    assert_eq!(
+        bob.protocol_version(GROUP_ID).expect("version"),
+        Some(ProtocolVersion::CURRENT)
+    );
+    assert_eq!(
+        alice.protocol_version(b"a group nobody created").expect("version"),
+        None
+    );
+}
+
+// --- the failure paths ------------------------------------------------------
+//
+// These are where delete-on-ack turns a bug into data loss, so they get the
+// same attention as the happy path.
+
+/// A device may publish queue addresses on *k* relays and senders send to all
+/// *k* (`ARCHITECTURE.md` §9.4), so the same message arriving twice is routine.
+#[test]
+fn a_duplicate_delivery_is_refused_and_changes_nothing() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let wire = alice.send(&mut alice_group, b"once").expect("send");
+    assert_eq!(
+        bob.receive(&mut bob_group, &wire, b"msg-1", NOW)
+            .expect("first delivery")
+            .payload(),
+        Some(b"once".as_slice())
+    );
+
+    let epoch_before = bob_group.epoch();
+    assert!(matches!(
+        bob.receive(&mut bob_group, &wire, b"msg-1", NOW),
+        Err(EngineError::Duplicate)
+    ));
+    assert_eq!(bob_group.epoch(), epoch_before);
+
+    // …and the group is undamaged: the next real message still decrypts.
+    let next = alice.send(&mut alice_group, b"twice").expect("send");
+    assert_eq!(
+        bob.receive(&mut bob_group, &next, b"msg-2", NOW)
+            .expect("second message")
+            .payload(),
+        Some(b"twice".as_slice())
+    );
+}
+
+/// The relay may reorder freely (`WIRE.md` §5.4), so a commit for an epoch this
+/// device has already left is a transport event, not a defect — and it must not
+/// damage the group.
+#[test]
+fn an_out_of_order_commit_is_refused_and_leaves_the_group_usable() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    // Alice commits twice. Bob is handed the *second* one first.
+    let first = alice.update(&mut alice_group).expect("update");
+    let second = alice.update(&mut alice_group).expect("update");
+
+    let epoch_before = bob_group.epoch();
+    let outcome = bob.receive(&mut bob_group, &second, b"commit-2", NOW);
+    assert!(
+        matches!(outcome, Err(EngineError::OutOfOrder | EngineError::Mls(_))),
+        "a commit from a future epoch must be refused, got {outcome:?}"
+    );
+    assert_eq!(
+        bob_group.epoch(),
+        epoch_before,
+        "a refused commit must not have advanced the epoch"
+    );
+
+    // Applying them in order still works, which is what "refused, not damaged"
+    // has to mean.
+    bob.receive(&mut bob_group, &first, b"commit-1", NOW)
+        .expect("first commit");
+    bob.receive(&mut bob_group, &second, b"commit-2b", NOW)
+        .expect("second commit");
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+/// A refused delivery must not leave a "handled" record behind, or the
+/// redelivery the relay is about to make would be dropped as a duplicate — and
+/// under delete-on-ack that message is then gone.
+#[test]
+fn a_refused_delivery_leaves_no_handled_record() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let first = alice.update(&mut alice_group).expect("update");
+    let second = alice.update(&mut alice_group).expect("update");
+
+    let _ = bob.receive(&mut bob_group, &second, b"commit-2", NOW);
+
+    // Same record key, correct order this time: it must be processed, not
+    // rejected as already handled.
+    bob.receive(&mut bob_group, &first, b"commit-1", NOW)
+        .expect("first commit");
+    bob.receive(&mut bob_group, &second, b"commit-2", NOW)
+        .expect("the redelivery must not have been swallowed as a duplicate");
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn a_truncated_message_is_refused_and_leaves_the_group_usable() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let wire = alice.send(&mut alice_group, b"hello").expect("send");
+    let truncated = &wire[..wire.len() - 1];
+
+    assert!(bob.receive(&mut bob_group, truncated, b"msg-1", NOW).is_err());
+
+    let good = alice.send(&mut alice_group, b"hello again").expect("send");
+    assert_eq!(
+        bob.receive(&mut bob_group, &good, b"msg-2", NOW)
+            .expect("receive")
+            .payload(),
+        Some(b"hello again".as_slice())
+    );
+}
+
+/// A flipped ciphertext byte must be a refusal, not a crash.
+///
+/// # Why this is gated on `not(debug_assertions)`
+///
+/// **This is an upstream defect, and it is worth stating rather than working
+/// around silently.** `openmls 0.8.1`'s
+/// `private_message_in.rs:136` runs `debug_assert!(false, "Ciphertext
+/// decryption failed")` on the AEAD-open failure path — a path any peer, or any
+/// relay that flips one byte, can reach at will. In a release build the
+/// `debug_assert` compiles out and the function correctly returns
+/// `MessageDecryptionError::AeadError`; in a **debug** build, which is what
+/// `cargo test` produces, the process aborts.
+///
+/// So the property below is true of what ships, and cannot be asserted by the
+/// suite that CI runs. Gating it is the honest option: the alternative is
+/// deleting the test and losing the record that the release behaviour was ever
+/// checked. Run it with `cargo test --release -p f2z-msg-mls`.
+#[cfg(not(debug_assertions))]
+#[test]
+fn a_corrupted_ciphertext_is_refused_and_leaves_the_group_usable() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+
+    let mut wire = alice.send(&mut alice_group, b"hello").expect("send");
+    let last = wire.len() - 1;
+    wire[last] ^= 0xFF;
+
+    assert!(bob.receive(&mut bob_group, &wire, b"msg-1", NOW).is_err());
+
+    let good = alice.send(&mut alice_group, b"hello again").expect("send");
+    assert_eq!(
+        bob.receive(&mut bob_group, &good, b"msg-2", NOW)
+            .expect("receive")
+            .payload(),
+        Some(b"hello again".as_slice())
+    );
+}
+
+#[test]
+fn trailing_bytes_after_a_message_are_refused() {
+    let (alice, mut alice_group, bob, mut bob_group) = paired();
+    let mut wire = alice.send(&mut alice_group, b"hello").expect("send");
+    wire.push(0);
+    assert!(bob.receive(&mut bob_group, &wire, b"msg-1", NOW).is_err());
+}
+
+/// The identity→device binding, at the point it actually matters: a key package
+/// whose credential describes somebody else's device must not be addable.
+#[test]
+fn a_key_package_whose_credential_does_not_bind_is_not_added() {
+    let alice = device("alice", 11);
+
+    // Mallory signs a credential for a device key that is not the one her
+    // KeyPackage will carry.
+    let identity_private = [33u8; 32];
+    let mut identity_public = [0u8; 32];
+    libcrux_ed25519::secret_to_public(&mut identity_public, &identity_private);
+    let real_signer = DeviceSigner::from_private_key([44u8; 32]);
+    let other_signer = DeviceSigner::from_private_key([55u8; 32]);
+
+    let tbs = DeviceCredentialTbs::new(
+        &identity_public,
+        "mallory",
+        other_signer.public_key(), // ← not the key this device will sign with
+        &[0x33; 1216],
+        NOW - 1000,
+        NOW + 1000,
+    )
+    .expect("credential body");
+    let credential = DeviceCredential::sign(tbs, &identity_private).expect("sign");
+
+    // The engine refuses to be built with it at all, which is the earliest
+    // point the mismatch can be caught.
+    assert!(matches!(
+        MlsEngine::new(MemoryBackend::new(), real_signer, credential, NOW),
+        Err(EngineError::Credential(_))
+    ));
+
+    // And nothing about Alice changed.
+    let mut group = alice.create_group(GROUP_ID).expect("create group");
+    assert!(alice.validate_members(&group, NOW).is_ok());
+    let _ = alice.send(&mut group, b"still fine").expect("send");
+}
+
+#[test]
+fn an_expired_credential_is_refused() {
+    let engine = device("alice", 11);
+    assert!(matches!(
+        engine.validate_members(&engine.create_group(GROUP_ID).expect("group"), NOW + 10_000_000),
+        Err(EngineError::Credential(_))
+    ));
+}
+
+#[test]
+fn a_key_package_cannot_be_parsed_as_a_welcome() {
+    let bob = device("bob", 22);
+    let key_package = bob.generate_key_package().expect("key package");
+    assert!(bob.join_from_welcome(&key_package, NOW).is_err());
+}

@@ -1,0 +1,61 @@
+[package]
+name = "f2z-msg-mls"
+version = "0.1.0"
+description = "The MLS (RFC 9420) engine for free2z messaging: X-Wing hybrid PQ, DeviceCredential-bound membership, and the §5.4 exporter labels (docs/e2ee/ARCHITECTURE.md §5)"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. ZUULI native, the WASM web client and
+# any third-party implementation link this; the AGPL-3.0 boundary starts at the
+# server binaries. Stated literally rather than inherited so it is visible to
+# anyone opening the crate. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The native durable store. Off in the browser build: `f2z-msg-store`'s SQLite
+# backend links SQLite's C amalgamation and cannot reach wasm32.
+default = ["sqlite"]
+sqlite = ["f2z-msg-store/sqlite"]
+
+# See `f2z-msg-store`'s manifest. Off by default and never in anything that
+# ships; `tests/crash_safety.rs` is what needs it.
+crash-injection = ["f2z-msg-store/crash-injection"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+# `default-features = false` so that a consumer targeting the browser does not
+# get SQLite by transitive default; this crate's own `sqlite` feature forwards.
+f2z-msg-store = { path = "../f2z-msg-store", version = "0.1.0", default-features = false }
+openmls = { workspace = true }
+openmls_traits = { workspace = true }
+openmls_libcrux_crypto = { workspace = true }
+# Our own `Signer`, closing #693. `openmls_basic_credential` signs with
+# `ed25519-dalek` and `p256` *outside* the libcrux provider, which contradicts
+# ADR 0001's single crypto core; this is the same primitive the provider itself
+# uses (`openmls_libcrux_crypto`'s `crypto.rs` calls exactly these functions),
+# so naming it here adds no crate to the graph and removes two.
+libcrux-ed25519 = { workspace = true }
+# The `DeviceCredential` is canonically encoded with `tls_codec`, like every
+# other free2z wire structure (`WIRE.md` §1.2), so that "re-encode and compare"
+# is the same operation everywhere in this tree.
+tls_codec = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+# The two-instance test drives the engine the way a device does, which means
+# holding the libcrux Ed25519 primitive directly to mint the identity keys
+# `f2z-msg-identity` will eventually derive. Already a dependency of the
+# library; named again so the test's use of it is declared.
+libcrux-ed25519 = { workspace = true }
+# `version.rs`'s test round-trips a `ProtocolVersion` through the encoding the
+# store uses.
+serde_json = { workspace = true }

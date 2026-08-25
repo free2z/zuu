@@ -65,7 +65,7 @@ use serde::Serialize;
 
 use crate::backend::{Durability, Op, StorageBackend};
 use crate::error::{Result, StoreError};
-use crate::keys::{build_key_from_vec, label_name};
+use crate::keys::{APP_RECORD_LABEL, build_key_from_vec, label_name};
 
 /// The staged write set of an open transaction.
 ///
@@ -163,6 +163,69 @@ impl<B: StorageBackend> F2zStorageProvider<B> {
             .lock()
             .map_err(|_| StoreError::Poisoned)?
             .is_some())
+    }
+
+    // --- the application's own namespace ------------------------------------
+    //
+    // OpenMLS owns 19 labels; this is the twentieth, and it is the reason the
+    // transaction is usable at all. Under delete-on-ack the message is
+    // acknowledged — and the relay's copy destroyed — only once the client has
+    // durably recorded that it handled it. That record has to land in the *same*
+    // atomic write as the epoch change that decrypted it, so it has to go
+    // through this provider rather than into a database beside it.
+    //
+    // It is a flat byte-keyed map on purpose: this crate knows nothing about
+    // what a message id is, and a schema here would be a second place for
+    // `ARCHITECTURE.md` §7's framing to be defined.
+
+    /// Write an application record.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the backend refused with, or [`StoreError::Poisoned`].
+    pub fn put_app(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+            APP_RECORD_LABEL,
+            key,
+            value.to_vec(),
+        )
+    }
+
+    /// Read an application record. `Ok(None)` means there is none.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the backend refused with, or [`StoreError::Poisoned`].
+    pub fn get_app(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.get_raw(&build_key_from_vec::<{ openmls_traits::storage::CURRENT_VERSION }>(
+            APP_RECORD_LABEL,
+            key.to_vec(),
+        ))
+    }
+
+    /// Whether an application record exists.
+    ///
+    /// The duplicate check: `CLIENT-CONTRACT.md` §7 makes `msgId` the dedup
+    /// key, and a device may receive the same message from *k* relays
+    /// (`ARCHITECTURE.md` §9.4), so this is a routine question rather than an
+    /// exceptional one.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the backend refused with, or [`StoreError::Poisoned`].
+    pub fn has_app(&self, key: &[u8]) -> Result<bool> {
+        Ok(self.get_app(key)?.is_some())
+    }
+
+    /// Delete an application record. Deleting an absent one is not an error.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the backend refused with, or [`StoreError::Poisoned`].
+    pub fn delete_app(&self, key: &[u8]) -> Result<()> {
+        self.delete_raw(build_key_from_vec::<
+            { openmls_traits::storage::CURRENT_VERSION },
+        >(APP_RECORD_LABEL, key.to_vec()))
     }
 
     // --- the raw primitives every one of the 57 methods reduces to ----------

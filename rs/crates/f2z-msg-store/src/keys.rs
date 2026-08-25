@@ -62,6 +62,21 @@ pub(crate) const EPOCH_SECRETS_LABEL: &[u8] = b"EpochSecrets";
 pub(crate) const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPsk";
 pub(crate) const MESSAGE_SECRETS_LABEL: &[u8] = b"MessageSecrets";
 
+// --- ours, and the only label in this file OpenMLS does not own --------------
+
+/// The application's namespace — see `F2zStorageProvider::put_app`.
+///
+/// It shares the map, and the transaction, with OpenMLS's nineteen. That is the
+/// whole point: under delete-on-ack the record that says "this message was
+/// handled" must become durable in the *same* atomic write as the epoch change
+/// that decrypted it, and two databases cannot do that.
+///
+/// `AppRecord` and not `Application…`: `ApplicationExportTree` already exists
+/// above, and while neither is a prefix of the other, a label one keystroke
+/// away from an existing one is an invitation to the confusion this file's
+/// prefix-free test exists to prevent.
+pub(crate) const APP_RECORD_LABEL: &[u8] = b"AppRecord";
+
 /// Every label this crate mints, for the prefix-freeness test below.
 ///
 /// `#[cfg(test)]` because the property is asserted rather than consulted: no
@@ -97,6 +112,7 @@ pub(crate) const LABELS: &[&[u8]] = &[
     EPOCH_SECRETS_LABEL,
     RESUMPTION_PSK_STORE_LABEL,
     MESSAGE_SECRETS_LABEL,
+    APP_RECORD_LABEL,
 ];
 
 /// A label rendered for an error message. Labels are ASCII by construction;
@@ -124,6 +140,7 @@ pub(crate) const fn label_name(label: &[u8]) -> &'static str {
         b"EpochSecrets" => "EpochSecrets",
         b"ResumptionPsk" => "ResumptionPsk",
         b"MessageSecrets" => "MessageSecrets",
+        b"AppRecord" => "AppRecord",
         _ => "unknown",
     }
 }

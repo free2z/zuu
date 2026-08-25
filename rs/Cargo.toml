@@ -117,6 +117,12 @@ openmls = { version = "0.8.1", default-features = false, features = [
 # NIST ACVP ML-KEM vectors, RFC 7748, RFC 8032 and draft-connolly-cfrg-xwing-06
 # Appendix C, on nine targets.
 openmls_libcrux_crypto = { version = "0.3.1", default-features = false }
+# Ed25519, straight from the libcrux core. This is the *same* crate and the same
+# functions `openmls_libcrux_crypto`'s `CryptoProvider::sign` /
+# `verify_signature` call, so naming it here adds nothing to the graph — it lets
+# `f2z-msg-mls` implement `openmls_traits::signatures::Signer` itself instead of
+# taking `openmls_basic_credential`, which is #693.
+libcrux-ed25519 = { version = "0.0.6", default-features = false }
 # `openmls_basic_credential` is NOT here and must not be added. It signs with
 # `ed25519-dalek` and `p256` outside the libcrux provider (#693), which
 # contradicts ADR 0001's single crypto core; `f2z-msg-mls` implements
