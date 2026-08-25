@@ -581,6 +581,65 @@ function artifactSbomCliFailure(args) {
 }
 
 test(
+  "real cargo-auditable executable evidence wrapper preserves Cargo dispatch",
+  () => {
+    const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-wrapper-"));
+    try {
+      const fakeCargo = resolve(temporary, "fake-cargo.mjs");
+      writeFileSync(
+        fakeCargo,
+        [
+          "#!/usr/bin/env node",
+          'import { writeFileSync } from "node:fs";',
+          "writeFileSync(",
+          "  process.env.ZUULI_CARGO_WRAPPER_PROBE,",
+          "  JSON.stringify(process.argv.slice(2)),",
+          ");",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(fakeCargo, 0o755);
+      const invoke = (name, args) => {
+        const probe = resolve(temporary, `${name}.json`);
+        execFileSync(
+          resolve(scriptDirectory, "cargo-auditable-cargo.sh"),
+          args,
+          {
+            env: {
+              ...process.env,
+              ZUULI_REAL_CARGO: fakeCargo,
+              ZUULI_CARGO_WRAPPER_PROBE: probe,
+            },
+          },
+        );
+        return JSON.parse(readFileSync(probe, "utf8"));
+      };
+      assert.deepEqual(
+        invoke("selector", ["+1.97.1", "build", "--locked"]),
+        ["+1.97.1", "auditable", "build", "--locked"],
+      );
+      assert.deepEqual(invoke("ordinary", ["build", "--locked"]), [
+        "auditable",
+        "build",
+        "--locked",
+      ]);
+      assert.deepEqual(
+        invoke("multiple-selectors", ["+1.97.1", "+stable", "build"]),
+        ["+1.97.1", "+stable", "build"],
+        "Cargo itself must reject a second selector instead of cargo-auditable reinterpreting it",
+      );
+      assert.deepEqual(invoke("invalid-selector", ["+", "build"]), [
+        "+",
+        "auditable",
+        "build",
+      ]);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "real cargo-auditable executable evidence is complete, lock-bound, and mandatory",
   { skip: !canBuildCargoRuntimeFixture, timeout: 120_000 },
   () => {
