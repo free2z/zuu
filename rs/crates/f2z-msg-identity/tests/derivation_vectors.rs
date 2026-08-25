@@ -18,6 +18,21 @@
 //! crate note. A pull request that updates a value here is either fixing a
 //! defect found before launch or is wrong.
 //!
+//! # Every value below changed on 2026-08-25, and this is the one that was
+//!
+//! `ARCHITECTURE.md` §4.2 carries a dated correction: `CKDh`'s preimage omitted
+//! the parent key, and now reads `cc_node ‖ 0x11 ‖ ik_node ‖ I2LEOSP32(i)`.
+//! Every node below `MSK` and every leaf therefore has a different value than
+//! the vectors #694 shipped. `MSK` itself is unchanged — the master derivation
+//! never involved `CKDh` — which is a useful thing to notice when reading the
+//! diff: a correction that moved `MSK` too would have been a different and
+//! larger change.
+//!
+//! It was safe to make **only** because nothing had shipped. No user had an
+//! identity, no directory entry existed, no safety number had been pinned. That
+//! is exactly the window this file exists to make it possible to act inside, and
+//! it is now closed for anything further.
+//!
 //! # The rule this file is written under
 //!
 //! The same one `f2z-codec/tests/wire_vectors.rs` states: **every expected
@@ -75,33 +90,33 @@ const MSK: &str = "74f055750feeefebb248b31b88aae0b2b9b0b0db1c0f520eb831d30243c87
                    91d0cc16887876d54b585fa850dd2b2c1aecbe525e4d300b8b15dd7677de373a";
 
 /// `CKDh(MSK, 32')` — the `purpose'` level.
-const NODE_PURPOSE: &str = "2ca48d29539f895d3566a0de26c1ea0274b5c698b0d371836b448aaeaaca8b1c\
-                            21d0e04ea3c254f9619003132a9350756280c4a50e5b11bb656897f925faf733";
+const NODE_PURPOSE: &str = "288530fcef32ace05c9545252ac22fd9d8f070b0961b3bb8e955c0e86922d906\
+                            1f9b549adf14b522e5ab8fe6658282cc5fccc1fdcef7c9f5a8a921e58fad0bd9";
 
 /// `CKDh(CKDh(MSK, 32'), 133')` — the `coin_type'` level, SLIP-44 Zcash.
-const NODE_COIN: &str = "020d1c3484f121f46c06bd68426ce3ceba7a5fd3b6f08665eb06dec300f45073\
-                         a92ebad0cb0c113cf905f5cca3a0fc42ab37ad501eeeda9d0da525293d82a2ad";
+const NODE_COIN: &str = "8b269b6624b43f1794346249cbd4c0cf6f835467f9937f997265805ad8632464\
+                         1f0c258f743e7b01b85ed3c1c4732f66c2784a53b924a28bb74c5806b07285cf";
 
 /// `account_node = CKDh(CKDh(CKDh(MSK, 32'), 133'), 0')`, as
 /// `ik_account || cc_account`.
-const ACCOUNT_NODE: &str = "21e92468197afc2b0b5390f00ae5dcff4a686d1f973bb15d56081d031eb63679\
-                            9b24166797e30a4cad0c4adc0496bc7c0d976a21db9208c821e7151644931dcb";
+const ACCOUNT_NODE: &str = "dbd4245907a1e6e0368d41ad784262d99f52ae7e8f6ce14ab3ef46efb811c627\
+                            1462b713c286891f5298d6e625319fb7b16382c8509b18bffaa928ecd2801102";
 
 /// `IdentitySigningKey.public`, from
 /// `HKDF-Expand(ik_account, "free2z/msg/v1/identity-sig", 32)`.
-const ISK_PUBLIC: &str = "cf7011daaf3200aee965329b1976ab6e3d397402f914fdd8e27e0a4147195cdd";
+const ISK_PUBLIC: &str = "e73fcd0648504865a6a582473c961cab75b3e6b108bff18196ef80aa41955199";
 
 /// `CeremonySigningKey.public`, label `free2z/msg/v1/ceremony-sig`.
-const CSK_PUBLIC: &str = "96c347ec69459beab59e76fa7571e27692da7ae85384a9546e3ef83f822eb902";
+const CSK_PUBLIC: &str = "c5027046f3bb8b8251e060b99b52f9044210791a148c0ebae05c8c2f5e4f4c6c";
 
 /// `DirectoryAuthKey.public`, label `free2z/msg/v1/directory-auth`.
 const DIRECTORY_AUTH_PUBLIC: &str =
-    "9084ebcc6f68eff30bdb3765780714fd49a67f98b0afa14a88f63aa117d44606";
+    "e8a99244307a22722cb61bdac80098c8c826d1fa8c064de5e685bb926cd7130b";
 
 /// `BackupWrapKey`, label `free2z/msg/v1/backup-wrap`. The one leaf whose
 /// secret bytes *are* the key, so the vector is the secret rather than a public
 /// half — which is fine, because this seed's identity is published in BIP-39.
-const BACKUP_WRAP: &str = "13ace59b8f2e13e5f475bc89348328a5e6cde431ecb9dffb1529895aed44f3d7";
+const BACKUP_WRAP: &str = "479083aada9066af10d708d474199ae99416dd80bd3f5bcefa68c65a2c30270e";
 
 // The `DeviceCredential` fixture. Fixed values, chosen so a reviewer can see
 // them in a hex dump: a device key of all `0x07`, a KEM key of all `0xab`, and
@@ -137,8 +152,8 @@ const CREDENTIAL_TBS_LEN: usize = 1332;
 /// Ed25519 signing is deterministic (RFC 8032 §5.1.6), so this is a known
 /// answer rather than one valid answer among many — which is what makes it
 /// usable as a cross-implementation vector at all.
-const CREDENTIAL_SIGNATURE: &str = "6bd3f57d6685b1bdf3ee265783feed76acc8fa89af5b0f8bcc36d2bc30222e32\
-     994b6286fc98bb4e78b31b172110d26970e54022b55366bcc43f2dde0b22780b";
+const CREDENTIAL_SIGNATURE: &str = "24785757ba36d112cb310dd6bad39b027776ca693848c1d56557f011b4bda4ed\
+     196c1a0f59e14d9a100c1d10e1be9f9f779c164492e7e713b1a930080e017806";
 
 // ---------------------------------------------------------------------------
 
@@ -185,10 +200,15 @@ fn transcribed_node_bytes(chain: &[u32]) -> Vec<u8> {
 
     let mut node = blake2b512_personal(b"Free2zMsg_MSTRv1", &seed()).to_vec();
     for ordinal in chain {
-        let mut preimage = Vec::with_capacity(37);
+        // §4.2 as corrected 2026-08-25:
+        //     cc_node || 0x11 || ik_node || I2LEOSP32(i)
+        // Both halves of the parent, four fixed-width fields, 69 bytes.
+        let mut preimage = Vec::with_capacity(69);
         preimage.extend_from_slice(&node[32..]);
         preimage.push(0x11);
+        preimage.extend_from_slice(&node[..32]);
         preimage.extend_from_slice(&(ordinal | 0x8000_0000).to_le_bytes());
+        assert_eq!(preimage.len(), 69);
         node = blake2b512_personal(b"Free2zMsg_CKDv1_", &preimage).to_vec();
     }
     node
@@ -358,9 +378,11 @@ fn the_whole_credential_re_encodes_canonically() {
 /// def b2(personal, data):
 ///     return hashlib.blake2b(data, digest_size=64, person=personal).digest()
 ///
-/// def ckdh(node, ordinal):                       # ARCHITECTURE.md §4.2
-///     return b2(b"Free2zMsg_CKDv1_",
-///               node[32:] + b"\x11" + (ordinal | 0x80000000).to_bytes(4, "little"))
+/// def ckdh(node, ordinal):        # ARCHITECTURE.md §4.2, corrected 2026-08-25
+///     ik, cc = node[:32], node[32:]
+///     pre = cc + b"\x11" + ik + (ordinal | 0x80000000).to_bytes(4, "little")
+///     assert len(pre) == 32 + 1 + 32 + 4 == 69   # both halves of the parent
+///     return b2(b"Free2zMsg_CKDv1_", pre)
 ///
 /// def hkdf_expand(prk, info, length):            # RFC 5869 §2.3
 ///     out, t, counter = b"", b"", 1
