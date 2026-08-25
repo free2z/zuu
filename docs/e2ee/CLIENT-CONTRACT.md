@@ -1441,6 +1441,11 @@ Practical consequences for the transcript component:
   absence from the sort key.
 - **A cursor is a `msgId`, never an offset.** Positions in the total order are
   not stable under arrival; the message a cursor names is.
+- **An optimistic row for a message this device is sending goes at the end**,
+  and that is not an exception to rule 10. A message this device authors
+  references the current heads, so it is a sink of the graph and the end is where
+  §7 puts it. Appending it is not computing an order; deriving a *position* for
+  anything else is.
 
 > **Correction (2026-08-25) — display order is the engine's, not the UI's.
 > The sentence that said otherwise is withdrawn, and the code it produced is
