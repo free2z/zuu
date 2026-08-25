@@ -13,6 +13,7 @@ const sources = Object.fromEntries(
       ios: "../plugins/tauri-plugin-zcash/ios/Sources/ZcashPlugin.swift",
       rustCommands: "../plugins/tauri-plugin-zcash/src/commands.rs",
       rustKeys: "../plugins/tauri-plugin-zcash/src/wallet/keys.rs",
+      pluginCargo: "../plugins/tauri-plugin-zcash/Cargo.toml",
       pluginLib: "../plugins/tauri-plugin-zcash/src/lib.rs",
       pluginBuild: "../plugins/tauri-plugin-zcash/build.rs",
       commandRegistry: "../plugins/tauri-plugin-zcash/command_registry.rs",
@@ -43,6 +44,8 @@ const sources = Object.fromEntries(
       onboarding: "src/features/wallet/Onboarding.tsx",
       restoreIdentity: "src/features/auth/RestoreIdentity.tsx",
       reveal: "src/features/auth/SeedReveal.tsx",
+      zuuliCargo: "src-tauri/Cargo.toml",
+      zuuliRust: "src-tauri/src/lib.rs",
     }).map(async ([key, path]) => [key, await read(path)]),
   ),
 );
@@ -567,6 +570,33 @@ for (const [name, key, search, replacement] of [
     "commandRegistry",
     "            begin_sensitive_entry,",
     "            // omitted",
+  ],
+  [
+    "plugin mock runtime is linked into Windows tests",
+    "pluginCargo",
+    '[target.\'cfg(not(target_os = "windows"))\'.dev-dependencies]\n' +
+      'tauri = { version = "2", features = ["test"] }\n\n' +
+      "[dev-dependencies]",
+    '[dev-dependencies]\n' +
+      'tauri = { version = "2", features = ["test"] }',
+  ],
+  [
+    "ZUULI mock runtime is linked into Windows tests",
+    "zuuliCargo",
+    '[target.\'cfg(not(target_os = "windows"))\'.dev-dependencies]',
+    "[dev-dependencies]",
+  ],
+  [
+    "plugin mock-runtime command test runs on Windows",
+    "rustCommands",
+    '    #[cfg(not(target_os = "windows"))]\n    #[tokio::test]\n    async fn native_entry_commands_install_and_release_the_exact_lease()',
+    "    #[tokio::test]\n    async fn native_entry_commands_install_and_release_the_exact_lease()",
+  ],
+  [
+    "ZUULI mock-router test runs on Windows",
+    "zuuliRust",
+    '    #[cfg(not(target_os = "windows"))]\n    #[test]\n    fn shipping_zcash_router_registers_sensitive_entry_commands()',
+    "    #[test]\n    fn shipping_zcash_router_registers_sensitive_entry_commands()",
   ],
   [
     "ZUULI restore borrows another purpose",

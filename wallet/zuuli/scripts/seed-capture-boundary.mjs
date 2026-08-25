@@ -13,6 +13,7 @@ export function assertSeedCaptureBoundary(sources) {
     ios,
     rustCommands,
     rustKeys,
+    pluginCargo,
     pluginLib,
     pluginBuild,
     commandRegistry,
@@ -43,6 +44,8 @@ export function assertSeedCaptureBoundary(sources) {
     onboarding,
     restoreIdentity,
     reveal,
+    zuuliCargo,
+    zuuliRust,
   } = sources;
 
   const created =
@@ -477,6 +480,29 @@ export function assertSeedCaptureBoundary(sources) {
       "typed mnemonic entry must have exactly one shared runtime/permission registration",
     );
   }
+  const nonWindowsMockDependency =
+    '[target.\'cfg(not(target_os = "windows"))\'.dev-dependencies]\n' +
+    'tauri = { version = "2", features = ["test"] }';
+  for (const [manifest, label] of [
+    [pluginCargo, "shared plugin"],
+    [zuuliCargo, "ZUULI app"],
+  ]) {
+    if (!manifest.includes(nonWindowsMockDependency)) {
+      throw new Error(
+        `${label} must keep Tauri mock-runtime linkage out of Windows tests`,
+      );
+    }
+  }
+  requireMatch(
+    rustCommands,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*#\[tokio::test\]\s*async fn native_entry_commands_install_and_release_the_exact_lease\(/,
+    "shared plugin mock-runtime test must remain excluded from Windows",
+  );
+  requireMatch(
+    zuuliRust,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*#\[test\]\s*fn shipping_zcash_router_registers_sensitive_entry_commands\(/,
+    "ZUULI mock-router test must remain excluded from Windows",
+  );
   for (const [surface, purpose, value, label] of [
     [onboarding, "zuuliRestore", "seed", "ZUULI restore"],
     [desktopRestore, "zuualletRestore", "phrase", "Zuuallet restore"],
@@ -846,6 +872,7 @@ export async function main() {
     ios,
     rustCommands,
     rustKeys,
+    pluginCargo,
     pluginLib,
     pluginBuild,
     commandRegistry,
@@ -876,11 +903,14 @@ export async function main() {
     onboarding,
     restoreIdentity,
     reveal,
+    zuuliCargo,
+    zuuliRust,
   ] = await Promise.all([
     read("../plugins/tauri-plugin-zcash/android/src/main/java/ZcashPlugin.kt"),
     read("../plugins/tauri-plugin-zcash/ios/Sources/ZcashPlugin.swift"),
     read("../plugins/tauri-plugin-zcash/src/commands.rs"),
     read("../plugins/tauri-plugin-zcash/src/wallet/keys.rs"),
+    read("../plugins/tauri-plugin-zcash/Cargo.toml"),
     read("../plugins/tauri-plugin-zcash/src/lib.rs"),
     read("../plugins/tauri-plugin-zcash/build.rs"),
     read("../plugins/tauri-plugin-zcash/command_registry.rs"),
@@ -911,12 +941,15 @@ export async function main() {
     read("src/features/wallet/Onboarding.tsx"),
     read("src/features/auth/RestoreIdentity.tsx"),
     read("src/features/auth/SeedReveal.tsx"),
+    read("src-tauri/Cargo.toml"),
+    read("src-tauri/src/lib.rs"),
   ]);
   assertSeedCaptureBoundary({
     android,
     ios,
     rustCommands,
     rustKeys,
+    pluginCargo,
     pluginLib,
     pluginBuild,
     commandRegistry,
@@ -947,6 +980,8 @@ export async function main() {
     onboarding,
     restoreIdentity,
     reveal,
+    zuuliCargo,
+    zuuliRust,
   });
   console.log(
     "Seed reveal native capture and renderer custody boundaries verified.",

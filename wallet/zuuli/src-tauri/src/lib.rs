@@ -47,7 +47,9 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "windows"))]
     use serde_json::json;
+    #[cfg(not(target_os = "windows"))]
     use tauri::WebviewWindowBuilder;
 
     #[test]
@@ -79,6 +81,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn shipping_zcash_router_registers_sensitive_entry_commands() {
         let app = tauri::test::mock_builder()

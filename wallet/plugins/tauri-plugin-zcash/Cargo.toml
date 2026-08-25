@@ -89,8 +89,14 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 tauri-plugin = { version = "2", features = ["build"] }
 tauri-build = "2"
 
-[dev-dependencies]
+# Tauri's mock runtime currently produces a Windows test executable that the
+# hosted Windows runner cannot load (STATUS_ENTRYPOINT_NOT_FOUND). Native
+# command routing is exercised on macOS/Linux; Windows still compiles the
+# production router and executes every pure state/registry test.
+[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+
+[dev-dependencies]
 # The behavioral send tests exercise the same generic production boundary with
 # librustzcash's real in-memory wallet DSL. These features expose test support;
 # they do not replace proposal or transaction behavior with mocks.

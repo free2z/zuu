@@ -661,11 +661,14 @@ mod sensitive_display_tests {
         SensitiveDisplayState,
     };
     use std::sync::Arc;
+    #[cfg(not(target_os = "windows"))]
     use tauri::Manager;
     use tokio::sync::{Mutex, oneshot};
 
+    #[cfg(not(target_os = "windows"))]
     struct TempWalletDir(std::path::PathBuf);
 
+    #[cfg(not(target_os = "windows"))]
     impl Drop for TempWalletDir {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -690,6 +693,7 @@ mod sensitive_display_tests {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[tokio::test]
     async fn native_entry_commands_install_and_release_the_exact_lease() {
         let app = tauri::test::mock_app();
