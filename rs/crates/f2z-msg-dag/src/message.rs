@@ -184,7 +184,19 @@ impl DeserializeBytes for MsgId {
 /// no numbers; these are allocated in the order §7 lists them, starting at 1,
 /// with 0 left unassigned so that an all-zero buffer is not a valid `chat`.
 /// Listed in the pull request as an ambiguity that has to go back into §7.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    TlsSize,
+    TlsSerializeBytes,
+    TlsDeserializeBytes,
+)]
 pub struct MessageType(u8);
 
 impl MessageType {
@@ -303,7 +315,9 @@ impl DeserializeBytes for RetentionClass {
 ///
 /// It is also not usable for dedup even where it would appear to work:
 /// [`crate::dag::MessageDag`] dedups on [`MsgId`] only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, TlsSize, TlsSerializeBytes, TlsDeserializeBytes,
+)]
 pub struct SentAt(u64);
 
 impl SentAt {
@@ -409,10 +423,12 @@ impl Parents {
         if ids.len() > Self::MAX {
             return Err(DagError::TooManyParents);
         }
-        let ascending = ids.windows(2).all(|pair| match (pair.first(), pair.get(1)) {
-            (Some(low), Some(high)) => low < high,
-            _ => true,
-        });
+        let ascending = ids
+            .windows(2)
+            .all(|pair| match (pair.first(), pair.get(1)) {
+                (Some(low), Some(high)) => low < high,
+                _ => true,
+            });
         if !ascending {
             return Err(DagError::ParentsNotCanonical);
         }
@@ -664,12 +680,8 @@ mod tests {
         // Hand-assemble the encoding with the parents out of order. Sorting on
         // receipt would change the bytes msg_id commits to, so this must be an
         // error and not a repair.
-        let ascending = AppMessage::seal(tbs(
-            Parents::new(vec![id(1), id(2)]).unwrap(),
-            7,
-            b"x",
-        ))
-        .unwrap();
+        let ascending =
+            AppMessage::seal(tbs(Parents::new(vec![id(1), id(2)]).unwrap(), 7, b"x")).unwrap();
         let wire = ascending.encode().unwrap();
 
         // Swap the two 32-byte parent ids in place. They sit after msg_id, the
@@ -734,6 +746,9 @@ mod tests {
         hasher.update(b"free2z/msg/v1/msgid");
         hasher.update(&encoded);
         let expected: [u8; 32] = hasher.finalize().into();
-        assert_eq!(AppMessage::seal(tbs).unwrap().msg_id().as_bytes(), &expected);
+        assert_eq!(
+            AppMessage::seal(tbs).unwrap().msg_id().as_bytes(),
+            &expected
+        );
     }
 }

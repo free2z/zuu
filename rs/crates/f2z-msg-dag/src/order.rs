@@ -162,10 +162,10 @@ pub fn linearise(nodes: &[OrderNode]) -> Result<Vec<MsgId>, DagError> {
                 continue;
             };
             *degree = degree.saturating_sub(1);
-            if *degree == 0 {
-                if let Some(child_key) = held.get(child) {
-                    ready.push(Reverse(*child_key));
-                }
+            if *degree == 0
+                && let Some(child_key) = held.get(child)
+            {
+                ready.push(Reverse(*child_key));
             }
         }
     }

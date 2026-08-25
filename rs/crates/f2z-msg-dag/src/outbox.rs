@@ -314,7 +314,10 @@ mod tests {
             outbox.repair(&id(1), 30),
             RepairOutcome::Unrecoverable(Unrecoverable::Evicted)
         );
-        assert_eq!(outbox.repair(&id(3), 30), RepairOutcome::Reencrypt(b"three"));
+        assert_eq!(
+            outbox.repair(&id(3), 30),
+            RepairOutcome::Reencrypt(b"three")
+        );
     }
 
     #[test]
@@ -324,8 +327,7 @@ mod tests {
         outbox.store(id(1), secret.clone(), 0);
 
         let rendered = alloc::format!("{outbox:?}");
-        let hex: alloc::string::String =
-            secret.iter().map(|b| alloc::format!("{b:02x}")).collect();
+        let hex: alloc::string::String = secret.iter().map(|b| alloc::format!("{b:02x}")).collect();
         let decimal = "222, 222, 222, 222";
         assert!(!rendered.contains(&hex));
         assert!(!rendered.contains(decimal), "a decimal dump is a dump");

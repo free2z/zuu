@@ -407,6 +407,13 @@ jobs:
       # no clock and no generator — the CSPRNG is a `rand_core::CryptoRng`
       # parameter precisely so the crate can compile here — so this step is what
       # keeps that promise honest.
+      #
+      # `f2z-msg-dag` is on it for the neighbouring reason: it is the ordering
+      # rule (ARCHITECTURE.md §7), and a browser client that could not compute
+      # the same transcript as a native one would make "every client that
+      # applies this rule produces the same transcript" a claim about one
+      # platform. It reads no clock either — every time-dependent decision is a
+      # `now_ms` parameter — which is the property this step keeps honest.
       - name: Build the client-linked crates for the browser target
         working-directory: rs
         run: |
@@ -416,7 +423,8 @@ jobs:
             -p f2z-codec \
             -p f2z-relay-proto \
             -p f2z-authority \
-            -p f2z-msg-identity
+            -p f2z-msg-identity \
+            -p f2z-msg-dag
 
       # The messaging store, without its SQLite backend.
       #

@@ -76,6 +76,7 @@ MANIFESTS=(
   # same `rust-version` restatement as every other crate under rs/.
   rs/crates/f2z-msg-store/Cargo.toml
   rs/crates/f2z-msg-mls/Cargo.toml
+  rs/crates/f2z-msg-dag/Cargo.toml
 )
 
 # Other rust-toolchain.toml files. Cargo picks the toolchain from the directory

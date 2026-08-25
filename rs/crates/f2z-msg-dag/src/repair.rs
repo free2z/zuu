@@ -352,8 +352,7 @@ mod tests {
 
     #[test]
     fn a_gap_request_round_trips_through_a_body() {
-        let request =
-            GapRequest::new(vec![MsgId::new([2; 32]), MsgId::new([1; 32])]).unwrap();
+        let request = GapRequest::new(vec![MsgId::new([2; 32]), MsgId::new([1; 32])]).unwrap();
         assert_eq!(
             request.hashes(),
             &[MsgId::new([1; 32]), MsgId::new([2; 32])],
