@@ -5,7 +5,7 @@
 //! S                     = BIP-39 seed
 //! MSK  = (msk, cc_msk)  = BLAKE2b-512(personal = "Free2zMsg_MSTRv1", S)
 //! CKDh(node, i)         = BLAKE2b-512(personal = "Free2zMsg_CKDv1_",
-//!                                     cc_node || 0x11 || I2LEOSP32(i))
+//!                                     cc_node || 0x11 || ik_node || I2LEOSP32(i))
 //! account_node          = CKDh(CKDh(CKDh(MSK, 32'), 133'), account')
 //! ```
 //!
@@ -13,26 +13,39 @@
 //! at any level, which is why [`ExtendedNode`] has no `public()` and why
 //! nothing in this module returns a chain code to a caller.
 //!
-//! # Two things a reader of §4.2 should notice, because they are decisions
+//! # Two things a reader of §4.2 should notice
 //!
-//! **1. `CKDh` does not consume the parent key.** ZIP 32's hardened derivation
-//! is `PRF^expand(c_par, [0x11] || sk_par || I2LEOSP_32(i))` — the parent
-//! *spending key* is inside the hash. §4.2's is
-//! `BLAKE2b-512(personal, cc_node || 0x11 || I2LEOSP32(i))`, and `msk` /
-//! `ik_node` appear nowhere in it. It is implemented exactly as written,
-//! because implementing something else would mean this crate and the
-//! specification disagree about what a user's identity *is*.
+//! **1. `CKDh` hashes *both* halves of the parent — and it did not always.**
+//! The revision of §4.2 that #694 implemented had a preimage of
+//! `cc_node || 0x11 || I2LEOSP32(i)`, with `ik_node` absent. `ARCHITECTURE.md`
+//! §4.2 now carries a dated correction restoring it, and this module implements
+//! the corrected form.
 //!
-//! The consequence, stated so nobody has to rediscover it: the key half of
-//! every node above the account level is dead — `msk` itself is never read by
-//! anything — and the entire hierarchy's secret entropy reaches `ik_account`
-//! through `cc_msk` alone. That is 256 bits of a BLAKE2b-512 output, which is
-//! not a weakness; it does mean the tree carries half the state ZIP 32's does,
-//! and it means anyone holding an intermediate *chain code* can derive that
-//! node's whole subtree without its key. Since a chain code is only ever held
-//! alongside its key, no practical capability separates. Raised on the pull
-//! request rather than coded around. See `Cargo.toml`'s sibling note and the
-//! PR body for #311.
+//! The corrected preimage is **ZIP 32 §5.2's Sapling hardened derivation with
+//! the personalization changed and nothing else**:
+//!
+//! ```text
+//! ZIP 32:  I = PRF^expand(c_par, [0x11] || sk_par || I2LEOSP_32(i))
+//!            = BLAKE2b-512("Zcash_ExpandSeed", c_par || 0x11 || sk_par || I2LEOSP_32(i))
+//! here:    I = BLAKE2b-512("Free2zMsg_CKDv1_", cc_node || 0x11 || ik_node || I2LEOSP32(i))
+//! ```
+//!
+//! That was the point of the idiom — §4.2 chose it "because ZUULI already
+//! implements that shape and auditors already know it" — so the fix is to
+//! restore the dropped term rather than to invent a third construction. All
+//! four fields are fixed-width (32, 1, 32, 4 = 69 bytes), so the concatenation
+//! is unambiguous without a separator.
+//!
+//! What the omission would have cost, kept here because the *reason* a
+//! derivation looks the way it does is the part that stops someone
+//! "simplifying" it back: with `ik_node` out of the preimage, the key half of
+//! every node above the account level was dead weight, all secret entropy below
+//! `MSK` reached `ik_account` through `cc_msk` **alone** — a two-part secret
+//! collapsed into a one-part secret — and a bare chain code derived its entire
+//! subtree, so any later construct treating a chain code as the
+//! less-sensitive half of a node would have been catastrophically wrong.
+//! `ckd_reads_both_halves_of_the_parent` asserts the corrected behaviour from
+//! both directions.
 //!
 //! **2. `I2LEOSP32(i)` encodes the hardened index, not the ordinal.** §4.2
 //! writes `32'`, `133'`, `account'` in ZIP 32's notation and says the tree is
@@ -215,24 +228,40 @@ pub fn master_node(seed: &[u8]) -> Result<ExtendedNode, IdentityError> {
     )))
 }
 
+/// The width of a `CKDh` preimage: `cc_node ‖ 0x11 ‖ ik_node ‖ I2LEOSP32(i)`.
+///
+/// `32 + 1 + 32 + 4`. Every field is fixed-width, which is what makes the
+/// concatenation unambiguous without a separator — and it is why this is a
+/// `const` with the arithmetic written out rather than a magic number.
+const CKD_PREIMAGE_LEN: usize = 32 + 1 + 32 + 4;
+
 /// `CKDh(node, i) = BLAKE2b-512(personal = "Free2zMsg_CKDv1_", cc_node || 0x11
-/// || I2LEOSP32(i))` (§4.2).
+/// || ik_node || I2LEOSP32(i))` (§4.2, as corrected 2026-08-25).
+///
+/// **Both halves of the parent are in the preimage.** See the module note: an
+/// earlier revision of §4.2 omitted `ik_node`, which is not ZIP 32's shape and
+/// left the whole subtree derivable from a chain code alone. This is ZIP 32
+/// §5.2's Sapling hardened derivation with the personalization changed.
 ///
 /// Hardened only. There is no `CKDn`, and there will not be one: a non-hardened
 /// variant would require an extended public key at some level, and §4.2 has
 /// none at any level on purpose.
 #[must_use]
 pub fn ckd_hardened(node: &ExtendedNode, index: HardenedIndex) -> ExtendedNode {
-    // 32 + 1 + 4. A fixed-size buffer rather than a `Vec`: it is secret
-    // material and it is zeroized on the way out.
-    let mut preimage = Zeroizing::new([0u8; 37]);
+    // A fixed-size buffer rather than a `Vec`: it is secret material — it now
+    // carries the parent's key as well as its chain code — and it is zeroized
+    // on the way out.
+    let mut preimage = Zeroizing::new([0u8; CKD_PREIMAGE_LEN]);
     let (chain, rest) = preimage.split_at_mut(32);
     chain.copy_from_slice(node.chain_code());
-    let (tag, index_bytes) = rest.split_at_mut(1);
-    // `rest` is exactly 5 bytes, so both halves are the widths written above.
+    let (tag, rest) = rest.split_at_mut(1);
+    // `rest` is exactly 37 bytes here, so every split below is the width
+    // written in `CKD_PREIMAGE_LEN`.
     if let Some(slot) = tag.first_mut() {
         *slot = HARDENED_TAG;
     }
+    let (key, index_bytes) = rest.split_at_mut(32);
+    key.copy_from_slice(node.key());
     index_bytes.copy_from_slice(&index.to_le_bytes());
 
     ExtendedNode::from_digest(&blake2b512_personal(PERSONAL_CKD, preimage.as_slice()))
@@ -339,22 +368,64 @@ mod tests {
         assert_ne!(a.chain_code(), b.chain_code());
     }
 
-    /// The half of `CKDh` that §4.2 writes and that a reimplementation is most
-    /// likely to get wrong: the parent's *key* is not in the preimage, so two
-    /// nodes with the same chain code and different keys have the same
-    /// children. Asserted rather than described, because it is the property the
-    /// module note raises as a spec observation.
+    /// **The regression test for §4.2's 2026-08-25 correction.**
+    ///
+    /// Both halves of the parent must reach the child. The defect this replaces
+    /// was the exact inverse assertion — that flipping a bit of the parent's
+    /// *key* left the children unchanged — which was true, was what §4.2 then
+    /// said, and meant a bare chain code derived the whole subtree.
+    ///
+    /// Asserted from both directions, because either one alone would pass for a
+    /// `CKDh` that read the wrong single field.
     #[test]
-    fn ckd_reads_only_the_chain_code() {
+    fn ckd_reads_both_halves_of_the_parent() {
         let master = master_node(&SEED).unwrap();
-        let mut twin = master.clone();
-        twin.key[0] ^= 0xff;
         let index = HardenedIndex::new(7).unwrap();
+        let child = ckd_hardened(&master, index);
+
+        // One bit of the parent's key half.
+        let mut key_twin = master.clone();
+        key_twin.key[0] ^= 0x01;
+        assert_ne!(
+            ckd_hardened(&key_twin, index).key(),
+            child.key(),
+            "CKDh is ignoring the parent key — this is the #694 defect returning, \
+             and it means a chain code alone derives the whole subtree"
+        );
+
+        // One bit of the parent's chain code.
+        let mut chain_twin = master.clone();
+        chain_twin.chain_code[0] ^= 0x01;
+        assert_ne!(
+            ckd_hardened(&chain_twin, index).key(),
+            child.key(),
+            "CKDh is ignoring the parent chain code"
+        );
+    }
+
+    /// The preimage is the four fixed-width fields §4.2 names, in order.
+    ///
+    /// Built here a second time, by hand, and compared against the shipped
+    /// derivation. A field-order or width mistake inside `ckd_hardened` would
+    /// otherwise be invisible to every other test in this file — they would all
+    /// still see a deterministic, well-separated tree.
+    #[test]
+    fn the_ckd_preimage_is_chain_code_tag_key_index() {
+        let master = master_node(&SEED).unwrap();
+        let index = HardenedIndex::new(133).unwrap();
+
+        let mut expected = alloc::vec::Vec::with_capacity(CKD_PREIMAGE_LEN);
+        expected.extend_from_slice(master.chain_code());
+        expected.push(0x11);
+        expected.extend_from_slice(master.key());
+        expected.extend_from_slice(&index.to_le_bytes());
+        assert_eq!(expected.len(), CKD_PREIMAGE_LEN);
+
+        let by_hand = ExtendedNode::from_digest(&blake2b512_personal(PERSONAL_CKD, &expected));
+        assert_eq!(ckd_hardened(&master, index).key(), by_hand.key());
         assert_eq!(
-            ckd_hardened(&master, index).key(),
-            ckd_hardened(&twin, index).key(),
-            "if this ever fails, CKDh started reading the parent key and every \
-             identity moved; see the module note"
+            ckd_hardened(&master, index).chain_code(),
+            by_hand.chain_code()
         );
     }
 
