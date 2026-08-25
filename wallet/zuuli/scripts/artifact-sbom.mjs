@@ -1667,6 +1667,34 @@ function requireExactRunStep(
   }
 }
 
+function requireExactCommandStep(
+  label,
+  block,
+  stepName,
+  expectedCommand,
+  failures,
+  expectedIf,
+) {
+  const marker = `\n      - name: ${stepName}\n`;
+  const count = block.split(marker).length - 1;
+  if (count !== 1) {
+    failures.push(
+      `${label}: expected one named ${stepName} step, found ${count}`,
+    );
+    return;
+  }
+  const rest = block.slice(block.indexOf(marker) + marker.length);
+  const next = rest.search(/^      - /m);
+  const step = (next === -1 ? rest : rest.slice(0, next)).trimEnd();
+  const expected = [
+    ...(expectedIf ? [`        if: ${expectedIf}`] : []),
+    `        run: ${expectedCommand}`,
+  ].join("\n");
+  if (step !== expected) {
+    failures.push(`${label}: ${stepName} executable step changed`);
+  }
+}
+
 function requireExactActionStep(
   label,
   block,
@@ -1722,6 +1750,14 @@ export function artifactSbomWorkflowFailures(packaging, release) {
   const cargoAuditInstallLines = [
     "scripts/install-cargo-auditable.sh",
   ];
+  requireExactCommandStep(
+    "packaging linux",
+    packagingLinux,
+    "Test Linux artifact inspectors against real packages",
+    "node scripts/run-linux-artifact-fixtures.mjs",
+    failures,
+    "runner.os == 'Linux'",
+  );
   const prepareLinuxLines = [
     "appimages=(release-artifacts/*.AppImage)",
     "debs=(release-artifacts/*.deb)",
@@ -1755,16 +1791,6 @@ export function artifactSbomWorkflowFailures(packaging, release) {
     "Install pinned Cargo audit instrumentation",
     cargoAuditInstallLines,
     failures,
-  );
-  requireExactRunStep(
-    "packaging linux",
-    packagingLinux,
-    "Test Linux artifact inspectors against real packages",
-    [
-      "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping|real cargo-auditable executable evidence' scripts/artifact-sbom.node-test.mjs",
-    ],
-    failures,
-    "runner.os == 'Linux'",
   );
   requireExactRunStep(
     "packaging linux",
@@ -1916,7 +1942,7 @@ export function artifactSbomWorkflowFailures(packaging, release) {
       "packaging linux",
       jobBlock(packaging, "desktop"),
       [
-        "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping|real cargo-auditable executable evidence' scripts/artifact-sbom.node-test.mjs",
+        "node scripts/run-linux-artifact-fixtures.mjs",
         'node scripts/artifact-sbom.mjs prepare --artifact="${appimages[0]}" --root=artifact-sbom-work/linux-appimage/root',
         'node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root',
         'node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root',

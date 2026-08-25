@@ -69,6 +69,16 @@ describe("mockWallet.restoreWallet", () => {
   });
 });
 
+describe("mockWallet sensitive-display purpose", () => {
+  it("never authorizes a seed read with a typed-entry lease", () => {
+    const lease = mockWallet.beginSensitiveDisplay("zuuliRestore");
+    expect(() => mockWallet.getSeedPhrase(lease.token)).toThrow(
+      "sensitive-display lease is missing or stale",
+    );
+    mockWallet.endSensitiveDisplay(lease.token, "zuuliRestore");
+  });
+});
+
 describe("mockWallet send confirmation", () => {
   it("requires exact credentials and consumes them once", async () => {
     const proposal = await mockWallet.proposeSend("u1recipient", 50_000, "memo");

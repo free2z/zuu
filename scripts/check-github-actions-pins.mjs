@@ -302,8 +302,12 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/.clippy.toml",
 ];
 const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
+  "wallet/shared/sensitive-entry-session.ts",
+  "wallet/zuuallet/package.json",
+  "wallet/zuuallet/package-lock.json",
   "wallet/zuuallet/src/hooks/useWallet.ts",
   "wallet/zuuallet/src/lib/mnemonic.ts",
+  "wallet/zuuallet/src/lib/sensitive-entry.ts",
   "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
   "wallet/zuuallet/src/lib/sensitive-seed.ts",
   "wallet/zuuallet/src/lib/tauri.ts",
@@ -311,8 +315,31 @@ const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
   "wallet/zuuallet/src/pages/RestoreWallet.tsx",
   "wallet/zuuallet/src/pages/Settings.tsx",
   "wallet/zuuallet/src/pages/Welcome.tsx",
+  "wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx",
   "wallet/zuuallet/src/types/index.ts",
 ];
+const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
+  [
+    "build",
+    "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",
+  ],
+  ["typecheck", "tsc --noEmit -p tsconfig.build.json"],
+  ["typecheck:tests", "tsc --noEmit"],
+  [
+    "test:seed-capture",
+    "vitest run src/lib/wallet/sensitive-seed.test.ts src/lib/wallet/sensitive-entry.test.ts src/lib/wallet/sensitive-entry-bridges.test.ts src/lib/wallet/sensitive-entry-hooks.test.tsx src/lib/wallet/zuuallet-created-seed.test.ts src/features/wallet/Onboarding.sensitive-entry.test.tsx && npm --prefix ../zuuallet run test:sensitive-entry && node --test scripts/seed-capture-boundary.node-test.mjs && node scripts/seed-capture-boundary.mjs",
+  ],
+]);
+const REQUIRED_CLASSIC_PACKAGE_SCRIPTS = new Map([
+  [
+    "test:sensitive-entry",
+    "vitest run src/pages/sensitive-entry-routes.test.tsx",
+  ],
+]);
+const REQUIRED_FRONTEND_BUILD_TSCONFIG = Object.freeze({
+  extends: "./tsconfig.json",
+  exclude: Object.freeze(["src/**/*.test.ts", "src/**/*.test.tsx"]),
+});
 const REQUIRED_FRONTEND_JOB_LINES = [
   "  frontend:",
   "    name: zuuli / frontend",
@@ -329,7 +356,9 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        with:",
   "          node-version: '24'",
   "          cache: npm",
-  "          cache-dependency-path: wallet/zuuli/package-lock.json",
+  "          cache-dependency-path: |",
+  "            wallet/zuuli/package-lock.json",
+  "            wallet/zuuallet/package-lock.json",
   "      - name: Resolve the pinned frontend Rust toolchain",
   "        id: frontend_rust_toolchain",
   "        run: |",
@@ -342,7 +371,9 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "          toolchain: ${{ steps.frontend_rust_toolchain.outputs.version }}",
   "          targets: wasm32-unknown-unknown",
   "      - name: Install locked dependencies",
-  "        run: npm ci",
+  "        run: |",
+  "          npm ci",
+  "          npm ci --prefix ../zuuallet",
   "      - name: Verify release cache security policy",
   "        run: |",
   "          node scripts/verify-ci-cache-policy.mjs --self-test",
@@ -363,11 +394,15 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "            sleep $((attempt * 5))",
   "          done",
   "      - name: Typecheck",
-  "        run: npm run typecheck",
+  "        run: |",
+  "          npm run typecheck",
+  "          npm run typecheck:tests",
   "      - name: Verify the viewport-test browser",
   "        run: google-chrome --version",
   "      - name: Test frontend contracts",
-  "        run: npm run test",
+  "        run: |",
+  "          npm run test",
+  "          npm --prefix ../zuuallet run test:sensitive-entry",
   "      - name: Build production frontend",
   "        run: npm run build",
 ];
@@ -1403,9 +1438,12 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   );
   exactNamedStep(
     "Test frontend contracts",
-    ["      - name: Test frontend contracts", "        run: npm run test"].join(
-      "\n",
-    ),
+    [
+      "      - name: Test frontend contracts",
+      "        run: |",
+      "          npm run test",
+      "          npm --prefix ../zuuallet run test:sensitive-entry",
+    ].join("\n"),
     "frontend tests must invoke the exact package contract unconditionally",
   );
   exactNamedStep(
@@ -2722,12 +2760,108 @@ function localTarget(repoRoot, reference) {
   return { file: actionFiles[0] };
 }
 
+function reviewedJson(repoRoot, relative, overrides, failures) {
+  const absolute = path.join(repoRoot, relative);
+  let source;
+  if (overrides?.has(relative)) {
+    source = overrides.get(relative);
+  } else {
+    try {
+      const stat = fs.lstatSync(absolute);
+      if (!stat.isFile()) {
+        failures.push(`${relative}: must be a regular reviewed JSON file`);
+        return null;
+      }
+      source = fs.readFileSync(absolute, "utf8");
+    } catch (error) {
+      failures.push(`${relative}: cannot read reviewed JSON: ${error.message}`);
+      return null;
+    }
+  }
+  try {
+    const parsed = JSON.parse(source);
+    if (
+      parsed === null ||
+      Array.isArray(parsed) ||
+      typeof parsed !== "object"
+    ) {
+      failures.push(`${relative}: reviewed JSON root must be an object`);
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    failures.push(`${relative}: invalid reviewed JSON: ${error.message}`);
+    return null;
+  }
+}
+
+function frontendBuildContractFailures(repoRoot, overrides = null) {
+  const failures = [];
+  const packageContracts = [
+    ["wallet/zuuli/package.json", REQUIRED_FRONTEND_PACKAGE_SCRIPTS],
+    ["wallet/zuuallet/package.json", REQUIRED_CLASSIC_PACKAGE_SCRIPTS],
+  ];
+  for (const [relative, requiredScripts] of packageContracts) {
+    const manifest = reviewedJson(repoRoot, relative, overrides, failures);
+    if (!manifest) continue;
+    if (
+      manifest.scripts === null ||
+      Array.isArray(manifest.scripts) ||
+      typeof manifest.scripts !== "object"
+    ) {
+      failures.push(`${relative}: scripts must be an object`);
+      continue;
+    }
+    for (const [name, required] of requiredScripts) {
+      if (manifest.scripts[name] !== required) {
+        failures.push(
+          `${relative}: package script ${JSON.stringify(name)} must equal ${JSON.stringify(required)}`,
+        );
+      }
+    }
+  }
+
+  const tsconfigRelative = "wallet/zuuli/tsconfig.build.json";
+  const tsconfig = reviewedJson(
+    repoRoot,
+    tsconfigRelative,
+    overrides,
+    failures,
+  );
+  if (tsconfig) {
+    const keys = Object.keys(tsconfig).sort();
+    const requiredKeys = ["exclude", "extends"];
+    if (JSON.stringify(keys) !== JSON.stringify(requiredKeys)) {
+      failures.push(
+        `${tsconfigRelative}: must contain exactly the reviewed extends and exclude keys`,
+      );
+    }
+    if (tsconfig.extends !== REQUIRED_FRONTEND_BUILD_TSCONFIG.extends) {
+      failures.push(
+        `${tsconfigRelative}: extends must equal ${JSON.stringify(REQUIRED_FRONTEND_BUILD_TSCONFIG.extends)}`,
+      );
+    }
+    if (
+      !Array.isArray(tsconfig.exclude) ||
+      JSON.stringify(tsconfig.exclude) !==
+        JSON.stringify(REQUIRED_FRONTEND_BUILD_TSCONFIG.exclude)
+    ) {
+      failures.push(
+        `${tsconfigRelative}: exclude must equal ${JSON.stringify(REQUIRED_FRONTEND_BUILD_TSCONFIG.exclude)}`,
+      );
+    }
+  }
+  return failures;
+}
+
 function scanRepository(
   repoRoot,
   {
     enforceRustRootOwners = true,
     rustRootOwnerOverrides = null,
     rustRootContracts = RUST_ROOT_CONTRACTS,
+    enforceFrontendBuildContracts = true,
+    frontendBuildContractOverrides = null,
   } = {},
 ) {
   repoRoot = fs.realpathSync(repoRoot);
@@ -2738,6 +2872,15 @@ function scanRepository(
   const seen = new Set();
   const failures = [];
   let externalReferences = 0;
+
+  if (enforceFrontendBuildContracts) {
+    failures.push(
+      ...frontendBuildContractFailures(
+        repoRoot,
+        frontendBuildContractOverrides,
+      ),
+    );
+  }
 
   if (enforceRustRootOwners) {
     failures.push(...rustRootOwnershipFailures(rustRootContracts));
@@ -4077,8 +4220,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        "      - name: Install locked dependencies\n        run: npm ci",
-        "      - name: Install locked dependencies\n        run: cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli && npm ci",
+        "      - name: Install locked dependencies\n        run: |\n          npm ci\n          npm ci --prefix ../zuuallet",
+        "      - name: Install locked dependencies\n        run: |\n          cd ../.. && git reset --hard HEAD~1 && cd wallet/zuuli && npm ci\n          npm ci --prefix ../zuuallet",
       ),
     },
     {
@@ -4516,6 +4659,129 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     console.log(`self-test: ${mutation.name}: passed`);
   }
   return mutations.length + cryptoInputMutations + scopeMutants.length;
+}
+
+function runFrontendBuildContractMutationTests(repoRoot) {
+  const relativeFiles = [
+    "wallet/zuuli/package.json",
+    "wallet/zuuallet/package.json",
+    "wallet/zuuli/tsconfig.build.json",
+  ];
+  const sources = new Map(
+    relativeFiles.map((relative) => [
+      relative,
+      fs.readFileSync(path.join(repoRoot, relative), "utf8"),
+    ]),
+  );
+  const baseline = scanRepository(repoRoot).failures;
+  if (baseline.length) {
+    throw new Error(
+      `current frontend build inputs are not a valid mutation base: ${baseline.join("; ")}`,
+    );
+  }
+
+  const mutations = [];
+  const mutateJson = (relative, mutate) => {
+    const value = JSON.parse(sources.get(relative));
+    mutate(value);
+    return `${JSON.stringify(value, null, 2)}\n`;
+  };
+  const addMutation = (name, relative, mutate, needle) => {
+    mutations.push({
+      name,
+      needle,
+      overrides: new Map([[relative, mutateJson(relative, mutate)]]),
+    });
+  };
+
+  for (const script of REQUIRED_FRONTEND_PACKAGE_SCRIPTS.keys()) {
+    addMutation(
+      `live frontend package contract rejects no-op ${script}`,
+      "wallet/zuuli/package.json",
+      (manifest) => {
+        manifest.scripts[script] = "true";
+      },
+      `package script ${JSON.stringify(script)} must equal`,
+    );
+  }
+  addMutation(
+    "live classic package contract rejects a no-op mounted route test",
+    "wallet/zuuallet/package.json",
+    (manifest) => {
+      manifest.scripts["test:sensitive-entry"] = "true";
+    },
+    'package script "test:sensitive-entry" must equal',
+  );
+  addMutation(
+    "live classic package contract rejects a substituted test path",
+    "wallet/zuuallet/package.json",
+    (manifest) => {
+      manifest.scripts["test:sensitive-entry"] =
+        "vitest run src/pages/Settings.tsx";
+    },
+    'package script "test:sensitive-entry" must equal',
+  );
+  addMutation(
+    "live production tsconfig rejects noCheck",
+    "wallet/zuuli/tsconfig.build.json",
+    (tsconfig) => {
+      tsconfig.compilerOptions = { noCheck: true };
+    },
+    "must contain exactly the reviewed extends and exclude keys",
+  );
+  addMutation(
+    "live production tsconfig rejects a missing exclude contract",
+    "wallet/zuuli/tsconfig.build.json",
+    (tsconfig) => {
+      delete tsconfig.exclude;
+    },
+    "must contain exactly the reviewed extends and exclude keys",
+  );
+  addMutation(
+    "live production tsconfig rejects narrowed test excludes",
+    "wallet/zuuli/tsconfig.build.json",
+    (tsconfig) => {
+      tsconfig.exclude = [tsconfig.exclude[0]];
+    },
+    "exclude must equal",
+  );
+  addMutation(
+    "live production tsconfig rejects widened test excludes",
+    "wallet/zuuli/tsconfig.build.json",
+    (tsconfig) => {
+      tsconfig.exclude.push("src/**/*.tsx");
+    },
+    "exclude must equal",
+  );
+  addMutation(
+    "live production tsconfig rejects reordered test excludes",
+    "wallet/zuuli/tsconfig.build.json",
+    (tsconfig) => {
+      tsconfig.exclude.reverse();
+    },
+    "exclude must equal",
+  );
+  addMutation(
+    "live production tsconfig rejects a substituted base config",
+    "wallet/zuuli/tsconfig.build.json",
+    (tsconfig) => {
+      tsconfig.extends = "./tsconfig.node.json";
+    },
+    "extends must equal",
+  );
+
+  for (const mutation of mutations) {
+    const failures = scanRepository(repoRoot, {
+      frontendBuildContractOverrides: mutation.overrides,
+    }).failures;
+    if (!failures.some((failure) => failure.includes(mutation.needle))) {
+      throw new Error(
+        `${mutation.name}: expected ${JSON.stringify(mutation.needle)}, got ${failures.join("; ") || "success"}`,
+      );
+    }
+    console.log(`self-test: ${mutation.name}: passed`);
+  }
+  return mutations.length;
 }
 
 function runSelfTest(repoRoot) {
@@ -5402,6 +5668,7 @@ function runSelfTest(repoRoot) {
       }
       const result = scanRepository(fixture, {
         enforceRustRootOwners: false,
+        enforceFrontendBuildContracts: false,
       });
       if (testCase.valid) {
         if (result.failures.length) {
@@ -5564,11 +5831,13 @@ function runSelfTest(repoRoot) {
     console.log(`self-test: gate verdict: ${testCase.name}: passed`);
   }
   const currentWorkflowMutations = runCurrentWorkflowMutationTests(repoRoot);
+  const frontendBuildMutations =
+    runFrontendBuildContractMutationTests(repoRoot);
   const rustRootWorkflowMutations = runRustRootWorkflowMutationTests(repoRoot);
   console.log(
     `self-test: ${cases.length} source-policy, ${gateResultCases.length} gate-verdict, ` +
-      `${currentWorkflowMutations} current-workflow, and ${rustRootWorkflowMutations} ` +
-      `Rust-root ownership mutation case(s) passed.`,
+      `${currentWorkflowMutations} current-workflow, ${frontendBuildMutations} frontend-build, ` +
+      `and ${rustRootWorkflowMutations} Rust-root ownership mutation case(s) passed.`,
   );
 }
 

@@ -13,12 +13,19 @@ export function assertSeedCaptureBoundary(sources) {
     ios,
     rustCommands,
     rustKeys,
+    pluginCargo,
+    pluginLib,
+    pluginBuild,
+    commandRegistry,
     models,
     defaults,
     session,
+    entrySession,
+    entryHook,
     bridge,
     desktopSession,
     desktopSessionCore,
+    desktopEntryHook,
     desktopBridge,
     desktopMnemonicPolicy,
     desktopSettings,
@@ -37,6 +44,8 @@ export function assertSeedCaptureBoundary(sources) {
     onboarding,
     restoreIdentity,
     reveal,
+    zuuliCargo,
+    zuuliRust,
   } = sources;
 
   const created =
@@ -343,13 +352,13 @@ export function assertSeedCaptureBoundary(sources) {
   }
   requireMatch(
     rustCommands,
-    /if !owns_sensitive_display\(&current, &args\.token\)[\s\S]*return Ok\(\(\)\)/,
+    /if !owns_sensitive_display\(&current, &args\.token, args\.purpose\)[\s\S]*return Ok\(\(\)\)/,
     "Rust authority must ignore stale lease releases",
   );
   requireMatch(
     models,
-    /pub struct SensitiveDisplayState \{\s*pub token: String,\s*pub wallet_id: String,\s*pub consumed: bool,\s*\}/,
-    "native display state must bind token, wallet identity, and one-use state",
+    /pub struct SensitiveDisplayState \{\s*pub token: String,\s*pub purpose: SensitiveDisplayPurpose,\s*pub wallet_id: Option<String>,\s*pub consumed: bool,\s*\}/,
+    "native display state must bind token, purpose, wallet identity, and one-use state",
   );
   const beginStart = rustCommands.indexOf(
     "pub(crate) async fn begin_sensitive_display",
@@ -367,7 +376,8 @@ export function assertSeedCaptureBoundary(sources) {
     ".active_wallet_id()",
     "sensitive_display.lock().await",
     "SensitiveDisplayState {",
-    "wallet_id,",
+    "purpose: SensitiveDisplayPurpose::SeedReveal",
+    "wallet_id: Some(wallet_id)",
     "consumed: false",
     "ensure_sensitive_display_replaceable(&current)?",
   ]) {
@@ -421,8 +431,9 @@ export function assertSeedCaptureBoundary(sources) {
   for (const boundary of [
     "token.is_empty()",
     "lease.token != token",
-    "lease.wallet_id != wallet_id",
-    "|| lease.consumed {",
+    "lease.purpose != SensitiveDisplayPurpose::SeedReveal",
+    "lease.wallet_id.as_deref() != Some(wallet_id)",
+    "|| lease.consumed",
     "lease.consumed = true",
     "Ok(guard)",
   ]) {
@@ -437,6 +448,150 @@ export function assertSeedCaptureBoundary(sources) {
     consumeBody.indexOf("Ok(guard)")
   ) {
     throw new Error("native mnemonic lease must be consumed before custody");
+  }
+  const entryPurposes = [
+    "zuuliRestore",
+    "zuualletRestore",
+    "zuualletRelink",
+  ];
+  for (const purpose of entryPurposes) {
+    if (!entrySession.includes(`"${purpose}"`)) {
+      throw new Error(`typed mnemonic population is missing ${purpose}`);
+    }
+  }
+  if (
+    entrySession.match(/"(?:zuuliRestore|zuualletRestore|zuualletRelink)"/g)
+      ?.length !== 3
+  ) {
+    throw new Error("typed mnemonic population must contain exactly three purposes");
+  }
+  for (const [registration, includePath, label] of [
+    [pluginLib, 'include!("../command_registry.rs");', "runtime command handler"],
+    [pluginBuild, 'include!("command_registry.rs");', "permission generator"],
+  ]) {
+    if (!registration.includes(includePath)) {
+      throw new Error(`typed mnemonic entry registry is missing from the ${label}`);
+    }
+  }
+  if (
+    commandRegistry.match(/^\s*begin_sensitive_entry,\s*$/gm)?.length !== 1
+  ) {
+    throw new Error(
+      "typed mnemonic entry must have exactly one shared runtime/permission registration",
+    );
+  }
+  const nonWindowsMockDependency =
+    '[target.\'cfg(not(target_os = "windows"))\'.dev-dependencies]\n' +
+    'tauri = { version = "2", features = ["test"] }';
+  for (const [manifest, label] of [
+    [pluginCargo, "shared plugin"],
+    [zuuliCargo, "ZUULI app"],
+  ]) {
+    if (!manifest.includes(nonWindowsMockDependency)) {
+      throw new Error(
+        `${label} must keep Tauri mock-runtime linkage out of Windows tests`,
+      );
+    }
+  }
+  requireMatch(
+    rustCommands,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*#\[tokio::test\]\s*async fn native_entry_commands_install_and_release_the_exact_lease\(/,
+    "shared plugin mock-runtime test must remain excluded from Windows",
+  );
+  requireMatch(
+    rustCommands,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*use super::\{begin_sensitive_entry, end_sensitive_display\};/,
+    "shared plugin mock-only command imports must remain excluded from Windows",
+  );
+  requireMatch(
+    rustCommands,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*use crate::models::\{BeginSensitiveEntryArgs, EndSensitiveDisplayArgs\};/,
+    "shared plugin mock-only argument imports must remain excluded from Windows",
+  );
+  requireMatch(
+    zuuliRust,
+    /#\[cfg\(not\(target_os = "windows"\)\)\]\s*#\[test\]\s*fn shipping_zcash_router_registers_sensitive_entry_commands\(/,
+    "ZUULI mock-router test must remain excluded from Windows",
+  );
+  for (const [surface, purpose, value, label] of [
+    [onboarding, "zuuliRestore", "seed", "ZUULI restore"],
+    [desktopRestore, "zuualletRestore", "phrase", "Zuuallet restore"],
+    [
+      desktopSettings,
+      "zuualletRelink",
+      "unlockPhrase",
+      "Zuuallet recovery re-link",
+    ],
+  ]) {
+    const entryField = surface.match(
+      new RegExp(`<(?:Textarea|textarea)[\\s\\S]*?value=\\{${value}\\}[\\s\\S]*?/>`),
+    )?.[0];
+    if (
+      !surface.includes(`useSensitiveMnemonicEntry(\n    "${purpose}"`) ||
+      !entryField?.includes("disabled={!sensitiveEntry.editable")
+    ) {
+      throw new Error(`${label} must remain capture-gated before editability`);
+    }
+  }
+  for (const [hook, label] of [
+    [entryHook, "ZUULI"],
+    [desktopEntryHook, "Zuuallet"],
+  ]) {
+    if (!hook.includes("bindSensitiveEntryLifecycle(")) {
+      throw new Error(`${label} typed entry must bind lifecycle clearing`);
+    }
+  }
+  for (const lifecycle of ["blur", "focus", "pagehide", "visibilitychange"]) {
+    if (!entrySession.includes(`"${lifecycle}"`)) {
+      throw new Error(`typed entry lifecycle is missing ${lifecycle}`);
+    }
+  }
+  const zuuliRestoreResult = onboarding.indexOf("if (res.success) {");
+  const zuuliRestoreClear = onboarding.indexOf(
+    "void sensitiveEntry.clear();",
+    zuuliRestoreResult,
+  );
+  const zuuliRestoreLeave = onboarding.indexOf("onRestored();", zuuliRestoreResult);
+  if (
+    zuuliRestoreResult < 0 ||
+    zuuliRestoreClear < zuuliRestoreResult ||
+    zuuliRestoreLeave < zuuliRestoreClear
+  ) {
+    throw new Error("ZUULI restore must clear its mnemonic before leaving the view");
+  }
+  const desktopRestoreSnapshot = desktopRestore.indexOf(
+    "const recoveryPhrase = phrase.trim();",
+  );
+  const desktopRestoreClear = desktopRestore.indexOf(
+    "await sensitiveEntry.clear();",
+    desktopRestoreSnapshot,
+  );
+  const desktopRestoreSubmit = desktopRestore.indexOf(
+    "await restoreWallet(recoveryPhrase",
+    desktopRestoreSnapshot,
+  );
+  if (
+    desktopRestoreSnapshot < 0 ||
+    desktopRestoreClear < desktopRestoreSnapshot ||
+    desktopRestoreSubmit < desktopRestoreClear
+  ) {
+    throw new Error(
+      "Zuuallet restore must clear and release entry before submission can leave the view",
+    );
+  }
+  const relinkUnlock = desktopSettings.indexOf("await api.unlockWallet(");
+  const relinkClear = desktopSettings.indexOf(
+    "await sensitiveEntry.clear();",
+    relinkUnlock,
+  );
+  const relinkReveal = desktopSettings.indexOf(
+    "await readSeedUnderLease();",
+    relinkUnlock,
+  );
+  if (relinkUnlock < 0 || relinkClear < relinkUnlock || relinkReveal < relinkClear) {
+    throw new Error(
+      "Zuuallet re-link must clear and release entry before acquiring reveal custody",
+    );
   }
   for (const [command, terminator, walletBinding] of [
     ["get_seed_phrase", "/// Retrieve the recovery phrase", "&wallet_id"],
@@ -471,6 +626,7 @@ export function assertSeedCaptureBoundary(sources) {
   }
   for (const permission of [
     '"allow-begin-sensitive-display"',
+    '"allow-begin-sensitive-entry"',
     '"allow-end-sensitive-display"',
   ]) {
     if (!defaults.includes(permission)) {
@@ -489,8 +645,8 @@ export function assertSeedCaptureBoundary(sources) {
   }
   requireMatch(
     bridge,
-    /beginSensitiveDisplay[\s\S]*invoke\("begin_sensitive_display"\)[\s\S]*endSensitiveDisplay[\s\S]*invoke\("end_sensitive_display", \{ args: \{ token \} \}\)/,
-    "renderer bridge must invoke both exact native lease commands",
+    /beginSensitiveDisplay[\s\S]*invoke\("begin_sensitive_display"\)[\s\S]*beginSensitiveEntry[\s\S]*invoke\("begin_sensitive_entry", \{ args: \{ purpose \} \}\)[\s\S]*endSensitiveDisplay[\s\S]*invoke\("end_sensitive_display", \{ args: \{ token, purpose \} \}\)/,
+    "renderer bridge must invoke all exact native lease commands",
   );
   requireMatch(
     bridge,
@@ -499,7 +655,7 @@ export function assertSeedCaptureBoundary(sources) {
   );
   requireMatch(
     desktopBridge,
-    /beginSensitiveDisplay[\s\S]*invoke\("plugin:zcash\|begin_sensitive_display"\)[\s\S]*endSensitiveDisplay\(token: string\)[\s\S]*invoke\("plugin:zcash\|end_sensitive_display", \{ args: \{ token \} \}\)[\s\S]*getSeedPhrase\(token: string\)[\s\S]*invoke\("plugin:zcash\|get_seed_phrase", \{ args: \{ token \} \}\)[\s\S]*getBackupSeedPhrase\([\s\S]*walletId: string,[\s\S]*token: string,[\s\S]*invoke\("plugin:zcash\|get_backup_seed_phrase", \{[\s\S]*args: \{ walletId, token \}[\s\S]*confirmWalletBackup\(walletId: string\)[\s\S]*invoke\("plugin:zcash\|confirm_wallet_backup", \{[\s\S]*args: \{ walletId \}/,
+    /beginSensitiveDisplay[\s\S]*invoke\("plugin:zcash\|begin_sensitive_display"\)[\s\S]*beginSensitiveEntry[\s\S]*invoke\("plugin:zcash\|begin_sensitive_entry", \{ args: \{ purpose \} \}\)[\s\S]*endSensitiveDisplay[\s\S]*args: \{ token, purpose \}[\s\S]*getSeedPhrase\(token: string\)[\s\S]*invoke\("plugin:zcash\|get_seed_phrase", \{ args: \{ token \} \}\)[\s\S]*getBackupSeedPhrase\([\s\S]*walletId: string,[\s\S]*token: string,[\s\S]*invoke\("plugin:zcash\|get_backup_seed_phrase", \{[\s\S]*args: \{ walletId, token \}[\s\S]*confirmWalletBackup\(walletId: string\)[\s\S]*invoke\("plugin:zcash\|confirm_wallet_backup", \{[\s\S]*args: \{ walletId \}/,
     "desktop mnemonic bridge must bind the exact native lease, backup wallet, and acknowledgement",
   );
   requireMatch(
@@ -726,12 +882,19 @@ export async function main() {
     ios,
     rustCommands,
     rustKeys,
+    pluginCargo,
+    pluginLib,
+    pluginBuild,
+    commandRegistry,
     models,
     defaults,
     session,
+    entrySession,
+    entryHook,
     bridge,
     desktopSession,
     desktopSessionCore,
+    desktopEntryHook,
     desktopBridge,
     desktopMnemonicPolicy,
     desktopSettings,
@@ -750,17 +913,26 @@ export async function main() {
     onboarding,
     restoreIdentity,
     reveal,
+    zuuliCargo,
+    zuuliRust,
   ] = await Promise.all([
     read("../plugins/tauri-plugin-zcash/android/src/main/java/ZcashPlugin.kt"),
     read("../plugins/tauri-plugin-zcash/ios/Sources/ZcashPlugin.swift"),
     read("../plugins/tauri-plugin-zcash/src/commands.rs"),
     read("../plugins/tauri-plugin-zcash/src/wallet/keys.rs"),
+    read("../plugins/tauri-plugin-zcash/Cargo.toml"),
+    read("../plugins/tauri-plugin-zcash/src/lib.rs"),
+    read("../plugins/tauri-plugin-zcash/build.rs"),
+    read("../plugins/tauri-plugin-zcash/command_registry.rs"),
     read("../plugins/tauri-plugin-zcash/src/models.rs"),
     read("../plugins/tauri-plugin-zcash/permissions/default.toml"),
     read("src/lib/wallet/sensitive-seed.ts"),
+    read("../shared/sensitive-entry-session.ts"),
+    read("src/lib/wallet/sensitive-entry.ts"),
     read("src/lib/wallet/bridge.ts"),
     read("../zuuallet/src/lib/sensitive-seed.ts"),
     read("../zuuallet/src/lib/sensitive-seed-session.ts"),
+    read("../zuuallet/src/lib/sensitive-entry.ts"),
     read("../zuuallet/src/lib/tauri.ts"),
     read("../zuuallet/src/lib/mnemonic.ts"),
     read("../zuuallet/src/pages/Settings.tsx"),
@@ -779,18 +951,27 @@ export async function main() {
     read("src/features/wallet/Onboarding.tsx"),
     read("src/features/auth/RestoreIdentity.tsx"),
     read("src/features/auth/SeedReveal.tsx"),
+    read("src-tauri/Cargo.toml"),
+    read("src-tauri/src/lib.rs"),
   ]);
   assertSeedCaptureBoundary({
     android,
     ios,
     rustCommands,
     rustKeys,
+    pluginCargo,
+    pluginLib,
+    pluginBuild,
+    commandRegistry,
     models,
     defaults,
     session,
+    entrySession,
+    entryHook,
     bridge,
     desktopSession,
     desktopSessionCore,
+    desktopEntryHook,
     desktopBridge,
     desktopMnemonicPolicy,
     desktopSettings,
@@ -809,6 +990,8 @@ export async function main() {
     onboarding,
     restoreIdentity,
     reveal,
+    zuuliCargo,
+    zuuliRust,
   });
   console.log(
     "Seed reveal native capture and renderer custody boundaries verified.",

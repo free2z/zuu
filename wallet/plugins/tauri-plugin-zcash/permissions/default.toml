@@ -10,6 +10,7 @@ permissions = [
     "allow-get-backup-seed-phrase",
     "allow-confirm-wallet-backup",
     "allow-begin-sensitive-display",
+    "allow-begin-sensitive-entry",
     "allow-end-sensitive-display",
     "allow-get-viewing-key",
     "allow-get-spending-key",

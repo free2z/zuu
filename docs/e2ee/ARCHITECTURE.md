@@ -193,14 +193,73 @@ MSK  = (msk, cc_msk)  = BLAKE2b-512(personal = "Free2zMsg_MSTRv1", S)
                            or Orchard key trees even at identical indices.
 
 CKDh(node, i)         = BLAKE2b-512(personal = "Free2zMsg_CKDv1_",
-                                    cc_node || 0x11 || I2LEOSP32(i))
+                                    cc_node || 0x11 || ik_node || I2LEOSP32(i))
                         ── hardened only; there is no non-hardened variant and
                            no extended public key at any level of this tree.
+                        ── BOTH halves of the parent are in the preimage. See
+                           the correction below: an earlier revision omitted
+                           ik_node, which is not what ZIP 32 does.
+                        ── I2LEOSP32(i) encodes the HARDENED index, i + 2^31,
+                           as ZIP 32 serializes one: 32' is 0x80000020 and
+                           encodes as 20 00 00 80.
 
 account_node          = CKDh(CKDh(CKDh(MSK, 32'), 133'), account')
                            purpose' = 32'   (ZIP 32 idiom)
                            coin'    = 133'  (SLIP-44 Zcash)
 ```
+
+> **Correction (2026-08-25) — `CKDh` did not hash the parent key, and now it
+> does. This changes every key this tree derives.**
+>
+> The revision of `CKDh` above that shipped in
+> [#694](https://github.com/free2z/zuu/pull/694) read
+>
+> ```
+> CKDh(node, i) = BLAKE2b-512(personal = "Free2zMsg_CKDv1_",
+>                             cc_node || 0x11 || I2LEOSP32(i))     ← superseded
+> ```
+>
+> with `ik_node` absent from the preimage. That is **not** ZIP 32's shape, and
+> this section's whole justification is that it is written in ZIP 32's idiom
+> "because ZUULI already implements that shape and auditors already know it."
+> ZIP 32's Sapling hardened derivation is
+>
+> ```
+> I = PRF^expand(c_par, [0x11] || sk_par || I2LEOSP_32(i))
+>   = BLAKE2b-512(personal = "Zcash_ExpandSeed",
+>                 c_par || 0x11 || sk_par || I2LEOSP_32(i))
+> ```
+>
+> — the parent **spending key** is in the message. The corrected `CKDh` above is
+> that construction with the personalization changed and nothing else, so a
+> reader who knows [ZIP 32](https://zips.z.cash/zip-0032) §5.2 is reading a
+> function they already know. The dropped term is restored; no third
+> construction is invented.
+>
+> **What the omission cost, stated plainly.** It was not directly exploitable —
+> `cc_msk` is exactly as secret as `S` and is never published — but:
+>
+> - the key half of **every** node above the account level was dead weight;
+>   `msk` was never read by anything;
+> - all of the hierarchy's secret entropy below `MSK` reached `ik_account`
+>   through `cc_msk` **alone**, collapsing a two-part secret into a one-part
+>   secret;
+> - a bare chain code derived its **entire subtree**, so any future construct
+>   that treated a chain code as the less-sensitive half of a node would have
+>   been catastrophically wrong.
+>
+> **This changes every key derived from every seed.** It is safe only because
+> nothing has shipped: no user has a messaging identity, no directory entry
+> exists, and no peer has pinned a safety number. The cost of this correction is
+> zero today and unbounded after the first user; that asymmetry is the entire
+> reason it is being made now rather than filed.
+>
+> The implementation and its known-answer vectors move with it —
+> `rs/crates/f2z-msg-identity`, whose `tests/derivation_vectors.rs` pins the
+> corrected hierarchy from BIP-39's published all-`abandon` seed. **Every vector
+> in that file changed.** Found while implementing §4.2 for
+> [#311](https://github.com/free2z/zuu/issues/311); reported rather than coded
+> around.
 
 From `account_node`, every leaf is an HKDF-SHA256 expansion under a distinct
 versioned label (`HKDF-Expand(PRK = ik_account, info = label, L)`):

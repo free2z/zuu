@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { SensitiveEntryPurpose } from "../../../shared/sensitive-entry-session";
 import type {
   WalletCreated,
   WalletStatus,
@@ -46,8 +47,19 @@ export async function beginSensitiveDisplay(): Promise<{ token: string }> {
   return invoke("plugin:zcash|begin_sensitive_display");
 }
 
-export async function endSensitiveDisplay(token: string): Promise<void> {
-  return invoke("plugin:zcash|end_sensitive_display", { args: { token } });
+export async function beginSensitiveEntry(
+  purpose: SensitiveEntryPurpose,
+): Promise<{ token: string }> {
+  return invoke("plugin:zcash|begin_sensitive_entry", { args: { purpose } });
+}
+
+export async function endSensitiveDisplay(
+  token: string,
+  purpose: SensitiveEntryPurpose | "seedReveal",
+): Promise<void> {
+  return invoke("plugin:zcash|end_sensitive_display", {
+    args: { token, purpose },
+  });
 }
 
 export async function getSeedPhrase(token: string): Promise<string> {

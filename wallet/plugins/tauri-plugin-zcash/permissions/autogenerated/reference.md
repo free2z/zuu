@@ -13,6 +13,7 @@ Default permissions for the Zcash wallet plugin
 - `allow-get-backup-seed-phrase`
 - `allow-confirm-wallet-backup`
 - `allow-begin-sensitive-display`
+- `allow-begin-sensitive-entry`
 - `allow-end-sensitive-display`
 - `allow-get-viewing-key`
 - `allow-get-spending-key`
@@ -74,6 +75,32 @@ Enables the begin_sensitive_display command without any pre-configured scope.
 <td>
 
 Denies the begin_sensitive_display command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-begin-sensitive-entry`
+
+</td>
+<td>
+
+Enables the begin_sensitive_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-begin-sensitive-entry`
+
+</td>
+<td>
+
+Denies the begin_sensitive_entry command without any pre-configured scope.
 
 </td>
 </tr>

@@ -16,6 +16,7 @@ import type {
   WalletStatus,
 } from "./types";
 import { parseZecToZatoshis } from "../format";
+import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-session";
 
 const MOCK_UA =
   "u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexz";
@@ -30,12 +31,18 @@ let tip = 2_612_004;
 let synced = 2_612_004;
 let syncing = false;
 let sensitiveDisplayToken: string | null = null;
+let sensitiveDisplayPurpose: SensitiveEntryPurpose | "seedReveal" | null = null;
 
 function requireSensitiveDisplay(token: string): void {
-  if (!token || token !== sensitiveDisplayToken) {
+  if (
+    !token ||
+    token !== sensitiveDisplayToken ||
+    sensitiveDisplayPurpose !== "seedReveal"
+  ) {
     throw new Error("sensitive-display lease is missing or stale");
   }
   sensitiveDisplayToken = null;
+  sensitiveDisplayPurpose = null;
 }
 
 /**
@@ -189,12 +196,27 @@ export const mockWallet = {
     globalThis.localStorage?.setItem(MOCK_BACKUP_REQUIRED_KEY, MOCK_WALLET_ID);
     return { walletId: MOCK_WALLET_ID, birthdayHeight: tip - 100 };
   },
-  beginSensitiveDisplay() {
+  beginSensitiveDisplay(
+    purpose: SensitiveEntryPurpose | "seedReveal",
+  ) {
+    if (sensitiveDisplayToken) {
+      throw new Error("another sensitive-display lease is already active");
+    }
     sensitiveDisplayToken = crypto.randomUUID();
+    sensitiveDisplayPurpose = purpose;
     return { token: sensitiveDisplayToken };
   },
-  endSensitiveDisplay(token: string) {
-    if (sensitiveDisplayToken === token) sensitiveDisplayToken = null;
+  endSensitiveDisplay(
+    token: string,
+    purpose: SensitiveEntryPurpose | "seedReveal",
+  ) {
+    if (
+      sensitiveDisplayToken === token &&
+      sensitiveDisplayPurpose === purpose
+    ) {
+      sensitiveDisplayToken = null;
+      sensitiveDisplayPurpose = null;
+    }
   },
   restoreWallet(seedPhrase: string): WalletRestored | Promise<WalletRestored> {
     if (mockWalletScenario() === "slow-restore-error") {
