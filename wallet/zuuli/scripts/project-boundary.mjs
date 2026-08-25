@@ -565,21 +565,29 @@ async function constrainedViteBuildViolation(project, sharedRoot, configFile) {
     return `${project.directory}/${path.basename(configFile)}: constrained Vite graph build requires ${BOUNDARY_NODE_MODULES}`;
   }
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), "wallet-boundary-vite-"));
+  const allowedReadRoots = await Promise.all([
+    project.projectRoot,
+    sharedRoot,
+    path.join(path.dirname(project.projectRoot), "package.json"),
+    BOUNDARY_NODE_MODULES,
+    CONSTRAINED_VITE_BUILD_HELPER,
+    outputRoot,
+  ].map((root) => realpath(root)));
+  const allowedWriteRoot = await realpath(outputRoot);
   try {
     await executeFile(
       process.execPath,
       [
+        "--permission",
+        "--experimental-strip-types",
+        "--allow-addons",
+        ...allowedReadRoots.map((root) => `--allow-fs-read=${root}`),
+        `--allow-fs-write=${allowedWriteRoot}`,
         CONSTRAINED_VITE_BUILD_HELPER,
         project.projectRoot,
         configFile,
-        outputRoot,
-        JSON.stringify([
-          project.projectRoot,
-          sharedRoot,
-          path.join(path.dirname(project.projectRoot), "package.json"),
-          BOUNDARY_NODE_MODULES,
-          CONSTRAINED_VITE_BUILD_HELPER,
-        ]),
+        allowedWriteRoot,
+        JSON.stringify(allowedReadRoots),
       ],
       {
         cwd: project.projectRoot,

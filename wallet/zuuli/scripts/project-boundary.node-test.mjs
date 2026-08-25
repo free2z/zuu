@@ -733,6 +733,168 @@ export default { plugins: [{
   );
 });
 
+test("rejects a Vite transform that delegates a sibling read to a child process", async () => {
+  await withFixture(
+    {
+      "zuuallet/src/child-secret.ts":
+        'export const childProcessSiblingSecret = "SensitiveEntryPurpose-child";\n',
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/child-secret.ts");
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { execFileSync } from "node:child_process";
+export default { plugins: [{
+  name: "cross-app-child-transform",
+  transform(code, id) {
+    if (!id.endsWith("/src/main.ts")) return null;
+    const sibling = execFileSync(process.execPath, [
+      "-e",
+      "const fs=require('node:fs');process.stdout.write(fs.readFileSync(process.argv[1],'utf8'))",
+      ${JSON.stringify(sibling)},
+    ], { encoding: "utf8" });
+    return code + "\\nconsole.log(" + JSON.stringify(sibling) + ");";
+  },
+}] };
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /SensitiveEntryPurpose-child/,
+        "the unrestricted production build must contain sibling source read by the child",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /constrained production Vite graph build failed[\s\S]*allow-child-process/,
+      );
+    },
+  );
+});
+
+test("rejects a Vite transform that delegates a sibling read to a worker", async () => {
+  await withFixture(
+    {
+      "zuuallet/src/worker-secret.ts":
+        'export const workerSiblingSecret = "SensitiveEntryPurpose-worker";\n',
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/worker-secret.ts");
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { Worker } from "node:worker_threads";
+export default { plugins: [{
+  name: "cross-app-worker-transform",
+  async transform(code, id) {
+    if (!id.endsWith("/src/main.ts")) return null;
+    const sibling = await new Promise((resolve, reject) => {
+      const worker = new Worker(
+        "const { parentPort, workerData } = require('node:worker_threads');" +
+        "const fs = require('node:fs');" +
+        "parentPort.postMessage(fs.readFileSync(workerData, 'utf8'));",
+        { eval: true, execArgv: [], workerData: ${JSON.stringify(sibling)} },
+      );
+      worker.once("message", resolve);
+      worker.once("error", reject);
+    });
+    return code + "\\nconsole.log(" + JSON.stringify(sibling) + ");";
+  },
+}] };
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /SensitiveEntryPurpose-worker/,
+        "the unrestricted production build must contain sibling source read by the worker",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /constrained production Vite graph build failed[\s\S]*allow-worker/,
+      );
+    },
+  );
+});
+
+test("rejects a Vite transform that copies sibling source into its owner before reading it", async () => {
+  await withFixture(
+    {
+      "zuuallet/src/copy-secret.ts":
+        'export const copiedSiblingSecret = "SensitiveEntryPurpose-copy";\n',
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/copy-secret.ts");
+      const copied = path.join(zuuliRoot, "src/.reviewer-copied.ts");
+      await writeFile(
+        path.join(zuuliRoot, "src/main.ts"),
+        'import { copiedSiblingSecret } from "./.reviewer-copied"; console.log(copiedSiblingSecret);\n',
+      );
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { copyFileSync, readFileSync } from "node:fs";
+export default { plugins: [{
+  name: "cross-app-copy-transform",
+  transform(code, id) {
+    if (!id.endsWith("/src/main.ts")) return null;
+    copyFileSync(${JSON.stringify(sibling)}, ${JSON.stringify(copied)});
+    readFileSync(${JSON.stringify(copied)}, "utf8");
+    return code;
+  },
+}] };
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /SensitiveEntryPurpose-copy/,
+        "the unrestricted production build must bundle sibling source copied into its owner",
+      );
+      assert.match(
+        await readFile(copied, "utf8"),
+        /SensitiveEntryPurpose-copy/,
+        "the copied owner-local file must contain the sibling source",
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /constrained production Vite graph build failed[\s\S]*(copy-secret\.ts|FileSystem(Read|Write))/,
+      );
+    },
+  );
+});
+
 test("production boundary rejects a Vite load hook that reads sibling-app source", async () => {
   await withFixture(
     { "zuuallet/src/load-secret.ts": "export const siblingLoadSecret = 515151;\n" },

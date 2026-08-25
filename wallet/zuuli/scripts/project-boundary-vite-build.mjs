@@ -21,6 +21,12 @@ const allowedRoots = JSON.parse(allowedRootsJson).map((root) =>
   fs.realpathSync(root),
 );
 allowedRoots.push(fs.realpathSync(outputDirectory));
+const boundaryNodeModules = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../node_modules",
+);
+globalThis.__dirname = path.dirname(path.resolve(configFile));
+globalThis.__filename = path.resolve(configFile);
 
 function inside(root, candidate) {
   const relative = path.relative(root, candidate);
@@ -85,13 +91,84 @@ const { build } = await import(
     ),
   )
 );
+const typescriptModule = await import(
+  pathToFileURL(
+    path.join(boundaryNodeModules, "typescript/lib/typescript.js"),
+  ),
+);
+const typescript = typescriptModule.default ?? typescriptModule;
+const boundaryTypescriptPlugin = {
+  name: "wallet-boundary-typescript-transform",
+  enforce: "pre",
+  transform(code, id) {
+    const cleanId = id.split(/[?#]/, 1)[0];
+    if (!/\.[cm]?[jt]sx?$/.test(cleanId) || cleanId.endsWith(".d.ts")) {
+      return null;
+    }
+    const typescriptSource = /\.[cm]?tsx?$/.test(cleanId);
+    const result = typescriptSource
+      ? typescript.transpileModule(code, {
+          fileName: cleanId,
+          compilerOptions: {
+            jsx: typescript.JsxEmit.ReactJSX,
+            module: typescript.ModuleKind.ESNext,
+            target: typescript.ScriptTarget.ESNext,
+          },
+          reportDiagnostics: true,
+        })
+      : { diagnostics: [], outputText: code };
+    const errors = (result.diagnostics ?? []).filter(
+      (diagnostic) =>
+        diagnostic.category === typescript.DiagnosticCategory.Error,
+    );
+    if (errors.length > 0) {
+      throw new Error(
+        `TypeScript boundary transform failed for ${cleanId}: ${errors
+          .map((diagnostic) =>
+            typescript.flattenDiagnosticMessageText(
+              diagnostic.messageText,
+              " ",
+            ),
+          )
+          .join("; ")}`,
+      );
+    }
+    return {
+      code: result.outputText
+        .replaceAll("import.meta.env", "({})")
+        .replaceAll("import.meta.hot", "undefined"),
+      map: null,
+    };
+  },
+};
 
 await build({
   root: path.resolve(projectRoot),
   configFile: path.resolve(configFile),
+  configLoader: "native",
+  css: { postcss: { plugins: [] } },
+  esbuild: false,
   logLevel: "silent",
   mode: "production",
+  server: { fs: { allow: allowedRoots } },
+  worker: { plugins: () => [boundaryTypescriptPlugin] },
   plugins: [
+    boundaryTypescriptPlugin,
+    {
+      name: "wallet-boundary-no-child-toolchain",
+      enforce: "post",
+      config(config) {
+        config.define = {};
+        return {
+          css: { postcss: { plugins: [] } },
+          esbuild: false,
+          environments: { client: { define: {}, keepProcessEnv: true } },
+          keepProcessEnv: true,
+          build: { minify: false },
+          server: { fs: { allow: allowedRoots } },
+        };
+      },
+    },
     {
       name: "wallet-boundary-generated-wasm-placeholder",
       enforce: "pre",
@@ -114,5 +191,6 @@ await build({
   build: {
     outDir: path.resolve(outputDirectory),
     emptyOutDir: true,
+    minify: false,
   },
 });
