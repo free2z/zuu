@@ -639,6 +639,159 @@ test(
   },
 );
 
+test("real cargo-auditable executable evidence installer is exact and fail-closed", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-cargo-installer-"));
+  try {
+    const fakeBin = resolve(temporary, "bin");
+    const runnerTemp = resolve(temporary, "runner-temp");
+    const mock = resolve(fakeBin, "mock-command.mjs");
+    mkdirSync(fakeBin);
+    mkdirSync(runnerTemp);
+    writeFileSync(
+      mock,
+      [
+        "#!/usr/bin/env node",
+        'import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";',
+        'import { basename, resolve } from "node:path";',
+        "const command = basename(process.argv[1]);",
+        "const args = process.argv.slice(2);",
+        "appendFileSync(process.env.ZUULI_INSTALLER_LOG, `${JSON.stringify([command, ...args])}\\n`);",
+        "const state = process.env.ZUULI_INSTALLER_STATE;",
+        "const requireState = (name) => { if (!existsSync(resolve(state, name))) process.exit(91); };",
+        'if (command === "curl") {',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "curl") process.exit(22);',
+        '  const output = args[args.indexOf("--output") + 1];',
+        "  if (!output) process.exit(92);",
+        '  writeFileSync(output, "mock crate archive\\n");',
+        '  writeFileSync(resolve(state, "curl"), "ok\\n");',
+        '} else if (command === "sha256sum") {',
+        '  requireState("curl");',
+        '  writeFileSync(resolve(state, "checksum-input"), readFileSync(0));',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "checksum") process.exit(1);',
+        '  writeFileSync(resolve(state, "checksum"), "ok\\n");',
+        '} else if (command === "tar") {',
+        '  requireState("checksum");',
+        '  const destination = args[args.indexOf("-C") + 1];',
+        "  if (!destination) process.exit(93);",
+        '  mkdirSync(resolve(destination, "cargo-auditable-0.7.5"), { recursive: true });',
+        '  writeFileSync(resolve(state, "extract"), "ok\\n");',
+        '} else if (command === "patch") {',
+        '  requireState("extract");',
+        '  const input = args.find((arg) => arg.startsWith("--input="))?.slice("--input=".length);',
+        "  if (!input) process.exit(96);",
+        '  writeFileSync(resolve(state, "patch-input"), readFileSync(input));',
+        '  if (process.env.ZUULI_INSTALLER_FAILURE === "patch") process.exit(1);',
+        '  writeFileSync(resolve(state, "patch"), "ok\\n");',
+        '} else if (command === "cargo") {',
+        '  if (args[0] === "install" && args[1] !== "--list") {',
+        '    requireState("patch");',
+        '    if (process.env.ZUULI_INSTALLER_FAILURE === "install") process.exit(1);',
+        '    writeFileSync(resolve(state, "install"), "ok\\n");',
+        '  } else if (args[0] === "install" && args[1] === "--list") {',
+        '    requireState("install");',
+        '    const version = process.env.ZUULI_INSTALLER_FAILURE === "version" ? "9.9.9" : "0.7.5";',
+        "    process.stdout.write(`cargo-auditable v${version} (/mock/source):\\n    cargo-auditable\\n`);",
+        "  } else process.exit(94);",
+        "} else process.exit(95);",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(mock, 0o755);
+    for (const command of ["cargo", "curl", "patch", "sha256sum", "tar"])
+      symlinkSync("mock-command.mjs", resolve(fakeBin, command));
+
+    const invoke = (name, failure) => {
+      const state = resolve(temporary, name);
+      const log = resolve(state, "commands.jsonl");
+      mkdirSync(state);
+      const env = {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        RUNNER_TEMP: runnerTemp,
+        ZUULI_INSTALLER_LOG: log,
+        ZUULI_INSTALLER_STATE: state,
+      };
+      if (failure) env.ZUULI_INSTALLER_FAILURE = failure;
+      let error;
+      try {
+        execFileSync(resolve(scriptDirectory, "install-cargo-auditable.sh"), {
+          env,
+          stdio: ["ignore", "ignore", "pipe"],
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return {
+        error,
+        state,
+        commands: existsSync(log)
+          ? readFileSync(log, "utf8")
+              .trim()
+              .split("\n")
+              .filter(Boolean)
+              .map((line) => JSON.parse(line))
+          : [],
+      };
+    };
+
+    const success = invoke("success");
+    assert.equal(success.error, undefined);
+    assert.equal(success.commands.length, 6);
+    const [curl, checksum, tar, patch, install, installed] = success.commands;
+    const archive = curl.at(-1);
+    const sourceRoot = dirname(archive);
+    assert.deepEqual(curl, [
+      "curl",
+      "--fail",
+      "--location",
+      "--proto",
+      "=https",
+      "--tlsv1.2",
+      "https://static.crates.io/crates/cargo-auditable/cargo-auditable-0.7.5.crate",
+      "--output",
+      archive,
+    ]);
+    assert.deepEqual(checksum, ["sha256sum", "--check"]);
+    assert.equal(
+      readFileSync(resolve(success.state, "checksum-input"), "utf8"),
+      `cd121127b91d68074770a620544182345d7db56d03dcbd85316ab11e54a5b1bc  ${archive}\n`,
+    );
+    assert.deepEqual(tar, ["tar", "-xzf", archive, "-C", sourceRoot]);
+    assert.deepEqual(patch, [
+      "patch",
+      "--fuzz=0",
+      "--batch",
+      "--forward",
+      "-d",
+      sourceRoot,
+      "-p0",
+      `--input=${resolve(scriptDirectory, "cargo-auditable-0.7.5-root.patch")}`,
+    ]);
+    assert.equal(
+      createHash("sha256")
+        .update(readFileSync(resolve(success.state, "patch-input")))
+        .digest("hex"),
+      "a4073f47d0f868d276bb8eaf07a784dcb49fa96c743831c0b32bafd9c19e616a",
+    );
+    assert.deepEqual(install, [
+      "cargo",
+      "install",
+      "--force",
+      "--locked",
+      "--path",
+      resolve(sourceRoot, "cargo-auditable-0.7.5"),
+    ]);
+    assert.deepEqual(installed, ["cargo", "install", "--list"]);
+    for (const failure of ["curl", "checksum", "patch", "install", "version"])
+      assert.ok(
+        invoke(`failure-${failure}`, failure).error,
+        `${failure} failure must stop installation`,
+      );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test(
   "real cargo-auditable executable evidence is complete, lock-bound, and mandatory",
   { skip: !canBuildCargoRuntimeFixture, timeout: 120_000 },

@@ -13,7 +13,7 @@ curl --fail --location --proto '=https' --tlsv1.2 \
   --output "$archive"
 printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check
 tar -xzf "$archive" -C "$temporary"
-patch --batch --forward -d "$temporary" -p0 \
-  < "$script_directory/cargo-auditable-0.7.5-root.patch"
+patch --fuzz=0 --batch --forward -d "$temporary" -p0 \
+  --input="$script_directory/cargo-auditable-0.7.5-root.patch"
 cargo install --force --locked --path "$temporary/cargo-auditable-$version"
 cargo install --list | grep -Eq "^cargo-auditable v${version}( \\([^)]*\\))?:$"
