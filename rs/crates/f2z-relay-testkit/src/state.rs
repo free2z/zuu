@@ -646,10 +646,11 @@ impl RelayState {
         let Some(issued) = self.challenges.remove(challenge) else {
             return Err(ProtoError::Wire(ErrorCode::PowInvalid));
         };
-        if issued.purpose != purpose
-            || issued.expires_at_ms <= now_ms
-            || (!scope.is_empty() && issued.scope != scope)
-        {
+        // Unconditional, for the reason the real relay's `Challenges::consume`
+        // is (#663): a scope comparison skipped when the caller passes an empty
+        // scope is a §12.3 check with an off switch, and the reference relay
+        // must not certify a client against a laxer rule than the real one.
+        if issued.purpose != purpose || issued.expires_at_ms <= now_ms || issued.scope != scope {
             return Err(ProtoError::Wire(ErrorCode::PowInvalid));
         }
         Ok(())
@@ -822,6 +823,12 @@ mod tests {
                 .consume_challenge(&challenge, 2, &[8u8; 32], 1_000)
                 .is_err(),
             "a stamp computed for one victim must not be spendable on another"
+        );
+        // An absent scope is a wrong scope, not a waiver (#663).
+        let challenge = state.issue_challenge(2, &scope, 10_000);
+        assert!(
+            state.consume_challenge(&challenge, 2, &[], 1_000).is_err(),
+            "an empty scope must not switch the §12.3 target check off"
         );
         // …and the wrong-scope attempt still consumed it, which is what makes
         // a challenge single-use rather than single-*success*.

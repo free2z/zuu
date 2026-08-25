@@ -155,10 +155,14 @@ impl Challenges {
         let Some(issued) = self.issued.remove(challenge) else {
             return Err(ProtoError::Wire(ErrorCode::PowInvalid));
         };
-        if issued.purpose != purpose
-            || issued.expires_at_ms <= now_ms
-            || (!scope.is_empty() && issued.scope != scope)
-        {
+        // The scope comparison is unconditional. An earlier form skipped it
+        // when the caller passed an empty `scope`, which made the check that
+        // stops a stamp being spent on another victim disableable by its own
+        // caller (#663). Nothing legitimate needed the exemption: `Clock` and
+        // `QueueCreate` challenges are issued with an empty scope — `check`
+        // for `GET_CHALLENGE` refuses any other — and consumed with an empty
+        // scope, so empty compares equal to empty and they pass unchanged.
+        if issued.purpose != purpose || issued.expires_at_ms <= now_ms || issued.scope != scope {
             return Err(ProtoError::Wire(ErrorCode::PowInvalid));
         }
         Ok(())
@@ -191,6 +195,43 @@ mod tests {
             .issue(challenge(2), purpose, b"victim", 1_000, 0)
             .unwrap();
         assert!(table.consume(&challenge(2), purpose, b"other", 0).is_err());
+
+        // An absent scope is a wrong scope, not a waiver (#663). The check that
+        // stops a stamp being spent on another victim must not be disableable
+        // by the caller who is supposed to be subject to it.
+        table
+            .issue(challenge(22), purpose, b"victim", 1_000, 0)
+            .unwrap();
+        assert!(
+            table.consume(&challenge(22), purpose, b"", 0).is_err(),
+            "an empty scope must not switch the §12.3 target check off"
+        );
+
+        // The control, so the two refusals above are attributable to the scope
+        // and not to a comparison that refuses everything.
+        table
+            .issue(challenge(23), purpose, b"victim", 1_000, 0)
+            .unwrap();
+        assert!(table.consume(&challenge(23), purpose, b"victim", 0).is_ok());
+    }
+
+    #[test]
+    fn an_unscoped_purpose_still_consumes_with_an_empty_scope() {
+        // The other half of the control for #663: making the comparison
+        // unconditional must not break `Clock` and `QueueCreate`, whose
+        // challenges are issued with an empty scope — `GetChallenge::check`
+        // refuses any other — and consumed with an empty one.
+        let mut table = Challenges::new(8);
+        for purpose in [ChallengePurpose::Clock, ChallengePurpose::QueueCreate] {
+            table
+                .issue(challenge(24), purpose.code(), &[], 1_000, 0)
+                .unwrap();
+            assert!(
+                table
+                    .consume(&challenge(24), purpose.code(), &[], 0)
+                    .is_ok()
+            );
+        }
     }
 
     #[test]
