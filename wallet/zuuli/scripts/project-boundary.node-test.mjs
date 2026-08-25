@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,35 @@ const REQUIRED_PRODUCTION_CONSUMERS = [
   "zuuli/src/lib/wallet/mock.ts",
   "zuuli/src/lib/wallet/sensitive-entry.ts",
 ];
+const SENSITIVE_ENTRY_CONSUMER = [
+  "import { SensitiveEntrySession, bindSensitiveEntryLifecycle, type SensitiveEntryPurpose } from \"@free2z/wallet-shared\";",
+  "const authority = {",
+  "  begin: (purpose: SensitiveEntryPurpose) => purpose,",
+  "  end: (token: string, purpose: SensitiveEntryPurpose) => [token, purpose],",
+  "};",
+  "declare function useRef<T>(value: T): { current: T };",
+  "function useSensitiveMnemonicEntry(purpose: SensitiveEntryPurpose) {",
+  "  const session = useRef<SensitiveEntrySession | null>(null);",
+  "  session.current = new SensitiveEntrySession(authority, purpose, ...([] as never));",
+  "  return bindSensitiveEntryLifecycle({} as never, () => session.current?.release());",
+  "}",
+].join("\n");
+const REQUIRED_PRODUCTION_SOURCES = new Map([
+  ["zuuallet/src/lib/sensitive-entry.ts", SENSITIVE_ENTRY_CONSUMER],
+  [
+    "zuuallet/src/lib/tauri.ts",
+    'import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";\nexport function beginSensitiveEntry(purpose: SensitiveEntryPurpose) { return purpose; }\nexport function endSensitiveDisplay(purpose: SensitiveEntryPurpose) { return purpose; }\n',
+  ],
+  [
+    "zuuli/src/lib/wallet/bridge.ts",
+    'import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";\nexport const wallet = { beginSensitiveEntry(purpose: SensitiveEntryPurpose) { return purpose; }, endSensitiveDisplay(purpose: SensitiveEntryPurpose) { return purpose; } };\n',
+  ],
+  [
+    "zuuli/src/lib/wallet/mock.ts",
+    'import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";\nlet sensitiveDisplayPurpose: SensitiveEntryPurpose | null = null;\nexport const mockWallet = { beginSensitiveDisplay(purpose: SensitiveEntryPurpose) { sensitiveDisplayPurpose = purpose; }, endSensitiveDisplay(purpose: SensitiveEntryPurpose) { sensitiveDisplayPurpose = purpose; } };\n',
+  ],
+  ["zuuli/src/lib/wallet/sensitive-entry.ts", SENSITIVE_ENTRY_CONSUMER],
+]);
 
 async function fixture(files = {}, dependencyOverrides = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "wallet-project-boundary-"));
@@ -62,7 +91,7 @@ async function fixture(files = {}, dependencyOverrides = {}) {
   for (const relative of REQUIRED_PRODUCTION_CONSUMERS) {
     const target = path.join(root, relative);
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, 'import "@free2z/wallet-shared";\n');
+    await writeFile(target, REQUIRED_PRODUCTION_SOURCES.get(relative));
   }
   for (const [relative, source] of Object.entries(files)) {
     const target = path.join(root, relative);
@@ -109,11 +138,10 @@ test("accepts local, aliased, external, and named shared imports", async () => {
         'import local from "@/local";',
         'import React from "react";',
         'import { shared } from "@free2z/wallet-shared";',
-        'export { helper } from "@free2z/wallet-shared/helper";',
         "void local; void React; void shared;",
       ].join("\n"),
       "zuuallet/src/nested/consumer.ts": [
-        'const shared = import("@free2z/wallet-shared/session");',
+        'const shared = import("@free2z/wallet-shared");',
         'const local = require("../local");',
         "void shared; void local;",
       ].join("\n"),
@@ -327,6 +355,114 @@ test("rejects parent traversal supplied through an otherwise local path alias", 
   );
 });
 
+test("rejects traversal after a wildcard in any one of multiple path targets", async () => {
+  await withFixture(
+    {},
+    async (root) => {
+      await writeFile(
+        path.join(root, "zuuli/tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: ".",
+            paths: {
+              "@/*": ["./src/*"],
+              "@multi/*": [
+                "./src/*",
+                "./src/*/../../../zuuallet/src/local.ts",
+              ],
+            },
+          },
+          include: ["src"],
+        }),
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /TypeScript path alias @multi\/\* escapes wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("allows multiple local path targets and an in-project symlink target", async () => {
+  await withFixture(
+    {
+      "zuuli/src/aliased.ts": [
+        'import "@multi/local";',
+        'import "@linked/local";',
+      ].join("\n"),
+    },
+    async (root) => {
+      await mkdir(path.join(root, "zuuli/aliases"), { recursive: true });
+      await symlink(path.join(root, "zuuli/src"), path.join(root, "zuuli/aliases/local"));
+      await writeFile(
+        path.join(root, "zuuli/tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: ".",
+            paths: {
+              "@multi/*": ["./src/*", "./src/nested/*"],
+              "@linked/*": ["./aliases/*"],
+            },
+          },
+          include: ["src"],
+        }),
+      );
+      await assert.doesNotReject(() => assertProjectBoundaries(root));
+    },
+  );
+});
+
+test("rejects an import whose wildcard substitution crosses through a symlink", async () => {
+  await withFixture(
+    { "zuuli/src/aliased.ts": 'import "@linked/classic/local";\n' },
+    async (root) => {
+      await mkdir(path.join(root, "zuuli/aliases"), { recursive: true });
+      await symlink(
+        path.join(root, "zuuallet/src"),
+        path.join(root, "zuuli/aliases/classic"),
+      );
+      await writeFile(
+        path.join(root, "zuuli/tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: ".",
+            paths: { "@linked/*": ["./aliases/*"] },
+          },
+          include: ["src"],
+        }),
+      );
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /TypeScript path alias @linked\/\* resolves outside wallet\/zuuli/,
+      );
+    },
+  );
+});
+
+test("fails loud when an alias target has a broken symlink component", async () => {
+  await withFixture({}, async (root) => {
+    await mkdir(path.join(root, "zuuli/aliases"), { recursive: true });
+    await symlink(
+      path.join(root, "missing-target"),
+      path.join(root, "zuuli/aliases/broken"),
+    );
+    await writeFile(
+      path.join(root, "zuuli/tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: ".",
+          paths: { "@broken/*": ["./aliases/broken/*"] },
+        },
+        include: ["src"],
+      }),
+    );
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /contains a broken symbolic link.*aliases\/broken/,
+    );
+  });
+});
+
 test("allows the named shared alias only when it resolves inside wallet/shared", async () => {
   await withFixture({}, async (root) => {
     await writeFile(
@@ -397,6 +533,21 @@ test("rejects a source symlink that could cross a project boundary", async () =>
   });
 });
 
+test("rejects a project whose source root is itself a symlink", async () => {
+  await withFixture({}, async (root) => {
+    await mkdir(path.join(root, "future-wallet"), { recursive: true });
+    await writeFile(
+      path.join(root, "future-wallet/package.json"),
+      JSON.stringify({ name: "future-wallet", private: true }),
+    );
+    await symlink(path.join(root, "shared/src"), path.join(root, "future-wallet/src"));
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /wallet project source root contains a symbolic link/,
+    );
+  });
+});
+
 test("does not mistake comments or strings for imports", async () => {
   await withFixture(
     {
@@ -422,6 +573,55 @@ test("rejects the named shared package when the app does not declare it", async 
       );
     },
     { zuuli: {}, zuuallet: SHARED_DEPENDENCY },
+  );
+});
+
+for (const [protocol, value] of [
+  ["file", "file:../zuuallet"],
+  ["link", "link:../zuuallet"],
+  ["workspace", "workspace:*"],
+  ["local path", "../zuuallet"],
+]) {
+  test(`rejects a non-shared ${protocol} dependency alias`, async () => {
+    await withFixture({}, async (root) => {
+      const manifestFile = path.join(root, "zuuli/package.json");
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      manifest.dependencies.classic = value;
+      await writeFile(manifestFile, JSON.stringify(manifest));
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        new RegExp(`non-shared dependency alias dependencies\\.classic may not use ${protocol.replace(" ", "\\s")}`),
+      );
+    });
+  });
+}
+
+test("rejects an npm dependency alias to another wallet app, including subpath imports", async () => {
+  await withFixture(
+    { "zuuli/src/alias.ts": 'import "classic/src/local";\n' },
+    async (root) => {
+      const manifestFile = path.join(root, "zuuli/package.json");
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      manifest.dependencies.classic = "npm:zuuallet@1.0.0";
+      await writeFile(manifestFile, JSON.stringify(manifest));
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /dependency alias classic resolves to wallet\/zuuallet/,
+      );
+    },
+  );
+});
+
+test("allows an npm alias to an external dependency", async () => {
+  await withFixture(
+    { "zuuli/src/alias.ts": 'import "react-compat/jsx-runtime";\n' },
+    async (root) => {
+      const manifestFile = path.join(root, "zuuli/package.json");
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      manifest.dependencies["react-compat"] = "npm:react@18.3.1";
+      await writeFile(manifestFile, JSON.stringify(manifest));
+      await assert.doesNotReject(() => assertProjectBoundaries(root));
+    },
   );
 });
 
@@ -482,7 +682,7 @@ for (const [label, mutate, expected] of [
   [
     "source export",
     (manifest) => { manifest.exports = {}; },
-    /wallet\/shared package export "\." must equal "\.\/src\/index\.ts"/,
+    /wallet\/shared package exports must equal exactly/,
   ],
 ]) {
   test(`rejects a shared manifest with the wrong ${label}`, async () => {
@@ -502,6 +702,114 @@ for (const [label, mutate, expected] of [
     });
   });
 }
+
+for (const [label, extraExport] of [
+  ["extra subpath", "./src/helper.ts"],
+  ["escaping subpath", "../zuuallet/src/local.ts"],
+]) {
+  test(`rejects a shared manifest with an ${label} export`, async () => {
+    await withFixture({}, async (root) => {
+      const manifestFile = path.join(root, "shared/package.json");
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      manifest.exports["./helper"] = extraExport;
+      await writeFile(manifestFile, JSON.stringify(manifest));
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /wallet\/shared package exports must equal exactly/,
+      );
+    });
+  });
+}
+
+for (const consumer of REQUIRED_PRODUCTION_CONSUMERS) {
+  test(`rejects a decorative side-effect shared import in ${consumer}`, async () => {
+    await withFixture(
+      { [consumer]: 'import "@free2z/wallet-shared";\n' },
+      async (root) => {
+        await assert.rejects(
+          () => assertProjectBoundaries(root),
+          /production consumer must have one auditable named import/,
+        );
+      },
+    );
+  });
+}
+
+test("rejects a named shared binding that is decorative beside a copied local type", async () => {
+  await withFixture(
+    {
+      "zuuli/src/lib/wallet/bridge.ts": [
+        'import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";',
+        "type DecorativeOne = SensitiveEntryPurpose;",
+        "type DecorativeTwo = SensitiveEntryPurpose;",
+        'type CopiedPurpose = "seedImport" | "seedBackup";',
+        "export const wallet = {",
+        "  beginSensitiveEntry(purpose: CopiedPurpose) { return purpose; },",
+        "  endSensitiveDisplay(purpose: CopiedPurpose) { return purpose; },",
+        "};",
+      ].join("\n"),
+    },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /shared binding SensitiveEntryPurpose must have exact uses .*; found other:TypeReference, other:TypeReference/,
+      );
+    },
+  );
+});
+
+test("does not count a shadowed local name as use of a shared binding", async () => {
+  await withFixture(
+    {
+      "zuuli/src/lib/wallet/bridge.ts": [
+        'import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";',
+        "namespace LocalScope {",
+        '  export type SensitiveEntryPurpose = "copied";',
+        "  export type One = SensitiveEntryPurpose;",
+        "  export type Two = SensitiveEntryPurpose;",
+        "}",
+      ].join("\n"),
+    },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /shared binding SensitiveEntryPurpose must have exact uses .*; found none/,
+      );
+    },
+  );
+});
+
+test("rejects an extra decorative named binding in a production consumer", async () => {
+  await withFixture(
+    {
+      "zuuli/src/lib/wallet/bridge.ts": REQUIRED_PRODUCTION_SOURCES.get(
+        "zuuli/src/lib/wallet/bridge.ts",
+      ).replace("SensitiveEntryPurpose }", "SensitiveEntryPurpose, SensitiveEntrySession }"),
+    },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /production consumer must import exactly SensitiveEntryPurpose/,
+      );
+    },
+  );
+});
+
+test("rejects a production type binding imported as a runtime value", async () => {
+  await withFixture(
+    {
+      "zuuli/src/lib/wallet/bridge.ts": REQUIRED_PRODUCTION_SOURCES.get(
+        "zuuli/src/lib/wallet/bridge.ts",
+      ).replace("import type", "import"),
+    },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /SensitiveEntryPurpose must be a type-only named binding/,
+      );
+    },
+  );
+});
 
 test("rejects a lockfile that does not resolve shared as a workspace link", async () => {
   await withFixture({}, async (root) => {
@@ -529,6 +837,18 @@ test("rejects parent traversal hidden behind the shared package name", async () 
       await assert.rejects(
         () => assertProjectBoundaries(root),
         /shared package import may not traverse parent segments/,
+      );
+    },
+  );
+});
+
+test("rejects an unexported named shared package subpath", async () => {
+  await withFixture(
+    { "zuuli/src/shared.ts": 'import "@free2z/wallet-shared/helper";\n' },
+    async (root) => {
+      await assert.rejects(
+        () => assertProjectBoundaries(root),
+        /@free2z\/wallet-shared exposes only its package root/,
       );
     },
   );

@@ -1,15 +1,78 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
-const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Set([
-  "zuuallet/src/lib/sensitive-entry.ts",
-  "zuuallet/src/lib/tauri.ts",
-  "zuuli/src/lib/wallet/bridge.ts",
-  "zuuli/src/lib/wallet/mock.ts",
-  "zuuli/src/lib/wallet/sensitive-entry.ts",
+const REQUIRED_PRODUCTION_SHARED_CONSUMERS = new Map([
+  [
+    "zuuallet/src/lib/sensitive-entry.ts",
+    new Map([
+      ["SensitiveEntrySession", ["new-assignment:session.current", "type-argument:useRef"]],
+      ["bindSensitiveEntryLifecycle", ["return-call"]],
+      [
+        "SensitiveEntryPurpose",
+        [
+          "parameter:authority.begin:purpose",
+          "parameter:authority.end:purpose",
+          "parameter:useSensitiveMnemonicEntry:purpose",
+        ],
+      ],
+    ]),
+  ],
+  [
+    "zuuallet/src/lib/tauri.ts",
+    new Map([
+      [
+        "SensitiveEntryPurpose",
+        [
+          "parameter:beginSensitiveEntry:purpose",
+          "parameter:endSensitiveDisplay:purpose",
+        ],
+      ],
+    ]),
+  ],
+  [
+    "zuuli/src/lib/wallet/bridge.ts",
+    new Map([
+      [
+        "SensitiveEntryPurpose",
+        [
+          "parameter:wallet.beginSensitiveEntry:purpose",
+          "parameter:wallet.endSensitiveDisplay:purpose",
+        ],
+      ],
+    ]),
+  ],
+  [
+    "zuuli/src/lib/wallet/mock.ts",
+    new Map([
+      [
+        "SensitiveEntryPurpose",
+        [
+          "parameter:mockWallet.beginSensitiveDisplay:purpose",
+          "parameter:mockWallet.endSensitiveDisplay:purpose",
+          "variable:sensitiveDisplayPurpose",
+        ],
+      ],
+    ]),
+  ],
+  [
+    "zuuli/src/lib/wallet/sensitive-entry.ts",
+    new Map([
+      ["SensitiveEntrySession", ["new-assignment:session.current", "type-argument:useRef"]],
+      ["bindSensitiveEntryLifecycle", ["return-call"]],
+      [
+        "SensitiveEntryPurpose",
+        [
+          "parameter:authority.begin:purpose",
+          "parameter:authority.end:purpose",
+          "parameter:useSensitiveMnemonicEntry:purpose",
+        ],
+      ],
+    ]),
+  ],
 ]);
 const SOURCE_EXTENSIONS = new Set([
   ".cjs",
@@ -25,6 +88,47 @@ const SOURCE_EXTENSIONS = new Set([
 function inside(root, candidate) {
   const relative = path.relative(root, candidate);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
+}
+
+function packageName(specifier) {
+  if (specifier.startsWith("@")) return specifier.split("/").slice(0, 2).join("/");
+  return specifier.split("/", 1)[0];
+}
+
+function projectedRealpath(candidate, label) {
+  let current = path.resolve(candidate);
+  const missing = [];
+  while (true) {
+    try {
+      const resolved = realpathSync(current);
+      if (missing.length > 0 && !statSync(resolved).isDirectory()) {
+        throw new Error(`${label} traverses through a non-directory: ${current}`);
+      }
+      return path.resolve(resolved, ...missing.reverse());
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") {
+        throw new Error(`${label} cannot be resolved without ambiguity: ${error.message}`);
+      }
+      try {
+        if (lstatSync(current).isSymbolicLink()) {
+          throw new Error(`${label} contains a broken symbolic link: ${current}`);
+        }
+      } catch (linkError) {
+        if (linkError.code !== "ENOENT" && linkError.code !== "ENOTDIR") throw linkError;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) throw new Error(`${label} has no resolvable ancestor: ${candidate}`);
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function aliasTargetPaths(base, target, capture, label) {
+  const firstStar = target.indexOf("*");
+  const substituted = firstStar < 0 ? target : target.split("*").join(capture);
+  const lexical = path.resolve(base, substituted);
+  return { lexical, canonical: projectedRealpath(lexical, `${label} target ${target}`) };
 }
 
 function scriptKind(file) {
@@ -119,6 +223,9 @@ async function discoverProjects(walletRoot) {
     if (!(await existsAs(manifestFile, "file")) || !(await existsAs(sourceRoot, "directory"))) {
       continue;
     }
+    if ((await lstat(sourceRoot)).isSymbolicLink()) {
+      throw new Error(`wallet project source root contains a symbolic link: ${sourceRoot}`);
+    }
     const manifest = await readJson(manifestFile);
     if (typeof manifest.name !== "string" || !manifest.name.trim()) {
       throw new Error(`${manifestFile}: wallet source project must declare a package name`);
@@ -186,7 +293,14 @@ function pathAliasViolations(project, options, sharedRoot) {
   const violations = [];
   const paths = options.paths ?? {};
   const base = options.pathsBasePath ?? options.baseUrl ?? project.projectRoot;
-  if (options.baseUrl && !inside(project.projectRoot, options.baseUrl)) {
+  const canonicalProjectRoot = realpathSync(project.projectRoot);
+  const canonicalSharedRoot = realpathSync(sharedRoot);
+  const canonicalBase = projectedRealpath(base, `${project.directory}/tsconfig.json base path`);
+  if (
+    options.baseUrl &&
+    (!inside(project.projectRoot, options.baseUrl) ||
+      !inside(canonicalProjectRoot, canonicalBase))
+  ) {
     violations.push(
       `${project.directory}/tsconfig.json: TypeScript baseUrl escapes wallet/${project.directory}`,
     );
@@ -201,17 +315,31 @@ function pathAliasViolations(project, options, sharedRoot) {
         violations.push(`${project.directory}/tsconfig.json: TypeScript path alias ${pattern} has a non-string target`);
         continue;
       }
-      const staticPrefix = target.split("*", 1)[0];
-      const resolved = path.resolve(base, staticPrefix || ".");
       const sharedPattern =
         pattern === SHARED_PACKAGE || pattern === `${SHARED_PACKAGE}/*`;
-      if (sharedPattern && !inside(sharedRoot, resolved)) {
-        violations.push(
-          `${project.directory}/tsconfig.json: named shared TypeScript path alias must resolve inside wallet/shared: ${target}`,
+      let targetPaths;
+      try {
+        targetPaths = aliasTargetPaths(
+          base,
+          target,
+          "__wallet_boundary_probe__",
+          `${project.directory}/tsconfig.json path alias ${pattern}`,
         );
-      } else if (!sharedPattern && !inside(project.projectRoot, resolved)) {
+      } catch (error) {
+        violations.push(error.message);
+        continue;
+      }
+      const boundary = sharedPattern ? sharedRoot : project.projectRoot;
+      const canonicalBoundary = sharedPattern ? canonicalSharedRoot : canonicalProjectRoot;
+      if (
+        !inside(boundary, targetPaths.lexical) ||
+        !inside(canonicalBoundary, targetPaths.canonical)
+      ) {
+        const description = sharedPattern
+          ? "named shared TypeScript path alias must resolve inside wallet/shared"
+          : `TypeScript path alias ${pattern} escapes wallet/${project.directory}`;
         violations.push(
-          `${project.directory}/tsconfig.json: TypeScript path alias ${pattern} escapes wallet/${project.directory}: ${target}`,
+          `${project.directory}/tsconfig.json: ${description}: ${target}`,
         );
       }
     }
@@ -241,10 +369,217 @@ function pathAliasImportViolation(project, sharedRoot, specifier, location) {
       return `${location}: named shared import is shadowed by TypeScript path alias ${pattern}`;
     }
     for (const target of targets) {
-      const resolved = path.resolve(base, target.replace("*", capture));
-      if (sharedPattern ? !inside(sharedRoot, resolved) : !inside(project.projectRoot, resolved)) {
+      let targetPaths;
+      try {
+        targetPaths = aliasTargetPaths(
+          base,
+          target,
+          capture,
+          `${project.directory}/tsconfig.json path alias ${pattern}`,
+        );
+      } catch (error) {
+        return `${location}: ${error.message}`;
+      }
+      const boundary = sharedPattern ? sharedRoot : project.projectRoot;
+      if (
+        !inside(boundary, targetPaths.lexical) ||
+        !inside(realpathSync(boundary), targetPaths.canonical)
+      ) {
         return `${location}: TypeScript path alias ${pattern} resolves outside wallet/${project.directory}: ${specifier}`;
       }
+    }
+  }
+  return null;
+}
+
+function dependencySections(manifest) {
+  return [
+    ["dependencies", manifest.dependencies ?? {}],
+    ["devDependencies", manifest.devDependencies ?? {}],
+    ["optionalDependencies", manifest.optionalDependencies ?? {}],
+    ["peerDependencies", manifest.peerDependencies ?? {}],
+  ];
+}
+
+function dependencyViolations(project, projects) {
+  const violations = [];
+  for (const [section, dependencies] of dependencySections(project.manifest)) {
+    for (const [alias, value] of Object.entries(dependencies)) {
+      if (alias === SHARED_PACKAGE && section === "dependencies" && value === "file:../shared") {
+        continue;
+      }
+      if (typeof value !== "string") {
+        violations.push(`${project.projectRoot}/package.json: ${section}.${alias} must be a string`);
+        continue;
+      }
+      const local = /^(file|link|workspace):(.*)$/.exec(value);
+      const implicitLocal =
+        value.startsWith("./") ||
+        value.startsWith("../") ||
+        path.isAbsolute(value) ||
+        /^[A-Za-z]:[\\/]/.test(value);
+      if (local || implicitLocal) {
+        const protocol = local?.[1] ?? "local path";
+        const localTarget = local?.[2] ?? value;
+        if (protocol !== "workspace") {
+          try {
+            projectedRealpath(
+              path.resolve(project.projectRoot, localTarget),
+              `${project.directory}/package.json ${section}.${alias}`,
+            );
+          } catch (error) {
+            violations.push(error.message);
+            continue;
+          }
+        }
+        violations.push(
+          `${project.projectRoot}/package.json: non-shared dependency alias ${section}.${alias} may not use ${protocol}`,
+        );
+        continue;
+      }
+      const npmAlias = /^npm:(@[^/]+\/[^@]+|[^@/]+)(?:@.+)?$/.exec(value)?.[1];
+      const crossedProject = npmAlias
+        ? projects.find(
+            (candidate) =>
+              candidate.directory !== project.directory &&
+              (npmAlias === candidate.name || npmAlias === candidate.directory),
+          )
+        : null;
+      if (crossedProject) {
+        violations.push(
+          `${project.projectRoot}/package.json: dependency alias ${alias} resolves to wallet/${crossedProject.directory}`,
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+function sharedImportBindings(sourceFile, checker) {
+  const declarations = sourceFile.statements.filter(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      literalModule(statement.moduleSpecifier) === SHARED_PACKAGE,
+  );
+  if (declarations.length !== 1) return null;
+  const clause = declarations[0].importClause;
+  if (!clause || clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) {
+    return null;
+  }
+  const bindings = new Map();
+  for (const element of clause.namedBindings.elements) {
+    if (element.propertyName || bindings.has(element.name.text)) return null;
+    const symbol = checker.getSymbolAtLocation(element.name);
+    if (!symbol) return null;
+    bindings.set(element.name.text, {
+      kind: clause.isTypeOnly || element.isTypeOnly ? "type" : "value",
+      symbol,
+    });
+  }
+  return bindings;
+}
+
+function enclosingParameterOwner(parameter, sourceFile) {
+  for (let current = parameter.parent; current; current = current.parent) {
+    if (ts.isFunctionDeclaration(current)) return current.name?.text ?? "anonymous";
+    if (ts.isArrowFunction(current) && ts.isPropertyAssignment(current.parent)) {
+      let owner = current.parent.parent;
+      while (owner && !ts.isVariableDeclaration(owner)) owner = owner.parent;
+      const objectName = owner?.name?.getText(sourceFile);
+      return `${objectName ? `${objectName}.` : ""}${current.parent.name.getText(sourceFile)}`;
+    }
+    if (ts.isMethodDeclaration(current)) {
+      let owner = current.parent;
+      while (owner && !ts.isVariableDeclaration(owner)) owner = owner.parent;
+      const objectName = owner?.name?.getText(sourceFile);
+      return `${objectName ? `${objectName}.` : ""}${current.name.getText(sourceFile)}`;
+    }
+    if (ts.isPropertySignature(current)) {
+      let owner = current.parent;
+      while (owner && !ts.isInterfaceDeclaration(owner)) owner = owner.parent;
+      const interfaceName = owner?.name?.text;
+      return `${interfaceName ? `${interfaceName}.` : ""}${current.name.getText(sourceFile)}`;
+    }
+  }
+  return "unknown";
+}
+
+function semanticBindingUse(identifier, sourceFile) {
+  const parent = identifier.parent;
+  if (ts.isNewExpression(parent) && parent.expression === identifier) {
+    for (let current = parent.parent; current; current = current.parent) {
+      if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        return `new-assignment:${current.left.getText(sourceFile)}`;
+      }
+      if (ts.isStatement(current)) break;
+    }
+    return "new-unassigned";
+  }
+  if (ts.isCallExpression(parent) && parent.expression === identifier) {
+    for (let current = parent.parent; current; current = current.parent) {
+      if (ts.isReturnStatement(current)) return "return-call";
+      if (ts.isStatement(current)) break;
+    }
+    return "call-unreturned";
+  }
+  for (let current = parent; current; current = current.parent) {
+    if (ts.isParameter(current)) {
+      return `parameter:${enclosingParameterOwner(current, sourceFile)}:${current.name.getText(sourceFile)}`;
+    }
+    if (ts.isCallExpression(current) && current.typeArguments?.some(
+      (argument) => argument.pos <= identifier.pos && argument.end >= identifier.end,
+    )) {
+      return `type-argument:${current.expression.getText(sourceFile)}`;
+    }
+    if (ts.isVariableDeclaration(current)) {
+      return `variable:${current.name.getText(sourceFile)}`;
+    }
+  }
+  return `other:${ts.SyntaxKind[parent.kind]}`;
+}
+
+function sharedBindingUses(sourceFile, bindings, checker) {
+  const names = bindings.keys();
+  const uses = new Map([...names].map((name) => [name, []]));
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node)) return;
+    if (
+      ts.isIdentifier(node) &&
+      uses.has(node.text) &&
+      checker.getSymbolAtLocation(node) === bindings.get(node.text).symbol
+    ) {
+      uses.get(node.text).push(semanticBindingUse(node, sourceFile));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  for (const value of uses.values()) value.sort();
+  return uses;
+}
+
+function productionSharedConsumerViolation(relativeFile, sourceFile, checker) {
+  const expected = REQUIRED_PRODUCTION_SHARED_CONSUMERS.get(relativeFile);
+  if (!expected) return null;
+  const bindings = sharedImportBindings(sourceFile, checker);
+  if (!bindings) {
+    return `${relativeFile}: production consumer must have one auditable named import from ${SHARED_PACKAGE}`;
+  }
+  const expectedNames = [...expected.keys()].sort();
+  if (JSON.stringify([...bindings.keys()].sort()) !== JSON.stringify(expectedNames)) {
+    return `${relativeFile}: production consumer must import exactly ${expectedNames.join(", ")} from ${SHARED_PACKAGE}`;
+  }
+  for (const [name, kinds] of expected) {
+    const expectedImportKind = name === "SensitiveEntryPurpose" ? "type" : "value";
+    if (bindings.get(name).kind !== expectedImportKind) {
+      return `${relativeFile}: ${name} must be a ${expectedImportKind}-only named binding`;
+    }
+  }
+  const uses = sharedBindingUses(sourceFile, bindings, checker);
+  for (const [name, kinds] of expected) {
+    const actual = uses.get(name);
+    const sortedExpected = [...kinds].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(sortedExpected)) {
+      return `${relativeFile}: shared binding ${name} must have exact uses ${sortedExpected.join(", ")}; found ${actual.join(", ") || "none"}`;
     }
   }
   return null;
@@ -267,6 +602,9 @@ function validateSpecifier({ project, projects, sharedRoot, file, sourceFile, im
     if (dependencies[SHARED_PACKAGE] !== "file:../shared") {
       return `${location}: ${project.name} imports ${SHARED_PACKAGE} without its exact declared dependency`;
     }
+    if (specifier !== SHARED_PACKAGE) {
+      return `${location}: ${SHARED_PACKAGE} exposes only its package root: ${specifier}`;
+    }
     const aliasViolation = pathAliasImportViolation(project, sharedRoot, specifier, location);
     if (aliasViolation) return aliasViolation;
     return null;
@@ -278,10 +616,7 @@ function validateSpecifier({ project, projects, sharedRoot, file, sourceFile, im
   const crossedProject = projects.find(
     (candidate) =>
       candidate.directory !== project.directory &&
-      (specifier === candidate.name ||
-        specifier.startsWith(`${candidate.name}/`) ||
-        specifier === candidate.directory ||
-        specifier.startsWith(`${candidate.directory}/`)),
+      (packageName(specifier) === candidate.name || packageName(specifier) === candidate.directory),
   );
   if (crossedProject) {
     return `${location}: ${project.name} imports the ${crossedProject.name} application as a package: ${specifier}`;
@@ -339,20 +674,28 @@ export async function scanProjectBoundaries(walletRoot) {
   if (shared.manifest.type !== "module") {
     throw new Error('wallet/shared package type must equal "module"');
   }
-  if (shared.manifest.exports?.["."] !== "./src/index.ts") {
-    throw new Error('wallet/shared package export "." must equal "./src/index.ts"');
+  if (
+    !shared.manifest.exports ||
+    Array.isArray(shared.manifest.exports) ||
+    typeof shared.manifest.exports !== "object" ||
+    JSON.stringify(shared.manifest.exports) !== JSON.stringify({ ".": "./src/index.ts" })
+  ) {
+    throw new Error(
+      'wallet/shared package exports must equal exactly {".":"./src/index.ts"}',
+    );
   }
 
   const violations = [];
   const productionSharedConsumers = new Set();
   const requiredSharedDependencyProjects = new Set(
-    [...REQUIRED_PRODUCTION_SHARED_CONSUMERS].map((consumer) => consumer.split("/", 1)[0]),
+    [...REQUIRED_PRODUCTION_SHARED_CONSUMERS.keys()].map((consumer) => consumer.split("/", 1)[0]),
   );
   let fileCount = 0;
   let importCount = 0;
   for (const project of projects) {
     const dependencies = project.manifest.dependencies ?? {};
     project.compilerOptions = compilerOptions(project);
+    violations.push(...dependencyViolations(project, projects));
     violations.push(
       ...pathAliasViolations(project, project.compilerOptions, shared.projectRoot),
     );
@@ -362,7 +705,14 @@ export async function scanProjectBoundaries(walletRoot) {
     ) {
       violations.push(`${project.projectRoot}/package.json: ${project.name} must declare ${SHARED_PACKAGE} as file:../shared`);
     }
-    for (const file of await sourceFiles(project.sourceRoot)) {
+    const projectFiles = await sourceFiles(project.sourceRoot);
+    const program = ts.createProgram(projectFiles, {
+      ...project.compilerOptions,
+      allowJs: true,
+      noEmit: true,
+    });
+    const checker = program.getTypeChecker();
+    for (const file of projectFiles) {
       fileCount += 1;
       const source = await readFile(file, "utf8");
       const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true, scriptKind(file));
@@ -370,16 +720,22 @@ export async function scanProjectBoundaries(walletRoot) {
         violations.push(...parsed.parseDiagnostics.map((diagnostic) => formatDiagnostic(parsed, diagnostic)));
         continue;
       }
+      const relativeFile = path.relative(absoluteWalletRoot, file).split(path.sep).join("/");
+      const consumerSource = REQUIRED_PRODUCTION_SHARED_CONSUMERS.has(relativeFile)
+        ? program.getSourceFile(file)
+        : parsed;
+      if (REQUIRED_PRODUCTION_SHARED_CONSUMERS.has(relativeFile) && !consumerSource) {
+        violations.push(`${relativeFile}: production consumer is absent from the TypeScript program`);
+      }
+      const consumerViolation = consumerSource
+        ? productionSharedConsumerViolation(relativeFile, consumerSource, checker)
+        : null;
+      if (consumerViolation) violations.push(consumerViolation);
+      else if (consumerSource && REQUIRED_PRODUCTION_SHARED_CONSUMERS.has(relativeFile)) {
+        productionSharedConsumers.add(relativeFile);
+      }
       for (const imported of importedModules(parsed)) {
         importCount += 1;
-        const specifier = imported.node ? literalModule(imported.node) : null;
-        const relativeFile = path.relative(absoluteWalletRoot, file).split(path.sep).join("/");
-        if (
-          specifier === SHARED_PACKAGE &&
-          REQUIRED_PRODUCTION_SHARED_CONSUMERS.has(relativeFile)
-        ) {
-          productionSharedConsumers.add(relativeFile);
-        }
         const violation = validateSpecifier({
           project,
           projects,
@@ -393,7 +749,7 @@ export async function scanProjectBoundaries(walletRoot) {
       }
     }
   }
-  for (const required of REQUIRED_PRODUCTION_SHARED_CONSUMERS) {
+  for (const required of REQUIRED_PRODUCTION_SHARED_CONSUMERS.keys()) {
     if (!productionSharedConsumers.has(required)) {
       violations.push(`${required}: production consumer must import ${SHARED_PACKAGE}`);
     }
