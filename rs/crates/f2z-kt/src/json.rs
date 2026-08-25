@@ -145,9 +145,42 @@ mod tests {
 
     #[test]
     fn every_container_says_which_half_is_authoritative() {
-        let body = container(b"abc", "");
-        assert!(body.contains("\"authoritative\":\"tls_codec\""));
-        assert!(body.contains("\"tls_codec\":\"YWJj\""));
+        // Both branches, because production takes both: `api.rs`'s `respond`
+        // is called with an empty rendering once and with a real one twice
+        // (zuu#710). The name claims every container, so it asserts every
+        // container.
+        let bare = container(b"abc", "");
+        assert!(bare.contains("\"authoritative\":\"tls_codec\""));
+        assert!(bare.contains("\"tls_codec\":\"YWJj\""));
+        assert!(
+            !bare.contains("\"rendered\""),
+            "an empty rendering must not produce an empty `rendered` object"
+        );
+
+        let with_rendering = container(b"abc", "\"epoch\":7");
+        assert!(with_rendering.contains("\"authoritative\":\"tls_codec\""));
+        assert!(with_rendering.contains("\"tls_codec\":\"YWJj\""));
+        assert!(with_rendering.contains("\"rendered\":{\"epoch\":7}"));
+
+        // The authoritative half is byte-identical across both branches: the
+        // rendering is added beside the `tls_codec` member, never in place of
+        // it, which is the property the module note is about.
+        assert!(bare.contains("\"tls_codec\":\"YWJj\""));
+        assert_eq!(
+            bare.matches("\"tls_codec\"").count(),
+            with_rendering.matches("\"tls_codec\"").count()
+        );
+
+        // Both are well-formed objects that a JSON reader can actually parse:
+        // balanced braces, and the rendering nested rather than spliced.
+        for body in [&bare, &with_rendering] {
+            assert!(body.starts_with('{') && body.ends_with('}'));
+            assert_eq!(
+                body.matches('{').count(),
+                body.matches('}').count(),
+                "unbalanced container: {body}"
+            );
+        }
     }
 
     #[test]

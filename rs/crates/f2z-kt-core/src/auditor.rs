@@ -327,6 +327,115 @@ mod tests {
     }
 
     #[test]
+    fn each_clause_of_the_token_guard_refuses_on_its_own() {
+        // zuu#709. `advance`'s guard is five clauses, and the test above trips
+        // two of them at once with a token for epoch 9 and a zero root, so
+        // deleting any single clause left the suite green. Each case here
+        // differs from the accepted setup in exactly one clause, so each clause
+        // has a case that only it can refuse.
+        let log = TestLog::new();
+        let pinned = |()| {
+            let view = LogView::pin(*log.log_id(), *log.log_pk(), &log.head(0)).unwrap();
+            WitnessState::new(view)
+        };
+        let heads = [log.head(0), log.head(1), log.head(2)];
+        let good_token = || AppendOnlyVerified {
+            from_epoch: 0,
+            to_epoch: 2,
+            to_root: log.head(2).sth.root_hash,
+        };
+
+        // 1. The run does not start where this witness is pinned. The first
+        //    head carries the *pinned root* at the wrong epoch, so the root
+        //    clause cannot be what refuses it — only the epoch clause can.
+        let mut ahead = log.head(1);
+        ahead.sth.root_hash = log.head(0).sth.root_hash;
+        let ahead = [log.resign(ahead), log.head(2)];
+        let mut state = pinned(());
+        assert_eq!(
+            state.advance(
+                &ahead,
+                &AppendOnlyVerified {
+                    from_epoch: 1,
+                    to_epoch: 2,
+                    to_root: log.head(2).sth.root_hash,
+                }
+            ),
+            Err(KtError::Malformed),
+            "a run starting past the pinned epoch must be refused"
+        );
+        assert_eq!(state.view().epoch(), 0);
+
+        // 2. Right epoch, different root: a fork at the pinned point.
+        let mut forked = log.head(0);
+        forked.sth.root_hash = Digest::new([0xfe; 32]);
+        let forked = [log.resign(forked), log.head(1), log.head(2)];
+        let mut state = pinned(());
+        assert_eq!(
+            state.advance(&forked, &good_token()),
+            Err(KtError::Malformed),
+            "a run whose first head forks from the pinned root must be refused"
+        );
+        assert_eq!(state.view().epoch(), 0);
+
+        // 3. The token starts somewhere the run does not.
+        let mut state = pinned(());
+        assert_eq!(
+            state.advance(
+                &heads,
+                &AppendOnlyVerified {
+                    from_epoch: 1,
+                    to_epoch: 2,
+                    to_root: log.head(2).sth.root_hash,
+                }
+            ),
+            Err(KtError::Malformed),
+            "a token whose from_epoch is not the run's first epoch must be refused"
+        );
+        assert_eq!(state.view().epoch(), 0);
+
+        // 4. The token ends somewhere the run does not — same root, so only
+        //    the epoch clause can catch it.
+        let mut state = pinned(());
+        assert_eq!(
+            state.advance(
+                &heads,
+                &AppendOnlyVerified {
+                    from_epoch: 0,
+                    to_epoch: 3,
+                    to_root: log.head(2).sth.root_hash,
+                }
+            ),
+            Err(KtError::Malformed),
+            "a token whose to_epoch is not the run's last epoch must be refused"
+        );
+        assert_eq!(state.view().epoch(), 0);
+
+        // 5. The token ends at the right epoch on a different root — the
+        //    substitution the root clause exists for.
+        let mut state = pinned(());
+        assert_eq!(
+            state.advance(
+                &heads,
+                &AppendOnlyVerified {
+                    from_epoch: 0,
+                    to_epoch: 2,
+                    to_root: Digest::new([0xab; 32]),
+                }
+            ),
+            Err(KtError::Malformed),
+            "a token whose to_root is not the run's last root must be refused"
+        );
+        assert_eq!(state.view().epoch(), 0);
+
+        // …and the setup every case above was one edit away from is accepted,
+        // so none of them is refused for an unrelated reason.
+        let mut state = pinned(());
+        assert!(state.advance(&heads, &good_token()).is_ok());
+        assert_eq!(state.view().epoch(), 2);
+    }
+
+    #[test]
     fn a_halted_witness_stays_halted() {
         let log = TestLog::new();
         let view = LogView::pin(*log.log_id(), *log.log_pk(), &log.head(0)).unwrap();
