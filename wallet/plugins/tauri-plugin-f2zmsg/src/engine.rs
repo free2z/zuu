@@ -769,6 +769,11 @@ impl<B: StorageBackend> Engine<B> {
         let mut inner = self.inner.lock().await;
         let _ = inner.conversation(conversation_id)?;
         inner.groups.remove(conversation_id);
+        // The DAG is derived from the records being removed here. Leaving it
+        // behind would let a re-created conversation with the same id inherit a
+        // graph describing messages that no longer exist — and `msg_id` being a
+        // content hash means a stale vertex looks exactly like a real one.
+        inner.dags.remove(conversation_id);
         inner
             .records()
             .commit(|records| records.remove_conversation(conversation_id))

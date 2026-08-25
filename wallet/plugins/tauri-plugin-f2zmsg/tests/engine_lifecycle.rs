@@ -300,6 +300,27 @@ async fn a_witness_set_with_no_independent_member_keeps_its_disclaimer() {
 }
 
 #[tokio::test]
+async fn a_conversation_that_never_existed_is_refused_by_every_command_that_names_one() {
+    // The derived DAG is built lazily per conversation, so every read path has
+    // a branch where it is asked to build one for a conversation that is not
+    // there. None of them may answer with an empty page — an empty transcript
+    // and an absent conversation are different things, and §3.5 is emphatic
+    // that absence is never inferred.
+    let engine = engine();
+    let wrap_key = enroll(&engine, "alice", 1).await;
+    engine.unlock(&wrap_key).await.expect("unlock");
+
+    assert!(engine.list_messages("nope", 50, None, None).await.is_err());
+    assert!(engine.list_gaps("nope").await.is_err());
+    assert!(engine.get_conversation("nope").await.is_err());
+    assert!(engine.receipt_policy("nope").await.is_err());
+    assert!(engine.ephemeral_hint("nope").await.is_err());
+    assert!(engine.list_purge_requests("nope").await.is_err());
+    assert!(engine.mark_read("nope", "whatever").await.is_err());
+    assert!(engine.leave_conversation("nope").await.is_err());
+}
+
+#[tokio::test]
 async fn unenrolling_requires_a_typed_confirmation_and_then_forgets_everything() {
     let engine = engine();
     enroll(&engine, "alice", 1).await;
