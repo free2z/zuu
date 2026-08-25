@@ -1085,19 +1085,45 @@ mod tests {
         connection
             .execute_batch("CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, ufvk TEXT);")
             .expect("accounts schema");
+        let raw_ufvk_a = valid_ufvk(0);
+        let raw_ufvk_b = valid_ufvk(1);
         connection
             .execute(
                 "INSERT INTO accounts (id, name, ufvk) VALUES (0, 'private', ?1)",
-                [valid_ufvk(0)],
+                [&raw_ufvk_a],
             )
             .expect("uncheckpointed account");
+        connection
+            .execute(
+                "INSERT INTO accounts (id, name, ufvk) VALUES (1, 'private too', ?1)",
+                [&raw_ufvk_b],
+            )
+            .expect("second uncheckpointed account");
         assert!(db.with_extension("sqlite-wal").exists());
         assert!(db.with_extension("sqlite-shm").exists());
         let before = tree_bytes(&tree.root);
 
         let preview = preview(&tree.canonical(), CANONICAL_IDENTIFIER);
+        let serialized = serde_json::to_string(&preview).expect("serialize WAL preview");
+        let fingerprint = |ufvk: &str| {
+            let mut hasher = Sha256::new();
+            hasher.update(b"ZUULI legacy UFVK fingerprint v1\0");
+            hasher.update(ufvk.as_bytes());
+            to_hex(&hasher.finalize())
+        };
+        let fingerprint_a = fingerprint(&raw_ufvk_a);
+        let fingerprint_b = fingerprint(&raw_ufvk_b);
         assert_eq!(preview.state, LegacyImportPreviewState::Ready);
-        assert_eq!(preview.wallets[0].account_count, 1);
+        assert_eq!(preview.wallets[0].account_count, 2);
+        assert_eq!(preview.wallets[0].db_filename, REDACTED);
+        assert_eq!(preview.wallets[0].ufvk_fingerprints, [REDACTED, REDACTED]);
+        for secret in [
+            "wallet.sqlite",
+            fingerprint_a.as_str(),
+            fingerprint_b.as_str(),
+        ] {
+            assert!(!serialized.contains(secret), "WAL preview leaked {secret}");
+        }
         assert!(preview.wallets[0].wal_present);
         assert!(preview.wallets[0].shm_present);
         assert_eq!(tree_bytes(&tree.root), before);
