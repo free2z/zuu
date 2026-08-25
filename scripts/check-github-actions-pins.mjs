@@ -320,6 +320,10 @@ const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
 ];
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
+    "test",
+    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && playwright test",
+  ],
+  [
     "build",
     "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",
   ],
@@ -4704,6 +4708,15 @@ function runFrontendBuildContractMutationTests(repoRoot) {
       `package script ${JSON.stringify(script)} must equal`,
     );
   }
+  addMutation(
+    "live frontend package contract rejects narrowed Vitest and Playwright discovery",
+    "wallet/zuuli/package.json",
+    (manifest) => {
+      manifest.scripts.test =
+        "vitest run src/lib/format.test.ts && playwright test tests/fonts.pw.ts";
+    },
+    'package script "test" must equal',
+  );
   addMutation(
     "live classic package contract rejects a no-op mounted route test",
     "wallet/zuuallet/package.json",

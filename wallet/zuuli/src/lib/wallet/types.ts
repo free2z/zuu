@@ -36,6 +36,24 @@ export interface LegacyAppDataStatus {
   diagnostic: string | null;
 }
 
+export interface LegacyImportPreview {
+  state: "absent" | "ready" | "blocked" | "unsupported";
+  layout: "single" | "multi" | null;
+  wallets: LegacyWalletPreview[];
+  diagnostics: string[];
+}
+
+export interface LegacyWalletPreview {
+  walletId: string;
+  walletName: string;
+  dbFilename: string;
+  accountCount: number;
+  ufvkFingerprints: string[];
+  walPresent: boolean;
+  shmPresent: boolean;
+  encryptedCustodyPresent: boolean;
+}
+
 export interface WalletCleanupStatus {
   pendingOperations: number;
   blockedOperations: number;
