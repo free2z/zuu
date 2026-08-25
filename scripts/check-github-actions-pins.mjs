@@ -301,22 +301,11 @@ const REQUIRED_NATIVE_CLIPPY_INPUTS = [
   "wallet/future-crate/clippy.toml",
   "wallet/future-crate/.clippy.toml",
 ];
-const REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS = [
-  "wallet/shared/sensitive-entry-session.ts",
-  "wallet/zuuallet/package.json",
-  "wallet/zuuallet/package-lock.json",
-  "wallet/zuuallet/src/hooks/useWallet.ts",
-  "wallet/zuuallet/src/lib/mnemonic.ts",
-  "wallet/zuuallet/src/lib/sensitive-entry.ts",
-  "wallet/zuuallet/src/lib/sensitive-seed-session.ts",
-  "wallet/zuuallet/src/lib/sensitive-seed.ts",
-  "wallet/zuuallet/src/lib/tauri.ts",
-  "wallet/zuuallet/src/pages/CreateWallet.tsx",
-  "wallet/zuuallet/src/pages/RestoreWallet.tsx",
-  "wallet/zuuallet/src/pages/Settings.tsx",
-  "wallet/zuuallet/src/pages/Welcome.tsx",
-  "wallet/zuuallet/src/pages/sensitive-entry-routes.test.tsx",
-  "wallet/zuuallet/src/types/index.ts",
+const REQUIRED_WALLET_PROJECT_BOUNDARY_INPUTS = [
+  "wallet/package.json",
+  "wallet/package-lock.json",
+  "wallet/shared/*",
+  "wallet/zuuallet/*",
 ];
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
@@ -401,6 +390,10 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: |",
   "          npm run typecheck",
   "          npm run typecheck:tests",
+  "      - name: Verify wallet project boundaries",
+  "        run: |",
+  "          node --test scripts/project-boundary.node-test.mjs",
+  "          node scripts/project-boundary.mjs",
   "      - name: Verify the viewport-test browser",
   "        run: google-chrome --version",
   "      - name: Test frontend contracts",
@@ -1455,6 +1448,16 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
     "frontend Rust/WASM installation must be exact, pinned, unconditional, and non-decorative",
   );
   exactNamedStep(
+    "Verify wallet project boundaries",
+    [
+      "      - name: Verify wallet project boundaries",
+      "        run: |",
+      "          node --test scripts/project-boundary.node-test.mjs",
+      "          node scripts/project-boundary.mjs",
+    ].join("\n"),
+    "wallet project boundary must be self-tested and enforced exactly",
+  );
+  exactNamedStep(
     "Test frontend contracts",
     [
       "      - name: Test frontend contracts",
@@ -1522,10 +1525,17 @@ function requiredWasmSelectorFailures(relativeFile, lines, changes) {
       );
     }
   }
-  for (const input of REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS) {
-    if (!zuuliPatterns.has(input)) {
+  const allZuuliPatterns = new Set(
+    source
+      .split("\n")
+      .map((line) => line.split("#", 1)[0].trim())
+      .filter((line) => line.endsWith(")"))
+      .flatMap((line) => line.slice(0, -1).split("|")),
+  );
+  for (const input of REQUIRED_WALLET_PROJECT_BOUNDARY_INPUTS) {
+    if (!allZuuliPatterns.has(input)) {
       failures.push(
-        `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the seed boundary for classic input ${input}`,
+        `${relativeFile}:${detectors[0].start + 1}: ZUULI selector must run the project boundary for ${input}`,
       );
     }
   }
@@ -4159,11 +4169,41 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "Zuuallet schema selector must cover scripts/check-librustzcash-compat.mjs",
       source: replaceLast(source, "|scripts/check-librustzcash-compat.mjs", ""),
     },
-    ...REQUIRED_CLASSIC_SEED_BOUNDARY_INPUTS.map((input) => ({
-      name: `real workflow selects classic seed-boundary input ${input}`,
-      needle: `ZUULI selector must run the seed boundary for classic input ${input}`,
+    ...REQUIRED_WALLET_PROJECT_BOUNDARY_INPUTS.map((input) => ({
+      name: `real workflow selects project-boundary input ${input}`,
+      needle: `ZUULI selector must run the project boundary for ${input}`,
       source: source.replace(`|${input}`, ""),
     })),
+    {
+      name: "real workflow rejects a deleted wallet project-boundary verdict",
+      needle: "wallet project boundary must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        [
+          "      - name: Verify wallet project boundaries",
+          "        run: |",
+          "          node --test scripts/project-boundary.node-test.mjs",
+          "          node scripts/project-boundary.mjs",
+          "",
+        ].join("\n"),
+        "",
+      ),
+    },
+    {
+      name: "real workflow rejects a soft-failing wallet project-boundary verdict",
+      needle: "wallet project boundary must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "      - name: Verify wallet project boundaries",
+        "      - name: Verify wallet project boundaries\n        continue-on-error: true",
+      ),
+    },
+    {
+      name: "real workflow rejects a decorative wallet project-boundary verdict",
+      needle: "wallet project boundary must be self-tested and enforced exactly",
+      source: replaceFrontend(
+        "          node scripts/project-boundary.mjs",
+        "          true # node scripts/project-boundary.mjs",
+      ),
+    },
     {
       name: "real workflow requires the unique frontend display context",
       needle:

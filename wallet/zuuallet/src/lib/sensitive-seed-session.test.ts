@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CreatedSeedSession,
   SensitiveSeedSession,
-} from "../../../../zuuallet/src/lib/sensitive-seed-session";
+} from "./sensitive-seed-session";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - wallet/zuuli/**
+      - wallet/shared/**
+      - wallet/package.json
+      - wallet/package-lock.json
       - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
       - scripts/check-rust-toolchain.sh
@@ -22,6 +25,9 @@ on:
     branches: [main]
     paths:
       - wallet/zuuli/**
+      - wallet/shared/**
+      - wallet/package.json
+      - wallet/package-lock.json
       - wallet/plugins/tauri-plugin-zcash/**
       - wallet/rust-toolchain.toml
       - scripts/check-rust-toolchain.sh
