@@ -124,7 +124,9 @@ fn an_update_advances_both_sides_to_the_same_epoch() {
 
     // …and the group still works afterwards, which is the property an Update
     // that merely appeared to succeed would not have.
-    let wire = alice.send(&mut alice_group, b"after the update").expect("send");
+    let wire = alice
+        .send(&mut alice_group, b"after the update")
+        .expect("send");
     assert_eq!(
         bob.receive(&mut bob_group, &wire, b"msg-3", NOW)
             .expect("receive")
@@ -235,7 +237,9 @@ fn both_sides_record_the_protocol_version_beside_the_group() {
         Some(ProtocolVersion::CURRENT)
     );
     assert_eq!(
-        alice.protocol_version(b"a group nobody created").expect("version"),
+        alice
+            .protocol_version(b"a group nobody created")
+            .expect("version"),
         None
     );
 }
@@ -336,7 +340,10 @@ fn a_truncated_message_is_refused_and_leaves_the_group_usable() {
     let wire = alice.send(&mut alice_group, b"hello").expect("send");
     let truncated = &wire[..wire.len() - 1];
 
-    assert!(bob.receive(&mut bob_group, truncated, b"msg-1", NOW).is_err());
+    assert!(
+        bob.receive(&mut bob_group, truncated, b"msg-1", NOW)
+            .is_err()
+    );
 
     let good = alice.send(&mut alice_group, b"hello again").expect("send");
     assert_eq!(
@@ -434,7 +441,10 @@ fn a_key_package_whose_credential_does_not_bind_is_not_added() {
 fn an_expired_credential_is_refused() {
     let engine = device("alice", 11);
     assert!(matches!(
-        engine.validate_members(&engine.create_group(GROUP_ID).expect("group"), NOW + 10_000_000),
+        engine.validate_members(
+            &engine.create_group(GROUP_ID).expect("group"),
+            NOW + 10_000_000
+        ),
         Err(EngineError::Credential(_))
     ));
 }

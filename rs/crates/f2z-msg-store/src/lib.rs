@@ -99,9 +99,9 @@ mod error;
 mod keys;
 mod memory;
 mod provider;
-mod storage_impl;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+mod storage_impl;
 
 pub use backend::{Durability, Op, StorageBackend};
 pub use error::{Result, StoreError};

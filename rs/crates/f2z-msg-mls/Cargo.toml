@@ -25,6 +25,12 @@ sqlite = ["f2z-msg-store/sqlite"]
 # ships; `tests/crash_safety.rs` is what needs it.
 crash-injection = ["f2z-msg-store/crash-injection"]
 
+# The browser build (ADR 0001's web client). OpenMLS refuses to compile for
+# wasm32 without it — it needs JavaScript APIs for secure randomness and for the
+# current time, and says so with a `compile_error!` rather than producing a
+# binary that traps. Never enabled on a native target.
+js = ["openmls/js"]
+
 [lints]
 workspace = true
 
@@ -59,3 +65,15 @@ libcrux-ed25519 = { workspace = true }
 # `version.rs`'s test round-trips a `ProtocolVersion` through the encoding the
 # store uses.
 serde_json = { workspace = true }
+
+# wasm32 only, and only to turn a feature on. See `src/lib.rs`'s note on the
+# browser build: `getrandom` refuses to compile for wasm32-unknown-unknown
+# unless a backend is selected, and neither of the two versions in this graph is
+# reachable through a feature of `openmls` or `openmls_libcrux_crypto`
+# (getrandom 0.3 arrives via `rand_core 0.9`, getrandom 0.4 via `rand 0.10`
+# inside `hpke-rs-libcrux`). Naming both here unifies the feature across the
+# graph; the matching `--cfg getrandom_backend="wasm_js"` is set by the wasm
+# job. Target-gated so a native build gains nothing.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_v03 = { package = "getrandom", version = "0.3", default-features = false, features = ["wasm_js"] }
+getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false, features = ["wasm_js"] }

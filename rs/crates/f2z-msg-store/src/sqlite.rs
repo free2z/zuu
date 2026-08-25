@@ -216,7 +216,8 @@ impl SqliteBackend {
     /// another thread panicked while holding the connection.
     pub fn len(&self) -> Result<u64> {
         let connection = self.connection.lock().map_err(|_| StoreError::Poisoned)?;
-        let count: i64 = connection.query_row("SELECT COUNT(*) FROM mls_kv", [], |row| row.get(0))?;
+        let count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM mls_kv", [], |row| row.get(0))?;
         Ok(count.unsigned_abs())
     }
 

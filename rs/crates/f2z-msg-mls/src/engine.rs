@@ -142,7 +142,10 @@ pub struct MlsEngine<B: StorageBackend> {
 impl<B: StorageBackend> core::fmt::Debug for MlsEngine<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MlsEngine")
-            .field("handle", &String::from_utf8_lossy(self.credential.tbs().handle()))
+            .field(
+                "handle",
+                &String::from_utf8_lossy(self.credential.tbs().handle()),
+            )
             .field("durability", &self.durability())
             .finish_non_exhaustive()
     }
@@ -631,7 +634,10 @@ fn validate_credential(leaf: &LeafNode, now_ms: u64) -> Result<()> {
     )
 }
 
-fn group_signature_key(group: &MlsGroup, sender: Option<LeafNodeIndex>) -> Result<SignaturePublicKey> {
+fn group_signature_key(
+    group: &MlsGroup,
+    sender: Option<LeafNodeIndex>,
+) -> Result<SignaturePublicKey> {
     let Some(index) = sender else {
         // An external sender has no leaf, so there is no device to bind a
         // credential to. This engine does not accept external commits or

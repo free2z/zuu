@@ -32,7 +32,6 @@
 //! Prefix-freeness is worth having here anyway, for a different reason — see
 //! [`LABELS`] and the test beneath it.
 
-
 // --- crypto objects ---------------------------------------------------------
 
 pub(crate) const KEY_PACKAGE_LABEL: &[u8] = b"KeyPackage";

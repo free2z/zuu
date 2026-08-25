@@ -58,15 +58,15 @@ use openmls_traits::storage::{CURRENT_VERSION, StorageProvider, traits};
 
 use crate::backend::StorageBackend;
 use crate::error::{Result, StoreError};
-use crate::keys::{
-    CONFIRMATION_TAG_LABEL, ENCRYPTION_KEY_PAIR_LABEL, EPOCH_KEY_PAIRS_LABEL, EPOCH_SECRETS_LABEL,
-    GROUP_CONTEXT_LABEL, GROUP_STATE_LABEL, JOIN_CONFIG_LABEL, KEY_PACKAGE_LABEL,
-    INTERIM_TRANSCRIPT_HASH_LABEL, MESSAGE_SECRETS_LABEL, OWN_LEAF_NODES_LABEL,
-    OWN_LEAF_NODE_INDEX_LABEL, PROPOSAL_QUEUE_REFS_LABEL, PSK_LABEL, QUEUED_PROPOSAL_LABEL,
-    RESUMPTION_PSK_STORE_LABEL, SIGNATURE_KEY_PAIR_LABEL, TREE_LABEL,
-};
 #[cfg(feature = "extensions-draft-08")]
 use crate::keys::APPLICATION_EXPORT_TREE_LABEL;
+use crate::keys::{
+    CONFIRMATION_TAG_LABEL, ENCRYPTION_KEY_PAIR_LABEL, EPOCH_KEY_PAIRS_LABEL, EPOCH_SECRETS_LABEL,
+    GROUP_CONTEXT_LABEL, GROUP_STATE_LABEL, INTERIM_TRANSCRIPT_HASH_LABEL, JOIN_CONFIG_LABEL,
+    KEY_PACKAGE_LABEL, MESSAGE_SECRETS_LABEL, OWN_LEAF_NODE_INDEX_LABEL, OWN_LEAF_NODES_LABEL,
+    PROPOSAL_QUEUE_REFS_LABEL, PSK_LABEL, QUEUED_PROPOSAL_LABEL, RESUMPTION_PSK_STORE_LABEL,
+    SIGNATURE_KEY_PAIR_LABEL, TREE_LABEL,
+};
 use crate::provider::{F2zStorageProvider, encode};
 
 /// The epoch-key-pairs key: `group_id || epoch || leaf_index`, each
@@ -457,7 +457,10 @@ impl<B: StorageBackend> StorageProvider<CURRENT_VERSION> for F2zStorageProvider<
         &self,
         group_id: &GroupId,
     ) -> Result<Option<GroupContext>> {
-        self.read::<CURRENT_VERSION, _>(GROUP_CONTEXT_LABEL, &encode(group_id, GROUP_CONTEXT_LABEL)?)
+        self.read::<CURRENT_VERSION, _>(
+            GROUP_CONTEXT_LABEL,
+            &encode(group_id, GROUP_CONTEXT_LABEL)?,
+        )
     }
 
     fn interim_transcript_hash<
@@ -542,7 +545,10 @@ impl<B: StorageBackend> StorageProvider<CURRENT_VERSION> for F2zStorageProvider<
         &self,
         group_id: &GroupId,
     ) -> Result<Option<GroupEpochSecrets>> {
-        self.read::<CURRENT_VERSION, _>(EPOCH_SECRETS_LABEL, &encode(group_id, EPOCH_SECRETS_LABEL)?)
+        self.read::<CURRENT_VERSION, _>(
+            EPOCH_SECRETS_LABEL,
+            &encode(group_id, EPOCH_SECRETS_LABEL)?,
+        )
     }
 
     //
@@ -604,10 +610,7 @@ impl<B: StorageBackend> StorageProvider<CURRENT_VERSION> for F2zStorageProvider<
         self.read::<CURRENT_VERSION, _>(KEY_PACKAGE_LABEL, &encode(hash_ref, KEY_PACKAGE_LABEL)?)
     }
 
-    fn psk<
-        PskBundle: traits::PskBundle<CURRENT_VERSION>,
-        PskId: traits::PskId<CURRENT_VERSION>,
-    >(
+    fn psk<PskBundle: traits::PskBundle<CURRENT_VERSION>, PskId: traits::PskId<CURRENT_VERSION>>(
         &self,
         psk_id: &PskId,
     ) -> Result<Option<PskBundle>> {

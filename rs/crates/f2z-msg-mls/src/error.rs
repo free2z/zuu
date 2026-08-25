@@ -106,7 +106,9 @@ impl core::error::Error for CredentialError {}
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Signature => f.write_str("an Ed25519 signature could not be produced or verified"),
+            Self::Signature => {
+                f.write_str("an Ed25519 signature could not be produced or verified")
+            }
             Self::Credential(error) => write!(f, "device credential rejected: {error}"),
             Self::Storage(error) => write!(f, "the local store refused: {error}"),
             Self::Mls(operation) => write!(f, "MLS refused during {operation}"),

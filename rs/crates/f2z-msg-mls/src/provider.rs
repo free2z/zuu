@@ -16,9 +16,9 @@
 //! against NIST ACVP ML-KEM vectors, RFC 7748, RFC 8032 and
 //! draft-connolly-cfrg-xwing-06 Appendix C on nine targets.
 
+use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use openmls_libcrux_crypto::CryptoProvider;
 use openmls_traits::OpenMlsProvider;
-use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 
 use crate::error::{EngineError, Result};
 
@@ -100,6 +100,37 @@ mod tests {
             .crypto()
             .supports(crate::CIPHERSUITE)
             .expect("MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519 must be supported");
+    }
+
+    /// `rs/deny.toml` cites this test by name. Three RustSec advisories against
+    /// `libcrux-aesgcm` (RUSTSEC-2026-0209, -0210, -0211) are accepted there on
+    /// the grounds that AES-GCM is linked but never selected — so the moment
+    /// that stops being true, this fails and the reasoning is revisited rather
+    /// than inherited.
+    #[test]
+    fn the_ciphersuite_uses_chacha20poly1305_and_not_aes_gcm() {
+        use openmls_traits::types::{AeadType, HpkeAeadType};
+
+        assert_eq!(
+            crate::CIPHERSUITE.aead_algorithm(),
+            AeadType::ChaCha20Poly1305
+        );
+        assert_eq!(
+            crate::CIPHERSUITE.hpke_aead_algorithm(),
+            HpkeAeadType::ChaCha20Poly1305
+        );
+    }
+
+    /// The other half of the same argument: `signature_key_gen` is the function
+    /// RUSTSEC-2026-0075 is about, and nothing in this tree calls it. What this
+    /// test can check is that the engine's signing path does not need it — a
+    /// `DeviceSigner` is built from a key its caller already has.
+    #[test]
+    fn a_device_signer_is_built_from_a_key_rather_than_generating_one() {
+        let signer = crate::DeviceSigner::from_private_key([9u8; 32]);
+        let mut expected = [0u8; 32];
+        libcrux_ed25519::secret_to_public(&mut expected, &[9u8; 32]);
+        assert_eq!(signer.public_key(), &expected);
     }
 
     #[test]

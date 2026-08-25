@@ -92,7 +92,9 @@ pub mod provider;
 pub mod signer;
 pub mod version;
 
-pub use credential::{DEVICE_CREDENTIAL_TYPE, DeviceCredential, DeviceCredentialTbs, MAX_HANDLE_LEN};
+pub use credential::{
+    DEVICE_CREDENTIAL_TYPE, DeviceCredential, DeviceCredentialTbs, MAX_HANDLE_LEN,
+};
 pub use engine::{CIPHERSUITE, MlsEngine, Received};
 pub use error::{CredentialError, EngineError, Result};
 pub use exporter::ExportLabel;

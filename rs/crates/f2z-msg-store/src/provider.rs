@@ -197,10 +197,9 @@ impl<B: StorageBackend> F2zStorageProvider<B> {
     ///
     /// Whatever the backend refused with, or [`StoreError::Poisoned`].
     pub fn get_app(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        self.get_raw(&build_key_from_vec::<{ openmls_traits::storage::CURRENT_VERSION }>(
-            APP_RECORD_LABEL,
-            key.to_vec(),
-        ))
+        self.get_raw(&build_key_from_vec::<
+            { openmls_traits::storage::CURRENT_VERSION },
+        >(APP_RECORD_LABEL, key.to_vec()))
     }
 
     /// Whether an application record exists.

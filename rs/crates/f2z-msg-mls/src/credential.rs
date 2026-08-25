@@ -57,7 +57,7 @@
 //! a redaction test that greps for hex passes while everything leaks. See
 //! `f2z-codec`'s `tests/redaction.rs`; `tests/redaction.rs` here checks both.
 
-use tls_codec::{DeserializeBytes, SerializeBytes, TlsByteVecU16, TlsByteVecU8};
+use tls_codec::{DeserializeBytes, SerializeBytes, TlsByteVecU8, TlsByteVecU16};
 
 use crate::error::CredentialError;
 use crate::signer::{PUBLIC_LEN, SIGNATURE_LEN, verify};
@@ -472,7 +472,15 @@ mod tests {
     fn ineligible_handles_are_refused_at_construction() {
         let (_, identity_public) = identity();
         let device = DeviceSigner::from_private_key([22u8; 32]);
-        for handle in ["", "Alice", "al.ice", "al-ice", "al@ice", "ålice", &"a".repeat(31)] {
+        for handle in [
+            "",
+            "Alice",
+            "al.ice",
+            "al-ice",
+            "al@ice",
+            "ålice",
+            &"a".repeat(31),
+        ] {
             assert_eq!(
                 DeviceCredentialTbs::new(
                     &identity_public,

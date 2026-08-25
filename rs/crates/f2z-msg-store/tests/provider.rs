@@ -86,7 +86,12 @@ fn every_single_valued_entry_round_trips_and_deletes() {
             assert_eq!(
                 store.$read::<Gid, Blob>(&group).unwrap(),
                 Some(value.clone()),
-                concat!(stringify!($read), " did not read back what ", stringify!($write), " wrote")
+                concat!(
+                    stringify!($read),
+                    " did not read back what ",
+                    stringify!($write),
+                    " wrote"
+                )
             );
             store.$delete(&group).unwrap();
             assert_eq!(store.$read::<Gid, Blob>(&group).unwrap(), None);
@@ -150,7 +155,12 @@ fn group_state_round_trips_and_deletes() {
 fn a_missing_entry_is_none_rather_than_an_error() {
     let store = provider();
     assert_eq!(store.tree::<Gid, Blob>(&gid()).unwrap(), None);
-    assert!(store.own_leaf_nodes::<Gid, Blob>(&gid()).unwrap().is_empty());
+    assert!(
+        store
+            .own_leaf_nodes::<Gid, Blob>(&gid())
+            .unwrap()
+            .is_empty()
+    );
     assert!(
         store
             .queued_proposal_refs::<Gid, Ref>(&gid())
@@ -263,7 +273,12 @@ fn own_leaf_nodes_append_in_order_and_delete_together() {
     );
 
     store.delete_own_leaf_nodes(&group).unwrap();
-    assert!(store.own_leaf_nodes::<Gid, Blob>(&group).unwrap().is_empty());
+    assert!(
+        store
+            .own_leaf_nodes::<Gid, Blob>(&group)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -339,7 +354,10 @@ fn clearing_the_queue_removes_the_proposal_bodies_and_not_only_the_references() 
     store.clear_proposal_queue::<Gid, Ref>(&group).unwrap();
 
     assert!(
-        store.queued_proposal_refs::<Gid, Ref>(&group).unwrap().is_empty(),
+        store
+            .queued_proposal_refs::<Gid, Ref>(&group)
+            .unwrap()
+            .is_empty(),
         "the references must be gone"
     );
     assert_eq!(
