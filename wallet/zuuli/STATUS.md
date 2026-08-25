@@ -8,7 +8,7 @@ back from the named store. Authenticated, money-moving, wallet, KYC, and media
 operations are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`4bbbf277bf20c2a2e97d440c3a2e2e04e1d4c997` on 2026-08-25. Before a release,
+`72a4d9d8236583dc82b08399536788e45173516d` on 2026-08-25. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
@@ -52,6 +52,7 @@ commit or date forward mechanically.
 | Buy 2Z with card | Authenticated Stripe Checkout creation, hosted Checkout, signed webhook credit, and a server-controlled return bridge | Native OS opener is used in packaged apps; the exact `cash.free2z.zuuli://checkout/return` route is registered on iOS/Android and claimed through the authenticated server bridge | #400 added signed-out gating, exact HTTPS host validation, actionable failures, and opener tests | Anonymous production checkout returned HTTP 403; no signed-in staging/live charge or signed-build return is recorded | **Wired, not runtime-proven.** Native return is blocked on an unshipped backend dependency tracked internally, so no native return has been exercised against a live charge. Track the end-to-end path in [#388](https://github.com/free2z/zuu/issues/388) and exact charge/credit integrity in [#399](https://github.com/free2z/zuu/issues/399). |
 | Buy 2Z with ZEC | Public pricing/quote plus wallet spend and backend settlement/credit | Wallet bridge exists; production settlement is intentionally disabled | Quote parsing and explicit browser-only demo-boundary tests | Pricing and an exact 100-2Z quote returned HTTP 200; no spend/settlement exists | **Mock/demo only for settlement; unavailable in release builds:** [#155](https://github.com/free2z/zuu/issues/155). A price quote is not a top-up. |
 | 2Z Activity | Authenticated Stripe purchase ledger | Native HTTP | Parsing/UI tests do not prove a complete ledger | Protected endpoint returned HTTP 403 anonymously; authenticated ledger not exercised | **Known incomplete:** the endpoint is purchases-only and cannot substantiate tips/AI/PPV totals ([#172](https://github.com/free2z/zuu/issues/172)). |
+| E2EE messaging | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds and its two-instance integration test drives two engines over a real relay | The plugin's own crate gate runs in `zuuli.yml`, separately from the app | **None, and none is possible from a shipped build:** the plugin is absent from `wallet/zuuli/src-tauri/Cargo.toml` and its lock file, and `src-tauri/src/lib.rs` registers `opener`, `dialog`, `deep_link`, `http` and `zcash` and not this one | **Developed and gated; not shipped.** It entered `wallet/plugins/` in [#735](https://github.com/free2z/zuu/pull/735), which makes it release-impacting for audit purposes, but a tester on build 15 or 16 receives no messaging surface. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having messaging on the strength of this crate existing. |
 | Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons | Release identity, icon/store validators, protected state machines, and all-target packaging are gated | A read-only readback at 21:19Z on 2026-08-25 reports TestFlight `0.1.0+15` `uploaded`, `processed` and `availableToInternalTesters` all true, `VALID`/`IN_BETA_TESTING`, related to the one internal-only group. **Play is a build behind: the same-hour audit reports the exact release 15 `present: false`**, because build 15's Android job died before packaging ([#738](https://github.com/free2z/zuu/issues/738)); 14 remains the latest Play internal build. No physical-device acceptance is recorded. The audits found canonical listing copy unmatched and every declared screenshot set absent remotely | **iOS internal delivery is current; Android is one build behind; publication presentation and device acceptance are incomplete.** Store media: [#387](https://github.com/free2z/zuu/issues/387). Physical installs: [#238](https://github.com/free2z/zuu/issues/238). Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
 
 ## Current production and distribution evidence
@@ -108,7 +109,7 @@ Distribution evidence is narrower and explicit:
   `internalBuildState: IN_BETA_TESTING`, `usesNonExemptEncryption: false`, and
   the exact build relationship to the single internal-only group verified. It
   did not read or log tester identities.
-- [Store listing audit 32900401023](https://github.com/free2z/zuu/actions/runs/32900401023)
+- [Store listing audit 32905396443](https://github.com/free2z/zuu/actions/runs/32905396443)
   audited both providers against this audit's source with no provider failure
   and `publicationReady: false`. Apple matched the app identity but no `en-US`
   app-info, beta-info, or exact-version metadata, and both declared screenshot
