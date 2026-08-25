@@ -333,9 +333,9 @@ where
     Ok(LegacyWalletPreview {
         wallet_id: REDACTED.to_owned(),
         wallet_name: REDACTED.to_owned(),
-        db_filename: entry.db_filename.clone(),
+        db_filename: REDACTED.to_owned(),
         account_count,
-        ufvk_fingerprints,
+        ufvk_fingerprints: vec![REDACTED.to_owned(); ufvk_fingerprints.len()],
         wal_present,
         shm_present,
         encrypted_custody_present,
@@ -770,9 +770,9 @@ mod tests {
         assert_eq!(preview.wallets.len(), 1);
         assert_eq!(preview.wallets[0].wallet_id, REDACTED);
         assert_eq!(preview.wallets[0].wallet_name, REDACTED);
-        assert_eq!(preview.wallets[0].db_filename, "wallet.sqlite");
+        assert_eq!(preview.wallets[0].db_filename, REDACTED);
         assert_eq!(preview.wallets[0].account_count, 1);
-        assert_eq!(preview.wallets[0].ufvk_fingerprints[0].len(), 64);
+        assert_eq!(preview.wallets[0].ufvk_fingerprints, [REDACTED]);
         assert!(preview.wallets[0].encrypted_custody_present);
         for secret in [
             raw_ufvk.as_str(),
@@ -780,6 +780,7 @@ mod tests {
             "unpublished-id",
             "private encrypted phrase",
             "private salt",
+            "wallet.sqlite",
         ] {
             assert!(!serialized.contains(secret), "preview leaked {secret}");
         }
@@ -791,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_layout_preserves_exact_db_names_but_redacts_manifest_identity() {
+    fn multi_layout_redacts_all_bridge_identity() {
         let tree = TestTree::new();
         fs::create_dir(tree.canonical()).expect("canonical");
         fs::create_dir(tree.legacy()).expect("legacy");
@@ -822,8 +823,16 @@ mod tests {
             serde_json::to_vec(&manifest).expect("manifest"),
         )
         .expect("write manifest");
-        create_db(&tree.legacy().join("wallet_a.sqlite"), &[valid_ufvk(0)]);
-        create_db(&tree.legacy().join("wallet_b.sqlite"), &[valid_ufvk(1)]);
+        let raw_ufvk_a = valid_ufvk(0);
+        let raw_ufvk_b = valid_ufvk(1);
+        create_db(
+            &tree.legacy().join("wallet_a.sqlite"),
+            std::slice::from_ref(&raw_ufvk_a),
+        );
+        create_db(
+            &tree.legacy().join("wallet_b.sqlite"),
+            std::slice::from_ref(&raw_ufvk_b),
+        );
 
         let preview = preview(&tree.canonical(), CANONICAL_IDENTIFIER);
         let serialized = serde_json::to_string(&preview).expect("serialize preview");
@@ -835,13 +844,23 @@ mod tests {
                 .iter()
                 .map(|wallet| wallet.db_filename.as_str())
                 .collect::<Vec<_>>(),
-            ["wallet_a.sqlite", "wallet_b.sqlite"]
+            [REDACTED, REDACTED]
+        );
+        assert!(
+            preview
+                .wallets
+                .iter()
+                .all(|wallet| { wallet.ufvk_fingerprints == [REDACTED] })
         );
         for secret in [
             "very-secret-wallet-a",
             "very-secret-wallet-b",
             "Alice private wallet",
             "Bob private wallet",
+            "wallet_a.sqlite",
+            "wallet_b.sqlite",
+            raw_ufvk_a.as_str(),
+            raw_ufvk_b.as_str(),
         ] {
             assert!(!serialized.contains(secret));
         }
