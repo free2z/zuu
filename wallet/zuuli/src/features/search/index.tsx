@@ -88,7 +88,7 @@ export default function SearchFeature() {
       {/* Search box */}
       <div className="relative mb-6 max-w-2xl">
         <SearchIcon
-          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
           aria-hidden
         />
         <Input
@@ -107,7 +107,7 @@ export default function SearchFeature() {
           placeholder="Search creators and pages…"
           aria-label={SEARCH_INPUT_LABEL}
           data-custom-search-clear
-          className="h-12 pl-10 pr-14 text-base"
+          className="h-12 ps-10 pe-14 text-base"
         />
         {query ? (
           <button
@@ -119,7 +119,7 @@ export default function SearchFeature() {
               inputRef.current?.focus();
             }}
             aria-label="Clear search"
-            className="min-tap absolute right-1.5 top-1/2 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-tap absolute end-1.5 top-1/2 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
@@ -148,7 +148,7 @@ export default function SearchFeature() {
         >
           <TabsList>
             <TabsTrigger value="creators">
-              <Users className="mr-1.5 h-4 w-4" aria-hidden />
+              <Users className="me-1.5 h-4 w-4" aria-hidden />
               Creators
               <ResultCountBadge
                 n={creatorCount}
@@ -157,7 +157,7 @@ export default function SearchFeature() {
               />
             </TabsTrigger>
             <TabsTrigger value="pages">
-              <FileText className="mr-1.5 h-4 w-4" aria-hidden />
+              <FileText className="me-1.5 h-4 w-4" aria-hidden />
               Pages
               <ResultCountBadge
                 n={pageCount}
@@ -281,7 +281,7 @@ function ResultCountBadge({
 }) {
   if (loading || !available) return null;
   return (
-    <span className="ml-2 rounded-full bg-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+    <span className="ms-2 rounded-full bg-muted px-1.5 text-xs font-semibold bidi-number tabular-nums text-muted-foreground">
       {n}
     </span>
   );
@@ -307,7 +307,7 @@ function SearchLoadMore({
   return (
     <div className="mt-5 flex flex-col items-center gap-2">
       <span
-        className="text-sm tabular-nums text-muted-foreground"
+        className="text-sm bidi-number tabular-nums text-muted-foreground"
         aria-live="polite"
       >
         {loaded} of {total} {corpus}
@@ -373,7 +373,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {typeof creator.zpages === "number" ? (
-            <span className="tabular-nums">{creator.zpages} pages</span>
+            <span className="bidi-number tabular-nums">{creator.zpages} pages</span>
           ) : null}
           {creator.member_price ? (
             // "Membership": this is what it costs to SUBSCRIBE to this
@@ -381,7 +381,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
             // rather than showing a bare, ambiguous "200 2Z/mo".
             <Badge
               variant="sub"
-              className="max-w-full tabular-nums"
+              className="max-w-full bidi-number tabular-nums"
               aria-label={`Membership price: ${formatTuzis(creator.member_price)} per month`}
             >
               Membership · {formatTuzis(creator.member_price)}/mo

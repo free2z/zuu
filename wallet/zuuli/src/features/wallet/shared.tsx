@@ -117,25 +117,25 @@ export function AmountDisplay({
     lg: {
       whole: "text-4xl min-[360px]:text-5xl md:text-6xl",
       fraction: "text-xl min-[360px]:text-2xl md:text-3xl",
-      unit: "ml-2 text-sm md:text-base",
+      unit: "ms-2 text-sm md:text-base",
     },
     md: {
       whole: "text-3xl",
       fraction: "text-lg",
-      unit: "ml-1.5 text-xs",
+      unit: "ms-1.5 text-xs",
     },
     sm: {
       whole: "text-2xl",
       fraction: "text-base",
-      unit: "ml-1 text-xs",
+      unit: "ms-1 text-xs",
     },
   } as const;
   const step = sizes[size];
 
   return (
-    <div className="numeral flex min-w-0 items-baseline leading-none">
+    <div className="bidi-number numeral flex min-w-0 items-baseline leading-none">
       {sign ? (
-        <span className={cn("mr-1 text-muted-foreground", step.fraction)}>
+        <span className={cn("me-1 text-muted-foreground", step.fraction)}>
           {sign}
         </span>
       ) : null}

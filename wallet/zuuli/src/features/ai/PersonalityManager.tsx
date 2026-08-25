@@ -360,7 +360,7 @@ function PersonalityForm({
             placeholder="You are..."
             className="min-h-[140px] resize-y"
           />
-          <p className="text-xs tabular-nums text-muted-foreground">
+          <p className="text-xs bidi-number tabular-nums text-muted-foreground">
             {systemMessage.length} / {MESSAGE_MAX}
           </p>
         </div>

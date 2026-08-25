@@ -283,7 +283,7 @@ export function ZcashLoginFlow({
               {!isLast && (
                 <span
                   className={cn(
-                    "absolute left-4 top-9 h-[calc(100%-1.5rem)] w-px -translate-x-1/2 transition-colors",
+                    "absolute start-4 top-9 h-[calc(100%-1.5rem)] w-px -translate-x-1/2 transition-colors",
                     status === "done" ? "bg-success/40" : "bg-border",
                   )}
                   aria-hidden

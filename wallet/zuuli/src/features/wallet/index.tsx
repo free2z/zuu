@@ -105,7 +105,7 @@ function CleanupNotice() {
           {cleanup.diagnostics.length > 0 && cleanup.pendingOperations > 0 && (
             <details className="mt-2 text-xs text-muted-foreground">
               <summary className="min-tap inline-flex cursor-pointer items-center">Technical details</summary>
-              <ul className="mt-1 list-disc space-y-1 pl-5">
+              <ul className="mt-1 list-disc space-y-1 ps-5">
                 {cleanup.diagnostics.map((diagnostic) => (
                   <li key={diagnostic}>{diagnostic}</li>
                 ))}

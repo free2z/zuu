@@ -242,7 +242,7 @@ function BackLink() {
       to="/articles"
       className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <ArrowLeft className="h-4 w-4" aria-hidden />
+      <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
       All articles
     </Link>
   );

@@ -247,7 +247,7 @@ export function Room() {
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
 
-            <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2">
+            <div className="absolute start-4 top-4 flex flex-wrap items-center gap-2">
               {stream.live ? (
                 <Badge variant="live" className="gap-1.5 shadow">
                   <span
@@ -268,9 +268,9 @@ export function Room() {
             </div>
 
             {stream.live ? (
-              <div className="absolute right-4 top-4 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
+              <div className="absolute end-4 top-4 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
                 <Users className="h-3.5 w-3.5" aria-hidden />
-                <span className="tabular-nums">
+                <span className="bidi-number tabular-nums">
                   {(stream.participants + (ticket ? 1 : 0)).toLocaleString()}
                 </span>{" "}
                 watching
@@ -373,7 +373,7 @@ function BackLink() {
       to="/live"
       className="min-tap inline-flex items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <ArrowLeft className="h-4 w-4" aria-hidden />
+      <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
       All livestreams
     </Link>
   );
@@ -672,7 +672,7 @@ function JoinPanel({
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Membership</span>
-                <span className="font-semibold tabular-nums">
+                <span className="font-semibold bidi-number tabular-nums">
                   {hasMembershipPrice
                     ? `${formatTuzis(membershipPrice!)}/30 days`
                     : "Unavailable"}
@@ -681,7 +681,7 @@ function JoinPanel({
               {user ? (
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground">Current balance</span>
-                  <span className="font-medium tabular-nums">
+                  <span className="font-medium bidi-number tabular-nums">
                     {formatTuzis(tuzis)}
                   </span>
                 </div>
@@ -761,7 +761,7 @@ function JoinPanel({
                     Buy more 2Zs
                   </Link>
                 </Button>
-                <p className="text-center text-xs text-muted-foreground tabular-nums">
+                <p className="text-center text-xs text-muted-foreground bidi-number tabular-nums">
                   You have {formatTuzis(tuzis)} · need{" "}
                   {formatTuzis(membershipPrice!)}
                 </p>
@@ -801,7 +801,7 @@ function JoinPanel({
                 <div className="space-y-3 rounded-lg border border-border bg-background/50 px-4 py-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">Monthly price</span>
-                    <span className="font-semibold tabular-nums">
+                    <span className="font-semibold bidi-number tabular-nums">
                       {formatTuzis(membershipPrice ?? 0)}
                     </span>
                   </div>
@@ -809,14 +809,14 @@ function JoinPanel({
                     <span className="text-muted-foreground">
                       Current balance
                     </span>
-                    <span className="font-medium tabular-nums">
+                    <span className="font-medium bidi-number tabular-nums">
                       {formatTuzis(tuzis)}
                     </span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">Balance after</span>
-                    <span className="font-semibold tabular-nums">
+                    <span className="font-semibold bidi-number tabular-nums">
                       {formatTuzis(Math.max(0, tuzis - (membershipPrice ?? 0)))}
                     </span>
                   </div>
@@ -855,7 +855,7 @@ function JoinPanel({
                 <Coins className="h-4 w-4 text-warning" aria-hidden />
                 Entry price
               </span>
-              <span className="text-base font-semibold tabular-nums text-warning">
+              <span className="text-base font-semibold bidi-number tabular-nums text-warning">
                 {formatTuzis(price)}
               </span>
             </div>
@@ -898,7 +898,7 @@ function JoinPanel({
                     Buy more 2Zs
                   </Link>
                 </Button>
-                <p className="text-center text-xs text-muted-foreground tabular-nums">
+                <p className="text-center text-xs text-muted-foreground bidi-number tabular-nums">
                   You have {formatTuzis(tuzis)} · need {formatTuzis(price)}
                 </p>
               </div>
@@ -920,7 +920,7 @@ function JoinPanel({
                   <span className="text-sm text-muted-foreground">
                     Balance after
                   </span>
-                  <span className="text-sm font-semibold tabular-nums">
+                  <span className="text-sm font-semibold bidi-number tabular-nums">
                     {formatTuzis(Math.max(0, tuzis - price))}
                   </span>
                 </div>
@@ -1033,7 +1033,7 @@ function ConnectedDetails({
       <Separator className="my-3" />
       <ParticipantStrip count={stream.participants + 1} />
       <Button variant="outline" className="mt-4 w-full gap-2" onClick={onLeave}>
-        <LogOut className="h-4 w-4" aria-hidden />
+        <LogOut className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
         Leave
       </Button>
     </div>
@@ -1086,7 +1086,7 @@ function HostControls({
         </Badge>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="tabular-nums">
+          <span className="bidi-number tabular-nums">
             {(stream.participants + 1).toLocaleString()}
           </span>{" "}
           watching
@@ -1148,7 +1148,7 @@ function ParticipantStrip({ count }: { count: number }) {
       </div>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Users className="h-3.5 w-3.5" aria-hidden />
-        <span className="tabular-nums font-medium text-foreground">
+        <span className="bidi-number tabular-nums font-medium text-foreground">
           {count.toLocaleString()}
         </span>
         {count === 1 ? "person watching" : "people watching"}

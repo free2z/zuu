@@ -45,7 +45,7 @@ export function StreamCard({ stream }: { stream: Livestream }) {
           aria-hidden
         />
 
-        <div className="absolute left-3 top-3 flex flex-wrap items-center gap-2">
+        <div className="absolute start-3 top-3 flex flex-wrap items-center gap-2">
           {stream.live ? (
             <Badge variant="live" className="gap-1.5 shadow-sm">
               <span
@@ -72,9 +72,9 @@ export function StreamCard({ stream }: { stream: Livestream }) {
         </div>
 
         {stream.live ? (
-          <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur">
+          <div className="absolute bottom-3 end-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur">
             <Users className="h-3.5 w-3.5" aria-hidden />
-            <span className="tabular-nums">
+            <span className="bidi-number tabular-nums">
               {stream.participants.toLocaleString()}
             </span>
           </div>
@@ -119,7 +119,7 @@ export function StreamCard({ stream }: { stream: Livestream }) {
             </div>
           </div>
           {isPaid ? (
-            <span className="shrink-0 text-xs font-semibold tabular-nums text-warning">
+            <span className="shrink-0 text-xs font-semibold bidi-number tabular-nums text-warning">
               {formatTuzis(stream.price_tuzis)}
             </span>
           ) : stream.kind === "broadcast" ? (

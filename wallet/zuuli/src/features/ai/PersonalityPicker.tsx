@@ -47,15 +47,15 @@ export function PersonalityPicker({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pr-2 text-left"
+          className="min-h-10 min-w-0 max-w-full justify-start gap-2.5 whitespace-normal py-1.5 pe-2 text-start"
           disabled={disabled}
           aria-label="Select AI personality"
         >
           <UserRound className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <span className="min-w-0 flex-1 break-words text-left font-medium">
+          <span className="min-w-0 flex-1 break-words text-start font-medium">
             {value?.display_name ?? "Default persona"}
           </span>
-          <ChevronsUpDown className="ml-auto text-muted-foreground" aria-hidden />
+          <ChevronsUpDown className="ms-auto text-muted-foreground" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[min(22rem,90vw)]">
@@ -143,7 +143,7 @@ function PersonalityItem({
         <Tooltip>
           <TooltipTrigger asChild>
             <p
-              className="mt-0.5 line-clamp-1 text-left text-xs text-muted-foreground"
+              className="mt-0.5 line-clamp-1 text-start text-xs text-muted-foreground"
               data-user-content
             >
               {personality.system_message}
@@ -152,7 +152,7 @@ function PersonalityItem({
           <TooltipContent
             side="bottom"
             align="start"
-            className={cn("max-w-xs text-left")}
+            className={cn("max-w-xs text-start")}
           >
             {personality.system_message}
           </TooltipContent>

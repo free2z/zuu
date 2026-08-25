@@ -108,7 +108,7 @@ export function GoLiveDialog() {
         className="gap-2"
         onClick={() => navigate("/login")}
       >
-        <LogIn className="h-4 w-4" aria-hidden />
+        <LogIn className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
         Log in to go live
       </Button>
     );
@@ -149,7 +149,7 @@ export function GoLiveDialog() {
                     aria-checked={active}
                     onClick={() => setKind(k)}
                     className={cn(
-                      "min-tap flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "min-tap flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-start transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
                         ? "border-primary/60 bg-primary/10"
                         : "border-border bg-background/40 hover:border-primary/30",
@@ -187,13 +187,13 @@ export function GoLiveDialog() {
                 maxLength={tuziInputMaxLength(MAX_PPV_PRICE_TUZIS)}
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                className="tabular-nums"
+                className="bidi-number tabular-nums"
                 aria-describedby="go-live-price-error go-live-price-summary"
                 aria-invalid={!validPrice}
               />
               <p id="go-live-price-summary" className="text-xs text-muted-foreground">
                 Viewers spend{" "}
-                <span className="font-medium text-warning tabular-nums">
+                <span className="font-medium text-warning bidi-number tabular-nums">
                   {priceNum !== null && priceNum > 0 ? formatTuzis(priceNum) : "—"}
                 </span>{" "}
                 to join.

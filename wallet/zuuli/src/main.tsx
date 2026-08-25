@@ -2,8 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { installDocumentDirection } from "./lib/document-direction";
 import { runWasmSpike } from "./lib/wasm-spike";
 import "./index.css";
+
+installDocumentDirection();
 
 /**
  * Minimal, dependency-free fallback shown only if the ENTIRE app throws during
@@ -26,8 +29,10 @@ function RootFallback() {
         alignItems: "center",
         justifyContent: "center",
         gap: "1rem",
-        padding:
-          "calc(2rem + var(--safe-area-top)) calc(2rem + var(--safe-area-right)) calc(2rem + var(--safe-area-bottom)) calc(2rem + var(--safe-area-left))",
+        paddingBlockStart: "calc(2rem + var(--safe-area-top))",
+        paddingBlockEnd: "calc(2rem + var(--safe-area-bottom))",
+        paddingInlineStart: "calc(2rem + var(--safe-area-inline-start))",
+        paddingInlineEnd: "calc(2rem + var(--safe-area-inline-end))",
         background: "#121212",
         color: "#f5f5f5",
         fontFamily: "system-ui, sans-serif",

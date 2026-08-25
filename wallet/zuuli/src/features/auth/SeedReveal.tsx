@@ -59,7 +59,7 @@ export function SeedReveal({
               key={`${i}-${word}`}
               className="flex items-center gap-2 rounded-md border border-border bg-background/60 px-3 py-2"
             >
-              <span className="w-5 shrink-0 text-right font-mono text-xs text-muted-foreground">
+              <span className="w-5 shrink-0 text-end font-mono text-xs text-muted-foreground">
                 {i + 1}
               </span>
               <span className="min-w-0 break-words font-mono text-sm">

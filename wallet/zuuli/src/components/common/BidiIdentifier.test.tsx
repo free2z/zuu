@@ -96,7 +96,7 @@ describe("opaque identifier production inventory", () => {
     {
       name: "raw payment recipient",
       file: "src/features/wallet/Send.tsx" as const,
-      before: `<BidiIdentifier\n                  value={proposal.review.payments[0]?.recipient ?? ""}\n                  className="mono-id min-w-0 break-all text-right font-mono text-xs"\n                  data-testid="send-review-recipient"\n                />`,
+      before: `<BidiIdentifier\n                  value={proposal.review.payments[0]?.recipient ?? ""}\n                  className="mono-id min-w-0 break-all text-end font-mono text-xs"\n                  data-testid="send-review-recipient"\n                />`,
       after: `<span>{proposal.review.payments[0]?.recipient ?? ""}</span>`,
     },
     {

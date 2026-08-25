@@ -30,11 +30,11 @@ export function BalanceHero() {
         {/* 2Z balance */}
         <div className="space-y-2.5">
           <div className="eyebrow text-muted-foreground">2Z balance</div>
-          <div className="numeral flex min-w-0 items-baseline leading-none">
+          <div className="bidi-number numeral flex min-w-0 items-baseline leading-none">
             <span className="text-4xl font-semibold text-foreground md:text-5xl">
               {tuzis.toLocaleString()}
             </span>
-            <span className="ml-2 text-sm font-semibold tracking-[0.06em] text-tuzi md:text-base">
+            <span className="ms-2 text-sm font-semibold tracking-[0.06em] text-tuzi md:text-base">
               2Z
             </span>
           </div>
@@ -52,18 +52,18 @@ export function BalanceHero() {
           {walletLoading && !balance ? (
             <Skeleton className="h-9 w-32" />
           ) : (
-            <div className="numeral flex min-w-0 items-baseline leading-none">
+            <div className="bidi-number numeral flex min-w-0 items-baseline leading-none">
               <span className="text-2xl font-semibold text-foreground md:text-3xl">
                 {formatZecTrim(balance?.spendable ?? 0)}
               </span>
-              <span className="ml-1.5 text-xs font-semibold tracking-[0.06em] text-zec md:text-sm">
+              <span className="ms-1.5 text-xs font-semibold tracking-[0.06em] text-zec md:text-sm">
                 ZEC
               </span>
             </div>
           )}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Badge variant="zec">spendable</Badge>
-            <ArrowRight className="h-3 w-3" aria-hidden />
+            <ArrowRight className="rtl:-scale-x-100 h-3 w-3" aria-hidden />
             <span>fund 2Zs instantly</span>
           </div>
         </div>

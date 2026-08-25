@@ -54,7 +54,7 @@ function CreatorCard({ creator }: { creator: SimpleCreator }) {
         ) : null}
         <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
           View profile
-          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+          <ArrowUpRight className="rtl:-scale-x-100 h-3.5 w-3.5" aria-hidden />
         </span>
       </div>
     </Link>

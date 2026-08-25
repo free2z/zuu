@@ -30,7 +30,7 @@ const VALUES = [
 
 export function BrandPanel() {
   return (
-    <aside className="relative hidden flex-col justify-between border-r border-border bg-background p-10 lg:flex xl:p-14">
+    <aside className="relative hidden flex-col justify-between border-e border-border bg-background p-10 lg:flex xl:p-14">
       <Wordmark />
 
       <div className="relative max-w-md space-y-10">

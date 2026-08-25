@@ -54,7 +54,7 @@ export function Receive() {
             <Skeleton className="h-9 w-full" />
           )}
 
-          <p className="flex items-start gap-2 text-left text-xs text-muted-foreground">
+          <p className="flex items-start gap-2 text-start text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-zec" />
             Unified addresses receive shielded ZEC and support encrypted memos,
             keeping the amount and sender private on-chain.

@@ -67,7 +67,7 @@ export function CommentsSection({
         <h2 id="comments-heading" className="text-xl font-bold tracking-tight">
           Comments
           {status === "ready" && count > 0 ? (
-            <span className="ml-2 text-base font-normal tabular-nums text-muted-foreground">
+            <span className="ms-2 text-base font-normal bidi-number tabular-nums text-muted-foreground">
               {count}
             </span>
           ) : null}

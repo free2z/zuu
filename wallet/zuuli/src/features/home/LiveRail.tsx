@@ -35,7 +35,7 @@ function StreamCard({ stream }: { stream: Livestream }) {
         style={{ background: coverTone(stream.username + stream.title) }}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-        <div className="absolute left-3 top-3 flex items-center gap-2">
+        <div className="absolute start-3 top-3 flex items-center gap-2">
           <Badge variant="live" className="gap-1.5">
             <span
               className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live"
@@ -45,9 +45,9 @@ function StreamCard({ stream }: { stream: Livestream }) {
           </Badge>
           <Badge variant={kind.variant}>{kind.label}</Badge>
         </div>
-        <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur">
+        <div className="absolute bottom-3 end-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="tabular-nums">
+          <span className="bidi-number tabular-nums">
             {stream.participants.toLocaleString()}
           </span>
         </div>
@@ -64,7 +64,7 @@ function StreamCard({ stream }: { stream: Livestream }) {
             @{stream.username}
           </span>
           {stream.kind === "ppv" && stream.price_tuzis > 0 ? (
-            <span className="shrink-0 text-xs font-semibold tabular-nums text-warning">
+            <span className="shrink-0 text-xs font-semibold bidi-number tabular-nums text-warning">
               {formatTuzis(stream.price_tuzis)}
             </span>
           ) : (

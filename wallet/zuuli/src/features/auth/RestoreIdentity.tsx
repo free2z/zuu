@@ -105,7 +105,7 @@ export function RestoreIdentity({
           disabled={restoring}
           aria-label="Back to identity choices"
         >
-          <ArrowLeft aria-hidden />
+          <ArrowLeft className="rtl:-scale-x-100" aria-hidden />
         </Button>
         <div className="min-w-0">
           <h2 className="font-semibold">Use existing identity</h2>
@@ -157,7 +157,7 @@ export function RestoreIdentity({
           <span className="min-w-0">Never sent to free2z.</span>
           <span
             className={cn(
-              "shrink-0 tabular-nums",
+              "shrink-0 bidi-number tabular-nums",
               wordCount && supportedWordCount && "text-success",
             )}
           >
@@ -182,7 +182,7 @@ export function RestoreIdentity({
           onChange={(event) => setBirthday(event.target.value.replace(/[^\d]/g, ""))}
           inputMode="numeric"
           placeholder="Faster wallet scan"
-          className="min-tap tabular-nums"
+          className="min-tap bidi-number tabular-nums"
           disabled={restoring}
         />
       </div>

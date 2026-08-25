@@ -521,13 +521,13 @@ export function Send() {
                 type="text"
                 disabled={formLocked}
                 className={cn(
-                  "pr-14 tabular-nums",
+                  "pe-14 bidi-number tabular-nums",
                   (invalidAmount || overBalance) && "border-destructive",
                 )}
                 aria-describedby="amount-error"
                 aria-invalid={invalidAmount || overBalance || undefined}
               />
-              <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <div className="pointer-events-none absolute inset-y-0 end-3 flex items-center">
                 <ZecTag className="text-xs" />
               </div>
             </div>
@@ -555,7 +555,7 @@ export function Send() {
               {canReceiveMemo ? (
                 <span
                   className={cn(
-                    "text-xs tabular-nums text-muted-foreground",
+                    "text-xs bidi-number tabular-nums text-muted-foreground",
                     memoBytes >= MEMO_MAX_BYTES && "text-destructive",
                   )}
                 >
@@ -668,18 +668,18 @@ export function Send() {
               <Row label="To">
                 <BidiIdentifier
                   value={proposal.review.payments[0]?.recipient ?? ""}
-                  className="mono-id min-w-0 break-all text-right font-mono text-xs"
+                  className="mono-id min-w-0 break-all text-end font-mono text-xs"
                   data-testid="send-review-recipient"
                 />
               </Row>
               <Row label="Amount">
-                <span className="tabular-nums" data-testid="send-review-amount">
+                <span className="bidi-number tabular-nums" data-testid="send-review-amount">
                   {formatZecDisplay(proposal.review.payments[0]?.amount ?? 0)}
                 </span>
               </Row>
               <Row label="Network fee">
                 <span
-                  className="tabular-nums text-muted-foreground"
+                  className="bidi-number tabular-nums text-muted-foreground"
                   title={proposal.review.feePolicy}
                 >
                   {formatZecDisplay(proposal.review.fee)}
@@ -688,7 +688,7 @@ export function Send() {
               {proposal.review.payments[0]?.memo ? (
                 <Row label="Memo">
                   <span
-                    className="min-w-0 whitespace-pre-wrap break-words text-right text-muted-foreground"
+                    className="min-w-0 whitespace-pre-wrap break-words text-end text-muted-foreground"
                     data-testid="send-review-memo"
                   >
                     {proposal.review.payments[0].memo}
@@ -711,7 +711,7 @@ export function Send() {
               </Row>
               <Separator />
               <Row label="Total">
-                <span className="text-base font-semibold tabular-nums text-zec">
+                <span className="text-base font-semibold bidi-number tabular-nums text-zec">
                   {formatZecDisplay(proposal.review.total)}
                 </span>
               </Row>

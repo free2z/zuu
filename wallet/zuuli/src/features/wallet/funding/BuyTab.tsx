@@ -222,22 +222,22 @@ export function BuyTab() {
                 aria-pressed={active}
                 aria-label={`Buy ${formatTuzis(pack)} for ${formatUsd(tuzisToUsd(pack))}`}
                 className={cn(
-                  "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-start transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
                     ? "border-primary bg-primary/10"
                     : "border-border bg-card hover:border-primary/40 hover:bg-primary/5",
                 )}
               >
                 {active && (
-                  <span className="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
+                  <span className="absolute end-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
                     <Check className="h-3 w-3" />
                   </span>
                 )}
-                <span className="text-lg font-bold tabular-nums">
+                <span className="text-lg font-bold bidi-number tabular-nums">
                   {pack.toLocaleString()}
                 </span>
                 <span className="text-xs font-medium text-primary">2Z</span>
-                <span className="mt-1 text-sm font-semibold tabular-nums text-muted-foreground">
+                <span className="mt-1 text-sm font-semibold bidi-number tabular-nums text-muted-foreground">
                   {formatUsd(tuzisToUsd(pack))}
                 </span>
               </button>
@@ -255,13 +255,13 @@ export function BuyTab() {
               maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
-              className="pr-24 tabular-nums"
+              className="pe-24 bidi-number tabular-nums"
               aria-describedby="custom-tuzis-usd custom-tuzis-error"
               aria-invalid={hasCustomAmount && !valid}
             />
             <span
               id="custom-tuzis-usd"
-              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium tabular-nums text-muted-foreground"
+              className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-sm font-medium bidi-number tabular-nums text-muted-foreground"
             >
               {hasCustomAmount && customTuzis !== null && customTuzis > 0
                 ? formatUsd(tuzisToUsd(customTuzis))
@@ -286,11 +286,11 @@ export function BuyTab() {
         <CardHeader className="pb-4">
           <CardTitle className="flex items-baseline justify-between">
             <span>You pay</span>
-            <span className="text-2xl font-bold tabular-nums">
+            <span className="text-2xl font-bold bidi-number tabular-nums">
               {valid ? formatUsd(usd) : "—"}
             </span>
           </CardTitle>
-          <CardDescription className="tabular-nums">
+          <CardDescription className="bidi-number tabular-nums">
             for {valid && amount !== null ? formatTuzis(amount) : "—"}
           </CardDescription>
         </CardHeader>
@@ -304,7 +304,7 @@ export function BuyTab() {
             {cardLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : !user ? (
-              <LogIn className="h-4 w-4" />
+              <LogIn className="rtl:-scale-x-100 h-4 w-4" />
             ) : (
               <CreditCard className="h-4 w-4" />
             )}
@@ -337,7 +337,7 @@ export function BuyTab() {
             }}
           >
             {!user ? (
-              <LogIn className="h-4 w-4" />
+              <LogIn className="rtl:-scale-x-100 h-4 w-4" />
             ) : (
               <Wallet className="h-4 w-4" />
             )}
@@ -357,7 +357,7 @@ export function BuyTab() {
                       demo only
                     </Badge>
                   </span>
-                  <span className="tabular-nums text-zec">
+                  <span className="bidi-number tabular-nums text-zec">
                     {!valid
                       ? "—"
                       : quoteLoading
@@ -369,7 +369,7 @@ export function BuyTab() {
                 </div>
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span>Mock wallet spendable</span>
-                  <span className="tabular-nums">
+                  <span className="bidi-number tabular-nums">
                     {formatZecTrim(spendable)} ZEC
                   </span>
                 </div>
@@ -472,7 +472,7 @@ function Row({
       <span className="text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "tabular-nums",
+          "bidi-number tabular-nums",
           strong && "font-semibold",
           accent && "font-semibold text-zec",
         )}

@@ -116,13 +116,21 @@ module.exports = {
           from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
-        // Dialog/modal entrance. Keeps the `-translate-x/y-1/2` centering baked
+        // Dialog/modal entrance. Keeps the direction-aware inline centering baked
         // into the transform so the content never jumps off-center mid-anim
         // (a plain translateY keyframe overrides the centering and makes the
         // panel jerk in from the lower-right before snapping to center).
         "dialog-in": {
-          from: { opacity: "0", transform: "translate(-50%, -48%) scale(0.985)" },
-          to: { opacity: "1", transform: "translate(-50%, -50%) scale(1)" },
+          from: {
+            opacity: "0",
+            transform:
+              "translate(var(--dialog-inline-translate), -48%) scale(0.985)",
+          },
+          to: {
+            opacity: "1",
+            transform:
+              "translate(var(--dialog-inline-translate), -50%) scale(1)",
+          },
         },
         "pulse-live": {
           "0%, 100%": { opacity: "1" },

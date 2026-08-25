@@ -74,7 +74,7 @@ export function Sidebar() {
   const routes = desktopNavigation(signedIn);
 
   return (
-    <aside className="app-sidebar hidden w-60 shrink-0 flex-col border-r border-border bg-card/40 md:flex">
+    <aside className="app-sidebar hidden w-60 shrink-0 flex-col border-e border-border bg-card/40 md:flex">
       <div className="shrink-0 px-5 py-5">
         <Wordmark />
       </div>
@@ -223,11 +223,11 @@ export function MobileTabBar() {
               </button>
             </DialogTrigger>
             <DialogContent
-              className="app-mobile-more-dialog bottom-0 left-0 top-auto w-full max-w-none translate-x-0 translate-y-0 gap-2 overflow-y-auto rounded-b-none rounded-t-2xl border-x-0 border-b-0 p-4 data-[state=open]:animate-slide-up sm:bottom-0 sm:left-0 sm:top-auto sm:max-w-none sm:translate-x-0 sm:translate-y-0 sm:rounded-b-none sm:rounded-t-2xl"
+              className="app-mobile-more-dialog bottom-0 start-0 top-auto w-full max-w-none translate-x-0 translate-y-0 gap-2 overflow-y-auto rounded-b-none rounded-t-2xl border-x-0 border-b-0 p-4 data-[state=open]:animate-slide-up sm:bottom-0 sm:start-0 sm:top-auto sm:max-w-none sm:translate-x-0 sm:translate-y-0 sm:rounded-b-none sm:rounded-t-2xl"
               closeClassName="app-mobile-more-close min-tap top-2 grid place-items-center rounded-md"
               data-mobile-more-dialog
             >
-              <div className="pr-12">
+              <div className="pe-12">
                 <DialogTitle>More</DialogTitle>
                 <DialogDescription className="sr-only">
                   Articles and account destinations
