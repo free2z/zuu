@@ -733,29 +733,65 @@ mod tests {
 
     #[test]
     fn auth_and_transcript_address_match_section_6() {
-        assert_eq!(Command::Hello.auth(), Auth::None);
-        assert_eq!(Command::ContactAppend.auth(), Auth::None);
-        assert_eq!(Command::CreateQueue.auth(), Auth::RecvKey);
-        assert_eq!(Command::Append.auth(), Auth::SendKey);
-        assert_eq!(Command::BindSend.auth(), Auth::SendKey);
-
-        assert_eq!(
-            Command::CreateQueue.transcript_address(),
-            TranscriptAddress::Zeros
-        );
-        assert_eq!(
-            Command::CreateContactQueue.transcript_address(),
-            TranscriptAddress::Zeros
-        );
-        assert_eq!(
-            Command::Read.transcript_address(),
-            TranscriptAddress::RecvAddr
-        );
-        assert_eq!(
-            Command::Append.transcript_address(),
-            TranscriptAddress::SendAddr
-        );
-        assert_eq!(Command::Ping.transcript_address(), TranscriptAddress::None);
+        // The whole table, both columns, as reviewed literals. It used to name
+        // five of fourteen commands for `auth` and five for
+        // `transcript_address` under a name that claims the table (zuu#718).
+        // The `RecvAddr`/`SendAddr` distinction has no consumer — see
+        // `check_transcript_address` — so pinning it here is the only thing
+        // standing between §6's table and a silent edit.
+        let expected = [
+            (Command::Hello, Auth::None, TranscriptAddress::None),
+            (
+                Command::GetCapabilities,
+                Auth::None,
+                TranscriptAddress::None,
+            ),
+            (Command::GetChallenge, Auth::None, TranscriptAddress::None),
+            (Command::Ping, Auth::None, TranscriptAddress::None),
+            (Command::ContactAppend, Auth::None, TranscriptAddress::None),
+            (
+                Command::CreateQueue,
+                Auth::RecvKey,
+                TranscriptAddress::Zeros,
+            ),
+            (
+                Command::CreateContactQueue,
+                Auth::RecvKey,
+                TranscriptAddress::Zeros,
+            ),
+            (
+                Command::Subscribe,
+                Auth::RecvKey,
+                TranscriptAddress::RecvAddr,
+            ),
+            (
+                Command::Unsubscribe,
+                Auth::RecvKey,
+                TranscriptAddress::RecvAddr,
+            ),
+            (Command::Read, Auth::RecvKey, TranscriptAddress::RecvAddr),
+            (Command::Ack, Auth::RecvKey, TranscriptAddress::RecvAddr),
+            (
+                Command::DeleteQueue,
+                Auth::RecvKey,
+                TranscriptAddress::RecvAddr,
+            ),
+            (
+                Command::BindSend,
+                Auth::SendKey,
+                TranscriptAddress::SendAddr,
+            ),
+            (Command::Append, Auth::SendKey, TranscriptAddress::SendAddr),
+        ];
+        assert_eq!(expected.len(), Command::ALL.len());
+        for (command, auth, address) in expected {
+            assert_eq!(command.auth(), auth, "{command:?} auth");
+            assert_eq!(
+                command.transcript_address(),
+                address,
+                "{command:?} transcript address"
+            );
+        }
     }
 
     #[test]

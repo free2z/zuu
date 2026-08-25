@@ -73,6 +73,11 @@ impl PowParams {
     }
 
     /// Whether these parameters demand any work.
+    ///
+    /// Reads `algorithm` alone, which is only a safe question to ask of
+    /// parameters [`PowParams::validate`] has accepted: it is that function
+    /// which refuses the combination where an algorithm is named and the
+    /// difficulty is zero (zuu#715).
     #[must_use]
     pub const fn is_required(&self) -> bool {
         self.algorithm != 0
@@ -80,16 +85,30 @@ impl PowParams {
 
     /// Check that the parameters are ones a v1 client can satisfy.
     ///
-    /// `difficulty_bits` needs no bound: it is a `u8`, the digest is 256 bits,
-    /// so every representable value is satisfiable. Whether it is *reachable*
-    /// on a phone is §12.4's problem, not this function's.
+    /// `difficulty_bits` needs no *upper* bound: it is a `u8`, the digest is
+    /// 256 bits, so every representable value is satisfiable. Whether it is
+    /// *reachable* on a phone is §12.4's problem, not this function's.
+    ///
+    /// It does need a lower one. `is_required` reads `algorithm` alone, so a
+    /// relay publishing `algorithm: 1, difficulty_bits: 0` passes §13.1's
+    /// "pow mode must name a PoW" and §12.3's "contact queues must be gated"
+    /// checks while demanding no work at all — `meets_difficulty(0)` holds for
+    /// every hash, including the one over `PowStamp::empty()`. That is a gate
+    /// in the capability document and an open door on the wire, so it is
+    /// refused here rather than left for each caller to notice.
     ///
     /// # Errors
     ///
     /// [`CodecError::InvalidValue`] if `algorithm` is neither 0 ("not
-    /// required") nor 1.
+    /// required") nor 1, or if a named algorithm carries zero difficulty.
     pub const fn validate(&self) -> Result<(), CodecError> {
-        if self.algorithm != 0 && self.algorithm != ALGORITHM_BLAKE2B_LEADING_ZERO_BITS {
+        if self.algorithm == 0 {
+            return Ok(());
+        }
+        if self.algorithm != ALGORITHM_BLAKE2B_LEADING_ZERO_BITS {
+            return Err(CodecError::InvalidValue);
+        }
+        if self.difficulty_bits == 0 {
             return Err(CodecError::InvalidValue);
         }
         Ok(())
@@ -229,6 +248,29 @@ mod tests {
     #[test]
     fn params_reject_an_algorithm_v1_does_not_define() {
         assert!(PowParams::none().validate().is_ok());
+        // zuu#715: a named algorithm with zero difficulty is a published gate
+        // that demands nothing. `is_required` reads `algorithm` alone, so both
+        // §13.1's and §12.3's capability guards used to accept it, and
+        // `meets_difficulty(0)` accepts the hash over an empty stamp.
+        assert_eq!(
+            PowParams {
+                algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: 0,
+                challenge_ttl_ms: 60_000,
+            }
+            .validate(),
+            Err(CodecError::InvalidValue)
+        );
+        // One bit is enough to be a real gate, and is accepted.
+        assert!(
+            PowParams {
+                algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: 1,
+                challenge_ttl_ms: 60_000,
+            }
+            .validate()
+            .is_ok()
+        );
         assert!(!PowParams::none().is_required());
         assert!(
             PowParams {

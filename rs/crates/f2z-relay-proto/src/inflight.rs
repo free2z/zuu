@@ -66,10 +66,20 @@ impl<C: RelayCommand> Ticket<C> {
 
 /// One connection's outstanding requests.
 ///
-/// Useful in both directions, which is why it is not called a client: a client
-/// uses it to correlate responses, and a relay uses it to enforce §4.3's
-/// duplicate and window rules on what arrives. The relay side ignores
-/// [`Ticket`] and reads [`InFlight::command_for`].
+/// Written for both directions, and currently used by one. A client uses it to
+/// correlate responses, which is what [`Ticket`] is for.
+///
+/// **No relay in this workspace uses it** (zuu#719). `f2z-relay` and
+/// `f2z-relay-testkit` each enforce §4.3's duplicate and window rules
+/// themselves, over a bare `BTreeSet<u32>` on the connection — see
+/// `f2z-relay/src/engine.rs`'s `handle_binary` and the matching block in
+/// `f2z-relay-testkit/src/engine.rs`. The two hand-written copies agree
+/// clause for clause, and the conformance suite compares the relays' verdicts,
+/// so this is duplication rather than divergence; it is recorded here so the
+/// next reader looks for the rule where it is actually enforced.
+///
+/// [`InFlight::command_for`] is the relay-side accessor that arrangement would
+/// need. It has no caller today.
 #[derive(Clone, Debug)]
 pub struct InFlight {
     /// `request_id` → the command code it was issued for.

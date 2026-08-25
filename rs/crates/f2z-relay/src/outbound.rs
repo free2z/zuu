@@ -34,8 +34,19 @@ impl core::fmt::Debug for Outbound {
 
 impl Outbound {
     /// A response frame.
+    ///
+    /// `None` for a zero `request_id`: §4.3 gives zero to pushes and requires a
+    /// response to carry the nonzero id of the request it answers. The guard
+    /// lives here rather than at each caller because this is the one place a
+    /// response becomes bytes — [`Outbound::fatal`] already refused it on the
+    /// error path while the success path passed the client's id straight
+    /// through (zuu#716). Callers that cannot build a response fall back to
+    /// their fatal path, which closes the connection when the id is unusable.
     #[must_use]
     pub fn response(request_id: u32, response: Response) -> Option<Self> {
+        if request_id == 0 {
+            return None;
+        }
         Some(Self {
             message: Some(WireMessage::Binary(
                 RelayFrame::response(request_id, response)
@@ -158,6 +169,27 @@ mod tests {
         let rendered = format!("{outbound:?}");
         assert!(rendered.contains("<redacted"));
         assert!(!rendered.contains("222"));
+    }
+
+    #[test]
+    fn a_response_may_never_carry_a_pushs_request_id() {
+        // zuu#716. §4.3 reserves zero for pushes. `fatal()` refused it on the
+        // error path; the success path handed the client's id straight to
+        // `response`, so a request arriving with `request_id = 0` would have
+        // been answered on a frame `outbound.rs`'s own comment calls forbidden.
+        // Refused where a response becomes bytes, so both paths inherit it.
+        assert!(Outbound::response(0, Response::ok(vec![]).unwrap()).is_none());
+        assert!(
+            Outbound::fatal(
+                0,
+                ErrorCode::Malformed,
+                crate::transport::CLOSE_PROTOCOL_ERROR
+            )
+            .is_none()
+        );
+
+        // …and a real id still works, so the guard is the id and not the frame.
+        assert!(Outbound::response(1, Response::ok(vec![]).unwrap()).is_some());
     }
 
     #[test]
