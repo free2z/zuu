@@ -901,15 +901,26 @@ impl<B: StorageBackend> Engine<B> {
             .message(msg_id)?
             .ok_or_else(|| Error::internal("no such message"))?;
         let stored = inner.conversation(&message.conversation_id)?;
-        let ciphertext = message
+        let Some(ciphertext) = message
             .retry_ciphertext
             .as_deref()
             .map(hex::decode)
             .transpose()
             .map_err(|_| Error::internal("stored ciphertext is not hex"))?
-            .ok_or_else(|| {
-                Error::internal("this message has no retained ciphertext to re-append")
-            })?;
+        else {
+            // Nothing retained means the relay already returned status 0 for
+            // it, and §3.4 says a retry is safe after any failure — including
+            // one whose outcome is unknown — so answering with the state it
+            // actually reached is the useful thing. Refusing would make the
+            // affordance the UI shows for a message stuck at `accepted` — which
+            // is evidence of nothing about the recipient (§6.2) — look like a
+            // defect rather than a no-op.
+            return Ok(SendAccepted {
+                msg_id: msg_id.to_owned(),
+                client_ref: message.client_ref.clone().unwrap_or_default(),
+                state: delivery_view(&message).state,
+            });
+        };
         let delivery = inner
             .deliver(&stored, msg_id, &ciphertext, now_ms())
             .await?;
