@@ -130,11 +130,16 @@ function parseCargoTree(output) {
     if (separator === -1)
       throw new Error(`cargo tree line lacks features: ${line}`);
     const packageText = body.slice(0, separator).replace(/ \(\*\)$/, "");
-    if (packageText.endsWith(" (proc-macro)")) {
+    const procMacro = / \(proc-macro\)(?: \(.+\))?$/.test(packageText);
+    const packageIdentity = packageText.replace(
+      / \(proc-macro\)(?= \(.+\)$|$)/,
+      "",
+    );
+    if (procMacro) {
       skippedProcMacroDepth = depth;
       continue;
     }
-    const match = /^(.+) v([^ ]+)(?: \(.+\))?$/.exec(packageText);
+    const match = /^(.+) v([^ ]+)(?: \(.+\))?$/.exec(packageIdentity);
     if (!match) throw new Error(`unparseable cargo package identity: ${line}`);
     const key = `${match[1]}\0${match[2]}`;
     const featureText = body.slice(separator + 1).replace(/ \(\*\)$/, "");
