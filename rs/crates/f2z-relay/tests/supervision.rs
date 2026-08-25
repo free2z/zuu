@@ -69,7 +69,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use f2z_relay::config::Config;
-use f2z_relay::server::{EXPIRY_TASK, HEALTH_TASK, PROTOCOL_TASK, Server, Stopped};
+use f2z_relay::server::{COMMIT_TASK, EXPIRY_TASK, HEALTH_TASK, PROTOCOL_TASK, Server, Stopped};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 /// A relay that binds everything on loopback, with nothing durable behind it.
@@ -222,5 +222,84 @@ async fn a_requested_shutdown_is_not_a_failure() {
     .await
     .expect("a signalled shutdown finishes");
     assert_eq!(stopped, Stopped::Requested);
+    refuses(protocol, "protocol listener").await;
+}
+
+/// **zuu#685.** The group-commit writer is an **OS thread**, so #683's
+/// supervision — which holds `JoinHandle`s — could not reach it. A dead writer
+/// left every listener open and every probe green over a relay that could not
+/// store a single message: `CommitWriter::append` returned `WriterStopped`,
+/// `engine.rs` collapsed that to a per-request `ERR_UNAVAILABLE`, and nothing
+/// above it ever concluded that the relay was finished.
+///
+/// Under delete-on-ack that is the worst failure in the system. A sender is
+/// told `accepted` by a relay whose write path is gone, deletes its only copy,
+/// and the message never existed. `replicas: 1` on a ReadWriteOnce volume means
+/// there is no second pod to take over from one that has quietly stopped
+/// accepting.
+///
+/// The failure is injected by killing **the thread**, not by aborting the
+/// watchdog task: aborting the watchdog would pass identically on a build where
+/// nothing connected it to the writer, which is precisely the defect.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_commit_writer_stops_the_process_instead_of_answering_unavailable() {
+    let server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+    let health = server.health_addr().expect("the health listener is bound");
+
+    accepts(protocol, "protocol listener").await;
+    assert!(
+        healthz(health).await.starts_with("HTTP/1.1 200"),
+        "the probe surface is green before the failure"
+    );
+
+    assert!(
+        server.stop_commit_writer(),
+        "the commit writer is running and reachable"
+    );
+
+    let stopped = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.run_until_stopped(std::future::pending()),
+    )
+    .await
+    .expect("supervision notices a dead commit writer without waiting for a signal");
+    assert_eq!(stopped, Stopped::TaskEnded(COMMIT_TASK));
+
+    // The load-bearing assertion, for #683's measured reason: the writer thread
+    // owns no socket at all, so *nothing* an outside observer can see changes
+    // when it dies. Without the fix both of these keep answering forever.
+    refuses(health, "health listener").await;
+    refuses(protocol, "protocol listener").await;
+}
+
+/// The watchdog is not a way to fake the above: killing the **watchdog task**
+/// is reported too, under the same name.
+///
+/// A supervisor that watched the write path from outside the supervised set
+/// would move the fail-open rather than close it — the relay would then have a
+/// process whose commit-writer watchdog had died and which nobody was watching.
+/// This asserts the watchdog is in the same `Vec<Supervised>` as the four tokio
+/// tasks and is covered by the same mechanism.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_commit_watchdog_is_itself_supervised() {
+    let mut server = Server::start(base()).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+    let health = server.health_addr().expect("the health listener is bound");
+    accepts(protocol, "protocol listener").await;
+
+    assert!(
+        server.abort_task(COMMIT_TASK),
+        "the commit watchdog is a supervised task like any other"
+    );
+
+    let stopped = tokio::time::timeout(
+        Duration::from_secs(10),
+        server.run_until_stopped(std::future::pending()),
+    )
+    .await
+    .expect("supervision notices its own watchdog");
+    assert_eq!(stopped, Stopped::TaskEnded(COMMIT_TASK));
+    refuses(health, "health listener").await;
     refuses(protocol, "protocol listener").await;
 }

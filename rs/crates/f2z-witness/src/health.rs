@@ -49,8 +49,14 @@ use crate::state;
 pub const DEFAULT_STALE_AFTER_MS: u64 = 3_600_000;
 
 /// What a probe found.
+///
+/// Deliberately **not** `#[non_exhaustive]` (zuu#666), for the reason
+/// `f2z_relay::server::Stopped` is not: the binary is a separate crate from
+/// this library, so that attribute would force a wildcard arm on every match
+/// in `main`, and a wildcard arm is how a future verdict silently inherits
+/// somebody else's exit code. A new variant here should break every caller
+/// until each has decided what it means.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Health {
     /// Following a log, last updated recently.
     Following {
@@ -80,9 +86,18 @@ pub enum Health {
 
 impl Health {
     /// Whether the probe should pass.
+    ///
+    /// Exhaustive rather than `matches!`, for [`Self::is_alive`]'s reason
+    /// (zuu#666). This one happens to be fail-*closed* today — anything new is
+    /// not `Following`, so it would fail readiness — but two predicates over
+    /// one enum written in two different styles is how the asymmetry arose in
+    /// the first place, and the fail-closed one is the cheap half to fix.
     #[must_use]
     pub const fn is_healthy(&self) -> bool {
-        matches!(self, Self::Following { .. })
+        match self {
+            Self::Following { .. } => true,
+            Self::Stale { .. } | Self::Halted { .. } | Self::Unpinned => false,
+        }
     }
 
     /// Whether a **liveness** probe should pass: `healthz --liveness yes`.
@@ -114,9 +129,34 @@ impl Health {
     /// halted witness is never reported as fine by the one check an operator
     /// looks at first. A `0/1` pod with `HALTED` in its probe output is the
     /// correct thing for a human to find.
+    ///
+    /// # Why this is a `match` and not `!matches!(self, Self::Halted { .. })`
+    ///
+    /// zuu#666. Written as a negation, this predicate **defaults a variant that
+    /// does not exist yet to "alive"**: a fifth local fault — a state file that
+    /// exists but cannot be read, a signature that does not verify, a second
+    /// halt-like condition — is not `Halted`, so the liveness probe passes and
+    /// the pod shows `1/1` while the witness sits in a fault it cannot leave.
+    /// The compiler said nothing, because the only exhaustive match on this
+    /// enum was [`Self::message`] — so adding a variant asked the author for a
+    /// **display string** and never for a verdict.
+    ///
+    /// An exhaustive match moves that question to the one place it belongs:
+    /// a new variant is a compile error *here*, where the author has to answer
+    /// "could a restart repair this?" — which the doc comment above frames
+    /// better than any test could, and which no test can ask on behalf of a
+    /// variant nobody has written yet.
     #[must_use]
     pub const fn is_alive(&self) -> bool {
-        !matches!(self, Self::Halted { .. })
+        match self {
+            // Statements about the upstream LOG. A restart cannot repair
+            // either, and restarting on a schedule during someone else's
+            // outage destroys the state file that is the evidence a human
+            // needs.
+            Self::Following { .. } | Self::Stale { .. } | Self::Unpinned => true,
+            // Local and permanent. Visible as `0/1` with HALTED in the output.
+            Self::Halted { .. } => false,
+        }
     }
 
     /// The process exit code for a readiness/startup probe.

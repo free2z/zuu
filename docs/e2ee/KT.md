@@ -1308,6 +1308,45 @@ O(entries added) (§10) and an empty epoch adds none.
 > `AppendOnlyProof` segment containing no insertions, with `audit_verify`
 > accepting it. Neither exists in `akd` 0.13. See §11.5.
 
+> **Correction (2026-08-24, later the same day) — the cadence rule binds the
+> log's *process*, not only its publishing code: a conforming log MUST NOT keep
+> serving after whatever emits epochs has stopped.** Found while fixing
+> [#684](https://github.com/free2z/zuu/issues/684). Nothing above is withdrawn;
+> what is added is the half a reader could otherwise implement around.
+>
+> §5.1's whole argument is that a heartbeat converts silence from an ambiguity
+> into a detectable fault. **That argument assumes something is still emitting
+> heartbeats.** A log whose scheduler has died — panicked, cancelled, or never
+> restarted after a transient — does not *fail* the cadence rule in a way any
+> client can see: it goes on serving §9.2's endpoints correctly, `/kt/v1/sth`
+> keeps returning the last valid signed tree head, every inclusion and
+> consistency proof still verifies, and nothing errors. The detection mechanism
+> is not tripped, it is **removed**, because there are no heartbeats left to
+> miss.
+>
+> A witness following the log does eventually see it (§7: no new head for
+> longer than the cadence), and the log's own operator sees it in
+> `KT.md`-derived monitoring — but both are *external* observers on a delay, and
+> a process-local probe answers `200` throughout. So the rule at the process
+> level is:
+>
+> - **The epoch scheduler is supervised.** If it ends for any reason before an
+>   orderly shutdown was requested, the log stops serving and the process exits
+>   non-zero, within a bounded grace period so that a wedged scheduler cannot
+>   hold the listening socket.
+> - **A tick that fails is not that**, and is unchanged: an epoch the log could
+>   not sign because a signer was briefly unreachable is logged and retried on
+>   the next tick. Publishing late is within §5.2's `max_merge_delay_seconds`
+>   promise; not publishing at all, silently and forever, is not.
+>
+> At `replicas: 1` this makes a dead scheduler a short, **visible** outage
+> instead of a `Ready` pod serving a directory that has silently frozen. This is
+> the same trade `WIRE.md`'s relay made for its listener and expiry tasks
+> ([#671](https://github.com/free2z/zuu/issues/671),
+> [#683](https://github.com/free2z/zuu/issues/683)), and it is the reason that
+> trade generalises: an availability signal that stays green over a component
+> that has stopped doing its job is worse than the outage it is hiding.
+
 ### 5.2 Maximum merge delay
 
 **`max_merge_delay_seconds` — proposed 3600, six epochs — is the log's published

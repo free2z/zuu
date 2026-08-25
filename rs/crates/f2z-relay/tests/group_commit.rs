@@ -114,7 +114,9 @@ async fn a_hundred_concurrent_appends_do_not_cost_a_hundred_fsyncs() {
 
     let baseline = store.commits();
     let metrics = Arc::new(Metrics::new());
-    let writer = CommitWriter::start(
+    // `_stopped` is the writer's liveness signal (zuu#685); `server.rs`
+    // supervises it, and this test only needs the handle.
+    let (writer, _stopped) = CommitWriter::start(
         Arc::clone(&store) as Arc<dyn RelayStore + Send + Sync>,
         Arc::clone(&metrics),
         Duration::from_millis(25),
@@ -176,7 +178,7 @@ async fn a_lone_append_still_costs_its_own_fsync() {
     let scratch = Scratch::new("lone-append");
     let (store, send_addr, send_key) = sqlite_with_queue(&scratch.join("relay.sqlite"));
     let baseline = store.commits();
-    let writer = CommitWriter::start(
+    let (writer, _stopped) = CommitWriter::start(
         Arc::clone(&store) as Arc<dyn RelayStore + Send + Sync>,
         Arc::new(Metrics::new()),
         Duration::from_millis(10),

@@ -35,9 +35,11 @@ all-features = false
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
 # Yanking is registry state, not repository state: a crate can be yanked
-# upstream between two runs of CI with no commit of ours in between, which would
-# turn an unrelated pull request red for reasons its author cannot act on. It is
-# reported on every run and triaged deliberately instead.
+# upstream between two runs of CI with no commit of ours in between. This lint
+# level reports that event but deliberately exits successfully, so it cannot
+# turn an unrelated pull request red. The self-test pins both halves of that
+# contract against a synthetic crate in a local yanked registry: warn reports
+# and passes, while deny reports and fails.
 yanked = "warn"
 
 ignore = [

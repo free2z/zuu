@@ -76,7 +76,15 @@ async-trait = { workspace = true }
 # on itself. This is the supported way to say "build my `testing` feature for
 # `tests/`, and never for the binary".
 f2z-kt = { path = ".", version = "0.1.0", features = ["testing"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# `net` and `io-util` for `tests/supervision.rs`, which dials the bound listener
+# rather than asserting on an in-process flag (zuu#684).
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "time",
+  "net",
+  "io-util",
+] }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
 
 [[bin]]
