@@ -1,0 +1,56 @@
+[package]
+name = "f2z-msg-dag"
+version = "0.1.0"
+description = "Hash-linked application framing for free2z messaging (docs/e2ee/ARCHITECTURE.md §7): the AppMessage, its msg_id commitment, causal ordering, gap detection and bounded-window gap repair"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly. Every client links this — ZUULI
+# native, the WASM web client, and any third-party implementation that wants to
+# produce a transcript another client agrees with. The AGPL-3.0 boundary starts
+# at the server binaries, not here, and an ordering rule that only one licence
+# may implement is an ordering rule nobody can check against a second
+# implementation. Stated literally rather than inherited so it is visible to
+# anyone opening the crate. rs/deny.toml enforces it.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# BLAKE2b-256 for `msg_id`. `ARCHITECTURE.md` §7's construction is the same
+# `H(label, x)` shape as `WIRE.md` §1.3's — label bytes, then the message, no
+# separator — so the label set is held to prefix-freeness with everyone else's
+# by `scripts/check-hash-domain-labels.mjs`.
+blake2 = { workspace = true }
+# The canonical encoding, and the `Body` newtype whose `Debug` is already
+# redacted. `canonical(rest)` in §7 has to mean *something* concrete, and the
+# only concrete canonical encoding in this tree is `f2z-codec`'s: a second one
+# would be a second chance for two clients to compute different `msg_id`s for
+# the same message, which is the one thing a content-addressed identifier
+# cannot survive.
+f2z-codec = { workspace = true }
+tls_codec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+# `tests/repair_reencrypts.rs` performs the §7 repair against a **real** MLS
+# group rather than a stand-in cipher: two engines, a `Welcome`, an epoch
+# advance, and then the original plaintext re-encrypted under the new epoch.
+# The property being asserted — "the ciphertext differs and still decrypts" —
+# is a property of MLS, and a fake cipher would have proved it about the fake.
+#
+# `default-features = false` drops `f2z-msg-store`'s `sqlite` feature: these
+# tests run on `MemoryBackend`, and pulling SQLite's C amalgamation into a
+# dev-dependency graph would cost every `cargo test` in the workspace.
+f2z-msg-mls = { path = "../f2z-msg-mls", version = "0.1.0", default-features = false }
+f2z-msg-store = { path = "../f2z-msg-store", version = "0.1.0", default-features = false }
+# Credentials in those tests come from the real issuer, exactly as
+# `f2z-msg-mls`'s own tests do, so this file is a coordination test rather than
+# a test against this crate's idea of a credential.
+f2z-msg-identity = { path = "../f2z-msg-identity", version = "0.1.0" }
+f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0", default-features = false }
