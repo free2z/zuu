@@ -130,26 +130,44 @@ fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
 
 /// §5.3's exporter, taken from a completed handshake.
 ///
-/// Returns 32 zero bytes when there is no TLS session, which is the value §5.3
-/// requires in `channel_binding_mode: none` — the same constant both ends use,
-/// so the transcript still verifies and the binding simply provides nothing.
-#[must_use]
+/// Returns `None` when there is no binding to be had, and the caller drops the
+/// connection. Anything that reaches this function has a TLS session, so
+/// [`crate::caps`] publishes `channel_binding_mode: tls-exporter`, and §5.3 is
+/// explicit about what that costs:
+///
+/// > A relay in `tls-exporter` mode whose exporter output is 32 zero bytes MUST
+/// > treat that as failure to obtain a binding and refuse the connection. Zero
+/// > is the `none` sentinel; accepting it in both modes would make them
+/// > identical in the signed transcript.
+///
+/// So neither a failing exporter nor an exporter that returns the sentinel may
+/// degrade this connection into the `none` mode it does not publish. It is
+/// [`acceptor`]'s stance one layer up, for the same reason: §2.3's insecure
+/// path is an explicit act with published consequences, not a degradation.
 pub fn export(
     connection: &tokio_rustls::rustls::ServerConnection,
-) -> f2z_codec::types::ChannelBinding {
-    let mut output = [0u8; EXPORTER_LEN];
-    match connection.export_keying_material(output, EXPORTER_LABEL, None) {
-        Ok(bytes) => f2z_codec::types::ChannelBinding::new(bytes),
-        // An exporter that cannot be derived from a completed TLS 1.3 handshake
-        // is a `rustls` state this code has no way to repair. Zeros are the
-        // value §5.3 defines for "no binding", so the connection degrades to the
-        // documented weaker mode rather than to a value only one end knows.
-        Err(_) => {
-            crate::log_warn!("TLS exporter unavailable; this connection has no channel binding");
-            output = [0u8; EXPORTER_LEN];
-            f2z_codec::types::ChannelBinding::new(output)
-        }
+) -> Option<f2z_codec::types::ChannelBinding> {
+    let output = [0u8; EXPORTER_LEN];
+    // An exporter that cannot be derived from a completed TLS 1.3 handshake is
+    // a `rustls` state this code has no way to repair.
+    let Ok(bytes) = connection.export_keying_material(output, EXPORTER_LABEL, None) else {
+        crate::log_warn!("TLS exporter unavailable; refusing the connection (WIRE.md §5.3)");
+        return None;
+    };
+    binding_from_exporter(bytes)
+}
+
+/// §5.3's rule about the exporter's **output**, kept separate from the
+/// exporter's *error* so it can be exercised without terminating TLS.
+fn binding_from_exporter(bytes: [u8; EXPORTER_LEN]) -> Option<f2z_codec::types::ChannelBinding> {
+    let binding = f2z_codec::types::ChannelBinding::new(bytes);
+    if binding.is_zero() {
+        crate::log_warn!(
+            "TLS exporter returned the `none` sentinel; refusing the connection (WIRE.md §5.3)"
+        );
+        return None;
     }
+    Some(binding)
 }
 
 #[cfg(test)]
@@ -165,6 +183,25 @@ mod tests {
     #[test]
     fn only_tls_1_3_is_offered() {
         assert_eq!(VERSIONS.len(), 1);
+    }
+
+    #[test]
+    fn a_zero_exporter_output_yields_no_binding() {
+        // §5.3: "A relay in `tls-exporter` mode whose exporter output is 32
+        // zero bytes MUST treat that as failure to obtain a binding and refuse
+        // the connection." `export` returns `None` and `listener::handshake`
+        // drops the connection on it.
+        assert!(binding_from_exporter([0u8; EXPORTER_LEN]).is_none());
+    }
+
+    #[test]
+    fn a_real_exporter_output_yields_that_binding() {
+        // The positive control, so the refusal above is attributable to the
+        // sentinel and not to the guard refusing everything.
+        let mut bytes = [0u8; EXPORTER_LEN];
+        bytes[EXPORTER_LEN - 1] = 1;
+        let binding = binding_from_exporter(bytes).expect("a non-zero exporter output binds");
+        assert_eq!(binding.as_bytes(), &bytes);
     }
 
     #[test]
