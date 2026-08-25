@@ -818,6 +818,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-msg-dag"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "f2z-codec",
+ "f2z-kt-core",
+ "f2z-msg-identity",
+ "f2z-msg-mls",
+ "f2z-msg-store",
+ "proptest",
+ "tls_codec 0.4.2",
+]
+
+[[package]]
 name = "f2z-msg-identity"
 version = "0.1.0"
 dependencies = [
