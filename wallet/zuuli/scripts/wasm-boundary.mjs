@@ -138,7 +138,7 @@ export function inspectWasmBoundary(
     ["dev", "npm run wasm:build && vite"],
     [
       "build",
-      "npm run wasm:build && tsc && vite build && npm run wasm:verify-dist",
+      "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",
     ],
     ["wasm:build", "node scripts/wasm-build.mjs --build"],
     ["wasm:verify", "node scripts/wasm-build.mjs --verify-generated"],
@@ -238,10 +238,28 @@ function selfTest() {
       to: "script-src 'self'",
     },
     {
+      name: "the production build cannot fall back to the unscoped TypeScript config",
+      file: "wallet/zuuli/package.json",
+      from: "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",
+      to: "npm run wasm:build && tsc && vite build && npm run wasm:verify-dist",
+      expectedFailure:
+        "wallet/zuuli/package.json script build must be exactly",
+    },
+    {
+      name: "a decorative production build cannot excuse the old unscoped command",
+      file: "wallet/zuuli/package.json",
+      from: '    "build": "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",',
+      to: '    "wasmBuildContract": "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",\n    "build": "npm run wasm:build && tsc && vite build && npm run wasm:verify-dist",',
+      expectedFailure:
+        "wallet/zuuli/package.json script build must be exactly",
+    },
+    {
       name: "stale generated output cannot replace a fresh build",
       file: "wallet/zuuli/package.json",
-      from: "npm run wasm:build && tsc && vite build && npm run wasm:verify-dist",
-      to: "tsc && vite build",
+      from: "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",
+      to: "tsc -p tsconfig.build.json && vite build",
+      expectedFailure:
+        "wallet/zuuli/package.json script build must be exactly",
     },
     {
       name: "generated output cannot become committed source",
@@ -299,6 +317,16 @@ function selfTest() {
       const failures = inspectWasmBoundary(scratch, { checkGit: false });
       if (!failures.length)
         throw new Error(`${testCase.name}: mutation was accepted`);
+      if (
+        testCase.expectedFailure &&
+        !failures.some((failure) =>
+          failure.includes(testCase.expectedFailure),
+        )
+      ) {
+        throw new Error(
+          `${testCase.name}: failed for the wrong reason: ${failures.join("; ")}`,
+        );
+      }
       console.log(`self-test: ${testCase.name}: passed`);
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true });
