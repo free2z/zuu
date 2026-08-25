@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   copyFileSync,
@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -31,6 +31,12 @@ import {
   validateLogicalEntries,
   verifyArtifactSbom,
 } from "./artifact-sbom.mjs";
+import {
+  LINUX_ARTIFACT_FIXTURE_TITLES,
+  linuxArtifactFixturePattern,
+  REQUIRE_LINUX_ARTIFACT_FIXTURES,
+  runLinuxArtifactFixtures,
+} from "./run-linux-artifact-fixtures.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDirectory, "..");
@@ -119,6 +125,105 @@ function commandExists(command) {
 
 const canBuildLinuxFixtures =
   process.platform === "linux" && linuxFixtureTools.every(commandExists);
+const requireLinuxFixtures =
+  process.env[REQUIRE_LINUX_ARTIFACT_FIXTURES] === "1";
+const missingLinuxFixtureTools = linuxFixtureTools.filter(
+  (command) => !commandExists(command),
+);
+if (
+  requireLinuxFixtures &&
+  (process.platform !== "linux" || missingLinuxFixtureTools.length > 0)
+) {
+  throw new Error(
+    `required Linux artifact fixtures cannot run: platform=${process.platform}; missing tools=${missingLinuxFixtureTools.join(",") || "none"}`,
+  );
+}
+
+const registeredLinuxFixtureTitles = [];
+function linuxArtifactFixture(title, implementation) {
+  assert.ok(
+    LINUX_ARTIFACT_FIXTURE_TITLES.includes(title),
+    `Linux artifact fixture has an unregistered title: ${title}`,
+  );
+  registeredLinuxFixtureTitles.push(title);
+  test(
+    title,
+    { skip: !canBuildLinuxFixtures, timeout: 120_000 },
+    implementation,
+  );
+}
+
+after(() => {
+  assert.deepEqual(
+    [...registeredLinuxFixtureTitles].sort(),
+    [...LINUX_ARTIFACT_FIXTURE_TITLES].sort(),
+    "registered Linux artifact fixtures must exactly equal the shipping selector",
+  );
+});
+
+test("Linux packaging runner binds every selected fixture to a real passing test", () => {
+  const expectedTitles = [
+    "real AppImage, deb, and rpm fixtures expose undeclared shipped canaries",
+    "AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations",
+    "AppImage listing rejects a SquashFS member with invalid UTF-8 bytes",
+    "a real deb with an escaping payload symlink fails before extraction",
+  ];
+  assert.deepEqual(LINUX_ARTIFACT_FIXTURE_TITLES, expectedTitles);
+
+  let invocation;
+  assert.doesNotThrow(() =>
+    runLinuxArtifactFixtures({
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return { status: 0 };
+      },
+    }),
+  );
+  assert.equal(invocation.command, process.execPath);
+  assert.deepEqual(invocation.args, [
+    "--test",
+    `--test-name-pattern=${linuxArtifactFixturePattern()}`,
+    resolve(scriptDirectory, "artifact-sbom.node-test.mjs"),
+  ]);
+  assert.equal(
+    invocation.options.env[REQUIRE_LINUX_ARTIFACT_FIXTURES],
+    "1",
+  );
+  assert.equal(invocation.options.stdio, "inherit");
+  const missingToolEnvironment = {
+    ...process.env,
+    PATH: "",
+    [REQUIRE_LINUX_ARTIFACT_FIXTURES]: "1",
+  };
+  delete missingToolEnvironment.NODE_TEST_CONTEXT;
+  const missingToolProbe = spawnSync(
+    process.execPath,
+    [
+      "--test",
+      "--test-name-pattern=nonexistent",
+      resolve(scriptDirectory, "artifact-sbom.node-test.mjs"),
+    ],
+    {
+      encoding: "utf8",
+      env: missingToolEnvironment,
+    },
+  );
+  assert.notEqual(missingToolProbe.status, 0);
+  assert.match(
+    `${missingToolProbe.stdout}${missingToolProbe.stderr}`,
+    /required Linux artifact fixtures cannot run: .*missing tools=cc,dpkg-deb,mksquashfs,readelf,rpm2archive,rpmbuild,unsquashfs/,
+  );
+  assert.throws(
+    () =>
+      runLinuxArtifactFixtures({
+        spawn() {
+          return { status: 1 };
+        },
+      }),
+    /test process exited with status 1/,
+    "the shipping runner must propagate fixture failures",
+  );
+});
 
 function writeCanaryPayload(root) {
   const canary = resolve(root, "usr/lib/zuuli/libundeclared-canary.so");
@@ -420,9 +525,8 @@ function assertRealLinuxArtifactBoundary(temporary, label, artifact) {
   }
 }
 
-test(
+linuxArtifactFixture(
   "real AppImage, deb, and rpm fixtures expose undeclared shipped canaries",
-  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
   () => {
     const temporary = mkdtempSync(
       resolve(tmpdir(), "zuuli-linux-artifact-sbom-"),
@@ -449,9 +553,8 @@ test(
   },
 );
 
-test(
+linuxArtifactFixture(
   "AppImage inspection fails closed on ELF arithmetic and SquashFS boundary mutations",
-  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
   () => {
     const temporary = mkdtempSync(
       resolve(tmpdir(), "zuuli-appimage-mutation-"),
@@ -601,9 +704,8 @@ test(
   },
 );
 
-test(
+linuxArtifactFixture(
   "AppImage listing rejects a SquashFS member with invalid UTF-8 bytes",
-  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
   () => {
     const temporary = mkdtempSync(
       resolve(tmpdir(), "zuuli-appimage-utf8-mutation-"),
@@ -624,9 +726,8 @@ test(
   },
 );
 
-test(
+linuxArtifactFixture(
   "a real deb with an escaping payload symlink fails before extraction",
-  { skip: !canBuildLinuxFixtures, timeout: 120_000 },
   () => {
     const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-deb-mutation-"));
     try {
@@ -1463,13 +1564,44 @@ test("workflow contract catches removal or weakening of artifact scans", () => {
     "the policy must keep all Linux scans and bindings before manifest/upload",
   );
   const skippedRealFixtures = packaging.replace(
-    "node --test --test-name-pattern='real AppImage, deb, and rpm|AppImage inspection|AppImage listing|real deb with an escaping' scripts/artifact-sbom.node-test.mjs",
+    "node scripts/run-linux-artifact-fixtures.mjs",
     "node --test --test-name-pattern='nonexistent' scripts/artifact-sbom.node-test.mjs",
   );
+  assert.notEqual(skippedRealFixtures, packaging);
   assert.ok(
     artifactSbomWorkflowFailures(skippedRealFixtures, release).some((failure) =>
-      failure.includes("packaging linux"),
+      failure.includes(
+        "Test Linux artifact inspectors against real packages executable step changed",
+      ),
     ),
+  );
+  const decorativeRealFixtures = packaging.replace(
+    "        run: node scripts/run-linux-artifact-fixtures.mjs",
+    "        run: node --test --test-name-pattern='nonexistent' scripts/artifact-sbom.node-test.mjs\n        # node scripts/run-linux-artifact-fixtures.mjs",
+  );
+  assert.notEqual(decorativeRealFixtures, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(decorativeRealFixtures, release).some(
+      (failure) =>
+        failure.includes(
+          "Test Linux artifact inspectors against real packages executable step changed",
+        ),
+    ),
+    "a comment containing the reviewed runner cannot authorize a different command",
+  );
+  const softFailingRealFixtures = packaging.replace(
+    "        run: node scripts/run-linux-artifact-fixtures.mjs",
+    "        continue-on-error: true\n        run: node scripts/run-linux-artifact-fixtures.mjs",
+  );
+  assert.notEqual(softFailingRealFixtures, packaging);
+  assert.ok(
+    artifactSbomWorkflowFailures(softFailingRealFixtures, release).some(
+      (failure) =>
+        failure.includes(
+          "Test Linux artifact inspectors against real packages executable step changed",
+        ),
+    ),
+    "the real fixture runner cannot soft-fail",
   );
   const sourceScanSubstitution = release.replace(
     "path: wallet/zuuli/artifact-sbom-work/linux-deb/root",
