@@ -7,16 +7,22 @@
 //! # What is settled, and why it is not re-litigated here
 //!
 //! [#385](https://github.com/free2z/zuu/issues/385) proved, on real hardware,
-//! that `openmls 0.8.1` with `openmls_libcrux_crypto 0.3.1` on
+//! that OpenMLS with the libcrux provider on
 //! `MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519` builds for all nine shipping
 //! triples and runs green on Android API-29 against NIST ACVP ML-KEM vectors,
 //! RFC 7748, RFC 8032 and draft-connolly-cfrg-xwing-06 Appendix C. KeyPackage
-//! generation is 0.20 ms; the first commit is 1.35 ms. Those versions are the
-//! ones this crate pins and the choice is not open.
+//! generation is 0.20 ms; the first commit is 1.35 ms. **That measurement was
+//! against `openmls 0.8.1` / `openmls_libcrux_crypto 0.3.1`**, and this crate
+//! is now on the 0.9 train; #723 re-ran what it could and recorded what it
+//! could not. The *library choice* is what #385 settled, and that is not open.
 //!
-//! **`openmls >= 0.8.1` is a hard floor**: every earlier release carries the
-//! High-severity MAC authentication defect. `rs/deny.toml` holds the floor with
-//! a `[[bans.deny]]` entry, because a version floor nobody enforces is a
+//! **`openmls >= 0.9.0` is a hard floor**, and it carries two defects rather
+//! than one: every release before 0.8.1 has the High-severity MAC
+//! authentication defect, and every release before 0.9.0 resolves to a
+//! `libcrux-secrets 0.0.5` carrying RUSTSEC-2026-0212 — a constant-time
+//! swap/select that can return **incorrect results on aarch64**, which is every
+//! phone we ship to, underneath the AEAD we use. `rs/deny.toml` holds the floor
+//! with `[[bans.deny]]` entries, because a version floor nobody enforces is a
 //! comment — a `[patch.crates-io]`, a path dependency or a vendored copy all
 //! walk under a manifest requirement without a word.
 //!

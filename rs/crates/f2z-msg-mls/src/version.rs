@@ -34,11 +34,18 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The ciphersuite codepoint this engine builds groups on, as OpenMLS 0.8.1 and
+/// The ciphersuite codepoint this engine builds groups on, as OpenMLS 0.9.0 and
 /// libcrux ship it today.
 ///
 /// Named rather than left implicit so that the number a future migration has to
 /// look for is written down in one place, with the paragraph above next to it.
+///
+/// `openmls 0.9.0` moved this codepoint — and every other post-quantum one —
+/// behind the `draft-ietf-mls-pq-ciphersuites` feature, which
+/// `rs/Cargo.toml` therefore enables. The **number is unchanged**; what moved
+/// is whether the name compiles. That is the shape of relabelling this module
+/// exists to survive, and it arrived one minor version after the module was
+/// written.
 pub const XWING_CIPHERSUITE_CODEPOINT: u16 = 0x004D;
 
 /// The revision of *our* MLS profile that produced a group's stored state.

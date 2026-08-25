@@ -143,12 +143,27 @@ Eight findings, one of them **High severity — "improper authentication of
 MACs."** The High finding and all but one of the rest are fixed in **0.8.1** (and
 0.7.3 on the previous line).
 
-**Floor: `openmls >= 0.8.1`.** Any earlier version contains a High-severity
-authentication defect and MUST NOT be shipped. One Low-severity finding was still
-open at publication; **review its status before release** rather than assuming the
-audit closed everything. Note also that the version floor interacts with the
-crypto provider: `openmls_rust_crypto` does not implement X-Wing, so the PQ
-ciphersuite (§5.2) requires the libcrux provider.
+**Floor: `openmls >= 0.9.0`**, raised from `>= 0.8.1` by
+[#723](https://github.com/free2z/zuu/issues/723) and carrying two defects rather
+than one. Any version before 0.8.1 contains the High-severity authentication
+defect above. Any version before **0.9.0** resolves, through
+`openmls_libcrux_crypto <= 0.3.1`, to a `libcrux-secrets 0.0.5` carrying
+**RUSTSEC-2026-0212** — a constant-time swap/select that can return incorrect
+results on **aarch64**, underneath the AEAD of §5.2's ciphersuite. aarch64 is
+every phone we ship to and every Apple Silicon desktop.
+[#701](https://github.com/free2z/zuu/issues/701) established that the fix could
+not be applied without forking the libcrux release train; `openmls 0.9.0` and
+`openmls_libcrux_crypto 0.4.0` apply it upstream, and taking them cleared nine
+accepted advisories from `rs/deny.toml` at once. Neither floor may be shipped
+under.
+
+One Low-severity finding from the audit was still open at publication; **review
+its status before release** rather than assuming the audit closed everything.
+Note also that the version floor interacts with the crypto provider:
+`openmls_rust_crypto` does not implement X-Wing, so the PQ ciphersuite (§5.2)
+requires the libcrux provider — and on `openmls 0.9.0` the X-Wing codepoint
+additionally sits behind the `draft-ietf-mls-pq-ciphersuites` feature, which
+`rs/Cargo.toml` enables by name.
 
 This closes §13-A. It does not remove the case for our own review — an audit of
 the library is not an audit of how we use it — but it does mean "widely used" has
@@ -1359,7 +1374,9 @@ finds the answer instead of a hole.
   SRLabs, sponsored by the Sovereign Tech Agency, was published
   [2026-05-27](https://blog.openmls.tech/posts/2026-05-27-independent-audit/):
   eight findings, one High ("improper authentication of MACs"), fixed in 0.8.1
-  and 0.7.3. **We adopt the floor `openmls >= 0.8.1`.** One Low-severity finding
+  and 0.7.3. **We adopt the floor `openmls >= 0.9.0`** — 0.8.1 for the audit
+  finding, and 0.9.0 for RUSTSEC-2026-0212 in the libcrux provider beneath it
+  (#701, #723). One Low-severity finding
   was still open at publication and must be re-checked before release. See §3.1.
   This closes the question of whether the library has been audited; it does not
   close the question of auditing *our* use of it, which per #305's economics

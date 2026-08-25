@@ -331,16 +331,21 @@ jobs:
         working-directory: rs
         run: cargo test --locked -p f2z-msg-store --features crash-injection --test crash_safety
 
-      # `openmls 0.8.1` runs `debug_assert!(false)` on the AEAD-open failure
-      # path (`private_message_in.rs:136`), which any peer or relay can reach by
-      # flipping one byte. It compiles out in release, so the engine's
-      # corrupted-ciphertext case — "refuse, do not crash" — is a property only a
-      # release build can assert, and `tests/two_instances.rs` gates that case on
-      # `not(debug_assertions)`. This step is what runs it. See #385 and the
-      # note on that test.
-      - name: Run the MLS engine's release-only refusal cases
-        working-directory: rs
-        run: cargo test --release --locked -p f2z-msg-mls --test two_instances
+      # There is deliberately NO extra `--release` step for f2z-msg-mls here.
+      #
+      # There used to be one, and this note is why it is gone rather than
+      # missing. `openmls 0.8.1` ran `debug_assert!(false)` on the AEAD-open
+      # failure path (`private_message_in.rs:136`) — reachable by any peer or
+      # relay that flips one byte — which aborted the process in a debug build
+      # and compiled out in release. The engine's corrupted-ciphertext case
+      # ("refuse, do not crash") was therefore a property only a release build
+      # could assert, `tests/two_instances.rs` gated it on
+      # `not(debug_assertions)`, and this step existed to run it.
+      #
+      # `openmls 0.9.0` replaced that path with `log::error!` plus a returned
+      # `MessageDecryptionError::AeadError`, so the case now runs in the
+      # ordinary `cargo test --all-targets` above and this step would be a
+      # second full compile of the same crate for nothing. See #723 and #701.
 
   rs_wasm:
     name: rs / wasm32
@@ -434,25 +439,26 @@ jobs:
       # and the web client, so this reaching wasm32 is a protocol-level
       # requirement rather than a nice property.
       #
-      # Two things are needed and neither is optional:
+      # `--features js` is not optional: OpenMLS emits a `compile_error!` for
+      # wasm32 without it, because it needs JavaScript APIs for secure
+      # randomness and for the current time. It refuses to build rather than
+      # producing a binary that traps at runtime, which is the right choice and
+      # is why the feature exists.
       #
-      #   * `--features js` — OpenMLS emits a `compile_error!` for wasm32
-      #     without it, because it needs JavaScript APIs for secure randomness
-      #     and for the current time. It refuses to build rather than producing
-      #     a binary that traps at runtime, which is the right choice and is why
-      #     the feature exists.
-      #   * `--cfg getrandom_backend="wasm_js"` — `getrandom` refuses to compile
-      #     for wasm32-unknown-unknown until a backend is named, and this graph
-      #     carries **two** major versions of it (0.3 via `rand_core 0.9`, 0.4
-      #     via `rand 0.10` inside `hpke-rs-libcrux`). `f2z-msg-mls`'s manifest
-      #     names both under a `cfg(target_arch = "wasm32")` target table purely
-      #     to turn their `wasm_js` features on; this flag is the other half.
-      #     RUSTFLAGS rather than `.cargo/config.toml` so it applies to this job
-      #     and cannot silently change a native build.
+      # There is deliberately **no** `RUSTFLAGS: --cfg getrandom_backend="wasm_js"`
+      # here any more. Against `openmls 0.8.1` this graph carried two major
+      # versions of `getrandom` — 0.3 via `rand_core 0.9`, 0.4 via `rand 0.10`
+      # inside `hpke-rs-libcrux` — and **0.3 needs the cfg as well as the
+      # feature**. On the 0.9 train nothing in this crate's wasm graph reaches
+      # `rand_core 0.9`, and getrandom **0.4** selects its wasm backend from the
+      # `wasm_js` feature alone, which `f2z-msg-mls`'s target table declares.
+      # See that manifest's note; #723 removed both halves together.
+      #
+      # This cannot regress silently: if getrandom 0.3 re-enters the graph, this
+      # step fails with getrandom's own `compile_error!` naming the missing
+      # backend.
       - name: Build the MLS engine for the browser target
         working-directory: rs
-        env:
-          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
         run: |
           set -euo pipefail
           cargo build --locked --lib \

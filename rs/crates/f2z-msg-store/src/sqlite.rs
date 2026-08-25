@@ -39,12 +39,22 @@
 //! SQLite through `tauri-plugin-zcash`'s `rusqlite = "0.37"`, so 0.37 is a
 //! repository-wide singleton.
 //!
+//! **That constraint no longer excludes the upstream provider, and this note
+//! says so rather than repeating an argument that has expired.**
 //! `openmls_sqlite_storage 0.2.0` — the newest *release* compatible with the
-//! audited `openmls 0.8.1` — requires `rusqlite ^0.32` and is therefore
-//! unusable here; #385 reproduced the exact resolver error rather than trusting
-//! the note. Its `0.3.0-rc` line moved to `^0.37` and would fit, but it
-//! requires `openmls_traits ^0.6.0-rc`, i.e. an unreleased `openmls 0.9.0-rc`.
-//! That is the whole reason this crate exists.
+//! then-audited `openmls 0.8.1` — required `rusqlite ^0.32` and was unusable
+//! here; #385 reproduced the exact resolver error rather than trusting the
+//! note. **`openmls_sqlite_storage 0.3.0` requires `rusqlite = "0.37"` with
+//! `features = ["bundled"]`, which is our singleton exactly**, and the
+//! `openmls 0.9.0` it needs is released.
+//!
+//! This crate is kept anyway, and for reasons that have nothing to do with
+//! resolution: 0.3.0 still exposes no transaction (`StorageProvider` has none
+//! to expose, and its `ConnectionRef: Borrow<Connection>` cannot be handed a
+//! `rusqlite::Transaction`, which reaches `Connection` through `Deref`), it is
+//! native by construction so it cannot serve ADR 0001's browser half, and it
+//! has no application namespace for the durable "handled" record. See the
+//! crate root; #723 re-examined it and wrote the conclusion down there.
 //!
 //! # Schema
 //!

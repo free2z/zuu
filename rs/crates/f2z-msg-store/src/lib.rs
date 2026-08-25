@@ -3,21 +3,62 @@
 //!
 //! # Why this crate exists at all
 //!
-//! OpenMLS ships a SQLite storage provider. We cannot use it, and the reason is
-//! not a preference:
+//! OpenMLS ships a SQLite storage provider. This crate is a deliberate
+//! alternative to it, and the reasons below are the current ones —
+//! **re-established against `openmls_sqlite_storage 0.3.0`, not inherited.**
 //!
-//! - `openmls_sqlite_storage 0.2.0`, the newest **release** compatible with the
-//!   audited `openmls 0.8.1`, requires `rusqlite ^0.32`.
-//! - `libsqlite3-sys` declares `links = "sqlite3"`, and Cargo **hard-errors**
-//!   on a graph containing two versions of a `links` package.
-//! - Everything under `wallet/` reaches SQLite through `tauri-plugin-zcash`'s
-//!   `rusqlite = "0.37"`, so **0.37 is a repository-wide singleton**
-//!   (`AGENTS.md`, "What NOT to do").
-//! - The `0.3.0-rc` line does fit `^0.37` — and drags in `openmls 0.9.0-rc`, an
-//!   unreleased OpenMLS.
+//! ## The reason that used to be first, and has expired
 //!
-//! [#385](https://github.com/free2z/zuu/issues/385) reproduced the resolver
-//! error rather than trusting the note. So: implement it.
+//! It was, until 2026-08-25, that the upstream provider **could not resolve**:
+//! `openmls_sqlite_storage 0.2.0` — the newest release compatible with the
+//! audited `openmls 0.8.1` — required `rusqlite ^0.32`; `libsqlite3-sys`
+//! declares `links = "sqlite3"` and Cargo hard-errors on two versions of a
+//! `links` package; everything under `wallet/` reaches SQLite through
+//! `tauri-plugin-zcash`'s `rusqlite = "0.37"`, making **0.37 a
+//! repository-wide singleton** (`AGENTS.md`); and the only line that fit
+//! `^0.37` was a `0.3.0-rc` needing an unreleased `openmls 0.9.0-rc`.
+//! [#385](https://github.com/free2z/zuu/issues/385) reproduced that resolver
+//! error rather than trusting the note.
+//!
+//! **`openmls_sqlite_storage 0.3.0` requires `rusqlite = "0.37"` with
+//! `features = ["bundled"]` — exactly our singleton — and `openmls 0.9.0` is
+//! released.** The blocker is gone. It is written down as gone because a
+//! justification whose leading clause is false is worse than no justification:
+//! it invites the next reader to accept the rest of the argument on the
+//! strength of a premise that has stopped being true.
+//!
+//! ## Why the answer is still "keep this crate"
+//!
+//! Three reasons, each checked against 0.3.0's actual source rather than its
+//! README, and the first is decisive on its own.
+//!
+//! **1. The transaction.** `openmls_sqlite_storage 0.3.0`'s entire public
+//! surface is `new`, `initialize`, `run_migrations` and the `StorageProvider`
+//! impl. There is no transaction API — there cannot be, because
+//! `openmls_traits::storage::StorageProvider` has none — so it commits each of
+//! the many calls in a `process_message` → `merge_staged_commit` run
+//! independently. Nor can one be supplied from outside: the provider is
+//! generic over `ConnectionRef: Borrow<Connection>`, and `rusqlite::Transaction`
+//! reaches `Connection` through `Deref`, not `Borrow`. Atomicity is the whole
+//! point of this crate (see below), and under delete-on-ack a half-applied
+//! epoch change is data loss.
+//!
+//! **2. The backend seam.** ADR 0001 needs one core shared with the browser.
+//! `openmls_sqlite_storage` is native by construction — `rusqlite`'s `bundled`
+//! feature links SQLite's C amalgamation — so a web client would need a second
+//! implementation of all 57 methods, and the second implementation is the one
+//! that ends up with the bug in it. [`StorageBackend`] is three methods with no
+//! generics; an IndexedDB backend is a new type behind it.
+//!
+//! **3. The application namespace.** The durable "handled" record that makes an
+//! `ACK` safe ([`ARCHITECTURE.md` §6.4][s64]) has to land in the **same atomic
+//! write** as the epoch change it accompanies. `StorageProvider` has no notion
+//! of application data, so no implementation of it alone can offer that; this
+//! crate's app namespace shares the journal with the MLS writes.
+//!
+//! A fourth, smaller: [`Durability`] is reported by the backend, so
+//! `f2z-msg-mls` can refuse to let a caller `ACK` on a store that survives
+//! nothing. That is a property of the seam, not of SQLite.
 //!
 //! # The shape
 //!
@@ -32,7 +73,7 @@
 //! is generic over serde, and nothing in the trait is specific to a storage
 //! engine. They are implemented **once**, in [`storage_impl`], in the upstream
 //! trait's declaration order so a reviewer can diff them against
-//! `openmls_traits::storage` and against `openmls_memory_storage 0.5.0` side by
+//! `openmls_traits::storage` and against `openmls_memory_storage 0.6.0` side by
 //! side. The backend seam is three methods with no generics.
 //!
 //! The seam exists now, before the browser needs it, because ADR 0001 requires
