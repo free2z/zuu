@@ -42,6 +42,17 @@ pub enum DagError {
     /// changes the framing and must not change the message).
     EpochMismatch,
 
+    /// The `sender_leaf_index` field disagrees with the MLS leaf index the
+    /// message was framed by.
+    ///
+    /// §7's 2026-08-25 correction put the leaf index inside the hash and made
+    /// it authoritative; the framing value is the cross-check, and a
+    /// disagreement is a sender claiming an authorship position it did not
+    /// encrypt from. Like [`DagError::EpochMismatch`], only a directly
+    /// delivered message is held to this — a repair's framing belongs to the
+    /// repairing peer.
+    LeafIndexMismatch,
+
     /// A `gap_response` carried a message that is not the one that was asked
     /// for.
     ///
@@ -94,6 +105,9 @@ impl fmt::Display for DagError {
             Self::EpochMismatch => {
                 f.write_str("the epoch field disagrees with the MLS epoch of the framing")
             }
+            Self::LeafIndexMismatch => f.write_str(
+                "the sender_leaf_index field disagrees with the MLS leaf index of the framing",
+            ),
             Self::UnsolicitedRepair => {
                 f.write_str("a gap_response carried a message that was not requested")
             }

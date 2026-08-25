@@ -88,6 +88,7 @@ fn secret_message() -> AppMessage {
         message_type: MessageType::CHAT,
         parents: Parents::new(vec![MsgId::new([SECRET; 32])]).unwrap(),
         epoch: 7,
+        sender_leaf_index: 1,
         sent_at: SentAt::new(1_700_000_000_000),
         retention_class: RetentionClass::Chat,
         body: Body::new(vec![SECRET; 64]).unwrap(),

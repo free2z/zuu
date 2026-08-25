@@ -37,16 +37,23 @@ use crate::error::DagError;
 use crate::message::{AppMessage, MsgId, RetentionClass, SentAt};
 use crate::order::{OrderNode, SortKey, linearise};
 
-/// Where a message came from, which decides how its sort key was obtained.
+/// Where a message came from.
+///
+/// It no longer decides how the sort key was obtained — since §7's 2026-08-25
+/// correction both components of the key that are not `msg_id` are hashed
+/// fields, so the key is identical whichever arm produced the entry. What
+/// provenance still records is what the *framing* authenticated, which is a
+/// different fact and is worth keeping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum Provenance {
-    /// Delivered inside its own MLS framing. `epoch` and `sender_leaf_index`
-    /// are the framing's, and the framing authenticated the sender.
+    /// Delivered inside its own MLS framing, which authenticated the sender
+    /// and agreed with the message's own `epoch` and `sender_leaf_index`.
     Delivered,
     /// Reconstructed from a `gap_response` (§7's repair). The message content
     /// is verified against the `msg_id` that was requested — a hash commitment
-    /// — but the framing that carried it was the *repairing* peer's.
+    /// — but the framing that carried it was the *repairing* peer's, so it
+    /// authenticates the repairer and not the author.
     Repaired,
 }
 
@@ -68,21 +75,24 @@ pub struct DagEntry {
 impl DagEntry {
     /// Admit a message that arrived inside its own MLS framing.
     ///
-    /// `epoch` and `sender_leaf_index` are the **framing's** — they come from
-    /// `f2z_msg_mls::Received::Application`, are authenticated by MLS, and are
-    /// the only trustworthy source for them.
+    /// `epoch` and `sender_leaf_index` here are the **framing's** — they come
+    /// from `f2z_msg_mls::Received::Application` and are authenticated by MLS.
+    /// They are not what the sort key is built from: since §7's 2026-08-25
+    /// correction the message carries both, `msg_id` commits to both, and the
+    /// message's own values are authoritative. The framing values are passed
+    /// in so they can be **cross-checked**, which is the whole reason the
+    /// correction chose one authoritative field over two sources of truth.
     ///
-    /// The message's own `epoch` field must agree with the framing's. §7 does
-    /// not say what to do when they disagree; refusing is the safe reading,
-    /// because the field is inside the hash and the framing is not, so a
-    /// disagreement is a sender claiming to have authored in an epoch it did
-    /// not encrypt under. Accepting it would let a sender place its message
-    /// anywhere in the transcript it liked, which is precisely the power §7
-    /// takes away from the clock.
+    /// Both mismatches are fatal, for the same reason. The fields are inside
+    /// the hash and the framing is not, so a disagreement is a sender claiming
+    /// to have authored somewhere it did not encrypt from. Accepting either
+    /// would let a sender place its message anywhere in the transcript it
+    /// liked, which is precisely the power §7 takes away from the clock.
     ///
     /// # Errors
     ///
-    /// [`DagError::EpochMismatch`] if the two epochs disagree.
+    /// - [`DagError::EpochMismatch`] if the two epochs disagree.
+    /// - [`DagError::LeafIndexMismatch`] if the two leaf indices disagree.
     pub fn from_delivered(
         message: &AppMessage,
         epoch: u64,
@@ -90,6 +100,9 @@ impl DagEntry {
     ) -> Result<Self, DagError> {
         if message.tbs().epoch != epoch {
             return Err(DagError::EpochMismatch);
+        }
+        if message.tbs().sender_leaf_index != sender_leaf_index {
+            return Err(DagError::LeafIndexMismatch);
         }
         Ok(Self {
             key: SortKey {
@@ -106,37 +119,37 @@ impl DagEntry {
 
     /// Admit a message reconstructed from a `gap_response`.
     ///
-    /// The epoch is the message's **own** field, not the framing's: §7's repair
-    /// re-encrypts the original plaintext under the *current* epoch, so the
-    /// framing epoch of a repair is later than the message's by construction
-    /// and using it would move the message in the transcript.
+    /// **Both** the epoch and the leaf index come from the message's own
+    /// hashed fields, never from the framing that carried the repair. §7's
+    /// repair re-encrypts the original plaintext under the *current* epoch, so
+    /// a repair's framing describes the repair rather than the message: its
+    /// epoch is later than the message's by construction, and its leaf index is
+    /// the repairer's. Reading either off the framing would move the message in
+    /// the transcript.
     ///
-    /// # `sender_leaf_index` is the open question §7 leaves, stated plainly
+    /// # This is the function §7's 2026-08-25 correction was made for
     ///
-    /// The sort key needs a `sender_leaf_index`, and a repaired message does
-    /// not carry one it can prove: `sender_leaf_index` lives in MLS framing,
-    /// `msg_id` does not commit to it, and the framing that arrives with a
-    /// repair belongs to the repairing peer. §7 says "**the sender**
-    /// re-encrypts the original plaintext", so this function takes the
-    /// repairing peer's own authenticated leaf index and is correct exactly
-    /// when that sentence holds — the peer repairing is the peer that
-    /// originally sent.
+    /// It used to take `original_sender_leaf_index` as a parameter, because
+    /// `msg_id` did not commit to it and a repaired message therefore had no
+    /// leaf index it could prove. The caller had to supply one, and the only
+    /// value it could honestly supply was the repairing peer's own — which is
+    /// correct exactly while §7's "*the sender* re-encrypts the original
+    /// plaintext" holds, and silently wrong the moment a third member answers
+    /// a `gap_request`. Two receivers who learned one message by different
+    /// routes would then compute different sort keys for the same `msg_id` and
+    /// render different transcripts while agreeing on every message.
     ///
-    /// If repair is ever generalised so a third member may answer a
-    /// `gap_request` — which §7 does not forbid, and which is the obvious
-    /// optimisation once a group is larger than two — then two receivers who
-    /// learned the same message by different routes will compute **different
-    /// sort keys for the same `msg_id`**, and §7's "every client that applies
-    /// this rule to the same set of messages produces the same transcript"
-    /// stops being true. The fix is to move `sender_leaf_index` inside the
-    /// hashed message so the commitment covers it. That is a specification
-    /// change, so it is reported rather than made here.
+    /// With the leaf index inside the hash the parameter has nothing to be:
+    /// the message carries the author's index, `msg_id` commits to it, and
+    /// `RepairEntry::accept` has already checked the bytes against the
+    /// requested `msg_id`. A third-party repair therefore yields byte-identical
+    /// entries to a first-party one — asserted in `tests/two_routes.rs`.
     #[must_use]
-    pub fn from_repair(message: &AppMessage, original_sender_leaf_index: u32) -> Self {
+    pub fn from_repair(message: &AppMessage) -> Self {
         Self {
             key: SortKey {
                 epoch: message.tbs().epoch,
-                sender_leaf_index: original_sender_leaf_index,
+                sender_leaf_index: message.tbs().sender_leaf_index,
                 msg_id: message.msg_id(),
             },
             parents: message.tbs().parents.as_slice().to_vec(),
@@ -420,10 +433,15 @@ mod tests {
     use f2z_codec::types::Body;
 
     fn message(parents: Vec<MsgId>, epoch: u64, body: &[u8]) -> AppMessage {
+        message_from(parents, epoch, 0, body)
+    }
+
+    fn message_from(parents: Vec<MsgId>, epoch: u64, leaf: u32, body: &[u8]) -> AppMessage {
         AppMessage::seal(AppMessageTbs {
             message_type: MessageType::CHAT,
             parents: Parents::new(parents).unwrap(),
             epoch,
+            sender_leaf_index: leaf,
             sent_at: SentAt::new(0),
             retention_class: RetentionClass::Chat,
             body: Body::new(body.to_vec()).unwrap(),
@@ -431,8 +449,13 @@ mod tests {
         .unwrap()
     }
 
-    fn delivered(message: &AppMessage, leaf: u32) -> DagEntry {
-        DagEntry::from_delivered(message, message.tbs().epoch, leaf).unwrap()
+    fn delivered(message: &AppMessage) -> DagEntry {
+        DagEntry::from_delivered(
+            message,
+            message.tbs().epoch,
+            message.tbs().sender_leaf_index,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -440,11 +463,11 @@ mod tests {
         let mut dag = MessageDag::new();
         let one = message(vec![], 7, b"hello");
         assert!(matches!(
-            dag.insert(delivered(&one, 0)),
+            dag.insert(delivered(&one)),
             Insertion::Accepted { .. }
         ));
         for _ in 0..4 {
-            assert_eq!(dag.insert(delivered(&one, 0)), Insertion::Duplicate);
+            assert_eq!(dag.insert(delivered(&one)), Insertion::Duplicate);
         }
         assert_eq!(dag.len(), 1);
     }
@@ -455,13 +478,13 @@ mod tests {
         let mut dag = MessageDag::new();
 
         let first = message(vec![missing], 7, b"a");
-        let Insertion::Accepted { newly_missing } = dag.insert(delivered(&first, 0)) else {
+        let Insertion::Accepted { newly_missing } = dag.insert(delivered(&first)) else {
             panic!("expected acceptance");
         };
         assert_eq!(newly_missing, vec![missing]);
 
         let second = message(vec![missing], 7, b"b");
-        let Insertion::Accepted { newly_missing } = dag.insert(delivered(&second, 0)) else {
+        let Insertion::Accepted { newly_missing } = dag.insert(delivered(&second)) else {
             panic!("expected acceptance");
         };
         assert!(newly_missing.is_empty(), "one hole is one gap");
@@ -472,7 +495,7 @@ mod tests {
     fn a_gap_request_is_emitted_once() {
         let missing = message(vec![], 7, b"missing").msg_id();
         let mut dag = MessageDag::new();
-        dag.insert(delivered(&message(vec![missing], 7, b"a"), 0));
+        dag.insert(delivered(&message(vec![missing], 7, b"a")));
 
         assert_eq!(dag.take_gap_request(), vec![missing]);
         assert!(
@@ -486,10 +509,10 @@ mod tests {
     fn the_missing_message_arriving_closes_the_gap() {
         let missing = message(vec![], 7, b"missing");
         let mut dag = MessageDag::new();
-        dag.insert(delivered(&message(vec![missing.msg_id()], 7, b"a"), 0));
+        dag.insert(delivered(&message(vec![missing.msg_id()], 7, b"a")));
         assert!(dag.has_detected_gaps());
 
-        dag.insert(delivered(&missing, 1));
+        dag.insert(delivered(&missing));
         assert!(!dag.has_detected_gaps());
         assert!(dag.detected_gaps().is_empty());
     }
@@ -498,7 +521,7 @@ mod tests {
     fn an_unrecoverable_gap_stays_visible_and_is_not_reopened() {
         let missing = message(vec![], 7, b"missing").msg_id();
         let mut dag = MessageDag::new();
-        dag.insert(delivered(&message(vec![missing], 7, b"a"), 0));
+        dag.insert(delivered(&message(vec![missing], 7, b"a")));
         dag.take_gap_request();
         dag.mark_unrecoverable(&missing);
 
@@ -508,7 +531,7 @@ mod tests {
         // Another message pointing at the same hole must not resurrect it as a
         // fresh gap: the user has already been told it cannot be recovered.
         let Insertion::Accepted { newly_missing } =
-            dag.insert(delivered(&message(vec![missing], 7, b"b"), 0))
+            dag.insert(delivered(&message(vec![missing], 7, b"b")))
         else {
             panic!("expected acceptance");
         };
@@ -523,9 +546,9 @@ mod tests {
         let sibling = message(vec![root.msg_id()], 7, b"sibling");
 
         let mut dag = MessageDag::new();
-        dag.insert(delivered(&root, 0));
-        dag.insert(delivered(&child, 1));
-        dag.insert(delivered(&sibling, 1));
+        dag.insert(delivered(&root));
+        dag.insert(delivered(&child));
+        dag.insert(delivered(&sibling));
 
         let mut heads = dag.heads();
         heads.sort_unstable();
@@ -541,5 +564,35 @@ mod tests {
             DagEntry::from_delivered(&one, 8, 0),
             Err(DagError::EpochMismatch)
         );
+    }
+
+    #[test]
+    fn the_framing_leaf_index_and_the_claimed_leaf_index_must_agree() {
+        // §7's 2026-08-25 correction: the hashed field is authoritative and
+        // the framing is the cross-check. Two sources of truth is the thing
+        // the correction exists to avoid, so a disagreement is fatal.
+        let one = message_from(vec![], 7, 3, b"hello");
+        assert_eq!(
+            DagEntry::from_delivered(&one, 7, 4),
+            Err(DagError::LeafIndexMismatch)
+        );
+        assert_eq!(
+            DagEntry::from_delivered(&one, 7, 3).unwrap().sort_key(),
+            SortKey {
+                epoch: 7,
+                sender_leaf_index: 3,
+                msg_id: one.msg_id(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_repaired_entry_takes_its_whole_sort_key_from_the_message() {
+        // The repair arrives in the repairing peer's framing at a later epoch.
+        // Neither of those may reach the sort key.
+        let original = message_from(vec![], 7, 3, b"the missing one");
+        let repaired = DagEntry::from_repair(&original);
+        assert_eq!(repaired.sort_key(), delivered(&original).sort_key());
+        assert_eq!(repaired.provenance(), Provenance::Repaired);
     }
 }

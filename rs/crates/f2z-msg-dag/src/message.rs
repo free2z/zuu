@@ -2,10 +2,21 @@
 //!
 //! ```text
 //! AppMessage = {
-//!   type, msg_id, parents, epoch, sent_at, retention_class, body
+//!   type, msg_id, parents, epoch, sender_leaf_index, sent_at,
+//!   retention_class, body
 //! }
 //! msg_id = BLAKE2b-256("free2z/msg/v1/msgid" || canonical(rest))
 //! ```
+//!
+//! # `sender_leaf_index` is inside the hash
+//!
+//! §7's correction of 2026-08-25. The field used to live only in MLS framing,
+//! which meant `msg_id` did not commit to it while §7's sort key depended on
+//! it — and repair delivers a message *outside* its original framing. It is
+//! now a hashed field, so the sort key is a property of the **message** rather
+//! than of the delivery that happened to carry it. See
+//! [`crate::dag::DagEntry::from_delivered`] for the cross-check against the
+//! framing, and [`crate::dag::DagEntry::from_repair`] for what it buys.
 //!
 //! # `rest` is a type, not a comment
 //!
@@ -466,6 +477,24 @@ pub struct AppMessageTbs {
     pub parents: Parents,
     /// §7's `epoch`: the MLS epoch this message was authored in.
     pub epoch: u64,
+    /// §7's `sender_leaf_index`: the author's MLS leaf index, and the second
+    /// component of §7's total order.
+    ///
+    /// **Authoritative, and hashed.** The MLS framing carries the same value
+    /// for a directly delivered message and
+    /// [`crate::dag::DagEntry::from_delivered`] refuses a message where the
+    /// two disagree — one source of truth, cross-checked, rather than two.
+    ///
+    /// It sits here rather than only in the framing because §7's ordering
+    /// guarantee is over a *set of messages*, and repair delivers a message
+    /// outside the framing it was authored in. A sort key that could only be
+    /// read off the delivery made two receivers who learned one message by
+    /// different routes render different transcripts. Committing to it costs
+    /// nothing in metadata: every group member could already read it off the
+    /// framing, and the relay sees only ciphertext either way.
+    ///
+    /// `u32` because that is MLS's leaf index width (RFC 9420 §7.1).
+    pub sender_leaf_index: u32,
     /// §7's `sent_at`. Advisory. See [`SentAt`].
     pub sent_at: SentAt,
     /// §7's `retention_class`.
@@ -584,6 +613,7 @@ mod tests {
             message_type: MessageType::CHAT,
             parents,
             epoch,
+            sender_leaf_index: 1,
             sent_at: SentAt::new(1_700_000_000_000),
             retention_class: RetentionClass::Chat,
             body: Body::new(body.to_vec()).unwrap(),
@@ -633,6 +663,16 @@ mod tests {
         let mut later = tbs(Parents::empty(), 7, b"hello");
         later.sent_at = SentAt::new(0);
         assert_ne!(base.msg_id(), AppMessage::seal(later).unwrap().msg_id());
+
+        // §7's 2026-08-25 correction: the sort key's second component is a
+        // property of the message, so changing it must change its name.
+        let mut other_leaf = tbs(Parents::empty(), 7, b"hello");
+        other_leaf.sender_leaf_index = 2;
+        assert_ne!(
+            base.msg_id(),
+            AppMessage::seal(other_leaf).unwrap().msg_id(),
+            "msg_id must commit to sender_leaf_index"
+        );
     }
 
     #[test]
@@ -705,8 +745,8 @@ mod tests {
         let message = AppMessage::seal(tbs(Parents::empty(), 7, b"hello")).unwrap();
         let wire = message.encode().unwrap();
         // retention_class sits after msg_id, type, the empty parents prefix,
-        // epoch and sent_at.
-        let at = MsgId::LEN + 1 + 2 + 8 + 8;
+        // epoch, sender_leaf_index and sent_at.
+        let at = MsgId::LEN + 1 + 2 + 8 + 4 + 8;
         assert_eq!(*wire.get(at).unwrap(), RetentionClass::Chat.code());
         let mut unknown = wire;
         *unknown.get_mut(at).unwrap() = 0x7f;

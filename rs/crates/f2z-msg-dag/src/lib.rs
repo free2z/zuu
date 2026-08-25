@@ -7,7 +7,8 @@
 //! sequencing authority exists to be trusted, subpoenaed or wrong.
 //!
 //! ```text
-//! AppMessage = { type, msg_id, parents, epoch, sent_at, retention_class, body }
+//! AppMessage = { type, msg_id, parents, epoch, sender_leaf_index, sent_at,
+//!                retention_class, body }
 //! msg_id     = BLAKE2b-256("free2z/msg/v1/msgid" || canonical(rest))
 //! ```
 //!
@@ -31,8 +32,17 @@
 //!    breaks ties between *concurrent* messages by
 //!    `(epoch, sender_leaf_index, msg_id)`. Applying the tie-break alone puts
 //!    replies above the messages they answer; the module note carries the
-//!    two-line counterexample and `tests/typescript_parity.rs` pins the
-//!    disagreement with the shipped TypeScript comparator.
+//!    two-line counterexample. This crate is the **only** implementation of
+//!    that order — `CLIENT-CONTRACT.md` §7's 2026-08-25 correction moved
+//!    display order out of the UI and into the engine, which is what ADR 0001
+//!    asked for all along.
+//!
+//! 1b. **The sort key is a property of the message, not of the delivery.**
+//!    `msg_id` commits to `epoch` **and** `sender_leaf_index`, so a message
+//!    learned through repair — outside the framing it was authored in — sorts
+//!    exactly where it would have if it had arrived directly.
+//!    `tests/two_routes.rs` asserts that over two receivers who learned one
+//!    message by different routes.
 //!
 //! 2. **`sent_at` cannot order anything.** [`SentAt`] implements neither `Ord`
 //!    nor `PartialOrd`. §7 calls the field advisory; a doc comment saying so is
@@ -58,11 +68,11 @@
 //! - **`parents` is strictly ascending.** A head *set* has to encode one way or
 //!   `msg_id` is not a function of the content. See [`Parents`].
 //! - **`type` is open, `retention_class` is closed.** See [`RetentionClass`].
-//! - **The framing epoch and the claimed epoch must agree** for a directly
-//!   delivered message. See [`DagEntry::from_delivered`].
-//! - **A repaired message's `sender_leaf_index` is the repairing peer's.** §7's
-//!   total order needs a leaf index; `msg_id` does not commit to one. See
-//!   [`DagEntry::from_repair`], which states the consequence in full.
+//! - **The framing epoch and leaf index must agree with the message's own**
+//!   for a directly delivered message. §7 says the hashed fields are
+//!   authoritative and the framing is a cross-check; it does not say what to do
+//!   when they disagree. Refusing is the safe reading. See
+//!   [`DagEntry::from_delivered`].
 //!
 //! # Example
 //!
@@ -81,6 +91,7 @@
 //!     message_type: MessageType::CHAT,
 //!     parents: Parents::empty(),
 //!     epoch: 7,
+//!     sender_leaf_index: 1, // hashed, and cross-checked against the framing
 //!     sent_at: SentAt::new(1_700_000_000_000), // advisory; orders nothing
 //!     retention_class: RetentionClass::Chat,
 //!     body: Body::new(b"hello".to_vec())?,
@@ -91,6 +102,7 @@
 //!     message_type: MessageType::CHAT,
 //!     parents: Parents::new(vec![first.msg_id()])?,
 //!     epoch: 7,
+//!     sender_leaf_index: 1,
 //!     sent_at: SentAt::new(1_700_000_001_000),
 //!     retention_class: RetentionClass::Chat,
 //!     body: Body::new(b"are you there?".to_vec())?,
@@ -101,12 +113,14 @@
 //!     message_type: MessageType::CHAT,
 //!     parents: Parents::new(vec![dropped.msg_id()])?,
 //!     epoch: 7,
+//!     sender_leaf_index: 1,
 //!     sent_at: SentAt::new(1_700_000_002_000),
 //!     retention_class: RetentionClass::Chat,
 //!     body: Body::new(b"still here".to_vec())?,
 //! })?;
 //!
-//! // `epoch` and the leaf index come from the MLS framing, authenticated.
+//! // The framing's `epoch` and leaf index, authenticated by MLS, are passed
+//! // in to be checked against the message's own hashed values.
 //! dag.insert(DagEntry::from_delivered(&first, 7, 1)?);
 //! let outcome = dag.insert(DagEntry::from_delivered(&third, 7, 1)?);
 //!
