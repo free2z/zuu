@@ -30,7 +30,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::engine::Relay;
 use crate::faults::{Effect, FaultInjector};
-use crate::outbound::{CLOSE_NORMAL, CLOSE_PROTOCOL_ERROR, OutKind, Outbound};
+use crate::outbound::{CLOSE_GOING_AWAY, CLOSE_NORMAL, CLOSE_PROTOCOL_ERROR, OutKind, Outbound};
 use crate::transport::{Transport, TransportSink, WireMessage};
 
 /// Serve one connection until either end closes.
@@ -65,7 +65,11 @@ pub async fn drive(relay: Arc<Relay>, transport: Transport) {
                 // would be a second mechanism only one of the two clients has.
                 missed_pongs = missed_pongs.saturating_add(1);
                 if missed_pongs > missed_pongs_before_close {
-                    let _ = outbound_tx.send(close_now(CLOSE_NORMAL));
+                    // 1001, "going away", the same status `f2z-relay` sends.
+                    // Issue #678: this said 1000 while production said 1001, and
+                    // nothing could notice, because the constant did not exist
+                    // in this crate.
+                    let _ = outbound_tx.send(close_now(CLOSE_GOING_AWAY));
                     break;
                 }
                 let _ = outbound_tx.send(Outbound::keepalive());
@@ -108,6 +112,15 @@ pub async fn drive(relay: Arc<Relay>, transport: Transport) {
     }
 
     relay.close_connection(&connection);
+    // Both senders, or the writer never ends. `Connection` carries its own
+    // clone of `outbound_tx` (`Connection::pushes`), so dropping only the local
+    // one leaves `outbound.recv()` with a live sender and it parks forever.
+    // `f2z-relay`'s loop had the identical shape and the identical bug, found
+    // by issue #678's tests: every path that ends in silence rather than in a
+    // close frame — §2.5's handshake deadline, a client hanging up, a transport
+    // error — leaked its writer task. Fixed in both, because this loop exists
+    // to be the same loop.
+    drop(connection);
     drop(outbound_tx);
     let _ = writer.await;
 }
