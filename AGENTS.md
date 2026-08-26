@@ -51,7 +51,9 @@ exact cycle:
    pruning as a separate audited operation; never let it remove metadata for an
    unavailable worktree.
    Build-heavy merged worktrees (`target/`, `node_modules/`, etc.) must not be
-   left behind.
+   left behind. This step is the worker's own duty; because a worker can end
+   without performing it, it is backed by a periodic sweep —
+   see [Worktree hygiene](#worktree-hygiene-run-the-audit-do-not-trust-the-habit).
 
 **Why this is absolute:** an un-pushed commit on local `main` is not saved —
 `git reset --hard origin/main` or a fresh re-clone silently destroys it, and
@@ -381,6 +383,79 @@ pinned `rustc`, fetches only the needed submodule, and runs the same `cargo
 build --locked` — and **let it finish**. That is the only local check that sees
 what CI sees. The workflow's `--locked` build and standalone plugin build exist
 to catch these too, but catching them before the push is cheaper than a red run.
+
+## Worktree hygiene: run the audit, do not trust the habit
+
+The iron rule's step 6 already says a merged worktree gets removed. Treat that
+as insufficient on its own: it is a rule an agent follows at the end of a task,
+and the failure mode is an agent that ended differently — interrupted, resumed
+in a new session, or handed off. The rule does not notice when it was skipped.
+**So audit periodically rather than relying on every worker to have tidied up.**
+
+What that costs when nobody audits is not abstract. A recent sweep found
+**eleven worktrees whose PRs had already merged, holding ~57 GB**, and ~87 GB of
+`target/` and `node_modules/` across the tree as a whole. Build output, not
+history — but it is the disk that fills.
+
+### Ancestry does not tell you whether a branch merged
+
+This repository squash-merges, so a merged branch's tip is **never** an ancestor
+of `main`. `git merge-base --is-ancestor` reports every merged worktree as
+unmerged and is the wrong tool here. Ask the PR instead:
+
+```bash
+for w in .worktrees/*/* ; do
+  [ -d "$w" ] || continue
+  b=$(git -C "$w" rev-parse --abbrev-ref HEAD) || continue
+  printf '%-46s %s\n' "$b" \
+    "$(gh pr list --head "$b" --state all --json number,state \
+        --jq '.[0]|"#\(.number) \(.state)"' 2>/dev/null || echo '(no PR)')"
+done
+```
+
+A `MERGED` row is reclaimable. `OPEN` is live work. `(no PR)` and `CLOSED` are
+judgement calls that belong to whoever created them — **never sweep those
+without asking the owner.**
+
+### Check for uncommitted work first, and never force past it
+
+`git worktree remove --force` will discard a dirty tree. That is fine for a
+worktree you created minutes ago to run a mutation in; it is not fine for
+somebody else's in-progress branch. Before removing anything you did not create
+this session:
+
+```bash
+git -C "$w" status --porcelain
+```
+
+Empty, or the removal needs a human. A submodule pointer showing as modified
+(`M z/zcash/librustzcash`) is usually just an un-synced working tree rather than
+real work — `git submodule update --init z/zcash/librustzcash` clears it.
+
+### Remove the build output first
+
+`rm -rf` on `target/` and `node_modules/` is the reclaim; removing the worktree
+is bookkeeping. Doing the heavy delete first also means a `worktree remove` that
+refuses for a good reason has not already cost you the rebuild:
+
+```bash
+rm -rf "$w"/rs/target "$w"/wallet/*/target "$w"/wallet/*/node_modules
+git worktree remove --force "$w"
+git worktree prune
+```
+
+Reclaiming build output **without** removing the worktree is the conservative
+middle option for a branch somebody still wants: it costs a cold rebuild and
+loses nothing.
+
+### For agent-created worktrees
+
+An agent that creates a worktree owns it and removes it in the same session —
+including the ones the harness creates under `.claude/worktrees/agent-*`, which
+stay **locked** while their agent is running and become removable once it
+reports. Prune yours as soon as its review finishes rather than at the end of a
+batch; a long session otherwise accumulates several full `target/` trees at
+once.
 
 ## Practical notes
 

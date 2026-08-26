@@ -39,7 +39,7 @@ that only ever moves forward, and every change carries a reviewable PR trail.
 4. **CI is the merge gate.** `.github/workflows/zuuli.yml` (and any other required checks) must be green. Never merge red.
 5. **Rebase onto `origin/main` frequently.** Resolve conflicts in the worktree — never on `main`.
 6. **Partition file surfaces** across concurrent tasks so parallel PRs don't collide. Sequence dependent work; land shared/foundational changes first.
-7. **Clean up immediately after merge.** Before removal, verify all of these:
+7. **Clean up immediately after merge** — and **audit periodically**, because step 7 is a rule a worker follows at the end of a task and an interrupted worker never reaches it. A recent sweep found eleven worktrees whose PRs had already merged, holding ~57 GB. The audit, the squash-merge trap that makes `git merge-base --is-ancestor` useless here, and the safe removal order are in [AGENTS.md § Worktree hygiene](../AGENTS.md#worktree-hygiene-run-the-audit-do-not-trust-the-habit). Before removal, verify all of these:
 
    - Confirm the worker has exited and no build, watcher, editor, or other
      process can still write into the worktree. Never clean up an active
