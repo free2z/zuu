@@ -126,6 +126,21 @@ f2z-msg-store = { path = "../../../rs/crates/f2z-msg-store", version = "0.1.0" }
 # credential needs them, so this is a direct dependency rather than something
 # reached through `f2z-msg-identity`'s re-exports.
 f2z-kt-core = { path = "../../../rs/crates/f2z-kt-core", version = "0.1.0", default-features = false }
+# `KT.md` §8 over HTTPS: the §9.2 endpoints, §6.3's monotonicity state, §8.3's
+# threshold applied and failed closed on, the pin store and the alarm log. MIT,
+# and on the client side of the AGPL boundary — the log server and the witness
+# are deliberately absent from this manifest and adding either would relicense
+# ZUULI.
+#
+# `default-features = false` plus `verifier` and `http` by name rather than the
+# default set, because a feature enabled only by unification is a feature we do
+# not actually have. `verifier` reaches `f2z-kt-core`'s `verifier` and NOT its
+# `auditor`, which pulls the server crate `akd` and traps at runtime on wasm32
+# (§11.3) — a client must never link it (§8.5).
+f2z-kt-client = { path = "../../../rs/crates/f2z-kt-client", version = "0.1.0", default-features = false, features = [
+  "verifier",
+  "http",
+] }
 # The canonical wire encoding, the frame layer, BLAKE2b with labelled domains
 # and the padding buckets.
 f2z-codec = { path = "../../../rs/crates/f2z-codec", version = "0.1.0" }

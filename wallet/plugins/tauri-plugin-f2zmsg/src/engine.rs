@@ -690,7 +690,13 @@ impl<B: StorageBackend> Engine<B> {
         // device has never pinned is the same row as resolving one. The
         // `Welcome` is authenticated by MLS, but nothing in it says the sender
         // is who the handle says — that is exactly what the directory answers.
-        let peer = self.directory.resolve_peer(&request.peer_handle)?;
+        //
+        // `resolve_identity` and not `resolve_peer`: this path needs the
+        // identity key and nothing else. The `Welcome` and the peer's queue
+        // advert arrived inside the contact request, so no MLS `KeyPackage` is
+        // required — which is what makes this the one first-contact path a
+        // verified directory can complete today (`KT.md` §4.1 publishes none).
+        let peer = self.directory.resolve_identity(&request.peer_handle)?;
 
         let mut inner = self.inner.lock().await;
         inner.require_running("accept_contact_request")?;
