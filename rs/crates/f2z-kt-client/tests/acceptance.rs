@@ -34,6 +34,9 @@
 //! | a key change the user did not initiate raises the alarm | §8.2 step 5 |
 //! | a pinned handle asserted absent fails closed and alarms | §8.1's correction |
 //! | self-audit continues, and reports, under an unwitnessed root | §8.3's table |
+//! | a history with a version omitted is refused | §8.2 step 4 |
+//! | a history whose `prev_entry_hash` chain does not link is refused | §8.2 step 4 |
+//! | a history that chains by hash and renumbers a version is refused | §8.2 step 4 |
 
 // Test code, run on the host by a person reading the failure. The workspace
 // denies these because a panic in a parser is a remote denial of service, and
@@ -1003,6 +1006,55 @@ fn a_history_whose_prev_entry_hash_chain_does_not_link_is_refused() {
         .unwrap();
     assert!(clean.chain_intact());
     assert_eq!(clean.versions_seen(), 3);
+}
+
+/// A history that chains by hash and skips a version is refused.
+///
+/// §8.2 step 4 is two checks — *"an unbroken `entry_version` sequence **and** an
+/// unbroken `prev_entry_hash` chain"* — and this is the one case only the first
+/// catches: the served entry really does chain to version 1, and calls itself
+/// version 5. Without it the version half could be deleted and the hash half
+/// would cover every other case in this file.
+#[test]
+fn a_history_that_chains_by_hash_but_renumbers_a_version_is_refused() {
+    let mut deployment = Deployment::new("client-history-versionjump");
+    deployment.cosign(NOW);
+    let first = deployment.register("alice", 1);
+    let second = deployment.rotate("alice", 1, 9, &first);
+    deployment.cosign(NOW + 1);
+
+    let submitted: Vec<Digest> = [&first, &second]
+        .iter()
+        .map(|entry| labels::prev_entry_hash(&entry.encode_canonical().unwrap()))
+        .collect();
+
+    let impostor = Identity::from_byte(0x74);
+    let renumbered = EntryBuilder::first(deployment.harness.log_id, "alice", &impostor)
+        .version(5)
+        .prev_entry_hash(labels::prev_entry_hash(&first.encode_canonical().unwrap()))
+        .device(0x75, &impostor.isk)
+        .endpoint(0x76)
+        .same_key(&impostor.dak);
+
+    let mut client = deployment.client(1);
+    deployment.transport.withhold_cosignatures(true);
+    deployment
+        .transport
+        .swap_history_entry(Some((0, renumbered.encode_canonical().unwrap())));
+
+    assert_eq!(
+        client
+            .self_audit(&handle("alice"), &submitted, NOW + 2)
+            .unwrap_err(),
+        ClientError::Protocol(KtError::HistoryIncomplete),
+        "the prev_entry_hash walk is satisfied here; the version sequence is not",
+    );
+
+    deployment.transport.swap_history_entry(None);
+    let clean = client
+        .self_audit(&handle("alice"), &submitted, NOW + 3)
+        .unwrap();
+    assert_eq!(clean.versions_seen(), 2);
 }
 
 // ---------------------------------------------------------------------------
