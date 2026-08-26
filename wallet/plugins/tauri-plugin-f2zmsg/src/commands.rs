@@ -15,6 +15,20 @@
 //! * **Commands with no arguments take no `args` key at all**, so they have no
 //!   second parameter.
 //!
+//! # `engine()` is a `Result`, and every command here takes it with `?`
+//!
+//! The plugin's `setup` can finish without an engine: a durable store that will
+//! not open must make messaging unavailable, not the wallet (#753). The managed
+//! state is registered either way — it has to be, because
+//! [`crate::state::F2zMsgExt::f2zmsg`] panics on an unmanaged type — and
+//! [`crate::state::F2zMsg::engine`] hands back the §8 code that stopped the
+//! engine from being built. Returning that *by type* is what makes the refusal
+//! total: there is no way to reach the engine that skips it, so a command that
+//! compiles is a command that cannot panic in the faulted state.
+//!
+//! `get_engine_status` is the one exception, and it answers rather than
+//! refusing. Everything else refuses.
+//!
 //! Enrollment is **not** here. `f2zmsg_enroll`, `f2zmsg_enrollment_status` and
 //! `f2zmsg_unenroll` need the wallet seed, and putting them behind a plugin
 //! would mean the mnemonic reaching the webview's JavaScript heap. They live in
@@ -31,24 +45,36 @@ use crate::state::F2zMsgExt as _;
 // §3.1 — engine lifecycle
 // ---------------------------------------------------------------------------
 
+/// The one command that **answers** instead of refusing when the plugin has no
+/// engine (#753).
+///
+/// A store that would not open leaves §6.1's `faulted` and the §8 code that
+/// caused it, because a UI told only "internal" on every command has nothing to
+/// render but an empty screen; told `faulted` with `lastError`, it can say that
+/// messaging is unavailable and why. Every *other* command refuses with the
+/// same code.
 #[command]
 pub(crate) async fn get_engine_status<R: Runtime>(app: AppHandle<R>) -> Result<EngineStatus> {
-    app.f2zmsg().engine().status().await
+    let state = app.f2zmsg();
+    match state.faulted_status() {
+        Some(faulted) => Ok(faulted),
+        None => state.engine()?.status().await,
+    }
 }
 
 #[command]
 pub(crate) async fn start_engine<R: Runtime>(app: AppHandle<R>) -> Result<EngineStatus> {
-    app.f2zmsg().engine().start().await
+    app.f2zmsg().engine()?.start().await
 }
 
 #[command]
 pub(crate) async fn stop_engine<R: Runtime>(app: AppHandle<R>) -> Result<EngineStatus> {
-    app.f2zmsg().engine().stop().await
+    app.f2zmsg().engine()?.stop().await
 }
 
 #[command]
 pub(crate) async fn get_device_info<R: Runtime>(app: AppHandle<R>) -> Result<DeviceInfo> {
-    app.f2zmsg().engine().device_info().await
+    app.f2zmsg().engine()?.device_info().await
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +87,7 @@ pub(crate) async fn list_conversations<R: Runtime>(
     args: ListConversationsArgs,
 ) -> Result<ConversationPage> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .list_conversations(args.limit, args.cursor)
         .await
 }
@@ -72,7 +98,7 @@ pub(crate) async fn get_conversation<R: Runtime>(
     args: ConversationIdArgs,
 ) -> Result<Conversation> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .get_conversation(&args.conversation_id)
         .await
 }
@@ -84,14 +110,17 @@ pub(crate) async fn start_conversation<R: Runtime>(
     app: AppHandle<R>,
     args: HandleArgs,
 ) -> Result<Conversation> {
-    app.f2zmsg().engine().start_conversation(&args.handle).await
+    app.f2zmsg()
+        .engine()?
+        .start_conversation(&args.handle)
+        .await
 }
 
 #[command]
 pub(crate) async fn list_contact_requests<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<Vec<ContactRequest>> {
-    app.f2zmsg().engine().list_contact_requests().await
+    app.f2zmsg().engine()?.list_contact_requests().await
 }
 
 #[command]
@@ -100,7 +129,7 @@ pub(crate) async fn accept_contact_request<R: Runtime>(
     args: RequestIdArgs,
 ) -> Result<Conversation> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .accept_contact_request(&args.request_id)
         .await
 }
@@ -111,7 +140,7 @@ pub(crate) async fn reject_contact_request<R: Runtime>(
     args: RejectContactRequestArgs,
 ) -> Result<()> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .reject_contact_request(&args.request_id, args.block)
         .await
 }
@@ -122,7 +151,7 @@ pub(crate) async fn leave_conversation<R: Runtime>(
     args: ConversationIdArgs,
 ) -> Result<()> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .leave_conversation(&args.conversation_id)
         .await
 }
@@ -137,7 +166,7 @@ pub(crate) async fn send_message<R: Runtime>(
     args: SendMessageArgs,
 ) -> Result<SendAccepted> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .send_message(&args.conversation_id, &args.body, &args.client_ref)
         .await
 }
@@ -150,12 +179,12 @@ pub(crate) async fn retry_send<R: Runtime>(
     app: AppHandle<R>,
     args: MsgIdArgs,
 ) -> Result<SendAccepted> {
-    app.f2zmsg().engine().retry_send(&args.msg_id).await
+    app.f2zmsg().engine()?.retry_send(&args.msg_id).await
 }
 
 #[command]
 pub(crate) async fn cancel_send<R: Runtime>(app: AppHandle<R>, args: MsgIdArgs) -> Result<()> {
-    app.f2zmsg().engine().cancel_send(&args.msg_id).await
+    app.f2zmsg().engine()?.cancel_send(&args.msg_id).await
 }
 
 #[command]
@@ -164,14 +193,14 @@ pub(crate) async fn list_messages<R: Runtime>(
     args: ListMessagesArgs,
 ) -> Result<MessagePage> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .list_messages(&args.conversation_id, args.limit, args.before, args.after)
         .await
 }
 
 #[command]
 pub(crate) async fn get_message<R: Runtime>(app: AppHandle<R>, args: MsgIdArgs) -> Result<Message> {
-    app.f2zmsg().engine().get_message(&args.msg_id).await
+    app.f2zmsg().engine()?.get_message(&args.msg_id).await
 }
 
 // ---------------------------------------------------------------------------
@@ -183,13 +212,13 @@ pub(crate) async fn get_delivery_state<R: Runtime>(
     app: AppHandle<R>,
     args: MsgIdArgs,
 ) -> Result<DeliveryStatus> {
-    app.f2zmsg().engine().delivery_state(&args.msg_id).await
+    app.f2zmsg().engine()?.delivery_state(&args.msg_id).await
 }
 
 #[command]
 pub(crate) async fn mark_read<R: Runtime>(app: AppHandle<R>, args: MarkReadArgs) -> Result<()> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .mark_read(&args.conversation_id, &args.up_to_msg_id)
         .await
 }
@@ -200,7 +229,7 @@ pub(crate) async fn get_receipt_policy<R: Runtime>(
     args: ConversationIdArgs,
 ) -> Result<ReceiptPolicy> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .receipt_policy(&args.conversation_id)
         .await
 }
@@ -211,7 +240,7 @@ pub(crate) async fn set_receipt_policy<R: Runtime>(
     args: SetReceiptPolicyArgs,
 ) -> Result<ReceiptPolicy> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .set_receipt_policy(
             &args.conversation_id,
             args.delivery_receipts,
@@ -229,7 +258,10 @@ pub(crate) async fn list_gaps<R: Runtime>(
     app: AppHandle<R>,
     args: ConversationIdArgs,
 ) -> Result<Vec<Gap>> {
-    app.f2zmsg().engine().list_gaps(&args.conversation_id).await
+    app.f2zmsg()
+        .engine()?
+        .list_gaps(&args.conversation_id)
+        .await
 }
 
 #[command]
@@ -238,7 +270,7 @@ pub(crate) async fn request_gap_repair<R: Runtime>(
     args: RequestGapRepairArgs,
 ) -> Result<Vec<GapRepairStatus>> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .request_gap_repair(&args.conversation_id, &args.gap_ids)
         .await
 }
@@ -253,7 +285,7 @@ pub(crate) async fn get_retention_policy<R: Runtime>(
     args: GetRetentionPolicyArgs,
 ) -> Result<RetentionPolicy> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .retention_policy(args.conversation_id.as_deref())
         .await
 }
@@ -264,7 +296,7 @@ pub(crate) async fn set_retention_policy<R: Runtime>(
     args: SetRetentionPolicyArgs,
 ) -> Result<RetentionPolicy> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .set_retention_policy(
             args.scope,
             args.mode,
@@ -284,7 +316,7 @@ pub(crate) async fn send_ephemeral_hint<R: Runtime>(
     args: SendEphemeralHintArgs,
 ) -> Result<EphemeralHintState> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .send_ephemeral_hint(&args.conversation_id, args.mode, args.ttl_seconds)
         .await
 }
@@ -295,7 +327,7 @@ pub(crate) async fn get_ephemeral_hint<R: Runtime>(
     args: ConversationIdArgs,
 ) -> Result<Option<EphemeralHintState>> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .ephemeral_hint(&args.conversation_id)
         .await
 }
@@ -310,7 +342,7 @@ pub(crate) async fn send_purge_request<R: Runtime>(
     args: SendPurgeRequestArgs,
 ) -> Result<PurgeRequestStatus> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .send_purge_request(&args.conversation_id, args.before_epoch)
         .await
 }
@@ -321,7 +353,7 @@ pub(crate) async fn list_purge_requests<R: Runtime>(
     args: ConversationIdArgs,
 ) -> Result<Vec<PurgeRequestStatus>> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .list_purge_requests(&args.conversation_id)
         .await
 }
@@ -338,11 +370,17 @@ pub(crate) async fn resolve_handle<R: Runtime>(
     app: AppHandle<R>,
     args: HandleArgs,
 ) -> Result<DirectoryResolution> {
-    app.f2zmsg().engine().resolve_handle(&args.handle).await
+    app.f2zmsg().engine()?.resolve_handle(&args.handle).await
 }
 
 /// Callable **before** enrollment and before the engine runs, so the UI can
 /// decide what to render without provoking a failure (§11.3).
+///
+/// "Before the engine runs" is not "without an engine": the answer is pure, but
+/// it is reached through the engine, and a plugin whose store never opened has
+/// none. So this refuses in the faulted state like everything else (#753). It
+/// costs nothing the user notices — a device with no messaging store has no
+/// handle to pick either.
 #[command]
 pub(crate) async fn check_handle_eligibility<R: Runtime>(
     app: AppHandle<R>,
@@ -350,7 +388,7 @@ pub(crate) async fn check_handle_eligibility<R: Runtime>(
 ) -> Result<HandleEligibility> {
     Ok(app
         .f2zmsg()
-        .engine()
+        .engine()?
         .check_handle_eligibility(&args.username))
 }
 
@@ -360,7 +398,7 @@ pub(crate) async fn get_safety_number<R: Runtime>(
     args: ConversationIdArgs,
 ) -> Result<SafetyNumber> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .safety_number(&args.conversation_id)
         .await
 }
@@ -371,7 +409,7 @@ pub(crate) async fn set_verification<R: Runtime>(
     args: SetVerificationArgs,
 ) -> Result<VerificationState> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .set_verification(
             &args.conversation_id,
             &args.safety_number_digest,
@@ -382,12 +420,12 @@ pub(crate) async fn set_verification<R: Runtime>(
 
 #[command]
 pub(crate) async fn get_self_audit_state<R: Runtime>(app: AppHandle<R>) -> Result<SelfAuditState> {
-    app.f2zmsg().engine().self_audit_state().await
+    app.f2zmsg().engine()?.self_audit_state().await
 }
 
 #[command]
 pub(crate) async fn list_alarms<R: Runtime>(app: AppHandle<R>) -> Result<Vec<Alarm>> {
-    app.f2zmsg().engine().list_alarms().await
+    app.f2zmsg().engine()?.list_alarms().await
 }
 
 /// Acknowledging is **not** dismissing: the alarm stays in `list_alarms` with
@@ -398,7 +436,7 @@ pub(crate) async fn acknowledge_alarm<R: Runtime>(
     args: AcknowledgeAlarmArgs,
 ) -> Result<Alarm> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .acknowledge_alarm(&args.alarm_id, &args.confirmation)
         .await
 }
@@ -409,7 +447,7 @@ pub(crate) async fn acknowledge_alarm<R: Runtime>(
 
 #[command]
 pub(crate) async fn list_relays<R: Runtime>(app: AppHandle<R>) -> Result<Vec<RelayConfig>> {
-    app.f2zmsg().engine().list_relays().await
+    app.f2zmsg().engine()?.list_relays().await
 }
 
 #[command]
@@ -417,12 +455,12 @@ pub(crate) async fn add_relay<R: Runtime>(
     app: AppHandle<R>,
     args: RelayUrlArgs,
 ) -> Result<RelayConfig> {
-    app.f2zmsg().engine().add_relay(&args.relay_url).await
+    app.f2zmsg().engine()?.add_relay(&args.relay_url).await
 }
 
 #[command]
 pub(crate) async fn remove_relay<R: Runtime>(app: AppHandle<R>, args: RelayIdArgs) -> Result<()> {
-    app.f2zmsg().engine().remove_relay(&args.relay_id).await
+    app.f2zmsg().engine()?.remove_relay(&args.relay_id).await
 }
 
 #[command]
@@ -431,7 +469,7 @@ pub(crate) async fn get_relay_capabilities<R: Runtime>(
     args: RelayIdArgs,
 ) -> Result<RelayCapabilities> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .relay_capabilities(&args.relay_id)
         .await
 }
@@ -446,7 +484,7 @@ pub(crate) async fn set_relay_trust<R: Runtime>(
     args: SetRelayTrustArgs,
 ) -> Result<RelayConfig> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .set_relay_trust(
             &args.relay_id,
             args.allow_insecure_transport,
@@ -457,7 +495,7 @@ pub(crate) async fn set_relay_trust<R: Runtime>(
 
 #[command]
 pub(crate) async fn list_witnesses<R: Runtime>(app: AppHandle<R>) -> Result<Vec<WitnessConfig>> {
-    app.f2zmsg().engine().list_witnesses().await
+    app.f2zmsg().engine()?.list_witnesses().await
 }
 
 #[command]
@@ -466,7 +504,7 @@ pub(crate) async fn set_witness_set<R: Runtime>(
     args: SetWitnessSetArgs,
 ) -> Result<WitnessSetState> {
     app.f2zmsg()
-        .engine()
+        .engine()?
         .set_witness_set(&args.witnesses, args.threshold)
         .await
 }
@@ -475,5 +513,5 @@ pub(crate) async fn set_witness_set<R: Runtime>(
 pub(crate) async fn get_witness_set_state<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<WitnessSetState> {
-    app.f2zmsg().engine().witness_set_state().await
+    app.f2zmsg().engine()?.witness_set_state().await
 }

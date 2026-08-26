@@ -203,6 +203,274 @@ mod tests {
         }
     }
 
+    /// #753 — the census.
+    ///
+    /// `tauri_plugin_f2zmsg::init()`'s `setup` hook is fallible end to end, an
+    /// `Err` from a plugin's setup makes `tauri::Builder::build()` fail, and
+    /// `run()` above ends in `.expect("error while running tauri
+    /// application")`. So a messaging store that would not open took the entire
+    /// wallet down at launch — and WAL is unavailable on some filesystems, a
+    /// data directory can be full or read-only, and a half-written
+    /// `f2zmsg.sqlite` is a state a real device reaches.
+    ///
+    /// Three things are asserted here and nothing weaker would do:
+    ///
+    /// 1. **The app still builds.** That single `.expect` on `build()` below is
+    ///    the defect: before the fix it failed, and ZUULI did not start.
+    /// 2. **`get_engine_status` answers** §6.1's `faulted` carrying the §8
+    ///    code, so the UI can say *why* messaging is unavailable rather than
+    ///    render an empty screen.
+    /// 3. **Every other command refuses, and none panics** — driven off
+    ///    `tauri_plugin_f2zmsg::COMMANDS`, the same `with_f2zmsg_commands!`
+    ///    expansion that builds the invoke handler and the permission manifest,
+    ///    so this cannot cover forty of forty-three and look green. The
+    ///    enrollment trio is checked alongside it: those three live in this
+    ///    crate (§2.2) and reach the same engine.
+    ///
+    /// Failing soft could not be done by skipping `app.manage(..)`:
+    /// `F2zMsgExt::f2zmsg` is `state::<F2zMsg<R>>().inner()`, which panics on an
+    /// unmanaged type, so every command would have panicked instead of
+    /// refusing. That is precisely what this test would catch.
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn an_unopenable_messaging_store_leaves_zuuli_running_and_every_command_refusing() {
+        /// The §8 code an occupied store path produces. `SqliteBackend::open`
+        /// answers `SQLITE_CANTOPEN`, which is the same statement as a
+        /// read-only or permission-denied data directory: this device cannot
+        /// host a store that may ACK (§11.2).
+        const FAULT: &str = "durability-unavailable";
+
+        /// A valid payload for each command, so the refusal under test is the
+        /// engine's absence and not argument validation — an "invalid args"
+        /// answer would prove only that the command was routed.
+        ///
+        /// `None` means the command takes no `args` key at all (§3). The final
+        /// `panic!` is the census: a command added to §3 fails here until
+        /// someone states how to call it.
+        fn args_for(command: &str) -> Option<serde_json::Value> {
+            match command {
+                "get_engine_status"
+                | "start_engine"
+                | "stop_engine"
+                | "get_device_info"
+                | "list_contact_requests"
+                | "get_self_audit_state"
+                | "list_alarms"
+                | "list_relays"
+                | "list_witnesses"
+                | "get_witness_set_state" => None,
+                // Every field of these two is optional, and §3 still nests them
+                // under `args`.
+                "list_conversations" | "get_retention_policy" => Some(json!({})),
+                "get_conversation"
+                | "leave_conversation"
+                | "get_receipt_policy"
+                | "list_gaps"
+                | "get_ephemeral_hint"
+                | "list_purge_requests"
+                | "get_safety_number" => Some(json!({ "conversationId": "conversation-1" })),
+                "start_conversation" | "resolve_handle" => Some(json!({ "handle": "alice" })),
+                "check_handle_eligibility" => Some(json!({ "username": "alice" })),
+                "accept_contact_request" => Some(json!({ "requestId": "request-1" })),
+                "reject_contact_request" => {
+                    Some(json!({ "requestId": "request-1", "block": false }))
+                }
+                "send_message" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "body": "hello",
+                    "clientRef": "client-ref-1",
+                })),
+                "retry_send" | "cancel_send" | "get_message" | "get_delivery_state" => {
+                    Some(json!({ "msgId": "message-1" }))
+                }
+                "list_messages" => Some(json!({ "conversationId": "conversation-1", "limit": 20 })),
+                "mark_read" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "upToMsgId": "message-1",
+                })),
+                "set_receipt_policy" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "deliveryReceipts": true,
+                    "readReceipts": false,
+                })),
+                "request_gap_repair" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "gapIds": ["gap-1"],
+                })),
+                "set_retention_policy" => Some(json!({
+                    "scope": "global",
+                    "mode": "expire",
+                    "ttlSeconds": 604_800,
+                })),
+                "send_ephemeral_hint" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "mode": "ephemeral",
+                    "ttlSeconds": 300,
+                })),
+                "send_purge_request" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "beforeEpoch": 7,
+                })),
+                "set_verification" => Some(json!({
+                    "conversationId": "conversation-1",
+                    "safetyNumberDigest": "0011223344556677",
+                    "verified": true,
+                })),
+                "acknowledge_alarm" => Some(json!({
+                    "alarmId": "alarm-1",
+                    "confirmation": "i-have-read-this",
+                })),
+                "add_relay" => Some(json!({ "relayUrl": "wss://relay.invalid/" })),
+                "remove_relay" | "get_relay_capabilities" => Some(json!({ "relayId": "relay-1" })),
+                "set_relay_trust" => Some(json!({
+                    "relayId": "relay-1",
+                    "allowInsecureTransport": false,
+                    "allowNoChannelBinding": false,
+                })),
+                "set_witness_set" => Some(json!({ "witnesses": [], "threshold": 1 })),
+                other => panic!(
+                    "{other} was added to the plugin's command registry; \
+                     state how to call it so #753's census still covers it"
+                ),
+            }
+        }
+
+        // A data directory whose store path is occupied by a *directory*.
+        // SQLite cannot open it, and arranging that needs neither root nor a
+        // filesystem the test machine may not have.
+        let store = tempfile::tempdir().expect("temp data directory");
+        std::fs::create_dir(store.path().join("f2zmsg.sqlite")).expect("occupy the store path");
+
+        // (1) The app builds. This `.expect` is the whole defect.
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_f2zmsg::init_with_store_dir(
+                store.path().to_path_buf(),
+            ))
+            .invoke_handler(tauri::generate_handler![
+                super::messaging::f2zmsg_enrollment_status,
+                super::messaging::f2zmsg_enroll,
+                super::messaging::f2zmsg_unenroll,
+            ])
+            .build(super::app_context())
+            .expect("a messaging store that will not open must not stop ZUULI from starting");
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("mock main webview");
+
+        let invoke = |cmd: String, body: serde_json::Value| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd,
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "tauri://localhost".parse().expect("invoke URL"),
+                    body: tauri::ipc::InvokeBody::Json(body),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+                },
+            )
+        };
+        let body_for = |command: &str| match args_for(command) {
+            Some(args) => json!({ "args": args }),
+            None => json!({}),
+        };
+
+        // (2) `get_engine_status` answers instead of refusing.
+        let status = invoke(
+            "plugin:f2zmsg|get_engine_status".to_owned(),
+            body_for("get_engine_status"),
+        )
+        .expect("get_engine_status must report the fault, not refuse")
+        .deserialize::<serde_json::Value>()
+        .expect("an engine status is JSON");
+        assert_eq!(
+            status["state"],
+            json!("faulted"),
+            "the UI has to be able to say messaging is unavailable: {status}"
+        );
+        assert_eq!(status["lastError"], json!(FAULT), "…and why: {status}");
+
+        // (3) Every other command refuses with that same §8 code.
+        assert_eq!(
+            tauri_plugin_f2zmsg::COMMANDS.len(),
+            43,
+            "§3's plugin surface changed; the census below covers whatever it now is"
+        );
+        for command in tauri_plugin_f2zmsg::COMMANDS {
+            if *command == "get_engine_status" {
+                continue;
+            }
+            let refused = invoke(format!("plugin:f2zmsg|{command}"), body_for(command))
+                .expect_err("a command with no engine must refuse, not answer");
+            assert_eq!(
+                refused,
+                json!(FAULT),
+                "plugin:f2zmsg|{command} must refuse with a §8 code"
+            );
+        }
+
+        // …and so does the enrollment trio, which lives in this crate (§2.2)
+        // and reaches the same engine. `f2zmsg_enroll` refuses *before* it
+        // reads the wallet seed.
+        for (command, body) in [
+            ("f2zmsg_enrollment_status", json!({})),
+            ("f2zmsg_enroll", json!({ "args": { "handle": "alice" } })),
+            (
+                "f2zmsg_unenroll",
+                json!({ "args": { "confirmation": "DELETE" } }),
+            ),
+        ] {
+            let refused = invoke(command.to_owned(), body)
+                .expect_err("enrollment with no engine must refuse, not answer");
+            assert_eq!(
+                refused,
+                json!(FAULT),
+                "{command} must refuse with a §8 code"
+            );
+        }
+    }
+
+    /// The negative control for the test above: the same build over a *usable*
+    /// data directory is not faulted. Without it, a plugin that faulted
+    /// unconditionally would pass the census and prove nothing.
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn a_messaging_store_that_opens_leaves_the_engine_reachable() {
+        let store = tempfile::tempdir().expect("temp data directory");
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_f2zmsg::init_with_store_dir(
+                store.path().to_path_buf(),
+            ))
+            .build(super::app_context())
+            .expect("mock ZUULI app over a usable messaging store");
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("mock main webview");
+
+        let status = tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "plugin:f2zmsg|get_engine_status".to_owned(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: "tauri://localhost".parse().expect("invoke URL"),
+                body: tauri::ipc::InvokeBody::Json(json!({})),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+            },
+        )
+        .expect("a usable store answers")
+        .deserialize::<serde_json::Value>()
+        .expect("an engine status is JSON");
+        assert_ne!(
+            status["state"],
+            json!("faulted"),
+            "a writable data directory must produce an engine: {status}"
+        );
+        assert_eq!(status["lastError"], json!(null));
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn shipping_zcash_router_registers_sensitive_entry_commands() {

@@ -1323,6 +1323,20 @@ Leaving `faulted` takes an explicit `start_engine` after the user has acted on
 `lastError`; nothing retries out of it on a timer, because the codes that reach it
 are the ones §8 marks non-retryable.
 
+There is one entry into `faulted` that is not a transition at all: **the client
+can come up with no engine.** `SqliteBackend::open` verifies WAL,
+`synchronous = FULL` and `secure_delete` and *refuses* otherwise, because §11.2
+says a client that cannot promise durability must not ACK — and the data
+directory can also be full, read-only, or hold an `f2zmsg.sqlite` left
+half-written by a killed process. In every one of those the correct product
+behaviour is that **messaging is unavailable and the rest of the application
+works**: the store failing to open must never stop the host application from
+starting. The client reports `faulted` with the `lastError` that stopped it
+(`storage-full`, `durability-unavailable`, or `internal`), and every command
+other than `get_engine_status` — `start_engine` and the §3.2 enrollment trio
+included — refuses with that same code. This is the one `faulted` that
+`start_engine` cannot leave; only fixing the storage and restarting can.
+
 `locked` exists because the local encrypted history is wrapped under a
 seed-derived key
 ([`ARCHITECTURE.md` §4.2](./ARCHITECTURE.md#42-derivation-proposed)). Note what
@@ -1637,7 +1651,7 @@ type ErrorCode =
 | `engine-locked` | | The seed is unavailable, so local history cannot be decrypted. Prompt to unlock. Never auto-unlock. |
 | `engine-not-running` | ● | Call `start_engine` once, then retry once. |
 | `device-clock-skew` | ● | **This device's clock is wrong**, not the relay's: `timestamp_ms` fell outside the relay's published `clock_skew_ms` window ([`WIRE.md` §5.5](./WIRE.md#55-anti-replay-a-bounded-window-plus-a-seen-set)). Re-learn the relay's time from `HELLO` / `GET_CHALLENGE`, apply the offset **locally**, retry once. If it persists, say plainly that the device clock is off and by roughly how much — never that the relay misbehaved, and never a defect-report affordance. **Never set the system clock from a relay-supplied time**: `WIRE.md` §5.5 forbids it, and a relay that could move this device's clock could move the anti-replay window with it. |
-| `durability-unavailable` | | Browser only: storage durability was refused. Enter **no-ACK mode** (§11.2) and say what is degraded. **Do not ACK.** |
+| `durability-unavailable` | | Storage durability was refused, so nothing may be ACKed. In a browser this is the storage API declining, and the client enters **no-ACK mode** (§11.2) and says what is degraded. On ZUULI it is the durable store failing to open at all — a filesystem that will not give WAL, a read-only or permission-denied data directory — and there is no degraded mode to enter: messaging is unavailable for the life of the process (§6.1). Either way, **do not ACK.** |
 | `storage-full` | | Local storage exhausted. Inbound stops being acknowledged — which is correct, because an un-ACKed message is still on the relay. Offer to reduce retention. |
 | `gap-unrecoverable` | | The sender no longer holds the plaintext. Render the `{ kind: "unrecoverable" }` marker in place ([`ARCHITECTURE.md` §8.4](./ARCHITECTURE.md#84-short-local-retention-and-gap-repair)). Never a silent hole. |
 | `not-supported-in-browser` | | A ZUULI-only operation was attempted in a browser (§10, §11.1). State the reason — it is a trust-model boundary, not a missing feature. |

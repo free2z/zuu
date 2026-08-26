@@ -5303,6 +5303,7 @@ dependencies = [
  "openmls",
  "openmls_traits",
  "rand 0.9.5",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",

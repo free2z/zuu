@@ -249,15 +249,24 @@ What that unblocked, all of it now present:
   `wallet/zuuli/scripts/mobile-webview-authority.mjs`'s reviewed allowlist —
   mobile authority is granted by review, not by registration.
 
-**One consequence of linking, recorded as #753 rather than fixed here.** This
-crate's `setup` hook is fallible end to end, and an `Err` from a plugin's setup
-makes `tauri::Builder::build()` fail — so a messaging store that cannot be
-opened now takes the whole ZUULI wallet down at launch. `SqliteBackend::open`'s
-strictness is right (§11.2: a client that cannot promise durability must not
-ACK); its blast radius is not. Failing soft is not a one-line change, because
-`F2zMsgExt::f2zmsg` unwraps the managed state and all 43 commands would panic
-instead of refusing — `EngineState::Faulted` is the answer, and #753 carries the
-shape.
+**A store that will not open makes messaging unavailable, not the wallet (#753).**
+This crate's `setup` hook used to be fallible end to end, and an `Err` from a
+plugin's setup makes `tauri::Builder::build()` fail — which ZUULI's `run()` ends
+by `.expect(..)`ing, so an unopenable `f2zmsg.sqlite` took the whole wallet down
+at launch. `SqliteBackend::open`'s strictness was never the problem and is
+unchanged (§11.2: a client that cannot promise durability must not ACK); its
+blast radius was. `setup` now always registers its state and never returns
+`Err`, because failing soft is *not* skipping `app.manage(..)`:
+`F2zMsgExt::f2zmsg` is `state::<F2zMsg<R>>().inner()`, which panics on an
+unmanaged type, so all 43 commands would have panicked instead of refusing.
+`F2zMsg` holds the engine **or** the §8 code that stopped it being built,
+`F2zMsg::engine` returns a `Result` — so the compiler, not a convention, is what
+makes every command handle it — `get_engine_status` answers §6.1's `faulted`
+carrying that code, and everything else refuses with it.
+`wallet/zuuli/src-tauri/src/lib.rs`'s
+`an_unopenable_messaging_store_leaves_zuuli_running_and_every_command_refusing`
+drives the census off `COMMANDS`, so a forty-fourth command cannot be added
+without stating how it behaves in that state.
 
 ## What is still not wired, and exactly why
 
