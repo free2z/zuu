@@ -34,10 +34,20 @@ every user at the point where being wrong *is* the MITM (§6.4, §9 rule 5). The
 two-process harness substitutes the resolution from outside the crate, which is
 why it is a test binary.
 
-**5. `start_conversation` cannot be fixed here.** It addresses a `Welcome` to an
-MLS `KeyPackage`, and `KT.md` §4.1 publishes none — §1.2 leaves `KeyPackage`
-publication open. `accept_contact_request` is unaffected and uses
-`Directory::resolve_identity`, which needs only the identity key.
+**5. Never use a `KeyPackage` a relay handed you without checking it.**
+`WIRE.md` §12.6 puts a device's pool at its relay, keyed by the `contact_addr`
+its directory entry publishes — so a key package arrives from a party the threat
+model assumes is hostile. `Inner::claim_key_package` claims **and verifies** in
+one function on purpose: the verification is what stops the relay choosing whose
+init key the `Welcome` is encrypted to, which is #133 at first contact. The type
+system holds the line one level down — `MlsEngine::add_member` takes a
+`VerifiedKeyPackage`, which has no constructor but the verifying one — so the
+way to break this is to delete the check, not to forget it. Don't.
+
+`start_engine` publishes this device's own pool and tops it up whenever
+something lands on the contact queue. A device with no published pool is one
+nobody can start a conversation with; that is reported through `lastError` and
+is deliberately not fatal.
 
 ## Commands
 

@@ -75,9 +75,9 @@ use openmls::prelude::*;
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 
 use crate::credential::{DeviceCredential, encode as encode_credential, validate_for_leaf};
-use crate::keypackage::VerifiedKeyPackage;
 use crate::error::{CredentialError, EngineError, Result};
 use crate::exporter::ExportLabel;
+use crate::keypackage::VerifiedKeyPackage;
 use crate::provider::F2zProvider;
 use crate::signer::DeviceSigner;
 use crate::version::ProtocolVersion;
@@ -314,7 +314,11 @@ impl<B: StorageBackend> MlsEngine<B> {
     ///
     /// [`EngineError::Mls`] if OpenMLS refused, [`EngineError::Storage`] if the
     /// store did.
-    pub fn generate_key_packages(&self, count: usize, lifetime_seconds: Option<u64>) -> Result<Vec<Vec<u8>>> {
+    pub fn generate_key_packages(
+        &self,
+        count: usize,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<Vec<u8>>> {
         let transaction = self.provider.store().begin()?;
         let mut packages = Vec::with_capacity(count);
         for _ in 0..count {
@@ -345,11 +349,18 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// # Errors
     ///
     /// As [`MlsEngine::generate_key_packages`].
-    pub fn generate_last_resort_key_package(&self, lifetime_seconds: Option<u64>) -> Result<Vec<u8>> {
+    pub fn generate_last_resort_key_package(
+        &self,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<u8>> {
         self.build_key_package(true, lifetime_seconds)
     }
 
-    fn build_key_package(&self, last_resort: bool, lifetime_seconds: Option<u64>) -> Result<Vec<u8>> {
+    fn build_key_package(
+        &self,
+        last_resort: bool,
+        lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<u8>> {
         let transaction = self.provider.store().begin()?;
         let wire = self.build_key_package_in_transaction(last_resort, lifetime_seconds)?;
         transaction.commit()?;

@@ -267,7 +267,10 @@ pub trait RelayStore {
     /// code, by §10's rule and §6.3's collapse: exhaustion must not be
     /// distinguishable from absence, or the published address space becomes an
     /// enumerable list of live devices.
-    fn claim_key_package(&self, contact_addr: &QueueAddress) -> Result<Committed<ClaimedKeyPackage>>;
+    fn claim_key_package(
+        &self,
+        contact_addr: &QueueAddress,
+    ) -> Result<Committed<ClaimedKeyPackage>>;
 
     /// Delete the queue, both addresses and every message it holds,
     /// acknowledged or not (§6.2, §7.6). Irreversible, and no tombstone.

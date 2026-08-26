@@ -49,10 +49,10 @@ use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, Auth, BindSendRequest, ChallengePurpose,
     ChallengeRequest, ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
-    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
-    CreateQueueResponse, HelloRequest, HelloResponse, PublishKeyPackagesRequest,
-    PublishKeyPackagesResponse, ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
-    TranscriptAddress,
+    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
+    CreateQueueRequest, CreateQueueResponse, HelloRequest, HelloResponse,
+    PublishKeyPackagesRequest, PublishKeyPackagesResponse, ReadRequest, ReadResponse,
+    SignedCapabilities, SubscribeResponse, TranscriptAddress,
 };
 use f2z_codec::frame::{CommandAuth, RelayFrame, Request, SignedAuth};
 use f2z_codec::padding::PaddingBuckets;

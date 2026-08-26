@@ -924,13 +924,11 @@ impl RelayStore for SqliteStore {
             )?
             .query_map([recv_addr.as_ref()], |row| row.get::<_, Vec<u8>>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut pool_size = u64::try_from(
-            tx.query_row(
-                "SELECT COUNT(*) FROM key_package WHERE recv_addr = ?1 AND last_resort = 0",
-                [recv_addr.as_ref()],
-                |row| row.get::<_, i64>(0),
-            )?,
-        )
+        let mut pool_size = u64::try_from(tx.query_row(
+            "SELECT COUNT(*) FROM key_package WHERE recv_addr = ?1 AND last_resort = 0",
+            [recv_addr.as_ref()],
+            |row| row.get::<_, i64>(0),
+        )?)
         .unwrap_or(0);
         let mut next_seq: i64 = tx
             .query_row(

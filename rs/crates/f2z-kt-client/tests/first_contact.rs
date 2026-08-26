@@ -143,10 +143,10 @@ impl Transport for LogHandle {
         let response = self
             .0
             .runtime
-            .block_on(
-                self.0.log
-                    .history(&decoded.handle, f2z_kt_core::verify::HistoryParams::Complete),
-            )
+            .block_on(self.0.log.history(
+                &decoded.handle,
+                f2z_kt_core::verify::HistoryParams::Complete,
+            ))
             .map_err(|error| ClientError::Unreachable(error.to_string()))?;
         Ok(response.encode_canonical().unwrap())
     }
@@ -248,13 +248,7 @@ impl Device {
         let signer = DeviceSigner::from_private_key([device_seed; 32]);
         let credential = credential_for(&identity, handle, signer.public_key());
 
-        let mls = MlsEngine::new(
-            MemoryBackend::new(),
-            signer,
-            credential.clone(),
-            NOW,
-        )
-        .unwrap();
+        let mls = MlsEngine::new(MemoryBackend::new(), signer, credential.clone(), NOW).unwrap();
 
         let recv_key = SigningKey::from_seed(&[device_seed.wrapping_add(0x10); 32]);
         let mut client = relay.client().await.unwrap();
@@ -282,12 +276,7 @@ impl Device {
             .generate_last_resort_key_package(Some(2_592_000))
             .unwrap();
         let published = client
-            .publish_key_packages(
-                &self.recv_key,
-                self.recv_addr,
-                &packages,
-                Some(last_resort),
-            )
+            .publish_key_packages(&self.recv_key, self.recv_addr, &packages, Some(last_resort))
             .await
             .unwrap();
         assert_eq!(published.has_last_resort, 1);
@@ -296,7 +285,11 @@ impl Device {
 
     /// The `DirectoryEntry` this device submits: its real credential, and the
     /// real `contact_addr` the relay issued.
-    fn entry(&self, log_id: f2z_kt_core::types::LogId, relay_url: &str) -> f2z_kt_core::entry::DirectoryEntry {
+    fn entry(
+        &self,
+        log_id: f2z_kt_core::types::LogId,
+        relay_url: &str,
+    ) -> f2z_kt_core::entry::DirectoryEntry {
         EntryBuilder::first(log_id, &self.handle, &self.identity)
             .credential(self.credential.clone())
             .contact_endpoint(relay_url, RelayId::new([0x77; 32]), self.contact_addr)
@@ -440,7 +433,10 @@ fn two_instances_open_a_conversation_from_nothing_but_a_handle() {
     assert_eq!(pool, 4, "the relay holds what bob published");
 
     // --- both submit their directory entries, and the witness cosigns -------
-    deployment.submit(&alice.entry(deployment.harness.log_id, &url), &alice.identity);
+    deployment.submit(
+        &alice.entry(deployment.harness.log_id, &url),
+        &alice.identity,
+    );
     deployment.submit(&bob.entry(deployment.harness.log_id, &url), &bob.identity);
     deployment.cosign(NOW + 1);
 
@@ -728,7 +724,8 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
             .await
             .expect_err("an exhausted pool with no last-resort package is a refusal");
         assert!(
-            format!("{error}").contains("unavailable") || format!("{error:?}").contains("Unavailable"),
+            format!("{error}").contains("unavailable")
+                || format!("{error:?}").contains("Unavailable"),
             "expected ERR_UNAVAILABLE, got {error:?}"
         );
     });

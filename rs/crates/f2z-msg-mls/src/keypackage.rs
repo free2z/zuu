@@ -65,8 +65,8 @@
 //! [`MlsEngine::add_member`]: crate::MlsEngine::add_member
 
 use f2z_kt_core::entry::DirectoryEntryTBS;
-use openmls::prelude::{KeyPackage, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion};
 use openmls::prelude::tls_codec::DeserializeBytes as _;
+use openmls::prelude::{KeyPackage, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion};
 use openmls_traits::crypto::OpenMlsCrypto;
 
 use crate::credential::{parse as parse_credential, validate_for_leaf};
@@ -80,11 +80,25 @@ use crate::error::{CredentialError, EngineError, Result};
 /// point: [`crate::MlsEngine::add_member`] takes one of these, so there is no
 /// path from *bytes a relay handed us* to *a member of a group* that does not
 /// pass through the directory.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct VerifiedKeyPackage {
     key_package: KeyPackage,
     device_pk: [u8; 32],
     last_resort: bool,
+}
+
+/// Hand-written, because a derived one would render `device_pk` as a list of
+/// decimal integers — a dump containing no hex at all, which is precisely the
+/// trap `f2z-codec`'s redaction tests are written around. A device key
+/// identifies a device to anyone who has seen it elsewhere; the only field here
+/// that is policy rather than material is the last-resort flag.
+impl core::fmt::Debug for VerifiedKeyPackage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VerifiedKeyPackage")
+            .field("device_pk", &"<redacted; 32 bytes>")
+            .field("last_resort", &self.last_resort)
+            .finish_non_exhaustive()
+    }
 }
 
 impl VerifiedKeyPackage {

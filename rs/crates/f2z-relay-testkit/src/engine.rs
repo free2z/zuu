@@ -45,9 +45,10 @@ use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, Capabilities, ChallengePurpose, ChallengeRequest,
     ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
-    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
-    CreateQueueResponse, HelloRequest, HelloResponse, PublishKeyPackagesRequest,
-    PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse, SubscribeResponse,
+    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
+    CreateQueueRequest, CreateQueueResponse, HelloRequest, HelloResponse,
+    PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse,
+    SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, RelayFrame, Request, Response};
 use f2z_codec::padding::PaddingBuckets;

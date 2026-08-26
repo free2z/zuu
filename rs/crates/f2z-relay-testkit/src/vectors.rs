@@ -1476,7 +1476,9 @@ async fn with_pool(
 }
 
 async fn a_published_pool_is_claimed_once_per_package(context: &mut Context) -> Result<()> {
-    let packages = vec![b"package-one".to_vec(), b"package-two".to_vec()];
+    let first_package = b"package-one".to_vec();
+    let second_package = b"package-two".to_vec();
+    let packages = vec![first_package.clone(), second_package.clone()];
     let (_owner, created) = with_pool(context, &packages, None).await?;
     let pow = context
         .client
@@ -1486,21 +1488,25 @@ async fn a_published_pool_is_claimed_once_per_package(context: &mut Context) -> 
         .claim_key_package_pow;
 
     let mut alice = context.open().await?;
-    let first = alice.claim_key_package(created.contact_addr, Some(pow)).await?;
+    let first = alice
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
     expect_eq(
         first.key_package.as_slice().to_vec(),
-        packages[0].clone(),
+        first_package,
         "the oldest package is served first",
     )?;
     expect_eq(first.last_resort, 0, "a pooled package is not last-resort")?;
 
     let mut bob = context.open().await?;
-    let second = bob.claim_key_package(created.contact_addr, Some(pow)).await?;
+    let second = bob
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
     // Consumed. This is the property an append-only log cannot express, which
     // is why §12.6 puts the pool at the relay and not in the directory.
     expect_eq(
         second.key_package.as_slice().to_vec(),
-        packages[1].clone(),
+        second_package,
         "a claimed package is never served twice",
     )
 }
@@ -1522,7 +1528,9 @@ async fn an_exhausted_pool_falls_back_to_the_last_resort_package(
         .claim_key_package_pow;
 
     let mut alice = context.open().await?;
-    alice.claim_key_package(created.contact_addr, Some(pow)).await?;
+    alice
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
 
     // Twice more, and both get the same reusable package. §12.6's exhaustion
     // behaviour: availability is preserved and the forward secrecy of first
@@ -1552,7 +1560,9 @@ async fn an_exhausted_pool_with_no_last_resort_is_unavailable(context: &mut Cont
         .claim_key_package_pow;
 
     let mut alice = context.open().await?;
-    alice.claim_key_package(created.contact_addr, Some(pow)).await?;
+    alice
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
 
     let mut stranger = context.open().await?;
     let result = stranger

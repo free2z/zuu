@@ -39,7 +39,10 @@ fn a_batch_is_generated_in_order_and_every_package_verifies() {
             .verify_key_package(wire, &entry, NOW)
             .expect("the directory vouches for it");
         assert!(!verified.last_resort(), "a pooled package is single-use");
-        assert_eq!(verified.device_pk(), bob.credential().credential.device_pk.as_bytes());
+        assert_eq!(
+            verified.device_pk(),
+            bob.credential().credential.device_pk.as_bytes()
+        );
     }
 }
 
@@ -70,7 +73,9 @@ fn a_last_resort_package_is_usable_and_is_never_refused_for_being_one() {
     let entry = directory_entry(&[bob.credential().clone()]);
 
     let wire = bob.generate_last_resort_key_package(None).expect("package");
-    let verified = alice.verify_key_package(&wire, &entry, NOW).expect("verified");
+    let verified = alice
+        .verify_key_package(&wire, &entry, NOW)
+        .expect("verified");
     let mut group = alice.create_group(b"conversation").expect("group");
     let (_commit, welcome) = alice
         .add_member(&mut group, &verified, NOW)
@@ -96,7 +101,10 @@ fn a_package_signed_under_a_different_identity_key_is_refused() {
         .verify_key_package(&substituted, &entry, NOW)
         .expect_err("a package under an identity key the log never proved");
     assert!(
-        matches!(error, EngineError::Credential(CredentialError::BadSignature)),
+        matches!(
+            error,
+            EngineError::Credential(CredentialError::BadSignature)
+        ),
         "{error:?}"
     );
 }
@@ -121,7 +129,10 @@ fn a_package_for_a_different_handle_is_refused() {
         .verify_key_package(&wire, &entry, NOW)
         .expect_err("the credential names carol, the entry names bob");
     assert!(
-        matches!(error, EngineError::Credential(CredentialError::InvalidHandle)),
+        matches!(
+            error,
+            EngineError::Credential(CredentialError::InvalidHandle)
+        ),
         "{error:?}"
     );
 }
@@ -159,7 +170,9 @@ fn a_package_from_a_revoked_device_is_refused() {
     let wire = bob.generate_key_package().expect("package");
     // Before the revocation it verifies; that is what makes the assertion after
     // it a statement about the revocation and not about anything else.
-    alice.verify_key_package(&wire, &entry, NOW).expect("verified");
+    alice
+        .verify_key_package(&wire, &entry, NOW)
+        .expect("verified");
 
     let revoked = with_revocation(&entry, bob.credential().credential.device_pk);
     let error = alice
@@ -187,7 +200,10 @@ fn an_expired_package_is_refused() {
     let error = alice
         .verify_key_package(&wire, &entry, NOW + 100_000_000_000)
         .expect_err("an expired package is not usable");
-    assert!(matches!(error, EngineError::Credential(_) | EngineError::Mls(_)), "{error:?}");
+    assert!(
+        matches!(error, EngineError::Credential(_) | EngineError::Mls(_)),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -218,7 +234,9 @@ fn a_welcome_is_bound_to_the_package_it_was_addressed_to() {
     let second = bob.generate_key_package().expect("package");
     assert_ne!(first, second);
 
-    let verified = alice.verify_key_package(&first, &entry, NOW).expect("verified");
+    let verified = alice
+        .verify_key_package(&first, &entry, NOW)
+        .expect("verified");
     let mut group = alice.create_group(b"conversation").expect("group");
     let (_commit, welcome) = alice.add_member(&mut group, &verified, NOW).expect("add");
 

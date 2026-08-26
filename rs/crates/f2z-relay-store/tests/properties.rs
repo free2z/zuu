@@ -913,14 +913,7 @@ fn a_pooled_package_is_served_once_and_in_publication_order() {
     both(|store, name| {
         contact_queue(store);
         let published = store
-            .publish_key_packages(
-                &RECV,
-                &RECV_KEY,
-                &[package(1), package(2)],
-                None,
-                64,
-                2_000,
-            )
+            .publish_key_packages(&RECV, &RECV_KEY, &[package(1), package(2)], None, 64, 2_000)
             .unwrap()
             .into_inner();
         assert_eq!(published.pool_size, 2, "{name}");
@@ -1013,7 +1006,9 @@ fn a_standard_queue_refuses_a_pool_and_an_unknown_address_is_unavailable() {
 
         // And a claim against its send address is the send-side collapse, not a
         // hint that the address exists.
-        let error = store.claim_key_package(&SEND).expect_err("not a contact queue");
+        let error = store
+            .claim_key_package(&SEND)
+            .expect_err("not a contact queue");
         assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
         let error = store
             .claim_key_package(&QueueAddress::new([0x5c; 32]))
@@ -1048,7 +1043,14 @@ fn deleting_a_queue_takes_its_pool_with_it() {
     both(|store, name| {
         contact_queue(store);
         let _ = store
-            .publish_key_packages(&RECV, &RECV_KEY, &[package(1)], Some(&package(2)), 64, 2_000)
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                &[package(1)],
+                Some(&package(2)),
+                64,
+                2_000,
+            )
             .unwrap();
         let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
         // §7.6 forbids a tombstone, and a pool that outlived its queue would be
@@ -1058,7 +1060,9 @@ fn deleting_a_queue_takes_its_pool_with_it() {
 
         // And the addresses are reusable, with nothing carried over.
         contact_queue(store);
-        let error = store.claim_key_package(&SEND).expect_err("a fresh queue holds nothing");
+        let error = store
+            .claim_key_package(&SEND)
+            .expect_err("a fresh queue holds nothing");
         assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
         let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
     });
