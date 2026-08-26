@@ -106,6 +106,7 @@
 
 pub mod credential;
 pub mod engine;
+pub mod keypackage;
 pub mod error;
 pub mod exporter;
 pub mod provider;
@@ -116,6 +117,7 @@ pub use credential::{
     DEVICE_CREDENTIAL_TYPE, DeviceCredential, DeviceCredentialTBS, validate_at, validate_for_leaf,
 };
 pub use engine::{CIPHERSUITE, MlsEngine, Received};
+pub use keypackage::VerifiedKeyPackage;
 pub use error::{CredentialError, EngineError, Result};
 pub use exporter::ExportLabel;
 pub use provider::F2zProvider;

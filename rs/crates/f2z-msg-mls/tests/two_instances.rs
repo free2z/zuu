@@ -25,7 +25,7 @@ use f2z_msg_mls::{EngineError, ExportLabel, MlsEngine, ProtocolVersion, Received
 use f2z_msg_store::MemoryBackend;
 
 mod common;
-use common::{NOW, device, issue_credential};
+use common::{NOW, device, directory_entry, issue_credential};
 
 const GROUP_ID: &[u8] = b"conversation-alice-bob";
 
@@ -40,6 +40,12 @@ fn paired() -> (
     let bob = device("bob", 22, 222);
 
     let bob_key_package = bob.generate_key_package().expect("key package");
+    // §12.6: the package is checked against the directory entry before it can
+    // become an argument to `add_member` at all. There is no other constructor.
+    let bob_entry = directory_entry(&[bob.credential().clone()]);
+    let bob_key_package = alice
+        .verify_key_package(&bob_key_package, &bob_entry, NOW)
+        .expect("the directory vouches for this package");
 
     let mut alice_group = alice.create_group(GROUP_ID).expect("create group");
     let (_commit, welcome) = alice
