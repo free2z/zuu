@@ -51,6 +51,16 @@
 //! that is already enrolled under the requested handle it re-derives the wrap
 //! key and unlocks, rather than refusing. A frontend that calls `enroll` on
 //! launch gets "ready", not an error it has no command to resolve.
+//!
+//! # These three refuse when the plugin has no engine, like the other 43
+//!
+//! `F2zMsgExt::f2zmsg` answers even when `tauri-plugin-f2zmsg`'s `setup` could
+//! not open the durable store, and `F2zMsg::engine` is a `Result` for exactly
+//! that reason (#753). So each command below takes it with `?` and refuses with
+//! the §8 code the store failure produced, rather than panicking on an engine
+//! that was never built. In `f2zmsg_enroll` the `?` is deliberately the *first*
+//! statement: there is no point reading the wallet seed for an enrollment that
+//! has nowhere to be written.
 
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::types::{Handle, KemPublicKey};
@@ -91,7 +101,7 @@ pub struct UnenrollArgs {
 /// §3.2 `f2zmsg_enrollment_status`. Reads the store; needs no seed.
 #[tauri::command]
 pub async fn f2zmsg_enrollment_status<R: Runtime>(app: AppHandle<R>) -> Result<EnrollmentStatus> {
-    app.f2zmsg().engine().enrollment_status().await
+    app.f2zmsg().engine()?.enrollment_status().await
 }
 
 /// §3.2 `f2zmsg_enroll`.
@@ -105,7 +115,7 @@ pub async fn f2zmsg_enroll<R: Runtime>(
     app: AppHandle<R>,
     args: EnrollArgs,
 ) -> Result<EnrollmentStatus> {
-    let engine = app.f2zmsg().engine_handle();
+    let engine = app.f2zmsg().engine_handle()?;
 
     // Derive first, in every branch. Enrolling and unlocking need the same
     // §4.2 account keys, and deriving before the branch keeps the seed's
@@ -186,7 +196,7 @@ pub async fn f2zmsg_unenroll<R: Runtime>(
     app: AppHandle<R>,
     args: UnenrollArgs,
 ) -> Result<EnrollmentStatus> {
-    app.f2zmsg().engine().unenroll(&args.confirmation).await
+    app.f2zmsg().engine()?.unenroll(&args.confirmation).await
 }
 
 /// Read the active wallet's seed **in process** and derive §4.2's account keys.

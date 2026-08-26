@@ -7025,6 +7025,7 @@ dependencies = [
  "openmls",
  "openmls_traits",
  "rand 0.9.5",
+ "rusqlite",
  "serde",
  "serde_json",
  "tauri",
@@ -9535,6 +9536,7 @@ dependencies = [
  "tauri-plugin-http",
  "tauri-plugin-opener",
  "tauri-plugin-zcash",
+ "tempfile",
  "tiny_http",
  "url",
 ]

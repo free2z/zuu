@@ -72,6 +72,44 @@ impl Error {
             format!("{what} requires a directory entry"),
         )
     }
+
+    /// A messaging store that would not open, as the one §8 code every command
+    /// will then answer with for the life of the process (#753).
+    ///
+    /// Three outcomes, and keeping them apart is the whole point of not
+    /// flattening this to `internal`:
+    ///
+    /// * **`storage-full`** — SQLite said `SQLITE_FULL`. §8 already tells the
+    ///   UI what to do about a full store, and it is the one cause the user can
+    ///   actually clear.
+    /// * **`durability-unavailable`** — either a pragma did not take, or the
+    ///   file cannot be opened for writing at all. `SqliteBackend::open`
+    ///   verifies WAL, `synchronous = FULL` and `secure_delete` and *refuses*
+    ///   rather than fall back, because §11.2 says a client that cannot promise
+    ///   durability must not ACK; a filesystem that will not give those pragmas
+    ///   (a network mount, a read-only or permission-denied data directory) is
+    ///   exactly "this device cannot host a store that may ACK", which is what
+    ///   this code means.
+    /// * **`internal`** — everything else, corruption included. §8: it carries
+    ///   no detail by design, so the cause goes to the log.
+    pub fn store_did_not_open(error: &f2z_msg_store::StoreError) -> Self {
+        let code = match error {
+            // Every `Backend` an *open* can produce is a pragma that did not
+            // take: `journal_mode`, `synchronous`, `secure_delete`.
+            f2z_msg_store::StoreError::Backend(_) => ErrorCode::DurabilityUnavailable,
+            f2z_msg_store::StoreError::Sqlite(sqlite) => match sqlite.sqlite_error_code() {
+                Some(rusqlite::ErrorCode::DiskFull) => ErrorCode::StorageFull,
+                Some(
+                    rusqlite::ErrorCode::CannotOpen
+                    | rusqlite::ErrorCode::ReadOnly
+                    | rusqlite::ErrorCode::PermissionDenied,
+                ) => ErrorCode::DurabilityUnavailable,
+                _ => ErrorCode::Internal,
+            },
+            _ => ErrorCode::Internal,
+        };
+        Self::new(code, format!("opening the messaging store: {error}"))
+    }
 }
 
 impl core::fmt::Display for Error {
@@ -136,6 +174,82 @@ mod tests {
             !json.contains("deadbeef"),
             "context must not cross IPC: {json}"
         );
+    }
+
+    /// #753. `SqliteBackend::open` verifies WAL, `synchronous = FULL` and
+    /// `secure_delete` and refuses rather than fall back, because §11.2 says a
+    /// client that cannot promise durability must not ACK. That refusal is a
+    /// `Backend` error, and it has a §8 code of its own — flattening it to
+    /// `internal` would tell a user on a network mount nothing they can act on.
+    #[test]
+    fn a_pragma_that_did_not_take_is_durability_unavailable() {
+        for operation in [
+            "open: journal_mode did not take",
+            "open: synchronous did not become FULL",
+            "open: secure_delete did not become ON",
+        ] {
+            assert_eq!(
+                Error::store_did_not_open(&f2z_msg_store::StoreError::Backend(operation)).code(),
+                ErrorCode::DurabilityUnavailable,
+                "{operation}",
+            );
+        }
+    }
+
+    /// The one cause the user can actually clear, so it must not arrive as
+    /// `internal`.
+    #[test]
+    fn a_full_disk_reaches_the_frontend_as_storage_full() {
+        let full = f2z_msg_store::StoreError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+            None,
+        ));
+        assert_eq!(
+            Error::store_did_not_open(&full).code(),
+            ErrorCode::StorageFull
+        );
+    }
+
+    /// A file that cannot be opened for writing at all — a read-only or
+    /// permission-denied data directory, or a `f2zmsg.sqlite` that is not a
+    /// file — is the same statement as a pragma that did not take: this device
+    /// cannot host a store that may ACK.
+    #[test]
+    fn a_store_that_cannot_be_opened_for_writing_is_durability_unavailable() {
+        for code in [
+            rusqlite::ffi::SQLITE_CANTOPEN,
+            rusqlite::ffi::SQLITE_READONLY,
+            rusqlite::ffi::SQLITE_PERM,
+        ] {
+            let error = f2z_msg_store::StoreError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(code),
+                None,
+            ));
+            assert_eq!(
+                Error::store_did_not_open(&error).code(),
+                ErrorCode::DurabilityUnavailable,
+                "sqlite result code {code}",
+            );
+        }
+    }
+
+    /// Corruption has no §8 member of its own, and `internal` carries no detail
+    /// by design — including the path, which names the user's home directory.
+    #[test]
+    fn a_corrupt_store_is_internal_and_still_leaks_nothing() {
+        let corrupt = f2z_msg_store::StoreError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOTADB),
+            Some("file is not a database: /Users/someone/f2zmsg.sqlite".to_owned()),
+        ));
+        let error = Error::store_did_not_open(&corrupt);
+        assert_eq!(error.code(), ErrorCode::Internal);
+        assert!(
+            error.context().contains("not a database"),
+            "the cause must reach the log: {}",
+            error.context()
+        );
+        let json = serde_json::to_string(&error).expect("serialize");
+        assert_eq!(json, "\"internal\"", "context must not cross IPC: {json}");
     }
 
     #[test]
