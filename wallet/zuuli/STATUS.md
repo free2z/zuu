@@ -8,7 +8,7 @@ back from the named store. Authenticated, money-moving, wallet, KYC, and media
 operations are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`72a4d9d8236583dc82b08399536788e45173516d` on 2026-08-25. Before a release,
+`fe60fc6b75438de308668fc57b98f3cb4e33f65c` on 2026-08-26. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
@@ -53,7 +53,7 @@ commit or date forward mechanically.
 | Buy 2Z with ZEC | Public pricing/quote plus wallet spend and backend settlement/credit | Wallet bridge exists; production settlement is intentionally disabled | Quote parsing and explicit browser-only demo-boundary tests | Pricing and an exact 100-2Z quote returned HTTP 200; no spend/settlement exists | **Mock/demo only for settlement; unavailable in release builds:** [#155](https://github.com/free2z/zuu/issues/155). A price quote is not a top-up. |
 | 2Z Activity | Authenticated Stripe purchase ledger | Native HTTP | Parsing/UI tests do not prove a complete ledger | Protected endpoint returned HTTP 403 anonymously; authenticated ledger not exercised | **Known incomplete:** the endpoint is purchases-only and cannot substantiate tips/AI/PPV totals ([#172](https://github.com/free2z/zuu/issues/172)). |
 | E2EE messaging | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds and its two-instance integration test drives two engines over a real relay | The plugin's own crate gate runs in `zuuli.yml`, separately from the app | **None, and none is possible from a shipped build:** the plugin is absent from `wallet/zuuli/src-tauri/Cargo.toml` and its lock file, and `src-tauri/src/lib.rs` registers `opener`, `dialog`, `deep_link`, `http` and `zcash` and not this one | **Developed and gated; not shipped.** It entered `wallet/plugins/` in [#735](https://github.com/free2z/zuu/pull/735), which makes it release-impacting for audit purposes, but a tester on build 15 or 16 receives no messaging surface. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having messaging on the strength of this crate existing. |
-| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons | Release identity, icon/store validators, protected state machines, and all-target packaging are gated | A read-only readback at 21:19Z on 2026-08-25 reports TestFlight `0.1.0+15` `uploaded`, `processed` and `availableToInternalTesters` all true, `VALID`/`IN_BETA_TESTING`, related to the one internal-only group. **Play is a build behind: the same-hour audit reports the exact release 15 `present: false`**, because build 15's Android job died before packaging ([#738](https://github.com/free2z/zuu/issues/738)); 14 remains the latest Play internal build. No physical-device acceptance is recorded. The audits found canonical listing copy unmatched and every declared screenshot set absent remotely | **iOS internal delivery is current; Android is one build behind; publication presentation and device acceptance are incomplete.** Store media: [#387](https://github.com/free2z/zuu/issues/387). Physical installs: [#238](https://github.com/free2z/zuu/issues/238). Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
+| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons | Release identity, icon/store validators, protected state machines, and all-target packaging are gated | A read-only readback at 01:19Z on 2026-08-26 reports TestFlight `0.1.0+16` `uploaded`, `processed` and `availableToInternalTesters` all true, `VALID`/`IN_BETA_TESTING`, related to the one internal-only group. **Play is now two builds behind: the same-hour audit reports the exact release 16 `present: false`**, and 15 never reached it either. Two different Android faults, both in release steps [#534](https://github.com/free2z/zuu/pull/534) added and neither ever executed before: build 15 died in `seal_verifier` ([#738](https://github.com/free2z/zuu/issues/738)) and build 16 in the signed/unsigned payload comparison ([#751](https://github.com/free2z/zuu/issues/751)). Both are fixed; **14 remains the newest build on the Play internal track**, and [#754](https://github.com/free2z/zuu/issues/754) lists six further release steps that have still never run. No physical-device acceptance is recorded. The audits found canonical listing copy unmatched and every declared screenshot set absent remotely | **iOS internal delivery is current; Android is two builds behind; publication presentation and device acceptance are incomplete.** Store media: [#387](https://github.com/free2z/zuu/issues/387). Physical installs: [#238](https://github.com/free2z/zuu/issues/238). Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
 
 ## Current production and distribution evidence
 
@@ -88,34 +88,37 @@ one.
 
 Distribution evidence is narrower and explicit:
 
+- [Protected release run 32911822458](https://github.com/free2z/zuu/actions/runs/32911822458)
+  delivered `0.1.0+16` to TestFlight on 2026-08-26. Its Android side got
+  further than build 15's — the credential-free universal AAB built and sealed,
+  proving [#738](https://github.com/free2z/zuu/issues/738)'s fix — and then
+  `Android / protected sign and Play upload` failed comparing the signed and
+  unsigned payload digests, before any upload
+  ([#751](https://github.com/free2z/zuu/issues/751), fixed in
+  [#752](https://github.com/free2z/zuu/pull/752)).
 - [Protected release run 32885179531](https://github.com/free2z/zuu/actions/runs/32885179531)
-  delivered `0.1.0+15` to TestFlight on 2026-08-25 — iOS unsigned archive,
-  system export and signing, credential-free signed artifact verification, App
-  Store validation and TestFlight, and shipped-artifact provenance all
-  succeeded. **Its Android job failed** in `seal_verifier`, before packaging,
-  so no Play internal release exists for build 15
-  ([#738](https://github.com/free2z/zuu/issues/738), fixed after that run).
-  The run's first attempt failed earlier still, at `Set up job`, because
-  GitHub began validating an allowed action's own internal sub-action
-  reference against the repository Actions allowlist; the allowlist now
-  carries `actions/attest-build-provenance/*@*` and remains closed to
-  GitHub-owned and verified-creator actions.
+  delivered `0.1.0+15` to TestFlight on 2026-08-25; its Android job died
+  earlier, in `seal_verifier`. That run's first attempt failed earlier still,
+  at `Set up job`, because GitHub began validating an allowed action's own
+  internal sub-action reference against the repository Actions allowlist; the
+  allowlist now carries `actions/attest-build-provenance/*@*` and remains
+  closed to GitHub-owned and verified-creator actions.
 - [Protected release run 32624780318](https://github.com/free2z/zuu/actions/runs/32624780318)
   built, signed, and delivered `0.1.0+14` on 2026-08-23, including Play
-  internal. That is the newest build on the Play internal track.
-- [TestFlight read-only recovery 32900398788](https://github.com/free2z/zuu/actions/runs/32900398788)
-  read back `0.1.0+15` at 21:19Z on 2026-08-25 with `uploaded`, `processed`,
+  internal. **That is still the newest build on the Play internal track.**
+- [TestFlight read-only recovery 32918530448](https://github.com/free2z/zuu/actions/runs/32918530448)
+  read back `0.1.0+16` at 01:19Z on 2026-08-26 with `uploaded`, `processed`,
   and `availableToInternalTesters` all true, `processingState: VALID`,
   `internalBuildState: IN_BETA_TESTING`, `usesNonExemptEncryption: false`, and
   the exact build relationship to the single internal-only group verified. It
   did not read or log tester identities.
-- [Store listing audit 32905396443](https://github.com/free2z/zuu/actions/runs/32905396443)
+- [Store listing audit 32918531965](https://github.com/free2z/zuu/actions/runs/32918531965)
   audited both providers against this audit's source with no provider failure
   and `publicationReady: false`. Apple matched the app identity but no `en-US`
   app-info, beta-info, or exact-version metadata, and both declared screenshot
   sets — four candidates each for iPhone 6.9-inch and iPad 13-inch — have a
   remote count of zero. Play matched the identity and reported the exact
-  release 15 **`present: false`**, which is the store-side confirmation of the
+  release 16 **`present: false`**, which is the store-side confirmation of the
   Android gap above rather than an inference from a CI log; listing, details,
   and release notes are unmatched and icon, feature graphic, phone, 7-inch,
   and 10-inch counts are all zero. Play tester eligibility remains the
