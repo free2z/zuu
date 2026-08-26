@@ -76,6 +76,113 @@ use crate::record::{
 };
 use crate::store::RelayStore;
 
+use self::counted::{CountedTransaction, WriteConnection};
+
+/// Making the fsync counter's population closed, by type rather than by care.
+///
+/// # What is being protected
+///
+/// [`SqliteStore::commits`] counts durable commits, and that number is not
+/// decoration: `f2z-relay`'s group-commit writer (`f2z-relay/src/commit.rs`)
+/// rests its entire argument on it — "`SqliteStore::commits`, which counts
+/// fsyncs so the amortization is checkable rather than asserted" — and
+/// `f2z-relay/tests/group_commit.rs`'s
+/// `a_hundred_concurrent_appends_do_not_cost_a_hundred_fsyncs` asserts
+/// `fsyncs < APPENDS`. A commit that happened without being counted therefore
+/// makes that assertion *easier* to satisfy: the evidence for group commit
+/// would weaken in the direction that still looks green.
+///
+/// # Why a type and not a comment
+///
+/// The counter used to be defended by a sentence saying every commit goes
+/// through one helper. That was true, and nothing enforced it — a
+/// `tx.commit()?` written next to any transaction site compiled, passed, and
+/// silently stopped incrementing the counter. These two newtypes remove the
+/// expression rather than warn about it:
+///
+/// * [`WriteConnection`] derefs to `&Connection` and **never** to
+///   `&mut Connection`. `rusqlite::Connection::transaction` needs `&mut self`,
+///   so the only way to begin a write transaction is [`WriteConnection::begin`].
+///   Reads are unaffected — they only ever needed `&Connection`.
+/// * [`CountedTransaction`] owns the `rusqlite::Transaction` in a private field
+///   and derefs to `&Transaction`, so the transaction can never be moved back
+///   out. `Transaction::commit` consumes `self`, which a shared deref cannot
+///   provide. The one reachable commit is
+///   [`CountedTransaction::commit`], which increments the counter.
+///
+/// The pleasant consequence is that the mistake the old comment warned about —
+/// writing `tx.commit()?` at a call site — now resolves to the inherent method
+/// and *counts*. There is no spelling of "commit without counting" left inside
+/// `sqlite.rs`; the only remaining way to add one is to add a method to this
+/// module, whose entire purpose is stated above.
+mod counted {
+    use std::ops::Deref;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use rusqlite::{Connection, Transaction};
+
+    /// The store's connection, handed out by shared reference only.
+    #[derive(Debug)]
+    pub(super) struct WriteConnection(Connection);
+
+    impl WriteConnection {
+        pub(super) fn new(connection: Connection) -> Self {
+            Self(connection)
+        }
+
+        /// Begin the only kind of write transaction this file can express.
+        ///
+        /// `commits` is the counter the returned transaction will bump, so a
+        /// transaction cannot be started without naming what will account for
+        /// it.
+        pub(super) fn begin<'conn>(
+            &'conn mut self,
+            commits: &'conn AtomicU64,
+        ) -> rusqlite::Result<CountedTransaction<'conn>> {
+            Ok(CountedTransaction {
+                tx: self.0.transaction()?,
+                commits,
+            })
+        }
+    }
+
+    impl Deref for WriteConnection {
+        type Target = Connection;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    /// A write transaction whose only commit path increments the fsync counter.
+    #[derive(Debug)]
+    pub(super) struct CountedTransaction<'conn> {
+        tx: Transaction<'conn>,
+        commits: &'conn AtomicU64,
+    }
+
+    impl CountedTransaction<'_> {
+        /// Commit, and count the fsync it cost.
+        ///
+        /// Dropping without calling this rolls back, as with any
+        /// `rusqlite::Transaction`, and correctly counts nothing.
+        pub(super) fn commit(self) -> rusqlite::Result<()> {
+            let Self { tx, commits } = self;
+            tx.commit()?;
+            commits.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    impl<'conn> Deref for CountedTransaction<'conn> {
+        type Target = Transaction<'conn>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.tx
+        }
+    }
+}
+
 /// The schema version stamped into `PRAGMA user_version`.
 const SCHEMA_VERSION: i32 = 1;
 
@@ -126,7 +233,7 @@ const QUEUE_COLUMNS: &str = "recv_addr, send_addr, kind, recv_key, send_key, nex
 /// where the batching driver can see it.
 #[derive(Debug)]
 pub struct SqliteStore {
-    connection: Mutex<Connection>,
+    connection: Mutex<WriteConnection>,
     /// §7.7 idle-timer activity that has not been written yet. See
     /// [`RelayStore::touch`] for why this is deliberately not durable.
     activity: Mutex<HashMap<QueueAddress, u64>>,
@@ -198,7 +305,7 @@ impl SqliteStore {
         }
 
         Ok(Self {
-            connection: Mutex::new(connection),
+            connection: Mutex::new(WriteConnection::new(connection)),
             activity: Mutex::new(HashMap::new()),
             commits: AtomicU64::new(0),
         })
@@ -237,13 +344,17 @@ impl SqliteStore {
         self.commits.load(Ordering::Relaxed)
     }
 
-    /// Commit, and count it.
+    /// Commit, and release the activity buffer the commit made durable.
     ///
-    /// Every commit in this file goes through here, so the counter cannot drift
-    /// from reality by someone adding a `tx.commit()` next to it.
+    /// The counting itself lives one level down, in
+    /// [`CountedTransaction::commit`], because that is the only place a
+    /// `rusqlite::Transaction` can be committed from — see the [`counted`]
+    /// module for why the counter's population is closed by type rather than
+    /// by this comment. What is left here is the part that is genuinely a
+    /// policy of the store: when the staged touches may be dropped.
     fn commit(
         &self,
-        tx: Transaction<'_>,
+        tx: CountedTransaction<'_>,
         mut activity: std::sync::MutexGuard<'_, HashMap<QueueAddress, u64>>,
     ) -> Result<()> {
         tx.commit()?;
@@ -252,7 +363,6 @@ impl SqliteStore {
         // also drops this guard without clearing the buffer, so the next
         // transaction retries the activity instead of silently losing it.
         activity.clear();
-        self.commits.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -263,7 +373,7 @@ impl SqliteStore {
     /// next `BEGIN` starts from committed state. Refusing every subsequent
     /// request would convert one fault into a permanent outage of `READ` and
     /// `ACK`, which are the two operations §13.1 says must never be refused.
-    fn lock_connection(&self) -> std::sync::MutexGuard<'_, Connection> {
+    fn lock_connection(&self) -> std::sync::MutexGuard<'_, WriteConnection> {
         self.connection
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -554,7 +664,7 @@ impl RelayStore for SqliteStore {
             return Err(StoreError::AddressCollision);
         }
         let mut connection = self.lock_connection();
-        let tx = connection.transaction()?;
+        let tx = connection.begin(&self.commits)?;
         let activity = self.flush_activity(&tx)?;
 
         // Both addresses are drawn from one 32-byte space, and a lookup by
@@ -615,7 +725,7 @@ impl RelayStore for SqliteStore {
         now_ms: u64,
     ) -> Result<Committed<()>> {
         let mut connection = self.lock_connection();
-        let tx = connection.transaction()?;
+        let tx = connection.begin(&self.commits)?;
         let activity = self.flush_activity(&tx)?;
 
         let Some(mut record) = load_by_send(&tx, send_addr)? else {
@@ -657,7 +767,7 @@ impl RelayStore for SqliteStore {
 
     fn append_batch(&self, appends: &[Append<'_>]) -> Result<Committed<Vec<Result<Appended>>>> {
         let mut connection = self.lock_connection();
-        let tx = connection.transaction()?;
+        let tx = connection.begin(&self.commits)?;
         let activity = self.flush_activity(&tx)?;
 
         let mut results: Vec<Result<Appended>> = Vec::with_capacity(appends.len());
@@ -709,7 +819,7 @@ impl RelayStore for SqliteStore {
         now_ms: u64,
     ) -> Result<Committed<AckOutcome>> {
         let mut connection = self.lock_connection();
-        let tx = connection.transaction()?;
+        let tx = connection.begin(&self.commits)?;
         let activity = self.flush_activity(&tx)?;
 
         let mut record = load_by_recv(&tx, recv_addr)?.ok_or_else(StoreError::no_access)?;
@@ -765,7 +875,7 @@ impl RelayStore for SqliteStore {
         signer: &PublicKey,
     ) -> Result<Committed<Deleted>> {
         let mut connection = self.lock_connection();
-        let tx = connection.transaction()?;
+        let tx = connection.begin(&self.commits)?;
         let activity = self.flush_activity(&tx)?;
 
         let record = load_by_recv(&tx, recv_addr)?.ok_or_else(StoreError::no_access)?;
@@ -805,7 +915,7 @@ impl RelayStore for SqliteStore {
 
     fn expire(&self, now_ms: u64) -> Result<Committed<ExpiryReport>> {
         let mut connection = self.lock_connection();
-        let tx = connection.transaction()?;
+        let tx = connection.begin(&self.commits)?;
         // Before the sweep, so a touch that has not been written down yet still
         // saves its queue. This is what bounds `touch`'s best-effort window to
         // the sweep period.
@@ -1245,7 +1355,7 @@ mod tests {
         let commits_before_failure = store.commits();
         {
             let mut connection = store.lock_connection();
-            let tx = connection.transaction().unwrap();
+            let tx = connection.begin(&store.commits).unwrap();
             let activity = store.flush_activity(&tx).unwrap();
             tx.execute("INSERT INTO commit_failure (parent_id) VALUES (7)", [])
                 .unwrap();
