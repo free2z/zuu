@@ -136,7 +136,16 @@ mod tests {
     }
 
     #[test]
-    fn an_operator_string_cannot_escape_its_own_field() {
+    fn an_operator_string_cannot_close_its_own_field_with_a_quotation_mark() {
+        // Renamed from `an_operator_string_cannot_escape_its_own_field`
+        // (zuu#763). The old name claimed the general property — that *no*
+        // operator string can escape its field — while the body exercised one
+        // of the two characters that can do it. Three arms of `escape` could
+        // be broken at once with this test, and every other test in every
+        // crate that depends on `f2z-kt`, still green. A name that asserts
+        // more than the body checks is the defect, not a symptom of it; the
+        // rest of the property is now covered below and, for the backslash,
+        // against a rendered descriptor field in `crate::descriptor`.
         let hostile = "free2z\",\"authoritative\":\"json";
         let rendered = escape(hostile);
         assert!(!rendered.contains("\",\""));
@@ -193,5 +202,93 @@ mod tests {
         );
         let named = error_container(b"", 4, Some("ERR_BAD_AUTHORIZATION"));
         assert!(named.contains("ERR_BAD_AUTHORIZATION"));
+    }
+
+    // -----------------------------------------------------------------------
+    // `escape`'s own coverage, one byte class per test (zuu#763).
+    //
+    // Unlike `f2z-relay`'s `json_string` — whose control and `\u` arms are
+    // unreachable because `WIRE.md` §11.1 restricts the eight operator strings
+    // to printable ASCII and `capabilities::validate` refuses anything else
+    // before the renderer sees it — **every arm here is reachable in
+    // production**. `LogDescriptor::validate` constrains `kt_versions`,
+    // `log_id` and `configuration` and places no restriction whatsoever on the
+    // operator string bytes, so all seven of `operator_name`,
+    // `operator_contact`, `operator_jurisdiction`, `operator_policy_url`,
+    // `source_repo_url`, `source_commit` and `build_digest` arrive at `escape`
+    // exactly as an operator configured them, by way of
+    // `String::from_utf8_lossy` in `crate::descriptor::render`.
+    //
+    // One byte class per test, and each payload holds *only* characters of the
+    // class under test, so a break in one arm cannot be masked by another
+    // arm's bytes in the same assertion — which is precisely how the backslash,
+    // newline and `\u{04x}` arms were all deletable with every dependent crate
+    // green. Each assertion is the whole returned string rather than a
+    // substring: `f2z-kt` hand-renders its JSON (that is what this module is
+    // for) and carries no JSON parser, so these are reviewed literals.
+
+    #[test]
+    fn the_json_escaper_escapes_a_quotation_mark() {
+        assert_eq!(escape("\""), "\\\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_backslash() {
+        // A lone backslash that survives unescaped is the field-escape of
+        // zuu#763; `crate::descriptor`'s tests assert the same arm against a
+        // real rendered descriptor field, which is where it actually bites.
+        assert_eq!(escape("\\"), "\\\\");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_newline() {
+        assert_eq!(escape("\n"), "\\n");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_carriage_return() {
+        assert_eq!(escape("\r"), "\\r");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_tab() {
+        assert_eq!(escape("\t"), "\\t");
+    }
+
+    #[test]
+    fn the_json_escaper_passes_the_rest_of_printable_ascii_through_unchanged() {
+        // `0x20..=0x7e` minus the two characters with a short form of their
+        // own, which the two tests above already own.
+        let printable: String = (0x20u8..=0x7e)
+            .filter(|byte| *byte != b'"' && *byte != b'\\')
+            .map(char::from)
+            .collect();
+        assert_eq!(escape(&printable), printable);
+    }
+
+    #[test]
+    fn the_json_escaper_renders_everything_else_as_utf16_code_units() {
+        // The C0 controls with no two-character form, DEL, and every
+        // non-ASCII character.
+        assert_eq!(escape("\u{0}"), "\\u0000");
+        assert_eq!(escape("\u{1f}"), "\\u001f");
+        assert_eq!(escape("\u{7f}"), "\\u007f");
+        assert_eq!(escape("\u{e9}"), "\\u00e9");
+        // U+2028 LINE SEPARATOR: legal unescaped in JSON, illegal unescaped in
+        // a JavaScript string literal. Escaping it is why "conservative on
+        // purpose" is worth the width.
+        assert_eq!(escape("\u{2028}"), "\\u2028");
+        // U+1F600 is astral, so `c.encode_utf16` emits a **surrogate pair** —
+        // two `\u` escapes for one character, which is what RFC 8259 §7
+        // requires and what a JSON reader reassembles.
+        //
+        // This is deliberately NOT what `f2z-relay`'s `json_string` does: that
+        // This is deliberately NOT what `f2z-relay`'s `json_string` does:
+        // that one is byte-wise over `&[u8]` and would render the same
+        // character as its four UTF-8 bytes, `\u00f0\u009f\u0098\u0080`.
+        // Both are correct for their own input type — `&str` here, `&[u8]`
+        // there — and the two renderers are meant to differ. Do not
+        // "align" them.
+        assert_eq!(escape("\u{1f600}"), "\\ud83d\\ude00");
     }
 }
