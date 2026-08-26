@@ -251,7 +251,7 @@ impl Device {
         let mls = MlsEngine::new(MemoryBackend::new(), signer, credential.clone(), NOW).unwrap();
 
         let recv_key = SigningKey::from_seed(&[device_seed.wrapping_add(0x10); 32]);
-        let mut client = relay.client().await.unwrap();
+        let mut client = connect(relay).await;
         let created = client
             .create_contact_queue(&recv_key, 0, 0, None)
             .await
@@ -384,6 +384,19 @@ impl Deployment {
     }
 }
 
+/// A **fresh** relay connection, opened at the point of use.
+///
+/// Never hold one across the key-transparency work below. `WIRE.md` §2.4 has
+/// the relay drive the keepalive and close after two missed Pongs, and a client
+/// that is not `await`ing its socket cannot Pong — so a connection parked while
+/// a log publishes an epoch and a witness cosigns is a connection the relay
+/// correctly hangs up on. That is the relay behaving to specification, and a
+/// test that held a connection open across seconds of unrelated work would be
+/// asserting the opposite.
+async fn connect(relay: &FakeRelay) -> Client {
+    relay.client().await.unwrap()
+}
+
 /// Resolve a handle through the real client and hand back the verified entry.
 fn resolve(client: &mut KtClient<LogHandle>, handle: &str, now_ms: u64) -> DirectoryEntryTBS {
     let resolution = client
@@ -417,18 +430,20 @@ fn two_instances_open_a_conversation_from_nothing_but_a_handle() {
     });
 
     // --- cold start: two devices that have never heard of each other --------
-    let (alice, bob, mut alice_relay, mut bob_relay, pool) = relay_runtime.block_on(async {
+    let (alice, bob, pool) = relay_runtime.block_on(async {
         let alice = Device::enroll("alice", 0x11, 0xa1, &relay).await;
         let bob = Device::enroll("bob", 0x22, 0xb2, &relay).await;
-        let mut alice_relay = relay.client().await.unwrap();
-        let mut bob_relay = relay.client().await.unwrap();
         // §12.6: Bob publishes a pool before anyone has asked for one.
-        let pool = bob.publish_key_packages(&mut bob_relay, 4).await;
+        let pool = bob
+            .publish_key_packages(&mut connect(&relay).await, 4)
+            .await;
         // Alice publishes hers too — first contact is symmetric, and a device
         // that only publishes when it is about to be contacted has published
         // too late.
-        let _ = alice.publish_key_packages(&mut alice_relay, 4).await;
-        (alice, bob, alice_relay, bob_relay, pool)
+        let _ = alice
+            .publish_key_packages(&mut connect(&relay).await, 4)
+            .await;
+        (alice, bob, pool)
     });
     assert_eq!(pool, 4, "the relay holds what bob published");
 
@@ -456,13 +471,14 @@ fn two_instances_open_a_conversation_from_nothing_but_a_handle() {
 
     // --- step 2: alice claims a key package from that address ---------------
     let claimed = relay_runtime.block_on(async {
-        let pow = alice_relay
+        let mut client = connect(&relay).await;
+        let pow = client
             .capabilities()
             .await
             .unwrap()
             .capabilities
             .claim_key_package_pow;
-        alice_relay
+        client
             .claim_key_package(published_contact_addr, Some(pow))
             .await
             .unwrap()
@@ -521,13 +537,14 @@ fn two_instances_open_a_conversation_from_nothing_but_a_handle() {
 
     // --- and the pool really was consumed -----------------------------------
     let second = relay_runtime.block_on(async {
-        let pow = bob_relay
+        let mut client = connect(&relay).await;
+        let pow = client
             .capabilities()
             .await
             .unwrap()
             .capabilities
             .claim_key_package_pow;
-        bob_relay
+        client
             .claim_key_package(bob.contact_addr, Some(pow))
             .await
             .unwrap()
@@ -563,7 +580,7 @@ fn a_key_package_whose_credential_is_not_the_directorys_is_refused() {
         let alice = Device::enroll("alice", 0x11, 0xa1, &relay).await;
         let bob = Device::enroll("bob", 0x22, 0xb2, &relay).await;
         let mallory = Device::enroll("mallory", 0x33, 0xc3, &relay).await;
-        let mut client = relay.client().await.unwrap();
+        let mut client = connect(&relay).await;
         let _ = bob.publish_key_packages(&mut client, 2).await;
         let _ = mallory.publish_key_packages(&mut client, 2).await;
         let pow = client
@@ -605,7 +622,7 @@ fn a_key_package_whose_credential_is_not_the_directorys_is_refused() {
     // And the honest package for the same handle still works, so the assertion
     // above is about the substitution rather than about the fixture.
     let honest = relay_runtime.block_on(async {
-        let mut client = relay.client().await.unwrap();
+        let mut client = connect(&relay).await;
         let pow = client
             .capabilities()
             .await
@@ -645,7 +662,7 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
         let alice = Device::enroll("alice", 0x11, 0xa1, &relay).await;
         let bob = Device::enroll("bob", 0x22, 0xb2, &relay).await;
         let spartan = Device::enroll("spartan", 0x44, 0xd4, &relay).await;
-        let mut client = relay.client().await.unwrap();
+        let mut client = connect(&relay).await;
         // Exactly one single-use package, plus a last-resort one.
         let pool = bob.publish_key_packages(&mut client, 1).await;
         assert_eq!(pool, 1);
@@ -671,7 +688,7 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
     let spartan_entry = resolve(&mut alice_kt, "spartan", NOW + 2);
 
     relay_runtime.block_on(async {
-        let mut client = relay.client().await.unwrap();
+        let mut client = connect(&relay).await;
         let pow = client
             .capabilities()
             .await
