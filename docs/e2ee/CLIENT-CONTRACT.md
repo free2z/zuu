@@ -205,14 +205,20 @@ scopes future work on this assumption.
 >   `wallet/zuuli/scripts/mobile-webview-authority.mjs` and its reviewed
 >   allowlist; what is new is that a reviewed identifier must name a command
 >   that exists.
-> * The `f2zmsg` row of that registry has **no capability files yet**, with a
->   recorded reason the checker refuses to let be empty: `wallet/zuuli/src-tauri`
->   cannot link the messaging plugin while librustzcash's
->   `bip32 = "=0.6.0-pre.1"` pins `sha2 = "=0.11.0-pre.4"` and `ed25519-dalek 3`
->   — which the whole messaging core is on — requires `sha2 ^0.11`. Cargo
->   unifies semver-compatible versions, so the two cannot coexist, and a
->   capability naming a plugin the app does not link fails `tauri_build::build()`
->   rather than protecting anything.
+> * The `f2zmsg` row of that registry now carries **both Zuuli capability
+>   files**. It carried none until #737, because `wallet/zuuli/src-tauri` could
+>   not link the plugin at all: `bip32 0.6.0-pre.1` — the only 0.6 release, and
+>   what librustzcash pins with `=` — exact-pins `sha2 =0.11.0-pre.4` *and*
+>   `hmac =0.13.0-pre.4`, against `ed25519-dalek 3`'s `sha2 ^0.11` and
+>   `openmls_rust_crypto`'s `hmac ^0.13`. The second of those is untouched by
+>   any choice about our own Ed25519, which is why the fix is two transient
+>   upstream pins (free2z/librustzcash and a `[patch.crates-io]` on bip32) and
+>   not a crypto migration. `wallet/plugins/tauri-plugin-f2zmsg/README.md`
+>   carries the full account and the conditions for removing both.
+> * Desktop takes `f2zmsg:default`; mobile enumerates 42 named identifiers —
+>   everything except `set_relay_trust`, the one grant that is a security
+>   downgrade. The enrollment trio appears in neither, because app-crate
+>   commands are not plugin commands (§2.2).
 
 `scripts/check-tauri-plugin-permissions.mjs` enforces, **for the Zcash plugin only**, a
 chain of set equalities across six artifacts: `build.rs`'s `COMMANDS` ↔
