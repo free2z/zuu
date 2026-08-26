@@ -249,6 +249,16 @@ What that unblocked, all of it now present:
   `wallet/zuuli/scripts/mobile-webview-authority.mjs`'s reviewed allowlist —
   mobile authority is granted by review, not by registration.
 
+**One consequence of linking, recorded as #753 rather than fixed here.** This
+crate's `setup` hook is fallible end to end, and an `Err` from a plugin's setup
+makes `tauri::Builder::build()` fail — so a messaging store that cannot be
+opened now takes the whole ZUULI wallet down at launch. `SqliteBackend::open`'s
+strictness is right (§11.2: a client that cannot promise durability must not
+ACK); its blast radius is not. Failing soft is not a one-line change, because
+`F2zMsgExt::f2zmsg` unwraps the managed state and all 43 commands would panic
+instead of refusing — `EngineState::Faulted` is the answer, and #753 carries the
+shape.
+
 ## What is still not wired, and exactly why
 
 **The key-transparency directory has no client.** `f2z-kt` is a running server
