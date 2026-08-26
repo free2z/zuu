@@ -403,7 +403,16 @@ impl<T: Transport> KtClient<T> {
                     handle,
                     &entry_bytes,
                     response.proof.as_slice(),
-                    pinned.as_ref(),
+                    // `None`, and NOT the pin: `wire::history_request` asks for
+                    // the **complete** history, so the run begins at version 1
+                    // and `f2z-kt-core` requires that. Handing it the pin as a
+                    // predecessor would demand that every entry shown come
+                    // *after* the pin, which is the opposite of what a complete
+                    // history is. The pin is checked separately, below, and it
+                    // is checked more strictly than passing it here would have:
+                    // the entry at the pinned version must be byte-for-byte the
+                    // one that was pinned.
+                    None,
                     HistoryVerificationParams::default(),
                 )
                 .map_err(|error| self.on_protocol_error(error, now_ms))?;
@@ -422,7 +431,7 @@ impl<T: Transport> KtClient<T> {
                     let (entry, _) = verify::decode_entry(&self.config.log_id, handle, bytes)?;
                     entries.push(entry);
                 }
-                verify::check_entry_chain(&entries, pinned.as_ref())
+                verify::check_entry_chain(&entries, None)
                     .map_err(|error| self.on_protocol_error(error, now_ms))?;
                 (
                     entries,
@@ -433,6 +442,16 @@ impl<T: Transport> KtClient<T> {
             }
             Err(other) => return Err(other),
         };
+
+        // The pin must be *in* what was shown, at the version it was pinned at
+        // and with the same bytes. A log that served a truthful-looking complete
+        // history which simply does not contain the entry this client already
+        // holds has substituted the user's key at the root of their own chain,
+        // and the version sequence alone would not notice.
+        if let Some(pinned) = pinned.as_ref() {
+            Self::require_pin_in_history(&entries, pinned)
+                .map_err(|error| self.on_protocol_error(error, now_ms))?;
+        }
 
         let mut unexpected = Vec::new();
         let mut raised = Vec::new();
@@ -522,10 +541,18 @@ impl<T: Transport> KtClient<T> {
             handle,
             &entry_bytes,
             response.proof.as_slice(),
-            Some(&pinned),
+            // `None` for the same reason `self_audit` passes `None`: this asks
+            // for the complete history, which starts at version 1.
+            None,
             HistoryVerificationParams::default(),
         )
         .map_err(|error| self.on_protocol_error(error, now_ms))?;
+        let entries: Vec<_> = verified
+            .iter()
+            .map(|entry| entry.entry().clone())
+            .collect::<Vec<_>>();
+        Self::require_pin_in_history(&entries, &pinned)
+            .map_err(|error| self.on_protocol_error(error, now_ms))?;
 
         // `akd` serves decreasing version order; walk forwards from the pin.
         let mut previous = pinned;
@@ -738,6 +765,31 @@ impl<T: Transport> KtClient<T> {
             return Ok(PinOutcome::Advanced);
         }
         Ok(PinOutcome::AheadOfPin)
+    }
+
+    /// The pinned entry must appear in a complete history, at its version and
+    /// with its bytes.
+    ///
+    /// `f2z-kt-core`'s chain check proves the run it was shown is internally
+    /// consistent and reaches version 1. It cannot know what this client
+    /// pinned, so this is the client's own half of §8.2 step 4: a log serving a
+    /// perfectly-formed history that replaces the entry the client is holding
+    /// would otherwise pass every check above it.
+    fn require_pin_in_history(
+        entries: &[f2z_kt_core::entry::DirectoryEntry],
+        pinned: &PublishedEntry,
+    ) -> core::result::Result<(), KtError> {
+        for entry in entries {
+            if entry.entry.entry_version != pinned.entry_version() {
+                continue;
+            }
+            return if PublishedEntry::from_entry(entry)?.chain_hash() == pinned.chain_hash() {
+                Ok(())
+            } else {
+                Err(KtError::HistoryIncomplete)
+            };
+        }
+        Err(KtError::HistoryIncomplete)
     }
 
     fn policy(&self) -> LogPolicy {
