@@ -305,21 +305,38 @@ pub fn verify_lookup(
     })
 }
 
-/// §8.2 — verify a handle's key history at a witnessed root.
+/// §8.2 — verify a handle's **complete** key history at a witnessed root.
 ///
 /// `entries` are the full `DirectoryEntry` byte strings served alongside the
 /// proof, in the **same order as the proof's update proofs**, which `akd` emits
 /// in **decreasing** version order.
 ///
-/// `pinned` is the client's last known published entry for this handle, or
-/// `None` when it is starting from a complete history.
+/// # The verification parameters are §8.2's, not the caller's
+///
+/// This used to take `akd_core`'s `HistoryVerificationParams` and a `pinned`
+/// predecessor, and neither could be chosen. §8.2 is a proof about a
+/// **complete** history — step 4 checks "an unbroken `entry_version` sequence"
+/// which begins at the registration — so the only sound value is
+/// `Default { history_params: Complete }`, and a caller passing
+/// `MostRecent(n)` would have relaxed `key_history_verify`'s own start-version
+/// check while leaving step 4 to catch a partial history on its own. `pinned`
+/// was worse than unused: under `Complete` the oldest entry shown is always
+/// version 1, so any `Some(previous)` demanded that version 1 be a successor
+/// of an entry at version 0, which [`DirectoryEntry::validate`] makes
+/// impossible. It could only ever produce [`KtError::HistoryIncomplete`].
+///
+/// A caller doing an **incremental** check against a pin calls
+/// [`check_entry_chain`] directly, which is what that function is public for.
+/// A caller that could weaken the proof is the thing this signature removes.
 ///
 /// # Step 4 is not redundant with step 3
 ///
-/// `key_history_verify` proves the versions returned are in the tree. The
-/// `entry_version` sequence and the `prev_entry_hash` chain prove the client was
-/// shown **all** of them: a log that omits a version from a history response is
-/// otherwise serving a truthful subset, and every proof in it verifies.
+/// `key_history_verify` proves the versions returned are in the tree, and under
+/// `Complete` it proves they are a contiguous run starting at 1. **It never
+/// reads `prev_entry_hash`.** The chain walk is the only thing that does, and
+/// it is what stands between a client and a log that answers with contiguous,
+/// genuinely-included versions whose contents do not chain — a substitution
+/// every proof in the response verifies for.
 ///
 /// # Errors
 ///
@@ -329,17 +346,20 @@ pub fn verify_lookup(
 /// - [`KtError::ValueMismatch`] if any proved value is not the hash of the entry
 ///   served for it.
 /// - [`KtError::HistoryIncomplete`] if the versions are not contiguous, if the
-///   `prev_entry_hash` chain breaks, or if the oldest entry shown is neither
-///   version 1 nor a successor of `pinned`.
+///   `prev_entry_hash` chain breaks, or if the oldest entry shown is not
+///   version 1 with an all-zero `prev_entry_hash`.
 /// - [`KtError::WrongLog`] / [`KtError::BadHandle`] as [`verify_lookup`].
 pub fn verify_key_history(
     root: &AcceptedRoot,
     handle: &Handle,
     entries: &[&[u8]],
     history_proof: &[u8],
-    pinned: Option<&PublishedEntry>,
-    params: HistoryVerificationParams,
 ) -> Result<Vec<VerifiedEntry>, KtError> {
+    // §8.2's terms, fixed here so no caller has to choose them and none can
+    // choose weaker ones.
+    let params = HistoryVerificationParams::Default {
+        history_params: HistoryParams::Complete,
+    };
     handle.validate()?;
     if entries.is_empty() {
         return Err(KtError::HistoryIncomplete);
@@ -390,19 +410,16 @@ pub fn verify_key_history(
         .iter()
         .map(|entry| entry.entry.clone())
         .collect::<Vec<_>>();
-    check_entry_chain(&entries, pinned)?;
+    check_entry_chain(&entries, None)?;
 
     Ok(verified)
 }
 
 /// Re-export so a caller does not have to depend on `akd_core` to name the
-/// history parameters `KT.md` §8.2 hands to the verifier.
+/// history parameters `KT.md` §8.2 hands to the *log* when asking for a
+/// history. [`verify_key_history`] no longer takes one: it fixes §8.2's
+/// `Complete`, because a verifier whose strictness is a caller's argument is a
+/// verifier nobody is holding to §8.2.
 pub use akd_core::verify::history::HistoryParams;
 
-/// The same, for the type [`verify_key_history`] actually takes.
-///
-/// Without this a caller outside this crate cannot **call** the function: the
-/// parameter type is `akd_core`'s and naming it would mean depending on
-/// `akd_core` directly, which is the coupling `KT.md` §11.4's single-crate rule
-/// exists to avoid. Found while writing `f2z-kt-client`.
-pub use akd_core::verify::HistoryVerificationParams;
+use akd_core::verify::HistoryVerificationParams;
