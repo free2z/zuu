@@ -117,6 +117,7 @@ prevent.
 | [`crates/f2z-relay`](./crates/f2z-relay) | **The relay daemon** — the server that runs in production. `wss://` listener, §4 framing, §5 signed-command verification with the TLS-exporter binding, the full §6 command set over `RelayStore`, a group-commit writer, TTL expiry, §13 anti-abuse, the signed capability document, a loopback-only `/healthz` + `/metrics` admin listener, and an opt-in health-only listener that may bind off loopback so a Kubernetes probe and a load-balancer health check can reach `/healthz` at all. **AGPL-3.0**, native only, never on the wasm line. |
 | [`crates/f2z-authority`](./crates/f2z-authority) | An **experimental candidate** for the directory's non-cryptographic trust-root layer: the proposed `HandleAssertion`, a partial assertion-layer check, `AuthoritySet`, and `f2z-assert`. `KT.md` does not yet ratify these structures or first-entry/no-authority semantics (#594), and its result is not §4.4 directory authorization. Same portability constraints. |
 | [`crates/f2z-kt-core`](./crates/f2z-kt-core) | Key transparency, [`docs/e2ee/KT.md`](../docs/e2ee/KT.md) v1: `DirectoryEntry` and the §4.4 authorization rules, `SignedTreeHead` and its monotonicity checks, log-key rotation, `WitnessCosignature` and the threshold rule, and the client verifier over `akd_core`. Built on `f2z-codec`, `#![forbid(unsafe_code)]`, no I/O, no clock, no keys. |
+| [`crates/f2z-kt-client`](./crates/f2z-kt-client) | The **client** half of [`docs/e2ee/KT.md`](../docs/e2ee/KT.md): §9.2's endpoints over HTTP, the pinned `LogView` that makes §6.3's monotonicity rules mean anything, §8.3's threshold applied and **failed closed** on, §8.2's self-audit, and the pin store and alarm log §9 rules 4 and 9 require. It decides no protocol outcome itself — every verdict is `f2z-kt-core`'s, per §11.4. There is deliberately **no `audit` method**: §8.5 says a client cannot substitute its own consistency check for a witness's. `Transport` is synchronous, so `wasm32-unknown-unknown` supplies its own over `fetch`; the crate's own `ureq` transport is behind the default-on `http` feature the browser build turns off. |
 | [`crates/f2z-msg-identity`](./crates/f2z-msg-identity) | The messaging key hierarchy, [`docs/e2ee/ARCHITECTURE.md`](../docs/e2ee/ARCHITECTURE.md) §4.2: the ZIP-32-idiom seed-derived tree (`MSK`, hardened-only `CKDh`, `account_node`), the four HKDF account leaves, the per-device keys the OS CSPRNG generates, and `DeviceCredential` issuance. **The one crate here that holds a user's secret keys.** `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O, no clock, and its randomness is a `rand_core::CryptoRng` parameter so it reaches `wasm32-unknown-unknown`. |
 | [`crates/f2z-msg-dag`](./crates/f2z-msg-dag) | The hash-linked application framing, [`docs/e2ee/ARCHITECTURE.md`](../docs/e2ee/ARCHITECTURE.md) §7: the `AppMessage`, its `msg_id` commitment, causal ordering with `(epoch, sender_leaf_index, msg_id)` as the tie-break, gap detection from a dangling `parents` hash, and the bounded-window plaintext outbox §7's repair needs. `sent_at` is a newtype with **no `Ord`**, so ordering by the sender's clock does not compile. `no_std` + `alloc`, `#![forbid(unsafe_code)]`, no I/O and no clock — every time-dependent decision is a `now_ms` parameter — so it reaches `wasm32-unknown-unknown`. |
 
@@ -204,7 +205,7 @@ and the WASM web client all compile the same rules, and a rule that two implemen
 disagree about is how ciphertext gets deleted before it is read.
 
 **The clients link `f2z-codec`, `f2z-relay-proto`, `f2z-kt-core`'s verifier,
-`f2z-msg-identity` and `f2z-msg-dag`; the relay links the first two
+`f2z-kt-client`, `f2z-msg-identity` and `f2z-msg-dag`; the relay links the first two
 plus `f2z-relay-store`.** That is the licence boundary in practice: the shared
 crates are MIT because a third-party relay, ZUULI and the WASM web client all
 compile the same rules, and a rule that two implementations disagree about is how
@@ -380,6 +381,10 @@ cargo test
 cargo build --target wasm32-unknown-unknown --lib \
   -p f2z-codec -p f2z-relay-proto -p f2z-authority -p f2z-msg-identity -p f2z-msg-dag
 cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-core \
+            --no-default-features --features verifier
+# The directory client on top of it. `http` is off for the browser: it is the
+# blocking ureq/rustls transport, and a browser brings its own over `fetch`.
+cargo build --target wasm32-unknown-unknown --lib -p f2z-kt-client \
             --no-default-features --features verifier
 
 # f2z-relay-store's crash-safety suite is behind a default-off feature, because
