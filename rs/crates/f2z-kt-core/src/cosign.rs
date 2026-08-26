@@ -12,9 +12,19 @@
 //!    without first obtaining the log's signature *and* its key, from the very
 //!    party under suspicion.
 //! 2. **Two conflicting statements are directly non-repudiable against the
-//!    witness** — see [`WitnessCosignature::contradicts`]. No third document is
-//!    needed to establish the contradiction. That is what makes a witness
+//!    witness** — see [`VerifiedCosignature::contradicts`]. No third document is
+//!    needed to establish the contradiction: the two cosignatures and the
+//!    witness's own public key are the whole proof. That is what makes a witness
 //!    accountable rather than merely helpful.
+//!
+//!    Non-repudiation is a property of *signatures*, so the contradiction test
+//!    lives on [`VerifiedCosignature`] and not on [`WitnessCosignature`].
+//!    Unverified cosignature bytes are a document anyone can author — flip a
+//!    byte of a genuine `root_hash` and you hold a "second statement" the
+//!    witness never made. A predicate that compared only the statement fields
+//!    would call that a contradiction and hand its caller an accusation with no
+//!    authentication behind it, which is the one direction this crate must never
+//!    let a caller get wrong.
 //! 3. **`witness_pk` is inside the signed bytes**, so a cosignature cannot be
 //!    re-attributed to another witness, and a witness cannot later claim a
 //!    cosignature was someone else's.
@@ -56,7 +66,7 @@ pub struct WitnessCosignatureTBS {
     /// statement cannot be re-attributed.
     pub witness_pk: PublicKey,
     /// When the witness saw it. Deliberately **excluded** from the
-    /// contradiction test — see [`WitnessCosignature::contradicts`].
+    /// contradiction test — see [`VerifiedCosignature::contradicts`].
     pub observed_at_ms: u64,
 }
 
@@ -138,6 +148,55 @@ impl WitnessCosignature {
             && self.statement.root_hash == head.sth.root_hash
     }
 
+    /// Verify the signature and **carry the proof in the type**.
+    ///
+    /// The only way to obtain a [`VerifiedCosignature`], and therefore the only
+    /// way to reach [`VerifiedCosignature::contradicts`]. Takes `self` so the
+    /// unverified value is consumed rather than left beside the verified one.
+    ///
+    /// # Errors
+    ///
+    /// Exactly [`WitnessCosignature::verify`]'s: [`KtError::WrongLabel`],
+    /// [`KtError::UnsupportedVersion`] or [`KtError::BadSignature`].
+    pub fn verified(self) -> Result<VerifiedCosignature, KtError> {
+        self.verify()?;
+        Ok(VerifiedCosignature { cosignature: self })
+    }
+}
+
+/// A cosignature whose signature has been checked under the `witness_pk` inside
+/// its own signed bytes — a statement the witness provably made.
+///
+/// It has no public constructor and no `From`.
+/// [`WitnessCosignature::verified`] is the only thing that builds one, and it
+/// builds one only after [`WitnessCosignature::verify`] has passed, so holding
+/// this type *is* the proof that the check ran. That is the same shape as
+/// [`crate::witness::AcceptedRoot`] and [`crate::auditor::AppendOnlyVerified`]
+/// elsewhere in this crate: the rule is not a step a caller can forget, because
+/// the token is the argument the next step needs.
+///
+/// §7.2's accountability claim is what forces it here. "Verify both, then
+/// compare" as a documented precondition is a rule review has to notice; making
+/// the compare take two verified values is a rule the compiler notices instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedCosignature {
+    cosignature: WitnessCosignature,
+}
+
+impl VerifiedCosignature {
+    /// The statement whose signature checked out.
+    #[must_use]
+    pub const fn statement(&self) -> &WitnessCosignatureTBS {
+        &self.cosignature.statement
+    }
+
+    /// The cosignature itself — to re-serve, to store, or to publish as the
+    /// evidence half of a fault report.
+    #[must_use]
+    pub const fn as_cosignature(&self) -> &WitnessCosignature {
+        &self.cosignature
+    }
+
     /// Whether these two cosignatures are a contradiction on their face (§7.2).
     ///
     /// The test is exactly `(log_id, epoch)` equal and `(tree_size, root_hash)`
@@ -152,13 +211,18 @@ impl WitnessCosignature {
     /// non-repudiation §7.2 claims is specifically that *one* witness signed two
     /// contradictory statements, which is a fault of that witness and needs no
     /// third document to establish.
+    ///
+    /// Both sides are [`VerifiedCosignature`]s and neither can be built without
+    /// a passing signature check, so "the witness signed this" is not something
+    /// this predicate assumes about its arguments — it is something their type
+    /// already proved.
     #[must_use]
     pub fn contradicts(&self, other: &Self) -> bool {
-        self.statement.witness_pk == other.statement.witness_pk
-            && self.statement.log_id == other.statement.log_id
-            && self.statement.epoch == other.statement.epoch
-            && (self.statement.tree_size != other.statement.tree_size
-                || self.statement.root_hash != other.statement.root_hash)
+        let (this, that) = (self.statement(), other.statement());
+        this.witness_pk == that.witness_pk
+            && this.log_id == that.log_id
+            && this.epoch == that.epoch
+            && (this.tree_size != that.tree_size || this.root_hash != that.root_hash)
     }
 }
 
@@ -226,22 +290,93 @@ mod tests {
         forked.sth.root_hash = Digest::new([0xaa; 32]);
         let forked = log.resign(forked);
 
-        let a = log.cosign(&head, 1, 1_700_000_000_000);
-        let b = log.cosign(&forked, 1, 1_700_000_100_000);
+        // Both verify, and saying so is not a separate assertion beside the
+        // comparison any more: `verified()` is the only way to reach
+        // `contradicts`, so the contradiction below cannot be established on
+        // anything the witness did not sign.
+        let a = log
+            .cosign(&head, 1, 1_700_000_000_000)
+            .verified()
+            .expect("a genuine cosignature verifies");
+        let b = log
+            .cosign(&forked, 1, 1_700_000_100_000)
+            .verified()
+            .expect("a genuine cosignature verifies");
         assert!(a.contradicts(&b));
         assert!(b.contradicts(&a));
-        // Both verify. That is the point: the contradiction needs no third
-        // document, only the two cosignatures and the witness's public key.
-        assert_eq!(a.verify(), Ok(()));
-        assert_eq!(b.verify(), Ok(()));
+        // The contradiction needs no third document, only the two cosignatures
+        // and the witness's public key — which is inside them.
+        assert_eq!(a.statement().witness_pk, log.witness_pk(1));
+    }
+
+    #[test]
+    fn an_unsigned_forgery_never_becomes_a_verified_cosignature() {
+        let log = TestLog::new();
+        let head = log.head(4);
+        let genuine = log.cosign(&head, 1, 1_700_000_000_000);
+        assert_eq!(genuine.verify(), Ok(()));
+
+        // Anyone holding one genuine cosignature can author this: flip a byte
+        // of the root and you have a second "statement" by that witness.
+        let mut forged = genuine.clone();
+        forged.statement.root_hash = Digest::new([0xcc; 32]);
+
+        assert_eq!(
+            forged.verified().err(),
+            Some(KtError::BadSignature),
+            "the forgery cannot acquire the proof `contradicts` requires",
+        );
+        // So the accusation is unreachable rather than merely discouraged:
+        // `contradicts` exists only on `VerifiedCosignature`, the forgery can
+        // never become one, and calling it on two `WitnessCosignature`s does
+        // not compile.
+        let genuine = genuine.verified().expect("the genuine one verifies");
+        assert_eq!(genuine.statement().root_hash, head.sth.root_hash);
+    }
+
+    #[test]
+    fn a_forged_second_statement_cannot_be_paired_with_a_genuine_one() {
+        let log = TestLog::new();
+        let head = log.head(4);
+        let genuine = log
+            .cosign(&head, 1, 1_700_000_000_000)
+            .verified()
+            .expect("a genuine cosignature verifies");
+
+        // Every field a forger controls, one at a time — each would satisfy
+        // `contradicts`'s field test, and none of them can be verified into a
+        // value `contradicts` accepts.
+        let mut wrong_root = genuine.as_cosignature().clone();
+        wrong_root.statement.root_hash = Digest::new([0xcc; 32]);
+        let mut wrong_size = genuine.as_cosignature().clone();
+        wrong_size.statement.tree_size = head.sth.tree_size.saturating_add(1);
+
+        for forgery in [wrong_root, wrong_size] {
+            assert_eq!(
+                forgery.verified().err(),
+                Some(KtError::BadSignature),
+                "an accusation may not rest on bytes the witness never signed",
+            );
+        }
     }
 
     #[test]
     fn the_same_root_at_two_times_is_not_a_contradiction() {
         let log = TestLog::new();
         let head = log.head(4);
-        let a = log.cosign(&head, 1, 1_700_000_000_000);
-        let b = log.cosign(&head, 1, 1_700_009_999_999);
+        let a = log
+            .cosign(&head, 1, 1_700_000_000_000)
+            .verified()
+            .expect("a genuine cosignature verifies");
+        let b = log
+            .cosign(&head, 1, 1_700_009_999_999)
+            .verified()
+            .expect("a genuine cosignature verifies");
+        assert_ne!(
+            a.statement().observed_at_ms,
+            b.statement().observed_at_ms,
+            "the two really were observed at different times",
+        );
         assert!(
             !a.contradicts(&b),
             "observed_at_ms is excluded from the test on purpose",
@@ -256,8 +391,19 @@ mod tests {
         forked.sth.root_hash = Digest::new([0xbb; 32]);
         let forked = log.resign(forked);
 
-        let a = log.cosign(&head, 1, 1);
-        let b = log.cosign(&forked, 2, 1);
+        let a = log
+            .cosign(&head, 1, 1)
+            .verified()
+            .expect("a genuine cosignature verifies");
+        let b = log
+            .cosign(&forked, 2, 1)
+            .verified()
+            .expect("a genuine cosignature verifies");
+        assert_ne!(
+            a.statement().witness_pk,
+            b.statement().witness_pk,
+            "two different witnesses, both genuine",
+        );
         assert!(!a.contradicts(&b), "that is evidence against the log");
     }
 }
