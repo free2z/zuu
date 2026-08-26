@@ -177,7 +177,13 @@ pub trait Directory: Send + Sync + 'static {
     fn threshold_met(&self) -> bool;
 }
 
-/// The only implementation in this build. Fails closed, loudly, every time.
+/// The **default**, and it fails closed loudly every time.
+///
+/// Not a placeholder: [`KtDirectory`] is real and beside it. This is what an
+/// engine gets until an operator hands it a [`DirectoryConfig`], because
+/// `KT.md` §12 has decided neither the shipped witness list nor *t*, and a
+/// default that resolved something would be inventing both on every user's
+/// behalf. See the module note.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoDirectory;
 
@@ -212,8 +218,9 @@ impl Directory for NoDirectory {
         Err(Error::new(
             ErrorCode::WitnessThresholdUnmet,
             format!(
-                "first contact with {handle:?} needs a witness-cosigned KeyPackage and \
-                 contact address; no key-transparency client is configured"
+                "first contact with {handle:?} needs the peer's key and contact address \
+                 established against a witness-cosigned root; no key-transparency client \
+                 is configured"
             ),
         ))
     }

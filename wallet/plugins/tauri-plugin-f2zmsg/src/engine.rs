@@ -601,11 +601,22 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// # Errors
     ///
-    /// `witness-threshold-unmet` in this build, always. See `crate::directory`:
-    /// no key-transparency client exists yet, so zero independent witnesses have
-    /// cosigned any root, and §6.4's matrix says resolving a **new** handle is
-    /// **refused**, not degraded. This is the #133 moment — an unverified key
-    /// here *is* the MITM — and §9 rule 5 forbids proceeding silently.
+    /// **This does not succeed in any configuration yet, and the directory is
+    /// no longer the reason.**
+    ///
+    /// On the default `NoDirectory`: `witness-threshold-unmet`. Zero
+    /// independent witnesses have cosigned any root, and §6.4's matrix says
+    /// resolving a **new** handle is **refused**, not degraded. This is the
+    /// #133 moment — an unverified key here *is* the MITM — and §9 rule 5
+    /// forbids proceeding silently.
+    ///
+    /// On a configured `KtDirectory`, against a real log: the lookup **runs and
+    /// verifies**, and then this fails anyway, because a `Welcome` has to be
+    /// addressed to an MLS `KeyPackage` and no directory publishes one —
+    /// `KT.md` §4.1 says a `DirectoryEntry` carries *"no `KeyPackage`"* and
+    /// §1.2 leaves publication and exhaustion open. `accept_contact_request` is
+    /// unaffected: it needs the identity key alone, which the directory does
+    /// publish and this build does verify.
     pub async fn start_conversation(&self, peer_handle: &str) -> Result<Conversation> {
         if !handle::is_handle(peer_handle) {
             // §11.3: a homograph does not match the charset, so the directory
