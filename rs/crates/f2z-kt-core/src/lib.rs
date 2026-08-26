@@ -34,6 +34,7 @@
 //! |---|---|---|
 //! | [`submit::AcceptedSubmission`] — the only carrier of an `AkdLabel`/`AkdValue` pair | [`submit::validate_submission`] | every rule in §4.4, in order |
 //! | [`witness::AcceptedRoot`] — the only root a proof may be verified against | [`witness::verify_threshold`] | ≥ *t* cosignatures from the caller's **own** witness set (§8.3) |
+//! | [`cosign::VerifiedCosignature`] — the only value §7.2's contradiction test compares | [`cosign::WitnessCosignature::verified`] | the witness's signature over its own statement, checked |
 //! | an advanced [`sth::LogView`] | [`sth::LogView::accept`] | all eight of §6.3's monotonicity rules, with no skipping over an epoch gap |
 //! | an advanced [`auditor::WitnessState`] | [`auditor::verify_append_only`] | `akd`'s auditor actually having run (§7.4) |
 //! | a successor log signing key | [`sth::LogView::accept_log_key_transition`] | a **cosigned** announcement plus both signatures (§6.4) |
@@ -128,7 +129,7 @@ pub use api::{
     AuditResponse, ErrorBody, HistoryRequest, HistoryResponse, LookupRequest, LookupResponse,
     Presence, SubmissionEnvelope, TreeHeadBundle,
 };
-pub use cosign::{WitnessCosignature, WitnessCosignatureTBS};
+pub use cosign::{VerifiedCosignature, WitnessCosignature, WitnessCosignatureTBS};
 pub use descriptor::{LogDescriptor, SignedLogDescriptor};
 pub use entry::{
     ContactEndpoint, DeviceCredential, DeviceCredentialTBS, DeviceRevocation, DirectoryEntry,
