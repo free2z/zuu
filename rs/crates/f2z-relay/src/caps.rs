@@ -690,4 +690,80 @@ mod tests {
         let json = to_json(&published);
         assert!(json.contains("a \\\"quoted\\\" name\\\\with a slash"));
     }
+
+    // -----------------------------------------------------------------------
+    // `json_string`'s own coverage.
+    //
+    // §11.1 restricts the eight operator and provenance strings to printable
+    // ASCII and `build` ends in `capabilities::validate`, so a control byte is
+    // refused before `to_json` can render one — which is why the test above
+    // reaches the escaper with a backslash rather than the newline it used to
+    // use. Those eight fields are `json_string`'s only callers, so its `\n`,
+    // `\r`, `\t` and `\u{04x}` arms are unreachable from a capability document
+    // and nothing above this line can exercise them.
+    //
+    // They are still the layer that has to hold if the restriction is ever
+    // relaxed, bypassed, or this renderer reused, so they are tested here
+    // directly: `json_string` is a private free function over `&[u8]`, so it
+    // needs no config, no signing and no document, and the restriction is not
+    // weakened to make a test possible.
+    //
+    // One byte class per test, so that a break in one arm cannot be hidden by
+    // another arm's bytes in the same assertion. Each assertion is the whole
+    // rendered token — the string a JSON reader must accept per RFC 8259 §7 —
+    // rather than a substring of a document. `f2z-relay` deliberately carries
+    // no JSON parser (hand-rendering §11.2 is the point of this module), so
+    // these are reviewed literals rather than a parse.
+
+    #[test]
+    fn the_json_escaper_renders_empty_bytes_as_an_empty_string() {
+        assert_eq!(json_string(b""), "\"\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_quotation_mark() {
+        assert_eq!(json_string(b"a\"b"), "\"a\\\"b\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_backslash() {
+        assert_eq!(json_string(b"a\\b"), "\"a\\\\b\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_newline() {
+        assert_eq!(json_string(b"a\nb"), "\"a\\nb\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_carriage_return() {
+        assert_eq!(json_string(b"a\rb"), "\"a\\rb\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_a_tab() {
+        assert_eq!(json_string(b"a\tb"), "\"a\\tb\"");
+    }
+
+    #[test]
+    fn the_json_escaper_escapes_every_byte_no_short_form_covers() {
+        // Everything outside `0x20..=0x7e` without a two-character form: the C0
+        // controls, DEL, and every byte with the high bit set. Each becomes the
+        // code point of the same value, which is a byte-wise reading and not a
+        // UTF-8 one — sound only because §11.1 refuses these bytes upstream,
+        // never a claim that a `0x80` here was part of a character.
+        assert_eq!(
+            json_string(b"\x00\x1f\x7f\x80\xff"),
+            "\"\\u0000\\u001f\\u007f\\u0080\\u00ff\""
+        );
+    }
+
+    #[test]
+    fn the_json_escaper_passes_the_rest_of_printable_ascii_through_unchanged() {
+        let printable: Vec<u8> = (0x20..=0x7e)
+            .filter(|byte| *byte != b'"' && *byte != b'\\')
+            .collect();
+        let expected = String::from_utf8(printable.clone()).unwrap();
+        assert_eq!(json_string(&printable), format!("\"{expected}\""));
+    }
 }
