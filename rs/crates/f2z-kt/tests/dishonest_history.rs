@@ -191,7 +191,9 @@ fn audit(
     let head = log.head();
     let cosignature = log.cosignature(&head);
     let set = WitnessSet::new(
-        vec![ConfiguredWitness::dependent(Key::from_byte(WITNESS_SEED).public)],
+        vec![ConfiguredWitness::dependent(
+            Key::from_byte(WITNESS_SEED).public,
+        )],
         1,
     )
     .unwrap();

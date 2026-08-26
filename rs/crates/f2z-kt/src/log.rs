@@ -66,6 +66,7 @@ use f2z_authority::authority::AuthorityConfig;
 use f2z_authority::nonce::NonceLedger;
 use f2z_codec::hash::hash;
 use f2z_codec::types::{Digest, Payload, PublicKey};
+use f2z_kt_core::cosign::WitnessEquivocation;
 use f2z_kt_core::sth::{SignedTreeHead, SignedTreeHeadTBS};
 use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext};
 use f2z_kt_core::types::{Handle, LogId, label_field};
@@ -219,6 +220,9 @@ struct State {
     heads: Vec<SignedTreeHead>,
     /// Epoch → the cosignatures collected for it.
     cosignatures: BTreeMap<u64, Vec<WitnessCosignature>>,
+    /// §7.2 self-equivocations found, in the order they were found. Retained,
+    /// never pruned: the pair is the evidence.
+    equivocations: Vec<WitnessEquivocation>,
     /// How many submission records each epoch covered.
     submissions_upto: u64,
     /// Replay protection for handle assertions.
@@ -303,6 +307,7 @@ impl LogService {
             pending_handles: BTreeSet::new(),
             heads: Vec::new(),
             cosignatures: BTreeMap::new(),
+            equivocations: journal.equivocations.clone(),
             submissions_upto: 0,
             nonces: NonceLedger::new(settings.nonce_ledger_capacity, authority.clock_skew_ms()),
             tree_size: 0,
@@ -943,13 +948,41 @@ impl LogService {
     /// as there are configured witnesses. No input grows the journal without
     /// bound, in either configuration, without a magic number to tune.
     ///
+    /// # §7.2 self-equivocation, and why it is checked before `covers`
+    ///
+    /// A witness that has already cosigned this epoch and now sends a different
+    /// `(tree_size, root_hash)` for it has contradicted **itself**, and the two
+    /// signatures are the whole proof. This log holds both at that moment, so it
+    /// is the party in a position to notice.
+    ///
+    /// The order matters. The `covers` check below would refuse the second
+    /// cosignature as [`KtError::Fork`] — evidence against the **log** — before
+    /// the pair was ever compared, which files the finding against the wrong
+    /// party and discards the evidence. `Fork` is still right when the witness
+    /// has sent nothing else for the epoch: one statement disagreeing with the
+    /// log's head is a disagreement between two parties, not a witness
+    /// contradicting itself, and it needs the log's own head to state at all.
+    ///
+    /// **What the log does with a self-equivocating witness, stated as policy:**
+    /// it retains both cosignatures verbatim in `equivocations.log`, keeps
+    /// serving the earlier one, refuses the new one, and says so at `error`
+    /// level. It does **not** drop the witness. §8.3 and §9.5 are explicit that
+    /// the log's opinion of who is a witness has no bearing on a client's
+    /// configured set, so a log that quietly stopped serving a genuine,
+    /// covering cosignature would be degrading a client's threshold on its own
+    /// authority while destroying nothing an equivocating witness cares about.
+    /// The accountability is the evidence, and the evidence is durable — see
+    /// [`LogService::witness_equivocations`].
+    ///
     /// # Errors
     ///
     /// [`LogError::NotAWitness`] if the log does not recognise the key —
     /// checked **first**, so an unrecognised key costs a set lookup rather than
-    /// a signature verification and an `fsync`. [`LogError::Kt`] if it does not
-    /// verify or does not cover a known head, [`LogError::Storage`] if it could
-    /// not be journalled.
+    /// a signature verification and an `fsync`. [`LogError::Kt`] with
+    /// [`KtError::WitnessEquivocation`] if this witness has already made a
+    /// contradictory statement about this epoch, [`LogError::Kt`] if it does
+    /// not verify or does not cover a known head, [`LogError::Storage`] if it
+    /// could not be journalled.
     pub async fn accept_cosignature(&self, cosignature: &WitnessCosignature) -> Result<()> {
         // Recognition first. `witness_pk` is inside the signed bytes (§7.2), so
         // a claim to be a listed witness is refused here or refused by the
@@ -959,36 +992,82 @@ impl LogService {
         if !self.recognises_witness(&cosignature.statement.witness_pk) {
             return Err(LogError::NotAWitness);
         }
-        cosignature.verify().map_err(LogError::Kt)?;
+        // `verified()` rather than `verify()`: the token is what
+        // `VerifiedCosignature::contradicts` takes, so the comparison below
+        // cannot be reached on a statement whose signature was not checked.
+        let incoming = cosignature.clone().verified().map_err(LogError::Kt)?;
         if cosignature.statement.log_id != self.log_id {
             return Err(LogError::Kt(KtError::WrongLog));
         }
 
         let mut state = self.state.lock().await;
+        let epoch = cosignature.statement.epoch;
+        let held = state
+            .cosignatures
+            .get(&epoch)
+            .and_then(|held| {
+                held.iter()
+                    .find(|other| other.statement.witness_pk == cosignature.statement.witness_pk)
+            })
+            .cloned();
+
+        if let Some(held) = held {
+            // Everything in `state.cosignatures` verified on the way in, so this
+            // cannot fail on stored data; it is written as a check rather than
+            // an assumption because the token is the argument the comparison
+            // needs.
+            let held = held.verified().map_err(LogError::Kt)?;
+            match WitnessEquivocation::new(&held, &incoming) {
+                Ok(evidence) => {
+                    state.store.append_equivocation(&evidence)?;
+                    state.equivocations.push(evidence);
+                    log::error!(
+                        "WITNESS SELF-EQUIVOCATION at epoch {epoch}: one witness signed two \
+                         different roots for one epoch. Both cosignatures are retained verbatim \
+                         in equivocations.log and are non-repudiable against that witness under \
+                         its own key (KT.md §7.2). The earlier one is still served; this one is \
+                         refused."
+                    );
+                    return Err(LogError::Kt(KtError::WitnessEquivocation));
+                }
+                // Not a contradiction: the same statement again, or the same
+                // root observed at a different time. Idempotent, as before — a
+                // witness that retries after a timeout must not appear twice
+                // and inflate the count a client applies a threshold to.
+                Err(_) => return Ok(()),
+            }
+        }
+
         let head =
             head_at(&state, cosignature.statement.epoch).ok_or(LogError::EpochUnavailable)?;
         if !cosignature.covers(&head) {
             // The witness signed a different root for an epoch this log
-            // published. That is the witness's business to explain, and it is
-            // not something to file away as if it agreed with us.
+            // published, and has sent nothing else for that epoch. That is a
+            // disagreement between the witness and the log — not a witness
+            // contradicting itself — and it is the witness's business to
+            // explain. It is not something to file away as if it agreed with us.
             return Err(LogError::Kt(KtError::Fork));
         }
 
-        let epoch = cosignature.statement.epoch;
-        let existing = state.cosignatures.entry(epoch).or_default();
-        if existing
-            .iter()
-            .any(|held| held.statement.witness_pk == cosignature.statement.witness_pk)
-        {
-            // Idempotent: a witness that retries after a timeout must not
-            // appear twice and inflate the count a client applies a threshold
-            // to.
-            return Ok(());
-        }
-        existing.push(cosignature.clone());
+        state
+            .cosignatures
+            .entry(epoch)
+            .or_default()
+            .push(cosignature.clone());
         state.store.append_cosignature(cosignature)?;
         log::info!("cosignature accepted for epoch {epoch}");
         Ok(())
+    }
+
+    /// The witness self-equivocations this log has found (§7.2).
+    ///
+    /// Each is the conflicting pair verbatim, and each re-establishes itself
+    /// from its own bytes under a key it names — so an operator, an auditor or
+    /// anyone else can be handed one and check it without trusting this log.
+    /// That portability is the point: a check whose only output is a rejection
+    /// throws away exactly the artifact that makes §7.2's claim non-repudiable.
+    pub async fn witness_equivocations(&self) -> Vec<WitnessEquivocation> {
+        self.state.lock().await.equivocations.clone()
     }
 
     /// How many submissions are admitted but not yet published.

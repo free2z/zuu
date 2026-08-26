@@ -226,6 +226,103 @@ impl VerifiedCosignature {
     }
 }
 
+/// **The evidence** two contradicting cosignatures make (§7.2).
+///
+/// §7.2's claim is that a witness's self-contradiction is *non-repudiable*:
+/// *"No third document is needed to establish it: the two cosignatures and the
+/// witness's own public key are the whole proof."* A check whose only output is
+/// a rejection throws that away — the pair is exactly the artifact that makes
+/// the property useful, and it has to be able to leave the process.
+///
+/// So this is the pair, verbatim, in a form anyone can carry and check.
+///
+/// # It cannot be built around the check
+///
+/// [`WitnessEquivocation::new`] takes two [`VerifiedCosignature`]s — neither
+/// constructible without a passing signature check — and refuses unless
+/// [`VerifiedCosignature::contradicts`] holds. There is no other constructor and
+/// no `From`, so holding one *is* the claim, in the same shape as
+/// [`crate::witness::AcceptedRoot`] and [`crate::submit::AcceptedSubmission`].
+///
+/// # It is not a [`crate::witness::FaultReport`]
+///
+/// §7.3's report is a **witness accusing a log**, and its `log_id` field is
+/// named "the log accused". This is the opposite direction and needs no
+/// accuser: the two enclosed cosignatures are self-authenticating under a key
+/// they both name, so there is nothing for a third party to take on trust and
+/// nothing for the finder to sign. Putting it in §7.3's enum would have said
+/// the log is at fault.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct WitnessEquivocation {
+    /// The statement the witness made first.
+    pub a: WitnessCosignature,
+    /// The statement that contradicts it.
+    pub b: WitnessCosignature,
+}
+
+impl WitnessEquivocation {
+    /// Pair two verified cosignatures that contradict each other.
+    ///
+    /// # Errors
+    ///
+    /// [`KtError::BadAuthorization`] if they do not contradict — different
+    /// witnesses, different logs, different epochs, or the same
+    /// `(tree_size, root_hash)`. Refusing rather than storing an
+    /// unsubstantiated pair is the point: this type is an accusation, and an
+    /// accusation that does not hold on its own bytes is worse than none.
+    pub fn new(a: &VerifiedCosignature, b: &VerifiedCosignature) -> Result<Self, KtError> {
+        if !a.contradicts(b) {
+            return Err(KtError::BadAuthorization);
+        }
+        Ok(Self {
+            a: a.as_cosignature().clone(),
+            b: b.as_cosignature().clone(),
+        })
+    }
+
+    /// The witness both statements name — the party this is evidence against.
+    #[must_use]
+    pub const fn witness_pk(&self) -> &PublicKey {
+        &self.a.statement.witness_pk
+    }
+
+    /// The log both statements are about. Evidence against the **witness**, not
+    /// against this log.
+    #[must_use]
+    pub const fn log_id(&self) -> &LogId {
+        &self.a.statement.log_id
+    }
+
+    /// The epoch the two statements disagree about.
+    #[must_use]
+    pub const fn epoch(&self) -> u64 {
+        self.a.statement.epoch
+    }
+
+    /// **Re-establish the whole claim from these bytes alone.**
+    ///
+    /// What a third party runs. It verifies both signatures under the
+    /// `witness_pk` inside each — which is why it needs no key parameter and no
+    /// other document — and re-checks the contradiction. A decoded
+    /// [`WitnessEquivocation`] has not been through
+    /// [`WitnessEquivocation::new`], so this is not redundant with it: bytes off
+    /// a wire are a document anyone can author.
+    ///
+    /// # Errors
+    ///
+    /// [`KtError::WrongLabel`], [`KtError::UnsupportedVersion`] or
+    /// [`KtError::BadSignature`] if either cosignature does not verify, and
+    /// [`KtError::BadAuthorization`] if the two do not contradict.
+    pub fn verify(&self) -> Result<(), KtError> {
+        let a = self.a.clone().verified()?;
+        let b = self.b.clone().verified()?;
+        if !a.contradicts(&b) {
+            return Err(KtError::BadAuthorization);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,6 +477,79 @@ mod tests {
         assert!(
             !a.contradicts(&b),
             "observed_at_ms is excluded from the test on purpose",
+        );
+    }
+
+    /// The evidence survives being written down and read back by someone who
+    /// was not there.
+    #[test]
+    fn the_evidence_pair_re_establishes_itself_from_its_own_bytes() {
+        let log = TestLog::new();
+        let head = log.head(4);
+        let mut forked = head.clone();
+        forked.sth.root_hash = Digest::new([0xaa; 32]);
+        let forked = log.resign(forked);
+
+        let a = log.cosign(&head, 1, 1_700_000_000_000).verified().unwrap();
+        let b = log
+            .cosign(&forked, 1, 1_700_000_100_000)
+            .verified()
+            .unwrap();
+
+        let evidence = WitnessEquivocation::new(&a, &b).expect("they contradict");
+        assert_eq!(evidence.witness_pk(), &log.witness_pk(1));
+        assert_eq!(evidence.log_id(), &head.sth.log_id);
+        assert_eq!(evidence.epoch(), 4);
+        assert_eq!(evidence.verify(), Ok(()));
+
+        // Serialized, handed to a stranger, checked with nothing but these
+        // bytes. That is what §7.2 means by non-repudiable.
+        let bytes = evidence.encode_canonical().unwrap();
+        let decoded = decode_canonical::<WitnessEquivocation>(&bytes)
+            .unwrap()
+            .into_value();
+        assert_eq!(decoded, evidence);
+        assert_eq!(decoded.verify(), Ok(()));
+    }
+
+    /// A forged pair cannot be built, and cannot be checked if someone encodes
+    /// one by hand.
+    #[test]
+    fn an_accusation_cannot_be_assembled_from_bytes_the_witness_never_signed() {
+        let log = TestLog::new();
+        let head = log.head(4);
+        let genuine = log.cosign(&head, 1, 1_700_000_000_000).verified().unwrap();
+
+        // The two that do not contradict: the same statement twice.
+        assert_eq!(
+            WitnessEquivocation::new(&genuine, &genuine).err(),
+            Some(KtError::BadAuthorization),
+            "an accusation that does not hold on its own bytes is worse than none",
+        );
+
+        // And two different witnesses, which is the log's problem and not
+        // either witness's.
+        let mut forked = head.clone();
+        forked.sth.root_hash = Digest::new([0xbb; 32]);
+        let forked = log.resign(forked);
+        let other = log.cosign(&forked, 2, 1).verified().unwrap();
+        assert_eq!(
+            WitnessEquivocation::new(&genuine, &other).err(),
+            Some(KtError::BadAuthorization),
+        );
+
+        // The constructor is not the only door: bytes off a wire have not been
+        // through it. `verify` re-establishes both signatures.
+        let mut forged = genuine.as_cosignature().clone();
+        forged.statement.root_hash = Digest::new([0xcc; 32]);
+        let fabricated = WitnessEquivocation {
+            a: genuine.as_cosignature().clone(),
+            b: forged,
+        };
+        assert_eq!(
+            fabricated.verify(),
+            Err(KtError::BadSignature),
+            "the second half was authored by the accuser, not the witness",
         );
     }
 

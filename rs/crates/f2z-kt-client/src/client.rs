@@ -534,7 +534,7 @@ impl<T: Transport> KtClient<T> {
             .collect();
         let verified =
             verify::verify_key_history(&root, handle, &entry_bytes, response.proof.as_slice())
-        .map_err(|error| self.on_protocol_error(error, now_ms))?;
+                .map_err(|error| self.on_protocol_error(error, now_ms))?;
         let entries: Vec<_> = verified
             .iter()
             .map(|entry| entry.entry().clone())
