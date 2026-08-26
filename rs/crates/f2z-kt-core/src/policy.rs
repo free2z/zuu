@@ -164,4 +164,3 @@ impl SignedAuthorityPolicy {
         sig::verify(log_pk, &self.policy.signing_bytes()?, &self.signature)
     }
 }
-

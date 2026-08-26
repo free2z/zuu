@@ -1,0 +1,78 @@
+[package]
+name = "f2z-kt-client"
+version = "0.1.0"
+description = "The free2z key-transparency client (docs/e2ee/KT.md v1 §8, §9.2): the proof-serving API over HTTP, the witness threshold, self-audit and pins"
+edition.workspace = true
+# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
+# drift. Not inherited from the workspace: that check reads this literal line.
+rust-version = "1.97"
+# Permissive, deliberately and explicitly, for the same reason `f2z-kt-core` is:
+# **clients link this**. ZUULI links it through `tauri-plugin-f2zmsg`, the WASM
+# web client links it through the same Rust core (ADR 0001), and a third-party
+# implementation must be able to. The AGPL-3.0 boundary starts at the server
+# binaries — `f2z-kt`, `f2z-witness`, `f2z-relay` — not here. `rs/deny.toml`
+# enforces it, and a `[dependencies]` entry naming one of those three in this
+# manifest would be a review failure.
+license = "MIT"
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# `http` is on by default so that `cargo clippy --all-targets` and
+# `cargo test` — which build the default feature set — actually lint and
+# exercise the transport. A transport behind an off-by-default feature is a
+# transport CI never compiles. The browser build turns it off, exactly as
+# `f2z-kt-core`'s does for `auditor`.
+default = ["verifier", "http"]
+# Everything in `KT.md` §8 that is not a socket: the request encoders, the
+# response verifiers, the pin store, the alarm rules and `KtClient` itself.
+# **Reaches `wasm32-unknown-unknown`.**
+verifier = ["f2z-kt-core/verifier"]
+# The blocking `ureq` transport. Native only — see `transport::HttpTransport`
+# for why the trait is synchronous and why a browser supplies its own
+# implementation rather than getting one from here.
+http = ["dep:ureq", "verifier"]
+
+[dependencies]
+# `default-features = false` is load-bearing: `f2z-kt-core`'s default set
+# includes `auditor`, which pulls the server crate `akd` and reaches
+# `tokio::task::spawn` (`KT.md` §11.3). A client must never link it — §8.5:
+# "a client cannot substitute its own consistency check for a witness's", the
+# proof is O(entries added) and was measured at 3.9 MB for five epochs.
+f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0", default-features = false }
+# `version` beside `path` is not redundant: rs/deny.toml sets
+# `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
+f2z-codec = { workspace = true }
+
+# Outbound HTTPS for the native transport, and nothing else. Blocking, because
+# every consumer of this crate is blocking-shaped — a Tauri command handler and
+# a poll loop — and `rustls` rather than a system TLS library so a packaged
+# client carries no shared object it did not build.
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+# ---------------------------------------------------------------------------
+# A REAL log and a REAL witness, and they are AGPL-3.0.
+#
+# `KT.md` §7.4's structural argument — the log and the witness link the same
+# code, so a divergence cannot come from two implementations disagreeing —
+# applies to the client with the same force. A client verified against a mock
+# of a log is a client verified against a second implementation of the thing it
+# is supposed to catch lying. So `tests/acceptance.rs` drives the actual server
+# binary's `LogService` and the actual cosigning daemon: real `akd` trees, real
+# Ed25519, real protobuf proofs, a real threshold.
+#
+# **These are dev-dependencies and they must stay dev-dependencies.** The
+# licence boundary `rs/deny.toml` polices is what a client *links*; a test
+# binary is not the library. Moving either of these into `[dependencies]` would
+# relicense every client that links this crate, and is a review failure.
+# ---------------------------------------------------------------------------
+f2z-kt = { path = "../f2z-kt", version = "0.1.0", features = ["testing"] }
+f2z-witness = { path = "../f2z-witness", version = "0.1.0" }
+f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
+akd_core = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

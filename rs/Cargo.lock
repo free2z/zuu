@@ -805,6 +805,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-kt-client"
+version = "0.1.0"
+dependencies = [
+ "akd_core",
+ "f2z-authority",
+ "f2z-codec",
+ "f2z-kt",
+ "f2z-kt-core",
+ "f2z-witness",
+ "tokio",
+ "ureq",
+]
+
+[[package]]
 name = "f2z-kt-core"
 version = "0.1.0"
 dependencies = [

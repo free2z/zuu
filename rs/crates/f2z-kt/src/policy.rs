@@ -21,8 +21,8 @@
 
 use f2z_authority::authority::{AuthorityConfig, VouchingStatus};
 use f2z_codec::vec::VecU16;
-use f2z_kt_core::types::{LogId, label_field};
 use f2z_kt_core::KT_VERSION;
+use f2z_kt_core::types::{LogId, label_field};
 
 pub use f2z_kt_core::policy::{
     AuthorityPolicyTBS, LABEL_AUTHORITY_POLICY, SignedAuthorityPolicy, VOUCHING_UNVOUCHED,

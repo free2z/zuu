@@ -489,6 +489,29 @@ jobs:
             --target "${{ steps.rust_toolchain.outputs.target }}" \
             -p f2z-kt-core --no-default-features --features verifier
 
+      # The directory client on top of it (KT.md §8, §9.2). ADR 0001 requires
+      # ZUULI and the web client to share one Rust core, and "who am I talking
+      # to" is not a question the browser may answer with a second
+      # implementation — so this crate reaching wasm32 is a protocol-level
+      # requirement, not a nice property.
+      #
+      # `--no-default-features --features verifier` is the supported browser
+      # configuration and, as above, not a size optimisation. The default set
+      # also carries `http`, which is the blocking `ureq`/`rustls` transport:
+      # native by construction, and a client that could reach a socket
+      # synchronously in a browser tab would be blocking the event loop rather
+      # than resolving a handle. A browser implements `Transport` itself over
+      # `fetch` — see `f2z-kt-client/src/transport.rs` for why the trait is
+      # synchronous rather than `async` — and this step is what stops `ureq`
+      # being pulled into a browser bundle by an innocent-looking feature edit.
+      - name: Build the f2z-kt-client directory client for the browser target
+        working-directory: rs
+        run: |
+          set -euo pipefail
+          cargo build --locked --lib \
+            --target "${{ steps.rust_toolchain.outputs.target }}" \
+            -p f2z-kt-client --no-default-features --features verifier
+
   # Branch protection should require this stable context, `rs / gate`. It
   # succeeds only when the change detector and every applicable rs job
   # succeeded; a legitimate non-rs skip reports success rather than remaining
