@@ -296,8 +296,41 @@ impl AlarmLog {
         false
     }
 
-    /// Raise one, returning its id.
+    /// Raise one, returning its id — or the id of the outstanding alarm that
+    /// already says this, if there is one.
+    ///
+    /// # Why this coalesces, and exactly how far
+    ///
+    /// Nothing removes an alarm, which is the property this module exists for
+    /// and is not negotiable. Left at that, a client polling a directory whose
+    /// witnesses are unreachable raises one
+    /// [`AlarmKind::WitnessThresholdUnmet`] per epoch, forever, and the log
+    /// grows without bound on an ordinary network outage. That is a real
+    /// defect and it is also self-defeating: an alarm list with nine thousand
+    /// identical rows in it hides the one row that matters as effectively as
+    /// deleting it would.
+    ///
+    /// So a repeat coalesces onto the alarm already standing, on the key
+    /// `(kind, handle, new_fingerprint)` — and **only** while that one is
+    /// unacknowledged. Two consequences, both deliberate:
+    ///
+    /// - Two *different* findings never merge. A second unexpected entry for
+    ///   one handle carries a different `new_fingerprint` and gets its own
+    ///   alarm, because it is a different thing that happened.
+    /// - **Acknowledging does not silence the next one.** Once a human has
+    ///   seen an alarm, the same condition arising again raises a fresh one
+    ///   with a fresh timestamp, rather than being absorbed into a row already
+    ///   marked as read. Coalescing onto an acknowledged alarm would be a way
+    ///   to make an alarm disappear, which is what this module forbids.
     pub(crate) fn raise(&mut self, alarm: RaiseAlarm) -> u64 {
+        if let Some(existing) = self.alarms.iter().find(|existing| {
+            existing.acknowledged_at_ms.is_none()
+                && existing.kind == alarm.kind
+                && existing.handle == alarm.handle
+                && existing.new_fingerprint == alarm.new_fingerprint
+        }) {
+            return existing.id;
+        }
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         self.alarms.push(Alarm {
@@ -356,6 +389,9 @@ impl RaiseAlarm {
 
 #[cfg(test)]
 mod tests {
+    use f2z_codec::types::PublicKey;
+    use f2z_kt_core::types::Handle;
+
     use super::{AlarmKind, AlarmLog, RaiseAlarm, Severity};
 
     #[test]
@@ -382,6 +418,57 @@ mod tests {
                 kind.name()
             );
         }
+    }
+
+    #[test]
+    fn a_repeated_condition_coalesces_onto_the_alarm_already_standing() {
+        // The failure this prevents: a directory whose witnesses are
+        // unreachable raises one alarm per poll, forever, and an alarm list
+        // with nine thousand identical rows hides the one that matters as
+        // effectively as deleting it would.
+        let mut log = AlarmLog::new();
+        let first = log.raise(RaiseAlarm::of(AlarmKind::WitnessThresholdUnmet, 10));
+        for tick in 11..1_000 {
+            assert_eq!(
+                log.raise(RaiseAlarm::of(AlarmKind::WitnessThresholdUnmet, tick)),
+                first
+            );
+        }
+        assert_eq!(log.alarms().len(), 1);
+        assert_eq!(log.alarms()[0].raised_at_ms(), 10, "the first sighting");
+    }
+
+    #[test]
+    fn acknowledging_does_not_silence_the_next_one() {
+        // Coalescing onto an ACKNOWLEDGED alarm would be a way to make an alarm
+        // disappear, which is the one thing this module exists to forbid.
+        let mut log = AlarmLog::new();
+        let first = log.raise(RaiseAlarm::of(AlarmKind::WitnessThresholdUnmet, 10));
+        assert!(log.acknowledge(first, 20));
+        let second = log.raise(RaiseAlarm::of(AlarmKind::WitnessThresholdUnmet, 30));
+        assert_ne!(second, first);
+        assert_eq!(log.alarms().len(), 2);
+        assert_eq!(log.alarms()[1].raised_at_ms(), 30);
+    }
+
+    #[test]
+    fn two_different_findings_never_merge() {
+        let mut log = AlarmLog::new();
+        let handle = Handle::new(b"alice".to_vec()).unwrap();
+        let one = log.raise(
+            RaiseAlarm::of(AlarmKind::SelfAuditUnexpectedEntry, 10)
+                .about(&handle)
+                .keys(PublicKey::new([1u8; 32]), PublicKey::new([2u8; 32])),
+        );
+        // A second unexpected entry for the same handle: a different thing
+        // happened, so it gets its own alarm even though the kind matches.
+        let two = log.raise(
+            RaiseAlarm::of(AlarmKind::SelfAuditUnexpectedEntry, 11)
+                .about(&handle)
+                .keys(PublicKey::new([1u8; 32]), PublicKey::new([3u8; 32])),
+        );
+        assert_ne!(one, two);
+        assert_eq!(log.alarms().len(), 2);
     }
 
     #[test]
