@@ -3228,16 +3228,43 @@ impl<B: StorageBackend> Inner<B> {
 
         let target = KEY_PACKAGE_POOL_TARGET.min(caps.contact_max_key_packages);
         let low_water = KEY_PACKAGE_LOW_WATER.min(target);
+
+        // **Ask the relay how many are left; never trust the stored count.**
+        //
+        // A publish with an empty batch changes nothing and returns the truth,
+        // and it is the only way to learn it: claims are invisible to this
+        // device — most never produce a `Welcome` — so a device that decided
+        // from its own last-recorded number would drain to zero, fall back to
+        // its reusable package of last resort (`THREAT-MODEL.md` §4.12) and
+        // never notice. The stored fields below are a *report*, not an input.
+        //
+        // The probe is owner-authenticated, so it is no oracle: §6.3's rule
+        // about responses carrying queue state is about a *sender* escalating
+        // into a reader, and this is the queue's owner asking about its own
+        // pool (§12.6.3).
+        let recv_key = signing_key(&queue.recv_key_seed)?;
+        let recv_addr = queue_address(&queue.recv_addr)?;
+        let held = connection
+            .publish_key_packages(&recv_key, recv_addr, &[], None)
+            .await?;
+        queue.key_package_pool = held.pool_size;
+        queue.has_last_resort = held.has_last_resort != 0;
+
         // The last-resort package is published once and then only when it is
         // missing. Replacing it on every top-up would retire a package a
         // `Welcome` may already be in flight against — the sender has no way to
         // learn it was withdrawn.
         let needs_last_resort = !queue.has_last_resort;
-        if queue.key_package_pool > low_water && !needs_last_resort {
-            return Ok(());
+        if held.pool_size > low_water && !needs_last_resort {
+            // Record what the relay reported even when nothing is added, so the
+            // stored number is never staler than the last time anything looked.
+            let snapshot = queue.clone();
+            return self
+                .records()
+                .commit(|records| records.put_contact_queue(&snapshot));
         }
 
-        let wanted = usize::try_from(target.saturating_sub(queue.key_package_pool)).unwrap_or(0);
+        let wanted = usize::try_from(target.saturating_sub(held.pool_size)).unwrap_or(0);
         let (packages, last_resort) = {
             let mls = self.mls_ref("ensure_key_packages")?;
             let packages = mls
@@ -3256,8 +3283,6 @@ impl<B: StorageBackend> Inner<B> {
             (packages, last_resort)
         };
 
-        let recv_key = signing_key(&queue.recv_key_seed)?;
-        let recv_addr = queue_address(&queue.recv_addr)?;
         let connection = self
             .connections
             .get_mut(&queue.relay_url)

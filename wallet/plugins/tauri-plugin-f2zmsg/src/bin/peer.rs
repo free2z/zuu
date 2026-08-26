@@ -551,8 +551,8 @@ async fn directory_entry(
     let account = AccountKeys::from_seed(&seed, 0)
         .map_err(|error| Error::internal(format!("deriving §4.2 keys: {error}")))?;
 
-    let contact_addr = hex::decode(contact_addr)
-        .map_err(|_| Error::internal("a contact address is not hex"))?;
+    let contact_addr =
+        hex::decode(contact_addr).map_err(|_| Error::internal("a contact address is not hex"))?;
     let contact_addr = QueueAddress::from_slice(&contact_addr)
         .map_err(|_| Error::internal("a contact address is the wrong length"))?;
 

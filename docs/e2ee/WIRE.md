@@ -2080,14 +2080,23 @@ MUST surface that as *"this person cannot be reached right now"* rather than as
 *"this person does not exist"* — the two are the same wire code, by §10's rule,
 and only the client knows the lookup succeeded.
 
-**Refill.** A device SHOULD top its pool up to a target on every `start_engine`
-and whenever something arrives on its contact queue — a `Welcome` is the only
-evidence it gets, without asking, that a package was claimed. The
-`PublishKeyPackagesResponse.pool_size` is the relay's count and not the device's
-arithmetic, so a device that has been away learns how many were consumed by
-publishing. The numbers (a target, a low-water mark) are policy and are not fixed
-here; the reference client uses 32 and 8 against a cap of 64, and calls both
-placeholders.
+**Refill, and the trap in it.** A device SHOULD top its pool up to a target on
+every `start_engine` and whenever something arrives on its contact queue.
+
+**A device MUST NOT decide when to refill from its own last-recorded count.**
+Most claims never produce a `Welcome` — a stranger may claim and never write —
+so consumption is *invisible* to the owner. A device that trusted its own number
+would sit at "I published 32" while the relay held zero, fall back to its
+reusable package of last resort on every first contact, and never notice.
+
+The way to ask is a **publish with an empty `packages` vector and an empty
+`last_resort`**: it changes nothing and returns the relay's true `pool_size` and
+`has_last_resort`. That is not a special case bolted on — it is why the response
+carries state at all, and it is safe for the reason §12.6.3 gives: the caller is
+the queue's owner, authenticated by the receive-side key.
+
+The numbers (a target, a low-water mark) are policy and are not fixed here; the
+reference client uses 32 and 8 against a cap of 64, and calls both placeholders.
 
 **Offline for a long time.** The pool drains, the last-resort package carries
 first contact at the cost above, and when *that* expires the device is

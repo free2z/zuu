@@ -55,8 +55,8 @@ use f2z_relay_testkit::vectors::{self, Needs, Report, Status};
 // Reviewed literals, not values derived from `vectors::suite()`. Changing a
 // vector's `Needs` or deleting a vector must stop this test and require an
 // explicit coverage review instead of shrinking the real-relay run invisibly.
-const REVIEWED_SUITE_VECTOR_COUNT: usize = 59;
-const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 46;
+const REVIEWED_SUITE_VECTOR_COUNT: usize = 60;
+const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 47;
 
 /// A configuration that matches the FakeRelay's published policy wherever the
 /// policy is what a vector observes.

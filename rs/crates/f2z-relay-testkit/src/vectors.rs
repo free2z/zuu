@@ -486,6 +486,7 @@ suite! {
     Nothing, "§12.6", an_exhausted_pool_with_no_last_resort_is_unavailable;
     Nothing, "§12.6", a_claim_requires_a_stamp_of_its_own_purpose;
     Nothing, "§12.6", publishing_is_idempotent_under_retry;
+    Nothing, "§12.6", an_empty_publish_reports_the_pool_without_changing_it;
     Nothing, "§12.6", a_pool_is_clamped_to_the_published_maximum;
     Nothing, "§12.6", a_standard_queue_holds_no_pool;
 
@@ -1637,6 +1638,51 @@ async fn publishing_is_idempotent_under_retry(context: &mut Context) -> Result<(
         2,
         "a retried publish must not double the pool: two Welcomes to one init key",
     )
+}
+
+async fn an_empty_publish_reports_the_pool_without_changing_it(
+    context: &mut Context,
+) -> Result<()> {
+    // §12.6.6's refill rule depends on this and it is easy to get wrong. Claims
+    // are invisible to the owner — most never produce a `Welcome` — so a device
+    // that decided when to refill from its own last-recorded number would drain
+    // to zero and fall back to its reusable package of last resort without ever
+    // noticing. An empty publish is how it asks, and it must not be a mutation.
+    let packages = vec![b"one".to_vec(), b"two".to_vec(), b"three".to_vec()];
+    let (owner, created) = with_pool(context, &packages, Some(b"last".to_vec())).await?;
+    let pow = context
+        .client
+        .capabilities()
+        .await?
+        .capabilities
+        .claim_key_package_pow;
+
+    let mut stranger = context.open().await?;
+    stranger
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
+
+    let held = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[], None)
+        .await?;
+    expect_eq(
+        held.pool_size,
+        2,
+        "the owner is told what the relay really holds",
+    )?;
+    expect_eq(
+        held.has_last_resort,
+        1,
+        "and whether a package of last resort is stored",
+    )?;
+
+    // Asking twice does not consume, publish or replace anything.
+    let again = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[], None)
+        .await?;
+    expect_eq(again.pool_size, 2, "an empty publish is not a mutation")
 }
 
 async fn a_pool_is_clamped_to_the_published_maximum(context: &mut Context) -> Result<()> {
