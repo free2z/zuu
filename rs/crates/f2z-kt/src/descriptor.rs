@@ -165,4 +165,50 @@ mod tests {
         let rendered = render(&signed);
         assert!(rendered.contains("ev\\\"il"));
     }
+
+    #[test]
+    fn an_operator_name_ending_in_a_backslash_cannot_escape_its_own_field() {
+        // The assertion whose absence made zuu#763 invisible. `escape`'s
+        // backslash arm was deletable with every test in every dependent
+        // crate still green, because the only test named for this property
+        // exercised the quotation mark and nothing asserted against a
+        // *rendered* field at all.
+        //
+        // It matters here and not only in `crate::json` because `render`
+        // splices the escaped value straight into a hand-built JSON string. A
+        // trailing backslash that reaches the output unescaped escapes the
+        // closing quotation mark instead of standing for itself: the field
+        // reads `"operator_name":"free2z\"` , never terminates, and swallows
+        // the rest of the descriptor — every field after it included.
+        //
+        // Nothing upstream prevents this. `LogDescriptor::validate` places no
+        // restriction on operator string bytes (see `crate::json`'s test note),
+        // so the escaper is the only thing standing here.
+        let signer = FileSigner::from_seed(&[9u8; 32]);
+        let genesis = signer.public_key();
+        let mut settings = LogSettings::defaults(genesis, PublicKey::new([8u8; 32])).unwrap();
+        settings.operator_name = f2z_codec::types::ShortBytes::new(b"free2z\\".to_vec()).unwrap();
+        let signed = sign_descriptor(
+            &settings,
+            labels::log_id(&genesis),
+            PublicKey::new([7u8; 32]),
+            &signer,
+            1,
+        )
+        .unwrap();
+        let rendered = render(&signed);
+
+        // The backslash stands for itself, and the field still ends where it
+        // should: the very next thing is the comma and the next member's key.
+        assert!(
+            rendered.contains("\"operator_name\":\"free2z\\\\\",\"operator_contact\":"),
+            "operator_name did not render as a terminated field: {rendered}"
+        );
+        // And the broken rendering is absent by name, so this fails loudly
+        // rather than by omission if the arm is ever removed.
+        assert!(
+            !rendered.contains("\"operator_name\":\"free2z\\\",\"operator_contact\":"),
+            "a trailing backslash escaped the closing quotation mark: {rendered}"
+        );
+    }
 }
