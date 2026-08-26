@@ -55,8 +55,8 @@ use f2z_relay_testkit::vectors::{self, Needs, Report, Status};
 // Reviewed literals, not values derived from `vectors::suite()`. Changing a
 // vector's `Needs` or deleting a vector must stop this test and require an
 // explicit coverage review instead of shrinking the real-relay run invisibly.
-const REVIEWED_SUITE_VECTOR_COUNT: usize = 52;
-const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 39;
+const REVIEWED_SUITE_VECTOR_COUNT: usize = 59;
+const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 46;
 
 /// A configuration that matches the FakeRelay's published policy wherever the
 /// policy is what a vector observes.
@@ -71,6 +71,8 @@ const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 39;
 ///   contact queues are offered; the difficulty is a policy number, and 8 bits
 ///   is what the testkit picked so a suite does not spend a minute hashing. The
 ///   shipped default stays 20.
+/// - `claim_key_package_pow_bits = 8`, for exactly the same reason as the line
+///   above. §12.6 requires a stamp on every claim; the difficulty is policy.
 ///
 /// Nothing else is loosened. In particular the padding set, the TTL bands, the
 /// frame cap, the in-flight window and the anti-replay window are this crate's
@@ -85,6 +87,7 @@ pub fn conformance_config() -> Config {
     config.identity.seed = "5a".repeat(32);
     config.antiabuse.queue_creation_mode = "open".to_owned();
     config.antiabuse.contact_append_pow_bits = TESTKIT_POW_DIFFICULTY_BITS;
+    config.antiabuse.claim_key_package_pow_bits = TESTKIT_POW_DIFFICULTY_BITS;
     // The suite opens a connection per vector from one address, and several
     // vectors open a second. §13.1's per-source caps are real and tested in
     // their own file; here they would only throttle the harness.

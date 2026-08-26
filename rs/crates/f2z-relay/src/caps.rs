@@ -162,6 +162,16 @@ pub fn build(
         PowParams::none()
     };
 
+    let claim_pow = if config.antiabuse.key_packages_enabled {
+        PowParams {
+            algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+            difficulty_bits: config.antiabuse.claim_key_package_pow_bits,
+            challenge_ttl_ms: config.antiabuse.challenge_ttl_ms,
+        }
+    } else {
+        PowParams::none()
+    };
+
     let capabilities = Capabilities {
         protocol_versions: alloc_versions(),
 
@@ -206,6 +216,9 @@ pub fn build(
         contact_max_pending: config.antiabuse.contact_max_pending,
         contact_max_bytes: config.antiabuse.contact_max_bytes,
         contact_append_pow: contact_pow,
+        key_packages_enabled: u8::from(config.antiabuse.key_packages_enabled),
+        contact_max_key_packages: config.antiabuse.contact_max_key_packages,
+        claim_key_package_pow: claim_pow,
         per_source_limits: u8::from(config.antiabuse.per_source_limits),
         durability_mode: match durability {
             Durability::Memory => DurabilityMode::Memory.code(),

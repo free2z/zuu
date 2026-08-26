@@ -25,14 +25,15 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 
-use f2z_codec::types::{Payload, PublicKey, QueueAddress};
+use f2z_codec::types::{KeyPackage, Payload, PublicKey, QueueAddress};
 use f2z_relay_proto::queue::{AckOutcome, QueueKind, QueueState};
 
 use crate::durability::{Committed, Durability};
 use crate::error::{Result, StoreError};
 use crate::record::{
-    Append, Appended, Deleted, ExpiryReason, ExpiryReport, QueueExpiry, QueueRecord, QueueSpec,
-    ReadPage, ReadWindow, SendAuth, StoreStats, StoredMessage, message_deadline,
+    Append, Appended, ClaimedKeyPackage, Deleted, ExpiryReason, ExpiryReport, KeyPackagePool,
+    QueueExpiry, QueueRecord, QueueSpec, ReadPage, ReadWindow, SendAuth, StoreStats, StoredMessage,
+    message_deadline,
 };
 use crate::sqlite::authorize_send;
 use crate::store::RelayStore;
@@ -52,6 +53,10 @@ struct MemoryQueue {
     /// suffix, which is the same access pattern the SQLite schema's
     /// `WITHOUT ROWID` `(recv_addr, idx)` key buys.
     messages: Vec<StoredEntry>,
+    /// §12.6's single-use pool, oldest first. Always empty on a standard queue.
+    key_packages: Vec<KeyPackage>,
+    /// §12.6's reusable package of last resort.
+    last_resort: Option<KeyPackage>,
 }
 
 #[derive(Debug, Default)]
@@ -157,6 +162,8 @@ impl RelayStore for MemoryStore {
             MemoryQueue {
                 record: record.clone(),
                 messages: Vec::new(),
+                key_packages: Vec::new(),
+                last_resort: None,
             },
         );
         Ok(Committed::seal(self.durability(), record))
@@ -271,6 +278,74 @@ impl RelayStore for MemoryStore {
         }
         touch_record(&mut queue.record, now_ms);
         Ok(Committed::seal(self.durability(), outcome))
+    }
+
+    fn publish_key_packages(
+        &self,
+        recv_addr: &QueueAddress,
+        signer: &PublicKey,
+        packages: &[KeyPackage],
+        last_resort: Option<&KeyPackage>,
+        max_pool: u32,
+        now_ms: u64,
+    ) -> Result<Committed<KeyPackagePool>> {
+        let mut inner = self.lock();
+        let queue = inner.by_recv_mut(recv_addr)?;
+        queue.record.state.authorize_recv(signer)?;
+        if !matches!(queue.record.kind(), QueueKind::Contact) {
+            return Err(StoreError::not_permitted());
+        }
+        let max = usize::try_from(max_pool).unwrap_or(usize::MAX);
+        for package in packages {
+            if queue.key_packages.len() >= max {
+                break;
+            }
+            if queue.key_packages.contains(package) || queue.last_resort.as_ref() == Some(package) {
+                continue;
+            }
+            queue.key_packages.push(package.clone());
+        }
+        if let Some(package) = last_resort {
+            queue.last_resort = Some(package.clone());
+        }
+        touch_record(&mut queue.record, now_ms);
+        let pool = KeyPackagePool {
+            pool_size: u32::try_from(queue.key_packages.len()).unwrap_or(u32::MAX),
+            has_last_resort: queue.last_resort.is_some(),
+        };
+        Ok(Committed::seal(self.durability(), pool))
+    }
+
+    fn claim_key_package(
+        &self,
+        contact_addr: &QueueAddress,
+    ) -> Result<Committed<ClaimedKeyPackage>> {
+        let mut inner = self.lock();
+        let recv_addr = inner.recv_for_send(contact_addr)?;
+        let queue = inner
+            .queues
+            .get_mut(&recv_addr)
+            .ok_or_else(StoreError::unavailable)?;
+        if !matches!(queue.record.kind(), QueueKind::Contact) {
+            return Err(StoreError::unavailable());
+        }
+        let claimed = if queue.key_packages.is_empty() {
+            ClaimedKeyPackage {
+                key_package: queue
+                    .last_resort
+                    .clone()
+                    .ok_or_else(StoreError::unavailable)?,
+                last_resort: true,
+            }
+        } else {
+            ClaimedKeyPackage {
+                // Oldest first: every package carries an MLS lifetime, so the
+                // one closest to expiring is the one worth spending.
+                key_package: queue.key_packages.remove(0),
+                last_resort: false,
+            }
+        };
+        Ok(Committed::seal(self.durability(), claimed))
     }
 
     fn delete_queue(

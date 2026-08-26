@@ -35,9 +35,10 @@ use std::sync::{Arc, Mutex};
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, ChallengePurpose, ChallengeRequest, ChallengeResponse,
-    Command, ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-    CreateQueueRequest, CreateQueueResponse, HelloRequest, HelloResponse, QueuedMessage,
-    ReadRequest, ReadResponse, SubscribeResponse,
+    ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command, ContactAppendRequest,
+    CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse,
+    HelloRequest, HelloResponse, PublishKeyPackagesRequest, PublishKeyPackagesResponse,
+    QueuedMessage, ReadRequest, ReadResponse, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, RelayFrame, Request, Response};
 use f2z_codec::padding::PaddingBuckets;
@@ -474,6 +475,10 @@ impl Relay {
                     .await
             }
             Command::ContactAppend => self.contact_append(now_ms, request).await,
+            Command::PublishKeyPackages => {
+                self.publish_key_packages(connection, now_ms, request_id, request)
+            }
+            Command::ClaimKeyPackage => self.claim_key_package(now_ms, request),
             // `Command` is `#[non_exhaustive]`: a code added to `f2z-codec` but
             // not handled here is a hole in this relay, not in the client that
             // sent it, and §3.5's non-fatal `ERR_UNKNOWN_COMMAND` is the honest
@@ -610,6 +615,7 @@ impl Relay {
             ChallengePurpose::Clock => PowParams::none(),
             ChallengePurpose::QueueCreate => caps.queue_creation_pow,
             ChallengePurpose::ContactAppend => caps.contact_append_pow,
+            ChallengePurpose::ClaimKeyPackage => caps.claim_key_package_pow,
         }
     }
 
@@ -1064,6 +1070,102 @@ impl Relay {
             now_ms,
         )
         .await
+    }
+
+    // -- §12.6, key packages -----------------------------------------------
+
+    fn publish_key_packages(
+        &self,
+        connection: &Connection,
+        now_ms: u64,
+        request_id: u32,
+        request: &Request,
+    ) -> Result<Vec<u8>, ProtoError> {
+        // Ordinary receive-side authorization. §12.6's whole addressing
+        // argument is that this is enough: the capability that already means
+        // "I own this contact queue" is the capability that means "I own this
+        // pool", so the relay learns no identifier it did not already hold.
+        let verified = self.verify_with::<ops::PublishKeyPackages>(
+            &connection.transcripts,
+            now_ms,
+            request_id,
+            request,
+            |candidate| self.preauthorize_recv(candidate),
+        )?;
+        let recv_addr = verified.address();
+        let signer = verified.signer_key();
+        let body: PublishKeyPackagesRequest = verified.into_body();
+
+        let caps = self.published.capabilities();
+        if caps.key_packages_enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+
+        let packages = body.packages.as_slice();
+        let last_resort = body.last_resort.as_slice().first();
+        let pool = self
+            .store
+            .publish_key_packages(
+                &recv_addr,
+                &signer,
+                packages,
+                last_resort,
+                caps.contact_max_key_packages,
+                now_ms,
+            )
+            .map_err(|error| self.recv_error(&error))?
+            .into_inner();
+
+        let response = PublishKeyPackagesResponse {
+            pool_size: pool.pool_size,
+            max_pool_size: caps.contact_max_key_packages,
+            has_last_resort: u8::from(pool.has_last_resort),
+        };
+        Ok(response.encode_canonical()?)
+    }
+
+    fn claim_key_package(&self, now_ms: u64, request: &Request) -> Result<Vec<u8>, ProtoError> {
+        let verified = self.accept_unsigned::<ops::ClaimKeyPackage>(request)?;
+        let body: ClaimKeyPackageRequest = verified.into_body();
+
+        if self.abuse.backpressured() {
+            return Err(ProtoError::Wire(ErrorCode::Unavailable));
+        }
+
+        let caps = self.published.capabilities();
+        if caps.key_packages_enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+
+        // The stamp is demanded before the pool is consulted. A claim that
+        // answered "nothing here" cheaply and "here you are" expensively would
+        // be a free existence oracle over the published address space, which is
+        // the one part of the address space an attacker can enumerate from a
+        // directory.
+        let params = caps.claim_key_package_pow;
+        self.check_stamp(
+            now_ms,
+            &body.stamp,
+            &params,
+            ChallengePurpose::ClaimKeyPackage,
+            body.contact_addr.as_bytes(),
+        )?;
+
+        // Absent, not-a-contact-queue, and exhausted are one code
+        // (`ERR_UNAVAILABLE`), decided in the store inside the transaction that
+        // consumes. **Exhaustion is a refusal and never a panic or an empty
+        // success** — §12.6.
+        let claimed = self
+            .store
+            .claim_key_package(&body.contact_addr)
+            .map_err(|error| send_error(&error))?
+            .into_inner();
+
+        let response = ClaimKeyPackageResponse {
+            key_package: claimed.key_package,
+            last_resort: u8::from(claimed.last_resort),
+        };
+        Ok(response.encode_canonical()?)
     }
 
     /// The one path by which anything reaches the disk, and the one place

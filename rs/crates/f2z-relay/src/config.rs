@@ -325,6 +325,21 @@ pub struct AntiAbuse {
     pub contact_max_pending: u32,
     /// §12.3's byte cap.
     pub contact_max_bytes: u64,
+    /// §12.6: whether this relay stores and serves MLS key packages.
+    ///
+    /// Separate from `contact_queues_enabled` and not implied by it. A relay
+    /// that offers contact queues without key packages is one first contact
+    /// cannot complete against, and a client reads the published flag rather
+    /// than assuming.
+    pub key_packages_enabled: bool,
+    /// §12.6's per-contact-queue pool cap.
+    pub contact_max_key_packages: u32,
+    /// Leading zero bits a `CLAIM_KEY_PACKAGE` stamp must show.
+    ///
+    /// A claim *consumes*, which a `CONTACT_APPEND` does not, so this is the
+    /// only thing standing between a published address and a device emptied of
+    /// key packages by one unmetered loop.
+    pub claim_key_package_pow_bits: u8,
     /// §13.3: published so a user behind shared egress can choose a relay that
     /// does not use them.
     pub per_source_limits: bool,
@@ -502,6 +517,9 @@ impl Default for AntiAbuse {
             contact_queues_enabled: true,
             contact_max_pending: 64,
             contact_max_bytes: 256 * 1024,
+            key_packages_enabled: true,
+            contact_max_key_packages: 64,
+            claim_key_package_pow_bits: 20,
             per_source_limits: true,
         }
     }
@@ -720,6 +738,18 @@ impl Config {
             "antiabuse_contact_queues_enabled" => {
                 self.antiabuse.contact_queues_enabled =
                     boolean("antiabuse_contact_queues_enabled", value)?;
+            }
+            "antiabuse_key_packages_enabled" => {
+                self.antiabuse.key_packages_enabled =
+                    boolean("antiabuse_key_packages_enabled", value)?;
+            }
+            "antiabuse_contact_max_key_packages" => {
+                self.antiabuse.contact_max_key_packages =
+                    number("antiabuse_contact_max_key_packages", value)?;
+            }
+            "antiabuse_claim_key_package_pow_bits" => {
+                self.antiabuse.claim_key_package_pow_bits =
+                    number("antiabuse_claim_key_package_pow_bits", value)?;
             }
             "antiabuse_contact_max_pending" => {
                 self.antiabuse.contact_max_pending =
@@ -1080,8 +1110,36 @@ impl Config {
                     .to_owned(),
             ));
         }
+        // §12.6, and the same argument one step further: a claim consumes.
+        if self.antiabuse.key_packages_enabled && self.antiabuse.claim_key_package_pow_bits == 0 {
+            return Err(ConfigError::Invalid(
+                "antiabuse.claim_key_package_pow_bits",
+                "§12.6: CLAIM_KEY_PACKAGE is unsigned and consumes a finite pool, so \
+                 publishing it without proof of work is publishing a one-request denial \
+                 of service against every device this relay hosts"
+                    .to_owned(),
+            ));
+        }
+        if self.antiabuse.key_packages_enabled && self.antiabuse.contact_max_key_packages == 0 {
+            return Err(ConfigError::Invalid(
+                "antiabuse.contact_max_key_packages",
+                "a pool of zero is a relay that publishes the endpoint and holds nothing"
+                    .to_owned(),
+            ));
+        }
+        // §12.6 keys a pool by the published `contact_addr`. A relay that
+        // issues none has no address to key one by.
+        if self.antiabuse.key_packages_enabled && !self.antiabuse.contact_queues_enabled {
+            return Err(ConfigError::Invalid(
+                "antiabuse.key_packages_enabled",
+                "§12.6 keys a key-package pool by the contact address a directory \
+                 publishes; a relay with no contact queues issues none"
+                    .to_owned(),
+            ));
+        }
         if self.antiabuse.queue_creation_pow_bits > 64
             || self.antiabuse.contact_append_pow_bits > 64
+            || self.antiabuse.claim_key_package_pow_bits > 64
         {
             return Err(ConfigError::Invalid(
                 "antiabuse.queue_creation_pow_bits",
@@ -1301,6 +1359,11 @@ impl Config {
             "challenge_ttl_ms = {}",
             self.antiabuse.challenge_ttl_ms
         );
+        let _ = writeln!(
+            out,
+            "claim_key_package_pow_bits = {}",
+            self.antiabuse.claim_key_package_pow_bits
+        );
         let _ = writeln!(out, "max_challenges = {}", self.antiabuse.max_challenges);
         let _ = writeln!(
             out,
@@ -1502,7 +1565,35 @@ mod tests {
         config.antiabuse.contact_append_pow_bits = 0;
         assert!(config.check().is_err());
         config.antiabuse.contact_queues_enabled = false;
+        // Key packages go with them: §12.6 keys a pool by the contact address
+        // a relay with no contact queues never issues.
+        config.antiabuse.key_packages_enabled = false;
         assert!(config.check().is_ok());
+    }
+
+    #[test]
+    fn key_packages_without_proof_of_work_are_refused() {
+        // §12.6. A claim is unsigned *and* consumes, which `CONTACT_APPEND` is
+        // not: one unmetered loop empties a device's pool.
+        let mut config = Config::default();
+        config.antiabuse.claim_key_package_pow_bits = 0;
+        assert!(config.check().is_err());
+        config.antiabuse.key_packages_enabled = false;
+        assert!(config.check().is_ok());
+    }
+
+    #[test]
+    fn key_packages_without_contact_queues_are_refused() {
+        let mut config = Config::default();
+        config.antiabuse.contact_queues_enabled = false;
+        assert!(config.check().is_err());
+    }
+
+    #[test]
+    fn a_key_package_pool_of_zero_is_refused() {
+        let mut config = Config::default();
+        config.antiabuse.contact_max_key_packages = 0;
+        assert!(config.check().is_err());
     }
 
     #[test]
