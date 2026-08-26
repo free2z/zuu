@@ -26,6 +26,11 @@
 //!   client-driven, because the browser WebSocket API cannot send a Ping frame
 //!   at all — a client-side keepalive would be a second mechanism only one of
 //!   the two clients has.
+//!
+//! Both are the only mechanisms that **release** a §13.1 layer 1 connection
+//! permit, and until issue #678 both could be deleted with the whole suite
+//! green. `tests/connection_deadlines.rs` drives each one over a real socket
+//! and asserts the permit goes back.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -126,6 +131,20 @@ pub async fn drive(
     }
 
     relay.close_connection(&connection);
+    // Both senders, or the writer never ends. `Connection` carries its own
+    // clone of `outbound_tx` (`Connection::pushes`, which is what a subscription
+    // and a spawned `APPEND` are handed), so dropping only the local one leaves
+    // `outbound.recv()` with a live sender and it parks forever. The writer then
+    // never returns, `writer.await` never returns, `drive` never returns — and
+    // the §13.1 layer 1 permit the listener drops after `drive` is never
+    // released. That is invisible on every path that ends by *sending* a close
+    // (§1.3's fatal errors, §4.2's text frame, §2.4's keepalive close), because
+    // the frame itself wakes the writer; it is the whole story on every path
+    // that ends in silence — §2.5's handshake deadline, a client hanging up, a
+    // transport error. Dropping the connection here rather than at the end of
+    // scope also keeps §1.3's ordering: a task still answering an `APPEND` holds
+    // its own clone, so its response is written before the writer sees `None`.
+    drop(connection);
     drop(outbound_tx);
     let _ = writer.await;
 }
