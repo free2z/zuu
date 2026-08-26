@@ -354,10 +354,18 @@ impl KtDirectory {
         // not a reassuring answer, so a failure here is recorded and not raised.
         let _ = client.refresh_authority_policy();
 
+        // One §8.3 pass before anything asks, so `EngineStatus.witnessThresholdMet`
+        // is an answer from the log rather than a `false` that only means "no
+        // lookup has happened yet". A failure here is not fatal and must not be:
+        // `false` is the correct, conservative report for a directory whose root
+        // this client could not establish, and §6.4's matrix is keyed on exactly
+        // that.
+        let threshold_met = client.sync(now_ms()).is_ok();
+
         Ok(Self {
             client: Mutex::new(client),
             independent_witnesses,
-            threshold_met: Mutex::new(false),
+            threshold_met: Mutex::new(threshold_met),
         })
     }
 
@@ -515,12 +523,26 @@ impl Directory for KtDirectory {
     fn resolve_identity(&self, handle: &str) -> crate::error::Result<ResolvedIdentity> {
         let resolution = self.lookup(handle)?;
         let resolved = resolution.resolved().ok_or_else(|| {
-            // Absent, and unproved. It is an *answer* to `resolve_handle` and a
-            // *refusal* here, because a handshake cannot proceed against a
-            // handle nobody has registered — and the client must not record the
-            // absence as a fact either way.
+            // Absent, and **unproved**. `resolve_handle` reports this as an
+            // answer with `found: false`; here it is a refusal, because a
+            // handshake cannot proceed against a handle for which there is no
+            // identity key to compare the request to.
+            //
+            // The code is `CLIENT-CONTRACT.md` §8.1's **default rule** — a
+            // condition neither §9.5's table nor §8's union names maps to the
+            // protocol-violation member for the peer that produced it — and it
+            // is deliberately not `witness-threshold-unmet`, which would be a
+            // lie about a threshold that was met, nor `internal`, which would
+            // send a reader to our own engine. §8's union having no member for
+            // "the directory says this handle does not exist" is a real gap and
+            // is reported rather than papered over.
+            //
+            // What this must NOT do, and does not, is record the absence: the
+            // engine keeps no state from a failed `accept_contact_request`, and
+            // `f2z-kt-client` refuses to produce the absent variant at all for a
+            // handle this client holds a pin for (§9 rule 9).
             Error::new(
-                ErrorCode::WitnessThresholdUnmet,
+                ErrorCode::DirectoryProtocolViolation,
                 format!(
                     "the log asserts — without proving — that {handle:?} is not registered, \
                      so there is no identity key to confirm this contact request against"
