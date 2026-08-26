@@ -60,7 +60,7 @@ use serde::Deserialize;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_f2zmsg::engine::IdentityInstall;
 use tauri_plugin_f2zmsg::error::{Error, Result};
-use tauri_plugin_f2zmsg::models::{EnrollmentStatus, ErrorCode};
+use tauri_plugin_f2zmsg::models::{EngineState, EnrollmentStatus, ErrorCode};
 use tauri_plugin_f2zmsg::state::F2zMsgExt as _;
 use tauri_plugin_zcash::ZcashExt as _;
 
@@ -124,10 +124,15 @@ pub async fn f2zmsg_enroll<R: Runtime>(
                 ),
             ));
         }
-        // §6.1's `locked` -> unlocked. Idempotent: `unlock` on an already
-        // unlocked engine rebuilds the same MLS engine from the same sealed
-        // secrets.
-        engine.unlock(account.backup_wrap.as_bytes()).await?;
+        // §6.1's `locked` -> unlocked, and ONLY from `locked`. `unlock` ends by
+        // setting the engine to `stopped`, which is right coming out of
+        // `locked` and wrong on a running engine: a stray `enroll` would mark a
+        // live engine stopped while its relay connections stayed open, and the
+        // next `start_engine` would reconnect relays it was already connected
+        // to. Every other state is already unlocked, so there is nothing to do.
+        if engine.status().await?.state == EngineState::Locked {
+            engine.unlock(account.backup_wrap.as_bytes()).await?;
+        }
         return engine.enrollment_status().await;
     }
 

@@ -40,6 +40,7 @@ import {
   REQUIRE_LINUX_ARTIFACT_FIXTURES,
   runLinuxArtifactFixtures,
 } from "./run-linux-artifact-fixtures.mjs";
+import { REVIEWED_GIT_SOURCES } from "./linux-cargo-runtime.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDirectory, "..");
@@ -1195,6 +1196,44 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
     assert.equal(missingSource.stderr, "");
   } finally {
     rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("the reviewed git source is exactly the rev the app actually patches", () => {
+  // `sourceKind` refuses any package source that is not crates.io, a path, or
+  // one exactly-reviewed git revision. Without this test the only thing that
+  // notices a drifted `rev` is the Linux packaging job, twenty minutes into a
+  // release build, with a message about a "non-shipping package source".
+  //
+  // TRANSIENT with the patch itself: when `bip32 0.6.0` is published and the
+  // Zcash stack moves to secp256k1 0.31, `REVIEWED_GIT_SOURCES` empties and
+  // this test asserts that it is empty.
+  const manifest = readFileSync(
+    new URL("../src-tauri/Cargo.toml", import.meta.url),
+    "utf8",
+  );
+  const lock = readFileSync(
+    new URL("../src-tauri/Cargo.lock", import.meta.url),
+    "utf8",
+  );
+
+  const patched = [
+    ...manifest.matchAll(
+      /^\s*[A-Za-z0-9_-]+\s*=\s*\{[^}]*git\s*=\s*"([^"]+)"[^}]*rev\s*=\s*"([0-9a-f]{40})"/gm,
+    ),
+  ].map(([, url, rev]) => `git+${url}?rev=${rev}#${rev}`);
+
+  assert.deepEqual(
+    [...REVIEWED_GIT_SOURCES].sort(),
+    [...new Set(patched)].sort(),
+    "every git source the SBOM binder admits must be one the app manifest pins by rev, and vice versa",
+  );
+
+  for (const source of REVIEWED_GIT_SOURCES) {
+    assert.ok(
+      lock.includes(`source = "${source}"`),
+      `the lockfile does not resolve anything from ${source}`,
+    );
   }
 });
 
