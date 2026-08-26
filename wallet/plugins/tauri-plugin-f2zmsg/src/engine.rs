@@ -48,7 +48,7 @@ use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
 use f2z_codec::hash::hash2;
-use f2z_msg_mls::{EngineError, MlsEngine, Received};
+use f2z_msg_mls::{EngineError, MlsEngine, Received, VerifiedKeyPackage};
 use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use f2z_relay_proto::key::SigningKey;
 use openmls::prelude::{GroupId, MlsGroup};
@@ -78,6 +78,36 @@ use crate::store::{
 const LABEL_QUEUE_RECV: &[u8] = b"free2z/msg/v1/queue-recv";
 /// The same, for the send-side key this device binds on a peer's queue.
 const LABEL_QUEUE_SEND: &[u8] = b"free2z/msg/v1/queue-send";
+
+/// How many single-use key packages this device tries to keep published
+/// (`WIRE.md` §12.6), clamped down to whatever the relay's
+/// `contact_max_key_packages` allows.
+///
+/// **A placeholder, like §12.3's caps.** Nothing has measured how many first
+/// contacts a device receives between two sessions; 32 is chosen to be more
+/// than a person is plausibly contacted by while offline for a day and small
+/// enough that a full pool is around 85 KiB on the relay at #385's measured
+/// 2 647 bytes a package.
+const KEY_PACKAGE_POOL_TARGET: u32 = 32;
+
+/// Refill when the relay's reported pool drops to this (§12.6).
+///
+/// Not zero, deliberately. A device that waited for exhaustion would fall back
+/// to the reusable package of last resort — trading forward secrecy for
+/// availability, `THREAT-MODEL.md` §4.12 — every time it was slightly late,
+/// and the whole point of the pool is that the fallback is rare.
+const KEY_PACKAGE_LOW_WATER: u32 = 8;
+
+/// The lifetime this device asks for on its package of last resort, in seconds:
+/// thirty days.
+///
+/// **Deliberately shorter than a device credential's**, which enrollment issues
+/// for a year. A last-resort package is reusable, so the only mitigation
+/// available against its reuse is that it stops being usable; a long-lived one
+/// would make the trade of `THREAT-MODEL.md` §4.12 permanent instead of
+/// bounded. The cost is stated with it: a device offline for longer than this
+/// becomes unreachable to *new* contacts until it comes back.
+const LAST_RESORT_LIFETIME_SECONDS: u64 = 2_592_000;
 
 /// `WIRE.md` §7.7's default message TTL: seven days.
 const MESSAGE_TTL_SECONDS: u32 = 604_800;
@@ -277,6 +307,14 @@ impl<B: StorageBackend> Engine<B> {
         inner.subscribe_all().await;
         if let Err(error) = inner.ensure_contact_queue().await {
             tracing::info!(code = %error.code(), "contact queue not opened");
+            inner.last_error = Some(error.code());
+        }
+        // §12.6. Not fatal, and not silent: a device with no published pool is
+        // one nobody can start a conversation with, which is a state to report
+        // rather than a state to crash on. Everything else about this engine —
+        // every established conversation — is unaffected.
+        if let Err(error) = inner.ensure_key_packages().await {
+            tracing::info!(code = %error.code(), "key packages not published");
             inner.last_error = Some(error.code());
         }
 
@@ -599,10 +637,21 @@ impl<B: StorageBackend> Engine<B> {
 
     /// §3.3 `start_conversation` — the whole first-contact handshake.
     ///
-    /// # Errors
+    /// `WIRE.md` §12.5, in the order that section states it, with §12.6's two
+    /// steps between 1 and 2:
     ///
-    /// **This does not succeed in any configuration yet, and the directory is
-    /// no longer the reason.**
+    /// 1. Resolve the handle against a witness-cosigned root, yielding the
+    ///    **verified `DirectoryEntryTBS`** and the published contact endpoint.
+    /// 2. `CLAIM_KEY_PACKAGE` from the relay that endpoint names, behind a
+    ///    proof-of-work stamp.
+    /// 3. **Authenticate the claimed package against the entry from step 1.**
+    ///    The relay is not trusted with it; a package that does not verify is a
+    ///    refusal, and the type system will not let one through — `add_member`
+    ///    takes a `VerifiedKeyPackage`.
+    /// 4. Build the group, produce the `Welcome`, and `CONTACT_APPEND` it with
+    ///    a second stamp.
+    ///
+    /// # Errors
     ///
     /// On the default `NoDirectory`: `witness-threshold-unmet`. Zero
     /// independent witnesses have cosigned any root, and §6.4's matrix says
@@ -610,13 +659,11 @@ impl<B: StorageBackend> Engine<B> {
     /// #133 moment — an unverified key here *is* the MITM — and §9 rule 5
     /// forbids proceeding silently.
     ///
-    /// On a configured `KtDirectory`, against a real log: the lookup **runs and
-    /// verifies**, and then this fails anyway, because a `Welcome` has to be
-    /// addressed to an MLS `KeyPackage` and no directory publishes one —
-    /// `KT.md` §4.1 says a `DirectoryEntry` carries *"no `KeyPackage`"* and
-    /// §1.2 leaves publication and exhaustion open. `accept_contact_request` is
-    /// unaffected: it needs the identity key alone, which the directory does
-    /// publish and this build does verify.
+    /// `relay-unavailable` when the peer's pool is exhausted and they published
+    /// no package of last resort (§12.6). `internal` — carrying the credential
+    /// failure — when the claimed package does not belong to the identity the
+    /// directory vouched for, which is the substitution §12.6 exists to catch
+    /// and is **never** retried.
     pub async fn start_conversation(&self, peer_handle: &str) -> Result<Conversation> {
         if !handle::is_handle(peer_handle) {
             // §11.3: a homograph does not match the charset, so the directory
@@ -628,21 +675,15 @@ impl<B: StorageBackend> Engine<B> {
                 format!("{peer_handle:?} is not a messaging handle"),
             ));
         }
-        // §6.4's first row. Everything below this line is `WIRE.md` §12.5's
-        // handshake and is the same code the harness drives; the only step this
-        // build cannot take is this one.
+        // §6.4's first row, and everything below it is §12.5's handshake.
         let peer = self.directory.resolve_peer(peer_handle)?;
 
         let mut inner = self.inner.lock().await;
         inner.require_running("start_conversation")?;
         let relay_url = inner.first_relay_url()?;
+        let key_package = inner.claim_key_package(&peer, peer_handle).await?;
         let introduction = inner
-            .create_conversation(
-                peer_handle,
-                &peer.identity_pk,
-                &peer.key_package,
-                &relay_url,
-            )
+            .create_conversation(peer_handle, &peer.identity_pk, &key_package, &relay_url)
             .await?;
 
         // The `Welcome`, this device's queue advert and who is calling, on the
@@ -2025,6 +2066,28 @@ impl<B: StorageBackend> Engine<B> {
             .map_err(|error| Error::internal(format!("key package: {error}")))
     }
 
+    /// The `DeviceCredential` this device installed at enrollment, canonically
+    /// encoded.
+    ///
+    /// Harness only. The app crate issues the credential and therefore already
+    /// has it; this exists so the two-process harness can assemble the
+    /// `DirectoryEntryTBS` a log would commit, which is what §12.6's key-package
+    /// authentication is checked against.
+    ///
+    /// # Errors
+    ///
+    /// `not-enrolled` if this device has no identity.
+    #[cfg(any(test, feature = "relay-harness"))]
+    pub async fn installed_credential(&self) -> Result<Vec<u8>> {
+        let inner = self.inner.lock().await;
+        let identity = inner
+            .records()
+            .identity()?
+            .ok_or_else(|| Error::not_enrolled("installed_credential"))?;
+        hex::decode(&identity.credential)
+            .map_err(|_| Error::internal("a stored credential is not hex"))
+    }
+
     /// This device's published contact address (§12.2), once `start_engine` has
     /// opened one.
     ///
@@ -2825,7 +2888,7 @@ impl<B: StorageBackend> Inner<B> {
         &mut self,
         peer_handle: &str,
         peer_identity_pk: &str,
-        peer_key_package: &[u8],
+        peer_key_package: &VerifiedKeyPackage,
         relay_url: &str,
     ) -> Result<Introduction> {
         let now = now_ms();
@@ -2958,6 +3021,86 @@ impl<B: StorageBackend> Inner<B> {
             .commit(|records| records.put_conversation(&stored))
     }
 
+    /// `CLAIM_KEY_PACKAGE` from the peer's relay, then authenticate what came
+    /// back against the entry the directory proved (`WIRE.md` §12.6).
+    ///
+    /// **The two halves are inseparable and are one function for that reason.**
+    /// A claim is bytes from a relay the threat model assumes is hostile; the
+    /// verification is the only thing that makes them safe to encrypt a
+    /// `Welcome` to. Returning the raw bytes from here and verifying at the
+    /// call site would put a `?` between them that somebody could later delete.
+    ///
+    /// # Errors
+    ///
+    /// `relay-unreachable` if the peer's relay is not connected,
+    /// `relay-unavailable` if the pool is exhausted and there is no package of
+    /// last resort — §12.6's exhaustion behaviour, and the same code an address
+    /// that does not exist returns — and `internal` naming the credential
+    /// failure if the package does not belong to the identity the directory
+    /// vouched for.
+    async fn claim_key_package(
+        &mut self,
+        peer: &crate::directory::ResolvedPeer,
+        peer_handle: &str,
+    ) -> Result<VerifiedKeyPackage> {
+        let contact_addr = queue_address(&peer.contact_addr)?;
+        let connection = self
+            .connections
+            .get_mut(&peer.contact_relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let caps = connection.capabilities().await?.capabilities;
+        if caps.key_packages_enabled == 0 {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                format!(
+                    "{peer_handle:?} publishes a contact endpoint on a relay that stores no key \
+                     packages (WIRE.md §12.6), so there is nothing to address a Welcome to"
+                ),
+            ));
+        }
+        tracing::info!(peer = %peer_handle, "first contact: claiming a key package");
+        let claimed = connection
+            .claim_key_package(contact_addr, Some(caps.claim_key_package_pow))
+            .await?;
+        let last_resort = claimed.last_resort != 0;
+
+        let mls = self.mls_ref("start_conversation")?;
+        let verified = mls
+            .verify_key_package(
+                claimed.key_package.as_slice(),
+                &peer.entry,
+                u64::try_from(now_ms()).unwrap_or_default(),
+            )
+            .map_err(|error| {
+                // Not a network error and never retried. A package that does not
+                // authenticate against the entry the log proved is either a
+                // broken relay or an attempted MITM, and the two are
+                // indistinguishable from here — §9 rule 5 forbids proceeding
+                // either way.
+                tracing::warn!(
+                    peer = %peer_handle,
+                    "a claimed key package does not belong to the identity the directory \
+                     vouched for; refusing to start a conversation (WIRE.md §12.6)"
+                );
+                Error::internal(format!(
+                    "the key package served for {peer_handle:?} does not match the directory \
+                     entry the log proved: {error}"
+                ))
+            })?;
+        if verified.last_resort() || last_resort {
+            // §12.6, and `THREAT-MODEL.md` §4.12: the peer's pool was empty, so
+            // this `Welcome` goes to a key that may be reused. Reported, not
+            // refused — refusing would convert a documented trade into a
+            // failure to reach somebody.
+            tracing::info!(
+                peer = %peer_handle,
+                "first contact is using the peer's package of last resort: their pool is \
+                 exhausted, and this Welcome's init key may be reused"
+            );
+        }
+        Ok(verified)
+    }
+
     /// `CONTACT_APPEND` the introduction to the peer's published contact queue
     /// (§12.2).
     ///
@@ -3037,7 +3180,101 @@ impl<B: StorageBackend> Inner<B> {
             recv_key_seed: hex::encode(recv_seed),
             next_index: 0,
             acked_through: None,
+            key_package_pool: 0,
+            has_last_resort: false,
         };
+        self.records()
+            .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    /// Publish or top up this device's key-package pool (`WIRE.md` §12.6).
+    ///
+    /// Called from `start_engine`, and again whenever something arrives on the
+    /// contact queue — a `Welcome` is proof that a package was claimed, and it
+    /// is the only proof this device gets without asking.
+    ///
+    /// # What it does when the relay does not offer §12.6
+    ///
+    /// Nothing, loudly. A relay that publishes `key_packages_enabled = 0` is a
+    /// relay first contact cannot complete against, and the honest report is a
+    /// log line plus `last_error` — not a silent success, and not a refusal to
+    /// start: everything else about the relay still works, and an established
+    /// conversation is unaffected.
+    ///
+    /// # Errors
+    ///
+    /// `relay-unreachable` if the relay is not connected, `internal` if MLS
+    /// could not generate the packages or the store could not record the count.
+    async fn ensure_key_packages(&mut self) -> Result<()> {
+        let Some(mut queue) = self.records().contact_queue()? else {
+            return Ok(());
+        };
+        let connection = self
+            .connections
+            .get_mut(&queue.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let caps = connection.capabilities().await?.capabilities;
+        if caps.key_packages_enabled == 0 {
+            tracing::warn!(
+                url = %queue.relay_url,
+                "this relay stores no MLS key packages (WIRE.md §12.6), so nobody can start a \
+                 conversation with this device through it"
+            );
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "the relay publishes key_packages_enabled = 0, so first contact cannot complete",
+            ));
+        }
+
+        let target = KEY_PACKAGE_POOL_TARGET.min(caps.contact_max_key_packages);
+        let low_water = KEY_PACKAGE_LOW_WATER.min(target);
+        // The last-resort package is published once and then only when it is
+        // missing. Replacing it on every top-up would retire a package a
+        // `Welcome` may already be in flight against — the sender has no way to
+        // learn it was withdrawn.
+        let needs_last_resort = !queue.has_last_resort;
+        if queue.key_package_pool > low_water && !needs_last_resort {
+            return Ok(());
+        }
+
+        let wanted = usize::try_from(target.saturating_sub(queue.key_package_pool)).unwrap_or(0);
+        let (packages, last_resort) = {
+            let mls = self.mls_ref("ensure_key_packages")?;
+            let packages = mls
+                .generate_key_packages(wanted, None)
+                .map_err(|error| Error::internal(format!("key packages: {error}")))?;
+            let last_resort = if needs_last_resort {
+                Some(
+                    mls.generate_last_resort_key_package(Some(LAST_RESORT_LIFETIME_SECONDS))
+                        .map_err(|error| {
+                            Error::internal(format!("last-resort key package: {error}"))
+                        })?,
+                )
+            } else {
+                None
+            };
+            (packages, last_resort)
+        };
+
+        let recv_key = signing_key(&queue.recv_key_seed)?;
+        let recv_addr = queue_address(&queue.recv_addr)?;
+        let connection = self
+            .connections
+            .get_mut(&queue.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let published = connection
+            .publish_key_packages(&recv_key, recv_addr, &packages, last_resort.as_deref())
+            .await?;
+
+        tracing::info!(
+            pool = published.pool_size,
+            max = published.max_pool_size,
+            "published MLS key packages (WIRE.md §12.6)"
+        );
+        // The relay's count, never this device's arithmetic: the relay clamps,
+        // skips duplicates, and has been serving claims since the last publish.
+        queue.key_package_pool = published.pool_size;
+        queue.has_last_resort = published.has_last_resort != 0;
         self.records()
             .commit(|records| records.put_contact_queue(&queue))
     }
@@ -3149,6 +3386,17 @@ impl<B: StorageBackend> Inner<B> {
             && let Err(error) = connection.ack(&recv_key, recv_addr, highest).await
         {
             tracing::info!(code = %error.code(), "contact-queue ACK not delivered");
+        }
+
+        // §12.6's refill. An arrival on the contact queue is the only evidence
+        // this device gets, without asking, that somebody claimed a package —
+        // so it is the moment to check the pool. A claim that never produced a
+        // `Welcome` is invisible here and is caught by the next `start_engine`,
+        // which is the honest bound on how stale the count can be.
+        if highest.is_some()
+            && let Err(error) = self.ensure_key_packages().await
+        {
+            tracing::info!(code = %error.code(), "key packages not topped up");
         }
         Ok(events)
     }

@@ -749,6 +749,114 @@ and the question is open as
 this is a **No** row in §5 and must appear in user-facing documentation like every
 other entry in this section.
 
+### 4.12 A last-resort key package is a reused init key
+
+`WIRE.md` §12.6 has every device publish a pool of single-use MLS `KeyPackage`s
+at its relay, plus **one reusable package of last resort** (RFC 9420's
+`last_resort` extension) that the relay serves — repeatedly, without deleting it
+— once the pool is empty.
+
+**What that costs, stated plainly.** RFC 9420 §10 has a client delete a key
+package's init secret after processing the `Welcome` addressed to it, and that
+deletion is what makes first contact forward-secret. A last-resort package is
+exempt by construction: its secret must survive every use, so
+
+- two initiators who both receive it encrypt their `Welcome`s under key material
+  derived from **one long-lived secret**, and
+- an attacker who later compromises that secret can open **every `Welcome` ever
+  addressed to it**, retroactively, back to the moment it was published.
+
+Nothing after the `Welcome` is affected. The MLS group's own key schedule
+ratchets from the first commit, so the conversation's forward secrecy and
+post-compromise security are ordinary MLS
+([`ARCHITECTURE.md` §5.1](./ARCHITECTURE.md#51-membership-and-epochs)). What is
+lost is the secrecy of the group's *first* epoch secret against a future
+compromise of one key, and with it the contents of the `Welcome` — which carries
+the ratchet tree and therefore the membership.
+
+**Why we take it.** The alternative is not "no reuse"; it is **unreachability**.
+Without a last-resort package, an exhausted pool means nobody new can start a
+conversation with that device until it comes back online and refills — and
+§12.6.9 is explicit that an attacker willing to pay `contact_max_key_packages`
+proof-of-work stamps can put a device in that state deliberately, more cheaply
+than flooding its contact queue (§12.4). Trading the forward secrecy of a first
+`Welcome` for the ability to be contacted at all is the trade RFC 9420 designed
+the extension for, and it is the one taken.
+
+**What bounds it.** A device SHOULD give its last-resort package a lifetime
+materially shorter than its device credential's — the reference client asks for
+thirty days against a year — because the only mitigation available against a
+reusable key is that it stops being usable. And the fallback is meant to be
+rare: §12.6.6's low-water refill exists so a device does not sit on it. Neither
+bound is a fix. A device that is offline for longer than its last-resort
+package's lifetime becomes unreachable to *new* contacts entirely, which is the
+same failure the trade was meant to avoid, arriving later.
+
+A device **MAY** publish no last-resort package, accepting unreachability over
+reuse. Nothing in the protocol requires one, and a client that offers the choice
+should describe it in these terms rather than as a setting.
+
+### 4.13 A relay chooses which key package you get, and can always serve the reusable one
+
+§12.6 requires a fetcher to authenticate a claimed key package against the
+directory entry the log proved, so a relay **cannot substitute a package from a
+different device or a different identity** — that is the check §12.6.5 makes
+mandatory, and it is the only thing standing between a relay and
+[#133](https://github.com/free2z/zuu/issues/133) at first contact.
+
+What it cannot stop is a relay choosing **which of the peer's own packages** to
+hand over. Concretely, a hostile relay holding a full pool can serve the
+last-resort package to every claimer, and:
+
+- the package is correctly signed by the right device, so every check in
+  §12.6.5 passes;
+- the `last_resort` byte in the response is **not signed by anyone**, so the
+  relay can also claim the pool was empty — or claim it was not;
+- the initiator therefore cannot tell a genuinely exhausted pool from a
+  manufactured one, and every first contact through that relay lands on §4.12's
+  reused key.
+
+A client can read RFC 9420's `last_resort` extension out of the package's own
+signed extensions and know *that* it received a reusable package. It cannot know
+*why*, and §12.6.7 forbids it from refusing on that basis — refusing would
+convert a documented trade into a failure to reach somebody.
+
+**The recipient is better placed, and this is evidence rather than a mechanism.**
+A device knows its own last-resort init key, sees which key each arriving
+`Welcome` used, and knows what `pool_size` its last publish reported. A
+last-resort `Welcome` arriving while the pool was reported non-empty is relay
+misbehaviour with a witness. **Nothing in v1 requires a client to check that, and
+nothing defines what it should do about it** — it is written down here so the
+option is not lost, not because it is implemented.
+
+The same relay can also simply refuse every claim, which is the first-contact
+denial of service §12.4 already concedes for contact queues, arriving one step
+earlier and more cheaply (§12.6.9). Neither is fixed by *k* > 1 relays as long as
+a directory entry's `contact_endpoints` list is length one, which
+[`ARCHITECTURE.md` §13-G](./ARCHITECTURE.md#13-open-questions) leaves open.
+
+### 4.14 Claiming a key package tells the relay someone is about to make contact
+
+Fetching a key package from `contact_addr` reveals interest in that address to
+the relay hosting it — which is very nearly, but not exactly, what §4.1 already
+concedes.
+
+**What is not new.** The relay learns that *someone* asked about a public address
+that a public directory associates with a handle. It learns this already, from
+the `CONTACT_APPEND` that follows seconds later in the same handshake
+(`WIRE.md` §12.5). The request is unsigned and carries no client identity, so it
+does not learn who, beyond the source IP it sees for everything (§3.3). The
+directory-side leak is unchanged: the lookup at §12.5 step 1 is §4.1's accepted
+limit, and §12.6 consults the directory no further.
+
+**What is new, and it is small.** A claim is observable **even when first contact
+is abandoned.** An initiator who resolves a handle, claims a package and then
+changes their mind has still told the relay that somebody was about to contact
+that device; under §12.5 as originally merged the relay learned nothing until the
+append. The set of people who claim and the set who append are very nearly the
+same set, so this widens an existing signal rather than creating one — and it is
+recorded here rather than left for a reader to discover.
+
 ## 5. Summary: what we claim, precisely
 
 **Every entry below is scoped by the section it cites, and the scope is part of
@@ -765,7 +873,7 @@ section's narrower reading is the one intended.
 | Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's four corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry) now says what authorizes the first entry — against a *stranger*, not against the server, because the log checks it itself and nothing is committed to the tree ([§4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do)). **This row still claims nothing for a handle with no entry.** | Same caveat |
 | Server cannot deny that a handle exists | **No** (§4.11) — `akd` 0.13 cannot prove non-membership for an unregistered label, so absence is an assertion the log makes and the client is told is unproved. It cannot weaken a pin a client already holds. | Same |
 | Server cannot MITM WebRTC | **Yes** — in-band fingerprints | Same caveat |
-| Forward secrecy | **Yes** — MLS epochs | Yes, same caveat |
+| Forward secrecy | **Yes** — MLS epochs, **except the first `Welcome` when it lands on a last-resort key package** (§4.12), which a hostile relay can force at will (§4.13) | Yes, same caveat |
 | Post-compromise security | **Yes** — MLS Updates | Yes, same caveat |
 | PQ confidentiality (harvest-now) | **Yes** — X-Wing hybrid | Yes, same caveat |
 | PQ authentication | **No** (§3.8) | No |

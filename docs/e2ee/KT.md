@@ -93,10 +93,17 @@ surface and its stable error codes; and where `akd`'s types sit underneath ours.
   exist — and neither specifies a message. §8.4 defines the *evidence* a client
   would exchange and deliberately does not invent the protocol that exchanges
   it. [§13-R](./ARCHITECTURE.md#13-open-questions).
-- **MLS `KeyPackage` publication and exhaustion.** Deferred out of `WIRE.md`
-  §12.5 as "directory design," and still open. A `KeyPackage` is per-device,
-  consumed on use, and republished — a different lifecycle from a directory entry
-  and the wrong thing to put in an append-only log one entry at a time. §12.
+- **~~MLS `KeyPackage` publication and exhaustion.~~ Closed 2026-08-26 by
+  [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+  and [ADR 0015](./decisions/0015-key-package-publication.md).** Kept here rather
+  than deleted so a reader arriving from an older citation finds the answer
+  instead of a hole. This bullet said a `KeyPackage` is per-device, consumed on
+  use and republished — "a different lifecycle from a directory entry and the
+  wrong thing to put in an append-only log". That reasoning was right and the
+  answer follows from it: the pool lives at the **relay**, addressed by the
+  `contact_addr` §4.1's `ContactEndpoint` already publishes, and this document's
+  job is to be the thing a fetched package is authenticated *against*. **No
+  change to §4.1's structure**, and §4.1 carries a dated note saying so.
 - **Handle rename and transfer.**
   [§13-K](./ARCHITECTURE.md#13-open-questions), unchanged by this document.
 - **The reset authority key's distribution and its own rotation.**
@@ -303,6 +310,32 @@ relay list beyond contact endpoints, and no `KeyPackage`. A directory entry is
 an append-only public record that every peer of the user will fetch; every field
 added to it is a field published forever about everyone. Mutable profile data
 belongs on the platform, where it can be changed and deleted.
+
+> **Note (2026-08-26) — "no `KeyPackage`" is affirmed, not reversed, and the
+> question it left open is now answered elsewhere.** This is not a correction:
+> the normative text above is unchanged and the structure is unchanged. It is
+> recorded here because §1.2 and §12 listed `KeyPackage` publication as open, a
+> reader arriving from either will land on this paragraph, and the answer is
+> *"still not in the entry."*
+>
+> The reason the exclusion holds is sharper than "every field is published
+> forever". **A `KeyPackage` is consumed on use** — RFC 9420 §10 has a client
+> delete its init secret once a `Welcome` addressed to it is processed, and a
+> package used twice means two initiators encrypting to one secret — while §4.2's
+> version chain and §4.3's one-entry-per-handle-per-epoch rule exist so that
+> nothing in this log is ever withdrawn. An append-only structure cannot express
+> consumption. Putting a pool in an entry would additionally make `entry_version`
+> a public counter of how many people have started a conversation with you, and
+> would cap refill at one epoch.
+>
+> [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+> puts the pool at the **relay**, keyed by the `contact_addr` this entry already
+> publishes in its `ContactEndpoint`, and requires a fetcher to authenticate the
+> package it gets against **this entry** — the `identity_pk` above, the `handle`,
+> the `devices` set and the `revocations`. So the entry is what makes a
+> relay-served key package safe, and carrying the package itself would have made
+> it neither safer nor available.
+> [ADR 0015](./decisions/0015-key-package-publication.md).
 
 ### 4.2 Versions and the hash chain
 
@@ -2506,11 +2539,21 @@ Deliberately, and listed rather than invented.
   [ADR 0014](./decisions/0014-directory-key-rotation.md) requires the key to be
   pinned in clients and does not say how; nothing anywhere says what happens when
   that key must itself be replaced. A gap, named.
-- **MLS `KeyPackage` publication and exhaustion** — deferred out of
-  [`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end) as directory
-  design, and still not answered. A `KeyPackage` is consumed on use and
-  republished constantly, which is the wrong lifecycle for an append-only log
-  entry, and last-resort key package behaviour is a separate decision.
+- **~~MLS `KeyPackage` publication and exhaustion~~ — closed 2026-08-26**, and
+  not by this document. It was deferred out of
+  [`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end) as *"directory
+  design"*, and the answer turned out to be that it is not directory design at
+  all: a key package is consumed on use, an append-only log cannot express
+  consumption, and the resolution is to keep it out of the tree and put the pool
+  at the relay — addressed by the `contact_addr` §4.1 already publishes, and
+  authenticated against the entry §4.1 already carries.
+  [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+  specifies it, [ADR 0015](./decisions/0015-key-package-publication.md) records
+  the decision and its rejected alternatives, and the last-resort trade — a
+  reusable init key, bought for availability — is stated in
+  [`THREAT-MODEL.md` §4.12](./THREAT-MODEL.md#412-a-last-resort-key-package-is-a-reused-init-key).
+  §4.1's structure is **unchanged**; what a `DirectoryEntry` publishes is what it
+  published before.
 - **Handle rename and transfer** —
   [§13-K](./ARCHITECTURE.md#13-open-questions), unchanged.
 - **Where `FaultReport`s are published and who acts on one.** The format is

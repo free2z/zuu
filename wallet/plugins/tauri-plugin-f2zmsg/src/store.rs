@@ -668,6 +668,18 @@ pub struct ContactQueue {
     pub recv_key_seed: String,
     pub next_index: u64,
     pub acked_through: Option<u64>,
+    /// Single-use key packages the relay held at the last publish (§12.6).
+    ///
+    /// The relay's own count, not this device's guess at one. It is the only
+    /// way to know how many were claimed while this device was away, and it is
+    /// what the low-water rule is applied to. `serde(default)` so a store
+    /// written before §12.6 opens as a pool of zero — which is the truth, and
+    /// which makes the next `start_engine` publish one.
+    #[serde(default)]
+    pub key_package_pool: u32,
+    /// Whether the relay holds a package of last resort for this device.
+    #[serde(default)]
+    pub has_last_resort: bool,
 }
 
 /// A pending first-contact request (§3.3), before it becomes a conversation.
