@@ -154,6 +154,28 @@ integrate, and move it forward alongside everything else.
   still be off-limits, and one that was off-limits can stop being so without
   anyone noticing.
 
+- ❌ Assume a version conflict with the Zcash stack is about *our* choice of
+  crate. It is usually about **librustzcash's RustCrypto pre-release island**.
+  `bip32 0.6.0-pre.1` is the only 0.6 release, dates from January 2025, and
+  exact-pins `sha2 =0.11.0-pre.4`, `hmac =0.13.0-pre.4` and
+  `ripemd =0.2.0-pre.4`; librustzcash pins `bip32` with `=` in turn, so
+  everything under `tauri-plugin-zcash` is stuck on 2024-era RustCrypto while
+  the rest of the ecosystem shipped 0.11 / 0.13 / 0.2 stable in March 2026.
+  Anything needing a released line is unlinkable with the wallet, and **the
+  conflict is often reported against a crate that is merely downstream of the
+  real pin**. The messaging plugin's blocker read as "`ed25519-dalek 3` wants
+  `sha2 ^0.11`", which looked like an argument for migrating four first-party
+  crates to `libcrux-ed25519` — and that migration would have fixed nothing,
+  because the second, independent half of it was `hmac ^0.13` coming from
+  `openmls_rust_crypto`, an **optional** dependency of `openmls` that nothing
+  enables and that Cargo version-resolves anyway. Before proposing to change
+  our own crates, delete the suspect dependency in a scratch edit and re-run the
+  resolver: if it still fails, the pin is upstream's. Two transient pins carry
+  us today — `.gitmodules` points `z/zcash/librustzcash` at free2z/librustzcash,
+  and `wallet/zuuli/src-tauri/Cargo.toml` carries a rev-pinned
+  `[patch.crates-io] bip32` — both documented at their sites and both due to be
+  removed when `bip32 0.6.0` is published.
+
 ## Guardrails that keep us honest
 
 - **`.github/workflows/zuuallet.yml`** builds both halves of Zuuallet (frontend

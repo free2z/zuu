@@ -36,6 +36,33 @@ tauri-plugin-zcash = { path = "../../plugins/tauri-plugin-zcash" }
 tiny_http = "0.12"
 url = "2"
 getrandom = "0.3"
+# End-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3). The
+# enrollment trio is NOT here — it needs the wallet seed and lives in
+# `src/messaging.rs`, which borrows it from `tauri-plugin-zcash`'s managed
+# state in-process so the mnemonic never crosses IPC (§2.2).
+tauri-plugin-f2zmsg = { path = "../../plugins/tauri-plugin-f2zmsg" }
+# The four messaging-core crates `src/messaging.rs` needs to turn a wallet seed
+# into a `DeviceCredential`. Exactly the set `tauri-plugin-f2zmsg`'s own
+# two-process harness names for the same job, and every one of them is already
+# in this graph through the plugin — declaring them here is AGENTS.md's rule
+# that what we use is declared rather than inherited by feature unification.
+#
+# `f2z-relay*`, `f2z-kt` and `f2z-witness` are deliberately absent: two are AGPL
+# server binaries and adding one would relicense ZUULI (rs/README.md).
+#
+# §4.2's seed-derived key hierarchy, and `issue_device_credential`.
+f2z-msg-identity = { path = "../../../rs/crates/f2z-msg-identity", version = "0.1.0" }
+# `Handle` and `KemPublicKey`, which a `DeviceCredentialRequest` is built from.
+f2z-kt-core = { path = "../../../rs/crates/f2z-kt-core", version = "0.1.0", default-features = false }
+# `PublicKey` — the credential's `device_pk`.
+f2z-codec = { path = "../../../rs/crates/f2z-codec", version = "0.1.0" }
+# `credential::encode`, the canonical encoding `install_identity` parses back.
+f2z-msg-mls = { path = "../../../rs/crates/f2z-msg-mls", version = "0.1.0" }
+# `SecretVec`'s `ExposeSecret`, for the one line that reads the derived seed.
+# Same version `tauri-plugin-zcash` resolves, so this adds nothing to the graph.
+secrecy = "0.8"
+# Hex for `identity_pk`, which crosses into the engine as a string.
+hex = "0.4"
 
 # Keep Tauri's mock runtime out of Windows test executables; the hosted runner
 # cannot load that linkage. The shipping router still compiles on Windows, and
@@ -83,3 +110,33 @@ opt-level = 3
 # binaries at the cost of slower link times.
 lto = "thin"
 codegen-units = 1
+
+# ---------------------------------------------------------------------------
+# The one patch this app carries, and the reason it can link the messaging
+# plugin at all. TRANSIENT — delete it the moment bip32 0.6.0 is published and
+# the Zcash stack is on secp256k1 0.31.
+#
+# `bip32 0.6.0-pre.1` is the only 0.6 release (2025-01-27) and it exact-pins
+# three 2024-era RustCrypto pre-releases: `sha2 =0.11.0-pre.4`,
+# `hmac =0.13.0-pre.4`, `ripemd =0.2.0-pre.4`. librustzcash pins
+# `bip32 = "=0.6.0-pre.1"`, so that island reaches everything under
+# `tauri-plugin-zcash`. The messaging core is on the *released* lines — sha2
+# 0.11.0 through `ed25519-dalek 3`, hmac 0.13.0 through `openmls_rust_crypto`
+# (an optional dependency of `openmls` that Cargo still version-resolves) — and
+# `=0.11.0-pre.4` cannot coexist with `^0.11`, so the two graphs were
+# unlinkable. That is the whole of the blocker; it is NOT about our choice of
+# Ed25519, and moving our crates to `libcrux-ed25519` would not have touched
+# the `hmac` half of it.
+#
+# iqlusioninc/crates `main` already fixed the pre-release pins — but the same
+# branch bumped `secp256k1-ffi` 0.29 -> 0.31, and `zcash_script 0.4.5` names
+# `bip32::ExtendedPublicKey<secp256k1::PublicKey>` against secp256k1 0.29. No
+# upstream commit has both. free2z/crates `f2z/bip32-secp256k1-0.29` is
+# upstream `main` (eb57d49) with that one requirement held at 0.29, and nothing
+# else.
+#
+# Pinned by `rev`, never by branch: a moving branch is not a reproducible
+# build, and `--locked` has to mean something.
+# ---------------------------------------------------------------------------
+[patch.crates-io]
+bip32 = { git = "https://github.com/free2z/crates", rev = "131d490ef75ccd23111cc7f3df91e4a88fc971ae" }

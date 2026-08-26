@@ -114,24 +114,16 @@ const PLUGINS = [
     directory: "wallet/plugins/tauri-plugin-f2zmsg",
     namespace: "f2zmsg",
     macro: "with_f2zmsg_commands",
-    // Empty, with a reason, and the reason is not "not yet written".
-    //
-    // `wallet/zuuli/src-tauri` cannot link this plugin today: librustzcash's
-    // `bip32 = "=0.6.0-pre.1"` requires `sha2 = "=0.11.0-pre.4"`, and
-    // `ed25519-dalek 3` — which the whole messaging core is on — requires
-    // `sha2 ^0.11`, which a pre-release does not satisfy. Cargo unifies
-    // semver-compatible versions, so the two cannot coexist, and a capability
-    // naming `f2zmsg:` for a plugin the app does not link would fail
-    // `tauri_build::build()` rather than protect anything.
-    //
-    // The moment that conflict lifts, this array gains the two Zuuli capability
-    // files and `capabilitiesPending` goes away. `capabilitiesPending` is here
-    // so the empty list is a recorded decision rather than an omission: the
-    // check below rejects an empty `capabilities` that carries no reason.
-    capabilities: [],
-    capabilitiesPending:
-      "wallet/zuuli/src-tauri cannot link tauri-plugin-f2zmsg while librustzcash's " +
-      "bip32 =0.6.0-pre.1 pins sha2 =0.11.0-pre.4 and ed25519-dalek 3 requires sha2 ^0.11",
+    capabilities: [
+      {
+        file: "wallet/zuuli/src-tauri/capabilities/default.json",
+        grant: "default",
+      },
+      {
+        file: "wallet/zuuli/src-tauri/capabilities/mobile.json",
+        grant: "named",
+      },
+    ],
     // Zuuli tracks no generated target schemas — `git ls-files` over
     // `wallet/zuuli/src-tauri/gen/schemas` is empty — so this plugin has no
     // counterpart for the chain's last link. That asymmetry is §2.3's, not a

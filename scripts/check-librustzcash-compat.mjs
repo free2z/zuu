@@ -10,8 +10,25 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 const SUBMODULE_PATH = "z/zcash/librustzcash";
 // This is an independently reviewed identity decision. Never derive it from
 // the index or working tree: doing so would make a stale pin self-approving.
+//
+// TRANSIENT FORK. This commit is upstream `main` at
+// 330e4c0aa9e25199acdb93a56bf70126d0d3f2b9 — the previously reviewed pin — plus
+// one 4-line deletion, and `.gitmodules` points at free2z/librustzcash for as
+// long as that deletion is unmerged. It removes the workspace's
+// `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins and
+// the two `zcash_primitives` lines that consume them; both carry upstream's own
+// "later RCs require edition2024" / "remove after edition2024 upgrade" comments,
+// that upgrade has landed, and neither crate is named anywhere in
+// zcash_primitives' source. `=0.2.0-rc.1` and the `^0.2` that `digest 0.11`
+// requires cannot both be satisfied, which is what stopped
+// `wallet/zuuli/src-tauri` linking `tauri-plugin-f2zmsg` at all.
+//
+// Because the delta is a dependency-requirement deletion and not a version
+// bump, EXPECTED_PACKAGES below is unchanged and so is REVIEWED_SCOPE_DIGEST.
+// Move both this literal and `.gitmodules` back to upstream the moment the PR
+// merges.
 const EXPECTED_LIBRUSTZCASH_SHA =
-  "330e4c0aa9e25199acdb93a56bf70126d0d3f2b9";
+  "d63d44b27e9de276a3bab2ea2ec6430871faef22";
 const SEND_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs";
 const NATIVE_SEND_POLICY_SOURCE =

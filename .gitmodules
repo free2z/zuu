@@ -20,8 +20,27 @@
 	branch = main
 [submodule "z/zcash/librustzcash"]
 	path = z/zcash/librustzcash
-	url = https://github.com/zcash/librustzcash
-	branch = main
+	# TRANSIENT FORK, and the only submodule that points at one. See
+	# AGENTS.md "It's a real upstream regression -> branch, PR, pin, resume".
+	#
+	# free2z/librustzcash `f2z/drop-stale-rustcrypto-rc-pins` is upstream
+	# `main` at 330e4c0 plus one 4-line deletion (and its lockfile): the workspace's
+	# `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins
+	# and the two `zcash_primitives` lines that consume them. Both carry
+	# upstream's own comment "later RCs require edition2024" / "remove after
+	# edition2024 upgrade"; that upgrade has landed (`edition = "2024"`,
+	# `rust-version = "1.88"`) and every current release of those crates
+	# declares `rust-version = "1.85"`. Neither crate is named anywhere in
+	# zcash_primitives' source.
+	#
+	# Why it blocks us: `=0.2.0-rc.1` and the `^0.2` that `digest 0.11`
+	# requires cannot both be satisfied, so `wallet/zuuli/src-tauri` could not
+	# link `tauri-plugin-f2zmsg` at all.
+	#
+	# Move this back to https://github.com/zcash/librustzcash + `main` the
+	# moment the upstream PR merges.
+	url = https://github.com/free2z/librustzcash
+	branch = f2z/drop-stale-rustcrypto-rc-pins
 [submodule "z/zcash/orchard"]
 	path = z/zcash/orchard
 	url = https://github.com/zcash/orchard

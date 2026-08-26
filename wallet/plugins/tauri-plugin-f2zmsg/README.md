@@ -174,40 +174,92 @@ renders the sequence as given. §7 also fixes the cursor: it is a `msgId`, never
 an offset, since positions in a topological order are not stable under arrival.
 Both hold here.
 
-## What is not wired yet, and exactly why
+## What it took to link this, and what is transient about it
 
-**ZUULI does not link this plugin.** `wallet/zuuli/src-tauri` cannot, today:
+**ZUULI links this plugin.** It could not until #737, and the reason is worth
+keeping written down, because the shape of it is not what it first looked like.
+
+Two independent conflicts, both rooted in one place — `bip32 0.6.0-pre.1`, the
+only 0.6 release (2025-01-27), which exact-pins three 2024-era RustCrypto
+pre-releases:
 
 ```
-librustzcash  bip32 = "=0.6.0-pre.1"   →  sha2 = "=0.11.0-pre.4"
-messaging     ed25519-dalek 3          →  sha2 = "^0.11"          → 0.11.0
+librustzcash  bip32 = "=0.6.0-pre.1"  →  sha2 = "=0.11.0-pre.4"
+                                      →  hmac = "=0.13.0-pre.4"
+                                      →  ripemd = "=0.2.0-pre.4"
+
+messaging     ed25519-dalek 3         →  sha2 ^0.11    → 0.11.0
+              openmls_rust_crypto     →  hmac ^0.13    → 0.13.0
 ```
 
-Cargo unifies semver-compatible versions, and `^0.11` does not match a
-pre-release, so the two cannot coexist in one graph. Reproduce it by adding
-`tauri-plugin-f2zmsg` to `wallet/zuuli/src-tauri/Cargo.toml` and running
-`cargo check`. It is not a pin we chose: upstream librustzcash `main` still
-carries the same `bip32` requirement, so a submodule bump does not fix it, and
-`transparent-inputs` — which pulls `bip32` — is load-bearing for the wallet.
+`^0.11` does not match a pre-release, and Cargo unifies semver-compatible
+versions, so neither pair can coexist.
 
-Consequences, all of them recorded rather than worked around:
+**The `hmac` half is the one that settles the diagnosis.**
+`openmls_rust_crypto 0.6.0` is an *optional* dependency of `openmls 0.9.0` that
+nothing here enables — and Cargo version-resolves optional dependencies anyway,
+so it constrains the lock regardless. That conflict is untouched by any choice
+about our own Ed25519: moving `f2z-msg-identity`, `f2z-relay-proto`,
+`f2z-authority` and `f2z-kt-core` off `ed25519-dalek` onto `libcrux-ed25519`
+would have removed the `sha2` row and left the `hmac` row exactly where it was.
+The fix had to be upstream, and `ed25519-dalek 3` — with `verify_strict` and the
+workspace scan that enforces it — is unchanged.
 
-* `capabilities/default.json` and `capabilities/mobile.json` carry no `f2zmsg:`
-  entries. A capability naming a plugin the app does not link fails
-  `tauri_build::build()`. `scripts/check-tauri-plugin-permissions.mjs` records
-  the empty grant with this reason and refuses an empty one without a reason.
-  Adding the mobile entries will also need
-  `wallet/zuuli/scripts/mobile-webview-authority.mjs`'s reviewed allowlist
-  extended — mobile authority is granted by review, not by registration.
-* `wallet/zuuli/src-tauri/src/messaging.rs` — the enrollment trio — is **not in
-  this pull request**, because it cannot compile until the plugin links. What
-  *is* here is the whole plugin side of it: `Engine::prepare_device` generates
-  the device keys from the OS CSPRNG and returns only their public halves, and
-  `Engine::install_identity` takes a `DeviceCredential` and the seed-derived
-  `BackupWrapKey` and never sees the seed. `src/bin/peer.rs` performs exactly
-  the sequence the app crate will — derive `AccountKeys::from_seed`, issue the
-  credential, install, unlock — so the API is exercised rather than asserted,
-  and `tests/engine_lifecycle.rs` covers its refusals.
+librustzcash carried two `=` pins of its own on top of that,
+`block-buffer = "=0.11.0-rc.3"` and `crypto-common = "=0.2.0-rc.1"`, each
+commented "later RCs require edition2024" and each annotated in
+`zcash_primitives` as "remove after edition2024 upgrade". That upgrade has
+landed — the workspace is `edition = "2024"`, `rust-version = "1.88"` — and
+every current release of those crates declares `rust-version = "1.85"`. Neither
+crate is referenced in `zcash_primitives`' source at all.
+
+So, per `AGENTS.md`'s "branch, PR, pin, resume", **two transient pins**:
+
+* `z/zcash/librustzcash` → **free2z/librustzcash**
+  `f2z/drop-stale-rustcrypto-rc-pins`: upstream `main` at the previously
+  reviewed `330e4c0` plus that 4-line deletion.
+* `[patch.crates-io] bip32` → **free2z/crates** `f2z/bip32-secp256k1-0.29`,
+  pinned by `rev`. iqlusioninc/crates `main` already moved bip32 onto the
+  released RustCrypto lines — but the same branch bumped `secp256k1-ffi`
+  0.29 → 0.31, and `zcash_script 0.4.5` names
+  `bip32::ExtendedPublicKey<secp256k1::PublicKey>` against 0.29. No upstream
+  commit has both, so that branch is upstream `main` with the one requirement
+  held back and nothing else.
+
+Both go away when `bip32 0.6.0` is published and the Zcash stack moves to
+secp256k1 0.31. `scripts/check-librustzcash-compat.mjs` and the `[patch]` block
+in `wallet/zuuli/src-tauri/Cargo.toml` each say so where a reader will find it.
+
+What that unblocked, all of it now present:
+
+* `wallet/zuuli/src-tauri/src/messaging.rs` — the enrollment trio, in the app
+  crate because it needs the wallet seed (§2.2). It reads the seed in-process
+  from `tauri-plugin-zcash`'s managed state, derives §4.2's keys, and hands this
+  engine only public material plus the wrap key. `f2zmsg_enroll` doubles as the
+  §6.1 unlock path, because nothing in §3's 43 plugin commands can lift `locked`
+  and nothing should be able to. `src/bin/peer.rs` still performs the same
+  sequence, so the API stays exercised rather than asserted.
+* `f2zmsg:default` in `capabilities/default.json`; 42 named `f2zmsg:allow-…` in
+  `capabilities/mobile.json` — the whole surface except `set_relay_trust`, the
+  one grant that is a security downgrade (`WIRE.md` §2.3, §5.3). A store build
+  must not let a mobile user opt in to a cleartext relay, and `add_relay`
+  already refuses one.
+* Both files registered in `scripts/check-tauri-plugin-permissions.mjs`'s
+  `PLUGINS`, and the mobile list registered in
+  `wallet/zuuli/scripts/mobile-webview-authority.mjs`'s reviewed allowlist —
+  mobile authority is granted by review, not by registration.
+
+**One consequence of linking, recorded as #753 rather than fixed here.** This
+crate's `setup` hook is fallible end to end, and an `Err` from a plugin's setup
+makes `tauri::Builder::build()` fail — so a messaging store that cannot be
+opened now takes the whole ZUULI wallet down at launch. `SqliteBackend::open`'s
+strictness is right (§11.2: a client that cannot promise durability must not
+ACK); its blast radius is not. Failing soft is not a one-line change, because
+`F2zMsgExt::f2zmsg` unwraps the managed state and all 43 commands would panic
+instead of refusing — `EngineState::Faulted` is the answer, and #753 carries the
+shape.
+
+## What is still not wired, and exactly why
 
 **The key-transparency directory has no client.** `f2z-kt` is a running server
 and `f2z-kt-core` is the client verifier, but nothing carries a `/kt/v1/lookup`

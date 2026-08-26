@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   assertMobileWebviewAuthority,
+  REVIEWED_MOBILE_F2ZMSG_PERMISSIONS,
   REVIEWED_MOBILE_ZCASH_PERMISSIONS,
 } from "./mobile-webview-authority.mjs";
 
@@ -16,6 +17,7 @@ function fixture() {
         "deep-link:default",
         "opener:default",
         ...REVIEWED_MOBILE_ZCASH_PERMISSIONS,
+        ...REVIEWED_MOBILE_F2ZMSG_PERMISSIONS,
         {
           identifier: "http:default",
           allow: [
@@ -40,6 +42,46 @@ test("zcash:default cannot return to privileged mobile main", () => {
   assert.throws(
     () => assertMobileWebviewAuthority(mobile, tauri),
     /must not receive zcash:default/,
+  );
+});
+
+test("f2zmsg:default cannot return to privileged mobile main", () => {
+  const { mobile, tauri } = fixture();
+  mobile.permissions.push("f2zmsg:default");
+  assert.throws(
+    () => assertMobileWebviewAuthority(mobile, tauri),
+    /must not receive f2zmsg:default/,
+  );
+});
+
+test("messaging authority is exact, and the relay-trust downgrade stays out", () => {
+  assert.ok(
+    !REVIEWED_MOBILE_F2ZMSG_PERMISSIONS.includes("f2zmsg:allow-set-relay-trust"),
+    "a store build must not let mobile opt in to a cleartext relay",
+  );
+
+  const widened = fixture();
+  widened.mobile.permissions.push("f2zmsg:allow-set-relay-trust");
+  assert.throws(
+    () => assertMobileWebviewAuthority(widened.mobile, widened.tauri),
+    /mobile messaging permissions differs/,
+  );
+
+  const missing = fixture();
+  missing.mobile.permissions = missing.mobile.permissions.filter(
+    (permission) => permission !== "f2zmsg:allow-send-message",
+  );
+  assert.throws(
+    () => assertMobileWebviewAuthority(missing.mobile, missing.tauri),
+    /mobile messaging permissions differs/,
+  );
+
+  // §2.2: enrollment is an app-crate command, so no capability grants it.
+  const enrollment = fixture();
+  enrollment.mobile.permissions.push("f2zmsg:allow-f2zmsg-enroll");
+  assert.throws(
+    () => assertMobileWebviewAuthority(enrollment.mobile, enrollment.tauri),
+    /mobile messaging permissions differs/,
   );
 });
 

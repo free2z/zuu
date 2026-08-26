@@ -326,11 +326,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Fetch + bump librustzcash to latest main
+      # UPSTREAM, by URL and not by `origin`. `.gitmodules` currently points
+      # `origin` at free2z/librustzcash — a transient fork carrying one 4-line
+      # deletion — and a canary that followed `origin/main` would be testing
+      # the fork's stale main instead of zcash/librustzcash's. The whole point
+      # of this job is to see upstream drift before we take it.
+      - name: Fetch + bump librustzcash to latest UPSTREAM main
         run: |
           git submodule update --init z/zcash/librustzcash
-          git -C z/zcash/librustzcash fetch origin main
-          git -C z/zcash/librustzcash checkout origin/main
+          git -C z/zcash/librustzcash fetch https://github.com/zcash/librustzcash main
+          git -C z/zcash/librustzcash checkout FETCH_HEAD
           echo "librustzcash now at: $(git -C z/zcash/librustzcash rev-parse --short HEAD)"
 
       - name: Install Tauri system dependencies

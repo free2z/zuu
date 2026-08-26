@@ -7,6 +7,7 @@
     "core:default",
     "opener:default",
     "zcash:default",
+    "f2zmsg:default",
     {
       "identifier": "http:default",
       "allow": [

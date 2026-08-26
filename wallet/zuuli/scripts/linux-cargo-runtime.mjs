@@ -32,7 +32,29 @@ export const CARGO_RUNTIME_PACKAGE_FEATURES =
 const MAX_EVIDENCE_BYTES = 1024 * 1024;
 const MAX_EVIDENCE_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_PACKAGES = 10_000;
-const KNOWN_SOURCES = new Set(["crates.io", "local"]);
+// `git` is here because of ONE reviewed dependency, and it is not a general
+// permission: `sourceKind` below admits exactly one git source string and
+// throws on every other. `cargo-auditable`'s embedded evidence labels any git
+// dependency `"git"` with no URL, and `reconcileRuntimePackages` keys packages
+// on `name\0version\0source`, so the two sides have to spell it the same way.
+// The URL and revision are pinned in `REVIEWED_GIT_SOURCES`, and the lockfile
+// that carries them is itself bound by `CARGO_RUNTIME_CARGO_LOCK_SHA256`.
+const KNOWN_SOURCES = new Set(["crates.io", "local", "git"]);
+
+// TRANSIENT. `wallet/zuuli/src-tauri/Cargo.toml` carries a rev-pinned
+// `[patch.crates-io]` for `bip32`, because the only published 0.6 release
+// exact-pins three 2024-era RustCrypto pre-releases and librustzcash pins that
+// release with `=`, which made the wallet unlinkable with `tauri-plugin-f2zmsg`.
+// The full account is in that manifest and in
+// `wallet/plugins/tauri-plugin-f2zmsg/README.md`.
+//
+// An exact string and not a prefix: a different revision of the same fork is a
+// different dependency and must fail here until someone reviews it. Remove this
+// with the patch, when `bip32 0.6.0` is published.
+export const REVIEWED_GIT_SOURCES = new Set([
+  "git+https://github.com/free2z/crates?rev=131d490ef75ccd23111cc7f3df91e4a88fc971ae" +
+    "#131d490ef75ccd23111cc7f3df91e4a88fc971ae",
+]);
 
 function sha256Bytes(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -85,6 +107,7 @@ function sourceKind(source) {
   if (source === "registry+https://github.com/rust-lang/crates.io-index") {
     return "crates.io";
   }
+  if (REVIEWED_GIT_SOURCES.has(source)) return "git";
   throw new Error(
     `Cargo metadata contains a non-shipping package source: ${source}`,
   );

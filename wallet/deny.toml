@@ -174,3 +174,20 @@ multiple-versions = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# TRANSIENT, and the only git source in any shipping lock.
+#
+# `wallet/zuuli/src-tauri` carries a rev-pinned `[patch.crates-io]` for `bip32`,
+# because the only published 0.6 release exact-pins three 2024-era RustCrypto
+# pre-releases (`sha2 =0.11.0-pre.4`, `hmac =0.13.0-pre.4`,
+# `ripemd =0.2.0-pre.4`) and librustzcash pins that release with `=`, which
+# makes the wallet unlinkable with anything on the released RustCrypto lines —
+# `tauri-plugin-f2zmsg` included. free2z/crates `f2z/bip32-secp256k1-0.29` is
+# iqlusioninc/crates `main` (which already moved bip32 to the released lines)
+# with `secp256k1-ffi` held at 0.29, because the same upstream branch bumped it
+# to 0.31 and `zcash_script 0.4.5` cannot take that.
+#
+# The allowance is the *repository*, and the lock pins an exact `rev`, so this
+# does not admit an arbitrary git dependency — it admits one reviewed commit of
+# one fork we control. Remove the entry with the patch, when `bip32 0.6.0` is
+# published and the Zcash stack moves to secp256k1 0.31.
+allow-git = ["https://github.com/free2z/crates"]
