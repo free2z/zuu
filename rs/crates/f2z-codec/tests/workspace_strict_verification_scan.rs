@@ -536,9 +536,11 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             via: "audit_verify",
         },
     },
-    // ---- f2z-kt ------------------------------------------------------------
+    // The handle-authority policy of §4.6. It sits in `f2z-kt-core` and not in
+    // the log server because `KT.md` §8.1 step 7 makes verifying it a
+    // **client** obligation, and the log server is AGPL-3.0.
     VerifyFn {
-        file: "f2z-kt/src/policy.rs",
+        file: "f2z-kt-core/src/policy.rs",
         name: "verify",
         occurrence: 0,
         strictness: Strictness::DelegatesToFn {
@@ -546,6 +548,7 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             call: "sig::verify",
         },
     },
+    // ---- f2z-kt ------------------------------------------------------------
     VerifyFn {
         file: "f2z-kt/src/admit.rs",
         name: "verify_binding",

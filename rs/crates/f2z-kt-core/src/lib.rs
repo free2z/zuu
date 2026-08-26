@@ -108,6 +108,7 @@ pub mod descriptor;
 pub mod entry;
 pub mod error;
 pub mod labels;
+pub mod policy;
 pub mod receipt;
 pub mod sig;
 pub mod sth;
