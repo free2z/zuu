@@ -43,7 +43,7 @@ use f2z_kt_core::types::{Handle, KemPublicKey};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::SqliteBackend;
 use serde::{Deserialize, Serialize};
-use tauri_plugin_f2zmsg::directory::{Directory, ResolvedPeer};
+use tauri_plugin_f2zmsg::directory::{Directory, ResolvedIdentity, ResolvedPeer};
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::error::{Error, Result};
 use tauri_plugin_f2zmsg::events::RecordingSink;
@@ -84,6 +84,21 @@ impl Directory for FileDirectory {
             witness_cosignatures: 1,
             independent_witnesses: 1,
             threshold_met: true,
+        })
+    }
+
+    fn resolve_identity(&self, handle: &str) -> Result<ResolvedIdentity> {
+        let published = self.read(handle).ok_or_else(|| {
+            Error::new(
+                ErrorCode::DirectoryUnreachable,
+                format!("{handle} has published nothing yet"),
+            )
+        })?;
+        Ok(ResolvedIdentity {
+            resolution: self.resolve(handle)?,
+            identity_pk: published.identity_pk,
+            contact_relay_url: published.contact_relay_url,
+            contact_addr: published.contact_addr,
         })
     }
 

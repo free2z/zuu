@@ -34,7 +34,7 @@
 //! is a witness's job.
 
 use akd_core::configuration::WhatsAppV1Configuration;
-use akd_core::verify::{HistoryVerificationParams, key_history_verify, lookup_verify};
+use akd_core::verify::{key_history_verify, lookup_verify};
 use akd_core::{AkdLabel, HistoryProof, LookupProof};
 use f2z_codec::canonical::decode_canonical;
 use protobuf::Message as _;
@@ -43,7 +43,7 @@ use crate::entry::DirectoryEntry;
 use crate::error::KtError;
 use crate::labels::{akd_label, entry_value};
 use crate::submit::{PublishedEntry, SubmissionContext, validate_submission};
-use crate::types::Handle;
+use crate::types::{Handle, LogId};
 use crate::witness::AcceptedRoot;
 
 /// The `akd` configuration this log is built on (§3.2). Fixed, and permanent:
@@ -142,6 +142,92 @@ impl VerifiedEntry {
     }
 }
 
+/// Decode an entry served by a log, and check that it is the one that was asked
+/// for.
+///
+/// Public because §8.2's chain check is worth running **even when the root
+/// could not be witnessed** — §8.3's table has self-audit *"continues, and
+/// reports"* when the threshold is unmet, and a substitution a client can see
+/// is worth more than one it cannot. A caller in that state has no
+/// [`AcceptedRoot`] to hand [`verify_key_history`], and this is what it uses
+/// instead. It is emphatically **not** a proof of anything: it decodes and it
+/// checks the two identifiers, and that is all.
+///
+/// # Errors
+///
+/// - [`KtError::Malformed`] if the bytes are not canonical (`WIRE.md` §3.3) or
+///   the entry's own field rules do not hold.
+/// - [`KtError::WrongLog`] if the entry names another log.
+/// - [`KtError::BadHandle`] if the log answered about a different handle. A
+///   proof for `@mallory` verifies perfectly; it just does not answer the
+///   question that was asked, and accepting it is the whole of the substitution
+///   attack.
+pub fn decode_entry(
+    log_id: &LogId,
+    handle: &Handle,
+    entry_bytes: &[u8],
+) -> Result<(DirectoryEntry, Vec<u8>), KtError> {
+    let decoded = decode_canonical::<DirectoryEntry>(entry_bytes)?;
+    let entry = decoded.value().clone();
+    let canonical = decoded.bytes().to_vec();
+    entry.validate()?;
+    if entry.entry.log_id != *log_id {
+        return Err(KtError::WrongLog);
+    }
+    if entry.entry.handle != *handle {
+        return Err(KtError::BadHandle);
+    }
+    Ok((entry, canonical))
+}
+
+/// §8.2 step 4 — the `entry_version` sequence and the `prev_entry_hash` chain.
+///
+/// `entries` are in the order a `HistoryResponse` serves them, which is `akd`'s
+/// **decreasing** version order. `pinned` is the client's last known published
+/// entry, or `None` when it is starting from a complete history.
+///
+/// **This is not redundant with a history proof, and it is not a substitute for
+/// one.** `key_history_verify` proves the versions returned are in the tree;
+/// this proves the client was shown **all** of them, because a log that omits a
+/// version from a history response is otherwise serving a truthful subset and
+/// every proof in it verifies. Run without the proof — which is what a client
+/// under an unwitnessed root is reduced to — it catches an omission and a
+/// forged chain, and it catches nothing about whether any of it is in the tree.
+///
+/// # Errors
+///
+/// [`KtError::HistoryIncomplete`] if the versions are not contiguous, if the
+/// chain breaks, or if the oldest entry shown is neither version 1 with a zero
+/// `prev_entry_hash` nor a successor of `pinned`.
+pub fn check_entry_chain(
+    entries: &[DirectoryEntry],
+    pinned: Option<&PublishedEntry>,
+) -> Result<(), KtError> {
+    // Walked oldest-first so the chain reads forwards.
+    let mut previous: Option<PublishedEntry> = pinned.cloned();
+    for current in entries.iter().rev() {
+        match &previous {
+            None => {
+                // Nothing pinned and nothing shown before this: the only entry
+                // that can legitimately start a history is the registration.
+                if current.entry.entry_version != 1 || !current.entry.prev_entry_hash.is_zero() {
+                    return Err(KtError::HistoryIncomplete);
+                }
+            }
+            Some(previous) => {
+                if current.entry.entry_version != previous.entry_version().saturating_add(1) {
+                    return Err(KtError::HistoryIncomplete);
+                }
+                if current.entry.prev_entry_hash != *previous.chain_hash() {
+                    return Err(KtError::HistoryIncomplete);
+                }
+            }
+        }
+        previous = Some(PublishedEntry::from_entry(current)?);
+    }
+    Ok(())
+}
+
 /// Decode and bind an entry to the value a proof commits to (§8.1 step 4).
 ///
 /// The value is **recomputed here from the returned entry bytes**, under
@@ -152,19 +238,7 @@ fn bind_entry(
     handle: &Handle,
     entry_bytes: &[u8],
 ) -> Result<(DirectoryEntry, Vec<u8>, akd_core::AkdValue), KtError> {
-    let decoded = decode_canonical::<DirectoryEntry>(entry_bytes)?;
-    let entry = decoded.value().clone();
-    let canonical = decoded.bytes().to_vec();
-    entry.validate()?;
-    if entry.entry.log_id != *root.log_id() {
-        return Err(KtError::WrongLog);
-    }
-    if entry.entry.handle != *handle {
-        // The log answered about a different handle. A proof for `@mallory`
-        // verifies perfectly; it just does not answer the question that was
-        // asked, and accepting it is the whole of the substitution attack.
-        return Err(KtError::BadHandle);
-    }
+    let (entry, canonical) = decode_entry(root.log_id(), handle, entry_bytes)?;
     let value = akd_core::AkdValue(entry_value(&canonical).as_bytes().to_vec());
     Ok((entry, canonical, value))
 }
@@ -310,30 +384,13 @@ pub fn verify_key_history(
         });
     }
 
-    // §8.2 step 4, walked oldest-first so the chain reads forwards.
-    let mut previous: Option<PublishedEntry> = pinned.cloned();
-    for current in verified.iter().rev() {
-        match &previous {
-            None => {
-                // Nothing pinned and nothing shown before this: the only entry
-                // that can legitimately start a history is the registration.
-                if current.entry.entry.entry_version != 1
-                    || !current.entry.entry.prev_entry_hash.is_zero()
-                {
-                    return Err(KtError::HistoryIncomplete);
-                }
-            }
-            Some(previous) => {
-                if current.entry.entry.entry_version != previous.entry_version().saturating_add(1) {
-                    return Err(KtError::HistoryIncomplete);
-                }
-                if current.entry.entry.prev_entry_hash != *previous.chain_hash() {
-                    return Err(KtError::HistoryIncomplete);
-                }
-            }
-        }
-        previous = Some(current.published()?);
-    }
+    // §8.2 step 4, in the one implementation of it — the same function a client
+    // that could not witness the root runs on its own.
+    let entries: Vec<DirectoryEntry> = verified
+        .iter()
+        .map(|entry| entry.entry.clone())
+        .collect::<Vec<_>>();
+    check_entry_chain(&entries, pinned)?;
 
     Ok(verified)
 }
@@ -341,3 +398,11 @@ pub fn verify_key_history(
 /// Re-export so a caller does not have to depend on `akd_core` to name the
 /// history parameters `KT.md` §8.2 hands to the verifier.
 pub use akd_core::verify::history::HistoryParams;
+
+/// The same, for the type [`verify_key_history`] actually takes.
+///
+/// Without this a caller outside this crate cannot **call** the function: the
+/// parameter type is `akd_core`'s and naming it would mean depending on
+/// `akd_core` directly, which is the coupling `KT.md` §11.4's single-crate rule
+/// exists to avoid. Found while writing `f2z-kt-client`.
+pub use akd_core::verify::HistoryVerificationParams;

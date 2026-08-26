@@ -63,6 +63,7 @@ MANIFESTS=(
   rs/crates/f2z-relay-proto/Cargo.toml
   rs/crates/f2z-authority/Cargo.toml
   rs/crates/f2z-kt-core/Cargo.toml
+  rs/crates/f2z-kt-client/Cargo.toml
   rs/crates/f2z-msg-identity/Cargo.toml
   # The two AGPL-3.0-only server binaries. Registered here rather than by a
   # workflow flag for #553's reason: the census runs in every invocation,

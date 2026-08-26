@@ -6,7 +6,7 @@ contract it implements. This file is the short list of things that will bite you
 
 Rust edition 2024, MSRV 1.97.
 
-## Four things that are not style preferences
+## Five things that are not style preferences
 
 **1. Never ACK before the durable local write completes.** The relay deletes on
 ACK. An ACK plus a crash is permanent message loss, from every copy that ever
@@ -24,11 +24,20 @@ must never cross IPC. Adding an enrollment command to `command_registry.rs`
 fails `wallet/zuuli/scripts/messaging-contract.node-test.mjs`, which asserts the
 absence rather than trusting it.
 
-**4. Do not make the directory resolve.** `directory::NoDirectory` fails closed
-with `witness-threshold-unmet` because §6.4 and §9 rule 5 say an unverified key
-at first contact *is* the MITM. A permissive resolver "just for development" is
-the defect those rules exist to prevent. The two-process harness substitutes the
-resolution from outside the crate, which is why it is a test binary.
+**4. Do not make the directory resolve without a real log.** `KtDirectory` is
+`KT.md` §8 over HTTPS through `f2z-kt-client` and it is real. `NoDirectory` is
+still the **default**, because a client cannot be configured without the log's
+identity, its signing key, the shipped witness list and *t* — and `KT.md` §12
+has decided none of them, which is why `WitnessSet` has no `Default` either.
+Inventing one so the shipping build resolves something would be inventing it for
+every user at the point where being wrong *is* the MITM (§6.4, §9 rule 5). The
+two-process harness substitutes the resolution from outside the crate, which is
+why it is a test binary.
+
+**5. `start_conversation` cannot be fixed here.** It addresses a `Welcome` to an
+MLS `KeyPackage`, and `KT.md` §4.1 publishes none — §1.2 leaves `KeyPackage`
+publication open. `accept_contact_request` is unaffected and uses
+`Directory::resolve_identity`, which needs only the identity key.
 
 ## Commands
 
@@ -53,6 +62,7 @@ against each other and the checker names whichever one you missed.
 
 `envelope.rs` is the adapter over `f2z-msg-dag`; §7 is that crate's and no
 longer this one's. `relay.rs` belongs in `rs/crates/f2z-relay-client` so the WASM client
-can share it. `directory.rs` needs an HTTP client over `/kt/v1/lookup` and
-`f2z_kt_core::verify`. Each says so at the top of the file, with what must not
-change when it moves.
+can share it. `directory.rs` is now an adapter over `f2z-kt-client` and nothing
+more — every protocol verdict is that crate's, and a rule re-derived here would
+be the second implementation §11.4 exists to prevent. Each says so at the top of
+the file, with what must not change when it moves.
