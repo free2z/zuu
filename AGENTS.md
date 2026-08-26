@@ -413,15 +413,22 @@ for w in .worktrees/*/* ; do
 done
 ```
 
-A `MERGED` row is reclaimable. `OPEN` is live work. `(no PR)` and `CLOSED` are
-judgement calls that belong to whoever created them — **never sweep those
-without asking the owner.**
+**A `MERGED` row is reclaimed on sight — always, and without asking.** The
+branch is on `main`; the worktree holds nothing that is not already in the
+repository, so there is no judgement to exercise and no owner to consult. Do
+not leave one standing because it is not yours.
+
+`OPEN` is live work. `(no PR)` and `CLOSED` are the judgement calls, and those
+**do** belong to whoever created them — never sweep those without asking.
 
 ### Check for uncommitted work first, and never force past it
 
 `git worktree remove --force` will discard a dirty tree. That is fine for a
 worktree you created minutes ago to run a mutation in; it is not fine for
-somebody else's in-progress branch. Before removing anything you did not create
+somebody else's in-progress branch. **This is the one condition that overrides
+"reclaim every merged worktree":** a merged branch with uncommitted changes on
+top is somebody's work-in-progress, and the sweep refuses it rather than
+deciding for them. Before removing anything you did not create
 this session:
 
 ```bash
@@ -442,7 +449,15 @@ refuses for a good reason has not already cost you the rebuild:
 rm -rf "$w"/rs/target "$w"/wallet/*/target "$w"/wallet/*/node_modules
 git worktree remove --force "$w"
 git worktree prune
+git branch -D "$b"        # merged; the remote branch is already gone
 ```
+
+Two things that will bite in `zsh`: an unmatched glob is a hard error rather
+than a silent no-op, so give `rm -rf` a `2>/dev/null` or the loop aborts on the
+first worktree that has no `wallet/*/target`; and `gh pr list` needs repository
+context, so a loop that `cd`s to the directory *containing* the checkouts must
+pass `-R <owner>/<repo>` or every query silently returns empty and every
+worktree looks unmerged.
 
 Reclaiming build output **without** removing the worktree is the conservative
 middle option for a branch somebody still wants: it costs a cold rebuild and
