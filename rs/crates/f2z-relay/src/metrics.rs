@@ -64,8 +64,17 @@ pub struct Metrics {
     pub challenges_issued: AtomicU64,
     /// Stamps refused as invalid, expired, misscoped or already spent.
     pub stamps_refused: AtomicU64,
-    /// Pushes dropped because a connection's outbound queue was full.
+    /// Pushes dropped because a connection's outbound queue was full — the
+    /// backpressure signal, and only that. A push to a subscriber whose
+    /// receiver is gone is counted by `pushes_to_closed` instead, because the
+    /// two call for opposite responses and mixing them made this number lie
+    /// during ordinary disconnect churn (zuu#676).
     pub pushes_dropped: AtomicU64,
+    /// Pushes dropped because the subscriber's receiver was gone: its writer
+    /// task ended and `drop_connection` has not run yet. Not backpressure —
+    /// there is no capacity to raise — but a sustained rise is still a signal,
+    /// about teardown rather than about the queue.
+    pub pushes_to_closed: AtomicU64,
     /// 1 while §13.1 layer 4 is on.
     pub backpressure: AtomicU64,
     /// Messages currently stored, as of the last expiry tick.
@@ -118,7 +127,7 @@ impl Metrics {
     /// function.
     #[must_use]
     pub fn render(&self) -> String {
-        const SERIES: [(&str, &str, &str); 22] = [
+        const SERIES: [(&str, &str, &str); 23] = [
             (
                 "f2z_relay_connections_accepted_total",
                 "counter",
@@ -188,7 +197,12 @@ impl Metrics {
             (
                 "f2z_relay_pushes_dropped_total",
                 "counter",
-                "Pushes dropped for a full outbound queue.",
+                "Pushes dropped for a full outbound queue, not for a gone subscriber.",
+            ),
+            (
+                "f2z_relay_pushes_to_closed_total",
+                "counter",
+                "Pushes dropped because the subscriber's receiver was gone.",
             ),
             (
                 "f2z_relay_backpressure",
@@ -242,6 +256,7 @@ impl Metrics {
             &self.challenges_issued,
             &self.stamps_refused,
             &self.pushes_dropped,
+            &self.pushes_to_closed,
             &self.backpressure,
             &self.stored_messages,
             &self.stored_payload_bytes,
@@ -298,9 +313,9 @@ mod tests {
             .lines()
             .filter(|line| !line.starts_with('#') && !line.is_empty())
             .count();
-        assert_eq!(helps, 22);
-        assert_eq!(types, 22);
-        assert_eq!(samples, 22);
+        assert_eq!(helps, 23);
+        assert_eq!(types, 23);
+        assert_eq!(samples, 23);
     }
 
     #[test]
@@ -318,5 +333,23 @@ mod tests {
         );
         Metrics::set(&metrics.storage_bytes, 4_096);
         assert!(metrics.render().contains("f2z_relay_storage_bytes 4096"));
+    }
+
+    #[test]
+    fn the_two_push_drop_causes_are_separate_series() {
+        // zuu#676. `SERIES` and `values` are parallel arrays, so this also
+        // proves the new name is sampled from the counter it names: a
+        // misaligned insert would print the increment under the wrong series.
+        let metrics = Metrics::new();
+        Metrics::inc(&metrics.pushes_to_closed);
+        let rendered = metrics.render();
+        assert!(
+            rendered.contains("f2z_relay_pushes_to_closed_total 1"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("f2z_relay_pushes_dropped_total 0"),
+            "{rendered}"
+        );
     }
 }

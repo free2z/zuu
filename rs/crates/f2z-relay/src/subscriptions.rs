@@ -25,6 +25,7 @@ use std::sync::Mutex;
 
 use f2z_codec::commands::{NoticePush, PushEvent, QueueEventPush, QueuedMessage};
 use f2z_codec::types::QueueAddress;
+use tokio::sync::mpsc::error::TrySendError;
 
 use crate::metrics::Metrics;
 use crate::outbound::{Outbound, msg_push, push};
@@ -173,9 +174,7 @@ impl Subscriptions {
                 let Some(outbound) = push(PushEvent::Notice, &body) else {
                     continue;
                 };
-                if subscriber.sender.try_send(outbound).is_err() {
-                    Metrics::inc(&metrics.pushes_dropped);
-                }
+                count_push(subscriber.sender.try_send(outbound), metrics);
             }
         }
     }
@@ -196,9 +195,7 @@ impl Subscriptions {
             };
             // `try_send`, never `send`: a slow reader must not be able to stall
             // the task that just committed somebody else's append.
-            if subscriber.sender.try_send(outbound).is_err() {
-                Metrics::inc(&metrics.pushes_dropped);
-            }
+            count_push(subscriber.sender.try_send(outbound), metrics);
         }
     }
 
@@ -206,6 +203,25 @@ impl Subscriptions {
         self.inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Book one `try_send` outcome to the counter that describes *why* it failed.
+///
+/// `TrySendError` has two variants and they ask an operator for opposite
+/// things, so they cannot share a series: `Full` means the subscriber is not
+/// keeping up — raise `outbound` capacity or slow the producer — while `Closed`
+/// means the subscriber's writer task has ended and [`Subscriptions::drop_connection`]
+/// has not run yet, which is ordinary disconnect churn with nothing to tune.
+/// Counting `Closed` as `pushes_dropped` made the backpressure signal rise with
+/// client churn alone (zuu#676).
+///
+/// Both paths book through here so the two can never drift apart again.
+fn count_push(result: Result<(), TrySendError<Outbound>>, metrics: &Metrics) {
+    match result {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => Metrics::inc(&metrics.pushes_dropped),
+        Err(TrySendError::Closed(_)) => Metrics::inc(&metrics.pushes_to_closed),
     }
 }
 
@@ -310,22 +326,101 @@ mod tests {
         table.drop_connection(12);
     }
 
+    fn dropped(metrics: &Metrics) -> u64 {
+        metrics
+            .pushes_dropped
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn to_closed(metrics: &Metrics) -> u64 {
+        metrics
+            .pushes_to_closed
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     #[tokio::test]
     async fn a_full_outbound_queue_drops_the_push_and_counts_it() {
         let table = Subscriptions::new();
         let metrics = Metrics::new();
         let address = QueueAddress::new([5u8; 32]);
+        // The receiver stays bound, so the channel genuinely fills rather than
+        // closing — this is the `Full` half and nothing else.
         let (sender, _receiver) = tokio::sync::mpsc::channel(1);
         table.subscribe(address, 1, sender);
         for _ in 0..4 {
             table.notify_message(address, &message(), &metrics);
         }
-        assert!(
-            metrics
-                .pushes_dropped
-                .load(std::sync::atomic::Ordering::Relaxed)
-                > 0
+        assert!(dropped(&metrics) > 0);
+        // zuu#676: the two causes must not be able to satisfy each other's
+        // assertion, so a full queue has to leave the closed counter alone.
+        assert_eq!(to_closed(&metrics), 0);
+    }
+
+    #[tokio::test]
+    async fn a_full_outbound_queue_counts_full_in_notify_all_too() {
+        // `notify_all` carries its own push, so the classification is asserted
+        // on that path as well and not inferred from `deliver`.
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let address = QueueAddress::new([8u8; 32]);
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        table.subscribe(address, 1, sender);
+        for _ in 0..4 {
+            table.notify_all(NOTICE_SHUTDOWN, 1_000, &metrics);
+        }
+        assert!(dropped(&metrics) > 0);
+        assert_eq!(to_closed(&metrics), 0);
+    }
+
+    #[tokio::test]
+    async fn a_closed_subscriber_is_not_counted_as_a_full_queue() {
+        // zuu#676. The queue is 64 deep and nothing was ever sent, so there is
+        // no capacity to raise: the receiver is simply gone, which is what
+        // happens between a writer task ending and `drop_connection` running.
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let address = QueueAddress::new([9u8; 32]);
+        let (sender, receiver) = tokio::sync::mpsc::channel(64);
+        table.subscribe(address, 1, sender);
+        drop(receiver);
+
+        table.notify_message(address, &message(), &metrics);
+
+        assert_eq!(to_closed(&metrics), 1);
+        assert_eq!(
+            dropped(&metrics),
+            0,
+            "a gone subscriber is not backpressure and must not inflate it"
         );
+    }
+
+    #[tokio::test]
+    async fn a_closed_subscriber_is_not_counted_as_a_full_queue_in_notify_all() {
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let address = QueueAddress::new([10u8; 32]);
+        let (sender, receiver) = tokio::sync::mpsc::channel(64);
+        table.subscribe(address, 1, sender);
+        drop(receiver);
+
+        table.notify_all(NOTICE_SHUTDOWN, 1_000, &metrics);
+
+        assert_eq!(to_closed(&metrics), 1);
+        assert_eq!(dropped(&metrics), 0);
+    }
+
+    #[tokio::test]
+    async fn a_delivered_push_counts_neither() {
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let address = QueueAddress::new([11u8; 32]);
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+        table.subscribe(address, 1, sender);
+        table.notify_message(address, &message(), &metrics);
+        table.notify_all(NOTICE_SHUTDOWN, 1_000, &metrics);
+        assert!(receiver.try_recv().is_ok());
+        assert_eq!(dropped(&metrics), 0);
+        assert_eq!(to_closed(&metrics), 0);
     }
 
     #[tokio::test]
