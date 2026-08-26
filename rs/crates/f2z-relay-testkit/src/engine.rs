@@ -44,9 +44,10 @@ use std::sync::Mutex;
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, Capabilities, ChallengePurpose, ChallengeRequest,
-    ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
-    CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
-    HelloResponse, PushEvent, ReadRequest, ReadResponse, SubscribeResponse,
+    ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
+    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
+    CreateQueueResponse, HelloRequest, HelloResponse, PublishKeyPackagesRequest,
+    PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, RelayFrame, Request, Response};
 use f2z_codec::padding::PaddingBuckets;
@@ -473,6 +474,10 @@ impl Relay {
             Command::BindSend => self.bind_send(connection, now, request_id, request),
             Command::Append => self.append(connection, now, request_id, request),
             Command::ContactAppend => self.contact_append(now, request),
+            Command::PublishKeyPackages => {
+                self.publish_key_packages(connection, now, request_id, request)
+            }
+            Command::ClaimKeyPackage => self.claim_key_package(now, request),
             // `Command` is `#[non_exhaustive]`: a code added to f2z-codec but
             // not handled here is a hole in this relay, not in the client that
             // sent it. §3.5's non-fatal `ERR_UNKNOWN_COMMAND` is the honest
@@ -579,6 +584,7 @@ impl Relay {
             ChallengePurpose::Clock => PowParams::none(),
             ChallengePurpose::QueueCreate => published.queue_creation_pow,
             ChallengePurpose::ContactAppend => published.contact_append_pow,
+            ChallengePurpose::ClaimKeyPackage => published.claim_key_package_pow,
         }
     }
 
@@ -980,6 +986,121 @@ impl Relay {
         state.append(&recv_addr, body.payload, now)?;
         drop(state);
         Ok(Vec::new())
+    }
+
+    // -- §12.6, key packages -----------------------------------------------
+
+    fn publish_key_packages(
+        &self,
+        connection: &Connection,
+        now: u64,
+        request_id: u32,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        // Ordinary receive-side authorization, and that is the whole design:
+        // the capability that already means "I own this contact queue" is the
+        // capability that means "I own this pool". No new key, no new address.
+        let verified = self.verify::<ops::PublishKeyPackages>(
+            connection,
+            now,
+            request_id,
+            request,
+            |state, candidate| self.preauthorize_recv(state, candidate),
+        )?;
+        let recv_addr = verified.address();
+        let signer = verified.signer_key();
+        let body: PublishKeyPackagesRequest = verified.into_body();
+
+        let published = self.published_capabilities();
+        if published.key_packages_enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+
+        let mut state = self.state()?;
+        let Some(queue) = state.queue_by_recv(&recv_addr) else {
+            return Err(self.absent_recv());
+        };
+        queue.state.authorize_recv(&signer)?;
+        if !matches!(queue.kind, QueueKind::Contact) {
+            // §12.6 hangs the pool off the *published* address. A standard
+            // queue has no published address, so there is nothing to key one
+            // by. `ERR_NOT_PERMITTED` and not `ERR_NO_ACCESS`: the caller
+            // proved it owns this queue, so nothing here is an oracle — this is
+            // §10 code 20, "not valid for this queue kind", exactly as
+            // `BIND_SEND` on a contact queue is.
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+
+        let packages = body.packages.as_slice().to_vec();
+        let last_resort = body.last_resort.as_slice().first().cloned();
+        let (pool_size, has_last_resort) = state
+            .publish_key_packages(
+                &recv_addr,
+                packages,
+                last_resort,
+                published.contact_max_key_packages,
+                now,
+            )
+            .ok_or(ProtoError::Wire(ErrorCode::Internal))?;
+        drop(state);
+
+        let response = PublishKeyPackagesResponse {
+            pool_size,
+            max_pool_size: published.contact_max_key_packages,
+            has_last_resort: u8::from(has_last_resort),
+        };
+        Ok(response.encode_canonical()?)
+    }
+
+    fn claim_key_package(
+        &self,
+        now: u64,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        let verified = self.accept_unsigned::<ops::ClaimKeyPackage>(request)?;
+        let body: ClaimKeyPackageRequest = verified.into_body();
+
+        if self.backpressured() {
+            return Err(ProtoError::Wire(ErrorCode::Unavailable));
+        }
+
+        let published = self.published_capabilities();
+        if published.key_packages_enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+        let params = published.claim_key_package_pow;
+
+        let mut state = self.state()?;
+        // The stamp is checked *before* the pool is consulted, so that the cost
+        // of probing an address is paid whether or not anything is there. The
+        // ordering is the same one §12.3 imposes on `CONTACT_APPEND` and it
+        // matters more here: a claim that answered "no such address" cheaply
+        // and "here you are" expensively would be a free existence oracle over
+        // the published address space.
+        self.check_stamp(
+            &mut state,
+            now,
+            &body.stamp,
+            &params,
+            ChallengePurpose::ClaimKeyPackage,
+            body.contact_addr.as_bytes(),
+        )?;
+
+        // Exhaustion, an absent address, and an address that is not a contact
+        // address are one code — §10's existence-oracle rule, and §12.6's
+        // exhaustion behaviour. **Not a panic, not an empty success**: a client
+        // that received a zero-length package would have to decide what that
+        // meant, and there is exactly one honest answer here.
+        let Some((package, last_resort)) = state.claim_key_package(&body.contact_addr) else {
+            return Err(ProtoError::Wire(ErrorCode::Unavailable));
+        };
+        drop(state);
+
+        let response = ClaimKeyPackageResponse {
+            key_package: package,
+            last_resort: u8::from(last_resort),
+        };
+        Ok(response.encode_canonical()?)
     }
 
     // ---------------------------------------------------------------------

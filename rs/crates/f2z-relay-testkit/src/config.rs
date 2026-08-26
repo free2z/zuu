@@ -363,6 +363,9 @@ pub fn default_capabilities(identity: &SigningKey, published_at_ms: u64) -> Resu
     // §12.3 requires proof of work whenever contact queues are offered, so the
     // difficulty is trivial rather than absent.
     capabilities.contact_append_pow = testkit_pow();
+    // §12.6, for the same reason: `CLAIM_KEY_PACKAGE` may not be published
+    // without a stamp, so the difficulty is trivial rather than absent.
+    capabilities.claim_key_package_pow = testkit_pow();
     // §13.3: nothing here rate-limits by source, and the field says so rather
     // than claiming a control that is not implemented.
     capabilities.per_source_limits = 0;

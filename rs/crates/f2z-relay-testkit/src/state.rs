@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use f2z_codec::ErrorCode;
 use f2z_codec::commands::{NoticePush, PushEvent, QueueEventPush, QueuedMessage};
-use f2z_codec::types::{Challenge, Payload, PublicKey, QueueAddress};
+use f2z_codec::types::{Challenge, KeyPackage, Payload, PublicKey, QueueAddress};
 use f2z_relay_proto::ProtoError;
 use f2z_relay_proto::queue::{AckOutcome, AppendQuota, QueueKind, QueueState};
 use f2z_relay_proto::replay::SeenSet;
@@ -104,6 +104,17 @@ pub struct Queue {
     pub last_activity_ms: u64,
     /// The per-queue caps this queue is admitted against.
     pub quota: AppendQuota,
+    /// §12.6's single-use key-package pool. Empty on a standard queue, and on a
+    /// contact queue whose owner has published none.
+    ///
+    /// A `Vec` used as a queue: published order in, published order out. A
+    /// stack would hand out the newest package first and leave the oldest to
+    /// expire unused, which is the wrong end to take from when every package
+    /// carries a lifetime.
+    pub key_packages: Vec<KeyPackage>,
+    /// §12.6's package of last resort. Served — repeatedly — only when
+    /// `key_packages` is empty.
+    pub last_resort: Option<KeyPackage>,
 }
 
 impl Queue {
@@ -295,6 +306,8 @@ impl RelayState {
             created_at_ms: now_ms,
             last_activity_ms: now_ms,
             quota,
+            key_packages: Vec::new(),
+            last_resort: None,
         };
         self.queues.insert(recv_addr, queue);
         self.second_index.insert(second_addr, recv_addr);
@@ -381,6 +394,78 @@ impl RelayState {
         queue.touch(now_ms);
         self.notify_message(recv_addr, &message);
         Ok(index)
+    }
+
+    /// §12.6's publication: append to the pool, replace the last-resort package.
+    ///
+    /// Returns the pool size after the publish and whether a last-resort
+    /// package is stored. The caller has already established that the signer
+    /// owns `recv_addr`; this is the storage half and nothing else.
+    ///
+    /// Three rules, all of them §12.6's:
+    ///
+    /// * **Byte-identical duplicates are skipped, not refused.** A publish
+    ///   whose response was lost is retried, and a retry that doubled the pool
+    ///   would put the same init key in two places — one `Welcome` each,
+    ///   against a key RFC 9420 §10 requires be used once.
+    /// * **Overflow drops from the end of the batch.** Deterministic, so a
+    ///   client that reads `pool_size` back knows exactly which of its packages
+    ///   the relay kept: the first `max - held` of them.
+    /// * **An empty `last_resort` leaves the stored one alone.** Publishing one
+    ///   retires the previous one at that instant.
+    pub fn publish_key_packages(
+        &mut self,
+        recv_addr: &QueueAddress,
+        packages: Vec<KeyPackage>,
+        last_resort: Option<KeyPackage>,
+        max_pool: u32,
+        now_ms: u64,
+    ) -> Option<(u32, bool)> {
+        let queue = self.queues.get_mut(recv_addr)?;
+        let max = usize::try_from(max_pool).unwrap_or(usize::MAX);
+        for package in packages {
+            if queue.key_packages.len() >= max {
+                break;
+            }
+            if queue.key_packages.contains(&package) || queue.last_resort.as_ref() == Some(&package)
+            {
+                continue;
+            }
+            queue.key_packages.push(package);
+        }
+        if let Some(package) = last_resort {
+            queue.last_resort = Some(package);
+        }
+        queue.touch(now_ms);
+        Some((
+            u32::try_from(queue.key_packages.len()).unwrap_or(u32::MAX),
+            queue.last_resort.is_some(),
+        ))
+    }
+
+    /// §12.6's claim: take one package, or reuse the one of last resort.
+    ///
+    /// `None` means the pool is empty **and** no last-resort package is stored,
+    /// which the caller turns into `ERR_UNAVAILABLE` — the same code an absent
+    /// address returns, because §10's existence-oracle rule does not stop
+    /// applying just because the address is a published one.
+    ///
+    /// The claim does **not** touch §7.7's idle timer. A queue kept alive by
+    /// strangers claiming from it is a queue its owner has abandoned, and §7.7
+    /// resets the idle clock on `APPEND`, `READ`, `ACK` and `SUBSCRIBE` — an
+    /// enumerated list this is deliberately not added to.
+    pub fn claim_key_package(&mut self, contact_addr: &QueueAddress) -> Option<(KeyPackage, bool)> {
+        let recv_addr = *self.second_index.get(contact_addr)?;
+        let queue = self.queues.get_mut(&recv_addr)?;
+        if !matches!(queue.kind, QueueKind::Contact) {
+            return None;
+        }
+        if queue.key_packages.is_empty() {
+            return queue.last_resort.clone().map(|package| (package, true));
+        }
+        // Oldest first: every package carries an MLS lifetime, so the one
+        // closest to expiring is the one worth spending.
+        Some((queue.key_packages.remove(0), false))
     }
 
     /// Admit one payload against a queue's caps (§13.1 layer 2, §12.3).
