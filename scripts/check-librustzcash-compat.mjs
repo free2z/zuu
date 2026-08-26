@@ -28,7 +28,7 @@ const SUBMODULE_PATH = "z/zcash/librustzcash";
 // Move both this literal and `.gitmodules` back to upstream the moment the PR
 // merges.
 const EXPECTED_LIBRUSTZCASH_SHA =
-  "12bb834b17d84103b425052848c9c95592783607";
+  "d63d44b27e9de276a3bab2ea2ec6430871faef22";
 const SEND_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs";
 const NATIVE_SEND_POLICY_SOURCE =

@@ -24,7 +24,7 @@
 	# AGENTS.md "It's a real upstream regression -> branch, PR, pin, resume".
 	#
 	# free2z/librustzcash `f2z/drop-stale-rustcrypto-rc-pins` is upstream
-	# `main` at 330e4c0 plus one 4-line deletion: the workspace's
+	# `main` at 330e4c0 plus one 4-line deletion (and its lockfile): the workspace's
 	# `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins
 	# and the two `zcash_primitives` lines that consume them. Both carry
 	# upstream's own comment "later RCs require edition2024" / "remove after
