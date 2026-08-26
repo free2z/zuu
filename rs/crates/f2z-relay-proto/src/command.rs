@@ -48,9 +48,10 @@ use alloc::vec::Vec;
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, Auth, BindSendRequest, ChallengePurpose,
-    ChallengeRequest, ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
-    CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
-    HelloResponse, ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
+    ChallengeRequest, ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
+    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
+    CreateQueueResponse, HelloRequest, HelloResponse, PublishKeyPackagesRequest,
+    PublishKeyPackagesResponse, ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
     TranscriptAddress,
 };
 use f2z_codec::frame::{CommandAuth, RelayFrame, Request, SignedAuth};
@@ -159,11 +160,12 @@ pub trait RelayCommand: Sized {
 pub mod ops {
     use super::{
         AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose,
-        ChallengeRequest, ChallengeResponse, Command, ContactAppendRequest,
-        CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
-        CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse, Payload, ProtoError,
-        QueueAddress, ReadRequest, ReadResponse, RelayCommand, Result, SignedAuth,
-        SignedCapabilities, SubscribeResponse, keys_equal,
+        ChallengeRequest, ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse,
+        Command, ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
+        CreateQueueRequest, CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse,
+        Payload, ProtoError, PublishKeyPackagesRequest, PublishKeyPackagesResponse, QueueAddress,
+        ReadRequest, ReadResponse, RelayCommand, Result, SignedAuth, SignedCapabilities,
+        SubscribeResponse, keys_equal,
     };
 
     macro_rules! command {
@@ -212,7 +214,9 @@ pub mod ops {
             let _ = auth;
             let scope_is_valid = match request.purpose()? {
                 ChallengePurpose::Clock | ChallengePurpose::QueueCreate => request.scope.is_empty(),
-                ChallengePurpose::ContactAppend => request.scope.len() == QueueAddress::LEN,
+                ChallengePurpose::ContactAppend | ChallengePurpose::ClaimKeyPackage => {
+                    request.scope.len() == QueueAddress::LEN
+                }
             };
             if scope_is_valid {
                 Ok(())
@@ -381,6 +385,47 @@ pub mod ops {
         fn payload(request: &Self::Request) -> Option<&Payload> {
             Some(&request.payload)
         }
+    }
+
+    /// `0x0032` (§12.6). Signed by the contact queue's recv key, addressed to
+    /// its `recv_addr`.
+    ///
+    /// There is no `check` beyond the shape rule, and that is the point of
+    /// putting this on the **receive** side: §5.1 step 5 already requires the
+    /// signer to be the key registered for the address, so the relay's ordinary
+    /// authorization is exactly "the owner of this contact queue". A publish
+    /// command that carried its own key, `CREATE_QUEUE`-style, would be
+    /// self-authenticating about a queue that already exists — which authorizes
+    /// nothing.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct PublishKeyPackages;
+
+    impl RelayCommand for PublishKeyPackages {
+        const COMMAND: Command = Command::PublishKeyPackages;
+        type Request = PublishKeyPackagesRequest;
+        type Response = PublishKeyPackagesResponse;
+
+        fn check(request: &Self::Request, auth: Option<&SignedAuth>) -> Result<()> {
+            let _ = auth;
+            request.validate()?;
+            Ok(())
+        }
+    }
+
+    /// `0x0033` (§12.6). Unsigned; the proof-of-work stamp is the gate.
+    ///
+    /// No [`RelayCommand::payload`], deliberately: §9's padding buckets apply
+    /// to **ciphertext on a queue**, whose length would otherwise leak the size
+    /// of a message. A key package is a fixed-shape public object whose length
+    /// is a property of the ciphersuite, so padding it to a bucket would spend
+    /// bytes to hide a constant.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct ClaimKeyPackage;
+
+    impl RelayCommand for ClaimKeyPackage {
+        const COMMAND: Command = Command::ClaimKeyPackage;
+        type Request = ClaimKeyPackageRequest;
+        type Response = ClaimKeyPackageResponse;
     }
 }
 
