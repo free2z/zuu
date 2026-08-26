@@ -773,6 +773,28 @@ impl RelayConnection {
 
     /// Obtain a challenge and solve a stamp, when and only when the relay's
     /// published parameters require one (§13.1).
+    ///
+    /// # The search runs on a blocking thread, and that is not a nicety
+    ///
+    /// [`solve`] is an unbounded synchronous loop — a leading-zero-bit search
+    /// that takes seconds on a phone at the shipped difficulty, and §12.4 is
+    /// blunt that no tuning fixes that. Run inline on the async task it would
+    /// hold a runtime worker for the whole search, stalling **every other task
+    /// in the process**: the inbound pump that must ACK, the other relay
+    /// connections, and every Tauri command. Since `WIRE.md` §12.6 first
+    /// contact pays **two** stamps rather than one, so the window doubled.
+    ///
+    /// # The residual, stated rather than implied
+    ///
+    /// This moves the search off the worker; it does **not** make this
+    /// connection's socket readable while the search runs. A `RelayConnection`
+    /// is polled only from inside its own methods, so nothing answers §2.4's
+    /// server-driven Ping until this call returns, and a relay whose keepalive
+    /// is shorter than the search will close — correctly. The shipping relay's
+    /// interval is 25 s with two missed Pongs, so this is bounded well above a
+    /// realistic solve; a relay that published a tighter one would break first
+    /// contact here. Closing it for real needs a reader task owning the socket,
+    /// which is a change to this file's ownership model and not a line.
     async fn stamp_for(
         &mut self,
         purpose: ChallengePurpose,
@@ -788,7 +810,11 @@ impl RelayConnection {
                 .map_err(|error| Error::internal(format!("challenge scope: {error:?}")))?,
         };
         let issued = self.call_unsigned::<ops::GetChallenge>(&body).await?;
-        Ok(solve(issued.challenge, params.difficulty_bits))
+        let challenge = issued.challenge;
+        let difficulty_bits = params.difficulty_bits;
+        tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
+            .await
+            .map_err(|error| Error::internal(format!("the stamp search did not finish: {error}")))
     }
 
     fn take_request_id(&mut self) -> u32 {

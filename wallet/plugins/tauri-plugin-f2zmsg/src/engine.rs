@@ -3107,8 +3107,10 @@ impl<B: StorageBackend> Inner<B> {
     /// Unsigned at the relay and gated by a proof-of-work stamp: that is the
     /// whole design — a stranger can reach you exactly once, expensively — and
     /// §12.4 is honest that the cost lands far harder on a phone than on rented
-    /// hardware. The solve runs on a blocking task so a slow one does not stall
-    /// the runtime; §3.3 tells the UI to show it as work, not as a network wait.
+    /// hardware. The search runs on a blocking thread — see
+    /// `RelayConnection::stamp_for`, which is where that is arranged and where
+    /// the residual it does *not* close is written down — and §3.3 tells the UI
+    /// to show it as work, not as a network wait.
     async fn contact_append(
         &mut self,
         peer: &crate::directory::ResolvedPeer,
