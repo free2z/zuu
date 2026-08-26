@@ -313,10 +313,18 @@ impl WitnessEquivocation {
     /// [`KtError::WrongLabel`], [`KtError::UnsupportedVersion`] or
     /// [`KtError::BadSignature`] if either cosignature does not verify, and
     /// [`KtError::BadAuthorization`] if the two do not contradict.
-    pub fn verify(&self) -> Result<(), KtError> {
-        let a = self.a.clone().verified()?;
-        let b = self.b.clone().verified()?;
-        if !a.contradicts(&b) {
+    pub fn verify_evidence(&self) -> Result<(), KtError> {
+        // Named `verify_evidence` rather than `verify` so that
+        // `f2z-codec`'s workspace strict-verification scan can still name
+        // `cosign.rs::verify` unambiguously as this one's delegation target: a
+        // second `fn verify` in this file would make every row pointing at the
+        // first one resolve to two definitions, and the scan refuses ambiguity
+        // rather than picking one.
+        let first = self.a.clone();
+        let second = self.b.clone();
+        let first = first.verified()?;
+        let second = second.verified()?;
+        if !first.contradicts(&second) {
             return Err(KtError::BadAuthorization);
         }
         Ok(())
@@ -500,7 +508,7 @@ mod tests {
         assert_eq!(evidence.witness_pk(), &log.witness_pk(1));
         assert_eq!(evidence.log_id(), &head.sth.log_id);
         assert_eq!(evidence.epoch(), 4);
-        assert_eq!(evidence.verify(), Ok(()));
+        assert_eq!(evidence.verify_evidence(), Ok(()));
 
         // Serialized, handed to a stranger, checked with nothing but these
         // bytes. That is what §7.2 means by non-repudiable.
@@ -509,7 +517,7 @@ mod tests {
             .unwrap()
             .into_value();
         assert_eq!(decoded, evidence);
-        assert_eq!(decoded.verify(), Ok(()));
+        assert_eq!(decoded.verify_evidence(), Ok(()));
     }
 
     /// A forged pair cannot be built, and cannot be checked if someone encodes
@@ -547,7 +555,7 @@ mod tests {
             b: forged,
         };
         assert_eq!(
-            fabricated.verify(),
+            fabricated.verify_evidence(),
             Err(KtError::BadSignature),
             "the second half was authored by the accuser, not the witness",
         );

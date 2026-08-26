@@ -454,6 +454,19 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             call: "sig::verify",
         },
     },
+    // §7.2's evidence document, and the check a third party runs on it. Its
+    // `verified()` call is what re-establishes both enclosed signatures, so the
+    // chain to `verify_strict` runs through `WitnessCosignature::verify`.
+    VerifyFn {
+        file: "f2z-kt-core/src/cosign.rs",
+        name: "verify_evidence",
+        occurrence: 0,
+        strictness: Strictness::DelegatesTo {
+            target: "f2z-kt-core/src/cosign.rs::verify",
+            receiver: "first",
+            method: "verified",
+        },
+    },
     VerifyFn {
         file: "f2z-kt-core/src/descriptor.rs",
         name: "verify",

@@ -202,7 +202,7 @@ impl Store {
             // stored accusation that no longer checks out is corruption, and
             // the log must not serve one it cannot itself substantiate.
             record
-                .verify()
+                .verify_evidence()
                 .map_err(|_| corrupt("equivocations.log", index))?;
             journal.equivocations.push(record);
         }

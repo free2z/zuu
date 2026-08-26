@@ -443,12 +443,12 @@ async fn a_witness_that_signs_two_roots_for_one_epoch_is_caught_and_the_pair_is_
     // 3. And it is non-repudiable with no third document: the two cosignatures
     //    and the key they both name are the whole proof (§7.2). Checked here
     //    the way a stranger would check it — from the encoded bytes alone.
-    assert_eq!(pair.verify(), Ok(()));
+    assert_eq!(pair.verify_evidence(), Ok(()));
     let bytes = pair.encode_canonical().unwrap();
     let decoded = decode_canonical::<f2z_kt_core::cosign::WitnessEquivocation>(&bytes)
         .unwrap()
         .into_value();
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(decoded.verify_evidence(), Ok(()));
 
     // 4. The earlier, covering cosignature is still served. §8.3 and §9.5 are
     //    explicit that the log's opinion of who is a witness has no bearing on
@@ -488,7 +488,7 @@ async fn a_journalled_equivocation_is_replayed_and_re_verified() {
     let reopened = reopen(&harness, vec![witness.public]).await;
     let evidence = reopened.witness_equivocations().await;
     assert_eq!(evidence.len(), 1);
-    assert_eq!(evidence[0].verify(), Ok(()));
+    assert_eq!(evidence[0].verify_evidence(), Ok(()));
     assert_eq!(evidence[0].witness_pk(), &witness.public);
 }
 
