@@ -39,6 +39,68 @@ export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-sign-challenge",
 ];
 
+// Exact commands the mobile messaging product exercises:
+// `CLIENT-CONTRACT.md` §3's whole plugin surface **except**
+// `set_relay_trust`.
+//
+// That one omission is the reviewed decision, and it is the same one
+// `tauri-plugin-f2zmsg/permissions/default.toml` flags on the desktop grant:
+// `set_relay_trust` is how a user opts in to a relay advertising
+// `transport_security: "none"` or `channel_binding_mode: "none"` (`WIRE.md`
+// §2.3, §5.3) — the only grant in the set that is a security downgrade.
+// `add_relay` already refuses such a relay and records it `refused`, so a store
+// build that never grants the opt-in cannot be talked into routing messages in
+// the clear, and a `wss://` relay is added without it.
+//
+// The enrollment trio is absent for a different reason and must stay absent:
+// `f2zmsg_enroll`, `f2zmsg_enrollment_status` and `f2zmsg_unenroll` are
+// app-crate commands (§2.2), not plugin commands, so no capability grants them
+// and none should try.
+export const REVIEWED_MOBILE_F2ZMSG_PERMISSIONS = [
+  "f2zmsg:allow-get-engine-status",
+  "f2zmsg:allow-start-engine",
+  "f2zmsg:allow-stop-engine",
+  "f2zmsg:allow-get-device-info",
+  "f2zmsg:allow-list-conversations",
+  "f2zmsg:allow-get-conversation",
+  "f2zmsg:allow-start-conversation",
+  "f2zmsg:allow-list-contact-requests",
+  "f2zmsg:allow-accept-contact-request",
+  "f2zmsg:allow-reject-contact-request",
+  "f2zmsg:allow-leave-conversation",
+  "f2zmsg:allow-send-message",
+  "f2zmsg:allow-retry-send",
+  "f2zmsg:allow-cancel-send",
+  "f2zmsg:allow-list-messages",
+  "f2zmsg:allow-get-message",
+  "f2zmsg:allow-get-delivery-state",
+  "f2zmsg:allow-mark-read",
+  "f2zmsg:allow-get-receipt-policy",
+  "f2zmsg:allow-set-receipt-policy",
+  "f2zmsg:allow-list-gaps",
+  "f2zmsg:allow-request-gap-repair",
+  "f2zmsg:allow-get-retention-policy",
+  "f2zmsg:allow-set-retention-policy",
+  "f2zmsg:allow-send-ephemeral-hint",
+  "f2zmsg:allow-get-ephemeral-hint",
+  "f2zmsg:allow-send-purge-request",
+  "f2zmsg:allow-list-purge-requests",
+  "f2zmsg:allow-resolve-handle",
+  "f2zmsg:allow-check-handle-eligibility",
+  "f2zmsg:allow-get-safety-number",
+  "f2zmsg:allow-set-verification",
+  "f2zmsg:allow-get-self-audit-state",
+  "f2zmsg:allow-list-alarms",
+  "f2zmsg:allow-acknowledge-alarm",
+  "f2zmsg:allow-list-relays",
+  "f2zmsg:allow-add-relay",
+  "f2zmsg:allow-remove-relay",
+  "f2zmsg:allow-get-relay-capabilities",
+  "f2zmsg:allow-list-witnesses",
+  "f2zmsg:allow-set-witness-set",
+  "f2zmsg:allow-get-witness-set-state",
+];
+
 const REVIEWED_NON_WALLET_PERMISSIONS = [
   "core:default",
   "deep-link:default",
@@ -82,8 +144,10 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
   if (permissionIds.some((identifier) => typeof identifier !== "string")) {
     throw new Error("every mobile permission must have an identifier");
   }
-  if (permissionIds.includes("zcash:default")) {
-    throw new Error("mobile main must not receive zcash:default");
+  for (const blanket of ["zcash:default", "f2zmsg:default"]) {
+    if (permissionIds.includes(blanket)) {
+      throw new Error(`mobile main must not receive ${blanket}`);
+    }
   }
 
   const walletPermissions = permissionIds.filter((identifier) =>
@@ -105,8 +169,30 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
       "named mobile Zcash command permissions must be plain identifiers",
     );
   }
+  const messagingPermissions = permissionIds.filter((identifier) =>
+    identifier.startsWith("f2zmsg:"),
+  );
   exactSet(
-    permissionIds.filter((identifier) => !identifier.startsWith("zcash:")),
+    messagingPermissions,
+    REVIEWED_MOBILE_F2ZMSG_PERMISSIONS,
+    "mobile messaging permissions",
+  );
+  if (
+    mobile.permissions.some(
+      (permission) =>
+        typeof permission === "object" &&
+        permission?.identifier?.startsWith("f2zmsg:"),
+    )
+  ) {
+    throw new Error(
+      "named mobile messaging command permissions must be plain identifiers",
+    );
+  }
+  exactSet(
+    permissionIds.filter(
+      (identifier) =>
+        !identifier.startsWith("zcash:") && !identifier.startsWith("f2zmsg:"),
+    ),
     REVIEWED_NON_WALLET_PERMISSIONS,
     "mobile non-wallet permissions",
   );
@@ -164,7 +250,9 @@ export async function main() {
   ]);
   assertMobileWebviewAuthority(mobile, tauriConfig);
   console.log(
-    `Mobile main has ${REVIEWED_MOBILE_ZCASH_PERMISSIONS.length} named Zcash permissions and native frames are disabled.`,
+    `Mobile main has ${REVIEWED_MOBILE_ZCASH_PERMISSIONS.length} named Zcash ` +
+      `and ${REVIEWED_MOBILE_F2ZMSG_PERMISSIONS.length} named messaging ` +
+      `permissions, and native frames are disabled.`,
   );
 }
 

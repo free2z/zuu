@@ -1,3 +1,4 @@
+mod messaging;
 mod oauth;
 
 fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
@@ -23,6 +24,13 @@ pub fn run() {
         // uses (librustzcash path dependency). This is what makes ZUULI a real
         // Zcash wallet on the desktop.
         .plugin(tauri_plugin_zcash::init())
+        // End-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3).
+        // Its `on_event` handler is deliberately NOT the Zcash plugin's: that
+        // one clears the seed on `Focused(false)`, and a messaging engine torn
+        // down on every alt-tab would drop relay connections and stop
+        // acknowledging inbound messages, leaving ciphertext on relays. §9
+        // rule 6: `Exit` / `ExitRequested` only.
+        .plugin(tauri_plugin_f2zmsg::init())
         // Loopback (127.0.0.1) OAuth redirect capture for desktop social login
         // (X / Google / GitHub) — ZUULI-specific, see src/oauth.rs. Inert
         // until invoked; the frontend only calls these commands once the
@@ -40,6 +48,12 @@ pub fn run() {
             oauth::oauth_mobile_resume,
             oauth::oauth_mobile_finish,
             oauth::oauth_mobile_cancel,
+            // Enrollment (§2.2). App-crate commands, no `plugin:` prefix and
+            // no capability entry, because they need the wallet seed and it
+            // must never cross IPC.
+            messaging::f2zmsg_enrollment_status,
+            messaging::f2zmsg_enroll,
+            messaging::f2zmsg_unenroll,
         ])
         .run(app_context())
         .expect("error while running tauri application");
