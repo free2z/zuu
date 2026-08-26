@@ -122,6 +122,17 @@ chacha20poly1305 = "0.10"
 # The OpenMLS `StorageProvider`. `sqlite` is the default and is what makes
 # `Durability::Durable` — and therefore ACKing at all — reachable (§11.2).
 f2z-msg-store = { path = "../../../rs/crates/f2z-msg-store", version = "0.1.0" }
+# Named only to *classify* a store that would not open: `StoreError::Sqlite`
+# carries a `rusqlite::Error` in `f2z-msg-store`'s public API, and #753 needs
+# `SQLITE_FULL` to reach the frontend as §8's `storage-full` rather than as a
+# flattened `internal`. Nothing here opens a connection.
+#
+# **rusqlite 0.37 is a repo-wide singleton** (root `AGENTS.md`): `libsqlite3-sys`
+# declares `links = "sqlite3"`, so a second major line anywhere in this graph is
+# a hard Cargo failure rather than a duplicate. This is the same 0.37 `rs/`'s
+# workspace and `tauri-plugin-zcash` already resolve, and `default-features =
+# false` so the feature set stays whatever `f2z-msg-store` asked for.
+rusqlite = { version = "0.37", default-features = false }
 # `Handle`, `KemPublicKey` and `DeviceCredential` itself live here; issuing a
 # credential needs them, so this is a direct dependency rather than something
 # reached through `f2z-msg-identity`'s re-exports.

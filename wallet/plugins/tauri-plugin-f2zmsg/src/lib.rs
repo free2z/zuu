@@ -63,6 +63,22 @@ macro_rules! command_handler {
     };
 }
 
+macro_rules! command_names {
+    ($($command:ident),* $(,)?) => {
+        &[$(stringify!($command)),*]
+    };
+}
+
+/// §3's plugin command surface as data.
+///
+/// The same `with_f2zmsg_commands!` expansion that generates the invoke handler
+/// and `build.rs`'s permission manifest, so a command cannot be registered and
+/// left out of this list. It is public because the *app* crate needs it: ZUULI's
+/// census test for #753 drives every command through IPC against a deliberately
+/// unopenable store, and a hand-written list there would go stale the first time
+/// §3 grows.
+pub const COMMANDS: &[&str] = with_f2zmsg_commands!(command_names);
+
 pub mod directory;
 pub mod engine;
 pub mod envelope;
@@ -104,40 +120,96 @@ pub fn command_router<R: Runtime>() -> TauriPlugin<R> {
     command_builder().build()
 }
 
-/// Initialize the plugin.
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
+/// Where the durable store lives.
+enum StoreLocation {
+    /// The app's data directory — what a shipping build uses.
+    AppData,
+    /// An explicit directory. The only reason this exists is that #753 is a
+    /// defect about what happens when the store will *not* open, and a test
+    /// cannot make the app data directory unopenable without wrecking the
+    /// developer's machine.
+    Fixed(std::path::PathBuf),
+}
+
+/// Open the durable store and build the engine over it.
+///
+/// Every failure on this path is a §8 code rather than an opaque io error,
+/// because the code is what the frontend will be told for the rest of the
+/// process's life (#753).
+fn open_engine<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    location: &StoreLocation,
+) -> Result<Arc<engine::Engine<state::Backend>>> {
+    let data_dir = match location {
+        StoreLocation::AppData => app.path().app_data_dir().map_err(|error| {
+            Error::internal(format!("resolving the app data directory: {error}"))
+        })?,
+        StoreLocation::Fixed(dir) => dir.clone(),
+    };
+    // `From<std::io::Error>` is what turns a full or quota-exceeded volume into
+    // §8's `storage-full` here.
+    std::fs::create_dir_all(&data_dir)?;
+    let backend = f2z_msg_store::SqliteBackend::open(&data_dir.join(STORE_FILE))
+        .map_err(|error| Error::store_did_not_open(&error))?;
+
+    let platform = if cfg!(any(target_os = "android", target_os = "ios")) {
+        models::Platform::ZuuliMobile
+    } else {
+        models::Platform::ZuuliDesktop
+    };
+    let sink = Arc::new(events::TauriSink::new(app.clone()));
+    Ok(Arc::new(engine::Engine::new(backend, sink, platform)?))
+}
+
+fn plugin<R: Runtime>(location: StoreLocation) -> TauriPlugin<R> {
     command_builder()
-        .setup(|app, _api| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let backend = f2z_msg_store::SqliteBackend::open(&data_dir.join(STORE_FILE))
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
+        .setup(move |app, _api| {
+            // **This hook must not return `Err`, ever** (#753). A plugin whose
+            // `setup` fails makes `tauri::Builder::build()` fail, and ZUULI's
+            // `run()` ends in `.expect("error while running tauri
+            // application")` — so an unopenable messaging store used to take
+            // the entire wallet down at launch. WAL is unavailable on some
+            // filesystems, a data directory can be full or read-only, and a
+            // half-written `f2zmsg.sqlite` is a state a real device reaches.
+            //
+            // Failing soft is *not* skipping `app.manage(..)`: `f2zmsg()` is
+            // `state::<F2zMsg<R>>().inner()`, which panics on an unmanaged
+            // type, so all forty-three commands would panic instead of
+            // refusing. The state is registered either way and answers either
+            // way.
+            match open_engine(app, &location) {
+                Ok(engine) => {
+                    app.manage(state::F2zMsg::new(app.clone(), Arc::clone(&engine)));
 
-            let platform = if cfg!(any(target_os = "android", target_os = "ios")) {
-                models::Platform::ZuuliMobile
-            } else {
-                models::Platform::ZuuliDesktop
-            };
-            let sink = Arc::new(events::TauriSink::new(app.clone()));
-            let engine = Arc::new(engine::Engine::new(backend, sink, platform).map_err(
-                |error| std::io::Error::other(format!("messaging engine: {}", error.context())),
-            )?);
-
-            app.manage(state::F2zMsg::new(app.clone(), Arc::clone(&engine)));
-
-            // The receive loop. It runs for the life of the process and does
-            // nothing at all until the engine is unlocked and started, which is
-            // why it is spawned here rather than from `start_engine`: a task
-            // started and stopped by a command is a task that can be left
-            // stopped by a command that failed halfway.
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(POLL_INTERVAL).await;
-                    if let Err(error) = engine.pump_inbound().await {
-                        tracing::debug!(code = %error.code(), "inbound poll");
-                    }
+                    // The receive loop. It runs for the life of the process and
+                    // does nothing at all until the engine is unlocked and
+                    // started, which is why it is spawned here rather than from
+                    // `start_engine`: a task started and stopped by a command is
+                    // a task that can be left stopped by a command that failed
+                    // halfway. There is nothing to poll without an engine, so
+                    // the faulted arm spawns no task at all.
+                    tauri::async_runtime::spawn(async move {
+                        loop {
+                            tokio::time::sleep(POLL_INTERVAL).await;
+                            if let Err(error) = engine.pump_inbound().await {
+                                tracing::debug!(code = %error.code(), "inbound poll");
+                            }
+                        }
+                    });
                 }
-            });
+                Err(fault) => {
+                    // The one place this is recorded. `Error`'s `Serialize`
+                    // logs each refusal that crosses IPC, but the *cause* is
+                    // here and nowhere else, and it is what a support log needs
+                    // to tell a network mount apart from a full disk.
+                    tracing::error!(
+                        code = %fault.code(),
+                        context = %fault.context(),
+                        "messaging is unavailable: the durable store did not open"
+                    );
+                    app.manage(state::F2zMsg::faulted(app.clone(), fault));
+                }
+            }
 
             Ok(())
         })
@@ -148,22 +220,35 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
                 event,
                 tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
             ) {
-                let engine = app.f2zmsg().engine_handle();
-                tauri::async_runtime::spawn(async move {
-                    engine.shutdown().await;
-                });
+                // A faulted plugin never built an engine, so there is nothing
+                // to shut down and nothing to wait for (#753).
+                if let Ok(engine) = app.f2zmsg().engine_handle() {
+                    tauri::async_runtime::spawn(async move {
+                        engine.shutdown().await;
+                    });
+                }
             }
         })
         .build()
 }
 
+/// Initialize the plugin.
+pub fn init<R: Runtime>() -> TauriPlugin<R> {
+    plugin(StoreLocation::AppData)
+}
+
+/// The shipping plugin with its store forced to `store_dir`.
+///
+/// A test seam, and specifically #753's: it is the only way to build the real
+/// `setup` hook over a store that cannot be opened.
+#[doc(hidden)]
+pub fn init_with_store_dir<R: Runtime>(store_dir: std::path::PathBuf) -> TauriPlugin<R> {
+    plugin(StoreLocation::Fixed(store_dir))
+}
+
 #[cfg(test)]
 mod command_registry_tests {
-    macro_rules! command_names {
-        ($($command:ident),* $(,)?) => {
-            &[$(stringify!($command)),*]
-        };
-    }
+    use super::COMMANDS;
 
     /// `CLIENT-CONTRACT.md` §3's plugin command surface: 46 bridge methods
     /// minus the enrollment trio, which is the app crate's (§2.2).
@@ -171,7 +256,7 @@ mod command_registry_tests {
 
     #[test]
     fn the_registry_is_the_contracts_plugin_surface() {
-        let commands: &[&str] = with_f2zmsg_commands!(command_names);
+        let commands: &[&str] = COMMANDS;
         assert_eq!(
             commands.len(),
             EXPECTED,
@@ -204,7 +289,6 @@ mod command_registry_tests {
         // `build.rs` writes the list it generated permissions from into the
         // environment. If the two ever disagree, a command exists at runtime
         // with no permission, or a permission exists for no command.
-        let commands: &[&str] = with_f2zmsg_commands!(command_names);
-        assert_eq!(env!("F2ZMSG_BUILD_COMMANDS"), commands.join(","));
+        assert_eq!(env!("F2ZMSG_BUILD_COMMANDS"), COMMANDS.join(","));
     }
 }
