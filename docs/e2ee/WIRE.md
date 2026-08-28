@@ -1819,7 +1819,10 @@ Alice has never spoken to Bob. She knows `@bob`.
 2.  Alice (local):      build the MLS group, produce Welcome addressed to Bob's
                         KeyPackage; CREATE_QUEUE for Alice; sign
                         H("free2z/msg/v1/first-routing-advert",
-                          conversation_id, complete queue_advert_A) with Alice's
+                          H("free2z/msg/v1/first-routing-fields",
+                            conversation_id, complete queue_advert_A),
+                          H("free2z/msg/v1/first-routing-welcome",
+                            exact Welcome bytes)) with Alice's
                         active DSK; pad to a bucket in padding_sizes
 
 3.  Alice → relay:      HELLO; verify relay_proof; compare relay_id against the
@@ -1855,9 +1858,12 @@ Three properties of this flow are worth stating explicitly:
   as it does for everything ([`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)).
 - **The bootstrap advert beside the `Welcome` is not trusted because it arrived
   through `CONTACT_APPEND`.** Its signature covers `relay_url`, `relay_id`, and
-  `send_addr` together with the conversation id, and Bob verifies the signing
-  DSK against Alice's witnessed directory entry before connecting. Changing a
-  relay id is therefore a signature failure, not a redirect.
+  `send_addr` together with the conversation id **and the exact `Welcome`
+  bytes**, and Bob verifies the signing DSK against Alice's witnessed directory
+  entry before joining or connecting. Changing a relay id is therefore a
+  signature failure, not a redirect; retaining Alice's genuine advert while
+  substituting an attacker-created `Welcome` is likewise a signature failure,
+  not a group Bob can label as Alice's.
 - **The directory lookup at step 1 reveals interest in `@bob`** — the accepted,
   documented limit of
   [`THREAT-MODEL.md` §4.1](./THREAT-MODEL.md#41-directory-lookup-reveals-interest-in-a-handle).

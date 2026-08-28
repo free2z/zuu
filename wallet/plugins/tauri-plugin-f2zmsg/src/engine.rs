@@ -47,7 +47,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
-use f2z_codec::hash::hash2;
+use f2z_codec::hash::{hash, hash2};
 use f2z_codec::types::RelayId;
 use f2z_msg_mls::{EngineError, MlsEngine, Received, VerifiedKeyPackage};
 use f2z_msg_store::{F2zStorageProvider, StorageBackend};
@@ -114,6 +114,8 @@ const LAST_RESORT_LIFETIME_SECONDS: u64 = 2_592_000;
 /// whose validity has already ended.
 const LAST_RESORT_ROTATE_BEFORE_MS: i64 = 86_400_000;
 const LABEL_ROUTING_ADVERT: &[u8] = b"free2z/msg/v1/first-routing-advert";
+const LABEL_ROUTING_FIELDS: &[u8] = b"free2z/msg/v1/first-routing-fields";
+const LABEL_ROUTING_WELCOME: &[u8] = b"free2z/msg/v1/first-routing-welcome";
 
 /// `WIRE.md` §7.7's default message TTL: seven days.
 const MESSAGE_TTL_SECONDS: u32 = 604_800;
@@ -2932,14 +2934,17 @@ fn now_ms() -> i64 {
 
 fn routing_advert_digest(
     conversation_id: &str,
+    welcome: &[u8],
     advert: &QueueAdvert,
 ) -> Result<f2z_codec::types::Digest> {
     let advert = serde_json::to_vec(advert)
         .map_err(|error| Error::internal(format!("encoding routing advert: {error}")))?;
+    let fields = hash2(LABEL_ROUTING_FIELDS, conversation_id.as_bytes(), &advert);
+    let welcome = hash(LABEL_ROUTING_WELCOME, welcome);
     Ok(hash2(
         LABEL_ROUTING_ADVERT,
-        conversation_id.as_bytes(),
-        &advert,
+        fields.as_bytes(),
+        welcome.as_bytes(),
     ))
 }
 
@@ -3061,7 +3066,7 @@ impl<B: StorageBackend> Inner<B> {
         let welcome = sealed?;
 
         let (advert, inbound) = self.open_inbound_queue(&conversation_id, relay_url).await?;
-        let digest = routing_advert_digest(&conversation_id, &advert)?;
+        let digest = routing_advert_digest(&conversation_id, &welcome, &advert)?;
         let (advert_device_pk, advert_signature) = {
             let mls = self.mls_ref("sign_routing_advert")?;
             (
@@ -3113,7 +3118,11 @@ impl<B: StorageBackend> Inner<B> {
         introduction: &Introduction,
         now: i64,
     ) -> Result<()> {
-        let digest = routing_advert_digest(&introduction.conversation_id, &introduction.advert)?;
+        let digest = routing_advert_digest(
+            &introduction.conversation_id,
+            &introduction.welcome,
+            &introduction.advert,
+        )?;
         let device_pk = hex::decode(&introduction.advert_device_pk).map_err(|_| {
             Error::new(
                 ErrorCode::RelayIdentityMismatch,
@@ -4470,9 +4479,23 @@ mod tests {
         let mut substituted = first.clone();
         substituted.relay_id = "33".repeat(32);
         assert_ne!(
-            routing_advert_digest("conversation", &first).unwrap(),
-            routing_advert_digest("conversation", &substituted).unwrap(),
+            routing_advert_digest("conversation", b"welcome", &first).unwrap(),
+            routing_advert_digest("conversation", b"welcome", &substituted).unwrap(),
             "deleting relay-id coverage makes the substitution mutation survive"
+        );
+    }
+
+    #[test]
+    fn welcome_is_inside_the_device_authenticated_routing_digest() {
+        let advert = QueueAdvert {
+            relay_url: "wss://relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        assert_ne!(
+            routing_advert_digest("conversation", b"alice welcome", &advert).unwrap(),
+            routing_advert_digest("conversation", b"attacker welcome", &advert).unwrap(),
+            "deleting Welcome coverage makes the substitution mutation survive"
         );
     }
 

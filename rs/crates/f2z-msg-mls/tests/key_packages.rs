@@ -52,6 +52,37 @@ fn a_substituted_relay_id_breaks_the_device_authenticated_routing_advert() {
 }
 
 #[test]
+fn a_swapped_welcome_breaks_the_device_authenticated_routing_transcript() {
+    let alice = device("alice", 11, 111);
+    let entry = directory_entry(&[alice.credential().clone()]);
+    let authentic = b"conversation|route|digest-of-alice-welcome";
+    let swapped = b"conversation|route|digest-of-attacker-welcome";
+    let signature = alice
+        .sign_routing_advert(authentic)
+        .expect("routing signature");
+
+    f2z_msg_mls::MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+        &entry,
+        alice.credential().credential.device_pk.as_bytes(),
+        authentic,
+        &signature,
+        NOW,
+    )
+    .expect("Alice's active directory device signed the Welcome-bound transcript");
+    assert!(
+        f2z_msg_mls::MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+            &entry,
+            alice.credential().credential.device_pk.as_bytes(),
+            swapped,
+            &signature,
+            NOW,
+        )
+        .is_err(),
+        "deleting Welcome coverage would make this substitution survive"
+    );
+}
+
+#[test]
 fn a_batch_is_generated_in_order_and_every_package_verifies() {
     let bob = device("bob", 22, 222);
     let alice = device("alice", 11, 111);

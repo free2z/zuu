@@ -447,7 +447,8 @@ holds attributable evidence.
 What we *do* provide is strict key-context separation
 ([#305 §3.3](https://github.com/free2z/zuu/issues/305)): `CeremonySigningKey`
 signs ceremony payloads and nothing else; `DeviceSignatureKey` signs MLS framing
-and the domain-separated first-routing advert that bootstraps its delivery;
+and the domain-separated, Welcome-bound first-routing advert that bootstraps its
+delivery;
 `IdentitySigningKey` signs credentials and directory entries
 and nothing else. A FROST transcript can never be replayed as chat evidence and
 vice versa. See also
