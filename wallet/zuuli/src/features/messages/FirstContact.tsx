@@ -10,6 +10,7 @@ import {
   HANDLE_PATTERN,
   type ContactRequest,
   type Conversation,
+  type ErrorCode,
 } from "@/lib/messaging/types";
 
 interface FirstContactProps {
@@ -19,9 +20,87 @@ interface FirstContactProps {
   onStateChanged: () => Promise<void>;
 }
 
-function refusalCode(error: unknown): string {
+function refusalCode(error: unknown): ErrorCode {
   const parsed = ErrorCodeSchema.safeParse(error);
   return parsed.success ? parsed.data : "internal";
+}
+
+function errorPresentation(code: ErrorCode): {
+  title: string;
+  body: string;
+  tone: "warning" | "destructive";
+} {
+  if (code === "directory-proof-invalid") {
+    return {
+      title: "Directory proof failed",
+      body:
+        "Cryptographic verification failed. First contact stopped; do not retry through another directory. Review the security alarms before proceeding.",
+      tone: "destructive",
+    };
+  }
+  if (code === "witness-threshold-unmet") {
+    return {
+      title: "Independent witness threshold not met",
+      body:
+        "First contact remains blocked. You can compare safety numbers over a channel you already trust; existing conversations continue.",
+      tone: "warning",
+    };
+  }
+  if (
+    code === "directory-protocol-violation" ||
+    code === "relay-protocol-violation" ||
+    code === "internal"
+  ) {
+    return {
+      title: "Messaging defect",
+      body:
+        "ZUULI or a service returned an invalid result. Update ZUULI and report this error code; do not retry it automatically.",
+      tone: "destructive",
+    };
+  }
+  if (code === "directory-unreachable") {
+    return {
+      title: "First contact can be retried",
+      body:
+        "The directory could not be reached. Existing conversations are unaffected; try first contact again after connectivity returns.",
+      tone: "warning",
+    };
+  }
+  if (
+    code === "directory-rate-limited" ||
+    code === "directory-version-conflict" ||
+    code === "relay-unreachable" ||
+    code === "relay-rate-limited" ||
+    code === "relay-backpressure" ||
+    code === "send-unavailable" ||
+    code === "pow-required" ||
+    code === "pow-failed"
+  ) {
+    return {
+      title: "First contact can be retried",
+      body:
+        "The temporary attempt did not complete. Wait before trying again; established conversations are unaffected.",
+      tone: "warning",
+    };
+  }
+  if (code === "engine-not-running") {
+    return {
+      title: "Messaging engine stopped",
+      body: "Start the messaging engine, then try first contact once more.",
+      tone: "warning",
+    };
+  }
+  return {
+    title: "First contact stopped",
+    body:
+      "ZUULI did not establish or accept this contact. Resolve the condition named by the error code before trying again.",
+    tone: "destructive",
+  };
+}
+
+function formatClaimedIdentityKey(value: string): string {
+  if (!/^[0-9a-f]{64}$/i.test(value)) return "Invalid key encoding";
+  return value.toUpperCase().match(/.{1,5}/g)?.join(" ") ?? value;
 }
 
 /**
@@ -40,32 +119,44 @@ export function FirstContact({
   const [handle, setHandle] = useState("");
   const [requests, setRequests] = useState<ContactRequest[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ErrorCode | null>(null);
+  const [requestLoadError, setRequestLoadError] = useState<ErrorCode | null>(
+    null,
+  );
+  const [conversationLoadError, setConversationLoadError] =
+    useState<ErrorCode | null>(null);
   const busyRef = useRef<string | null>(null);
+  const requestReadGeneration = useRef(0);
+  const conversationReadGeneration = useRef(0);
 
   const loadRequests = useCallback(async () => {
+    const generation = ++requestReadGeneration.current;
     try {
-      setRequests(await messaging.listContactRequests());
+      const next = await messaging.listContactRequests();
+      if (generation !== requestReadGeneration.current) return;
+      setRequests(next);
+      setRequestLoadError(null);
     } catch (cause) {
-      setError(refusalCode(cause));
+      if (generation !== requestReadGeneration.current) return;
+      setRequestLoadError(refusalCode(cause));
     }
   }, []);
 
-  const reconcileAfterSignal = useCallback(async () => {
+  const loadConversations = useCallback(async () => {
+    const generation = ++conversationReadGeneration.current;
     try {
-      const [nextRequests] = await Promise.all([
-        messaging.listContactRequests(),
-        onStateChanged(),
-      ]);
-      setRequests(nextRequests);
+      await onStateChanged();
+      if (generation !== conversationReadGeneration.current) return;
+      setConversationLoadError(null);
     } catch (cause) {
-      setError(refusalCode(cause));
+      if (generation !== conversationReadGeneration.current) return;
+      setConversationLoadError(refusalCode(cause));
     }
   }, [onStateChanged]);
 
-  useEffect(() => {
-    void loadRequests();
-  }, [loadRequests]);
+  const reconcileAfterSignal = useCallback(async () => {
+    await Promise.all([loadRequests(), loadConversations()]);
+  }, [loadConversations, loadRequests]);
 
   // Events are only signals. Their payloads are deliberately ignored and both
   // authoritative views are re-read (§5.2); appending either payload directly
@@ -74,16 +165,24 @@ export function FirstContact({
     let disposed = false;
     const unlisteners: Array<() => void> = [];
 
-    const attach = (promise: Promise<() => void>) => {
-      void promise.then((unlisten) => {
-        if (disposed) unlisten();
-        else unlisteners.push(unlisten);
-      });
-    };
-
     const reread = () => void reconcileAfterSignal();
-    attach(listenMessaging("f2zmsg://contact-request", reread));
-    attach(listenMessaging("f2zmsg://conversation-updated", reread));
+    void Promise.all([
+      listenMessaging("f2zmsg://contact-request", reread),
+      listenMessaging("f2zmsg://conversation-updated", reread),
+    ])
+      .then((attached) => {
+        if (disposed) {
+          for (const unlisten of attached) unlisten();
+          return;
+        }
+        unlisteners.push(...attached);
+        // The read starts only after both subscriptions exist. Anything that
+        // landed during async attachment is therefore included here.
+        void reconcileAfterSignal();
+      })
+      .catch((cause) => {
+        if (!disposed) setConversationLoadError(refusalCode(cause));
+      });
 
     const onFocus = () => void loadRequests();
     const onVisibility = () => {
@@ -94,6 +193,8 @@ export function FirstContact({
 
     return () => {
       disposed = true;
+      requestReadGeneration.current += 1;
+      conversationReadGeneration.current += 1;
       for (const unlisten of unlisteners) unlisten();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -108,12 +209,12 @@ export function FirstContact({
       if (busyRef.current !== null) return;
       busyRef.current = key;
       setBusy(key);
-      setError(null);
+      setActionError(null);
       try {
         await action();
         await reconcileAfterSignal();
       } catch (cause) {
-        setError(refusalCode(cause));
+        setActionError(refusalCode(cause));
       } finally {
         busyRef.current = null;
         setBusy(null);
@@ -152,6 +253,9 @@ export function FirstContact({
     [run],
   );
 
+  const error = actionError ?? conversationLoadError ?? requestLoadError;
+  const presentedError = error ? errorPresentation(error) : null;
+
   return (
     <section className="space-y-4" aria-labelledby="first-contact-title">
       <div className="rounded-xl border border-border bg-card p-5">
@@ -167,6 +271,7 @@ export function FirstContact({
 
         <form
           className="flex flex-col gap-2 sm:flex-row"
+          aria-busy={busy === "start"}
           onSubmit={(event) => {
             event.preventDefault();
             void start();
@@ -198,6 +303,17 @@ export function FirstContact({
           </Button>
         </form>
 
+        {busy === "start" ? (
+          <p
+            className="mt-2 text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            Computing proof of work on this device. This can take several
+            seconds.
+          </p>
+        ) : null}
+
         {handle.length > 0 && !validHandle ? (
           <p className="mt-2 text-sm text-destructive" role="alert">
             Use 1–30 lowercase letters, numbers, or underscores, without an @.
@@ -216,9 +332,14 @@ export function FirstContact({
         ) : null}
       </div>
 
-      {error ? (
-        <Callout tone="destructive" title="First contact was refused" role="alert">
-          Messaging error: <span className="mono-id">{error}</span>
+      {error && presentedError ? (
+        <Callout
+          tone={presentedError.tone}
+          title={presentedError.title}
+          role="alert"
+        >
+          {presentedError.body} Error code:{" "}
+          <span className="mono-id">{error}</span>
         </Callout>
       ) : null}
 
@@ -237,10 +358,14 @@ export function FirstContact({
                     @{request.peerHandle}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Identity fingerprint
+                    Unverified identity key claimed by this request
                   </p>
                   <p className="mono-id break-all text-sm text-foreground">
-                    {request.peerIdentityFingerprint}
+                    {formatClaimedIdentityKey(request.peerIdentityFingerprint)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Directory confirmation happens only if you accept. Compare
+                    safety numbers afterward over a channel you already trust.
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button

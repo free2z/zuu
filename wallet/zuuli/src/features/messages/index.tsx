@@ -1,6 +1,6 @@
 // Encrypted messages — mounted at /messages/*.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyRound,
   Loader2,
@@ -99,25 +99,31 @@ export default function MessagesFeature() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const reconcileGeneration = useRef(0);
 
   const reconcile = useCallback(async () => {
+    const generation = ++reconcileGeneration.current;
     const [engine, enrollmentState, deviceInfo] = await Promise.all([
       messaging.getEngineStatus(),
       enrollment.getEnrollmentStatus(),
       messaging.getDeviceInfo(),
     ]);
+    const nextConversations = enrollmentState.enrolled
+      ? (await messaging.listConversations()).conversations
+      : [];
+    if (generation !== reconcileGeneration.current) return;
+
     setStatus(engine);
     setEnrolled(enrollmentState);
     setDevice(deviceInfo);
-
-    if (!enrollmentState.enrolled) {
-      setConversations([]);
-      return;
-    }
-    const page = await messaging.listConversations();
-    setConversations(page.conversations);
+    setConversations(nextConversations);
     setSelectedId(
-      (current) => current ?? page.conversations[0]?.conversationId ?? null,
+      (current) =>
+        nextConversations.some(
+          (conversation) => conversation.conversationId === current,
+        )
+          ? current
+          : (nextConversations[0]?.conversationId ?? null),
     );
   }, []);
 

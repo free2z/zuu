@@ -33,7 +33,8 @@ import { FirstContact } from "./FirstContact";
 const REQUEST: ContactRequest = {
   requestId: "req-1",
   peerHandle: "newcomer",
-  peerIdentityFingerprint: "2B8F 60C1 D4A7 39E5",
+  peerIdentityFingerprint:
+    "2b8f60c1d4a739e50f2687bd4c319a0e9123a456b789c012d345e678f9012345",
   receivedAt: 1,
   bodyPreview: null,
 };
@@ -229,7 +230,13 @@ describe("ZUULI first contact", () => {
     const onConversation = vi.fn();
     await renderFirstContact({ onConversation });
     expect(container.textContent).toContain("@newcomer");
-    expect(container.textContent).toContain(REQUEST.peerIdentityFingerprint);
+    expect(container.textContent).toContain(
+      "2B8F6 0C1D4 A739E 50F26 87BD4 C319A 0E912 3A456 B789C 012D3 45E67 8F901 2345",
+    );
+    expect(container.textContent).toContain("Unverified identity key claimed");
+    expect(container.textContent).toContain(
+      "Directory confirmation happens only if you accept",
+    );
     await act(async () => button("Accept").click());
     await vi.waitFor(() =>
       expect(controls.acceptContactRequest).toHaveBeenCalledWith("req-1"),
@@ -276,7 +283,14 @@ describe("ZUULI first contact", () => {
           resolvers.push(resolve);
         }),
     );
-    await renderFirstContact();
+    await act(async () => root.render(
+      <FirstContact
+        engineRunning
+        witnessThresholdMet
+        onConversation={vi.fn()}
+        onStateChanged={vi.fn(async () => {})}
+      />,
+    ));
     await act(async () => root.unmount());
     const late = [vi.fn(), vi.fn()];
     await act(async () => {
@@ -285,6 +299,121 @@ describe("ZUULI first contact", () => {
     });
     expect(late[0]).toHaveBeenCalledTimes(1);
     expect(late[1]).toHaveBeenCalledTimes(1);
+  });
+
+  it("attaches both event listeners before the initial authoritative read", async () => {
+    const listenerResolvers: Array<(unlisten: () => void) => void> = [];
+    controls.listen.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          listenerResolvers.push(resolve);
+        }),
+    );
+    controls.listContactRequests.mockClear();
+    await act(async () => root.render(
+      <FirstContact
+        engineRunning
+        witnessThresholdMet
+        onConversation={vi.fn()}
+        onStateChanged={vi.fn(async () => {})}
+      />,
+    ));
+    expect(controls.listContactRequests).not.toHaveBeenCalled();
+    controls.listContactRequests.mockResolvedValue([REQUEST]);
+    await act(async () => {
+      listenerResolvers.forEach((resolve) => resolve(vi.fn()));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() =>
+      expect(controls.listContactRequests).toHaveBeenCalledTimes(1),
+    );
+    expect(container.textContent).toContain("@newcomer");
+  });
+
+  it("does not let an older contact-request read resurrect stale state", async () => {
+    const reads: Array<(requests: ContactRequest[]) => void> = [];
+    controls.listContactRequests.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          reads.push(resolve);
+        }),
+    );
+    await act(async () => root.render(
+      <FirstContact
+        engineRunning
+        witnessThresholdMet
+        onConversation={vi.fn()}
+        onStateChanged={vi.fn(async () => {})}
+      />,
+    ));
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
+    await act(async () =>
+      window.dispatchEvent(new window.Event("focus")),
+    );
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    await act(async () => reads[1]([]));
+    expect(container.textContent).not.toContain("@newcomer");
+    await act(async () => reads[0]([REQUEST]));
+    expect(container.textContent).not.toContain("@newcomer");
+  });
+
+  it.each([
+    [
+      "directory-proof-invalid",
+      "Directory proof failed",
+      "cryptographic verification failed",
+    ],
+    [
+      "witness-threshold-unmet",
+      "Independent witness threshold not met",
+      "compare safety numbers",
+    ],
+    [
+      "directory-protocol-violation",
+      "Messaging defect",
+      "report this error code",
+    ],
+    [
+      "directory-unreachable",
+      "First contact can be retried",
+      "directory could not be reached",
+    ],
+  ])("renders the actionable security meaning of %s", async (code, title, copy) => {
+    controls.startConversation.mockRejectedValue(code);
+    await renderFirstContact();
+    await enterHandle("alice");
+    await act(async () => submit());
+    await vi.waitFor(() => expect(container.textContent).toContain(title));
+    expect(container.textContent?.toLowerCase()).toContain(copy.toLowerCase());
+    expect(container.textContent).toContain(code);
+  });
+
+  it("clears a stale load refusal after a later authoritative read succeeds", async () => {
+    controls.listContactRequests
+      .mockRejectedValueOnce("directory-unreachable")
+      .mockResolvedValueOnce([REQUEST]);
+    await renderFirstContact();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("directory-unreachable"),
+    );
+    await act(async () =>
+      window.dispatchEvent(new window.Event("focus")),
+    );
+    await vi.waitFor(() => expect(container.textContent).toContain("@newcomer"));
+    expect(container.textContent).not.toContain("directory-unreachable");
+  });
+
+  it("announces multi-second proof-of-work progress accessibly", async () => {
+    controls.startConversation.mockReturnValue(new Promise(() => {}));
+    await renderFirstContact();
+    await enterHandle("alice");
+    await act(async () => submit());
+    const status = container.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toContain("Computing proof of work on this device");
+    expect(container.querySelector("form")?.getAttribute("aria-busy")).toBe(
+      "true",
+    );
   });
 
   it("keeps request state visible when a bare bridge error is refused", async () => {
