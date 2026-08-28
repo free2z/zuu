@@ -16,6 +16,7 @@
 //! | `submissions.log` | every [`AdmittedSubmission`]'s canonical entry bytes, in admission order | a submission the log accepted and then forgot is a broken §5.2 merge promise, and the client is holding a signed receipt that says so |
 //! | `epochs.log` | every published `SignedTreeHead`, plus how many submissions it covers | §6.3's chain is only checkable if the log can still produce every head it signed |
 //! | `cosignatures.log` | every `WitnessCosignature` accepted at `/kt/v1/cosign` | §9.2 has the log serve them; a log that forgets them looks like a log with fewer witnesses |
+//! | `equivocations.log` | every `WitnessEquivocation` a witness produced against itself (§7.2) | the pair **is** the evidence; a check whose only output is a rejection throws away the one artifact that makes the property non-repudiable |
 //!
 //! The `akd` tree is rebuilt at startup by replaying `publish()` epoch by
 //! epoch, in the recorded order, against an in-memory database — and **the
@@ -49,6 +50,7 @@ use std::path::{Path, PathBuf};
 use f2z_codec::Canonical as _;
 use f2z_codec::decode_canonical;
 use f2z_codec::types::{Payload, ShortBytes};
+use f2z_kt_core::cosign::WitnessEquivocation;
 use f2z_kt_core::sth::SignedTreeHead;
 use f2z_kt_core::types::{check_label, label_field};
 use f2z_kt_core::{KT_VERSION, WitnessCosignature};
@@ -125,15 +127,18 @@ pub struct Journal {
     pub epochs: Vec<StoredEpoch>,
     /// Cosignatures, in arrival order.
     pub cosignatures: Vec<WitnessCosignature>,
+    /// Witness self-equivocations, in the order they were found (§7.2).
+    pub equivocations: Vec<WitnessEquivocation>,
 }
 
-/// The three append-only journals.
+/// The four append-only journals.
 #[derive(Debug)]
 pub struct Store {
     dir: PathBuf,
     submissions: File,
     epochs: File,
     cosignatures: File,
+    equivocations: File,
     next_sequence: u64,
 }
 
@@ -151,10 +156,12 @@ impl Store {
         let mut submissions = open_append(&dir.join("submissions.log"))?;
         let mut epochs = open_append(&dir.join("epochs.log"))?;
         let mut cosignatures = open_append(&dir.join("cosignatures.log"))?;
+        let mut equivocations = open_append(&dir.join("equivocations.log"))?;
 
         let submissions_raw = read_records(&mut submissions, dir)?;
         let epochs_raw = read_records(&mut epochs, dir)?;
         let cosignatures_raw = read_records(&mut cosignatures, dir)?;
+        let equivocations_raw = read_records(&mut equivocations, dir)?;
 
         let mut journal = Journal::default();
         for (index, bytes) in submissions_raw.iter().enumerate() {
@@ -187,6 +194,18 @@ impl Store {
                 .into_value();
             journal.cosignatures.push(record);
         }
+        for (index, bytes) in equivocations_raw.iter().enumerate() {
+            let record = decode_canonical::<WitnessEquivocation>(bytes)
+                .map_err(|_| corrupt("equivocations.log", index))?
+                .into_value();
+            // Re-established from the record's own bytes at every startup. A
+            // stored accusation that no longer checks out is corruption, and
+            // the log must not serve one it cannot itself substantiate.
+            record
+                .verify_evidence()
+                .map_err(|_| corrupt("equivocations.log", index))?;
+            journal.equivocations.push(record);
+        }
 
         let next_sequence = u64::try_from(journal.submissions.len()).unwrap_or(u64::MAX);
         Ok((
@@ -195,6 +214,7 @@ impl Store {
                 submissions,
                 epochs,
                 cosignatures,
+                equivocations,
                 next_sequence,
             },
             journal,
@@ -262,6 +282,24 @@ impl Store {
             .encode_canonical()
             .map_err(|_| LogError::Malformed)?;
         append_record(&mut self.cosignatures, &bytes, &self.dir)
+    }
+
+    /// Append a witness self-equivocation and `fsync` (§7.2).
+    ///
+    /// Both cosignatures verbatim, because the pair is the evidence. §7.2:
+    /// *"No third document is needed to establish it: the two cosignatures and
+    /// the witness's own public key are the whole proof."* Storing a summary,
+    /// a flag or a log line would leave the log asserting a fault it could no
+    /// longer prove.
+    ///
+    /// # Errors
+    ///
+    /// [`LogError::Storage`] on any write or sync failure.
+    pub fn append_equivocation(&mut self, evidence: &WitnessEquivocation) -> Result<()> {
+        let bytes = evidence
+            .encode_canonical()
+            .map_err(|_| LogError::Malformed)?;
+        append_record(&mut self.equivocations, &bytes, &self.dir)
     }
 }
 

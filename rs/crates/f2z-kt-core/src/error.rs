@@ -182,6 +182,20 @@ pub enum KtError {
     /// §6.3 rule 8: the same epoch with a different root, size or timestamp.
     /// Fatal, and it is fork evidence.
     Fork,
+    /// §7.2: **one witness signed two contradictory statements** about one
+    /// `(log_id, epoch)`.
+    ///
+    /// Distinct from [`KtError::Fork`] on purpose, and the distinction is the
+    /// whole of §7.2's accountability claim. `Fork` is evidence against the
+    /// **log** — it is what the log returns when a cosignature endorses a root
+    /// the log did not publish, and what a client returns when two *different*
+    /// witnesses disagree. This is a fault of the **witness**, it needs no third
+    /// document to establish, and it stands even if the log is honest. Reporting
+    /// it as `Fork` would file evidence against the wrong party.
+    ///
+    /// The pair itself is [`crate::cosign::WitnessEquivocation`]; this is the
+    /// verdict that accompanies it.
+    WitnessEquivocation,
     /// §6.3 rule 7: `prev_sth_hash` does not connect to the last accepted head.
     ChainBreak,
     /// §6.3 rule 7: the new head skips epochs. The verifier MUST fetch every
@@ -231,6 +245,7 @@ impl KtError {
             // inventing a code §9.5 does not have.
             Self::Rollback
             | Self::Fork
+            | Self::WitnessEquivocation
             | Self::ChainBreak
             | Self::EpochGap
             | Self::VrfKeyChange
@@ -258,6 +273,9 @@ impl fmt::Display for KtError {
             Self::Cooldown => "platform_reset before effective_at_ms (KT.md §4.4)",
             Self::Rollback => "tree head moved backwards (KT.md §6.3)",
             Self::Fork => "two different tree heads for one epoch (KT.md §6.3 rule 8)",
+            Self::WitnessEquivocation => {
+                "one witness signed two contradictory statements for one epoch (KT.md §7.2)"
+            }
             Self::ChainBreak => "prev_sth_hash does not connect (KT.md §6.3 rule 7)",
             Self::EpochGap => "tree head skips epochs; fetch every intervening head (KT.md §6.3)",
             Self::VrfKeyChange => "vrf_public_key changed within a log_id (KT.md §6.1)",
@@ -349,6 +367,7 @@ mod tests {
             KtError::Cooldown,
             KtError::Rollback,
             KtError::Fork,
+            KtError::WitnessEquivocation,
             KtError::ChainBreak,
             KtError::EpochGap,
             KtError::VrfKeyChange,

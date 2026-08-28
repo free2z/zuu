@@ -54,6 +54,7 @@ use f2z_kt::FileSigner;
 use f2z_kt::api::AppState;
 use f2z_kt::ratelimit::RateLimiter;
 use f2z_kt::testing::{Harness, Key};
+use f2z_kt_core::KtError;
 use f2z_kt_core::api::ErrorBody;
 use f2z_kt_core::cosign::{WitnessCosignature, WitnessCosignatureTBS};
 use f2z_kt_core::sth::SignedTreeHead;
@@ -348,4 +349,203 @@ async fn reopen(harness: &Harness, witnesses: Vec<PublicKey>) -> f2z_kt::LogServ
     )
     .await
     .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// §7.2 — a witness that contradicts itself, and the evidence that survives it.
+//
+// zuu#746. `VerifiedCosignature::contradicts` was made sound by #704 and given
+// no caller, so the accountability §7.2 claims was correctly implemented and
+// never exercised:
+//
+// > Two conflicting statements are directly non-repudiable against the witness
+// > … **That is what makes a witness accountable rather than merely helpful.**
+//
+// A witness that signs two different roots for one epoch was detected by
+// nothing — the second cosignature was refused as `ERR_INTERNAL`/`Fork`, which
+// is evidence against the *log*, and the pair was thrown away.
+// ---------------------------------------------------------------------------
+
+/// A cosignature by `key` over an epoch the log published, but naming a root it
+/// did not.
+///
+/// A **genuine** signature over genuinely different contents — not a corrupted
+/// byte. That is what self-equivocation is: the witness really did sign both.
+fn cosignature_over_another_root(head: &SignedTreeHead, key: &Key) -> WitnessCosignature {
+    let statement = WitnessCosignatureTBS {
+        label: WitnessCosignatureTBS::label_bytes().unwrap(),
+        kt_version: f2z_kt_core::KT_VERSION,
+        log_id: head.sth.log_id,
+        epoch: head.sth.epoch,
+        tree_size: head.sth.tree_size,
+        root_hash: f2z_codec::types::Digest::new([0xaa; 32]),
+        witness_pk: key.public,
+        observed_at_ms: NOW + 60_000,
+    };
+    assert_ne!(statement.root_hash, head.sth.root_hash);
+    let signature = key.sign(&statement.signing_bytes().unwrap());
+    let cosignature = WitnessCosignature {
+        statement,
+        signature,
+    };
+    cosignature
+        .verify()
+        .expect("the witness really did sign this one too");
+    cosignature
+}
+
+/// **zuu#746.** One witness, two genuine cosignatures, one epoch, two roots.
+///
+/// The finding is named as the witness's fault, both statements are retained
+/// verbatim, and the evidence re-establishes itself from its own bytes.
+#[tokio::test]
+async fn a_witness_that_signs_two_roots_for_one_epoch_is_caught_and_the_pair_is_kept() {
+    let witness = Key::from_byte(0xc1);
+    let harness =
+        Harness::vouched_with_witnesses("cosign-equivocation", vec![witness.public]).await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let head = harness.log.latest_bundle().await.unwrap().head;
+
+    // The honest half, first: this is the statement the log and every client
+    // will keep counting.
+    let honest = cosignature_over(&head, &witness);
+    harness.log.accept_cosignature(&honest).await.unwrap();
+    assert_eq!(served(&harness).await, 1);
+    assert!(harness.log.witness_equivocations().await.is_empty());
+
+    // The same witness now signs a different root for the same epoch.
+    let dishonest = cosignature_over_another_root(&head, &witness);
+    let error = harness
+        .log
+        .accept_cosignature(&dishonest)
+        .await
+        .expect_err("a witness contradicting itself is not accepted");
+
+    // 1. A named fault, distinct from `Fork`. `Fork` is evidence against the
+    //    log; this is a fault of the witness and stands even if the log is
+    //    honest, so reporting it as `Fork` would file it against the wrong
+    //    party.
+    assert!(
+        matches!(error, f2z_kt::LogError::Kt(KtError::WitnessEquivocation)),
+        "expected KtError::WitnessEquivocation, got {error:?}",
+    );
+
+    // 2. Both cosignatures retained, verbatim, so the pair can be handed to
+    //    anyone.
+    let evidence = harness.log.witness_equivocations().await;
+    assert_eq!(evidence.len(), 1);
+    let pair = &evidence[0];
+    assert_eq!(pair.witness_pk(), &witness.public);
+    assert_eq!(pair.epoch(), head.sth.epoch);
+    assert_eq!(&pair.a, &honest);
+    assert_eq!(&pair.b, &dishonest);
+
+    // 3. And it is non-repudiable with no third document: the two cosignatures
+    //    and the key they both name are the whole proof (§7.2). Checked here
+    //    the way a stranger would check it — from the encoded bytes alone.
+    assert_eq!(pair.verify_evidence(), Ok(()));
+    let bytes = pair.encode_canonical().unwrap();
+    let decoded = decode_canonical::<f2z_kt_core::cosign::WitnessEquivocation>(&bytes)
+        .unwrap()
+        .into_value();
+    assert_eq!(decoded.verify_evidence(), Ok(()));
+
+    // 4. The earlier, covering cosignature is still served. §8.3 and §9.5 are
+    //    explicit that the log's opinion of who is a witness has no bearing on
+    //    a client's configured set, so dropping a genuine cosignature would
+    //    degrade a client's threshold on the log's own authority.
+    assert_eq!(served(&harness).await, 1);
+}
+
+/// The evidence survives a restart, and is re-checked on the way back in.
+#[tokio::test]
+async fn a_journalled_equivocation_is_replayed_and_re_verified() {
+    let witness = Key::from_byte(0xc1);
+    let harness =
+        Harness::vouched_with_witnesses("cosign-equivocation-replay", vec![witness.public]).await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let head = harness.log.latest_bundle().await.unwrap().head;
+
+    harness
+        .log
+        .accept_cosignature(&cosignature_over(&head, &witness))
+        .await
+        .unwrap();
+    harness
+        .log
+        .accept_cosignature(&cosignature_over_another_root(&head, &witness))
+        .await
+        .unwrap_err();
+
+    assert!(
+        std::fs::metadata(harness.dir.join("equivocations.log"))
+            .unwrap()
+            .len()
+            > 0,
+        "the pair was fsynced, not held in memory until the process died",
+    );
+
+    let reopened = reopen(&harness, vec![witness.public]).await;
+    let evidence = reopened.witness_equivocations().await;
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0].verify_evidence(), Ok(()));
+    assert_eq!(evidence[0].witness_pk(), &witness.public);
+}
+
+/// A retry is still a retry. `contradicts` excludes `observed_at_ms` on purpose
+/// — the same root seen at two times is normal, not a conflict — and the
+/// idempotency the fix must not break is exactly that case.
+#[tokio::test]
+async fn re_sending_the_same_root_at_a_later_time_is_not_an_equivocation() {
+    let witness = Key::from_byte(0xc1);
+    let harness =
+        Harness::vouched_with_witnesses("cosign-equivocation-retry", vec![witness.public]).await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let head = harness.log.latest_bundle().await.unwrap().head;
+
+    harness
+        .log
+        .accept_cosignature(&cosignature_over(&head, &witness))
+        .await
+        .unwrap();
+
+    // Same four fields, later clock, fresh genuine signature.
+    let mut later = cosignature_over(&head, &witness);
+    later.statement.observed_at_ms = NOW + 120_000;
+    later.signature = witness.sign(&later.statement.signing_bytes().unwrap());
+    assert_ne!(later, cosignature_over(&head, &witness));
+
+    harness
+        .log
+        .accept_cosignature(&later)
+        .await
+        .expect("a retry is idempotent, not an accusation");
+    assert_eq!(served(&harness).await, 1);
+    assert!(harness.log.witness_equivocations().await.is_empty());
+}
+
+/// A witness that has sent **nothing else** for the epoch and signs a root the
+/// log did not publish is still `Fork`, not equivocation.
+///
+/// One statement disagreeing with the log's head is a disagreement between two
+/// parties. It needs the log's own head to state at all, and the log is one of
+/// the two — so it is not the self-contradiction §7.2 makes non-repudiable, and
+/// calling it one would be an accusation with only one signature behind it.
+#[tokio::test]
+async fn a_first_cosignature_over_an_unpublished_root_is_still_a_fork() {
+    let witness = Key::from_byte(0xc1);
+    let harness = Harness::vouched_with_witnesses("cosign-first-fork", vec![witness.public]).await;
+    harness.log.publish_epoch(NOW).await.unwrap();
+    let head = harness.log.latest_bundle().await.unwrap().head;
+
+    let error = harness
+        .log
+        .accept_cosignature(&cosignature_over_another_root(&head, &witness))
+        .await
+        .expect_err("the log did not publish that root");
+    assert!(
+        matches!(error, f2z_kt::LogError::Kt(KtError::Fork)),
+        "expected KtError::Fork, got {error:?}",
+    );
+    assert!(harness.log.witness_equivocations().await.is_empty());
 }

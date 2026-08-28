@@ -771,6 +771,110 @@ mod tests {
     }
 
     #[test]
+    fn a_same_key_update_signed_by_anything_but_the_current_directory_key_is_refused() {
+        // zuu#692. §4.4's `same_key` row is the ONLY thing standing between an
+        // ordinary entry — adding a device, removing a device, changing an
+        // endpoint, rotating a KEM key — and the directory, and it is the
+        // most-travelled rule in §4.4. Every other `BadSignature` test in this
+        // file targets an *exceptional* authorization path.
+        //
+        // The signature here is genuine: a real Ed25519 signature over the real
+        // entry bytes, by a key that is simply not the one the previous entry
+        // published. A corrupted-bytes fixture would be refused by the same
+        // call for a weaker reason.
+        let directory = TestDirectory::new();
+        let genesis = directory.genesis();
+        let published = PublishedEntry::from_entry(&genesis).unwrap();
+
+        let update = directory.same_key_update(&genesis);
+        let impostor = signing_key(0x9a);
+        let signed_by_a_stranger = DirectoryEntry {
+            authorization: EntryAuthorization::SameKey {
+                auth_signature: crate::testing::sign(
+                    &impostor,
+                    &update.entry.signing_bytes().unwrap(),
+                ),
+            },
+            entry: update.entry.clone(),
+        };
+        assert_eq!(
+            accept(&directory, &signed_by_a_stranger, Some(&published), 0),
+            Err(KtError::BadSignature),
+            "the previous entry's directory_auth_pk is what authorizes an ordinary update",
+        );
+
+        // The positive control, in the same test so a fix that broke ordinary
+        // submissions could not hide behind the refusal above.
+        assert!(accept(&directory, &update, Some(&published), 0).is_ok());
+    }
+
+    #[test]
+    fn a_registration_not_self_signed_by_the_key_it_publishes_is_refused() {
+        // The version-1 half of the same call site, and the AMBIGUITY CALL
+        // §4.4's table has no row for: a registration is self-signed by the
+        // `directory_auth_pk` it publishes. Nothing weaker is possible, and
+        // "nothing weaker" is only true if the self-signature is checked.
+        let directory = TestDirectory::new();
+        let genesis = directory.genesis();
+        let impostor = signing_key(0x9b);
+        let not_self_signed = DirectoryEntry {
+            authorization: EntryAuthorization::SameKey {
+                auth_signature: crate::testing::sign(
+                    &impostor,
+                    &genesis.entry.signing_bytes().unwrap(),
+                ),
+            },
+            entry: genesis.entry.clone(),
+        };
+        assert_eq!(
+            accept(&directory, &not_self_signed, None, 0),
+            Err(KtError::BadSignature),
+            "trust-on-first-registration still requires the registration to be signed",
+        );
+        assert!(accept(&directory, &genesis, None, 0).is_ok());
+    }
+
+    #[test]
+    fn a_reset_entry_not_signed_by_its_own_directory_key_is_refused() {
+        // zuu#692. §4.4 rule 5 for `platform_reset`: the entry's OWN
+        // `directory_auth_pk` signs it. The reset authority's signature (rule 7)
+        // covers the `ResetAuthorization`, which names the incoming *identity*
+        // key and says nothing at all about the incoming directory-auth key —
+        // so without this signature the platform authority's approval of a
+        // recovery would install a directory-auth key nobody proved possession
+        // of. `a_reset_signed_by_anything_but_the_pinned_authority_is_refused`
+        // covers rule 7 and cannot cover this.
+        let directory = TestDirectory::new();
+        let genesis = directory.genesis();
+        let published = PublishedEntry::from_entry(&genesis).unwrap();
+        let new_isk = signing_key(0x80);
+        let new_auth = signing_key(0x81);
+        let cooldown_ms = directory.policy().reset_cooldown_ms();
+
+        let reset = directory.platform_reset(&genesis, &new_isk, &new_auth, 0);
+        // Genuine signature, wrong key: neither the directory-auth key this
+        // entry publishes nor any key the entry mentions.
+        let stranger_signed = directory.reauthorize_reset(reset.clone(), &signing_key(0x9c));
+        assert_eq!(
+            accept(&directory, &stranger_signed, Some(&published), cooldown_ms),
+            Err(KtError::BadSignature),
+        );
+
+        // And specifically not the *outgoing* directory-auth key either: a
+        // reset exists because that key is gone.
+        let old_auth_signed = directory.reauthorize_reset(reset.clone(), &signing_key(0x42));
+        assert_eq!(
+            accept(&directory, &old_auth_signed, Some(&published), cooldown_ms),
+            Err(KtError::BadSignature),
+        );
+
+        assert!(
+            accept(&directory, &reset, Some(&published), cooldown_ms).is_ok(),
+            "the correctly signed reset is still accepted",
+        );
+    }
+
+    #[test]
     fn a_reset_before_its_cooldown_is_refused() {
         let directory = TestDirectory::new();
         let genesis = directory.genesis();

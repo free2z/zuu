@@ -34,6 +34,9 @@
 //! | a key change the user did not initiate raises the alarm | §8.2 step 5 |
 //! | a pinned handle asserted absent fails closed and alarms | §8.1's correction |
 //! | self-audit continues, and reports, under an unwitnessed root | §8.3's table |
+//! | a history with a version omitted is refused | §8.2 step 4 |
+//! | a history whose `prev_entry_hash` chain does not link is refused | §8.2 step 4 |
+//! | a history that chains by hash and renumbers a version is refused | §8.2 step 4 |
 
 // Test code, run on the host by a person reading the failure. The workspace
 // denies these because a panic in a parser is a remote denial of service, and
@@ -57,7 +60,7 @@ use f2z_kt_client::{
 };
 use f2z_kt_core::entry::{DirectoryEntry, EntryKind};
 use f2z_kt_core::types::Handle;
-use f2z_kt_core::{ConfiguredWitness, WitnessSet, labels};
+use f2z_kt_core::{ConfiguredWitness, KtError, WitnessSet, labels};
 use f2z_witness::witness::{Outcome, Settings, Witness};
 
 const NOW: u64 = 1_700_000_100_000;
@@ -88,6 +91,11 @@ struct DirectTransport {
     entry_override: Mutex<Option<Vec<u8>>>,
     drop_cosignatures: Mutex<bool>,
     claim_absent: Mutex<bool>,
+    /// Serve a history with the entry at this index removed — the **truthful
+    /// subset** of `KT.md` §8.2. Everything still served is real.
+    omit_history_entry: Mutex<Option<usize>>,
+    /// Serve these bytes in place of the history entry at this index.
+    swap_history_entry: Mutex<Option<(usize, Vec<u8>)>>,
 }
 
 impl DirectTransport {
@@ -103,7 +111,21 @@ impl DirectTransport {
             entry_override: Mutex::new(None),
             drop_cosignatures: Mutex::new(false),
             claim_absent: Mutex::new(false),
+            omit_history_entry: Mutex::new(None),
+            swap_history_entry: Mutex::new(None),
         }
+    }
+
+    /// Drop one entry from every history response — the omission §8.2 step 4
+    /// exists to catch. The index is into the response's own order, which is
+    /// `akd`'s decreasing version order.
+    fn omit_history_entry(&self, index: Option<usize>) {
+        *self.omit_history_entry.lock().unwrap() = index;
+    }
+
+    /// Serve `bytes` in place of the history entry at `index`.
+    fn swap_history_entry(&self, swap: Option<(usize, Vec<u8>)>) {
+        *self.swap_history_entry.lock().unwrap() = swap;
     }
 
     fn tamper_next_proof(&self) {
@@ -198,6 +220,16 @@ impl Transport for DirectTransport {
         if *self.drop_cosignatures.lock().unwrap() {
             response.bundle =
                 f2z_kt_core::api::TreeHeadBundle::new(response.bundle.head, Vec::new()).unwrap();
+        }
+        if let Some((index, bytes)) = self.swap_history_entry.lock().unwrap().as_ref() {
+            let mut entries = response.entries.as_slice().to_vec();
+            entries[*index] = f2z_codec::types::Payload::new(bytes.clone()).unwrap();
+            response.entries = f2z_codec::vec::VecU24::new(entries);
+        }
+        if let Some(index) = *self.omit_history_entry.lock().unwrap() {
+            let mut entries = response.entries.as_slice().to_vec();
+            entries.remove(index);
+            response.entries = f2z_codec::vec::VecU24::new(entries);
         }
         Ok(response.encode_canonical().unwrap())
     }
@@ -347,7 +379,13 @@ impl Deployment {
     /// without the old key, and what a user who rotates legitimately does. From
     /// the victim's client the two are indistinguishable, which is precisely
     /// why §8.2 requires the alarm rather than a silent update.
-    fn rotate(&self, handle: &str, old_seed: u8, new_seed: u8, previous: &DirectoryEntry) {
+    fn rotate(
+        &self,
+        handle: &str,
+        old_seed: u8,
+        new_seed: u8,
+        previous: &DirectoryEntry,
+    ) -> DirectoryEntry {
         let old = Identity::from_byte(old_seed);
         let new = Identity::from_byte(new_seed);
         let prev_hash = labels::prev_entry_hash(&previous.encode_canonical().unwrap());
@@ -368,6 +406,7 @@ impl Deployment {
                 .unwrap();
             self.harness.log.publish_epoch(NOW).await.unwrap();
         });
+        entry
     }
 
     /// Bring the witness up to the log's head, so the client has a cosigned
@@ -833,6 +872,189 @@ fn self_audit_continues_and_reports_under_an_unwitnessed_root() {
         report.alarms()[0].kind(),
         AlarmKind::SelfAuditUnexpectedEntry
     );
+}
+
+// ---------------------------------------------------------------------------
+// 6b. §8.2 step 4 — the truthful subset, and the chain that catches it.
+//
+// zuu#708. `key_history_verify` proves the versions it was shown are in the
+// tree; it does not prove the client was shown **all** of them, and it does not
+// look at `prev_entry_hash` at all. Step 4 is the only thing that does, and
+// under §8.3's self-audit row — *continues, and reports* — it is the only check
+// the client has left.
+// ---------------------------------------------------------------------------
+
+/// A history with one version omitted is refused, not audited.
+///
+/// The log serves nothing false here. Every entry it returns is real, signed
+/// and published; it simply does not return one of them. That is the whole
+/// truthful-subset attack: omit the entry that added the attacker's device and
+/// the entry that removed it, and what remains is a history in which nothing is
+/// wrong.
+#[test]
+fn a_history_with_a_version_omitted_is_refused_under_an_unwitnessed_root() {
+    let mut deployment = Deployment::new("client-history-omission");
+    deployment.cosign(NOW);
+    let first = deployment.register("alice", 1);
+    let second = deployment.rotate("alice", 1, 9, &first);
+    let third = deployment.rotate("alice", 9, 10, &second);
+    deployment.cosign(NOW + 1);
+
+    let submitted: Vec<Digest> = [&first, &second, &third]
+        .iter()
+        .map(|entry| labels::prev_entry_hash(&entry.encode_canonical().unwrap()))
+        .collect();
+
+    let mut client = deployment.client(1);
+    // §8.3's table: the threshold is unmet, so self-audit is reduced to step 4
+    // alone. `key_history_verify` does not run, which is exactly the state this
+    // check has to hold up in.
+    deployment.transport.withhold_cosignatures(true);
+
+    // The positive control, first: three versions, chain intact, nothing
+    // unexpected. Without it the refusal below would prove only that this
+    // deployment refuses everything.
+    let clean = client
+        .self_audit(&handle("alice"), &submitted, NOW + 2)
+        .unwrap();
+    assert!(!clean.root_witnessed());
+    assert!(clean.chain_intact());
+    assert_eq!(clean.versions_seen(), 3);
+    assert_eq!(clean.unexpected().len(), 0);
+
+    // Now the log drops the middle version from the response. Index 1 in
+    // `akd`'s decreasing order is version 2.
+    deployment.transport.omit_history_entry(Some(1));
+    assert_eq!(
+        client
+            .self_audit(&handle("alice"), &submitted, NOW + 3)
+            .unwrap_err(),
+        ClientError::Protocol(KtError::HistoryIncomplete),
+        "a version omitted from a history response is a truthful subset, and \
+         the entry_version sequence is what makes it visible",
+    );
+}
+
+/// A history whose `prev_entry_hash` chain does not link is refused — and the
+/// version sequence alone would not have noticed.
+///
+/// This is the half of step 4 that nothing else in the system covers.
+/// `key_history_verify` proves inclusion and, under `HistoryParams::Complete`,
+/// version contiguity; **it never reads `prev_entry_hash`.** A log that answers
+/// with contiguous versions whose contents do not chain has substituted one of
+/// them, and only the hash walk says so.
+#[test]
+fn a_history_whose_prev_entry_hash_chain_does_not_link_is_refused() {
+    let mut deployment = Deployment::new("client-history-chainbreak");
+    deployment.cosign(NOW);
+    let first = deployment.register("alice", 1);
+    let second = deployment.rotate("alice", 1, 9, &first);
+    let third = deployment.rotate("alice", 9, 10, &second);
+    deployment.cosign(NOW + 1);
+
+    let submitted: Vec<Digest> = [&first, &second, &third]
+        .iter()
+        .map(|entry| labels::prev_entry_hash(&entry.encode_canonical().unwrap()))
+        .collect();
+
+    // A substituted version 2. Well-formed in every way a decoder can see: the
+    // right log, the right handle, version 2, a non-zero `prev_entry_hash` (§4.2
+    // requires exactly that of a non-genesis entry), a valid self-signature. The
+    // only thing wrong with it is that its predecessor hash is not version 1's.
+    let impostor = Identity::from_byte(0x71);
+    let substituted = EntryBuilder::first(deployment.harness.log_id, "alice", &impostor)
+        .version(2)
+        .prev_entry_hash(Digest::new([0x5a; 32]))
+        .device(0x72, &impostor.isk)
+        .endpoint(0x73)
+        .same_key(&impostor.dak);
+    let substituted = substituted.encode_canonical().unwrap();
+
+    let mut client = deployment.client(1);
+    deployment
+        .transport
+        .swap_history_entry(Some((1, substituted.clone())));
+
+    // Under a **witnessed** root the substitution never reaches step 4: the
+    // value the proof commits to is recomputed from the served bytes, so these
+    // bytes are not the ones the tree holds. Asserted so the test below cannot
+    // be mistaken for the only thing standing here.
+    assert_eq!(
+        client
+            .self_audit(&handle("alice"), &submitted, NOW + 2)
+            .unwrap_err(),
+        ClientError::Protocol(KtError::ValueMismatch),
+    );
+
+    // Under an unwitnessed root there is no proof and no commitment to compare
+    // against. §8.3 says the client keeps auditing anyway, and step 4 is what it
+    // has: contiguous versions, a chain that does not link.
+    deployment.transport.withhold_cosignatures(true);
+    assert_eq!(
+        client
+            .self_audit(&handle("alice"), &submitted, NOW + 3)
+            .unwrap_err(),
+        ClientError::Protocol(KtError::HistoryIncomplete),
+        "version contiguity holds here; only the prev_entry_hash walk catches it",
+    );
+
+    // And the control on the same client and the same log: served honestly, the
+    // very same audit passes.
+    deployment.transport.swap_history_entry(None);
+    let clean = client
+        .self_audit(&handle("alice"), &submitted, NOW + 4)
+        .unwrap();
+    assert!(clean.chain_intact());
+    assert_eq!(clean.versions_seen(), 3);
+}
+
+/// A history that chains by hash and skips a version is refused.
+///
+/// §8.2 step 4 is two checks — *"an unbroken `entry_version` sequence **and** an
+/// unbroken `prev_entry_hash` chain"* — and this is the one case only the first
+/// catches: the served entry really does chain to version 1, and calls itself
+/// version 5. Without it the version half could be deleted and the hash half
+/// would cover every other case in this file.
+#[test]
+fn a_history_that_chains_by_hash_but_renumbers_a_version_is_refused() {
+    let mut deployment = Deployment::new("client-history-versionjump");
+    deployment.cosign(NOW);
+    let first = deployment.register("alice", 1);
+    let second = deployment.rotate("alice", 1, 9, &first);
+    deployment.cosign(NOW + 1);
+
+    let submitted: Vec<Digest> = [&first, &second]
+        .iter()
+        .map(|entry| labels::prev_entry_hash(&entry.encode_canonical().unwrap()))
+        .collect();
+
+    let impostor = Identity::from_byte(0x74);
+    let renumbered = EntryBuilder::first(deployment.harness.log_id, "alice", &impostor)
+        .version(5)
+        .prev_entry_hash(labels::prev_entry_hash(&first.encode_canonical().unwrap()))
+        .device(0x75, &impostor.isk)
+        .endpoint(0x76)
+        .same_key(&impostor.dak);
+
+    let mut client = deployment.client(1);
+    deployment.transport.withhold_cosignatures(true);
+    deployment
+        .transport
+        .swap_history_entry(Some((0, renumbered.encode_canonical().unwrap())));
+
+    assert_eq!(
+        client
+            .self_audit(&handle("alice"), &submitted, NOW + 2)
+            .unwrap_err(),
+        ClientError::Protocol(KtError::HistoryIncomplete),
+        "the prev_entry_hash walk is satisfied here; the version sequence is not",
+    );
+
+    deployment.transport.swap_history_entry(None);
+    let clean = client
+        .self_audit(&handle("alice"), &submitted, NOW + 3)
+        .unwrap();
+    assert_eq!(clean.versions_seen(), 2);
 }
 
 // ---------------------------------------------------------------------------
