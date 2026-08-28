@@ -1,9 +1,6 @@
 // Encrypted messages — mounted at /messages/*.
-//
-// This slice covers enrollment and engine lifecycle only; the conversation
-// surface arrives with the rest of the command set.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyRound,
   Loader2,
@@ -27,6 +24,7 @@ import type {
   IneligibilityReason,
 } from "@/lib/messaging/types";
 import { BrowserGuarantee } from "./BrowserGuarantee";
+import { FirstContact } from "./FirstContact";
 import { Transcript } from "./Transcript";
 
 const STATE_COPY: Record<EngineState, string> = {
@@ -101,25 +99,31 @@ export default function MessagesFeature() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const reconcileGeneration = useRef(0);
 
   const reconcile = useCallback(async () => {
+    const generation = ++reconcileGeneration.current;
     const [engine, enrollmentState, deviceInfo] = await Promise.all([
       messaging.getEngineStatus(),
       enrollment.getEnrollmentStatus(),
       messaging.getDeviceInfo(),
     ]);
+    const nextConversations = enrollmentState.enrolled
+      ? (await messaging.listConversations()).conversations
+      : [];
+    if (generation !== reconcileGeneration.current) return;
+
     setStatus(engine);
     setEnrolled(enrollmentState);
     setDevice(deviceInfo);
-
-    if (!enrollmentState.enrolled) {
-      setConversations([]);
-      return;
-    }
-    const page = await messaging.listConversations();
-    setConversations(page.conversations);
+    setConversations(nextConversations);
     setSelectedId(
-      (current) => current ?? page.conversations[0]?.conversationId ?? null,
+      (current) =>
+        nextConversations.some(
+          (conversation) => conversation.conversationId === current,
+        )
+          ? current
+          : (nextConversations[0]?.conversationId ?? null),
     );
   }, []);
 
@@ -170,6 +174,16 @@ export default function MessagesFeature() {
     },
     [reconcile],
   );
+
+  const selectConversation = useCallback((conversation: Conversation) => {
+    setConversations((current) => {
+      const withoutSelected = (current ?? []).filter(
+        (candidate) => candidate.conversationId !== conversation.conversationId,
+      );
+      return [conversation, ...withoutSelected];
+    });
+    setSelectedId(conversation.conversationId);
+  }, []);
 
   if (!status || !enrolled) {
     return (
@@ -281,6 +295,15 @@ export default function MessagesFeature() {
           is not resolvable by other people until that happens. There is no
           deadline to show you here, and nothing to retry.
         </Callout>
+      )}
+
+      {enrolled.enrolled && enrolled.mergedAtEpoch !== null && (
+        <FirstContact
+          engineRunning={isRunning(status.state)}
+          witnessThresholdMet={status.witnessThresholdMet}
+          onConversation={selectConversation}
+          onStateChanged={reconcile}
+        />
       )}
 
       {conversations !== null && conversations.length > 0 && (
