@@ -1,7 +1,4 @@
 // Encrypted messages — mounted at /messages/*.
-//
-// This slice covers enrollment and engine lifecycle only; the conversation
-// surface arrives with the rest of the command set.
 
 import { useCallback, useEffect, useState } from "react";
 import {
