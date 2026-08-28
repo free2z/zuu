@@ -1,5 +1,5 @@
 //! `DeviceSignatureKey` — the MLS leaf signature key, signing through the
-//! libcrux core and nothing else.
+//! libcrux core, including the domain-separated routing bootstrap MLS needs.
 //!
 //! # Why this exists: #693 and ADR 0001's "one crypto core"
 //!
@@ -46,8 +46,11 @@ pub const SIGNATURE_LEN: usize = 64;
 ///
 /// This is `ARCHITECTURE.md` §4.2's `DeviceSignatureKey` (DSK): generated
 /// on-device from the OS CSPRNG, **never seed-derived**, never exported, and
-/// used for the MLS leaf `signature_key` (RFC 9420 §7.2) and for nothing else.
-/// §5.6's key-context separation is the reason it signs only MLS framing: a
+/// used for the MLS leaf `signature_key` (RFC 9420 §7.2) and the one
+/// domain-separated first-routing advert needed to bootstrap MLS delivery.
+/// §5.6's key-context separation is the reason it signs only MLS framing and
+/// the explicitly domain-separated routing bootstrap that enables that MLS
+/// framing to travel: a
 /// FROST transcript must never be replayable as chat evidence, and the way that
 /// is guaranteed is that the key which signs one cannot sign the other.
 #[derive(Clone)]

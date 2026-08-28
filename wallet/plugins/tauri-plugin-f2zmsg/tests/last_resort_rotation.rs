@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use f2z_codec::canonical::decode_canonical;
-use f2z_codec::types::{Digest, PublicKey, QueueAddress, ShortBytes};
+use f2z_codec::types::{Digest, PublicKey, QueueAddress, RelayId, ShortBytes};
 use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
 use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
@@ -180,5 +180,25 @@ async fn online_owner_rotates_before_expiry_and_fallback_stays_verifiable() {
         .await
         .expect("replacement remains valid when the old fallback expires");
 
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_relay_identity_substitution_is_refused_on_the_managed_connection() {
+    let relay = FakeRelay::new(RelayConfig::default().with_system_clock()).expect("relay");
+    let server = relay.listen_loopback().await.expect("listener");
+    let engine = Engine::new(
+        MemoryBackend::new(),
+        Arc::new(NullSink) as Arc<dyn EventSink>,
+        Platform::ZuuliDesktop,
+    )
+    .expect("engine")
+    .with_insecure_directory_relays_for_harness();
+
+    let refused = engine
+        .connect_endpoint_for_harness(&server.url(), RelayId::new([0x99; 32]))
+        .await
+        .expect_err("a URL serving a different relay identity must be refused");
+    assert_eq!(refused.code(), ErrorCode::RelayIdentityMismatch);
     server.shutdown().await;
 }

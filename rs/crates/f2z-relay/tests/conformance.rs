@@ -55,8 +55,12 @@ use f2z_relay_testkit::vectors::{self, Needs, Report, Status};
 // Reviewed literals, not values derived from `vectors::suite()`. Changing a
 // vector's `Needs` or deleting a vector must stop this test and require an
 // explicit coverage review instead of shrinking the real-relay run invisibly.
-const REVIEWED_SUITE_VECTOR_COUNT: usize = 60;
-const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 47;
+// The 61st / 48th handle-free vector is §12.6's cross-role duplicate rule. It
+// needs no fault or clock handle and therefore runs unchanged against both the
+// fake and real relay; keeping it out of the real count would make the server's
+// implementation of the downgrade prevention unproved.
+const REVIEWED_SUITE_VECTOR_COUNT: usize = 61;
+const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 48;
 
 /// A configuration that matches the FakeRelay's published policy wherever the
 /// policy is what a vector observes.

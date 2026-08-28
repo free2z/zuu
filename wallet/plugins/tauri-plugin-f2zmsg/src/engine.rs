@@ -113,6 +113,7 @@ const LAST_RESORT_LIFETIME_SECONDS: u64 = 2_592_000;
 /// an online owner has a full day of retries without ever publishing a package
 /// whose validity has already ended.
 const LAST_RESORT_ROTATE_BEFORE_MS: i64 = 86_400_000;
+const LABEL_ROUTING_ADVERT: &[u8] = b"free2z/msg/v1/first-routing-advert";
 
 /// `WIRE.md` §7.7's default message TTL: seven days.
 const MESSAGE_TTL_SECONDS: u32 = 604_800;
@@ -784,7 +785,10 @@ impl<B: StorageBackend> Engine<B> {
                 relay_id: request.peer_relay_id.clone(),
                 send_addr: request.peer_send_addr.clone(),
             },
+            advert_device_pk: request.advert_device_pk.clone(),
+            advert_signature: request.advert_signature.clone(),
         };
+        inner.authenticate_introduction(&peer.entry, &introduction, now_ms())?;
         inner
             .join_conversation(
                 &request.peer_handle,
@@ -2189,6 +2193,22 @@ impl<B: StorageBackend> Engine<B> {
             .and_then(|verified| verified.lifetime_valid_at(at_ms / 1000))
             .map_err(|error| Error::internal(format!("key-package verification: {error}")))
     }
+
+    /// Exercise the exact managed endpoint identity check without requiring a
+    /// complete first-contact exchange.
+    #[cfg(feature = "relay-harness")]
+    pub async fn connect_endpoint_for_harness(
+        &self,
+        relay_url: &str,
+        expected_relay_id: RelayId,
+    ) -> Result<()> {
+        self.inner
+            .lock()
+            .await
+            .endpoint_connection(relay_url, expected_relay_id)
+            .await
+            .map(|_| ())
+    }
 }
 
 /// Where a peer writes to reach this device: `WIRE.md` §12.2's queue advert,
@@ -2223,6 +2243,8 @@ struct ContactEnvelope {
     /// The MLS `Welcome`, hex.
     welcome: String,
     advert: QueueAdvert,
+    advert_device_pk: String,
+    advert_signature: String,
 }
 
 /// What the initiator hands the joiner out of band.
@@ -2233,6 +2255,9 @@ pub struct Introduction {
     pub welcome: Vec<u8>,
     /// The initiator's own advert.
     pub advert: QueueAdvert,
+    /// Active DSK and its signature over conversation id + complete advert.
+    pub advert_device_pk: String,
+    pub advert_signature: String,
 }
 
 /// What one pass of the inbound pump produced, so the events are emitted after
@@ -2905,6 +2930,19 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+fn routing_advert_digest(
+    conversation_id: &str,
+    advert: &QueueAdvert,
+) -> Result<f2z_codec::types::Digest> {
+    let advert = serde_json::to_vec(advert)
+        .map_err(|error| Error::internal(format!("encoding routing advert: {error}")))?;
+    Ok(hash2(
+        LABEL_ROUTING_ADVERT,
+        conversation_id.as_bytes(),
+        &advert,
+    ))
+}
+
 fn decode_key(hex_key: &str) -> Result<[u8; 32]> {
     let bytes = hex::decode(hex_key).map_err(|_| Error::internal("a stored key is not hex"))?;
     bytes
@@ -3023,6 +3061,19 @@ impl<B: StorageBackend> Inner<B> {
         let welcome = sealed?;
 
         let (advert, inbound) = self.open_inbound_queue(&conversation_id, relay_url).await?;
+        let digest = routing_advert_digest(&conversation_id, &advert)?;
+        let (advert_device_pk, advert_signature) = {
+            let mls = self.mls_ref("sign_routing_advert")?;
+            (
+                hex::encode(mls.credential().credential.device_pk.as_bytes()),
+                hex::encode(
+                    mls.sign_routing_advert(digest.as_bytes())
+                        .map_err(|error| {
+                            Error::internal(format!("signing routing advert: {error}"))
+                        })?,
+                ),
+            )
+        };
         let stored = StoredConversation {
             conversation_id: conversation_id.clone(),
             peer_handle: peer_handle.to_owned(),
@@ -3051,6 +3102,42 @@ impl<B: StorageBackend> Inner<B> {
             conversation_id,
             welcome,
             advert,
+            advert_device_pk,
+            advert_signature,
+        })
+    }
+
+    fn authenticate_introduction(
+        &self,
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        introduction: &Introduction,
+        now: i64,
+    ) -> Result<()> {
+        let digest = routing_advert_digest(&introduction.conversation_id, &introduction.advert)?;
+        let device_pk = hex::decode(&introduction.advert_device_pk).map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "routing device key is not hex",
+            )
+        })?;
+        let signature = hex::decode(&introduction.advert_signature).map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "routing signature is not hex",
+            )
+        })?;
+        MlsEngine::<B>::authenticate_routing_advert(
+            entry,
+            &device_pk,
+            digest.as_bytes(),
+            &signature,
+            u64::try_from(now).unwrap_or(0),
+        )
+        .map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the first routing advert is not signed by an active directory device",
+            )
         })
     }
 
@@ -3237,6 +3324,8 @@ impl<B: StorageBackend> Inner<B> {
             conversation_id: introduction.conversation_id.clone(),
             welcome: hex::encode(&introduction.welcome),
             advert: introduction.advert.clone(),
+            advert_device_pk: introduction.advert_device_pk.clone(),
+            advert_signature: introduction.advert_signature.clone(),
         };
         let body = serde_json::to_vec(&envelope)
             .map_err(|error| Error::internal(format!("framing first contact: {error}")))?;
@@ -3573,6 +3662,8 @@ impl<B: StorageBackend> Inner<B> {
                 peer_send_addr: contact.advert.send_addr.clone(),
                 peer_relay_url: contact.advert.relay_url.clone(),
                 peer_relay_id: contact.advert.relay_id.clone(),
+                advert_device_pk: contact.advert_device_pk.clone(),
+                advert_signature: contact.advert_signature.clone(),
             };
             requests.push(request.clone());
             events.push(Inbound::ContactRequest(ContactRequest {
@@ -4367,7 +4458,23 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
 
 #[cfg(test)]
 mod tests {
-    use super::acknowledgeable;
+    use super::{QueueAdvert, acknowledgeable, routing_advert_digest};
+
+    #[test]
+    fn relay_identity_is_inside_the_device_authenticated_routing_digest() {
+        let first = QueueAdvert {
+            relay_url: "wss://relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        let mut substituted = first.clone();
+        substituted.relay_id = "33".repeat(32);
+        assert_ne!(
+            routing_advert_digest("conversation", &first).unwrap(),
+            routing_advert_digest("conversation", &substituted).unwrap(),
+            "deleting relay-id coverage makes the substitution mutation survive"
+        );
+    }
 
     #[test]
     fn a_clean_batch_is_acknowledged_to_its_end() {

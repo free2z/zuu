@@ -21,6 +21,37 @@ mod common;
 use common::{NOW, device, directory_entry, with_revocation};
 
 #[test]
+fn a_substituted_relay_id_breaks_the_device_authenticated_routing_advert() {
+    let alice = device("alice", 11, 111);
+    let entry = directory_entry(&[alice.credential().clone()]);
+    let authentic = b"conversation|relay-url|relay-id-A|send-addr";
+    let substituted = b"conversation|relay-url|relay-id-B|send-addr";
+    let signature = alice
+        .sign_routing_advert(authentic)
+        .expect("routing signature");
+
+    f2z_msg_mls::MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+        &entry,
+        alice.credential().credential.device_pk.as_bytes(),
+        authentic,
+        &signature,
+        NOW,
+    )
+    .expect("the active directory device signed the complete advert");
+    assert!(
+        f2z_msg_mls::MlsEngine::<f2z_msg_store::MemoryBackend>::authenticate_routing_advert(
+            &entry,
+            alice.credential().credential.device_pk.as_bytes(),
+            substituted,
+            &signature,
+            NOW,
+        )
+        .is_err(),
+        "deleting relay-id coverage would make this mutation survive"
+    );
+}
+
+#[test]
 fn a_batch_is_generated_in_order_and_every_package_verifies() {
     let bob = device("bob", 22, 222);
     let alice = device("alice", 11, 111);

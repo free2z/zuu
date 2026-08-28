@@ -1817,25 +1817,30 @@ Alice has never spoken to Bob. She knows `@bob`.
                         (ARCHITECTURE.md §9.2, §9.3)
 
 2.  Alice (local):      build the MLS group, produce Welcome addressed to Bob's
-                        KeyPackage; pad to a bucket in padding_sizes
+                        KeyPackage; CREATE_QUEUE for Alice; sign
+                        H("free2z/msg/v1/first-routing-advert",
+                          conversation_id, complete queue_advert_A) with Alice's
+                        active DSK; pad to a bucket in padding_sizes
 
 3.  Alice → relay:      HELLO; verify relay_proof; compare relay_id against the
                         value in Bob's directory entry
 4.  Alice → relay:      GET_CHALLENGE(contact_append, scope = contact_addr)
 5.  Alice (local):      compute PowStamp over the challenge
-6.  Alice → relay:      CONTACT_APPEND{contact_addr, payload, stamp}   → empty OK
+6.  Alice → relay:      CONTACT_APPEND{contact_addr,
+                          Welcome + queue_advert_A + DSK signature, stamp}
+                        → empty OK
 
 7.  Bob   → relay:      SUBSCRIBE / READ on his contact queue's recv_addr (signed)
 8.  Bob   (local):      durable write, then ACK  ← the §8.4 MUST
-9.  Bob   (local):      process Welcome; join the group; show Alice as a contact
+9.  Bob   (local):      resolve Alice; require the advert signature to verify
+                        under a non-revoked device in Alice's verified entry;
+                        process Welcome; join the group; show Alice as a contact
                         request in the UI, not as a message
 
 10. Bob   → relay:      CREATE_QUEUE  → (recv_addr_B, send_addr_B)
 11. Bob   → Alice:      queue_advert{ send_addr_B, ... }        INSIDE the MLS group
 12. Alice → relay:      BIND_SEND on send_addr_B with a fresh key
-13. Alice → relay:      CREATE_QUEUE  → (recv_addr_A, send_addr_A)
-14. Alice → Bob:        queue_advert{ send_addr_A, ... }        INSIDE the MLS group
-15. Bob   → relay:      BIND_SEND on send_addr_A with a fresh key
+13. Bob   → relay:      BIND_SEND on signed send_addr_A with a fresh key
 
     From here the contact queue plays no further part for this pair.
 ```
@@ -1848,6 +1853,11 @@ Three properties of this flow are worth stating explicitly:
   address associated with Bob in a public directory. It does not learn who: the
   append is unsigned and carries no client identity. It does see the source IP,
   as it does for everything ([`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)).
+- **The bootstrap advert beside the `Welcome` is not trusted because it arrived
+  through `CONTACT_APPEND`.** Its signature covers `relay_url`, `relay_id`, and
+  `send_addr` together with the conversation id, and Bob verifies the signing
+  DSK against Alice's witnessed directory entry before connecting. Changing a
+  relay id is therefore a signature failure, not a redirect.
 - **The directory lookup at step 1 reveals interest in `@bob`** — the accepted,
   documented limit of
   [`THREAT-MODEL.md` §4.1](./THREAT-MODEL.md#41-directory-lookup-reveals-interest-in-a-handle).

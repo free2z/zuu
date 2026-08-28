@@ -68,6 +68,7 @@ use f2z_kt_core::entry::DirectoryEntryTBS;
 use openmls::prelude::tls_codec::DeserializeBytes as _;
 use openmls::prelude::{KeyPackage, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion};
 use openmls_traits::crypto::OpenMlsCrypto;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::credential::{parse as parse_credential, validate_for_leaf};
@@ -206,6 +207,7 @@ impl VerifiedKeyPackage {
     /// This complements verification's wall-clock check for clients that
     /// schedule replacement ahead of expiry and need to prove the replacement
     /// covers the boundary they persisted.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn lifetime_valid_at(&self, unix_seconds: u64) -> Result<()> {
         let at = UNIX_EPOCH
             .checked_add(Duration::from_secs(unix_seconds))

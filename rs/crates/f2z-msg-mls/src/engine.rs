@@ -298,6 +298,48 @@ impl<B: StorageBackend> MlsEngine<B> {
         self.build_key_package(false, None)
     }
 
+    /// Sign the domain-separated routing advert that accompanies a first
+    /// contact `Welcome` before the joiner can receive MLS application data.
+    pub fn sign_routing_advert(&self, payload: &[u8]) -> Result<Vec<u8>> {
+        self.signer
+            .sign_bytes(payload)
+            .map(|signature| signature.to_vec())
+    }
+
+    /// Authenticate a first-contact routing advert against an active device
+    /// in the verified directory entry.
+    pub fn authenticate_routing_advert(
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        device_pk: &[u8],
+        payload: &[u8],
+        signature: &[u8],
+        now_ms: u64,
+    ) -> Result<()> {
+        let credential = entry
+            .devices
+            .as_slice()
+            .iter()
+            .find(|credential| credential.credential.device_pk.as_bytes() == device_pk)
+            .ok_or(EngineError::Credential(CredentialError::DeviceKeyMismatch))?;
+        validate_for_leaf(credential, device_pk, now_ms)?;
+        if credential.credential.identity_pk != entry.identity_pk
+            || credential.credential.handle != entry.handle
+            || entry
+                .revocations
+                .as_slice()
+                .iter()
+                .any(|revoked| revoked.device_pk.as_bytes() == device_pk)
+        {
+            return Err(EngineError::Credential(CredentialError::DeviceKeyMismatch));
+        }
+        let public_key = f2z_codec::types::PublicKey::from_slice(device_pk)
+            .map_err(|_| EngineError::Signature)?;
+        let signature = f2z_codec::types::Signature::from_slice(signature)
+            .map_err(|_| EngineError::Signature)?;
+        f2z_kt_core::sig::verify(&public_key, payload, &signature)
+            .map_err(|_| EngineError::Signature)
+    }
+
     /// Generate a **batch** of single-use key packages, in one transaction
     /// (`WIRE.md` §12.6).
     ///

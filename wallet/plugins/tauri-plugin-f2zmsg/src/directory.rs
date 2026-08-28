@@ -133,6 +133,9 @@ pub struct ResolvedIdentity {
     /// The peer's `identity_pk`, hex — the value a safety number is computed
     /// over and a key change is detected against.
     pub identity_pk: String,
+    /// The verified entry, needed to authenticate the active device that
+    /// signed the first routing advert beside its `Welcome`.
+    pub entry: DirectoryEntryTBS,
     /// The relay the peer's contact queue lives on.
     pub contact_relay_url: String,
     /// The relay identity committed beside the URL in the verified entry.
@@ -614,6 +617,7 @@ impl Directory for KtDirectory {
         let (relay_url, relay_id, contact_addr) = contact_endpoint(handle, resolved)?;
         Ok(ResolvedIdentity {
             identity_pk: hex::encode(resolved.identity_pk().as_bytes()),
+            entry: resolved.entry().entry.clone(),
             contact_relay_url: relay_url,
             contact_relay_id: relay_id,
             contact_addr,

@@ -717,6 +717,9 @@ pub struct StoredContactRequest {
     pub peer_relay_url: String,
     #[serde(default)]
     pub peer_relay_id: String,
+    /// Active device and signature authenticating the routing advert.
+    pub advert_device_pk: String,
+    pub advert_signature: String,
 }
 
 fn store_error(what: &str, error: &f2z_msg_store::StoreError) -> Error {

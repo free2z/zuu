@@ -129,23 +129,14 @@ impl Directory for FileDirectory {
     }
 
     fn resolve_identity(&self, handle: &str) -> Result<ResolvedIdentity> {
-        let published = self.read(handle).ok_or_else(|| {
-            Error::new(
-                ErrorCode::DirectoryUnreachable,
-                format!("{handle} has published nothing yet"),
-            )
-        })?;
+        let peer = self.resolve_peer(handle)?;
         Ok(ResolvedIdentity {
-            resolution: self.resolve(handle)?,
-            identity_pk: published.identity_pk,
-            contact_relay_url: published.contact_relay_url,
-            contact_relay_id: RelayId::new(
-                hex::decode(published.contact_relay_id)
-                    .map_err(|_| Error::internal("a relay id is not hex"))?
-                    .try_into()
-                    .map_err(|_| Error::internal("a relay id is the wrong length"))?,
-            ),
-            contact_addr: published.contact_addr,
+            resolution: peer.resolution,
+            identity_pk: peer.identity_pk,
+            entry: peer.entry,
+            contact_relay_url: peer.contact_relay_url,
+            contact_relay_id: peer.contact_relay_id,
+            contact_addr: peer.contact_addr,
         })
     }
 
