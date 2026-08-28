@@ -8,7 +8,7 @@ back from the named store. Authenticated, money-moving, wallet, KYC, and media
 operations are not called working without recorded evidence from that path.
 
 Last re-derived from `origin/main` at
-`72a4d9d8236583dc82b08399536788e45173516d` on 2026-08-25. Before a release,
+`1deb9926598b7af8883abab879841ed8bf1d973f` on 2026-08-26. Before a release,
 update the evidence and disposition for every non-ready row; do not carry this
 commit or date forward mechanically.
 
@@ -38,10 +38,10 @@ commit or date forward mechanically.
 | Surface | Real API/backend dependency | Native integration | Automated evidence | Production/native evidence | Current status and linked gaps |
 |---|---|---|---|---|---|
 | Runtime transport | Production bundle → `free2z.cash`; development proxy → staging | `tauri-plugin-http` is registered and selected for packaged non-dev Tauri | The required frontend/Rust gate and four-target package smoke pass on the current tree | Signed-store and unsigned packages exist; no per-surface native HTTP success is recorded here | **Wired, not runtime-proven.** The former claim that packaged HTTP registration was missing was false. |
-| Public Articles, creator listing, search, Live discovery, AI models, and pricing | Public `zpage`, `creator`, `dyte/public`, `ai/models`, `pricing`, and `pricing/quote` endpoints | Shared native HTTP transport in packaged builds | Parser/component tests cover selected article, remote-data, and media contracts | Unfiltered collection/model/pricing production GETs returned HTTP 200 on 2026-08-19; Live returned a valid empty page. Filtered creator/article search was not probed | **Collection reads production-observed; search wired, not runtime-proven.** Signed-native rendering remains unrecorded. Article gaps: [#337](https://github.com/free2z/zuu/issues/337), [#374](https://github.com/free2z/zuu/issues/374), [#250](https://github.com/free2z/zuu/issues/250), [#251](https://github.com/free2z/zuu/issues/251). Search/pagination gaps: [#252](https://github.com/free2z/zuu/issues/252), [#253](https://github.com/free2z/zuu/issues/253). |
+| Public Articles, creator listing, search, Live discovery, AI models, and pricing | Public `zpage`, `creator`, `dyte/public`, `ai/models`, `pricing`, and `pricing/quote` endpoints | Shared native HTTP transport in packaged builds | Parser/component tests cover selected article, remote-data, and media contracts | Unfiltered collection/model/pricing production GETs returned HTTP 200 on 2026-08-26; Live returned a valid empty page. Filtered creator/article search was not probed | **Collection reads production-observed; search wired, not runtime-proven.** Signed-native rendering remains unrecorded. Article gaps: [#337](https://github.com/free2z/zuu/issues/337), [#374](https://github.com/free2z/zuu/issues/374), [#250](https://github.com/free2z/zuu/issues/250), [#251](https://github.com/free2z/zuu/issues/251). Search/pagination gaps: [#252](https://github.com/free2z/zuu/issues/252), [#253](https://github.com/free2z/zuu/issues/253). |
 | Username/password and TOTP sign-in | Knox Basic login, OTP status/login, and authenticated user endpoints | Token-backed HTTP; no special native plugin | Session-boundary, login-destination, component, and browser lifecycle tests | Anonymous protected reads returned HTTP 403; no successful production login is recorded | **Wired, not runtime-proven; not release-ready.** Server-side TOTP enforcement: [#369](https://github.com/free2z/zuu/issues/369). Token custody: [#377](https://github.com/free2z/zuu/issues/377). |
 | Login/link with Zcash | `auth/zcash/challenge` and `auth/zcash/login` | The shared plugin supports local recovery-phrase restore and transparent-address Zcash Signed Message signing | Native atomic-restore/signing tests and frontend restore/challenge lifecycle tests exercise local contracts | No production restore → native signature → Knox session round trip is recorded | **Restore is implemented and contract-tested, but the login path is not runtime-proven.** Recovery-phrase restore landed in [#428](https://github.com/free2z/zuu/pull/428); external-wallet signing remains unsupported. Physical recovery ceremony: [#246](https://github.com/free2z/zuu/issues/246). Wallet/login identity choice: [#329](https://github.com/free2z/zuu/issues/329). This is not ZIP-304. |
-| Social login/link | Provider discovery, authorization start, callback exchange, and authenticated user endpoints | Desktop loopback and mobile private-scheme transports exist | Strict discovery parsing, transport selection, attempt fencing, error/retry UI, and 320/360 browser tests cover the client contract; the live preflight fails closed before opening provider URLs | Generic production discovery returned a `providers` array. The mobile discovery endpoint now answers anonymously with HTTP 200 — it returned 403 on 2026-08-19 — and lists `x`, `google` and `github`, every one of them `configured: false`. No OAuth round trip is recorded | **Client contract fixed; backend-dependent and not runtime-proven.** The discovery half of that backend dependency has now shipped, so the client's strict parser can be exercised against production for the first time; the providers themselves are still unconfigured, so no provider is selectable and signed-device login/link proof remains blocked. Public client follow-up: [#403](https://github.com/free2z/zuu/issues/403). Claimed-HTTPS release proof: [#242](https://github.com/free2z/zuu/issues/242). Association binding: [#380](https://github.com/free2z/zuu/issues/380). |
+| Social login/link | Provider discovery, authorization start, callback exchange, and authenticated user endpoints | Desktop loopback and mobile private-scheme transports exist | Strict discovery parsing, transport selection, attempt fencing, error/retry UI, and 320/360 browser tests cover the client contract; the live preflight fails closed before opening provider URLs | Both discovery endpoints answered anonymously with HTTP 200 on 2026-08-26. The web/desktop endpoint now reports `x` with `configured: true`, `google` and `github` `configured: false`; the mobile endpoint still returns all three `configured: false`. No OAuth round trip is recorded on any platform | **Client contract fixed; backend-dependent and not runtime-proven.** A provider is selectable on desktop/web for the first time; none is on mobile. A `configured` flag is not a login — no authorization start, callback exchange, or resulting session has been performed on any platform, so signed-device login/link proof remains blocked. Public client follow-up: [#403](https://github.com/free2z/zuu/issues/403). Claimed-HTTPS release proof: [#242](https://github.com/free2z/zuu/issues/242). Association binding: [#380](https://github.com/free2z/zuu/issues/380). |
 | Wallet create/restore/sync/receive/send/history | Lightwalletd and librustzcash through the shared plugin | Real Tauri Zcash plugin is registered | Plugin Rust tests, frontend wallet tests, and backend compilation run in CI | Packages have built, but no signed-device create/restore/sync/receive/send record is checked into this repository | **Wired, not runtime-proven; release stop until kick-the-tires evidence exists.** Send confirmation integrity: [#368](https://github.com/free2z/zuu/issues/368). Preserved-wallet import: [#272](https://github.com/free2z/zuu/issues/272). |
 | AI conversations and billing | Model/personality APIs plus model-bound `ai/conversations/.../promptresponses` metering and authoritative balance refresh | Native HTTP | Component/state tests do not exercise a real metered conversation | Public model discovery returned HTTP 200; no authenticated production prompt and charge is recorded | **Wired, not runtime-proven.** The active UI uses the metered conversation path; the old flat-1-2Z description referred to legacy code. Conversation/model state: [#266](https://github.com/free2z/zuu/issues/266). |
 | Livestream room/media | Public listing plus authenticated start/join and membership endpoints | Cloudflare RealtimeKit provider and meeting UI are mounted; camera/mic are native permissions | Membership reconciliation tests cover selected money-boundary races | Public listing returned HTTP 200 with zero active rooms; no native host/join/camera/mic session is recorded | **Wired, not end-to-end proven.** The former missing-SDK claim was false. Metadata/PPV: [#262](https://github.com/free2z/zuu/issues/262). Private streams: [#264](https://github.com/free2z/zuu/issues/264). Participant counts: [#265](https://github.com/free2z/zuu/issues/265). Purchase integrity: [#336](https://github.com/free2z/zuu/issues/336). |
@@ -52,23 +52,23 @@ commit or date forward mechanically.
 | Buy 2Z with card | Authenticated Stripe Checkout creation, hosted Checkout, signed webhook credit, and a server-controlled return bridge | Native OS opener is used in packaged apps; the exact `cash.free2z.zuuli://checkout/return` route is registered on iOS/Android and claimed through the authenticated server bridge | #400 added signed-out gating, exact HTTPS host validation, actionable failures, and opener tests | Anonymous production checkout returned HTTP 403; no signed-in staging/live charge or signed-build return is recorded | **Wired, not runtime-proven.** Native return is blocked on an unshipped backend dependency tracked internally, so no native return has been exercised against a live charge. Track the end-to-end path in [#388](https://github.com/free2z/zuu/issues/388) and exact charge/credit integrity in [#399](https://github.com/free2z/zuu/issues/399). |
 | Buy 2Z with ZEC | Public pricing/quote plus wallet spend and backend settlement/credit | Wallet bridge exists; production settlement is intentionally disabled | Quote parsing and explicit browser-only demo-boundary tests | Pricing and an exact 100-2Z quote returned HTTP 200; no spend/settlement exists | **Mock/demo only for settlement; unavailable in release builds:** [#155](https://github.com/free2z/zuu/issues/155). A price quote is not a top-up. |
 | 2Z Activity | Authenticated Stripe purchase ledger | Native HTTP | Parsing/UI tests do not prove a complete ledger | Protected endpoint returned HTTP 403 anonymously; authenticated ledger not exercised | **Known incomplete:** the endpoint is purchases-only and cannot substantiate tips/AI/PPV totals ([#172](https://github.com/free2z/zuu/issues/172)). |
-| E2EE messaging | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds, its two-instance integration test drives two engines over a real relay, and since [#750](https://github.com/free2z/zuu/pull/750) `wallet/zuuli/src-tauri` links it: `Cargo.toml` and its lock carry the plugin, `src/lib.rs` registers it, `src/messaging.rs` serves the enrollment trio, and both capability files grant it | The plugin's own crate gate runs in `zuuli.yml`; the app's gate additionally builds it into ZUULI for desktop, iOS and Android, and compiler-bound IPC probes assert the shipping routers route `plugin:f2zmsg|…` and the unprefixed enrollment commands | **None.** Linking, routing and authorization are proven; no enrollment or message has been performed in a running ZUULI. And first contact cannot succeed in a *shipping* build regardless: the plugin ships `directory::NoDirectory` because `KT.md` §12 has decided neither the shipped witness list nor *t*, so `resolve_handle`, `start_conversation` and `accept_contact_request` fail closed with `witness-threshold-unmet` — the required behaviour under §6.4, not a placeholder | **Linked and reachable; still not usable.** A tester now receives the Messages surface and can reach enrollment, and **cannot start a conversation with anyone.** The protocol half is no longer the blocker: `WIRE.md` §12.6 landed and `rs/crates/f2z-kt-client/tests/first_contact.rs` completes a conversation cold against a real `f2z-kt` log, a real `f2z-witness` and a real relay. What is left for ZUULI is **configuration** — a log identity, a signing key, a witness list and a threshold — not code. [#753](https://github.com/free2z/zuu/issues/753) is also open: a messaging store that will not open currently fails the app's launch. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having messaging because the plugin is linked. |
-| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons | Release identity, icon/store validators, protected state machines, and all-target packaging are gated | A read-only readback at 21:19Z on 2026-08-25 reports TestFlight `0.1.0+15` `uploaded`, `processed` and `availableToInternalTesters` all true, `VALID`/`IN_BETA_TESTING`, related to the one internal-only group. **Play is a build behind: the same-hour audit reports the exact release 15 `present: false`**, because build 15's Android job died before packaging ([#738](https://github.com/free2z/zuu/issues/738)); 14 remains the latest Play internal build. No physical-device acceptance is recorded. The audits found canonical listing copy unmatched and every declared screenshot set absent remotely | **iOS internal delivery is current; Android is one build behind; publication presentation and device acceptance are incomplete.** Store media: [#387](https://github.com/free2z/zuu/issues/387). Physical installs: [#238](https://github.com/free2z/zuu/issues/238). Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
+| E2EE messaging | Relay, key-transparency, and MLS services under `rs/` | `wallet/plugins/tauri-plugin-f2zmsg` builds, its two-instance integration test drives two engines over a real relay, and since [#750](https://github.com/free2z/zuu/pull/750) `wallet/zuuli/src-tauri` links it: `Cargo.toml` and its lock carry the plugin, `src/lib.rs` registers it, `src/messaging.rs` serves the enrollment trio, and both capability files grant it | The plugin's own crate gate runs in `zuuli.yml`; the app's gate additionally builds it into ZUULI for desktop, iOS and Android, compiler-bound IPC probes assert the shipping routers route `plugin:f2zmsg|…` and the unprefixed enrollment commands, and `rs/crates/f2z-kt-client/tests/first_contact.rs` completes a conversation cold against a real `f2z-kt` log, a real `f2z-witness`, and a real relay | **None.** Linking, routing, authorization, and first contact are proven only by automated tests; no enrollment or message has been performed in a running ZUULI. `WIRE.md` §12.6 now supplies and authenticates the MLS `KeyPackage` needed to complete `start_conversation`, but the shipping default remains `directory::NoDirectory`, because `KT.md` §12 has not decided the log identity, signing key, shipped witness list, or threshold *t*. Therefore `resolve_handle`, `start_conversation`, and `accept_contact_request` fail closed with `witness-threshold-unmet` — the required behaviour under §6.4, not a placeholder | **Linked and reachable; still not usable.** A tester receives the Messages surface and can reach enrollment, but **cannot start a conversation with anyone in the shipping configuration.** The remaining blocker is operator configuration — a log identity, signing key, witness list, and threshold — not missing first-contact protocol code. [#753](https://github.com/free2z/zuu/issues/753) is closed: since [#759](https://github.com/free2z/zuu/pull/759) a messaging store that will not open no longer takes ZUULI down at launch. Follow-up [#762](https://github.com/free2z/zuu/issues/762) is open: `check_handle_eligibility` refuses on a faulted store even though its answer is pure. Epic: [#305](https://github.com/free2z/zuu/issues/305). Do not describe ZUULI as having messaging merely because the plugin is linked. |
+| Internal distribution and store presentation | GitHub release train, App Store Connect, and Google Play | Signed mobile bundles plus generated platform/store icons | Release identity, icon/store validators, protected state machines, and all-target packaging are gated | A read-only readback at 01:19Z on 2026-08-26 reports TestFlight `0.1.0+16` `uploaded`, `processed` and `availableToInternalTesters` all true, `VALID`/`IN_BETA_TESTING`, related to the one internal-only group. **Play is two builds behind: the audit against this audit's source reports the exact release 16 `present: false`**, because builds 15 and 16 both failed before Play upload ([#738](https://github.com/free2z/zuu/issues/738), [#751](https://github.com/free2z/zuu/issues/751)); 14 remains the latest Play internal build. No physical-device acceptance is recorded. The audits found canonical listing copy unmatched and every declared screenshot set absent remotely | **iOS internal delivery is current; Android is two builds behind; publication presentation and device acceptance are incomplete.** Store media: [#387](https://github.com/free2z/zuu/issues/387). Physical installs: [#238](https://github.com/free2z/zuu/issues/238). Play remains owner-selected Console email-list mode: [#296](https://github.com/free2z/zuu/issues/296). |
 
 ## Current production and distribution evidence
 
-Safe unauthenticated requests on 2026-08-25 returned the following status and
+Safe unauthenticated requests on 2026-08-26 returned the following status and
 top-level contracts:
 
 ```text
-GET  /api/zpage/?page_size=1                 200  count,next,previous,results
-GET  /api/creator/?page_size=1               200  count,next,previous,results
-GET  /api/ai/models/?page_size=1             200  count,next,previous,results
-GET  /api/dyte/public/?page_size=1            200  count,next,previous,results
-GET  /api/pricing/                            200  pricing snapshot
-GET  /api/pricing/quote/?tuzis=100            200  exact quote
-GET  /api/auth/social/providers/              200  providers array
-GET  /api/auth/social/mobile/providers/       200  providers array (all `configured: false`)
+GET  /api/zpage/?page_size=1                 200  count,next,previous,results (count: 3891)
+GET  /api/creator/?page_size=1               200  count,next,previous,results (count: 77)
+GET  /api/ai/models/?page_size=1             200  count,next,previous,results (count: 9)
+GET  /api/dyte/public/?page_size=1           200  count,next,previous,results (count: 0)
+GET  /api/pricing/                           200  pricing snapshot
+GET  /api/pricing/quote/?tuzis=100           200  exact quote
+GET  /api/auth/social/providers/             200  providers array (`x` `configured: true`)
+GET  /api/auth/social/mobile/providers/      200  providers array (all `configured: false`)
 ```
 
 Safe anonymous probes of `/api/auth/user/`, `/api/openai/prompt`,
@@ -76,52 +76,66 @@ Safe anonymous probes of `/api/auth/user/`, `/api/openai/prompt`,
 `/api/stripe/create-checkout-session/` returned HTTP 403. That proves only the
 anonymous access boundary; it does not prove any authenticated success path.
 
-One contract moved since 2026-08-19: `/api/auth/social/mobile/providers/` was
-403 and is now 200. Read it precisely. The endpoint became anonymously
-readable and returns `x`, `google` and `github`; all three carry
-`configured: false`. That is enough to exercise the client's strict discovery
-parser against production and no more — nothing is selectable, so it is not
-evidence that mobile social login works, and no OAuth round trip has been
-performed. `/api/dyte/public/` still reports `count: 0`, so the Live listing
-contract is again observed against an empty collection rather than a populated
-one.
+One contract moved since 2026-08-25: `/api/auth/social/providers/`, the
+web/desktop endpoint, now reports `x` with `configured: true`. Read it
+precisely. This is the first configured provider on any platform — `google`
+and `github` are still `configured: false` there, and the mobile endpoint
+`/api/auth/social/mobile/providers/` still returns all three as
+`configured: false`. So a provider is now selectable on desktop/web and none is
+on mobile. A `configured` flag is a backend declaration, not a login: no
+authorization start, callback exchange, or resulting session has been performed
+on any platform, so this is not evidence that social login works.
+`/api/dyte/public/` still reports `count: 0`, so the Live listing contract is
+again observed against an empty collection rather than a populated one.
 
 Distribution evidence is narrower and explicit:
 
-- [Protected release run 32885179531](https://github.com/free2z/zuu/actions/runs/32885179531)
-  delivered `0.1.0+15` to TestFlight on 2026-08-25 — iOS unsigned archive,
-  system export and signing, credential-free signed artifact verification, App
-  Store validation and TestFlight, and shipped-artifact provenance all
-  succeeded. **Its Android job failed** in `seal_verifier`, before packaging,
-  so no Play internal release exists for build 15
-  ([#738](https://github.com/free2z/zuu/issues/738), fixed after that run).
-  The run's first attempt failed earlier still, at `Set up job`, because
-  GitHub began validating an allowed action's own internal sub-action
-  reference against the repository Actions allowlist; the allowlist now
-  carries `actions/attest-build-provenance/*@*` and remains closed to
-  GitHub-owned and verified-creator actions.
+- [Protected release run 32911822458](https://github.com/free2z/zuu/actions/runs/32911822458)
+  ran for `0.1.0+16` on 2026-08-25 at 23:40Z and **failed overall**. Its whole
+  iOS lane succeeded — pinned immutable source, credential-free unsigned
+  archive, system export and signing, credential-free signed artifact
+  verification, App Store validation and TestFlight, and credential-free
+  shipped-artifact provenance — and the credential-free unsigned universal AAB
+  built. **`Android / protected sign and Play upload` failed**, so no Play
+  internal release exists for build 16, and Android provenance, the immutable
+  GitHub release index, the Linux packages, and all three macOS jobs were
+  skipped. The Android fault is
+  [#751](https://github.com/free2z/zuu/issues/751) — the signed/unsigned AAB
+  payload comparison sorted one side and not the other — fixed by
+  [#752](https://github.com/free2z/zuu/pull/752) after the run. Build 15's
+  Android failure was a different fault,
+  [#738](https://github.com/free2z/zuu/issues/738), fixed by
+  [#739](https://github.com/free2z/zuu/pull/739).
 - [Protected release run 32624780318](https://github.com/free2z/zuu/actions/runs/32624780318)
   built, signed, and delivered `0.1.0+14` on 2026-08-23, including Play
-  internal. That is the newest build on the Play internal track.
-- [TestFlight read-only recovery 32900398788](https://github.com/free2z/zuu/actions/runs/32900398788)
-  read back `0.1.0+15` at 21:19Z on 2026-08-25 with `uploaded`, `processed`,
-  and `availableToInternalTesters` all true, `processingState: VALID`,
+  internal. That is still the newest build on the Play internal track: builds
+  15 and 16 both reached TestFlight and both died before Play upload, so
+  **Play is two builds behind**.
+- [TestFlight read-only recovery 32918530448](https://github.com/free2z/zuu/actions/runs/32918530448)
+  read back `0.1.0+16` at 01:19Z on 2026-08-26, from source
+  `e53b9da24fd2c483895f3476886b41a8f71ad7ee` in read-only mode, with
+  `uploaded`, `processed`, and `availableToInternalTesters` all true, build
+  `31a85e04-3c07-478b-9296-c50dbc3c8d2d` `processingState: VALID`,
   `internalBuildState: IN_BETA_TESTING`, `usesNonExemptEncryption: false`, and
-  the exact build relationship to the single internal-only group verified. It
-  did not read or log tester identities.
-- [Store listing audit 32905396443](https://github.com/free2z/zuu/actions/runs/32905396443)
+  the exact build relationship to the single internal-only group
+  (`ZUULI Internal Testers`, `isInternalGroup: true`,
+  `hasAccessToAllBuilds: false`) verified. It did not read or log tester
+  identities.
+- [Store listing audit 32930587236](https://github.com/free2z/zuu/actions/runs/32930587236)
   audited both providers against this audit's source with no provider failure
-  and `publicationReady: false`. Apple matched the app identity but no `en-US`
-  app-info, beta-info, or exact-version metadata, and both declared screenshot
-  sets — four candidates each for iPhone 6.9-inch and iPad 13-inch — have a
-  remote count of zero. Play matched the identity and reported the exact
-  release 15 **`present: false`**, which is the store-side confirmation of the
-  Android gap above rather than an inference from a CI log; listing, details,
-  and release notes are unmatched and icon, feature graphic, phone, 7-inch,
-  and 10-inch counts are all zero. Play tester eligibility remains the
-  owner-declared Console email-list mode with no API-visible Google Groups,
-  which the API cannot enumerate either way. The
-  temporary read-only Play edit was deleted without commit.
+  and `publicationReady: false`, `contractPhase: "captured"`. Apple matched the
+  app identity; `en-US` app info is present but unmatched, beta info and exact
+  version info are absent, `versionCount` is zero, and both declared screenshot
+  sets — four candidates each for iPhone 6.9-inch (`APP_IPHONE_67`) and iPad
+  13-inch (`APP_IPAD_PRO_3GEN_129`) — have a remote count of zero. Play matched
+  the identity and reported the exact release 16 **`present: false`**, which is
+  the store-side confirmation of the Android gap above rather than an inference
+  from a CI log; listing and details are present but unmatched, release notes
+  are unmatched, and icon, feature graphic, phone, 7-inch, and 10-inch counts
+  are all zero. Play tester eligibility remains the owner-declared Console
+  email-list mode with no API-visible Google Groups, which the API cannot
+  enumerate either way. The temporary read-only Play edit was deleted without
+  commit.
 
 These runs prove package/store state, not product operations. No repository
 record yet demonstrates the full physical-device checklist for wallet
@@ -132,8 +146,9 @@ signed-device wallet operation.
 
 Read the "release stop" dispositions above for what they say. They bar calling
 a surface **ready** and bar a public release; they have never barred an
-internal build, and builds 2 through 14 all reached TestFlight and Play
-internal carrying them. Internal distribution is the mechanism by which the
+internal build: builds 2 through 14 all reached TestFlight and Play internal
+carrying them, and 15 and 16 reached TestFlight carrying them. Internal
+distribution is the mechanism by which the
 missing device evidence gets collected — see [#234](https://github.com/free2z/zuu/issues/234)
 and [#238](https://github.com/free2z/zuu/issues/238) — so shipping a further
 internal build is how these rows get closed, not a way around them. What must

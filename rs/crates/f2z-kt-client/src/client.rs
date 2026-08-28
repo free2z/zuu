@@ -45,7 +45,6 @@ use f2z_kt_core::entry::EntryKind;
 use f2z_kt_core::sth::{LogView, SignedTreeHead};
 use f2z_kt_core::submit::{LogPolicy, PublishedEntry, SubmissionContext};
 use f2z_kt_core::types::{Handle, LogId};
-use f2z_kt_core::verify::HistoryVerificationParams;
 use f2z_kt_core::{AcceptedRoot, KtError, WitnessSet, verify, verify_threshold};
 
 use crate::alarm::{AlarmKind, AlarmLog, RaiseAlarm};
@@ -398,22 +397,19 @@ impl<T: Transport> KtClient<T> {
             Ok(root) => {
                 let standing = WitnessStanding::of(&root, &self.config.witnesses);
                 let epoch = root.epoch();
+                // `wire::history_request` asks for the **complete** history and
+                // `verify_key_history` verifies one — §8.2's `Complete` is
+                // fixed inside it rather than passed, so this call cannot ask
+                // for a weaker proof. The pin is deliberately not handed over
+                // as a predecessor: a complete history begins at version 1, and
+                // the pin is checked separately below and more strictly than a
+                // predecessor argument would have — the entry at the pinned
+                // version must be byte-for-byte the one that was pinned.
                 let verified = verify::verify_key_history(
                     &root,
                     handle,
                     &entry_bytes,
                     response.proof.as_slice(),
-                    // `None`, and NOT the pin: `wire::history_request` asks for
-                    // the **complete** history, so the run begins at version 1
-                    // and `f2z-kt-core` requires that. Handing it the pin as a
-                    // predecessor would demand that every entry shown come
-                    // *after* the pin, which is the opposite of what a complete
-                    // history is. The pin is checked separately, below, and it
-                    // is checked more strictly than passing it here would have:
-                    // the entry at the pinned version must be byte-for-byte the
-                    // one that was pinned.
-                    None,
-                    HistoryVerificationParams::default(),
                 )
                 .map_err(|error| self.on_protocol_error(error, now_ms))?;
                 let entries = verified
@@ -536,17 +532,9 @@ impl<T: Transport> KtClient<T> {
             .iter()
             .map(f2z_codec::types::Payload::as_slice)
             .collect();
-        let verified = verify::verify_key_history(
-            &root,
-            handle,
-            &entry_bytes,
-            response.proof.as_slice(),
-            // `None` for the same reason `self_audit` passes `None`: this asks
-            // for the complete history, which starts at version 1.
-            None,
-            HistoryVerificationParams::default(),
-        )
-        .map_err(|error| self.on_protocol_error(error, now_ms))?;
+        let verified =
+            verify::verify_key_history(&root, handle, &entry_bytes, response.proof.as_slice())
+                .map_err(|error| self.on_protocol_error(error, now_ms))?;
         let entries: Vec<_> = verified
             .iter()
             .map(|entry| entry.entry().clone())

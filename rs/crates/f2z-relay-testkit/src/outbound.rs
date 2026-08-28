@@ -134,3 +134,30 @@ pub const CLOSE_UNSUPPORTED_DATA: u16 = 1003;
 
 /// RFC 6455 status 1000, "normal closure".
 pub const CLOSE_NORMAL: u16 = 1000;
+
+/// RFC 6455 status 1001, "going away": §2.4's keepalive giving up on a
+/// connection that stopped answering.
+///
+/// `WIRE.md` names no status for this, so neither value is non-conforming —
+/// but this crate is the second implementation the conformance vectors exist to
+/// hold in step with `f2z-relay`, and until issue #678 the constant was not
+/// defined here at all. A double that cannot express what production does is a
+/// gap in the double, not a difference of opinion, so it is pinned to
+/// `f2z_relay::transport::CLOSE_GOING_AWAY`'s value.
+pub const CLOSE_GOING_AWAY: u16 = 1001;
+
+#[cfg(test)]
+mod tests {
+    use super::{CLOSE_GOING_AWAY, CLOSE_NORMAL, CLOSE_PROTOCOL_ERROR, CLOSE_UNSUPPORTED_DATA};
+
+    // `f2z-relay`'s `transport.rs` pins the same four values in the same way.
+    // Two crates asserting the numbers separately is the point: neither can be
+    // renumbered without the other's test noticing.
+    #[test]
+    fn the_close_codes_are_the_ones_the_sections_name() {
+        assert_eq!(CLOSE_UNSUPPORTED_DATA, 1003);
+        assert_eq!(CLOSE_PROTOCOL_ERROR, 1002);
+        assert_eq!(CLOSE_NORMAL, 1000);
+        assert_eq!(CLOSE_GOING_AWAY, 1001);
+    }
+}
