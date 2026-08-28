@@ -27,6 +27,7 @@ import type {
   IneligibilityReason,
 } from "@/lib/messaging/types";
 import { BrowserGuarantee } from "./BrowserGuarantee";
+import { FirstContact } from "./FirstContact";
 import { Transcript } from "./Transcript";
 
 const STATE_COPY: Record<EngineState, string> = {
@@ -171,6 +172,16 @@ export default function MessagesFeature() {
     [reconcile],
   );
 
+  const selectConversation = useCallback((conversation: Conversation) => {
+    setConversations((current) => {
+      const withoutSelected = (current ?? []).filter(
+        (candidate) => candidate.conversationId !== conversation.conversationId,
+      );
+      return [conversation, ...withoutSelected];
+    });
+    setSelectedId(conversation.conversationId);
+  }, []);
+
   if (!status || !enrolled) {
     return (
       <div className="animate-slide-up space-y-6">
@@ -281,6 +292,15 @@ export default function MessagesFeature() {
           is not resolvable by other people until that happens. There is no
           deadline to show you here, and nothing to retry.
         </Callout>
+      )}
+
+      {enrolled.enrolled && enrolled.mergedAtEpoch !== null && (
+        <FirstContact
+          engineRunning={isRunning(status.state)}
+          witnessThresholdMet={status.witnessThresholdMet}
+          onConversation={selectConversation}
+          onStateChanged={reconcile}
+        />
       )}
 
       {conversations !== null && conversations.length > 0 && (
