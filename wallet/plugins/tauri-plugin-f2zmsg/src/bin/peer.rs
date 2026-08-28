@@ -78,6 +78,7 @@ struct Published {
     /// `hex(tls_codec(DirectoryEntryTBS))`.
     entry: String,
     contact_relay_url: String,
+    contact_relay_id: String,
     contact_addr: String,
 }
 
@@ -138,6 +139,12 @@ impl Directory for FileDirectory {
             resolution: self.resolve(handle)?,
             identity_pk: published.identity_pk,
             contact_relay_url: published.contact_relay_url,
+            contact_relay_id: RelayId::new(
+                hex::decode(published.contact_relay_id)
+                    .map_err(|_| Error::internal("a relay id is not hex"))?
+                    .try_into()
+                    .map_err(|_| Error::internal("a relay id is the wrong length"))?,
+            ),
             contact_addr: published.contact_addr,
         })
     }
@@ -155,6 +162,12 @@ impl Directory for FileDirectory {
             identity_pk: published.identity_pk,
             entry,
             contact_relay_url: published.contact_relay_url,
+            contact_relay_id: RelayId::new(
+                hex::decode(published.contact_relay_id)
+                    .map_err(|_| Error::internal("a relay id is not hex"))?
+                    .try_into()
+                    .map_err(|_| Error::internal("a relay id is the wrong length"))?,
+            ),
             contact_addr: published.contact_addr,
         })
     }
@@ -269,6 +282,7 @@ async fn run() -> std::result::Result<String, String> {
     let sink = Arc::new(RecordingSink::new());
     let engine = Engine::new(backend, sink.clone(), Platform::ZuuliDesktop)
         .map_err(|error| describe(&error))?
+        .with_insecure_directory_relays_for_harness()
         .with_directory(Arc::new(FileDirectory {
             shared: options.shared.clone(),
         }));
@@ -494,11 +508,18 @@ async fn connect(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()
 /// `start_engine` and claimed one at a time; a directory entry carries none, and
 /// `KT.md` §4.1's exclusion stands.
 async fn publish(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()> {
-    let (contact_relay_url, contact_addr) = engine
+    let (contact_relay_url, contact_relay_id, contact_addr) = engine
         .contact_advert()
         .await?
         .ok_or_else(|| Error::internal("start_engine did not open a contact queue"))?;
-    let entry = directory_entry(engine, options, &contact_relay_url, &contact_addr).await?;
+    let entry = directory_entry(
+        engine,
+        options,
+        &contact_relay_url,
+        contact_relay_id,
+        &contact_addr,
+    )
+    .await?;
     let published = Published {
         handle: options.handle.clone(),
         identity_pk: engine
@@ -511,6 +532,7 @@ async fn publish(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()
                 .map_err(|error| Error::internal(format!("encoding an entry: {error:?}")))?,
         ),
         contact_relay_url,
+        contact_relay_id: hex::encode(contact_relay_id.as_bytes()),
         contact_addr,
     };
     let path = options.shared.join(format!("{}.peer.json", options.handle));
@@ -540,6 +562,7 @@ async fn directory_entry(
     engine: &Engine<SqliteBackend>,
     options: &Options,
     contact_relay_url: &str,
+    contact_relay_id: RelayId,
     contact_addr: &str,
 ) -> Result<DirectoryEntryTBS> {
     let credential_bytes = engine.installed_credential().await?;
@@ -571,7 +594,7 @@ async fn directory_entry(
         contact_endpoints: vec![ContactEndpoint {
             relay_url: ShortBytes::new(contact_relay_url.as_bytes().to_vec())
                 .map_err(|error| Error::internal(format!("relay url: {error:?}")))?,
-            relay_id: RelayId::new([0u8; 32]),
+            relay_id: contact_relay_id,
             contact_addr,
         }]
         .into(),

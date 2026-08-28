@@ -68,6 +68,7 @@ use f2z_kt_core::entry::DirectoryEntryTBS;
 use openmls::prelude::tls_codec::DeserializeBytes as _;
 use openmls::prelude::{KeyPackage, MlsMessageBodyIn, MlsMessageIn, ProtocolVersion};
 use openmls_traits::crypto::OpenMlsCrypto;
+use std::time::{Duration, UNIX_EPOCH};
 
 use crate::credential::{parse as parse_credential, validate_for_leaf};
 use crate::engine::CIPHERSUITE;
@@ -198,6 +199,21 @@ impl VerifiedKeyPackage {
     #[must_use]
     pub const fn device_pk(&self) -> &[u8; 32] {
         &self.device_pk
+    }
+
+    /// Check this package's signed MLS lifetime at an explicit Unix time.
+    ///
+    /// This complements verification's wall-clock check for clients that
+    /// schedule replacement ahead of expiry and need to prove the replacement
+    /// covers the boundary they persisted.
+    pub fn lifetime_valid_at(&self, unix_seconds: u64) -> Result<()> {
+        let at = UNIX_EPOCH
+            .checked_add(Duration::from_secs(unix_seconds))
+            .ok_or(EngineError::Mls("key package lifetime timestamp"))?;
+        self.key_package
+            .life_time()
+            .validate_with_time(at)
+            .map_err(|_| EngineError::Mls("key package lifetime"))
     }
 
     pub(crate) const fn inner(&self) -> &KeyPackage {

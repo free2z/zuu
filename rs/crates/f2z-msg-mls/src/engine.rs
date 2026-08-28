@@ -356,13 +356,43 @@ impl<B: StorageBackend> MlsEngine<B> {
         self.build_key_package(true, lifetime_seconds)
     }
 
+    /// Generate a package of last resort with an exact validity window.
+    ///
+    /// Unlike [`MlsEngine::generate_last_resort_key_package`], this does not
+    /// read the wall clock. It exists for clients that persist the expiry and
+    /// rotate the reusable package before it becomes unusable; using the same
+    /// timestamp for the package and the persisted schedule prevents clock
+    /// drift between those two security decisions.
+    ///
+    /// # Errors
+    ///
+    /// As [`MlsEngine::generate_key_packages`].
+    pub fn generate_last_resort_key_package_for_window(
+        &self,
+        not_before_seconds: u64,
+        not_after_seconds: u64,
+    ) -> Result<Vec<u8>> {
+        self.build_key_package_with_lifetime(
+            true,
+            Some(Lifetime::init(not_before_seconds, not_after_seconds)),
+        )
+    }
+
     fn build_key_package(
         &self,
         last_resort: bool,
         lifetime_seconds: Option<u64>,
     ) -> Result<Vec<u8>> {
+        self.build_key_package_with_lifetime(last_resort, lifetime_seconds.map(Lifetime::new))
+    }
+
+    fn build_key_package_with_lifetime(
+        &self,
+        last_resort: bool,
+        lifetime: Option<Lifetime>,
+    ) -> Result<Vec<u8>> {
         let transaction = self.provider.store().begin()?;
-        let wire = self.build_key_package_in_transaction(last_resort, lifetime_seconds)?;
+        let wire = self.build_key_package_in_transaction_with_lifetime(last_resort, lifetime)?;
         transaction.commit()?;
         Ok(wire)
     }
@@ -371,6 +401,17 @@ impl<B: StorageBackend> MlsEngine<B> {
         &self,
         last_resort: bool,
         lifetime_seconds: Option<u64>,
+    ) -> Result<Vec<u8>> {
+        self.build_key_package_in_transaction_with_lifetime(
+            last_resort,
+            lifetime_seconds.map(Lifetime::new),
+        )
+    }
+
+    fn build_key_package_in_transaction_with_lifetime(
+        &self,
+        last_resort: bool,
+        lifetime: Option<Lifetime>,
     ) -> Result<Vec<u8>> {
         let mut builder = KeyPackage::builder();
         if last_resort {
@@ -390,8 +431,8 @@ impl<B: StorageBackend> MlsEngine<B> {
                     None,
                 ));
         }
-        if let Some(seconds) = lifetime_seconds {
-            builder = builder.key_package_lifetime(Lifetime::new(seconds));
+        if let Some(lifetime) = lifetime {
+            builder = builder.key_package_lifetime(lifetime);
         }
         let bundle = builder
             .build(

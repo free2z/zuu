@@ -68,6 +68,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use f2z_codec::types::RelayId;
 use f2z_kt_client::{
     ClientConfig, ClientError, HttpTransport, KtClient, Resolution, ResolvedHandle,
 };
@@ -105,6 +106,10 @@ pub struct ResolvedPeer {
     pub entry: DirectoryEntryTBS,
     /// The relay the peer's contact queue lives on.
     pub contact_relay_url: String,
+    /// The relay identity committed beside the URL in the verified entry.
+    /// On-demand first-contact connections pin this value during the handshake;
+    /// retaining only the URL would discard the signed anti-substitution check.
+    pub contact_relay_id: RelayId,
     /// The published, never-bindable contact address, hex (§12.2).
     pub contact_addr: String,
 }
@@ -130,6 +135,8 @@ pub struct ResolvedIdentity {
     pub identity_pk: String,
     /// The relay the peer's contact queue lives on.
     pub contact_relay_url: String,
+    /// The relay identity committed beside the URL in the verified entry.
+    pub contact_relay_id: RelayId,
     /// The published, never-bindable contact address, hex (`WIRE.md` §12.2).
     pub contact_addr: String,
 }
@@ -511,7 +518,7 @@ fn map_kt_code(error: KtError) -> ErrorCode {
 fn contact_endpoint(
     handle: &str,
     resolved: &ResolvedHandle,
-) -> crate::error::Result<(String, String)> {
+) -> crate::error::Result<(String, RelayId, String)> {
     let endpoint = resolved
         .entry()
         .entry
@@ -530,7 +537,11 @@ fn contact_endpoint(
             format!("{handle:?} publishes a contact relay URL that is not UTF-8"),
         )
     })?;
-    Ok((relay_url, hex::encode(endpoint.contact_addr.as_bytes())))
+    Ok((
+        relay_url,
+        endpoint.relay_id,
+        hex::encode(endpoint.contact_addr.as_bytes()),
+    ))
 }
 
 /// §3.10's view of a resolution.
@@ -600,10 +611,11 @@ impl Directory for KtDirectory {
                 ),
             )
         })?;
-        let (relay_url, contact_addr) = contact_endpoint(handle, resolved)?;
+        let (relay_url, relay_id, contact_addr) = contact_endpoint(handle, resolved)?;
         Ok(ResolvedIdentity {
             identity_pk: hex::encode(resolved.identity_pk().as_bytes()),
             contact_relay_url: relay_url,
+            contact_relay_id: relay_id,
             contact_addr,
             resolution: to_resolution(handle, &resolution),
         })
@@ -632,7 +644,8 @@ impl Directory for KtDirectory {
             // `VerifiedKeyPackage::verify` may narrow it.
             entry: resolved.entry().entry.clone(),
             contact_relay_url: endpoint.0,
-            contact_addr: endpoint.1,
+            contact_relay_id: endpoint.1,
+            contact_addr: endpoint.2,
             resolution: to_resolution(handle, &resolution),
         })
     }

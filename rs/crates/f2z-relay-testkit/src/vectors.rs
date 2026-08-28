@@ -486,6 +486,7 @@ suite! {
     Nothing, "§12.6", an_exhausted_pool_with_no_last_resort_is_unavailable;
     Nothing, "§12.6", a_claim_requires_a_stamp_of_its_own_purpose;
     Nothing, "§12.6", publishing_is_idempotent_under_retry;
+    Nothing, "§12.6", duplicate_bytes_never_cross_the_single_use_last_resort_boundary;
     Nothing, "§12.6", an_empty_publish_reports_the_pool_without_changing_it;
     Nothing, "§12.6", a_pool_is_clamped_to_the_published_maximum;
     Nothing, "§12.6", a_standard_queue_holds_no_pool;
@@ -1637,6 +1638,120 @@ async fn publishing_is_idempotent_under_retry(context: &mut Context) -> Result<(
         again.pool_size,
         2,
         "a retried publish must not double the pool: two Welcomes to one init key",
+    )
+}
+
+async fn duplicate_bytes_never_cross_the_single_use_last_resort_boundary(
+    context: &mut Context,
+) -> Result<()> {
+    let pow = context
+        .client
+        .capabilities()
+        .await?
+        .capabilities
+        .claim_key_package_pow;
+
+    // Existing last-resort bytes cannot also enter the single-use pool.
+    let duplicate = b"duplicate".to_vec();
+    let (owner, created) = with_pool(context, &[], Some(duplicate.clone())).await?;
+    let published = context
+        .client
+        .publish_key_packages(
+            &owner,
+            created.recv_addr,
+            std::slice::from_ref(&duplicate),
+            None,
+        )
+        .await?;
+    expect_eq(
+        published.pool_size,
+        0,
+        "last-resort bytes are skipped by a pooled publish",
+    )?;
+    let mut claimer = context.open().await?;
+    let claimed = claimer
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
+    expect_eq(
+        claimed.key_package.as_slice(),
+        duplicate.as_slice(),
+        "the fallback remains",
+    )?;
+    expect_eq(
+        claimed.last_resort,
+        1,
+        "the surviving role remains last-resort",
+    )?;
+
+    // A last-resort candidate already in the committed pool is ignored. The
+    // current fallback remains, so a request cannot turn a single-use init key
+    // into a reusable one or retire a valid fallback as a side effect.
+    let promoted = b"promoted".to_vec();
+    let second = b"second".to_vec();
+    let old_fallback = b"old-fallback".to_vec();
+    let (owner, created) = with_pool(
+        context,
+        &[promoted.clone(), second.clone()],
+        Some(old_fallback.clone()),
+    )
+    .await?;
+    let published = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[], Some(promoted.clone()))
+        .await?;
+    expect_eq(
+        published.pool_size,
+        2,
+        "a single-use package stays in the pool",
+    )?;
+    for expected in [&promoted, &second] {
+        let mut claimer = context.open().await?;
+        let claimed = claimer
+            .claim_key_package(created.contact_addr, Some(pow))
+            .await?;
+        expect_eq(
+            claimed.key_package.as_slice(),
+            expected.as_slice(),
+            "pool order is unchanged",
+        )?;
+        expect_eq(claimed.last_resort, 0, "the package remains single-use")?;
+    }
+    let mut claimer = context.open().await?;
+    let claimed = claimer
+        .claim_key_package(created.contact_addr, Some(pow))
+        .await?;
+    expect_eq(
+        claimed.key_package.as_slice(),
+        old_fallback.as_slice(),
+        "the old fallback remains",
+    )?;
+    expect_eq(claimed.last_resort, 1, "and remains last-resort")?;
+
+    // The same rule is atomic inside one request: X is accepted into the pool
+    // first, then rejected as a last-resort candidate.
+    let owner = context.key();
+    let created = context
+        .client
+        .create_contact_queue(&owner, 0, 0, None)
+        .await?;
+    let published = context
+        .client
+        .publish_key_packages(
+            &owner,
+            created.recv_addr,
+            &[promoted.clone(), second.clone()],
+            Some(promoted.clone()),
+        )
+        .await?;
+    expect_eq(
+        published.pool_size,
+        2,
+        "same-request bytes remain single-use",
+    )?;
+    expect_eq(
+        published.has_last_resort,
+        0,
+        "the duplicate fallback is skipped",
     )
 }
 

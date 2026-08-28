@@ -244,6 +244,12 @@ pub struct InboundQueue {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OutboundQueue {
     pub relay_url: String,
+    /// The relay identity supplied with the peer's queue advert.
+    /// Empty only for stores written before adverts carried it; those continue
+    /// to work when the relay is already configured, but cannot open a new
+    /// connection without an identity to authenticate.
+    #[serde(default)]
+    pub relay_id: String,
     /// The peer's advertised send address, hex.
     pub send_addr: String,
     /// The seed for the send-side key we bind with, hex.
@@ -680,6 +686,14 @@ pub struct ContactQueue {
     /// Whether the relay holds a package of last resort for this device.
     #[serde(default)]
     pub has_last_resort: bool,
+    /// Expiry of the package of last resort this device most recently
+    /// published, in Unix milliseconds.
+    ///
+    /// This is deliberately local metadata: the relay treats key-package
+    /// bytes as opaque. An old store has no value, which makes the next online
+    /// pump rotate immediately instead of assuming an unbounded lifetime.
+    #[serde(default)]
+    pub last_resort_expires_at_ms: Option<i64>,
 }
 
 /// A pending first-contact request (§3.3), before it becomes a conversation.
@@ -701,6 +715,8 @@ pub struct StoredContactRequest {
     /// The peer's advertised send address and relay, hex/url.
     pub peer_send_addr: String,
     pub peer_relay_url: String,
+    #[serde(default)]
+    pub peer_relay_id: String,
 }
 
 fn store_error(what: &str, error: &f2z_msg_store::StoreError) -> Error {

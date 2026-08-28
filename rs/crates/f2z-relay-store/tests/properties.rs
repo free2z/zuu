@@ -974,6 +974,122 @@ fn republishing_the_same_batch_does_not_double_the_pool() {
 }
 
 #[test]
+fn a_pooled_publish_skips_bytes_already_held_as_last_resort() {
+    both(|store, name| {
+        contact_queue(store);
+        let duplicate = package(7);
+        let _ = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[], Some(&duplicate), 64, 2_000)
+            .unwrap();
+        let published = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                std::slice::from_ref(&duplicate),
+                None,
+                64,
+                3_000,
+            )
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            published.pool_size, 0,
+            "{name}: last-resort bytes entered the pool"
+        );
+        assert!(published.has_last_resort, "{name}");
+        let claimed = store.claim_key_package(&SEND).unwrap().into_inner();
+        assert_eq!(claimed.key_package, duplicate, "{name}");
+        assert!(claimed.last_resort, "{name}: the surviving role changed");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_new_last_resort_that_duplicates_the_pool_is_skipped_without_replacing_the_old_one() {
+    both(|store, name| {
+        contact_queue(store);
+        let promoted = package(1);
+        let _ = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                &[promoted.clone(), package(2)],
+                Some(&package(9)),
+                64,
+                2_000,
+            )
+            .unwrap();
+        let published = store
+            .publish_key_packages(&RECV, &RECV_KEY, &[], Some(&promoted), 64, 3_000)
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            published.pool_size, 2,
+            "{name}: a single-use package left the pool"
+        );
+        for expected in [promoted, package(2)] {
+            let pooled = store.claim_key_package(&SEND).unwrap().into_inner();
+            assert_eq!(pooled.key_package, expected, "{name}: pool order changed");
+            assert!(
+                !pooled.last_resort,
+                "{name}: a single-use key became reusable"
+            );
+        }
+        let fallback = store.claim_key_package(&SEND).unwrap().into_inner();
+        assert_eq!(
+            fallback.key_package,
+            package(9),
+            "{name}: a rejected replacement retired the old fallback"
+        );
+        assert!(fallback.last_resort, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
+fn a_same_request_collision_keeps_the_bytes_only_in_the_single_use_pool() {
+    both(|store, name| {
+        contact_queue(store);
+        let promoted = package(1);
+        let published = store
+            .publish_key_packages(
+                &RECV,
+                &RECV_KEY,
+                &[promoted.clone(), package(2)],
+                Some(&promoted),
+                64,
+                2_000,
+            )
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            published.pool_size, 2,
+            "{name}: the candidate did not remain single-use"
+        );
+        assert!(
+            !published.has_last_resort,
+            "{name}: one init key occupies both roles"
+        );
+        for expected in [promoted, package(2)] {
+            let pooled = store.claim_key_package(&SEND).unwrap().into_inner();
+            assert_eq!(pooled.key_package, expected, "{name}");
+            assert!(
+                !pooled.last_resort,
+                "{name}: a single-use key became reusable"
+            );
+        }
+        let error = store
+            .claim_key_package(&SEND)
+            .expect_err("no fallback was accepted");
+        assert_eq!(code(&error), ErrorCode::Unavailable, "{name}");
+        let _ = store.delete_queue(&RECV, &RECV_KEY).unwrap();
+    });
+}
+
+#[test]
 fn a_pool_is_clamped_from_the_end_of_the_batch() {
     both(|store, name| {
         contact_queue(store);

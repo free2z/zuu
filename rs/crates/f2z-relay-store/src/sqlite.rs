@@ -961,19 +961,26 @@ impl RelayStore for SqliteStore {
         }
 
         if let Some(package) = last_resort {
-            tx.execute(
-                "DELETE FROM key_package WHERE recv_addr = ?1 AND last_resort = 1",
-                [recv_addr.as_ref()],
-            )?;
-            tx.prepare_cached(
-                "INSERT INTO key_package (recv_addr, seq, last_resort, package) \
-                 VALUES (?1, ?2, 1, ?3)",
-            )?
-            .execute(rusqlite::params![
-                recv_addr.as_ref(),
-                next_seq,
-                package.as_slice()
-            ])?;
+            // `held` is the complete pre-transaction state plus every package
+            // accepted above. A collision means this init key is already
+            // single-use (or is the current fallback), so replacing would
+            // either downgrade it to reusable or do needless work. In either
+            // case the existing fallback stays exactly as it was.
+            if !held.iter().any(|stored| stored == package.as_slice()) {
+                tx.execute(
+                    "DELETE FROM key_package WHERE recv_addr = ?1 AND last_resort = 1",
+                    [recv_addr.as_ref()],
+                )?;
+                tx.prepare_cached(
+                    "INSERT INTO key_package (recv_addr, seq, last_resort, package) \
+                     VALUES (?1, ?2, 1, ?3)",
+                )?
+                .execute(rusqlite::params![
+                    recv_addr.as_ref(),
+                    next_seq,
+                    package.as_slice()
+                ])?;
+            }
         }
         let has_last_resort: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM key_package WHERE recv_addr = ?1 AND last_resort = 1)",

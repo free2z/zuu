@@ -306,7 +306,13 @@ impl RelayStore for MemoryStore {
             queue.key_packages.push(package.clone());
         }
         if let Some(package) = last_resort {
-            queue.last_resort = Some(package.clone());
+            // A single-use init key must never be silently downgraded into a
+            // reusable one. `packages` is processed first, so this covers both
+            // committed-pool and same-request collisions. Skipping the
+            // candidate also leaves the current fallback intact.
+            if !queue.key_packages.contains(package) {
+                queue.last_resort = Some(package.clone());
+            }
         }
         touch_record(&mut queue.record, now_ms);
         let pool = KeyPackagePool {

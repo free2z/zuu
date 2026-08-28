@@ -434,7 +434,12 @@ impl RelayState {
             queue.key_packages.push(package);
         }
         if let Some(package) = last_resort {
-            queue.last_resort = Some(package);
+            // Process the pool first and never turn a package already held for
+            // one use into a reusable fallback. A rejected candidate leaves
+            // the previous fallback in place.
+            if !queue.key_packages.contains(&package) {
+                queue.last_resort = Some(package);
+            }
         }
         queue.touch(now_ms);
         Some((

@@ -48,6 +48,7 @@ use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
 use f2z_codec::hash::hash2;
+use f2z_codec::types::RelayId;
 use f2z_msg_mls::{EngineError, MlsEngine, Received, VerifiedKeyPackage};
 use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use f2z_relay_proto::key::SigningKey;
@@ -108,6 +109,10 @@ const KEY_PACKAGE_LOW_WATER: u32 = 8;
 /// bounded. The cost is stated with it: a device offline for longer than this
 /// becomes unreachable to *new* contacts until it comes back.
 const LAST_RESORT_LIFETIME_SECONDS: u64 = 2_592_000;
+/// Rotate one day before expiry. The receive pump runs every five seconds, so
+/// an online owner has a full day of retries without ever publishing a package
+/// whose validity has already ended.
+const LAST_RESORT_ROTATE_BEFORE_MS: i64 = 86_400_000;
 
 /// `WIRE.md` §7.7's default message TTL: seven days.
 const MESSAGE_TTL_SECONDS: u32 = 604_800;
@@ -146,6 +151,10 @@ struct Inner<B: StorageBackend> {
     groups: HashMap<String, MlsGroup>,
     /// One per relay URL. `WIRE.md` §2.5's session is per connection.
     connections: HashMap<String, RelayConnection>,
+    /// Policy for a relay learned from a verified directory entry rather than
+    /// the user's configured relay list. Shipping is strict. The relay harness
+    /// alone relaxes transport and channel binding for loopback `ws://` relays.
+    directory_connection_policy: ConnectionPolicy,
     state: EngineState,
     last_error: Option<ErrorCode>,
     platform: Platform,
@@ -226,6 +235,7 @@ impl<B: StorageBackend> Engine<B> {
                 mls: None,
                 groups: HashMap::new(),
                 connections: HashMap::new(),
+                directory_connection_policy: ConnectionPolicy::default(),
                 state: EngineState::Uninitialized,
                 last_error: None,
                 platform,
@@ -245,6 +255,17 @@ impl<B: StorageBackend> Engine<B> {
     #[must_use]
     pub fn with_directory(mut self, directory: Arc<dyn Directory>) -> Self {
         self.directory = directory;
+        self
+    }
+
+    /// Permit the loopback relay harness to exercise on-demand federated
+    /// connections over `ws://`. Shipping callers cannot compile this method.
+    #[cfg(feature = "relay-harness")]
+    #[must_use]
+    pub fn with_insecure_directory_relays_for_harness(mut self) -> Self {
+        let policy = &mut self.inner.get_mut().directory_connection_policy.policy;
+        policy.allow_insecure_transport = true;
+        policy.require_channel_binding = false;
         self
     }
 
@@ -760,6 +781,7 @@ impl<B: StorageBackend> Engine<B> {
             welcome,
             advert: QueueAdvert {
                 relay_url: request.peer_relay_url.clone(),
+                relay_id: request.peer_relay_id.clone(),
                 send_addr: request.peer_send_addr.clone(),
             },
         };
@@ -2003,6 +2025,16 @@ impl<B: StorageBackend> Engine<B> {
         if inner.mls.is_none() {
             return Ok(0);
         }
+        // Rotation cannot depend on a contact arrival: an unused reusable
+        // package still expires. Failure is reported but does not stop
+        // established conversations, and the old persisted deadline remains
+        // so the next timer tick retries.
+        if inner.last_resort_rotation_due(now_ms())?
+            && let Err(error) = inner.ensure_key_packages().await
+        {
+            tracing::info!(code = %error.code(), "last-resort key package not rotated");
+            inner.last_error = Some(error.code());
+        }
         let mut delivered = match inner.pump_contact_queue().await {
             Ok(events) => events,
             Err(error) => {
@@ -2095,12 +2127,67 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// `internal` if the store cannot be read.
     #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn contact_advert(&self) -> Result<Option<(String, String)>> {
+    pub async fn contact_advert(&self) -> Result<Option<(String, RelayId, String)>> {
+        let inner = self.inner.lock().await;
+        let Some(queue) = inner.records().contact_queue()? else {
+            return Ok(None);
+        };
+        let relay_id = inner
+            .connections
+            .get(&queue.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "contact relay not connected"))?
+            .relay_id();
+        Ok(Some((queue.relay_url, relay_id, queue.contact_addr)))
+    }
+
+    /// Run the key-package maintenance pass at an explicit time.
+    ///
+    /// Harness only: production reaches the same method from `start_engine`
+    /// and the online receive timer, both with the wall clock.
+    #[cfg(feature = "relay-harness")]
+    pub async fn refresh_key_packages_at_for_harness(&self, now_ms: i64) -> Result<()> {
+        self.inner.lock().await.ensure_key_packages_at(now_ms).await
+    }
+
+    /// The persisted expiry that drives last-resort rotation.
+    #[cfg(feature = "relay-harness")]
+    pub async fn last_resort_expiry_for_harness(&self) -> Result<Option<i64>> {
         let inner = self.inner.lock().await;
         Ok(inner
             .records()
             .contact_queue()?
-            .map(|queue| (queue.relay_url, queue.contact_addr)))
+            .and_then(|queue| queue.last_resort_expires_at_ms))
+    }
+
+    /// Move the persisted rotation deadline without changing relay state.
+    /// Harness only, so a thirty-day lifecycle is testable without sleeping.
+    #[cfg(feature = "relay-harness")]
+    pub async fn set_last_resort_expiry_for_harness(&self, expiry_ms: i64) -> Result<()> {
+        let inner = self.inner.lock().await;
+        let Some(mut queue) = inner.records().contact_queue()? else {
+            return Err(Error::internal("contact queue not opened"));
+        };
+        queue.last_resort_expires_at_ms = Some(expiry_ms);
+        inner
+            .records()
+            .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    /// Apply the shipping key-package verifier at an explicit time.
+    #[cfg(feature = "relay-harness")]
+    pub async fn verify_key_package_for_harness(
+        &self,
+        wire: &[u8],
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        at_ms: u64,
+    ) -> Result<()> {
+        self.inner
+            .lock()
+            .await
+            .mls_ref("verify_key_package_for_harness")?
+            .verify_key_package(wire, entry, u64::try_from(now_ms()).unwrap_or(0))
+            .and_then(|verified| verified.lifetime_valid_at(at_ms / 1000))
+            .map_err(|error| Error::internal(format!("key-package verification: {error}")))
     }
 }
 
@@ -2109,6 +2196,10 @@ impl<B: StorageBackend> Engine<B> {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct QueueAdvert {
     pub relay_url: String,
+    /// Hex relay identity supplied beside the URL and checked during every
+    /// on-demand connection. Subsequent adverts travel in authenticated MLS
+    /// messages; the first travels beside the `Welcome` it is needed to join.
+    pub relay_id: String,
     /// The **send** address of this device's receive queue, hex. Never the
     /// receive address: §7.3's asymmetry is the whole point, and a peer that
     /// held the receive address could read the queue.
@@ -2434,11 +2525,11 @@ impl<B: StorageBackend> Inner<B> {
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
 
-        if !self.connections.contains_key(&outbound.relay_url) {
+        if let Err(error) = self.ensure_outbound_connection(&outbound).await {
             // §8: keep the message `pending` and retry with backoff. Do not
             // mark anything failed — an unreachable relay is not a delivery
             // failure, it is an absence of evidence either way.
-            return self.mark_delivery(msg_id, "pending", Some(ErrorCode::RelayUnreachable), now);
+            return self.mark_delivery(msg_id, "pending", Some(error.code()), now);
         }
 
         self.ensure_bound(stored).await?;
@@ -2485,6 +2576,7 @@ impl<B: StorageBackend> Inner<B> {
                 "no advertised send address for this conversation",
             ));
         };
+        self.ensure_outbound_connection(&outbound).await?;
         if outbound.bound {
             return Ok(());
         }
@@ -2522,6 +2614,23 @@ impl<B: StorageBackend> Inner<B> {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Ensure a peer-advertised conversation relay has a managed connection.
+    /// New adverts carry the relay identity inside the authenticated MLS
+    /// payload. Old persisted adverts can use an already-configured connection
+    /// but are never allowed to invent the missing identity for a new one.
+    async fn ensure_outbound_connection(&mut self, outbound: &OutboundQueue) -> Result<()> {
+        if self.connections.contains_key(&outbound.relay_url) && outbound.relay_id.is_empty() {
+            return Ok(());
+        }
+        let bytes = hex::decode(&outbound.relay_id)
+            .map_err(|_| Error::internal("an advertised relay identity is not hex"))?;
+        let relay_id = RelayId::from_slice(&bytes)
+            .map_err(|_| Error::internal("an advertised relay identity is the wrong length"))?;
+        self.endpoint_connection(&outbound.relay_url, relay_id)
+            .await
+            .map(|_| ())
     }
 
     fn mark_delivery(
@@ -2987,6 +3096,7 @@ impl<B: StorageBackend> Inner<B> {
                 inbound: Some(inbound),
                 outbound: Some(OutboundQueue {
                     relay_url: introduction.advert.relay_url.clone(),
+                    relay_id: introduction.advert.relay_id.clone(),
                     send_addr: introduction.advert.send_addr.clone(),
                     send_key_seed,
                     bound: false,
@@ -3013,6 +3123,7 @@ impl<B: StorageBackend> Inner<B> {
         let mut stored = self.conversation(conversation_id)?;
         stored.queues.outbound = Some(OutboundQueue {
             relay_url: advert.relay_url.clone(),
+            relay_id: advert.relay_id.clone(),
             send_addr: advert.send_addr.clone(),
             send_key_seed: hex::encode(self.queue_key(conversation_id, LABEL_QUEUE_SEND)?),
             bound: false,
@@ -3045,9 +3156,8 @@ impl<B: StorageBackend> Inner<B> {
     ) -> Result<VerifiedKeyPackage> {
         let contact_addr = queue_address(&peer.contact_addr)?;
         let connection = self
-            .connections
-            .get_mut(&peer.contact_relay_url)
-            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+            .endpoint_connection(&peer.contact_relay_url, peer.contact_relay_id)
+            .await?;
         let caps = connection.capabilities().await?.capabilities;
         if caps.key_packages_enabled == 0 {
             return Err(Error::new(
@@ -3132,9 +3242,8 @@ impl<B: StorageBackend> Inner<B> {
             .map_err(|error| Error::internal(format!("framing first contact: {error}")))?;
         let contact_addr = queue_address(&peer.contact_addr)?;
         let connection = self
-            .connections
-            .get_mut(&peer.contact_relay_url)
-            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+            .endpoint_connection(&peer.contact_relay_url, peer.contact_relay_id)
+            .await?;
         let pow = Some(
             connection
                 .capabilities()
@@ -3184,9 +3293,48 @@ impl<B: StorageBackend> Inner<B> {
             acked_through: None,
             key_package_pool: 0,
             has_last_resort: false,
+            last_resort_expires_at_ms: None,
         };
         self.records()
             .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    /// Return a managed connection to a directory-published endpoint, opening
+    /// it on demand when the peer federates through a relay this device did not
+    /// preconfigure. The signed `relay_id` is checked both for a new session and
+    /// for a connection already present under the same URL.
+    async fn endpoint_connection(
+        &mut self,
+        relay_url: &str,
+        expected_relay_id: RelayId,
+    ) -> Result<&mut RelayConnection> {
+        if !self.connections.contains_key(relay_url) {
+            let mut policy = self.directory_connection_policy.clone();
+            if let Some(configured) = self
+                .records()
+                .relays()?
+                .into_iter()
+                .find(|relay| relay.relay_url == relay_url)
+            {
+                policy.policy.allow_insecure_transport = configured.allow_insecure_transport;
+                policy.policy.require_channel_binding = !configured.allow_no_channel_binding;
+            }
+            policy.expected_relay_id = Some(expected_relay_id);
+            let connection = RelayConnection::connect(relay_url, &policy).await?;
+            self.connections.insert(relay_url.to_owned(), connection);
+        }
+
+        let connection = self
+            .connections
+            .get_mut(relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        if connection.relay_id() != expected_relay_id {
+            return Err(Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the relay at the directory-published URL does not have the signed relay_id",
+            ));
+        }
+        Ok(connection)
     }
 
     /// Publish or top up this device's key-package pool (`WIRE.md` §12.6).
@@ -3208,6 +3356,10 @@ impl<B: StorageBackend> Inner<B> {
     /// `relay-unreachable` if the relay is not connected, `internal` if MLS
     /// could not generate the packages or the store could not record the count.
     async fn ensure_key_packages(&mut self) -> Result<()> {
+        self.ensure_key_packages_at(now_ms()).await
+    }
+
+    async fn ensure_key_packages_at(&mut self, now: i64) -> Result<()> {
         let Some(mut queue) = self.records().contact_queue()? else {
             return Ok(());
         };
@@ -3251,12 +3403,15 @@ impl<B: StorageBackend> Inner<B> {
             .await?;
         queue.key_package_pool = held.pool_size;
         queue.has_last_resort = held.has_last_resort != 0;
+        if !queue.has_last_resort {
+            queue.last_resort_expires_at_ms = None;
+        }
 
-        // The last-resort package is published once and then only when it is
-        // missing. Replacing it on every top-up would retire a package a
-        // `Welcome` may already be in flight against — the sender has no way to
-        // learn it was withdrawn.
-        let needs_last_resort = !queue.has_last_resort;
+        // Replace only when missing or nearing expiry. Replacing on every
+        // top-up would retire a package a `Welcome` may already be in flight
+        // against; never replacing would make strict lifetime verification
+        // permanently reject fallback after thirty days.
+        let needs_last_resort = Self::last_resort_rotation_due_for(&queue, now);
         if held.pool_size > low_water && !needs_last_resort {
             // Record what the relay reported even when nothing is added, so the
             // stored number is never staler than the last time anything looked.
@@ -3267,14 +3422,16 @@ impl<B: StorageBackend> Inner<B> {
         }
 
         let wanted = usize::try_from(target.saturating_sub(held.pool_size)).unwrap_or(0);
-        let (packages, last_resort) = {
+        let (packages, last_resort, next_last_resort_expiry) = {
             let mls = self.mls_ref("ensure_key_packages")?;
             let packages = mls
                 .generate_key_packages(wanted, None)
                 .map_err(|error| Error::internal(format!("key packages: {error}")))?;
             let last_resort = if needs_last_resort {
+                let not_before = u64::try_from(now.max(0)).unwrap_or(0) / 1000;
+                let not_after = not_before.saturating_add(LAST_RESORT_LIFETIME_SECONDS);
                 Some(
-                    mls.generate_last_resort_key_package(Some(LAST_RESORT_LIFETIME_SECONDS))
+                    mls.generate_last_resort_key_package_for_window(not_before, not_after)
                         .map_err(|error| {
                             Error::internal(format!("last-resort key package: {error}"))
                         })?,
@@ -3282,7 +3439,14 @@ impl<B: StorageBackend> Inner<B> {
             } else {
                 None
             };
-            (packages, last_resort)
+            let expiry = needs_last_resort.then(|| {
+                now.saturating_add(
+                    i64::try_from(LAST_RESORT_LIFETIME_SECONDS)
+                        .unwrap_or(i64::MAX)
+                        .saturating_mul(1000),
+                )
+            });
+            (packages, last_resort, expiry)
         };
 
         let connection = self
@@ -3302,8 +3466,30 @@ impl<B: StorageBackend> Inner<B> {
         // skips duplicates, and has been serving claims since the last publish.
         queue.key_package_pool = published.pool_size;
         queue.has_last_resort = published.has_last_resort != 0;
+        if last_resort.is_some() && queue.has_last_resort {
+            // Advance this only after the relay confirms publication. On a
+            // transport/refusal failure, the prior persisted expiry survives
+            // and the online pump retries without losing the existing fallback.
+            queue.last_resort_expires_at_ms = next_last_resort_expiry;
+        } else if !queue.has_last_resort {
+            queue.last_resort_expires_at_ms = None;
+        }
         self.records()
             .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    fn last_resort_rotation_due(&self, now: i64) -> Result<bool> {
+        Ok(self
+            .records()
+            .contact_queue()?
+            .is_some_and(|queue| Self::last_resort_rotation_due_for(&queue, now)))
+    }
+
+    fn last_resort_rotation_due_for(queue: &crate::store::ContactQueue, now: i64) -> bool {
+        !queue.has_last_resort
+            || queue
+                .last_resort_expires_at_ms
+                .is_none_or(|expiry| now >= expiry.saturating_sub(LAST_RESORT_ROTATE_BEFORE_MS))
     }
 
     /// Read this device's contact queue and turn each arrival into a pending
@@ -3386,6 +3572,7 @@ impl<B: StorageBackend> Inner<B> {
                 welcome: contact.welcome.clone(),
                 peer_send_addr: contact.advert.send_addr.clone(),
                 peer_relay_url: contact.advert.relay_url.clone(),
+                peer_relay_id: contact.advert.relay_id.clone(),
             };
             requests.push(request.clone());
             events.push(Inbound::ContactRequest(ContactRequest {
@@ -3479,6 +3666,7 @@ impl<B: StorageBackend> Inner<B> {
         Ok((
             QueueAdvert {
                 relay_url: relay_url.to_owned(),
+                relay_id: hex::encode(connection.relay_id().as_bytes()),
                 send_addr: queue.send_addr.clone(),
             },
             queue,

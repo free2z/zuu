@@ -1950,8 +1950,13 @@ A relay MUST:
 3. **Clamp** to `contact_max_key_packages` by dropping from the **end** of
    `packages`, so a client reading `pool_size` back knows which of its packages
    were kept: the first `max − held` of them.
-4. **Replace** the stored last-resort package when `last_resort` is non-empty,
-   and leave it alone when it is empty.
+4. **Replace** the stored last-resort package when `last_resort` is non-empty
+   **and its bytes are absent from the post-append single-use pool**. If the
+   candidate duplicates a pooled package — including one accepted earlier in
+   this same request — skip the candidate and leave the stored last-resort
+   package unchanged. A relay MUST NOT turn a single-use init key into a
+   reusable fallback. An empty `last_resort` likewise leaves the stored one
+   alone.
 5. Refuse a **standard** queue with `ERR_NOT_PERMITTED`. §12.6 keys a pool by the
    published address, and a standard queue has none. This is `ERR_NOT_PERMITTED`
    and not `ERR_NO_ACCESS` for the same reason `BIND_SEND` on a contact address
