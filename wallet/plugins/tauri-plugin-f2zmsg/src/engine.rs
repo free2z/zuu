@@ -4467,7 +4467,171 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
 
 #[cfg(test)]
 mod tests {
-    use super::{QueueAdvert, acknowledgeable, routing_advert_digest};
+    use std::sync::Arc;
+
+    use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
+    use f2z_kt_core::entry::{DirectoryEntryTBS, EntryKind};
+    use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
+    use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
+    use f2z_msg_mls::{DeviceSigner, MlsEngine};
+    use f2z_msg_store::MemoryBackend;
+
+    use super::{Engine, QueueAdvert, acknowledgeable, routing_advert_digest};
+    use crate::directory::{Directory, ResolvedIdentity, ResolvedPeer};
+    use crate::error::{Error, Result};
+    use crate::events::{EventSink, NullSink};
+    use crate::models::{DirectoryResolution, EngineState, ErrorCode, Platform, RelayOperator};
+    use crate::store::{StoredContactRequest, StoredRelay};
+
+    struct AcceptDirectory(ResolvedIdentity);
+
+    impl Directory for AcceptDirectory {
+        fn resolve(&self, _handle: &str) -> Result<DirectoryResolution> {
+            Ok(self.0.resolution.clone())
+        }
+
+        fn resolve_identity(&self, _handle: &str) -> Result<ResolvedIdentity> {
+            Ok(self.0.clone())
+        }
+
+        fn resolve_peer(&self, _handle: &str) -> Result<ResolvedPeer> {
+            Err(Error::internal("acceptance must not resolve a key package"))
+        }
+
+        fn independent_witnesses(&self) -> u32 {
+            1
+        }
+
+        fn threshold_met(&self) -> bool {
+            true
+        }
+    }
+
+    fn authenticated_request() -> (ResolvedIdentity, StoredContactRequest) {
+        let account = AccountKeys::from_seed(&[7; 64], 0).unwrap();
+        let signer = DeviceSigner::from_private_key([9; 32]);
+        let credential = account
+            .identity
+            .issue_device_credential(&DeviceCredentialRequest {
+                handle: Handle::new(b"alice".to_vec()).unwrap(),
+                device_pk: PublicKey::new(*signer.public_key()),
+                device_kem_pk: KemPublicKey::new(vec![9; 1216]).unwrap(),
+                not_before_ms: 0,
+                not_after_ms: u64::MAX / 2,
+            })
+            .unwrap();
+        let entry = DirectoryEntryTBS {
+            label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec()).unwrap(),
+            kt_version: 1,
+            log_id: LogId::new([0x11; 32]),
+            handle: credential.credential.handle.clone(),
+            entry_version: 1,
+            kind: EntryKind::SameKey,
+            identity_pk: credential.credential.identity_pk,
+            directory_auth_pk: PublicKey::new([0x22; 32]),
+            devices: vec![credential.clone()].into(),
+            revocations: Vec::new().into(),
+            contact_endpoints: Vec::new().into(),
+            prev_entry_hash: Digest::new([0; 32]),
+            no_reset: 0,
+            created_at_ms: 0,
+        };
+        let signer_pk = credential.credential.device_pk;
+        let mls = MlsEngine::new(MemoryBackend::new(), signer, credential, 0).unwrap();
+        let welcome = b"authentic Welcome".to_vec();
+        let advert = QueueAdvert {
+            relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        let digest = routing_advert_digest("conversation", &welcome, &advert).unwrap();
+        let signature = mls.sign_routing_advert(digest.as_bytes()).unwrap();
+        let identity_pk = hex::encode(entry.identity_pk.as_bytes());
+        let resolution = DirectoryResolution {
+            handle: "alice".to_owned(),
+            found: true,
+            identity_fingerprint: Some(identity_pk.clone()),
+            device_count: 1,
+            entry_version: Some(1),
+            epoch: 1,
+            witness_cosignatures: 1,
+            independent_witnesses: 1,
+            threshold_met: true,
+        };
+        let identity = ResolvedIdentity {
+            resolution,
+            identity_pk: identity_pk.clone(),
+            entry,
+            contact_relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
+            contact_relay_id: RelayId::new([0x11; 32]),
+            contact_addr: "44".repeat(32),
+        };
+        let request = StoredContactRequest {
+            request_id: "req-conversation".to_owned(),
+            peer_handle: "alice".to_owned(),
+            peer_identity_fingerprint: identity_pk,
+            conversation_id: "conversation".to_owned(),
+            received_at: 0,
+            body_preview: None,
+            welcome: hex::encode(welcome),
+            peer_send_addr: advert.send_addr,
+            peer_relay_url: advert.relay_url,
+            peer_relay_id: advert.relay_id,
+            advert_device_pk: hex::encode(signer_pk.as_bytes()),
+            advert_signature: hex::encode(signature),
+        };
+        (identity, request)
+    }
+
+    async fn assert_acceptance_refuses(mut mutate: impl FnMut(&mut StoredContactRequest)) {
+        let (identity, mut request) = authenticated_request();
+        mutate(&mut request);
+        let engine = Engine::new(
+            MemoryBackend::new(),
+            Arc::new(NullSink) as Arc<dyn EventSink>,
+            Platform::ZuuliDesktop,
+        )
+        .unwrap()
+        .with_directory(Arc::new(AcceptDirectory(identity)));
+        {
+            let mut inner = engine.inner.lock().await;
+            inner.state = EngineState::Running;
+            inner
+                .records()
+                .commit(|records| {
+                    records.put_relays(&[StoredRelay {
+                        relay_id: "55".repeat(32),
+                        relay_url: "wss://bob-relay.example/relay/v1".to_owned(),
+                        allow_insecure_transport: false,
+                        allow_no_channel_binding: false,
+                        warnings: Vec::new(),
+                        operator: RelayOperator {
+                            name: String::new(),
+                            contact: String::new(),
+                            abuse_contact: String::new(),
+                            jurisdiction: String::new(),
+                            policy_url: String::new(),
+                            source_repo_url: String::new(),
+                            source_commit: String::new(),
+                            build_digest: String::new(),
+                        },
+                        capabilities_digest: String::new(),
+                    }])?;
+                    records.put_contact_requests(&[request])
+                })
+                .unwrap();
+        }
+
+        let error = engine
+            .accept_contact_request("req-conversation")
+            .await
+            .expect_err("the mutated first-contact transcript must be refused");
+        assert_eq!(
+            error.code(),
+            ErrorCode::RelayIdentityMismatch,
+            "this must fail in the shipping authentication call, before MLS join or relay I/O"
+        );
+    }
 
     #[test]
     fn relay_identity_is_inside_the_device_authenticated_routing_digest() {
@@ -4497,6 +4661,32 @@ mod tests {
             routing_advert_digest("conversation", b"attacker welcome", &advert).unwrap(),
             "deleting Welcome coverage makes the substitution mutation survive"
         );
+    }
+
+    #[tokio::test]
+    async fn accept_contact_request_refuses_a_swapped_welcome() {
+        assert_acceptance_refuses(|request| {
+            request.welcome = hex::encode(b"attacker Welcome");
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn accept_contact_request_refuses_a_substituted_route() {
+        assert_acceptance_refuses(|request| {
+            request.peer_relay_id = "33".repeat(32);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn accept_contact_request_refuses_a_substituted_signature() {
+        assert_acceptance_refuses(|request| {
+            let mut signature = hex::decode(&request.advert_signature).unwrap();
+            signature[0] ^= 1;
+            request.advert_signature = hex::encode(signature);
+        })
+        .await;
     }
 
     #[test]
