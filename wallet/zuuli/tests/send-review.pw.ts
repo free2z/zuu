@@ -80,6 +80,99 @@ test("a multi-payment URI never selects its first payment or preserves stale int
   await expect(page.getByRole("button", { name: "Review payment" })).toBeDisabled();
 });
 
+test("a snackbar clears native insets, mobile navigation, and viewport resizes", async ({
+  page,
+}) => {
+  await openSend(page);
+  await page.addStyleTag({
+    content: `:root {
+      --safe-area-top: 23px !important;
+      --safe-area-right: 9px !important;
+      --safe-area-bottom: 31px !important;
+      --safe-area-left: 13px !important;
+    }
+    /* Freeze Sonner's mount-in transform transition so the geometry
+       assertions below measure the toast's settled position instead of an
+       arbitrary animation frame. */
+    [data-sonner-toast] {
+      transition: none !important;
+    }`,
+  });
+
+  await page
+    .getByLabel("Recipient address")
+    .fill("zcash:?address=u1first&amount=1&address.1=u1second&amount.1=2");
+  const toast = page.locator("[data-sonner-toast]").filter({
+    hasText: "Couldn't read that payment link",
+  });
+  const toaster = page.locator("[data-sonner-toaster]");
+  const bottomNav = page.locator("[data-app-bottom-nav]");
+  await expect(toast).toBeVisible();
+
+  async function geometry() {
+    const [toastRect, navRect, toasterStyle, viewport] = await Promise.all([
+      toast.boundingBox(),
+      bottomNav.boundingBox(),
+      toaster.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          bottom: Number.parseFloat(style.bottom),
+          left: Number.parseFloat(style.left),
+          right: Number.parseFloat(style.right),
+        };
+      }),
+      page.evaluate(() => ({
+        width: document.documentElement.clientWidth,
+        height:
+          window.visualViewport?.height ?? document.documentElement.clientHeight,
+      })),
+    ]);
+    if (!toastRect || !navRect) {
+      throw new Error("toast geometry fixtures are not mounted");
+    }
+    return {
+      toast: {
+        top: toastRect.y,
+        right: toastRect.x + toastRect.width,
+        bottom: toastRect.y + toastRect.height,
+        left: toastRect.x,
+      },
+      navTop: navRect.y,
+      viewportWidth: viewport.width,
+      visualViewportHeight: viewport.height,
+      toasterBottom: toasterStyle.bottom,
+      toasterLeft: toasterStyle.left,
+      toasterRight: toasterStyle.right,
+    };
+  }
+
+  async function expectInsetGeometry() {
+    // The toaster host itself is intentionally zero-height: every
+    // `[data-sonner-toast]` child is absolutely positioned within it (see
+    // sonner's own stylesheet), so an in-flow visibility/bounding-box check
+    // on the host never succeeds. Assert it is mounted and read its computed
+    // offsets instead; the toast's own visibility and position below are the
+    // real inset assertions.
+    await expect(toaster).toBeAttached();
+    await expect(bottomNav).toBeVisible();
+    const measured = await geometry();
+    expect(measured.toasterBottom).toBe(103);
+    expect(measured.toasterLeft).toBe(29);
+    expect(measured.toasterRight).toBe(29);
+    expect(measured.toast.left).toBeGreaterThanOrEqual(29);
+    expect(measured.toast.right).toBeLessThanOrEqual(measured.viewportWidth - 29);
+    expect(measured.toast.bottom).toBeLessThanOrEqual(measured.navTop - 16);
+    expect(measured.toast.top).toBeGreaterThanOrEqual(23);
+    expect(measured.toast.bottom).toBeLessThanOrEqual(
+      measured.visualViewportHeight,
+    );
+  }
+
+  await expectInsetGeometry();
+  await page.setViewportSize({ width: 320, height: 420 });
+  await expectInsetGeometry();
+});
+
 test("the 320px dialog renders only the immutable native review and locks editing", async ({
   page,
 }) => {
