@@ -13,7 +13,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { build as viteBuild } from "vite";
+import { build as viteBuild, resolveConfig as viteResolveConfig } from "vite";
 import {
   assertProjectBoundaries,
   main as runProductionBoundary,
@@ -721,7 +721,7 @@ export default { plugins: [{
 
     await assert.rejects(
       () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
-      /constrained production Vite graph build failed[\s\S]*FileSystemWrite/,
+      /constrained production Vite graph build failed[\s\S]*(FileSystemWrite|allow-fs-write)/,
     );
     await assert.rejects(
       () => readFile(marker, "utf8"),
@@ -757,12 +757,110 @@ export default { plugins: [{
 
     await assert.rejects(
       () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
-      /constrained production Vite graph build failed[\s\S]*FileSystemWrite/,
+      /constrained production Vite graph build failed[\s\S]*(FileSystemWrite|allow-fs-write)/,
     );
     await assert.rejects(
       () => readFile(marker, "utf8"),
       { code: "ENOENT" },
       "the temp output path must not write through a symlink into owner source",
+    );
+  });
+});
+
+test("rejects one-shot config staging before the constrained build can audit it", async () => {
+  await withFixture(
+    {
+      "zuuallet/src/one-shot-secret.ts":
+        'export const oneShotSiblingSecret = "ONE_SHOT_SIBLING_SECRET_691";\n',
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/one-shot-secret.ts");
+      const staged = path.join(zuuliRoot, "src/.one-shot-staged.ts");
+      await writeFile(
+        path.join(zuuliRoot, "src/main.ts"),
+        'import { oneShotSiblingSecret } from "./.one-shot-staged"; console.log(oneShotSiblingSecret);\n',
+      );
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { copyFileSync, existsSync } from "node:fs";
+if (!existsSync(${JSON.stringify(staged)})) {
+  copyFileSync(${JSON.stringify(sibling)}, ${JSON.stringify(staged)});
+}
+export default {};
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /ONE_SHOT_SIBLING_SECRET_691/,
+        "an unrestricted first config evaluation must prove it can stage and bundle sibling source",
+      );
+      assert.match(await readFile(staged, "utf8"), /ONE_SHOT_SIBLING_SECRET_691/);
+      await rm(staged);
+
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /Vite build configuration is not auditable[\s\S]*(one-shot-secret\.ts|FileSystemRead)/,
+      );
+      await assert.rejects(
+        () => readFile(staged, "utf8"),
+        { code: "ENOENT" },
+        "the scanner must never stage owner source before its constrained audit",
+      );
+    },
+  );
+});
+
+test("audits serve-mode top-level config effects inside the write sandbox", async () => {
+  await withFixture({}, async (root) => {
+    const zuuliRoot = path.join(root, "zuuli");
+    const marker = path.join(zuuliRoot, "src/.serve-config-marker");
+    const configFile = path.join(zuuliRoot, "vite.config.ts");
+    await writeFile(
+      configFile,
+      `import { writeFileSync } from "node:fs";
+export default ({ command }) => {
+  if (command === "serve") writeFileSync(${JSON.stringify(marker)}, "SERVE_CONFIG_MARKER_691\\n");
+  return {};
+};
+`,
+    );
+    await viteResolveConfig(
+      {
+        configFile,
+        logLevel: "silent",
+        mode: "development",
+        root: zuuliRoot,
+      },
+      "serve",
+      "development",
+    );
+    assert.equal(
+      await readFile(marker, "utf8"),
+      "SERVE_CONFIG_MARKER_691\n",
+      "unrestricted serve config resolution must prove the top-level write",
+    );
+    await rm(marker);
+
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /Vite serve configuration is not auditable[\s\S]*FileSystemWrite/,
+    );
+    await assert.rejects(
+      () => readFile(marker, "utf8"),
+      { code: "ENOENT" },
+      "serve-mode configuration must not mutate owner source during the audit",
     );
   });
 });
@@ -966,7 +1064,60 @@ export default { plugins: [{
       );
       await assert.rejects(
         () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
-        /constrained production Vite graph build failed[\s\S]*(copy-secret\.ts|FileSystem(Read|Write))/,
+        /constrained production Vite graph build failed[\s\S]*(copy-secret\.ts|FileSystem(Read|Write)|allow-fs-(read|write))/,
+      );
+    },
+  );
+});
+
+test("rejects a Vite transform that copies sibling source into the permitted output", async () => {
+  await withFixture(
+    {
+      "zuuallet/src/output-copy-secret.ts":
+        'export const outputCopiedSiblingSecret = "OUTPUT_COPY_SECRET_691";\n',
+    },
+    async (root) => {
+      await addMinimalViteEntries(root);
+      const zuuliRoot = path.join(root, "zuuli");
+      const sibling = path.join(root, "zuuallet/src/output-copy-secret.ts");
+      await writeFile(
+        path.join(zuuliRoot, "vite.config.ts"),
+        `import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+let outputDirectory;
+export default { plugins: [{
+  name: "cross-app-output-copy-transform",
+  configResolved(config) { outputDirectory = config.build.outDir; },
+  transform(code, id) {
+    if (!id.endsWith("/src/main.ts")) return null;
+    mkdirSync(outputDirectory, { recursive: true });
+    const copied = path.join(outputDirectory, ".output-copied.ts");
+    copyFileSync(${JSON.stringify(sibling)}, copied);
+    const secret = readFileSync(copied, "utf8");
+    return code + "\\nconsole.log(" + JSON.stringify(secret) + ");";
+  },
+}] };
+`,
+      );
+      const built = await viteBuild({
+        root: zuuliRoot,
+        configFile: path.join(zuuliRoot, "vite.config.ts"),
+        logLevel: "silent",
+        build: { write: false },
+      });
+      const generated = built.output
+        .filter((output) => output.type === "chunk")
+        .map((output) => output.code)
+        .join("\n");
+      assert.match(
+        generated,
+        /OUTPUT_COPY_SECRET_691/,
+        "the unrestricted build must prove a sibling read can be staged through its output",
+      );
+
+      await assert.rejects(
+        () => assertProjectBoundaries(root, { verifyViteBuildGraph: true }),
+        /constrained production Vite graph build failed[\s\S]*(output-copy-secret\.ts|allow-fs-read)/,
       );
     },
   );

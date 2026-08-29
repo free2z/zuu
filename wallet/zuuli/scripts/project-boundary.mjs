@@ -1,12 +1,21 @@
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { lstat, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
-import { loadConfigFromFile, resolveConfig } from "vite";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
 const executeFile = promisify(execFile);
@@ -438,143 +447,50 @@ const VITE_CONFIG_NAMES = [
   "vite.config.ts",
 ];
 
-function normalizedViteAliases(alias) {
-  if (alias === undefined) return [];
-  if (Array.isArray(alias)) return alias;
-  if (alias && typeof alias === "object") {
-    return Object.entries(alias).map(([find, replacement]) => ({
-      find,
-      replacement,
-    }));
-  }
-  throw new Error("resolve.alias must be an object or array");
-}
-
-async function normalizedVitePlugins(option) {
-  const resolved = await option;
-  if (!resolved) return [];
-  if (Array.isArray(resolved)) {
-    const plugins = [];
-    for (const nested of resolved) plugins.push(...(await normalizedVitePlugins(nested)));
-    return plugins;
-  }
-  if (typeof resolved !== "object") throw new Error("plugins must resolve to plugin objects");
-  return [resolved];
-}
-
-function viteInputEntries(value, label) {
-  if (value === undefined || value === false) return [];
-  if (typeof value === "string") return [{ label, value }];
-  if (Array.isArray(value)) {
-    return value.flatMap((entry, index) => viteInputEntries(entry, `${label}[${index}]`));
-  }
-  if (value && typeof value === "object") {
-    return Object.entries(value).flatMap(([name, entry]) =>
-      viteInputEntries(entry, `${label}.${name}`),
-    );
-  }
-  throw new Error(`${label} must contain only filesystem path strings`);
-}
-
-function viteFilesystemViolation(
+async function constrainedViteConfigurationAudit(
   project,
   sharedRoot,
-  candidate,
-  label,
-  { allowShared = true } = {},
+  configFile,
+  moduleReferences,
+  verifyBuildGraph,
 ) {
-  const query = candidate.search(/[?#]/);
-  let identifier = query < 0 ? candidate : candidate.slice(0, query);
-  if (identifier.startsWith("\0")) return `${label} resolves to an opaque virtual module`;
-  if (identifier.startsWith("file:")) {
-    try {
-      identifier = fileURLToPath(identifier);
-    } catch (error) {
-      return `${label} has an invalid file URL: ${error.message}`;
-    }
-  } else if (identifier.startsWith("/@fs/")) {
-    identifier = identifier.slice(4);
-  }
-  if (!path.isAbsolute(identifier)) {
-    return `${label} resolves to a non-filesystem module id: ${candidate}`;
-  }
-  const lexical = path.resolve(identifier);
-  let canonical;
-  try {
-    canonical = projectedRealpath(lexical, label);
-  } catch (error) {
-    return error.message;
-  }
-  const canonicalProjectRoot = realpathSync(project.projectRoot);
-  const canonicalSharedRoot = realpathSync(sharedRoot);
-  const ownerLocal = inside(project.projectRoot, lexical) && inside(canonicalProjectRoot, canonical);
-  const namedShared = inside(sharedRoot, lexical) && inside(canonicalSharedRoot, canonical);
-  return ownerLocal || (allowShared && namedShared)
-    ? null
-    : `${label} escapes wallet/${project.directory}: ${candidate}`;
-}
-
-function viteInputViolations(project, sharedRoot, resolved) {
-  const violations = [];
-  const configName = path.basename(resolved.configFile);
-  for (const [label, candidate] of [
-    ["root", resolved.root],
-    ["publicDir", resolved.publicDir === false ? undefined : resolved.publicDir],
-  ]) {
-    if (candidate === undefined) continue;
-    const violation = viteFilesystemViolation(
-      project,
-      sharedRoot,
-      path.resolve(project.projectRoot, candidate),
-      `${project.directory}/${configName} Vite ${label}`,
-      { allowShared: false },
-    );
-    if (violation) violations.push(violation);
-  }
-  const inputs = [
-    ...viteInputEntries(resolved.build?.rollupOptions?.input, "build.rollupOptions.input"),
-    ...viteInputEntries(resolved.build?.lib?.entry, "build.lib.entry"),
-    ...viteInputEntries(
-      typeof resolved.build?.ssr === "string" ? resolved.build.ssr : undefined,
-      "build.ssr",
-    ),
-  ];
-  for (const input of inputs) {
-    const violation = viteFilesystemViolation(
-      project,
-      sharedRoot,
-      path.resolve(resolved.root, input.value),
-      `${project.directory}/${configName} Vite ${input.label}`,
-    );
-    if (violation) violations.push(violation);
-  }
-  return violations;
-}
-
-function viteResolveHandler(plugin) {
-  if (typeof plugin.resolveId === "function") return plugin.resolveId;
-  if (plugin.resolveId && typeof plugin.resolveId === "object" && typeof plugin.resolveId.handler === "function") {
-    return plugin.resolveId.handler;
-  }
-  if (plugin.resolveId === undefined) return null;
-  throw new Error(`plugin ${plugin.name ?? "<unnamed>"} has an unauditable resolveId hook`);
-}
-
-async function constrainedViteBuildViolation(project, sharedRoot, configFile) {
   if (!(await existsAs(BOUNDARY_NODE_MODULES, "directory"))) {
-    return `${project.directory}/${path.basename(configFile)}: constrained Vite graph build requires ${BOUNDARY_NODE_MODULES}`;
+    return {
+      buildVerified: false,
+      violations: [
+        `${project.directory}/${path.basename(configFile)}: constrained Vite configuration audit requires ${BOUNDARY_NODE_MODULES}`,
+      ],
+    };
   }
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), "wallet-boundary-vite-"));
-  const allowedReadRoots = await Promise.all([
+  const buildOutputRoot = path.join(outputRoot, "build-output");
+  await mkdir(buildOutputRoot);
+  const requestFile = path.join(outputRoot, "audit-request.json");
+  const resultFile = path.join(outputRoot, "audit-result.json");
+  const allowedReadRoots = [
     project.projectRoot,
     sharedRoot,
     path.join(path.dirname(project.projectRoot), "package.json"),
+    path.join(path.dirname(project.projectRoot), "pnpm-workspace.yaml"),
+    path.join(path.dirname(project.projectRoot), "lerna.json"),
     BOUNDARY_NODE_MODULES,
     CONSTRAINED_VITE_BUILD_HELPER,
     outputRoot,
-  ].map((root) => realpath(root)));
+  ].map((root) =>
+    projectedRealpath(root, "constrained Vite audit read authority"),
+  );
   const allowedWriteRoot = await realpath(outputRoot);
+  const canonicalBuildOutputRoot = await realpath(buildOutputRoot);
   try {
+    await writeFile(
+      requestFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        projectDirectory: project.directory,
+        moduleReferences,
+      }),
+      { flag: "wx" },
+    );
     await executeFile(
       process.execPath,
       [
@@ -585,9 +501,13 @@ async function constrainedViteBuildViolation(project, sharedRoot, configFile) {
         `--allow-fs-write=${allowedWriteRoot}`,
         CONSTRAINED_VITE_BUILD_HELPER,
         project.projectRoot,
+        sharedRoot,
         configFile,
-        allowedWriteRoot,
+        canonicalBuildOutputRoot,
         JSON.stringify(allowedReadRoots),
+        await realpath(requestFile),
+        path.join(allowedWriteRoot, path.basename(resultFile)),
+        verifyBuildGraph ? "build" : "audit-only",
       ],
       {
         cwd: project.projectRoot,
@@ -595,13 +515,49 @@ async function constrainedViteBuildViolation(project, sharedRoot, configFile) {
         maxBuffer: 16 * 1024 * 1024,
       },
     );
-    return null;
+    const result = JSON.parse(await readFile(resultFile, "utf8"));
+    const expectedKeys = [
+      "buildVerified",
+      "configFile",
+      "environments",
+      "projectRoot",
+      "schemaVersion",
+      "violations",
+    ];
+    if (
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result) ||
+      JSON.stringify(Object.keys(result).sort()) !== JSON.stringify(expectedKeys) ||
+      result.schemaVersion !== 1 ||
+      result.projectRoot !== (await realpath(project.projectRoot)) ||
+      result.configFile !== (await realpath(configFile)) ||
+      JSON.stringify(result.environments) !==
+        JSON.stringify(["build:production", "serve:development"]) ||
+      typeof result.buildVerified !== "boolean" ||
+      (!verifyBuildGraph && result.buildVerified) ||
+      !Array.isArray(result.violations) ||
+      result.violations.some(
+        (violation) => typeof violation !== "string" || violation.length === 0,
+      )
+    ) {
+      throw new Error("constrained Vite audit returned invalid metadata");
+    }
+    return {
+      buildVerified: result.buildVerified,
+      violations: result.violations,
+    };
   } catch (error) {
     const detail = [error.stderr, error.stdout, error.message]
       .filter((part) => typeof part === "string" && part.trim())
       .join("\n")
       .trim();
-    return `${project.directory}/${path.basename(configFile)}: constrained production Vite graph build failed; a plugin or module may have read outside wallet/${project.directory} and wallet/shared: ${detail}`;
+    return {
+      buildVerified: false,
+      violations: [
+        `${project.directory}/${path.basename(configFile)}: constrained Vite configuration audit failed; configuration, plugin, or module code may have crossed wallet/${project.directory} and wallet/shared: ${detail}`,
+      ],
+    };
   } finally {
     await rm(outputRoot, { recursive: true, force: true });
   }
@@ -629,207 +585,15 @@ async function viteConfigurationViolations(
     return [`${project.directory}: Vite configuration may not be a symbolic link: ${configFile}`];
   }
 
-  const violations = [];
-  const canonicalProjectRoot = realpathSync(project.projectRoot);
-  const canonicalSharedRoot = realpathSync(sharedRoot);
-  for (const environment of [
-    { command: "build", mode: "production" },
-    { command: "serve", mode: "development" },
-  ]) {
-    let loaded;
-    let resolved;
-    try {
-      loaded = await loadConfigFromFile(
-        {
-          command: environment.command,
-          mode: environment.mode,
-          isSsrBuild: false,
-          isPreview: false,
-        },
-        configFile,
-        project.projectRoot,
-        "silent",
-      );
-      resolved = await resolveConfig(
-        { configFile, logLevel: "silent", mode: environment.mode, root: project.projectRoot },
-        environment.command,
-        environment.mode,
-      );
-    } catch (error) {
-      violations.push(
-        `${project.directory}/${path.basename(configFile)}: Vite ${environment.command} configuration is not auditable: ${error.message}`,
-      );
-      continue;
-    }
-    try {
-      violations.push(...viteInputViolations(project, sharedRoot, resolved));
-    } catch (error) {
-      violations.push(
-        `${project.directory}/${path.basename(configFile)}: Vite ${environment.command} inputs are not auditable: ${error.message}`,
-      );
-    }
-    let aliases;
-    try {
-      aliases = normalizedViteAliases(loaded?.config?.resolve?.alias);
-    } catch (error) {
-      violations.push(
-        `${project.directory}/${path.basename(configFile)}: ${error.message}`,
-      );
-      continue;
-    }
-    for (const alias of aliases) {
-      if (
-        !alias ||
-        typeof alias !== "object" ||
-        typeof alias.find !== "string" ||
-        alias.find.length === 0 ||
-        typeof alias.replacement !== "string" ||
-        alias.replacement.length === 0 ||
-        alias.customResolver !== undefined
-      ) {
-        violations.push(
-          `${project.directory}/${path.basename(configFile)}: Vite alias entries must use auditable string find/replacement pairs without custom resolvers`,
-        );
-        continue;
-      }
-      if (
-        !path.isAbsolute(alias.replacement) &&
-        !alias.replacement.startsWith(".")
-      ) {
-        violations.push(
-          `${project.directory}/${path.basename(configFile)}: Vite alias ${alias.find} must use a filesystem replacement`,
-        );
-        continue;
-      }
-      const lexical = path.resolve(project.projectRoot, alias.replacement);
-      let canonical;
-      try {
-        canonical = projectedRealpath(
-          lexical,
-          `${project.directory}/${path.basename(configFile)} Vite alias ${alias.find}`,
-        );
-      } catch (error) {
-        violations.push(error.message);
-        continue;
-      }
-      const sharedAlias = alias.find === SHARED_PACKAGE;
-      const boundary = sharedAlias ? sharedRoot : project.projectRoot;
-      const canonicalBoundary = sharedAlias
-        ? canonicalSharedRoot
-        : canonicalProjectRoot;
-      if (
-        !inside(boundary, lexical) ||
-        !inside(canonicalBoundary, canonical)
-      ) {
-        violations.push(
-          `${project.directory}/${path.basename(configFile)}: Vite alias ${alias.find} escapes wallet/${project.directory}: ${alias.replacement}`,
-        );
-      }
-    }
-    const resolver = resolved.createResolver();
-    for (const reference of moduleReferences) {
-      let standard;
-      try {
-        standard = await resolver(reference.specifier, reference.importer);
-      } catch (error) {
-        violations.push(
-          `${reference.location}: Vite ${environment.command} resolution is not auditable: ${error.message}`,
-        );
-        continue;
-      }
-      if (standard) {
-        const violation = viteFilesystemViolation(
-          project,
-          sharedRoot,
-          typeof standard === "string" ? standard : standard.id,
-          `${reference.location} Vite ${environment.command} resolution of ${reference.specifier}`,
-        );
-        if (violation) violations.push(violation);
-      }
-    }
-    let plugins;
-    try {
-      plugins = await normalizedVitePlugins([
-        loaded?.config?.plugins,
-        loaded?.config?.build?.rollupOptions?.plugins,
-      ]);
-    } catch (error) {
-      violations.push(
-        `${project.directory}/${path.basename(configFile)}: Vite plugins are not auditable: ${error.message}`,
-      );
-      continue;
-    }
-    const pluginContext = new Proxy(
-      {
-        async resolve(specifier, importer) {
-          const id = await resolver(specifier, importer);
-          return id ? { id: typeof id === "string" ? id : id.id } : null;
-        },
-      },
-      {
-        get(target, property) {
-          if (property in target) return target[property];
-          throw new Error(`unsupported Rollup plugin context member ${String(property)}`);
-        },
-      },
-    );
-    for (const plugin of plugins) {
-      let handler;
-      try {
-        handler = viteResolveHandler(plugin);
-      } catch (error) {
-        violations.push(`${project.directory}/${path.basename(configFile)}: ${error.message}`);
-        continue;
-      }
-      if (!handler) continue;
-      for (const reference of moduleReferences) {
-        let result;
-        try {
-          result = await handler.call(
-            pluginContext,
-            reference.specifier,
-            reference.importer,
-            { attributes: {}, custom: {}, isEntry: false },
-          );
-        } catch (error) {
-          violations.push(
-            `${reference.location}: Vite plugin ${plugin.name ?? "<unnamed>"} resolveId is not independently auditable: ${error.message}`,
-          );
-          continue;
-        }
-        if (!result) continue;
-        const resolvedId = typeof result === "string" ? result : result.id;
-        if (typeof resolvedId !== "string" || resolvedId.length === 0) {
-          violations.push(
-            `${reference.location}: Vite plugin ${plugin.name ?? "<unnamed>"} returned an unauditable module id`,
-          );
-          continue;
-        }
-        const candidate = path.isAbsolute(resolvedId)
-          ? resolvedId
-          : resolvedId.startsWith(".")
-            ? path.resolve(path.dirname(reference.importer), resolvedId)
-            : resolvedId;
-        const violation = viteFilesystemViolation(
-          project,
-          sharedRoot,
-          candidate,
-          `${reference.location} Vite plugin ${plugin.name ?? "<unnamed>"} resolution of ${reference.specifier}`,
-        );
-        if (violation) violations.push(violation);
-      }
-    }
-    if (verifyBuildGraph && environment.command === "build") {
-      const violation = await constrainedViteBuildViolation(
-        project,
-        sharedRoot,
-        configFile,
-      );
-      if (violation) violations.push(violation);
-      else statistics.viteBuildsVerified += 1;
-    }
-  }
-  return [...new Set(violations)];
+  const audit = await constrainedViteConfigurationAudit(
+    project,
+    sharedRoot,
+    configFile,
+    moduleReferences,
+    verifyBuildGraph,
+  );
+  if (audit.buildVerified) statistics.viteBuildsVerified += 1;
+  return [...new Set(audit.violations)];
 }
 
 function matchingPathAliases(options, specifier) {
