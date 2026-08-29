@@ -1,0 +1,61 @@
+{
+  "common": {
+    "loading": "Cargando",
+    "pending": "Pendiente",
+    "retry": "Reintentar",
+    "retrying": "Reintentando"
+  },
+  "error": {
+    "notFound": {
+      "back": "Volver a Descubrir",
+      "description": "Esta página no existe o se ha movido. Volvamos al camino correcto.",
+      "title": "Página no encontrada"
+    }
+  },
+  "navigation": {
+    "accountMenu": "Menú de cuenta",
+    "ai": "IA",
+    "aiAccessible": "Inteligencia artificial",
+    "app": "Navegación de la aplicación",
+    "articles": "Artículos",
+    "back": "Volver",
+    "buyTuzis": "Comprar 2Z",
+    "buyTuzisBalance": "Comprar 2Z. Saldo {balance}",
+    "editProfile": "Editar perfil",
+    "groups": {
+      "account": "Cuenta",
+      "explore": "Explorar",
+      "money": "Dinero",
+      "tools": "Herramientas"
+    },
+    "home": "Inicio",
+    "live": "Transmisiones en vivo",
+    "liveShort": "En vivo",
+    "login": "Iniciar sesión",
+    "messages": "Mensajes",
+    "messagesAccessible": "Mensajes cifrados",
+    "more": "Más",
+    "moreAccessible": "Más navegación",
+    "moreDescription": "{count, plural, one {# destino adicional} other {# destinos adicionales}}",
+    "moreNavigation": "Más navegación",
+    "openWallet": "Abrir billetera",
+    "primary": "Navegación principal",
+    "profile": "Perfil",
+    "profileAccessible": "Editar perfil",
+    "revenueShare": "Reparto de ingresos",
+    "search": "Buscar creadores y páginas",
+    "searchAction": "Buscar",
+    "searchPlaceholder": "Buscar creadores y páginas…",
+    "signOut": "Cerrar sesión",
+    "wallet": "Billetera",
+    "walletAccessible": "Billetera Zcash",
+    "zcashLogin": "Inicio de sesión con Zcash"
+  },
+  "shell": {
+    "legacyWallet": {
+      "description": "Una billetera ZUULI anterior permanece guardada de forma segura. Esta aplicación abrió solo la billetera actual; la importación explícita está pendiente.",
+      "label": "Billetera anterior conservada",
+      "title": "Billetera anterior conservada"
+    }
+  }
+}
