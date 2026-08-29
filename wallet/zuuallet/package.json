@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
-    "test:sensitive-entry": "vitest run src/pages/sensitive-entry-routes.test.tsx",
+    "test:sensitive-entry": "vitest run src/pages/sensitive-entry-routes.test.tsx src/lib/sensitive-seed-session.test.ts src/lib/sensitive-entry-bridge.test.ts src/lib/sensitive-entry-hook.test.tsx",
     "preview": "vite preview",
     "tauri": "tauri"
   },

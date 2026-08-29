@@ -14,7 +14,7 @@ const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 const changeDetectorDigest =
-  "ff3fd2ad35ea371cfd56bb645c80ce5eb970a580523d4622195e2f6328d049b3";
+  "b023c185b4372041fb32630106cc1ad31d3fe95d7c19f2e98ecee9bc1ae12645";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -277,6 +277,16 @@ function check(
 }
 
 function runSelfTest(workflow, toolchainEnv) {
+  const selectorMutation = (input) => {
+    for (const [from, to] of [
+      [`|${input}|`, "|"],
+      [`|${input})`, ")"],
+      [`${input}|`, ""],
+    ]) {
+      if (workflow.includes(from)) return [from, to];
+    }
+    throw new Error(`self-test selector fixture missing: ${input}`);
+  };
   const mutations = [
     [
       "the change detector restores a line-delimited Git producer",
@@ -357,11 +367,14 @@ function runSelfTest(workflow, toolchainEnv) {
       "|wallet/zuuli/src/features/chat/*|",
       "messaging changes must retain the full wallet/zuuli/* selector",
     ],
-    ...requiredWalletBoundarySelectors.map((input) => [
-      `wallet package-boundary input no longer selects ZUULI: ${input}`,
-      `|${input}|`,
-      "|",
-    ]),
+    ...requiredWalletBoundarySelectors.map((input) => {
+      const [from, to] = selectorMutation(input);
+      return [
+        `wallet package-boundary input no longer selects ZUULI: ${input}`,
+        from,
+        to,
+      ];
+    }),
     [
       "the live policy invocation is removed",
       `          node ${policyPath}\n`,

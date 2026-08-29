@@ -865,6 +865,49 @@ export default ({ command }) => {
   });
 });
 
+test("audits build-mode top-level config effects inside the write sandbox", async () => {
+  await withFixture({}, async (root) => {
+    const zuuliRoot = path.join(root, "zuuli");
+    const marker = path.join(zuuliRoot, "src/.build-config-marker");
+    const configFile = path.join(zuuliRoot, "vite.config.ts");
+    await writeFile(
+      configFile,
+      `import { writeFileSync } from "node:fs";
+export default ({ command }) => {
+  if (command === "build") writeFileSync(${JSON.stringify(marker)}, "BUILD_CONFIG_MARKER_691\\n");
+  return {};
+};
+`,
+    );
+    await viteResolveConfig(
+      {
+        configFile,
+        logLevel: "silent",
+        mode: "production",
+        root: zuuliRoot,
+      },
+      "build",
+      "production",
+    );
+    assert.equal(
+      await readFile(marker, "utf8"),
+      "BUILD_CONFIG_MARKER_691\n",
+      "unrestricted build config resolution must prove the top-level write",
+    );
+    await rm(marker);
+
+    await assert.rejects(
+      () => assertProjectBoundaries(root),
+      /Vite build configuration is not auditable[\s\S]*(FileSystemWrite|allow-fs-write)/,
+    );
+    await assert.rejects(
+      () => readFile(marker, "utf8"),
+      { code: "ENOENT" },
+      "build-mode configuration must not mutate owner source during the audit",
+    );
+  });
+});
+
 test("rejects a Vite transform that reads sibling-app source after a real build proves injection", async () => {
   await withFixture(
     { "zuuallet/src/transform-secret.ts": "export const siblingSecret = 424242;\n" },

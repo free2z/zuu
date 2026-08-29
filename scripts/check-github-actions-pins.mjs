@@ -344,7 +344,7 @@ const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
 const REQUIRED_CLASSIC_PACKAGE_SCRIPTS = new Map([
   [
     "test:sensitive-entry",
-    "vitest run src/pages/sensitive-entry-routes.test.tsx",
+    "vitest run src/pages/sensitive-entry-routes.test.tsx src/lib/sensitive-seed-session.test.ts src/lib/sensitive-entry-bridge.test.ts src/lib/sensitive-entry-hook.test.tsx",
   ],
 ]);
 const REQUIRED_FRONTEND_BUILD_TSCONFIG = Object.freeze({
@@ -4232,8 +4232,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
-        "wallet/zuuli/*|wallet/plugins/*",
-        "wallet/zuuli/src/*|wallet/plugins/*",
+        "wallet/zuuli/*|wallet/zuuallet/*",
+        "wallet/zuuli/src/*|wallet/zuuallet/*",
       ),
     },
     {
@@ -4241,8 +4241,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "ZUULI selector must contain one active wallet/zuuli/* case pattern",
       source: source.replace(
-        "wallet/zuuli/*|wallet/plugins/*",
-        "wallet/zuuli/src/*|wallet/plugins/* # wallet/zuuli/*|",
+        "wallet/zuuli/*|wallet/zuuallet/*",
+        "wallet/zuuli/src/*|wallet/zuuallet/* # wallet/zuuli/*|",
       ),
     },
     {
