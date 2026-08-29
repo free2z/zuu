@@ -55,7 +55,11 @@ Mock selection is explicit: set `VITE_MOCK=1` to use normal API and wallet
 fixtures. It does not erase persisted native OAuth recovery state or guarantee
 network isolation; use a fresh plain-browser profile plus network controls for
 an offline proof. Without the flag, the API layer is real-first. Development
-defaults to `stage.free2z.cash`; production bundles default to `free2z.cash`.
+defaults to `stage.free2z.cash`; production bundles are pinned to
+`free2z.cash` for both API and media, even if the build environment contains
+stale `VITE_F2Z_*` overrides. The production build refuses any compiled artifact
+that retains those override names or staging authority, then verifies the
+production target is present as a runtime binding before packaging.
 The real wallet bridge requires a Tauri shell, so a plain real-first browser run
 is not an end-to-end wallet run.
 

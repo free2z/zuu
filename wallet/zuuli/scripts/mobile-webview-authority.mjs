@@ -107,10 +107,7 @@ const REVIEWED_NON_WALLET_PERMISSIONS = [
   "opener:default",
   "http:default",
 ];
-const REVIEWED_HTTP_URLS = [
-  "https://free2z.cash/*",
-  "https://stage.free2z.cash/*",
-];
+const REVIEWED_HTTP_URLS = ["https://free2z.cash/*"];
 
 function exactSet(actual, expected, label) {
   if (
@@ -129,6 +126,28 @@ function cspDirective(csp, name) {
     if (tokens[0] === name) return tokens.slice(1);
   }
   return null;
+}
+
+export function assertProductionHttpAuthority(capability, label) {
+  if (!Array.isArray(capability?.permissions)) {
+    throw new Error(`${label} permissions must be an array`);
+  }
+  const httpPermissions = capability.permissions.filter(
+    (permission) =>
+      typeof permission === "object" &&
+      permission?.identifier === "http:default",
+  );
+  if (
+    httpPermissions.length !== 1 ||
+    !Array.isArray(httpPermissions[0].allow)
+  ) {
+    throw new Error(`${label} HTTP permission must retain one scoped allowlist`);
+  }
+  exactSet(
+    httpPermissions[0].allow.map((entry) => entry?.url),
+    REVIEWED_HTTP_URLS,
+    `${label} HTTP URLs`,
+  );
 }
 
 export function assertMobileWebviewAuthority(mobile, tauriConfig) {
@@ -217,11 +236,7 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
       "only the reviewed mobile HTTP permission may carry scope data",
     );
   }
-  exactSet(
-    httpPermission.allow.map((entry) => entry?.url),
-    REVIEWED_HTTP_URLS,
-    "mobile HTTP URLs",
-  );
+  assertProductionHttpAuthority(mobile, "mobile");
 
   const csp = tauriConfig?.app?.security?.csp;
   if (typeof csp !== "string") {
@@ -238,9 +253,13 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
 }
 
 export async function main() {
-  const [mobile, tauriConfig] = await Promise.all([
+  const [mobile, desktop, tauriConfig] = await Promise.all([
     readFile(
       new URL("../src-tauri/capabilities/mobile.json", import.meta.url),
+      "utf8",
+    ).then(JSON.parse),
+    readFile(
+      new URL("../src-tauri/capabilities/default.json", import.meta.url),
       "utf8",
     ).then(JSON.parse),
     readFile(
@@ -249,6 +268,7 @@ export async function main() {
     ).then(JSON.parse),
   ]);
   assertMobileWebviewAuthority(mobile, tauriConfig);
+  assertProductionHttpAuthority(desktop, "desktop");
   console.log(
     `Mobile main has ${REVIEWED_MOBILE_ZCASH_PERMISSIONS.length} named Zcash ` +
       `and ${REVIEWED_MOBILE_F2ZMSG_PERMISSIONS.length} named messaging ` +

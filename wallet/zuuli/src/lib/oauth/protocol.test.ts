@@ -98,6 +98,19 @@ describe("validateAuthorizationStart", () => {
       validateAuthorizationStart("google", value, MOBILE_REDIRECT_URI, true),
     ).toThrow(/relay/);
   });
+
+  it("allows a staging relay only in a development build", () => {
+    const value = start();
+    const stagingRelay =
+      "https://stage.free2z.cash/api/auth/social/mobile/callback";
+    value.provider_redirect_uri = stagingRelay;
+    const authorizationUrl = new URL(value.authorize_url);
+    authorizationUrl.searchParams.set("redirect_uri", stagingRelay);
+    value.authorize_url = authorizationUrl.toString();
+    expect(() =>
+      validateAuthorizationStart("google", value, MOBILE_REDIRECT_URI, true),
+    ).not.toThrow();
+  });
 });
 
 describe("buildSessionBinding", () => {

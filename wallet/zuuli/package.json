@@ -7,9 +7,9 @@
   "scripts": {
     "pretest": "npm run wasm:build",
     "dev": "npm run wasm:build && vite",
-    "build": "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist",
+    "build": "npm run wasm:build && tsc -p tsconfig.build.json && vite build && npm run wasm:verify-dist && npm run runtime-target:verify",
     "preview": "vite preview",
-    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && playwright test",
+    "test": "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs scripts/runtime-target.node-test.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && playwright test",
     "test:seed-capture": "vitest run src/lib/wallet/sensitive-seed.test.ts src/lib/wallet/sensitive-entry.test.ts src/lib/wallet/sensitive-entry-bridges.test.ts src/lib/wallet/sensitive-entry-hooks.test.tsx src/lib/wallet/zuuallet-created-seed.test.ts src/features/wallet/Onboarding.sensitive-entry.test.tsx && npm --prefix ../zuuallet run test:sensitive-entry && node --test scripts/seed-capture-boundary.node-test.mjs && node scripts/seed-capture-boundary.mjs",
     "test:legacy-import-preview": "vitest run src/lib/wallet/legacy-import-preview-bridge.test.ts src/components/layout/LegacyWalletNotice.test.tsx",
     "test:legacy-import-preview:browser": "playwright test tests/legacy-import-preview.pw.ts",
@@ -36,6 +36,7 @@
     "wasm:build": "node scripts/wasm-build.mjs --build",
     "wasm:verify": "node scripts/wasm-build.mjs --verify-generated",
     "wasm:verify-dist": "node scripts/wasm-build.mjs --verify-dist",
+    "runtime-target:verify": "node scripts/runtime-target.mjs --dist=dist",
     "tauri": "tauri"
   },
   "dependencies": {

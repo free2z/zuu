@@ -89,9 +89,12 @@ but a plain browser is **not** itself the mock-mode switch:
   one-shot OAuth recovery state from an earlier real run. Use a fresh plain
   browser profile plus network controls when an offline proof is required.
 - **Without `VITE_MOCK=1`:** API calls are real. Development uses the Vite proxy
-  and defaults to staging. Production builds default to `free2z.cash`; packaged
-  Tauri uses the registered native HTTP plugin, while a non-Tauri browser build
-  uses `window.fetch` and remains subject to browser-origin policy.
+  and defaults to staging. Production builds pin API and media to `free2z.cash`,
+  ignore ambient `VITE_F2Z_*` staging overrides, reject compiled artifacts that
+  retain those overrides or staging authority, and verify the production target
+  is present as a runtime binding in the compiled JavaScript before packaging.
+  Packaged Tauri uses the registered native HTTP plugin, while a non-Tauri
+  browser build uses `window.fetch` and remains subject to browser-origin policy.
 - **Tauri is required for a real wallet:** the wallet bridge invokes
   `tauri-plugin-zcash`. A plain browser without `VITE_MOCK=1` can exercise API
   surfaces, but it cannot exercise the wallet and is not a whole-app run.

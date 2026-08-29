@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  assertProductionHttpAuthority,
   assertMobileWebviewAuthority,
   REVIEWED_MOBILE_F2ZMSG_PERMISSIONS,
   REVIEWED_MOBILE_ZCASH_PERMISSIONS,
@@ -20,10 +21,7 @@ function fixture() {
         ...REVIEWED_MOBILE_F2ZMSG_PERMISSIONS,
         {
           identifier: "http:default",
-          allow: [
-            { url: "https://free2z.cash/*" },
-            { url: "https://stage.free2z.cash/*" },
-          ],
+          allow: [{ url: "https://free2z.cash/*" }],
         },
       ],
     },
@@ -34,6 +32,38 @@ function fixture() {
 test("the reviewed native capability and frame boundary passes", () => {
   const { mobile, tauri } = fixture();
   assert.doesNotThrow(() => assertMobileWebviewAuthority(mobile, tauri));
+});
+
+test("a packaged mobile client cannot regain staging HTTP authority", () => {
+  const { mobile, tauri } = fixture();
+  const http = mobile.permissions.find(
+    (permission) =>
+      typeof permission === "object" && permission.identifier === "http:default",
+  );
+  http.allow.push({ url: "https://stage.free2z.cash/*" });
+  assert.throws(
+    () => assertMobileWebviewAuthority(mobile, tauri),
+    /mobile HTTP URLs differs from its exact reviewed allowlist/,
+  );
+});
+
+test("a packaged desktop client cannot regain staging HTTP authority", () => {
+  const desktop = {
+    permissions: [
+      "core:default",
+      {
+        identifier: "http:default",
+        allow: [
+          { url: "https://free2z.cash/*" },
+          { url: "https://stage.free2z.cash/*" },
+        ],
+      },
+    ],
+  };
+  assert.throws(
+    () => assertProductionHttpAuthority(desktop, "desktop"),
+    /desktop HTTP URLs differs from its exact reviewed allowlist/,
+  );
 });
 
 test("zcash:default cannot return to privileged mobile main", () => {
@@ -143,10 +173,14 @@ test("remote, wildcard, and implicit frame policies fail closed", () => {
   }
 });
 
-test("the committed mobile capability and packaged CSP satisfy the contract", async () => {
-  const [mobile, tauri] = await Promise.all([
+test("the committed native capabilities and packaged CSP satisfy the contract", async () => {
+  const [mobile, desktop, tauri] = await Promise.all([
     readFile(
       new URL("../src-tauri/capabilities/mobile.json", import.meta.url),
+      "utf8",
+    ).then(JSON.parse),
+    readFile(
+      new URL("../src-tauri/capabilities/default.json", import.meta.url),
       "utf8",
     ).then(JSON.parse),
     readFile(
@@ -155,4 +189,5 @@ test("the committed mobile capability and packaged CSP satisfy the contract", as
     ).then(JSON.parse),
   ]);
   assert.doesNotThrow(() => assertMobileWebviewAuthority(mobile, tauri));
+  assert.doesNotThrow(() => assertProductionHttpAuthority(desktop, "desktop"));
 });

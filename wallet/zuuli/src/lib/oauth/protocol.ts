@@ -1,12 +1,16 @@
 import type { SocialProvider } from "../api/types";
 
 export const MOBILE_REDIRECT_URI = "cash.free2z.zuuli://oauth/callback";
-const MOBILE_RELAY_HOSTS = new Set([
-  "free2z.cash",
-  "new.free2z.cash",
-  "stage.free2z.cash",
-  "test.free2z.cash",
-]);
+// Store artifacts must not retain non-production relay authorities. Vite folds
+// this condition and removes the development branch from production bundles.
+const MOBILE_RELAY_HOSTS = import.meta.env.DEV
+  ? new Set([
+      "free2z.cash",
+      "new.free2z.cash",
+      "stage.free2z.cash",
+      "test.free2z.cash",
+    ])
+  : new Set(["free2z.cash"]);
 
 export interface OAuthStartResponse {
   authorize_url: string;

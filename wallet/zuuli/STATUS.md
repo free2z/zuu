@@ -21,9 +21,12 @@ commit or date forward mechanically.
   recovery state; offline proof needs a fresh plain-browser profile plus network
   controls.
 - A development run uses the Vite proxy and defaults to
-  `https://stage.free2z.cash`, not production. A production bundle defaults to
-  `https://free2z.cash`; packaged Tauri calls use the registered native HTTP
-  plugin. See [`vite.config.ts`](vite.config.ts), [`src/lib/env.ts`](src/lib/env.ts),
+  `https://stage.free2z.cash`, not production. A production bundle is pinned to
+  `https://free2z.cash` for API and media, ignores ambient staging overrides,
+  and fails its build if the compiled artifact retains an override name or
+  staging authority, or unless it contains exactly one bound production target;
+  packaged Tauri calls use the registered native HTTP plugin. See
+  [`vite.config.ts`](vite.config.ts), [`src/lib/env.ts`](src/lib/env.ts),
   [`src/lib/api/http.ts`](src/lib/api/http.ts), and
   [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs).
 - **Wired, not runtime-proven** means source reaches a real API or native
