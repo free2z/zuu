@@ -804,30 +804,110 @@ function displayedJsxExpression(
   return null;
 }
 
-function localCallable(
+interface LocalCallable {
+  callable: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration;
+  key: ResolutionKey;
+}
+
+function localCallables(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   resolving: ReadonlySet<ResolutionKey>,
-): { callable: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration; key: ResolutionKey } | null {
+): LocalCallable[] {
   const current = unwrapExpression(expression);
   if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
-    return resolving.has(current) ? null : { callable: current, key: current };
+    return resolving.has(current) ? [] : [{ callable: current, key: current }];
   }
-  if (!ts.isIdentifier(current)) return null;
-  const symbol = checker.getSymbolAtLocation(current);
-  if (!symbol || resolving.has(symbol)) return null;
-  for (const declaration of symbol.declarations ?? []) {
-    if (ts.isFunctionDeclaration(declaration) && declaration.body) {
-      return { callable: declaration, key: symbol };
-    }
-    if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-      const initializer = unwrapExpression(declaration.initializer);
-      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
-        return { callable: initializer, key: symbol };
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || resolving.has(symbol)) return [];
+    const nextResolving = new Set(resolving);
+    nextResolving.add(symbol);
+    const callables: LocalCallable[] = [];
+    for (const declaration of symbol.declarations ?? []) {
+      if (ts.isFunctionDeclaration(declaration) && declaration.body) {
+        callables.push({ callable: declaration, key: symbol });
+      } else if (ts.isBindingElement(declaration)) {
+        callables.push(
+          ...bindingElementValues(
+            declaration,
+            checker,
+            nextResolving,
+          ).flatMap((value) =>
+            localCallables(value, checker, nextResolving),
+          ),
+        );
+      } else if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+        callables.push(
+          ...localCallables(declaration.initializer, checker, nextResolving),
+        );
       }
     }
+    return callables;
   }
-  return null;
+  if (ts.isElementAccessExpression(current) && current.argumentExpression) {
+    const argument = unwrapExpression(current.argumentExpression);
+    const index = ts.isNumericLiteral(argument) ? Number(argument.text) : NaN;
+    if (Number.isInteger(index) && index >= 0) {
+      return arrayElementValues(
+        current.expression,
+        index,
+        checker,
+        new Set(resolving),
+      ).flatMap((value) =>
+        localCallables(value, checker, new Set(resolving)),
+      );
+    }
+  }
+  const member = staticMemberReference(current, checker);
+  if (member) {
+    return objectPropertyValues(
+      member.base,
+      member.name,
+      checker,
+      new Set(resolving),
+    ).flatMap((value) =>
+      localCallables(value, checker, new Set(resolving)),
+    );
+  }
+  if (
+    ts.isCallExpression(current) &&
+    ts.isPropertyAccessExpression(current.expression) &&
+    current.expression.name.text === "bind"
+  ) {
+    return localCallables(current.expression.expression, checker, resolving);
+  }
+  if (ts.isCallExpression(current) && current.arguments.length === 0) {
+    return localCallables(current.expression, checker, resolving).flatMap(
+      (local) => {
+        const nextResolving = new Set(resolving);
+        nextResolving.add(local.key);
+        return callableReturnExpressions(local.callable).flatMap((returned) =>
+          localCallables(returned, checker, nextResolving),
+        );
+      },
+    );
+  }
+  if (ts.isConditionalExpression(current)) {
+    return [current.whenTrue, current.whenFalse].flatMap((value) =>
+      localCallables(value, checker, new Set(resolving)),
+    );
+  }
+  if (ts.isBinaryExpression(current)) {
+    if (current.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      return localCallables(current.right, checker, resolving);
+    }
+    if (
+      current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+      current.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+      current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+    ) {
+      return [current.left, current.right].flatMap((value) =>
+        localCallables(value, checker, new Set(resolving)),
+      );
+    }
+  }
+  return [];
 }
 
 function callableReturnExpressions(
@@ -1017,8 +1097,7 @@ function rendersAuditedValue(
       return true;
     }
     if (current.arguments.length === 0) {
-      const local = localCallable(current.expression, checker, resolving);
-      if (local) {
+      for (const local of localCallables(current.expression, checker, resolving)) {
         const nextResolving = new Set(resolving);
         nextResolving.add(local.key);
         if (
