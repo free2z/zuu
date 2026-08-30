@@ -37,6 +37,7 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
+use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::handshake::server::{
     ErrorResponse, Request as HandshakeRequest, Response as HandshakeResponse,
 };
@@ -195,11 +196,8 @@ impl RelayServer {
         format!("ws://{}{RELAY_PATH}", self.addr)
     }
 
-    /// Stop accepting and wait for the accept loop to finish.
-    ///
-    /// Connections already open are not torn down: a client that is mid-request
-    /// when a test ends should see the request finish, not a truncated stream
-    /// that looks like a fault it did not arm.
+    /// Stop accepting, close established connections with status 1001, and
+    /// wait for the listener and connection tasks to finish.
     pub async fn shutdown(self) {
         let _ = self.shutdown.send(true);
         let _ = self.handle.await;
@@ -242,21 +240,37 @@ pub fn serve(relay: Arc<Relay>, listener: TcpListener) -> Result<RelayServer> {
     let addr = listener.local_addr()?;
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let handle = tokio::spawn(async move {
+        let mut connections = JoinSet::new();
         loop {
             let accepted = tokio::select! {
+                biased;
                 _ = shutdown_rx.changed() => break,
+                completed = connections.join_next(), if !connections.is_empty() => {
+                    let _ = completed;
+                    continue;
+                }
                 accepted = listener.accept() => accepted,
             };
             let Ok((stream, _peer)) = accepted else {
                 break;
             };
             let relay = Arc::clone(&relay);
-            tokio::spawn(async move {
-                if let Some(transport) = handshake(stream).await {
-                    crate::connection::drive(relay, transport).await;
+            let mut connection_shutdown = shutdown_rx.clone();
+            connections.spawn(async move {
+                let transport = tokio::select! {
+                    biased;
+                    transport = handshake(stream) => transport,
+                    _ = connection_shutdown.changed() => return,
+                };
+                if let Some(transport) = transport {
+                    crate::connection::drive(relay, transport, connection_shutdown).await;
                 }
             });
         }
+        // `drive` sends the close before it returns. Waiting here makes
+        // `RelayServer::shutdown().await` a proof that every established
+        // connection has had the chance to put status 1001 on the wire.
+        while connections.join_next().await.is_some() {}
     });
     Ok(RelayServer {
         addr,
