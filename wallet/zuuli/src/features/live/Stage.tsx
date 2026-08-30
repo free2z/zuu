@@ -7,6 +7,11 @@ import {
 import { RtkMeeting } from "@cloudflare/realtimekit-react-ui";
 import { Button } from "@/components/ui/button";
 import type { DyteJoinTicket } from "@/lib/api/types";
+import {
+  classifyLiveFailure,
+  safeLiveDiagnostic,
+  type LiveConnectionFailure,
+} from "./connection-failure";
 
 type StageStatus = "connecting" | "connected" | "failed" | "ended";
 
@@ -19,16 +24,38 @@ type StageStatus = "connecting" | "connected" | "failed" | "ended";
  * controls, and chat — is rendered as-is. No custom media plumbing needed;
  * RealtimeKit owns the whole stage.
  */
-export function Stage({ ticket }: { ticket: DyteJoinTicket }) {
+export function Stage({
+  ticket,
+  refreshTicket,
+  onTicketRefreshed,
+}: {
+  ticket: DyteJoinTicket;
+  refreshTicket?: (previous: DyteJoinTicket) => Promise<DyteJoinTicket>;
+  onTicketRefreshed?: (fresh: DyteJoinTicket) => void;
+}) {
   const [meeting, initMeeting] = useRealtimeKitClient();
   const [status, setStatus] = useState<StageStatus>("connecting");
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [failure, setFailure] = useState<LiveConnectionFailure | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [online, setOnline] = useState(
+    typeof navigator === "undefined" ? true : navigator.onLine !== false,
+  );
+
+  useEffect(() => {
+    const markOnline = () => setOnline(true);
+    const markOffline = () => setOnline(false);
+    window.addEventListener("online", markOnline);
+    window.addEventListener("offline", markOffline);
+    return () => {
+      window.removeEventListener("online", markOnline);
+      window.removeEventListener("offline", markOffline);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setStatus("connecting");
-    setError(null);
+    setFailure(null);
 
     initMeeting({
       authToken: ticket.authToken,
@@ -42,36 +69,47 @@ export function Stage({ ticket }: { ticket: DyteJoinTicket }) {
         if (cancelled || client) return;
         // A falsy resolution (no thrown error) still means we never got a
         // connected client — surface it rather than rendering a blank stage.
-        setError("Failed to connect to meeting.");
+        const classified = classifyLiveFailure(
+          new Error("RealtimeKit returned no client"),
+          "sdk-init",
+        );
+        console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+        setFailure(classified);
         setStatus("failed");
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        console.error("Failed to initialize RealtimeKit meeting:", err);
-        const e = err as { message?: string; name?: string };
-        const message =
-          e.name === "NotAllowedError" ||
-          e.message?.includes("Permission denied")
-            ? "Microphone or camera permission denied. Please allow access in your browser/app settings and try again."
-            : e.message || "Failed to connect to meeting.";
-        setError(message);
+        const classified = classifyLiveFailure(err, "sdk-init");
+        // Never log the raw SDK error: provider errors can echo credentials or
+        // private endpoints. The allowlisted boundary/category is sufficient.
+        console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+        setFailure(classified);
         setStatus("failed");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [ticket.authToken, ticket.as, attempt, initMeeting]);
+  }, [ticket.authToken, ticket.as, initMeeting]);
 
   useEffect(() => {
     if (!meeting) return;
 
-    const onJoined = () => setStatus("connected");
+    const onJoined = () => {
+      setFailure(null);
+      setStatus("connected");
+    };
     const onLeft = ({ state }: { state: string }) => {
       if (state === "ended") {
+        setFailure(null);
         setStatus("ended");
       } else if (state === "failed") {
-        setError("Connection to the meeting failed.");
+        const classified = classifyLiveFailure(
+          new TypeError("room transport failed"),
+          "room-session",
+        );
+        console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+        setFailure(classified);
         setStatus("failed");
       }
     };
@@ -85,22 +123,47 @@ export function Stage({ ticket }: { ticket: DyteJoinTicket }) {
     };
   }, [meeting]);
 
-  if (error) {
+  async function retryWithFreshTicket() {
+    if (!refreshTicket || !onTicketRefreshed || refreshing) return;
+    setRefreshing(true);
+    setFailure(null);
+    setStatus("connecting");
+    try {
+      const fresh = await refreshTicket(ticket);
+      onTicketRefreshed(fresh);
+    } catch (error) {
+      const classified = classifyLiveFailure(error, "ticket-refresh");
+      console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+      setFailure(classified);
+      setStatus("failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  if (failure) {
     return (
       <div className="absolute inset-0 grid place-items-center px-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="grid h-14 w-14 place-items-center rounded-full bg-destructive/20 ring-2 ring-destructive/40">
             <AlertCircle className="h-7 w-7 text-destructive-foreground" aria-hidden />
           </div>
-          <p className="max-w-xs text-sm text-white/80">{error}</p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-1 border-white/20 bg-white/5 text-white hover:bg-white/10"
-            onClick={() => setAttempt((n) => n + 1)}
-          >
-            Try again
-          </Button>
+          <p className="max-w-xs text-sm text-white/80">{failure.message}</p>
+          {failure.retryable && refreshTicket && onTicketRefreshed ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-1 border-white/20 bg-white/5 text-white hover:bg-white/10"
+              disabled={refreshing || !online}
+              onClick={() => void retryWithFreshTicket()}
+            >
+              {refreshing
+                ? "Getting a fresh ticket…"
+                : !online
+                  ? "Waiting for connection"
+                  : "Try again"}
+            </Button>
+          ) : null}
         </div>
       </div>
     );
