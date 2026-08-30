@@ -1332,9 +1332,10 @@ half-written by a killed process. In every one of those the correct product
 behaviour is that **messaging is unavailable and the rest of the application
 works**: the store failing to open must never stop the host application from
 starting. The client reports `faulted` with the `lastError` that stopped it
-(`storage-full`, `durability-unavailable`, or `internal`), and every command
-other than `get_engine_status` — `start_engine` and the §3.2 enrollment trio
-included — refuses with that same code. This is the one `faulted` that
+(`storage-full`, `durability-unavailable`, or `internal`). The pure
+`check_handle_eligibility` validator still answers from its string alone; every
+engine- or storage-dependent command — `start_engine` and the §3.2 enrollment
+trio included — refuses with that same code. This is the one `faulted` that
 `start_engine` cannot leave; only fixing the storage and restarting can.
 
 `locked` exists because the local encrypted history is wrapped under a

@@ -1,8 +1,9 @@
-//! The plugin's managed state, and the one accessor commands use.
+//! The plugin's managed state, and the accessor engine-dependent commands use.
 //!
 //! Mirrors `tauri-plugin-zcash`'s `ZcashExt`: the state is registered with
-//! `app.manage(..)` in `setup`, and every command reaches it through a trait
-//! implemented for anything that is a `Manager<R>`.
+//! `app.manage(..)` in `setup`, and every engine-dependent command reaches it
+//! through a trait implemented for anything that is a `Manager<R>`. Pure handle
+//! eligibility deliberately needs neither (#762).
 //!
 //! # Why this holds an outcome and not an engine (#753)
 //!
@@ -18,12 +19,13 @@
 //!
 //! Failing soft cannot be done by skipping `app.manage(..)`, because
 //! [`F2zMsgExt::f2zmsg`] is `self.state::<F2zMsg<R>>().inner()` and `state()`
-//! panics on an unmanaged type: all forty-three commands would panic rather
-//! than refuse. **The state has to exist and answer.** So it holds either the
-//! engine or the §8 [`ErrorCode`](crate::models::ErrorCode) that stopped the
+//! panics on an unmanaged type: every engine-dependent command would panic
+//! rather than refuse. **The state has to exist and answer.** So it holds either
+//! the engine or the §8 [`ErrorCode`](crate::models::ErrorCode) that stopped the
 //! engine from being built, and [`F2zMsg::engine`] returns a `Result` — which
 //! makes the refusal the compiler's business rather than a convention: a
-//! command cannot reach the engine without handling the fault.
+//! command cannot reach the engine without handling the fault. Pure handle
+//! eligibility deliberately does not reach this state at all (#762).
 
 use std::sync::Arc;
 
@@ -65,8 +67,9 @@ impl<R: Runtime> F2zMsg<R> {
 
     /// The state a `setup` that could **not** open the store leaves behind.
     ///
-    /// `fault` is the §8 code the UI will see on every command, plus the
-    /// context that only reaches the log.
+    /// `fault` is the §8 code the UI will see from engine- or storage-dependent
+    /// commands, plus the context that only reaches the log. Engine status
+    /// reports the fault and pure handle eligibility remains available.
     #[must_use]
     pub const fn faulted(app: tauri::AppHandle<R>, fault: Error) -> Self {
         Self {
@@ -75,15 +78,15 @@ impl<R: Runtime> F2zMsg<R> {
         }
     }
 
-    /// The engine every command delegates to.
+    /// The engine every engine-dependent command delegates to.
     ///
     /// # Errors
     ///
     /// The §8 code that stopped the engine from being built, when the store
     /// did not open. Returning a `Result` here rather than panicking is the
-    /// whole fix for #753, and returning it *by type* is what makes every one
-    /// of the forty-three commands handle it: there is no way to reach the
-    /// engine that does not go through this.
+    /// whole fix for #753, and returning it *by type* is what makes every
+    /// engine-dependent command handle it: there is no way to reach the engine
+    /// that does not go through this.
     pub fn engine(&self) -> Result<&Engine<Backend>> {
         match &self.engine {
             Ok(engine) => Ok(engine),
