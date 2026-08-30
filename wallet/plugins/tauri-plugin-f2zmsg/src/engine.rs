@@ -4554,44 +4554,28 @@ mod tests {
         (signer, credential, entry)
     }
 
-    fn authenticated_request() -> (ResolvedIdentity, StoredContactRequest) {
-        let account = AccountKeys::from_seed(&[7; 64], 0).unwrap();
-        let signer = DeviceSigner::from_private_key([9; 32]);
-        let credential = account
-            .identity
-            .issue_device_credential(&DeviceCredentialRequest {
-                handle: Handle::new(b"alice".to_vec()).unwrap(),
-                device_pk: PublicKey::new(*signer.public_key()),
-                device_kem_pk: KemPublicKey::new(vec![9; 1216]).unwrap(),
-                not_before_ms: 0,
-                not_after_ms: u64::MAX / 2,
-            })
-            .unwrap();
-        let entry = DirectoryEntryTBS {
-            label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec()).unwrap(),
-            kt_version: 1,
-            log_id: LogId::new([0x11; 32]),
-            handle: credential.credential.handle.clone(),
-            entry_version: 1,
-            kind: EntryKind::SameKey,
-            identity_pk: credential.credential.identity_pk,
-            directory_auth_pk: PublicKey::new([0x22; 32]),
-            devices: vec![credential.clone()].into(),
-            revocations: Vec::new().into(),
-            contact_endpoints: Vec::new().into(),
-            prev_entry_hash: Digest::new([0; 32]),
-            no_reset: 0,
-            created_at_ms: 0,
-        };
+    fn authenticated_request(
+        recipient_package: &[u8],
+        recipient_entry: &DirectoryEntryTBS,
+    ) -> (ResolvedIdentity, StoredContactRequest) {
+        let (signer, credential, entry) = issued_device("alice", 7, 9);
         let signer_pk = credential.credential.device_pk;
         let mls = MlsEngine::new(MemoryBackend::new(), signer, credential, 0).unwrap();
-        let welcome = b"authentic Welcome".to_vec();
+        let verified = mls
+            .verify_key_package(recipient_package, recipient_entry, 0)
+            .expect("recipient package is directory-bound");
+        let group_id = [0x31; 32];
+        let mut group = mls.create_group(&group_id).expect("sender group");
+        let (_commit, welcome) = mls
+            .add_member(&mut group, &verified, 0)
+            .expect("authentic Welcome");
+        let conversation_id = hex::encode(group_id);
         let advert = QueueAdvert {
             relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
             relay_id: "11".repeat(32),
             send_addr: "22".repeat(32),
         };
-        let digest = routing_advert_digest("conversation", &welcome, &advert).unwrap();
+        let digest = routing_advert_digest(&conversation_id, &welcome, &advert).unwrap();
         let signature = mls.sign_routing_advert(digest.as_bytes()).unwrap();
         let identity_pk = hex::encode(entry.identity_pk.as_bytes());
         let resolution = DirectoryResolution {
@@ -4617,7 +4601,7 @@ mod tests {
             request_id: "req-conversation".to_owned(),
             peer_handle: "alice".to_owned(),
             peer_identity_fingerprint: identity_pk,
-            conversation_id: "conversation".to_owned(),
+            conversation_id,
             received_at: 0,
             body_preview: None,
             welcome: hex::encode(welcome),
@@ -4631,15 +4615,35 @@ mod tests {
     }
 
     async fn assert_acceptance_refuses(mut mutate: impl FnMut(&mut StoredContactRequest)) {
-        let (identity, mut request) = authenticated_request();
-        mutate(&mut request);
         let engine = Engine::new(
             MemoryBackend::new(),
             Arc::new(NullSink) as Arc<dyn EventSink>,
             Platform::ZuuliDesktop,
         )
-        .unwrap()
-        .with_directory(Arc::new(AcceptDirectory(identity)));
+        .unwrap();
+        let (bob_signer, bob_credential, bob_entry) = issued_device("bob", 0x22, 0xb2);
+        let bob_package = {
+            let mut inner = engine.inner.lock().await;
+            let backend = inner.backend.clone();
+            inner.mls = Some(
+                MlsEngine::new(backend, bob_signer, bob_credential, 0).expect("bob MLS engine"),
+            );
+            inner
+                .mls_ref("test")
+                .unwrap()
+                .generate_key_package()
+                .expect("bob package")
+        };
+        let (identity, mut request) = authenticated_request(&bob_package, &bob_entry);
+        mutate(&mut request);
+        let conversation_id = request.conversation_id.clone();
+        let group_id = hex::decode(&conversation_id).expect("canonical conversation id");
+        assert_eq!(
+            group_id.len(),
+            32,
+            "the fixture must reach MLS join if authentication is bypassed"
+        );
+        let engine = engine.with_directory(Arc::new(AcceptDirectory(identity)));
         {
             let mut inner = engine.inner.lock().await;
             inner.state = EngineState::Running;
@@ -4677,6 +4681,35 @@ mod tests {
             error.code(),
             ErrorCode::RelayIdentityMismatch,
             "this must fail in the shipping authentication call, before MLS join or relay I/O"
+        );
+        let inner = engine.inner.lock().await;
+        assert!(
+            inner.groups.is_empty(),
+            "authentication refusal must precede the in-memory MLS join"
+        );
+        assert!(
+            MlsGroup::load(
+                inner.mls_ref("test").unwrap().provider().storage(),
+                &GroupId::from_slice(&group_id),
+            )
+            .expect("load after authentication refusal")
+            .is_none(),
+            "authentication refusal must precede the persisted MLS join"
+        );
+        assert!(
+            inner
+                .records()
+                .conversation(&conversation_id)
+                .unwrap()
+                .is_none(),
+            "authentication refusal must not persist a conversation"
+        );
+        let requests = inner.records().contact_requests().unwrap();
+        assert_eq!(requests.len(), 1, "the refused request must remain pending");
+        assert_eq!(requests[0].request_id, "req-conversation");
+        assert!(
+            inner.connections.is_empty(),
+            "authentication refusal must precede every relay connection or request"
         );
     }
 
