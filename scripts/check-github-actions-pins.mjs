@@ -57,6 +57,8 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/source.rs",
           "wallet/Cargo.toml",
           "wallet/nested/future/Cargo.toml",
+          "docs/e2ee/CLIENT-CONTRACT.md",
+          "docs/e2ee/WIRE.md",
         ],
       },
       {
@@ -67,7 +69,6 @@ const RUST_ROOT_CONTRACTS = [
     excludedProbePaths: [
       "wallet/README.md",
       "wallet/docs/architecture.md",
-      "docs/e2ee/WIRE.md",
       "rs/crates/f2z-relay/src/lib.rs",
     ],
     jobs: [
@@ -3377,6 +3378,18 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           "wallet/*/Cargo.toml|",
           "wallet/*|",
           'must leave zuuli false for unrelated input "wallet/README.md"',
+        ],
+        [
+          "messaging client-contract selector",
+          "docs/e2ee/CLIENT-CONTRACT.md|",
+          "",
+          'must actively select "docs/e2ee/CLIENT-CONTRACT.md"',
+        ],
+        [
+          "messaging wire-contract selector",
+          "docs/e2ee/WIRE.md|",
+          "",
+          'must actively select "docs/e2ee/WIRE.md"',
         ],
       ];
       for (const [guard, target, replacement, needle] of

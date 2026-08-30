@@ -217,85 +217,85 @@ pub fn from_proto(error: ProtoError, command: Command, attempt: BindAttempt) -> 
 mod tests {
     use super::*;
 
-    fn expected_relay_mapping(code: WireCode, command: Command, attempt: BindAttempt) -> ErrorCode {
-        if matches!(attempt, BindAttempt::FirstForFreshAdvert)
-            && !matches!(command, Command::BindSend)
-        {
-            return ErrorCode::RelayProtocolViolation;
-        }
-        match code {
-            WireCode::UnsupportedVersion if matches!(command, Command::Hello) => {
-                ErrorCode::RelayVersionUnsupported
-            }
-            WireCode::TooManyInflight if !matches!(command, Command::Hello) => {
-                ErrorCode::RelayBackpressure
-            }
-            WireCode::StaleTimestamp if command.auth() != f2z_codec::commands::Auth::None => {
-                ErrorCode::DeviceClockSkew
-            }
-            WireCode::AlreadyBound
-                if matches!(command, Command::BindSend)
-                    && matches!(attempt, BindAttempt::FirstForFreshAdvert) =>
-            {
-                ErrorCode::SendAddressStolen
-            }
-            WireCode::BadSize if matches!(command, Command::Append | Command::ContactAppend) => {
-                ErrorCode::RelayCapabilityMismatch
-            }
-            WireCode::Quota
-                if matches!(command, Command::CreateQueue | Command::CreateContactQueue) =>
-            {
-                ErrorCode::RelayQuota
-            }
-            WireCode::Unavailable
-                if matches!(
-                    command,
-                    Command::BindSend | Command::Append | Command::ContactAppend
-                ) =>
-            {
-                ErrorCode::SendUnavailable
-            }
-            WireCode::PowRequired
-                if matches!(
-                    command,
-                    Command::CreateQueue | Command::CreateContactQueue | Command::ContactAppend
-                ) =>
-            {
-                ErrorCode::PowRequired
-            }
-            WireCode::PowInvalid
-                if matches!(
-                    command,
-                    Command::CreateQueue | Command::CreateContactQueue | Command::ContactAppend
-                ) =>
-            {
-                ErrorCode::PowFailed
-            }
-            WireCode::Backpressure
-                if matches!(command, Command::GetChallenge)
-                    || command.auth() != f2z_codec::commands::Auth::None =>
-            {
-                ErrorCode::RelayBackpressure
-            }
-            WireCode::RateLimited if !matches!(command, Command::Hello) => {
-                ErrorCode::RelayRateLimited
-            }
-            WireCode::Internal => ErrorCode::Internal,
-            _ => ErrorCode::RelayProtocolViolation,
-        }
-    }
-
     #[test]
     fn every_command_code_and_attempt_matches_the_allowed_context_matrix() {
-        // This is deliberately exhaustive on all three axes. Removing a guard,
-        // allowing a code on one more command, or applying first-bind authority
-        // outside BIND_SEND changes at least one cell and fails here.
+        // List only the non-default cells. Every cell absent from this list MUST
+        // be a protocol violation, so widening production by one command fails
+        // without copying the implementation's match tree into the test.
+        let post_hello = &Command::ALL[1..];
+        let signed = &Command::ALL[4..13];
+        let queue_creations = &[Command::CreateQueue, Command::CreateContactQueue];
+        let payloads = &[Command::Append, Command::ContactAppend];
+        let sends = &[Command::BindSend, Command::Append, Command::ContactAppend];
+        let stamped = &[
+            Command::CreateQueue,
+            Command::CreateContactQueue,
+            Command::ContactAppend,
+        ];
+        let mut allowed = Vec::new();
+        let mut allow = |code, commands: &[Command], mapped| {
+            for command in commands {
+                allowed.push((code, *command, BindAttempt::Later, mapped));
+                if matches!(command, Command::BindSend) {
+                    allowed.push((code, *command, BindAttempt::FirstForFreshAdvert, mapped));
+                }
+            }
+        };
+        allow(
+            WireCode::UnsupportedVersion,
+            &[Command::Hello],
+            ErrorCode::RelayVersionUnsupported,
+        );
+        allow(
+            WireCode::TooManyInflight,
+            post_hello,
+            ErrorCode::RelayBackpressure,
+        );
+        allow(WireCode::StaleTimestamp, signed, ErrorCode::DeviceClockSkew);
+        allow(
+            WireCode::BadSize,
+            payloads,
+            ErrorCode::RelayCapabilityMismatch,
+        );
+        allow(WireCode::Quota, queue_creations, ErrorCode::RelayQuota);
+        allow(WireCode::Unavailable, sends, ErrorCode::SendUnavailable);
+        allow(WireCode::PowRequired, stamped, ErrorCode::PowRequired);
+        allow(WireCode::PowInvalid, stamped, ErrorCode::PowFailed);
+        let mut backpressured = vec![Command::GetChallenge];
+        backpressured.extend_from_slice(signed);
+        allow(
+            WireCode::Backpressure,
+            &backpressured,
+            ErrorCode::RelayBackpressure,
+        );
+        allow(
+            WireCode::RateLimited,
+            post_hello,
+            ErrorCode::RelayRateLimited,
+        );
+        allow(WireCode::Internal, &Command::ALL, ErrorCode::Internal);
+        allowed.push((
+            WireCode::AlreadyBound,
+            Command::BindSend,
+            BindAttempt::FirstForFreshAdvert,
+            ErrorCode::SendAddressStolen,
+        ));
+
         for code in WireCode::ALL {
             for command in Command::ALL {
                 for attempt in [BindAttempt::FirstForFreshAdvert, BindAttempt::Later] {
+                    let expected = allowed
+                        .iter()
+                        .find(|(allowed_code, allowed_command, allowed_attempt, _)| {
+                            (*allowed_code, *allowed_command, *allowed_attempt)
+                                == (code, command, attempt)
+                        })
+                        .map_or(ErrorCode::RelayProtocolViolation, |(_, _, _, mapped)| {
+                            *mapped
+                        });
                     assert_eq!(
                         from_relay(code, command, attempt),
-                        expected_relay_mapping(code, command, attempt),
+                        expected,
                         "{code:?} on {command:?}/{attempt:?}",
                     );
                 }
