@@ -37,14 +37,14 @@
       "entitlements": "./Entitlements.plist"
     },
     "iOS": {
-      "bundleVersion": "16",
+      "bundleVersion": "17",
       "developmentTeam": "F9AV5HKF6N",
       "minimumSystemVersion": "18.0",
       "infoPlist": "Info.ios.plist"
     },
     "android": {
       "minSdkVersion": 29,
-      "versionCode": 16
+      "versionCode": 17
     }
   },
   "plugins": {
