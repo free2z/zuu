@@ -16,7 +16,7 @@ use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::MemoryBackend;
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::events::{EventSink, NullSink};
-use tauri_plugin_f2zmsg::models::{EngineState, ErrorCode, IneligibilityReason, Platform};
+use tauri_plugin_f2zmsg::models::{EngineState, ErrorCode, Platform};
 
 const NOW: i64 = 1_800_000_000_000;
 
@@ -186,21 +186,6 @@ async fn safety_number_verification_is_available_regardless_of_directory_state()
         .await
         .expect_err("no conversation");
     assert_eq!(refused.code(), ErrorCode::Internal);
-}
-
-#[tokio::test]
-async fn handle_eligibility_is_answerable_before_anything_is_running() {
-    // §11.3: callable before enrollment and before the engine runs, so the UI
-    // can decide what to render without provoking a failure.
-    let engine = engine();
-    let eligible = engine.check_handle_eligibility("SkylarSaveland");
-    assert!(eligible.eligible);
-    assert_eq!(eligible.candidate.as_deref(), Some("skylarsaveland"));
-
-    let punctuated = engine.check_handle_eligibility("skylar.saveland");
-    assert!(!punctuated.eligible);
-    assert_eq!(punctuated.reason, Some(IneligibilityReason::Punctuation));
-    assert_eq!(punctuated.candidate, None);
 }
 
 #[tokio::test]

@@ -52,7 +52,7 @@
 //! key and unlocks, rather than refusing. A frontend that calls `enroll` on
 //! launch gets "ready", not an error it has no command to resolve.
 //!
-//! # These three refuse when the plugin has no engine, like the other 43
+//! # These three refuse when the plugin has no engine
 //!
 //! `F2zMsgExt::f2zmsg` answers even when `tauri-plugin-f2zmsg`'s `setup` could
 //! not open the durable store, and `F2zMsg::engine` is a `Result` for exactly
@@ -60,7 +60,8 @@
 //! the §8 code the store failure produced, rather than panicking on an engine
 //! that was never built. In `f2zmsg_enroll` the `?` is deliberately the *first*
 //! statement: there is no point reading the wallet seed for an enrollment that
-//! has nowhere to be written.
+//! has nowhere to be written. The plugin's pure handle-eligibility command is
+//! the deliberate exception because it reads no engine or store (#762).
 
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::types::{Handle, KemPublicKey};

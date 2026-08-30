@@ -73,8 +73,10 @@ impl Error {
         )
     }
 
-    /// A messaging store that would not open, as the one §8 code every command
-    /// will then answer with for the life of the process (#753).
+    /// A messaging store that would not open, as the one §8 code every engine-
+    /// or storage-dependent command will then answer with for the life of the
+    /// process (#753). Engine status reports it, while pure handle eligibility
+    /// remains available (#762).
     ///
     /// Three outcomes, and keeping them apart is the whole point of not
     /// flattening this to `internal`:
