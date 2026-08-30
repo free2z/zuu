@@ -168,6 +168,14 @@ test("the setting is keyboard-operable, persistent, and contained in a narrow RT
   });
 
   const setting = page.getByRole("switch", { name: "Strict image privacy" });
+  await expect(setting).toHaveAccessibleName("Strict image privacy");
+  await expect(setting).toHaveAttribute(
+    "aria-labelledby",
+    "strict-image-privacy-label",
+  );
+  await expect(setting).toHaveAccessibleDescription(
+    "Ask before loading images.",
+  );
   await setting.focus();
   await page.keyboard.press("Space");
   await expect(setting).toBeChecked();

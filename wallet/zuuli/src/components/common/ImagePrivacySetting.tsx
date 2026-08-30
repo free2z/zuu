@@ -16,7 +16,11 @@ export function ImagePrivacySetting({ className }: { className?: string }) {
       )}
     >
       <div className="min-w-0 flex-1">
-        <label htmlFor="strict-image-privacy" className="text-sm font-medium">
+        <label
+          id="strict-image-privacy-label"
+          htmlFor="strict-image-privacy"
+          className="text-sm font-medium"
+        >
           Strict image privacy
         </label>
         <p id="strict-image-privacy-help" className="text-xs text-muted-foreground">
@@ -28,6 +32,7 @@ export function ImagePrivacySetting({ className }: { className?: string }) {
         className="min-tap h-11 w-14 p-2.5"
         checked={strict}
         onCheckedChange={setStrictImagePrivacy}
+        aria-labelledby="strict-image-privacy-label"
         aria-describedby="strict-image-privacy-help"
       />
     </div>
