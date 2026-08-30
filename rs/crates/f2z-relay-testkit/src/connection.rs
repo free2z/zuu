@@ -33,15 +33,19 @@ use crate::faults::{Effect, FaultInjector};
 use crate::outbound::{CLOSE_GOING_AWAY, CLOSE_NORMAL, CLOSE_PROTOCOL_ERROR, OutKind, Outbound};
 use crate::transport::{Transport, TransportSink, WireMessage};
 
-/// Serve one connection until either end closes.
-pub async fn drive(relay: Arc<Relay>, transport: Transport) {
+/// Serve one connection until either end closes or the server shuts down.
+pub async fn drive(
+    relay: Arc<Relay>,
+    transport: Transport,
+    mut server_shutdown: watch::Receiver<bool>,
+) {
     let (sink, mut stream) = transport.split();
     let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Outbound>();
-    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let (writer_finished_tx, mut writer_finished_rx) = watch::channel(false);
 
     let mut connection = relay.open_connection(outbound_tx.clone());
     let faults = relay.faults().clone();
-    let writer = tokio::spawn(writer_task(sink, outbound_rx, faults, shutdown_tx));
+    let writer = tokio::spawn(writer_task(sink, outbound_rx, faults, writer_finished_tx));
 
     let handshake_timeout = relay.config().handshake_timeout;
     let ping_interval = relay.config().ping_interval;
@@ -56,7 +60,16 @@ pub async fn drive(relay: Arc<Relay>, transport: Transport) {
         let waiting_for_hello = !connection.hello_done;
         let received = tokio::select! {
             biased;
-            _ = shutdown_rx.changed() => break,
+            // The writer has already sent any close frame for this path.
+            _ = writer_finished_rx.changed() => break,
+            // Server shutdown is a different event: production sends 1001
+            // before it winds an established connection down, so the test
+            // double must make that observable too. This is alignment with
+            // production rather than a `WIRE.md` conformance requirement.
+            _ = server_shutdown.changed() => {
+                let _ = outbound_tx.send(close_now(CLOSE_GOING_AWAY));
+                break;
+            }
             _ = ping.tick(), if !waiting_for_hello => {
                 // §2.4: the relay sends a Ping every `ws_ping_interval_seconds`
                 // and closes after two consecutive missed Pongs. Server-driven
@@ -174,7 +187,7 @@ async fn writer_task(
     mut sink: Box<dyn TransportSink>,
     mut outbound: mpsc::UnboundedReceiver<Outbound>,
     faults: FaultInjector,
-    shutdown: watch::Sender<bool>,
+    writer_finished: watch::Sender<bool>,
 ) {
     // §4.3's reordering, as a one-frame hold. Held frames are flushed when the
     // connection ends, so a reorder rule that never sees a second frame
@@ -241,7 +254,7 @@ async fn writer_task(
             }
             Some(Effect::CloseBefore) => {
                 let _ = sink.close(CLOSE_PROTOCOL_ERROR).await;
-                let _ = shutdown.send(true);
+                let _ = writer_finished.send(true);
                 return;
             }
             // A refusal never reaches the writer: it was applied in the engine,
@@ -262,12 +275,12 @@ async fn writer_task(
         }
         if let Some(status) = closing {
             let _ = sink.close(status).await;
-            let _ = shutdown.send(true);
+            let _ = writer_finished.send(true);
             return;
         }
         if close_after_effect {
             let _ = sink.close(CLOSE_NORMAL).await;
-            let _ = shutdown.send(true);
+            let _ = writer_finished.send(true);
             return;
         }
         if !inbound_open && parked.is_empty() {
@@ -279,7 +292,7 @@ async fn writer_task(
         let _ = write(&mut sink, waiting).await;
     }
     let _ = sink.close(CLOSE_NORMAL).await;
-    let _ = shutdown.send(true);
+    let _ = writer_finished.send(true);
 }
 
 /// Sleep until `deadline`, or forever when there is nothing parked.
