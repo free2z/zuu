@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadBuildIdentity } from "./scripts/build-identity.mjs";
 
 const host = process.env.TAURI_DEV_HOST;
 // Where the dev/`tauri dev` proxy forwards /api and /uploadz. Defaults to
@@ -12,7 +14,10 @@ const apiTarget = process.env.VITE_F2Z_PROXY || "https://stage.free2z.cash";
 
 // ZUULI dev server runs on 1423 so it never collides with the zuuallet
 // reference wallet (1421). Tauri drives this via beforeDevCommand.
-export default defineConfig(async () => ({
+export default defineConfig(async () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const buildIdentity = loadBuildIdentity({ root });
+  return {
   plugins: [react()],
   test: {
     // Workers must not inherit a contributor's locale or timezone. LC_ALL is
@@ -32,6 +37,7 @@ export default defineConfig(async () => ({
   // does the same for the dev pre-bundled copy.
   define: {
     PACKAGE_VERSION: JSON.stringify("3.2.1"),
+    __ZUULI_BUILD_INFO__: JSON.stringify(buildIdentity),
   },
   optimizeDeps: {
     // Pre-bundle the worker's cold dependencies before tests/dev navigation;
@@ -78,4 +84,5 @@ export default defineConfig(async () => ({
       },
     },
   },
-}));
+  };
+});

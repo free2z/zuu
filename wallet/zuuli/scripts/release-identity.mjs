@@ -153,6 +153,8 @@ function occurrenceCount(contents, value) {
 
 expect("release schema version", release.schemaVersion, 2);
 expect("release application ID", release.applicationId, "cash.free2z.zuuli");
+if (!["internal", "beta", "stable"].includes(release.channel))
+  failures.push(`release channel is unsupported: ${release.channel}`);
 if (release.iosUsesNonExemptEncryption !== false)
   failures.push(
     "release iOS non-exempt encryption declaration must be Boolean false",
@@ -213,6 +215,27 @@ const testFlightBootstrapWorkflow = read(
 const storeAuditWorkflow = read("../../.github/workflows/zuuli-store-audit.yml");
 const storePublishWorkflow = read("../../.github/workflows/zuuli-store-publish.yml");
 const packagingWorkflow = read("../../.github/workflows/zuuli-packaging.yml");
+const viteConfig = read("vite.config.ts");
+const buildIdentitySource = read("scripts/build-identity.mjs");
+const releaseManifestSource = read("scripts/release-manifest.mjs");
+
+for (const [label, contents, contract] of [
+  ["Vite build identity", viteConfig, "__ZUULI_BUILD_INFO__"],
+  ["Vite build identity loader", viteConfig, "loadBuildIdentity({ root })"],
+  ["build identity release source", buildIdentitySource, 'resolve(root, "release.json")'],
+  ["release manifest channel", releaseManifestSource, "channel: release.channel"],
+]) {
+  if (!contents.includes(contract))
+    failures.push(`${label} contract is missing: ${contract}`);
+}
+expect(
+  "protected source-build SHA bindings",
+  occurrenceCount(
+    releaseWorkflow,
+    "ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}",
+  ),
+  4,
+);
 
 for (const failure of artifactSbomWorkflowFailures(
   packagingWorkflow,
@@ -958,6 +981,7 @@ if (failures.length) {
 console.log(
   JSON.stringify({
     applicationId: release.applicationId,
+    channel: release.channel,
     version: release.version,
     build: release.build,
     identity,

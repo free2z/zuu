@@ -134,8 +134,8 @@ for (const signedIn of [false, true]) {
       // `{ area: "more", order: 0 }`. Articles already holds that order, so the
       // two tie and declaration order puts Messages second.
       const expectedNames = signedIn
-        ? ["Articles", "Messages", "Edit profile", "Revenue share"]
-        : ["Articles", "Log in"];
+        ? ["Articles", "Messages", "Edit profile", "Revenue share", "About and feedback"]
+        : ["Articles", "About and feedback", "Log in"];
       await expect(rows).toHaveCount(expectedNames.length);
       for (const name of expectedNames) {
         await expect(moreNavigation.getByRole("link", { name })).toBeVisible();
@@ -231,7 +231,13 @@ test("German proxy copy fits the signed-in chrome and Revenue share destination 
       const label = item.querySelector<HTMLElement>("span");
       if (label) label.textContent = labels[index];
     });
-  }, ["Artikel", "Profil bearbeiten", "Umsatzbeteiligung"]);
+  }, [
+    "Artikel",
+    "Nachrichten",
+    "Profil bearbeiten",
+    "Umsatzbeteiligung",
+    "Über ZUULI und Feedback",
+  ]);
   const germanGeometry = await dialog.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const rows = [...element.querySelectorAll<HTMLElement>("nav a")];

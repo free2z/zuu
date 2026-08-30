@@ -71,6 +71,7 @@ artifacts.push({
 const manifest = {
   schemaVersion: 1,
   applicationId: release.applicationId,
+  channel: release.channel,
   version: release.version,
   build: release.build,
   identity: `${release.version}+${release.build}`,

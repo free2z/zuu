@@ -3,6 +3,7 @@
   "schemaVersion": 2,
   "applicationId": "cash.free2z.zuuli",
   "iosUsesNonExemptEncryption": false,
+  "channel": "internal",
   "version": "0.1.0",
   "build": 19,
   "minimums": {

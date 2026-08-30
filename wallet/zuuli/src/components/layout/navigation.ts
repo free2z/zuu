@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
   Home,
+  Info,
   LogIn,
   Menu,
   MessagesSquare,
@@ -145,6 +146,17 @@ export const NAVIGATION: readonly NavigationItem[] = [
     auth: "signed-in",
     desktop: { group: "account", order: 1 },
     mobile: { area: "more", order: 2 },
+  },
+  {
+    id: "about",
+    kind: "route",
+    to: "/about",
+    label: "About & Feedback",
+    accessibleLabel: "About and feedback",
+    icon: Info,
+    auth: "always",
+    desktop: { group: "account", order: 2 },
+    mobile: { area: "more", order: 3 },
   },
   {
     id: "sign-in",

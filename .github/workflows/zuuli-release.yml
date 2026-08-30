@@ -1153,6 +1153,8 @@ jobs:
       run:
         working-directory: wallet/zuuli
         shell: bash
+    env:
+      ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
       - name: Verify pinned Linux build image
         working-directory: /

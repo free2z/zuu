@@ -8,6 +8,7 @@
 export const APP_ROUTES = {
   home: "/",
   login: "/login",
+  about: "/about",
   search: "/search/*",
   creator: "/creator/:username/*",
   profile: "/profile",
