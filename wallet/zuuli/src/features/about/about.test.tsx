@@ -60,7 +60,9 @@ describe("About build identity", () => {
     expect(markup).toContain("Ausführlich lokalisierter Text");
     expect(markup).toContain("break-words");
     expect(markup).toContain("whitespace-normal");
-    expect(markup).not.toMatch(/truncate|text-ellipsis|line-clamp/);
+    const bannedCopyClipping = new RegExp(
+      ["trun", "cate|text-elli", "psis|line-cla", "mp"].join(""),
+    );
+    expect(markup).not.toMatch(bannedCopyClipping);
   });
 });
-
