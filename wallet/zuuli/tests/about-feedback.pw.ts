@@ -165,6 +165,39 @@ test("private email remains explicit and uses the same reviewed subject and body
   expect(parameters.get("body")).toBe(body);
 });
 
+test("offline handoff failure preserves the exact reviewed report and copy fallback", async ({
+  context,
+  page,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await captureExternalOpen(page, false);
+  await openComposer(page);
+  await page.getByRole("radio", { name: /Public GitHub issue/ }).check();
+  await page
+    .getByLabel("What happened?")
+    .fill("The report must remain available while offline.");
+  await page.getByRole("button", { name: "Review report" }).click();
+
+  const subject = page.getByLabel("Outgoing subject or title");
+  const body = page.getByLabel("Outgoing body");
+  const reviewedSubject = await subject.inputValue();
+  const reviewedBody = await body.inputValue();
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Continue to chosen app" }).click();
+
+  await expect(page.getByRole("alert")).toContainText(
+    "chosen app could not be opened",
+  );
+  await expect(page.getByRole("alert")).not.toContainText(/submitted|succeeded/i);
+  await expect(subject).toHaveValue(reviewedSubject);
+  await expect(body).toHaveValue(reviewedBody);
+
+  await page.getByRole("button", { name: "Copy reviewed report" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    `Subject: ${reviewedSubject}\n\n${reviewedBody}`,
+  );
+});
+
 test.describe("pseudo-expanded shipping locale feedback", () => {
   test.use({ locale: "en-XA", viewport: { width: 320, height: 760 } });
 

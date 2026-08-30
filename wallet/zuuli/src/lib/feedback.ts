@@ -20,6 +20,11 @@ export type ReviewedFeedbackDraft = Readonly<{
 export type HandoffUrlResult =
   | Readonly<{ status: "ready"; url: string }>
   | Readonly<{
+      status: "unsafe";
+      draft: FeedbackDraft;
+      findings: readonly ScrubFinding[];
+    }>
+  | Readonly<{
       status: "too-long";
       actualCharacters: number;
       actualBytes: number;
@@ -45,23 +50,28 @@ export const FEEDBACK_BODY_LIMIT = 6_000;
 
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu;
 const INVISIBLE_CHARACTERS = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\uffa0]/gu;
+const UNPAIRED_SURROGATES = /[\uD800-\uDFFF]/gu;
 
 const SECRET_PATTERNS: readonly RegExp[] = [
-  /\b(?:seed|mnemonic|recovery\s+phrase|spending\s+key|viewing\s+key|password|passphrase|secret|private\s+key|auth(?:entication|orization)?|session|oauth|bearer|jwt|cookie|totp|otp|memo|balance|device(?:\s+(?:id|identifier|name))?|clipboard)\s*(?:=|:|is\b)\s*[^\n]+/giu,
+  /\b(?:seed|mnemonic|recovery\s+phrase|spending\s+key|viewing\s+key|password|passphrase|secret|private\s+key|auth(?:entication|orization)?(?:\s+token)?|access[\s_-]*token|session(?:\s+(?:id|token))?|oauth(?:\s+token)?|bearer|jwt|cookie|totp|otp|memo|balance|device(?:\s+(?:id|identifier|name))?|clipboard)\b\s*(?:(?:=|:|is)\s*)?[^\n]+/giu,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/giu,
+  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|ya29\.[A-Za-z0-9._-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[A-Z0-9]{16}|sk_(?:live|test)_[A-Za-z0-9]{16,})\b/gu,
   /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?:\.[A-Za-z0-9_-]{6,})?\b/gu,
   /\botpauth:\/\/\S+/giu,
   /\b(?:secret-extended-key-(?:main|test)|zxviews|zxviewtestsapling|uview|usk|uvk|spendingkey|viewingkey)1[0-9a-z]{20,}\b/giu,
   /\b(?:u1[0-9a-z]{40,}|zs1[0-9a-z]{40,}|ztestsapling1[0-9a-z]{40,}|t[13][1-9A-HJ-NP-Za-km-z]{25,34})\b/gu,
-  /\b[a-f0-9]{64}\b/giu,
-  /\b(?:[a-z]+\s+){11}(?:[a-z]+)\b/gu,
-  /\b(?:[A-Z2-7]{4}){4,}={0,6}\b/gu,
+  /\b[a-f0-9]{32,64}\b/giu,
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu,
+  /\b(?=[^\n]{0,200},)(?:[a-z]{2,16}(?:\s*,\s*|\s+)){11}[a-z]{2,16}\b/giu,
+  /\b(?=[A-Z2-7]{16,}={0,6}\b)(?=[A-Z2-7]*[2-7])[A-Z2-7]+={0,6}\b/gu,
+  /\b(?=[A-Za-z0-9._~+/_=-]{20,}\b)(?=[A-Za-z0-9._~+/_=-]*[A-Za-z])(?=[A-Za-z0-9._~+/_=-]*\d)[A-Za-z0-9._~+/_=-]+\b/gu,
 ];
 
 const NETWORK_PATTERNS: readonly RegExp[] = [
   /\b(?:\d{1,3}\.){3}\d{1,3}\b/gu,
   /\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9]{0,4}\b/giu,
   /\b(?:https?|wss?):\/\/[^\s]+/giu,
+  /(?<!@)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:[/?#][^\s]*)?/giu,
   /\b(?:host(?:name)?|ip(?:\s+address)?|ssid|network)\s*(?:=|:|is\b)\s*[^\n]+/giu,
 ];
 
@@ -73,6 +83,18 @@ const PATH_PATTERNS: readonly RegExp[] = [
 ];
 
 const CONFUSABLE_ASCII: Readonly<Record<string, string>> = Object.freeze({
+  "α": "a",
+  "Α": "A",
+  "ο": "o",
+  "Ο": "O",
+  "ρ": "p",
+  "Ρ": "P",
+  "ϲ": "c",
+  "Ϲ": "C",
+  "χ": "x",
+  "Χ": "X",
+  "ι": "i",
+  "Ι": "I",
   "а": "a",
   "А": "A",
   "е": "e",
@@ -119,24 +141,30 @@ function hasSensitiveContent(value: string): boolean {
 
 function recursivelyDecodePercent(value: string): string {
   let decoded = value;
-  for (let pass = 0; pass < 3; pass += 1) {
-    try {
-      const next = decodeURIComponent(decoded);
-      if (next === decoded) break;
-      decoded = next;
-    } catch {
-      break;
-    }
+  // Every successful pass consumes at least one percent triplet, so this is
+  // finite for the bounded draft without choosing an attacker-bypassable
+  // nesting count.
+  for (;;) {
+    const next = decoded.replace(/(?:%[0-9a-f]{2})+/giu, (segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    });
+    if (next === decoded) break;
+    decoded = next;
   }
   return decoded;
 }
 
 function decodeBase64(value: string): string | undefined {
-  if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(value) || value.length > 1_024) {
+  const compact = value.replace(/\s+/gu, "");
+  if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(compact) || compact.length > FEEDBACK_BODY_LIMIT) {
     return undefined;
   }
   try {
-    const canonical = value.replace(/-/g, "+").replace(/_/g, "/");
+    const canonical = compact.replace(/-/g, "+").replace(/_/g, "/");
     const padded = canonical.padEnd(Math.ceil(canonical.length / 4) * 4, "=");
     const bytes = Uint8Array.from(atob(padded), (character) =>
       character.charCodeAt(0),
@@ -147,24 +175,57 @@ function decodeBase64(value: string): string | undefined {
   }
 }
 
+function decodedValueContainsSensitiveContent(value: string): boolean {
+  const pending = [value];
+  const seen = new Set<string>();
+  while (pending.length > 0) {
+    const candidate = pending.pop();
+    if (candidate === undefined || seen.has(candidate)) continue;
+    seen.add(candidate);
+
+    const percentDecoded = recursivelyDecodePercent(candidate);
+    if (percentDecoded !== candidate) {
+      if (hasSensitiveContent(percentDecoded)) return true;
+      pending.push(percentDecoded);
+    }
+
+    const base64Decoded = decodeBase64(candidate);
+    if (base64Decoded !== undefined && base64Decoded.length < candidate.length) {
+      if (hasSensitiveContent(base64Decoded)) return true;
+      pending.push(base64Decoded);
+    }
+  }
+  return false;
+}
+
 function scrubEncodedTokens(
   value: string,
   redactedValue: string,
 ): { value: string; changed: boolean } {
   let changed = false;
-  const next = value.replace(/\S{8,}/gu, (token) => {
-    const percentDecoded = recursivelyDecodePercent(token);
-    const base64Decoded = decodeBase64(token);
-    if (
-      (percentDecoded !== token && hasSensitiveContent(percentDecoded)) ||
-      (base64Decoded !== undefined && hasSensitiveContent(base64Decoded))
-    ) {
+  let next = value.replace(/\S{8,}/gu, (token) => {
+    if (decodedValueContainsSensitiveContent(token)) {
       changed = true;
       return redactedValue;
     }
     return token;
   });
-  return { value: next, changed };
+
+  // Base64 is routinely wrapped by mail clients and text areas. Inspect a
+  // whitespace-separated run as one encoded value and remove the exact run if
+  // any finite decode chain exposes prohibited content.
+  next = next.replace(
+    /(?:[A-Za-z0-9+/_-]{4,}={0,2}[ \t\r\n]+){1,}[A-Za-z0-9+/_-]{4,}={0,2}/gu,
+    (candidate) => {
+      if (!decodedValueContainsSensitiveContent(candidate)) return candidate;
+      changed = true;
+      return redactedValue;
+    },
+  );
+  // Partial removal from a nested/wrapped encoding could leave undiscovered
+  // fragments. Once any encoded representation is sensitive, fail closed for
+  // the complete field rather than attempting source-span reconstruction.
+  return { value: changed ? redactedValue : next, changed };
 }
 
 export function scrubFeedbackText(value: string, redactedValue: string): {
@@ -174,7 +235,13 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   const findings = new Set<ScrubFinding>();
   let text = value.normalize("NFKC").replace(/\r\n?/gu, "\n");
   const withoutInvisible = text.replace(INVISIBLE_CHARACTERS, "");
-  const withoutControls = withoutInvisible.replace(CONTROL_CHARACTERS, "");
+  // With the Unicode flag, a valid surrogate pair is one code point and does
+  // not match this range; only unpaired UTF-16 code units match. Removing them
+  // before preview prevents WebIDL/URI encoders from silently substituting
+  // U+FFFD at handoff.
+  const withoutControls = withoutInvisible
+    .replace(CONTROL_CHARACTERS, "")
+    .replace(UNPAIRED_SURROGATES, redactedValue);
   if (withoutControls !== text) findings.add("unsafe-control-character");
   text = withoutControls;
 
@@ -254,13 +321,48 @@ export function feedbackDraftText(
 export function buildFeedbackHandoffUrl(
   channel: FeedbackChannel,
   draft: FeedbackDraft,
+  redactedValue: string,
 ): HandoffUrlResult {
+  // This is the final transport boundary, not merely a formatter. Runtime
+  // callers cannot bypass review by constructing a FeedbackDraft directly.
+  const reviewed = reviewFeedbackDraft(draft, redactedValue);
+  if (
+    reviewed.findings.length > 0 ||
+    reviewed.draft.subject !== draft.subject ||
+    reviewed.draft.body !== draft.body
+  ) {
+    return {
+      status: "unsafe",
+      draft: reviewed.draft,
+      findings: reviewed.findings,
+    };
+  }
   const parameters = new URLSearchParams();
   let base: string;
   if (channel === "email") {
     base = `mailto:${FEEDBACK_SUPPORT_EMAIL}`;
-    parameters.set("subject", draft.subject);
-    parameters.set("body", draft.body);
+    const encodeMailtoField = (value: string) =>
+      encodeURIComponent(value).replace(
+        /[!'()*]/gu,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+      );
+    const query = `subject=${encodeMailtoField(draft.subject)}&body=${encodeMailtoField(draft.body)}`;
+    const url = `${base}?${query}`;
+    const actualCharacters = url.length;
+    const actualBytes = new TextEncoder().encode(url).byteLength;
+    if (
+      actualCharacters > HANDOFF_URL_LIMIT.characters ||
+      actualBytes > HANDOFF_URL_LIMIT.bytes
+    ) {
+      return {
+        status: "too-long",
+        actualCharacters,
+        actualBytes,
+        maximumCharacters: HANDOFF_URL_LIMIT.characters,
+        maximumBytes: HANDOFF_URL_LIMIT.bytes,
+      };
+    }
+    return { status: "ready", url };
   } else {
     base = FEEDBACK_GITHUB_NEW_ISSUE_URL;
     parameters.set("title", draft.subject);

@@ -149,7 +149,16 @@ export function FeedbackComposer({
   const continueToApp = async () => {
     const safeDraft = validateVisibleDraft();
     if (!safeDraft || channel === null) return;
-    const handoff = buildFeedbackHandoffUrl(channel, safeDraft);
+    const handoff = buildFeedbackHandoffUrl(
+      channel,
+      safeDraft,
+      messages.feedbackRedactedValue,
+    );
+    if (handoff.status === "unsafe") {
+      setDraft(handoff.draft);
+      setNotice("scrubbed");
+      return;
+    }
     if (handoff.status === "too-long") {
       setNotice("too-long");
       return;
@@ -167,7 +176,7 @@ export function FeedbackComposer({
 
   if (stage === "preview") {
     return (
-      <section className="min-w-0 space-y-5" aria-labelledby="feedback-preview-title">
+      <section className="min-w-0 space-y-5" aria-labelledby="feedback-preview-title" aria-busy={busy}>
         <div className="min-w-0 space-y-1">
           <h2
             ref={headingRef}
@@ -213,6 +222,7 @@ export function FeedbackComposer({
             className="min-w-0 max-w-full"
             value={draft.subject}
             maxLength={120}
+            readOnly={busy}
             aria-describedby={notice ? noticeId : undefined}
             onChange={(event) => {
               setDraft((current) => ({ ...current, subject: event.target.value }));
@@ -228,6 +238,7 @@ export function FeedbackComposer({
             className="min-h-72 min-w-0 max-w-full resize-y whitespace-pre-wrap font-mono text-xs leading-relaxed"
             value={draft.body}
             maxLength={6_000}
+            readOnly={busy}
             aria-describedby={notice ? noticeId : undefined}
             onChange={(event) => {
               setDraft((current) => ({ ...current, body: event.target.value }));

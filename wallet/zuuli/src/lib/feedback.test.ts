@@ -88,6 +88,96 @@ describe("feedback privacy boundary", () => {
     expect(result.text).not.toContain("hidden-with-zero-width");
   });
 
+  const percentEncode = (value: string, passes: number) => {
+    let encoded = value;
+    for (let pass = 0; pass < passes; pass += 1) {
+      encoded = encodeURIComponent(encoded);
+    }
+    return encoded;
+  };
+
+  const encodedPassword = btoa("password: hunter2");
+  const exactReviewerCorpus = [
+    "auth token ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+    "oauth token ya29.a0AfH6SMabcdefghijklmnopqrstuvwxyz",
+    "session 550e8400-e29b-41d4-a716-446655440000",
+    btoa(encodedPassword),
+    encodedPassword.replace(/(.{8})/gu, "$1 \n"),
+    "pαssword: hunter2",
+    "abandon, ability, able, about, above, absent, absorb, abstract, absurd, abuse, access, accident",
+    "password hunter2",
+    percentEncode("password: hunter2", 4),
+    "0123456789abcdef0123456789abcdef",
+    "0123456789abcdef0123456789abcdef01234567",
+    "example.com?access_token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+  ] as const;
+
+  it.each(exactReviewerCorpus)(
+    "fails closed for the exact reviewer corpus: %s",
+    (attack) => {
+      const reviewed = reviewFeedbackDraft(
+        { subject: DEFAULT_SUBJECT, body: `Observed failure: ${attack}` },
+        REDACTED_VALUE,
+      );
+      expect(reviewed.findings.length).toBeGreaterThan(0);
+      expect(reviewed.draft.body).toContain(REDACTED_VALUE);
+      expect(reviewed.draft.body).not.toContain(attack);
+
+      const handoff = buildFeedbackHandoffUrl(
+        "github",
+        { subject: DEFAULT_SUBJECT, body: `Observed failure: ${attack}` },
+        REDACTED_VALUE,
+      );
+      expect(handoff.status).toBe("unsafe");
+      expect("url" in handoff).toBe(false);
+    },
+  );
+
+  it("recurses through mixed percent and whitespace-wrapped base64 nesting", () => {
+    const nested = percentEncode(
+      btoa(btoa("Authorization: Bearer deepest-secret-token")),
+      5,
+    ).replace(/(.{9})/gu, "$1\n");
+    const reviewed = reviewFeedbackDraft(
+      { subject: DEFAULT_SUBJECT, body: nested },
+      REDACTED_VALUE,
+    );
+    expect(reviewed.findings).toContain("encoded-sensitive-value");
+    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+  });
+
+  it.each(["\uD800", "\uDC00"])(
+    "canonicalizes an unpaired surrogate before preview and preserves both handoffs: %s",
+    (surrogate) => {
+      const firstReview = reviewFeedbackDraft(
+        {
+          subject: `Report ${surrogate}`,
+          body: `Scalar text ${surrogate} remains visibly canonical`,
+        },
+        REDACTED_VALUE,
+      );
+      expect(firstReview.findings).toContain("unsafe-control-character");
+      expect(firstReview.draft.subject).not.toContain(surrogate);
+      expect(firstReview.draft.body).not.toContain(surrogate);
+
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(
+          channel,
+          firstReview.draft,
+          REDACTED_VALUE,
+        );
+        expect(handoff.status).toBe("ready");
+        if (handoff.status !== "ready") continue;
+        const query = handoff.url.slice(handoff.url.indexOf("?") + 1);
+        const parameters = new URLSearchParams(query);
+        expect(
+          parameters.get(channel === "email" ? "subject" : "title"),
+        ).toBe(firstReview.draft.subject);
+        expect(parameters.get("body")).toBe(firstReview.draft.body);
+      }
+    },
+  );
+
   it("allows a username or email only when the user explicitly enters it", () => {
     const result = createFeedbackDraft(
       "Please reply to Alice Example at alice@example.com.",
@@ -97,6 +187,20 @@ describe("feedback privacy boundary", () => {
     );
     expect(result.findings).toEqual([]);
     expect(result.draft.body).toContain("alice@example.com");
+  });
+
+  it.each([
+    "the app crashed when i opened settings and tried to go back",
+    "THISISANERRORMESSAGE",
+  ])("preserves ordinary user prose: %s", (description) => {
+    const result = createFeedbackDraft(
+      description,
+      BUILD_BLOCK,
+      DEFAULT_SUBJECT,
+      REDACTED_VALUE,
+    );
+    expect(result.findings).toEqual([]);
+    expect(result.draft.body).toContain(description);
   });
 
   it("revalidates edits and returns the changed preview instead of approving it", () => {
@@ -121,12 +225,28 @@ describe("feedback handoff", () => {
   it.each(["email", "github"] as const)(
     "encodes %s subject and body exactly once and preserves newlines",
     (channel) => {
-      const result = buildFeedbackHandoffUrl(channel, draft);
+      const result = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
       expect(result.status).toBe("ready");
       if (result.status !== "ready") return;
 
       if (channel === "email") {
         expect(result.url.startsWith(`mailto:${FEEDBACK_SUPPORT_EMAIL}?`)).toBe(true);
+        expect(result.url).toContain("subject=Unicode%20%2B%20reserved");
+        expect(result.url).not.toContain("subject=Unicode+");
+        const fields = Object.fromEntries(
+          result.url
+            .slice(result.url.indexOf("?") + 1)
+            .split("&")
+            .map((field) => {
+              const separator = field.indexOf("=");
+              return [
+                field.slice(0, separator),
+                decodeURIComponent(field.slice(separator + 1)),
+              ];
+            }),
+        );
+        expect(fields.subject).toBe(draft.subject);
+        expect(fields.body).toBe(draft.body);
       } else {
         expect(result.url.startsWith(`${FEEDBACK_GITHUB_NEW_ISSUE_URL}?`)).toBe(true);
       }
@@ -142,7 +262,11 @@ describe("feedback handoff", () => {
 
   it("rejects over-limit GitHub URLs without truncating the reviewed report", () => {
     const longDraft = { subject: "ZUULI feedback", body: "💡".repeat(700) };
-    const result = buildFeedbackHandoffUrl("github", longDraft);
+    const result = buildFeedbackHandoffUrl(
+      "github",
+      longDraft,
+      REDACTED_VALUE,
+    );
     expect(result.status).toBe("too-long");
     expect(longDraft.body).toHaveLength(1_400);
     expect(feedbackDraftText(longDraft, SUBJECT_PREFIX)).toContain(
