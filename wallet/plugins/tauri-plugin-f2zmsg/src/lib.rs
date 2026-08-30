@@ -174,9 +174,9 @@ fn plugin<R: Runtime>(location: StoreLocation) -> TauriPlugin<R> {
             //
             // Failing soft is *not* skipping `app.manage(..)`: `f2zmsg()` is
             // `state::<F2zMsg<R>>().inner()`, which panics on an unmanaged
-            // type, so all forty-three commands would panic instead of
+            // type, so every engine-dependent command would panic instead of
             // refusing. The state is registered either way and answers either
-            // way.
+            // way; pure handle eligibility does not need to consult it (#762).
             match open_engine(app, &location) {
                 Ok(engine) => {
                     app.manage(state::F2zMsg::new(app.clone(), Arc::clone(&engine)));

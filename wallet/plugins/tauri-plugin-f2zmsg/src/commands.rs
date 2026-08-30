@@ -1,10 +1,12 @@
 //! The IPC surface — `CLIENT-CONTRACT.md` §3, one function per row.
 //!
-//! Every command here is the same four lines: take `AppHandle`, take the
-//! deserialized `args`, call exactly one [`crate::engine::Engine`] method, and
-//! return. No logic lives in this file, deliberately — it is the layer the
-//! webview can reach, and the less it decides the less there is to get wrong at
-//! the boundary.
+//! Every engine-dependent command here is the same four lines: take
+//! `AppHandle`, take the deserialized `args`, call exactly one
+//! [`crate::engine::Engine`] method, and return. Pure
+//! `check_handle_eligibility` is the deliberate exception: it takes only its
+//! string input and routes to [`crate::handle::eligibility`]. No policy logic
+//! lives in this file — it is the layer the webview can reach, and the less it
+//! decides the less there is to get wrong at the boundary.
 //!
 //! Two conventions, both of which the frontend already depends on:
 //!
@@ -15,7 +17,7 @@
 //! * **Commands with no arguments take no `args` key at all**, so they have no
 //!   second parameter.
 //!
-//! # `engine()` is a `Result`, and every command here takes it with `?`
+//! # `engine()` is a `Result`, and every engine-dependent command takes it with `?`
 //!
 //! The plugin's `setup` can finish without an engine: a durable store that will
 //! not open must make messaging unavailable, not the wallet (#753). The managed
@@ -26,8 +28,9 @@
 //! total: there is no way to reach the engine that skips it, so a command that
 //! compiles is a command that cannot panic in the faulted state.
 //!
-//! `get_engine_status` is the one exception, and it answers rather than
-//! refusing. Everything else refuses.
+//! `get_engine_status` and the pure `check_handle_eligibility` validator are
+//! the two exceptions: neither needs an engine, so both answer when store
+//! startup faulted. Everything engine- or storage-dependent refuses.
 //!
 //! Enrollment is **not** here. `f2zmsg_enroll`, `f2zmsg_enrollment_status` and
 //! `f2zmsg_unenroll` need the wallet seed, and putting them behind a plugin
@@ -45,14 +48,15 @@ use crate::state::F2zMsgExt as _;
 // §3.1 — engine lifecycle
 // ---------------------------------------------------------------------------
 
-/// The one command that **answers** instead of refusing when the plugin has no
-/// engine (#753).
+/// The lifecycle command that **answers** instead of refusing when the plugin
+/// has no engine (#753). Pure handle eligibility also answers without consulting
+/// plugin state (#762).
 ///
 /// A store that would not open leaves §6.1's `faulted` and the §8 code that
-/// caused it, because a UI told only "internal" on every command has nothing to
-/// render but an empty screen; told `faulted` with `lastError`, it can say that
-/// messaging is unavailable and why. Every *other* command refuses with the
-/// same code.
+/// caused it, because a UI whose engine-dependent commands only said "internal"
+/// would have nothing to render but an empty screen; told `faulted` with
+/// `lastError`, it can say that messaging is unavailable and why. Every
+/// engine- or storage-dependent command refuses with the same code.
 #[command]
 pub(crate) async fn get_engine_status<R: Runtime>(app: AppHandle<R>) -> Result<EngineStatus> {
     let state = app.f2zmsg();
@@ -373,23 +377,16 @@ pub(crate) async fn resolve_handle<R: Runtime>(
     app.f2zmsg().engine()?.resolve_handle(&args.handle).await
 }
 
-/// Callable **before** enrollment and before the engine runs, so the UI can
-/// decide what to render without provoking a failure (§11.3).
+/// Callable **before** enrollment and without an engine, so the UI can decide
+/// what to render even when durable-store startup faulted (§11.3, #762).
 ///
-/// "Before the engine runs" is not "without an engine": the answer is pure, but
-/// it is reached through the engine, and a plugin whose store never opened has
-/// none. So this refuses in the faulted state like everything else (#753). It
-/// costs nothing the user notices — a device with no messaging store has no
-/// handle to pick either.
+/// The answer is a pure function of `username`. Routing it through
+/// `F2zMsg::engine()` would turn an available syntactic diagnosis into the
+/// unrelated storage fault and would contradict the contract's pre-engine
+/// guarantee.
 #[command]
-pub(crate) async fn check_handle_eligibility<R: Runtime>(
-    app: AppHandle<R>,
-    args: UsernameArgs,
-) -> Result<HandleEligibility> {
-    Ok(app
-        .f2zmsg()
-        .engine()?
-        .check_handle_eligibility(&args.username))
+pub(crate) async fn check_handle_eligibility(args: UsernameArgs) -> Result<HandleEligibility> {
+    Ok(crate::handle::eligibility(&args.username))
 }
 
 #[command]

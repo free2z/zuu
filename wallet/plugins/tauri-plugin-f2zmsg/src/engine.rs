@@ -1499,14 +1499,6 @@ impl<B: StorageBackend> Engine<B> {
         self.directory.resolve(peer_handle)
     }
 
-    /// §3.10 `check_handle_eligibility`. Pure, callable before enrollment and
-    /// before the engine runs, so the UI can decide what to render without
-    /// provoking a failure.
-    #[must_use]
-    pub fn check_handle_eligibility(&self, username: &str) -> HandleEligibility {
-        handle::eligibility(username)
-    }
-
     /// §3.10 `get_safety_number`.
     ///
     /// **Always available**, and the strongest check in the system regardless of
