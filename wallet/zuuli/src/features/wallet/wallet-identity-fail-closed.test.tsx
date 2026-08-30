@@ -159,4 +159,51 @@ describe("wallet identity failure boundary", () => {
     expect(container.textContent).not.toContain("Create wallet");
     expect(container.textContent).not.toContain("Restore wallet");
   });
+
+  it("blocks create and restore for a nonempty all-inactive native inventory", async () => {
+    const existingInactiveWallet = { ...activeWallet, isActive: false };
+    bridge.getWalletStatus.mockResolvedValue({
+      ...initializedStatus,
+      initialized: false,
+      hasSeed: false,
+      activeWalletId: null,
+      activeWalletName: null,
+      walletCount: 1,
+    });
+    bridge.listWallets.mockResolvedValue([existingInactiveWallet]);
+    bridge.getAccountBalance.mockResolvedValue({
+      accountIndex: 0,
+      totalShielded: 1,
+      spendable: 1,
+      changePending: 0,
+      valuePending: 0,
+    });
+
+    await useWallet.getState().bootstrap();
+
+    expect(useWallet.getState()).toMatchObject({
+      status: null,
+      wallets: [],
+      activeWalletId: null,
+      activeWallet: null,
+      balance: null,
+      sync: null,
+      unifiedAddress: null,
+      loading: false,
+    });
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/wallet"]}>
+          <WalletFeature />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Wallet identity unavailable");
+    expect(container.textContent).toContain("Retry wallet identity");
+    expect(container.textContent).not.toContain("Create new");
+    expect(container.textContent).not.toContain("Create wallet");
+    expect(container.textContent).not.toContain("Restore wallet");
+    expect(bridge.getAccountBalance).not.toHaveBeenCalled();
+  });
 });

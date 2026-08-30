@@ -73,11 +73,14 @@ function activeWalletFrom(
   const activeWallets = wallets.filter(({ isActive }) => isActive);
   if (!status.initialized) {
     if (
+      wallets.length !== 0 ||
       status.activeWalletId !== null ||
       status.activeWalletName !== null ||
       activeWallets.length !== 0
     ) {
-      throw new WalletIdentityError("An uninitialized wallet cannot be active.");
+      throw new WalletIdentityError(
+        "An uninitialized wallet must have an empty inventory.",
+      );
     }
     return null;
   }

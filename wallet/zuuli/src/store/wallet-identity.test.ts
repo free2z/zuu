@@ -69,6 +69,21 @@ function status(activeId: string): WalletStatus {
   };
 }
 
+function uninitializedStatus(walletCount = 0): WalletStatus {
+  return {
+    initialized: false,
+    hasSeed: false,
+    syncedHeight: 0,
+    chainTip: 0,
+    activeWalletId: null,
+    activeWalletName: null,
+    walletCount,
+    backupRequired: false,
+    cleanup,
+    legacyAppData,
+  };
+}
+
 function balance(marker: number): AccountBalance {
   return {
     accountIndex: 0,
@@ -234,6 +249,29 @@ describe("wallet identity store", () => {
       unifiedAddress: null,
     });
     expect(useWallet.getState().identityError).not.toBeNull();
+  });
+
+  it("rejects a nonempty all-inactive inventory that claims to be uninitialized", async () => {
+    const existingInactiveWallet = {
+      ...inventory("wallet-a")[0],
+      isActive: false,
+    };
+    bridge.getWalletStatus.mockResolvedValue(uninitializedStatus(1));
+    bridge.listWallets.mockResolvedValue([existingInactiveWallet]);
+
+    await useWallet.getState().bootstrap();
+
+    expect(useWallet.getState()).toMatchObject({
+      status: null,
+      wallets: [],
+      activeWalletId: null,
+      activeWallet: null,
+      balance: null,
+      sync: null,
+      unifiedAddress: null,
+    });
+    expect(useWallet.getState().identityError).toContain("empty inventory");
+    expect(bridge.getAccountBalance).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown identifier before invoking native switching", async () => {
