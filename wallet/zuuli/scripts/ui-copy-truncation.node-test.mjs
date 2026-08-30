@@ -115,10 +115,8 @@ const CHROME_ROOTS = [
   join(SRC, "components"),
   join(SRC, "features"),
 ];
-const CHROME_FILES = FILES.filter(
-  (file) =>
-    !/\.test\.tsx?$/.test(file) &&
-    CHROME_ROOTS.some((directory) => file.startsWith(`${directory}/`)),
+const CHROME_FILES = CHROME_ROOTS.flatMap(sourceFiles).filter(
+  (file) => !/\.test\.tsx?$/.test(file),
 );
 
 /**
@@ -205,6 +203,17 @@ test("every line-clamp is annotated as user-authored content", () => {
 });
 
 test("product chrome contains no Search implementation explainer", () => {
+  assert.ok(
+    CHROME_FILES.length > 0,
+    "product chrome source scan selected no files",
+  );
+  assert.ok(
+    CHROME_FILES.some(
+      (file) => relative(ROOT, file) === "src/features/search/index.tsx",
+    ),
+    "product chrome source scan omitted the reported Search surface",
+  );
+
   const violations = [];
   for (const file of CHROME_FILES) {
     const source = stripComments(readFileSync(file, "utf8"));
