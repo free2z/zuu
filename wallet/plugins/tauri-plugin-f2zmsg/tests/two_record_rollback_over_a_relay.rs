@@ -1,24 +1,35 @@
-//! A failed rollback reload stops a real relay batch at its first ciphertext.
+//! A failed rollback reload stops a production-relay batch at its first ciphertext.
 //!
 //! This is intentionally above the MLS crate's focused rollback tests. Two
-//! application messages cross the plugin's real WebSocket client and occupy one
-//! relay `READ`; the receiver then suffers an apply failure followed by a
-//! one-shot restore read failure. The production pump must leave both records
-//! behind the first failure so a fresh durable group load can process them in
-//! order on the next pass.
+//! application messages cross the plugin's real WebSocket client and the actual
+//! `f2z-relay` daemon, backed by its production SQLite store and group-commit
+//! writer, and occupy one relay `READ`. The receiver then suffers an apply
+//! failure followed by a one-shot restore read failure. The production pump
+//! must leave both records behind the first failure so a fresh durable group
+//! load can process them in order on the next pass.
+//!
+//! The daemon is a separate process on purpose. The client plugin cannot link
+//! the AGPL server crate across `rs/README.md`'s licence boundary, and a
+//! `FakeRelay::listen_loopback` socket still exercises the testkit relay rather
+//! than the server ZUULI will meet in deployment. CI builds `f2z-relay` from the
+//! same checkout and supplies `F2Z_RELAY_BIN`; a local run can use the ordinary
+//! `rs/target/debug/f2z-relay` path after building that package.
 
 #![cfg(feature = "relay-harness")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::HashMap;
+use std::io::{BufRead as _, BufReader, Read as _};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::types::{Handle, KemPublicKey};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::{Durability, MemoryBackend, Op, StorageBackend, StoreError};
-use f2z_relay_testkit::fake::FakeRelay;
 use tauri_plugin_f2zmsg::directory::{Directory, ResolvedIdentity, ResolvedPeer};
 use tauri_plugin_f2zmsg::engine::{Engine, IdentityInstall};
 use tauri_plugin_f2zmsg::error::{Error, Result};
@@ -28,6 +39,99 @@ use tauri_plugin_f2zmsg::models::{
 };
 
 const NOW: i64 = 1_800_000_000_000;
+
+/// The actual `f2z-relay` daemon, kept alive for one plugin integration test.
+struct ProductionRelay {
+    child: Child,
+    stderr: Option<JoinHandle<String>>,
+    _scratch: tempfile::TempDir,
+    url: String,
+}
+
+impl ProductionRelay {
+    fn binary() -> PathBuf {
+        if let Some(path) = std::env::var_os("F2Z_RELAY_BIN") {
+            return PathBuf::from(path);
+        }
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../rs/target/debug")
+            .join(format!("f2z-relay{}", std::env::consts::EXE_SUFFIX))
+    }
+
+    fn start() -> Self {
+        let binary = Self::binary();
+        assert!(
+            binary.is_file(),
+            "production relay binary is absent at {}; build it with `cargo +1.97.1 build \
+             --locked --manifest-path rs/Cargo.toml -p f2z-relay --bin f2z-relay`, or set \
+             F2Z_RELAY_BIN",
+            binary.display()
+        );
+        let scratch = tempfile::tempdir().expect("relay scratch directory");
+        let store = scratch.path().join("relay.sqlite");
+        let mut child = Command::new(&binary)
+            .args(["--listen", "127.0.0.1:0"])
+            .args(["--no-admin", "--no-health"])
+            .args(["--store", "sqlite"])
+            .args(["--store-path", &store.to_string_lossy()])
+            .args(["--log-level", "off"])
+            // This variable selects the child executable for the *test*. The
+            // daemon deliberately rejects every unknown `F2Z_RELAY_*` key, so
+            // it must not inherit the harness-only selector.
+            .env_remove("F2Z_RELAY_BIN")
+            .env("F2Z_RELAY_IDENTITY_SEED", "5a".repeat(32))
+            .env("F2Z_RELAY_ANTIABUSE_QUEUE_CREATION_MODE", "open")
+            .env("F2Z_RELAY_ANTIABUSE_CONTACT_APPEND_POW_BITS", "8")
+            .env("F2Z_RELAY_ANTIABUSE_PER_SOURCE_LIMITS", "false")
+            .env("F2Z_RELAY_COMMIT_WINDOW_MS", "1")
+            .env("F2Z_RELAY_QUEUES_EXPIRY_TICK_SECONDS", "3600")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start the production f2z-relay daemon");
+        let stderr = child.stderr.take().expect("capture relay startup");
+        let mut stderr = BufReader::new(stderr);
+        let mut startup = String::new();
+        stderr
+            .read_line(&mut startup)
+            .expect("read production relay startup");
+        let url = startup
+            .trim()
+            .strip_prefix("f2z-relay: serving ")
+            .unwrap_or_else(|| panic!("production relay did not start: {startup:?}"))
+            .to_owned();
+        let stderr = std::thread::spawn(move || {
+            let mut remainder = String::new();
+            let _ = stderr.read_to_string(&mut remainder);
+            remainder
+        });
+        Self {
+            child,
+            stderr: Some(stderr),
+            _scratch: scratch,
+            url,
+        }
+    }
+
+    fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+impl Drop for ProductionRelay {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let status = self.child.wait();
+        let stderr = self
+            .stderr
+            .take()
+            .and_then(|thread| thread.join().ok())
+            .unwrap_or_default();
+        if let Err(error) = status {
+            eprintln!("waiting for production relay failed: {error}; stderr: {stderr}");
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 struct FailOnceBackend {
@@ -275,9 +379,8 @@ async fn publish<B: StorageBackend>(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn two_relay_records_remain_behind_an_unavailable_group() {
-    let relay = FakeRelay::with_defaults().expect("fake relay");
-    let server = relay.listen_loopback().await.expect("WebSocket listener");
-    let url = server.url().to_owned();
+    let relay = ProductionRelay::start();
+    let url = relay.url().to_owned();
 
     let directory = Arc::new(HarnessDirectory::default());
     let alice = engine(MemoryBackend::new(), Arc::clone(&directory));
