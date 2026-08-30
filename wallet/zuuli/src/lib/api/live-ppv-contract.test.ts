@@ -25,9 +25,16 @@ function meeting(meetingType: unknown, pricePerMinute = "2") {
 describe("PPV livestream HTTP contract", () => {
   beforeEach(() => requestMock.mockReset());
 
-  it("round-trips the authoritative ppv kind through listing, pricing, join, and host start", async () => {
+  it("round-trips the authoritative ppv kind through listing, status, pricing, join, and host start", async () => {
     requestMock
       .mockResolvedValueOnce({ results: [meeting("ppv")] })
+      .mockResolvedValueOnce({
+        ppv: { meeting_type: "ppv", participants: 3 },
+        "pay-per-view": {
+          meeting_type: "pay-per-view",
+          participants: 99,
+        },
+      })
       .mockResolvedValueOnce({
         meeting_id: "authoritative-meeting",
         auth_token: "participant-ticket",
@@ -45,6 +52,10 @@ describe("PPV livestream HTTP contract", () => {
       kind: "ppv",
       price_tuzis: 75,
     });
+    await expect(live.status("alice", stream!.kind)).resolves.toEqual({
+      live: true,
+      participants: 3,
+    });
 
     await expect(live.join("alice", stream!.kind)).resolves.toMatchObject({
       authToken: "participant-ticket",
@@ -61,6 +72,7 @@ describe("PPV livestream HTTP contract", () => {
 
     expect(requestMock.mock.calls.map(([path]) => path)).toEqual([
       "/api/dyte/public/",
+      "/api/dyte/alice/live-status",
       "/api/dyte/alice/ppv",
       "/api/auth/user/",
       "/api/dyte/alice/ppv",
