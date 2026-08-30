@@ -193,7 +193,7 @@ interface RawDyteMeeting {
   id: number;
   creator: RawCreator;
   meeting_id: string;
-  meeting_type: string; // broadcast | ppv | subscribers-only | private
+  meeting_type: unknown;
   live_now: boolean;
   price_per_minute?: string;
 }
@@ -623,21 +623,51 @@ export function parseCreatorPagesPage(
   };
 }
 
-/** free2z meeting_type → ZUULI StreamKind (and back). */
-const KIND_FROM_TYPE: Record<string, StreamKind> = {
+/** The exact free2z `meeting_type` wire enum. Never add client aliases here. */
+type DyteMeetingType = "broadcast" | "ppv" | "subscribers-only" | "private";
+
+const KIND_FROM_TYPE = {
   broadcast: "broadcast",
   ppv: "ppv",
-  "pay-per-view": "ppv",
   "subscribers-only": "subscriber",
-  subscriber: "subscriber",
   private: "private",
-};
-const TYPE_FROM_KIND: Record<StreamKind, string> = {
+} as const satisfies Record<DyteMeetingType, StreamKind>;
+
+const TYPE_FROM_KIND = {
   broadcast: "broadcast",
-  ppv: "pay-per-view",
+  ppv: "ppv",
   subscriber: "subscribers-only",
   private: "private",
-};
+} as const satisfies Record<StreamKind, DyteMeetingType>;
+
+export class LivestreamKindContractError extends Error {
+  constructor() {
+    super("Unsupported livestream kind in the free2z API contract.");
+    this.name = "LivestreamKindContractError";
+  }
+}
+
+/** Parse an untrusted wire value without silently making a stream free or paid. */
+function streamKindFromType(value: unknown): StreamKind {
+  if (
+    typeof value !== "string" ||
+    !Object.prototype.hasOwnProperty.call(KIND_FROM_TYPE, value)
+  ) {
+    throw new LivestreamKindContractError();
+  }
+  return KIND_FROM_TYPE[value as DyteMeetingType];
+}
+
+/** Serialize a runtime value through the same strict contract boundary. */
+function typeFromStreamKind(value: StreamKind): DyteMeetingType {
+  if (
+    typeof value !== "string" ||
+    !Object.prototype.hasOwnProperty.call(TYPE_FROM_KIND, value)
+  ) {
+    throw new LivestreamKindContractError();
+  }
+  return TYPE_FROM_KIND[value];
+}
 
 /** PPV entry cost the backend enforces: ceil(price_per_minute*30) + 15 fee. */
 function ppvPrice(pricePerMinute?: string): number {
@@ -646,7 +676,7 @@ function ppvPrice(pricePerMinute?: string): number {
 }
 
 function mapLivestream(m: RawDyteMeeting): Livestream {
-  const kind = KIND_FROM_TYPE[m.meeting_type] ?? "broadcast";
+  const kind = streamKindFromType(m.meeting_type);
   const creator = mapCreator(m.creator);
   return {
     id: String(m.id),
@@ -1769,6 +1799,7 @@ export const live = {
     username: string,
     kind?: StreamKind,
   ): Promise<{ live: boolean; participants: number }> {
+    const expectedType = kind ? typeFromStreamKind(kind) : undefined;
     if (useMock()) {
       await delay(120);
       const s = mockLivestreams.find((l) => l.username === username);
@@ -1781,7 +1812,6 @@ export const live = {
         `/api/dyte/${username}/live-status`,
         { anonymous: true, cache: "no-store" },
       );
-      const expectedType = kind ? TYPE_FROM_KIND[kind] : undefined;
       const entries = Object.entries(s || {})
         .filter(
           ([key, entry]) =>
@@ -1799,6 +1829,7 @@ export const live = {
 
   /** Creator starts/ensures their stream and receives its host ticket. */
   async start(kind: StreamKind): Promise<LiveStartResult> {
+    const meetingType = typeFromStreamKind(kind);
     if (useMock()) {
       await delay(500);
       return {
@@ -1828,7 +1859,7 @@ export const live = {
       return { ticket, inviteSecret: secret };
     }
     const r = await request<{ meeting_id: string; auth_token: string }>(
-      `/api/dyte/${me.username}/${TYPE_FROM_KIND[kind]}`,
+      `/api/dyte/${me.username}/${meetingType}`,
       { method: "POST" },
     );
     // A new public meeting changed discovery; private rooms never touch it.
@@ -1858,6 +1889,7 @@ export const live = {
     secret?: string,
     as: "host" | "participant" = "participant",
   ): Promise<DyteJoinTicket> {
+    const meetingType = typeFromStreamKind(kind);
     if (useMock()) {
       await delay(600);
       if (kind === "private" && !mockSecretUnlocks(secret)) {
@@ -1878,7 +1910,7 @@ export const live = {
     const path =
       kind === "private"
         ? `/api/dyte/${encodeURIComponent(username)}/private/${encodeURIComponent(privateSecret!)}`
-        : `/api/dyte/${encodeURIComponent(username)}/${TYPE_FROM_KIND[kind]}`;
+        : `/api/dyte/${encodeURIComponent(username)}/${meetingType}`;
     // The private-join response omits meeting_id (returns { e2ee, auth_token }).
     try {
       const r = await request<{ meeting_id?: string; auth_token: string }>(path, {
