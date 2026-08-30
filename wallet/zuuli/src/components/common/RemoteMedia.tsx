@@ -49,7 +49,10 @@ async function fetchFirstPartyImage(
 ): Promise<Response> {
   if (isTauri() && !import.meta.env.DEV) {
     const mod = await import("@tauri-apps/plugin-http");
-    return mod.fetch(input, init);
+    // The native plugin does not forward RequestInit.redirect to its Rust
+    // client. Disable redirects through its explicit transport option so each
+    // location is returned to downloadTrustedFirstPartyImage for validation.
+    return mod.fetch(input, { ...init, maxRedirections: 0 });
   }
   return window.fetch(input, init);
 }

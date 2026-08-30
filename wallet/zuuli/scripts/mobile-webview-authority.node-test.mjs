@@ -182,6 +182,19 @@ test("trusted image transport and local-only rendering stay compiler-bound", () 
   );
 });
 
+test("native trusted-image fetch cannot follow a redirect before validation", async () => {
+  const remoteMedia = await readFile(
+    new URL("../src/components/common/RemoteMedia.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    remoteMedia,
+    /return mod\.fetch\(input, \{ \.\.\.init, maxRedirections: 0 \}\);/,
+    "the Tauri HTTP transport must return every redirect for host revalidation",
+  );
+});
+
 test("the committed mobile capability and packaged CSP satisfy the contract", async () => {
   const [mobile, tauri] = await Promise.all([
     readFile(
