@@ -176,7 +176,14 @@ impl FakeRelay {
     pub fn connect(&self) -> Transport {
         let (client_side, relay_side) = duplex(DUPLEX_CAPACITY);
         let relay = Arc::clone(&self.relay);
-        tokio::spawn(crate::connection::drive(relay, relay_side));
+        // An in-process connection has no owning server to shut down. Keep its
+        // sender alive for exactly as long as `drive`, so the new server-
+        // shutdown watch remains distinct from the writer-finished watch.
+        let (server_lifetime, server_shutdown) = tokio::sync::watch::channel(false);
+        tokio::spawn(async move {
+            crate::connection::drive(relay, relay_side, server_shutdown).await;
+            drop(server_lifetime);
+        });
         client_side
     }
 
