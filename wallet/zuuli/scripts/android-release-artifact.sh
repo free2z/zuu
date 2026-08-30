@@ -16,13 +16,15 @@ validate_identity() {
 
 validate_archive() {
   local artifact=$1 listing=$2
+  # This validator is shared by stdout-producing and stdout-silent commands.
+  # Keep its stdout empty on both success and failure; diagnostics go to stderr.
   unzip -Z1 "$artifact" | LC_ALL=C sort > "$listing" || return 1
   [[ -s "$listing" ]] || { echo "AAB member inventory is empty" >&2; return 1; }
   if LC_ALL=C sort "$listing" | uniq -d | grep -q .; then
     echo "AAB contains duplicate member names" >&2
     return 1
   fi
-  if grep -E '(^/|(^|/)\.\.?(/|$)|(^|/)-|\\|[[:cntrl:]])' "$listing"; then
+  if grep -qE '(^/|(^|/)\.\.?(/|$)|(^|/)-|\\|[[:cntrl:]])' "$listing"; then
     echo "AAB contains an unsafe member name" >&2
     return 1
   fi
@@ -38,6 +40,8 @@ validate_archive() {
 }
 
 record() {
+  # Stdout contract: exactly one bare CHECKSUMS.sha256 digest on success and
+  # nothing on failure. All diagnostics belong on stderr.
   [[ $# -eq 5 ]] || usage
   local artifact=$1 identity=$2 source_sha=$3 source_tree=$4 output=$5
   validate_identity "$identity" || { echo "invalid release identity" >&2; return 1; }
@@ -64,6 +68,8 @@ record() {
 }
 
 seal_verifier() {
+  # Stdout contract: exactly one bare sealed CHECKSUMS.sha256 digest on success
+  # and nothing on failure. All diagnostics belong on stderr.
   [[ $# -eq 3 ]] || usage
   local directory=$1 verifier=$2 expected_sha=$3
   [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid verifier digest" >&2; return 1; }
@@ -94,6 +100,8 @@ seal_verifier() {
 }
 
 verify() {
+  # Stdout contract: always empty. Verification detail and failures belong on
+  # stderr so callers may safely use stdout as a machine-readable channel.
   [[ $# -eq 1 ]] || usage
   local directory=$1
   [[ -d "$directory" && ! -L "$directory" ]] || { echo "unsafe artifact directory" >&2; return 1; }
@@ -102,11 +110,17 @@ verify() {
     actual_inventory=$({ for path in ./*; do [[ -f "$path" && ! -L "$path" ]] || exit 1; printf '%s\n' "${path#./}"; done; } | LC_ALL=C sort | tr '\n' ' ') || exit 1
     [[ "$actual_inventory" == \
       "CHECKSUMS.sha256 ZUULI-android-unsigned.aab aab-members.txt bundletool-all-1.18.3.jar source-record.json " ]] || exit 1
-    sha256sum -c CHECKSUMS.sha256
+    # Keep sha256sum's mismatch warning and read errors on stderr without
+    # leaking its per-member status lines to stdout.
+    sha256sum -c CHECKSUMS.sha256 >/dev/null
     [[ "$(sha256_file bundletool-all-1.18.3.jar)" == "$(jq -er .verifier.sha256 source-record.json)" ]] || exit 1
   ) || { echo "artifact inventory or checksum verification failed" >&2; return 1; }
   validate_archive "$directory/ZUULI-android-unsigned.aab" "$directory/current-members.txt" || return 1
-  cmp "$directory/aab-members.txt" "$directory/current-members.txt" || { rm -f "$directory/current-members.txt"; return 1; }
+  cmp -s "$directory/aab-members.txt" "$directory/current-members.txt" || {
+    rm -f "$directory/current-members.txt"
+    echo "AAB member inventory changed" >&2
+    return 1
+  }
   rm "$directory/current-members.txt" || return 1
   jq -e '.schemaVersion == 1 and .kind == "android-unsigned-universal-aab" and .applicationId == "cash.free2z.zuuli" and .abis == ["arm64-v8a","armeabi-v7a","x86","x86_64"] and .verifier.name == "bundletool-all-1.18.3.jar" and .verifier.version == "1.18.3" and (.verifier.sha256 | test("^[0-9a-f]{64}$"))' \
     "$directory/source-record.json" >/dev/null
