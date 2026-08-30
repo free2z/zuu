@@ -15,6 +15,7 @@ const route = vi.hoisted(() => ({
   useEntry: vi.fn(),
   walletState: {
     status: null as {
+      initialized: boolean;
       activeWalletId: string | null;
       backupRequired: boolean;
     } | null,
@@ -126,7 +127,11 @@ beforeEach(async () => {
   route.refreshIdentity.mockReset().mockResolvedValue(undefined);
   route.bootstrap.mockReset().mockResolvedValue(undefined);
   route.useEntry.mockReset();
-  route.walletState.status = null;
+  route.walletState.status = {
+    initialized: false,
+    activeWalletId: null,
+    backupRequired: false,
+  };
   route.walletState.activeWallet = null;
   await installDom();
 });
@@ -185,6 +190,33 @@ describe("ZUULI restore sensitive-entry route", () => {
 });
 
 describe("ZUULI create backup lifecycle", () => {
+  it("withholds create and restore authority while wallet identity is unknown", async () => {
+    route.walletState.status = null;
+    await act(async () => root.render(<Onboarding />));
+
+    expect(container.textContent).toContain("Wallet identity unavailable");
+    expect(container.textContent).toContain("Retry wallet identity");
+    expect(container.textContent).not.toContain("Create wallet");
+    expect(container.textContent).not.toContain("Restore wallet");
+  });
+
+  it("withholds setup authority when an initialized wallet reaches onboarding", async () => {
+    route.walletState.status = {
+      initialized: true,
+      activeWalletId: "wallet-existing",
+      backupRequired: false,
+    };
+    route.walletState.activeWallet = {
+      id: "wallet-existing",
+      birthdayHeight: 123,
+    };
+    await act(async () => root.render(<Onboarding />));
+
+    expect(container.textContent).toContain("Wallet identity unavailable");
+    expect(container.textContent).not.toContain("Create wallet");
+    expect(container.textContent).not.toContain("Restore wallet");
+  });
+
   it("refreshes the exact created identity immediately and keeps seed reveal mounted", async () => {
     const events: string[] = [];
     route.create.mockImplementation(async () => {
@@ -209,6 +241,7 @@ describe("ZUULI create backup lifecycle", () => {
 
   it("resumes backup only from a coherent active inventory identity", async () => {
     route.walletState.status = {
+      initialized: true,
       activeWalletId: "wallet-resume",
       backupRequired: true,
     };

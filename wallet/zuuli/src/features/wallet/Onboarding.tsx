@@ -69,6 +69,29 @@ export function Onboarding() {
     );
   }
 
+  // Create/restore authority is available only after a coherent native
+  // snapshot positively proves that no wallet exists. A missing status is an
+  // unknown identity, not an empty one, and an initialized status must never
+  // reach setup even if a caller mounts this component directly.
+  if (!status || status.initialized) {
+    return (
+      <Card className="mx-auto max-w-lg rounded-xl">
+        <CardHeader>
+          <CardTitle className="text-base">Wallet identity unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            ZUULI could not verify whether a wallet already exists. Create and
+            restore stay unavailable until the wallet identity is verified.
+          </p>
+          <Button type="button" variant="outline" onClick={() => void bootstrap()}>
+            Retry wallet identity
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div className="space-y-2 text-center">

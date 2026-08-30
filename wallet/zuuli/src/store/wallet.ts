@@ -212,6 +212,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   async bootstrap() {
     await enqueueIdentity(async () => {
       identityTransitionActive = true;
+      get().stopSyncPolling();
       try {
         const snapshot = await readWalletSnapshot();
         set({ ...snapshot, loading: false, identityError: null });
@@ -222,7 +223,7 @@ export const useWallet = create<WalletState>((set, get) => ({
           get().startSyncPolling();
         }
       } catch (error) {
-        set({ loading: false, identityError: String(error) });
+        set({ ...clearedIdentity, loading: false, identityError: String(error) });
       } finally {
         identityTransitionActive = false;
       }

@@ -165,21 +165,51 @@ describe("wallet identity store", () => {
     expect(bridge.getUnifiedAddress).toHaveBeenCalledWith(0);
   });
 
-  it("fails closed on incoherent inventory without partially publishing it", async () => {
+  it("clears every prior identity and account field on incoherent inventory", async () => {
     mockStableNative(() => "wallet-a");
     await useWallet.getState().bootstrap();
-    const prior = useWallet.getState();
 
     bridge.getWalletStatus.mockResolvedValueOnce(status("wallet-b"));
     bridge.listWallets.mockResolvedValueOnce(inventory("wallet-a"));
     await useWallet.getState().bootstrap();
 
-    const current = useWallet.getState();
-    expect(current.activeWalletId).toBe(prior.activeWalletId);
-    expect(current.balance).toBe(prior.balance);
-    expect(current.unifiedAddress).toBe(prior.unifiedAddress);
-    expect(current.identityError).toContain("disagree");
+    expect(useWallet.getState()).toMatchObject({
+      status: null,
+      wallets: [],
+      activeWalletId: null,
+      activeWallet: null,
+      balance: null,
+      sync: null,
+      unifiedAddress: null,
+    });
+    expect(useWallet.getState().identityError).toContain("disagree");
   });
+
+  it.each([
+    ["balance", "getAccountBalance"],
+    ["address", "getUnifiedAddress"],
+    ["sync", "getSyncStatus"],
+  ] as const)(
+    "clears a previously published identity when the %s read fails",
+    async (_label, method) => {
+      mockStableNative(() => "wallet-a");
+      await useWallet.getState().bootstrap();
+
+      bridge[method].mockRejectedValueOnce(new Error(`transient ${method} failure`));
+      await useWallet.getState().bootstrap();
+
+      expect(useWallet.getState()).toMatchObject({
+        status: null,
+        wallets: [],
+        activeWalletId: null,
+        activeWallet: null,
+        balance: null,
+        sync: null,
+        unifiedAddress: null,
+      });
+      expect(useWallet.getState().identityError).toContain(method);
+    },
+  );
 
   it.each([
     ["no active wallet", inventory("wallet-a").map((entry) => ({ ...entry, isActive: false }))],
