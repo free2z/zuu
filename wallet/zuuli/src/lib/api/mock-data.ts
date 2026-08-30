@@ -394,7 +394,8 @@ export const mockLivestreams: Livestream[] = [
       "PPV: Deep dive — writing a Halo2 circuit from scratch without copying anybody's gadgets",
     kind: "ppv",
     live: true,
-    participants: 38,
+    // Count hydration can be unavailable independently of live status.
+    participants: null,
     price_tuzis: 250,
     thumbnail: null,
     started_at: new Date(Date.now() - 12 * 60000).toISOString(),

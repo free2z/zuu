@@ -356,7 +356,8 @@ export type StreamKind = "broadcast" | "subscriber" | "ppv" | "private";
 export interface LiveStatus {
   username: string;
   live: boolean;
-  participants: number;
+  /** Authoritative hydrated count, or null while the count is unavailable. */
+  participants: number | null;
   kind: StreamKind;
 }
 
@@ -369,7 +370,8 @@ export interface Livestream {
   title: string;
   kind: StreamKind;
   live: boolean;
-  participants: number;
+  /** Authoritative hydrated count, or null while the count is unavailable. */
+  participants: number | null;
   /** 2Z price to join (0 for free broadcast). */
   price_tuzis: number;
   thumbnail?: string | null;

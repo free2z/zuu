@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { live } from "@/lib/api/free2z";
 import { useAsync } from "@/hooks/useAsync";
 import type { StreamKind } from "@/lib/api/types";
+import { compareParticipantCountsDescending } from "@/lib/participant-count";
 import { StreamCard, StreamCardSkeleton } from "./StreamCard";
 import { GoLiveDialog } from "./GoLiveDialog";
 
@@ -51,7 +52,7 @@ export function Discovery() {
     // Live first, then most-watched.
     return [...filtered].sort((a, b) => {
       if (a.live !== b.live) return a.live ? -1 : 1;
-      return b.participants - a.participants;
+      return compareParticipantCountsDescending(a.participants, b.participants);
     });
   }, [data, filter]);
 

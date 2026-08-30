@@ -7,19 +7,21 @@ import { formatTuzis, timeAgo, initials } from "@/lib/format";
 import type { Livestream } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { coverTone } from "@/lib/cover";
+import { participantCountCopy } from "@/lib/participant-count";
 import { KIND_META } from "./lib";
 
 export function StreamCard({ stream }: { stream: Livestream }) {
   const kind = KIND_META[stream.kind] ?? KIND_META.broadcast;
   const creatorName = stream.creator.display_name ?? stream.creator.username;
   const isPaid = stream.kind === "ppv" && stream.price_tuzis > 0;
+  const participants = participantCountCopy(stream.participants);
 
   return (
     <Link
       to={`/live/${stream.username}`}
       aria-label={
         stream.live
-          ? `${stream.title} by ${creatorName} — live now, ${stream.participants} watching`
+          ? `${stream.title} by ${creatorName} — live now, ${participants.watching}`
           : `${stream.title} by ${creatorName} — offline`
       }
       className={cn(
@@ -74,9 +76,7 @@ export function StreamCard({ stream }: { stream: Livestream }) {
         {stream.live ? (
           <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-xs font-medium text-white backdrop-blur">
             <Users className="h-3.5 w-3.5" aria-hidden />
-            <span className="tabular-nums">
-              {stream.participants.toLocaleString()}
-            </span>
+            <span className="tabular-nums">{participants.value}</span>
           </div>
         ) : null}
 
