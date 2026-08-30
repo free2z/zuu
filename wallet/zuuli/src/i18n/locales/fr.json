@@ -1,0 +1,61 @@
+{
+  "common": {
+    "loading": "Chargement",
+    "pending": "En attente",
+    "retry": "Réessayer",
+    "retrying": "Nouvelle tentative"
+  },
+  "error": {
+    "notFound": {
+      "back": "Retour à Découvrir",
+      "description": "Cette page n'existe pas ou a été déplacée. Revenons sur la bonne voie.",
+      "title": "Page introuvable"
+    }
+  },
+  "navigation": {
+    "accountMenu": "Menu du compte",
+    "ai": "IA",
+    "aiAccessible": "Intelligence artificielle",
+    "app": "Navigation de l'application",
+    "articles": "Articles",
+    "back": "Retour",
+    "buyTuzis": "Acheter des 2Z",
+    "buyTuzisBalance": "Acheter des 2Z. Solde {balance}",
+    "editProfile": "Modifier le profil",
+    "groups": {
+      "account": "Compte",
+      "explore": "Explorer",
+      "money": "Argent",
+      "tools": "Outils"
+    },
+    "home": "Accueil",
+    "live": "Diffusions en direct",
+    "liveShort": "Direct",
+    "login": "Se connecter",
+    "messages": "Messages",
+    "messagesAccessible": "Messages chiffrés",
+    "more": "Plus",
+    "moreAccessible": "Plus de navigation",
+    "moreDescription": "{count, plural, one {# destination supplémentaire} other {# destinations supplémentaires}}",
+    "moreNavigation": "Plus de navigation",
+    "openWallet": "Ouvrir le portefeuille",
+    "primary": "Navigation principale",
+    "profile": "Profil",
+    "profileAccessible": "Modifier le profil",
+    "revenueShare": "Partage des revenus",
+    "search": "Rechercher des créateurs et des pages",
+    "searchAction": "Rechercher",
+    "searchPlaceholder": "Rechercher des créateurs et des pages…",
+    "signOut": "Se déconnecter",
+    "wallet": "Portefeuille",
+    "walletAccessible": "Portefeuille Zcash",
+    "zcashLogin": "Connexion Zcash"
+  },
+  "shell": {
+    "legacyWallet": {
+      "description": "Un ancien portefeuille ZUULI reste conservé en toute sécurité. Cette application n'a ouvert que le portefeuille actuel ; l'importation explicite est en attente.",
+      "label": "Ancien portefeuille conservé",
+      "title": "Ancien portefeuille conservé"
+    }
+  }
+}

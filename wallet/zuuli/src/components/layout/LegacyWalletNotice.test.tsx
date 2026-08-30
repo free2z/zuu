@@ -2,6 +2,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupportedLocale } from "@/i18n/locale";
+import { TestI18nProvider } from "@/i18n/test-provider";
 import type { LegacyImportPreview } from "@/lib/wallet/types";
 
 const controls = vi.hoisted(() => ({
@@ -66,8 +68,14 @@ async function installDom() {
   root = createRoot(container);
 }
 
-async function renderNotice() {
-  await act(async () => root.render(<LegacyWalletNotice />));
+async function renderNotice(locale: SupportedLocale = "en") {
+  await act(async () =>
+    root.render(
+      <TestI18nProvider locale={locale}>
+        <LegacyWalletNotice />
+      </TestI18nProvider>,
+    ),
+  );
 }
 
 async function clickPreview() {
@@ -128,6 +136,16 @@ describe("legacy wallet preview notice", () => {
     await clickPreview();
     expect(controls.preview).toHaveBeenCalledTimes(1);
     expect(controls.preview).toHaveBeenCalledWith();
+  });
+
+  it("renders the preserved-wallet authority from the selected catalog", async () => {
+    controls.preview.mockResolvedValue(fixture());
+    await renderNotice("es");
+    expect(container.textContent).toContain("Billetera anterior conservada");
+    expect(container.textContent).not.toContain("Earlier wallet preserved");
+    expect(container.querySelector("section")?.getAttribute("aria-label")).toBe(
+      "Billetera anterior conservada",
+    );
   });
 
   it("keeps a pending inspection single-flight", async () => {
