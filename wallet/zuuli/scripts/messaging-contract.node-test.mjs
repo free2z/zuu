@@ -29,6 +29,9 @@ import { fileURLToPath } from "node:url";
 const contractPath = fileURLToPath(
   new URL("../../../docs/e2ee/CLIENT-CONTRACT.md", import.meta.url),
 );
+const wirePath = fileURLToPath(
+  new URL("../../../docs/e2ee/WIRE.md", import.meta.url),
+);
 const bridgePath = fileURLToPath(
   new URL("../src/lib/messaging/bridge.ts", import.meta.url),
 );
@@ -41,11 +44,26 @@ const registryPath = fileURLToPath(
     import.meta.url,
   ),
 );
+const relayPath = fileURLToPath(
+  new URL(
+    "../../plugins/tauri-plugin-f2zmsg/src/relay.rs",
+    import.meta.url,
+  ),
+);
+const wireCodesPath = fileURLToPath(
+  new URL(
+    "../../plugins/tauri-plugin-f2zmsg/src/wire_codes.rs",
+    import.meta.url,
+  ),
+);
 
 const contract = readFileSync(contractPath, "utf8");
+const wire = readFileSync(wirePath, "utf8");
 const bridge = readFileSync(bridgePath, "utf8");
 const events = readFileSync(eventsPath, "utf8");
 const registry = readFileSync(registryPath, "utf8");
+const relay = readFileSync(relayPath, "utf8");
+const wireCodes = readFileSync(wireCodesPath, "utf8");
 
 /// §2.2: these three need the wallet seed, so they live in
 /// `wallet/zuuli/src-tauri/src/messaging.rs` and are invoked with no `plugin:`
@@ -121,6 +139,67 @@ function difference(left, right) {
   return [...left].filter((value) => !right.has(value)).sort();
 }
 
+function relayErrorContractFailures({
+  clientContract = contract,
+  wireSpec = wire,
+  relayRuntime = relay,
+  mapperRuntime = wireCodes,
+} = {}) {
+  const failures = [];
+  const code10Rows = clientContract
+    .split("\n")
+    .filter((line) => /^\| 10 \| `ERR_NO_ACCESS` \|/.test(line));
+  if (code10Rows.length !== 1) {
+    failures.push(`CLIENT-CONTRACT code-10 rows: ${code10Rows.length}`);
+  } else if (
+    !code10Rows[0].includes("`relay-protocol-violation`") ||
+    code10Rows[0].includes("send-unavailable")
+  ) {
+    failures.push("CLIENT-CONTRACT code 10 is not unconditionally a protocol violation");
+  }
+
+  for (const required of [
+    "`APPEND` never returns code 10.",
+    "wrong-key send side returns code 15",
+    "applying code 10 to them would",
+  ]) {
+    if (!wireSpec.includes(required)) {
+      failures.push(`WIRE send-side collapse is missing ${JSON.stringify(required)}`);
+    }
+  }
+
+  for (const required of [
+    "pub fn from_relay(code: WireCode, command: Command, attempt: BindAttempt)",
+    "| WireCode::NoAccess",
+    "fn every_command_code_and_attempt_matches_the_allowed_context_matrix()",
+    "from_relay(WireCode::Unavailable, Command::Read, BindAttempt::Later)",
+    "from_relay(WireCode::Quota, Command::Append, BindAttempt::Later)",
+  ]) {
+    if (!mapperRuntime.includes(required)) {
+      failures.push(`shipping mapper is missing ${JSON.stringify(required)}`);
+    }
+  }
+  if (mapperRuntime.includes("CommandSide")) {
+    failures.push("shipping mapper still uses the too-coarse CommandSide context");
+  }
+
+  const genericCommandContexts = relayRuntime.match(/proto\(error, C::COMMAND,/g) ?? [];
+  const helloContexts = relayRuntime.match(/proto\(error, Command::Hello,/g) ?? [];
+  if (genericCommandContexts.length !== 4) {
+    failures.push(
+      `relay generic response paths carrying C::COMMAND: ${genericCommandContexts.length}`,
+    );
+  }
+  if (helloContexts.length !== 2) {
+    failures.push(`relay HELLO paths carrying Command::Hello: ${helloContexts.length}`);
+  }
+  if (relayRuntime.includes("CommandSide")) {
+    failures.push("relay response paths still erase exact command context");
+  }
+
+  return failures;
+}
+
 test("the contract and the bridge are the documents this test thinks they are", () => {
   // Without these, a moved file or a renamed heading makes every comparison
   // below vacuous instead of failing.
@@ -190,5 +269,38 @@ test("the bridge and the plugin agree, so neither can drift alone", () => {
   assert.deepEqual(
     { onlyInBridge: difference(bridge, plugin), onlyInPlugin: difference(plugin, bridge) },
     { onlyInBridge: [], onlyInPlugin: [] },
+  );
+});
+
+test("relay error semantics stay bound across WIRE, client contract, and shipping code", () => {
+  assert.deepEqual(relayErrorContractFailures(), []);
+});
+
+test("relay error binding rejects public-contract, mapper, and call-site mutations", () => {
+  const contractMutation = contract.replace(
+    "| 10 | `ERR_NO_ACCESS` | `relay-protocol-violation`.",
+    "| 10 | `ERR_NO_ACCESS` | `send-unavailable`.",
+  );
+  assert.notEqual(contractMutation, contract, "contract mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: contractMutation }),
+    [],
+  );
+
+  const mapperMutation = wireCodes.replace(
+    "| WireCode::NoAccess",
+    "| WireCode::Quota",
+  );
+  assert.notEqual(mapperMutation, wireCodes, "mapper mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ mapperRuntime: mapperMutation }),
+    [],
+  );
+
+  const callSiteMutation = relay.replace("proto(error, C::COMMAND,", "proto(error, Command::Read,");
+  assert.notEqual(callSiteMutation, relay, "call-site mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ relayRuntime: callSiteMutation }),
+    [],
   );
 });

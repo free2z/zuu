@@ -47,6 +47,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
+use f2z_codec::commands::Command;
 use f2z_codec::hash::{hash, hash2};
 use f2z_codec::types::RelayId;
 use f2z_msg_mls::{EngineError, MlsEngine, Received, VerifiedKeyPackage};
@@ -1805,7 +1806,7 @@ impl<B: StorageBackend> Engine<B> {
                 return Err(Error::new(
                     crate::wire_codes::from_proto(
                         error,
-                        crate::wire_codes::CommandSide::Receive,
+                        Command::GetCapabilities,
                         crate::wire_codes::BindAttempt::Later,
                     ),
                     format!("the relay's published capabilities are refused: {error:?}"),

@@ -87,8 +87,9 @@ jobs:
           node wallet/zuuli/scripts/wasm-boundary.mjs --self-test
           node wallet/zuuli/scripts/wasm-boundary.mjs
 
-      - name: Verify plugin command and permission parity
+      - name: Verify messaging contract, command, and permission parity
         run: |
+          node --test wallet/zuuli/scripts/messaging-contract.node-test.mjs
           node scripts/check-tauri-plugin-permissions.mjs --self-test
           node scripts/check-tauri-plugin-permissions.mjs
 

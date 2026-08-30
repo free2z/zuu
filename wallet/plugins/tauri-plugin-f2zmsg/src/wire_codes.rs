@@ -26,22 +26,10 @@
 //! mean an attack.
 
 use f2z_codec::ErrorCode as WireCode;
+use f2z_codec::commands::Command;
 use f2z_relay_proto::{ProtoError, Refusal};
 
 use crate::models::ErrorCode;
-
-/// Which side of a signed command a refusal arrived on.
-///
-/// It is a parameter because §8.1 maps two wire codes differently depending on
-/// it, and both differences are load-bearing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CommandSide {
-    /// A command signed by the **send-side** queue key: `BIND_SEND`, `APPEND`.
-    Send,
-    /// A command signed by the **receive-side** queue key: `CREATE_QUEUE`,
-    /// `SUBSCRIBE`, `READ`, `ACK`, `DELETE_QUEUE` — or an unsigned one.
-    Receive,
-}
 
 /// Whether this is the first bind for an address the peer has just advertised.
 ///
@@ -56,60 +44,100 @@ pub enum BindAttempt {
 
 /// `WIRE.md` §10 → [`ErrorCode`].
 ///
-/// `attempt` is only consulted for `ERR_ALREADY_BOUND`; callers that are not
-/// binding pass [`BindAttempt::Later`], which is the safe reading — it blames
-/// the client rather than accusing an operator of theft.
+/// `command` is the exact command whose response carried the code. A known
+/// code in any context `WIRE.md` does not give it follows §8.1's default rule
+/// and becomes `relay-protocol-violation`. `attempt` is valid only for
+/// `BIND_SEND`; callers cannot turn a response to another command into a theft
+/// alarm by labelling it a first bind.
 #[must_use]
-pub fn from_relay(code: WireCode, side: CommandSide, attempt: BindAttempt) -> ErrorCode {
+pub fn from_relay(code: WireCode, command: Command, attempt: BindAttempt) -> ErrorCode {
+    if matches!(attempt, BindAttempt::FirstForFreshAdvert) && !matches!(command, Command::BindSend)
+    {
+        return ErrorCode::RelayProtocolViolation;
+    }
+
     match code {
         // 1, 3, 5, 6 — a malformed frame, an unknown frame type, an unknown
         // command or a bad signature is a bug in one of the two
         // implementations. Never silently retried.
-        WireCode::Malformed | WireCode::FrameType | WireCode::UnknownCommand => {
-            ErrorCode::RelayProtocolViolation
+        WireCode::Malformed
+        | WireCode::FrameType
+        | WireCode::UnknownCommand
+        | WireCode::BadSignature
+        | WireCode::Replay
+        | WireCode::ChannelBinding
+        | WireCode::NoAccess
+        | WireCode::AckTooHigh
+        | WireCode::NotPermitted => ErrorCode::RelayProtocolViolation,
+        // 2 — only HELLO negotiates the version.
+        WireCode::UnsupportedVersion if matches!(command, Command::Hello) => {
+            ErrorCode::RelayVersionUnsupported
         }
-        WireCode::BadSignature => ErrorCode::RelayProtocolViolation,
-        // 2
-        WireCode::UnsupportedVersion => ErrorCode::RelayVersionUnsupported,
-        // 4, 18 — the relay refusing new writes rather than deleting un-acked
-        // ones, which is the correct failure mode.
-        WireCode::TooManyInflight | WireCode::Backpressure => ErrorCode::RelayBackpressure,
+        // 4 — HELLO is the first and only in-flight command at its point in the
+        // session. Every later command may hit the published in-flight cap.
+        WireCode::TooManyInflight if !matches!(command, Command::Hello) => {
+            ErrorCode::RelayBackpressure
+        }
         // 7 — THIS DEVICE'S clock is wrong, not the relay's. Never a defect
         // report against the relay, and never a reason to set a system clock
         // from a relay-supplied time.
-        WireCode::StaleTimestamp => ErrorCode::DeviceClockSkew,
-        // 8 — a repeated `(signer_key, nonce)` is our CSPRNG's fault.
-        WireCode::Replay => ErrorCode::RelayProtocolViolation,
-        // 9 — reserved and unused in v1, so receiving it *is* the violation.
-        WireCode::ChannelBinding => ErrorCode::RelayProtocolViolation,
-        // 10 — see the note in §8.1. Mapping both `ERR_NO_ACCESS` and
-        // `ERR_UNAVAILABLE` to `send-unavailable` on the send side makes the
-        // client behave identically whichever way #550 lands, and is
-        // independently what §10's existence-oracle rule wants.
-        WireCode::NoAccess => match side {
-            CommandSide::Send => ErrorCode::SendUnavailable,
-            CommandSide::Receive => ErrorCode::RelayProtocolViolation,
-        },
-        // 11
-        WireCode::AlreadyBound => match attempt {
-            BindAttempt::FirstForFreshAdvert => ErrorCode::SendAddressStolen,
-            BindAttempt::Later => ErrorCode::RelayProtocolViolation,
-        },
-        // 12 — our emitted size is not in the relay's `padding_sizes`.
-        WireCode::BadSize => ErrorCode::RelayCapabilityMismatch,
-        // 13 — an ACK past the head is a client bug.
-        WireCode::AckTooHigh => ErrorCode::RelayProtocolViolation,
-        // 14
-        WireCode::Quota => ErrorCode::RelayQuota,
-        // 15
-        WireCode::Unavailable => ErrorCode::SendUnavailable,
-        // 16, 17
-        WireCode::PowRequired => ErrorCode::PowRequired,
-        WireCode::PowInvalid => ErrorCode::PowFailed,
-        // 19
-        WireCode::RateLimited => ErrorCode::RelayRateLimited,
-        // 20 — the wrong command for this queue kind is a client bug.
-        WireCode::NotPermitted => ErrorCode::RelayProtocolViolation,
+        WireCode::StaleTimestamp if command.auth() != f2z_codec::commands::Auth::None => {
+            ErrorCode::DeviceClockSkew
+        }
+        // 11 — only a first attempt to BIND_SEND can prove send-capability
+        // theft. A later attempt means the client should not have tried.
+        WireCode::AlreadyBound
+            if matches!(command, Command::BindSend)
+                && matches!(attempt, BindAttempt::FirstForFreshAdvert) =>
+        {
+            ErrorCode::SendAddressStolen
+        }
+        // 12 — exactly the two commands that carry padded payloads.
+        WireCode::BadSize if matches!(command, Command::Append | Command::ContactAppend) => {
+            ErrorCode::RelayCapabilityMismatch
+        }
+        // 14 — the receive-side owner is told only about queue-creation quota.
+        WireCode::Quota
+            if matches!(command, Command::CreateQueue | Command::CreateContactQueue) =>
+        {
+            ErrorCode::RelayQuota
+        }
+        // 15 — ordinary and contact send paths share the state-oracle collapse.
+        WireCode::Unavailable
+            if matches!(
+                command,
+                Command::BindSend | Command::Append | Command::ContactAppend
+            ) =>
+        {
+            ErrorCode::SendUnavailable
+        }
+        // 16, 17 — the three commands that present a proof-of-work stamp.
+        WireCode::PowRequired
+            if matches!(
+                command,
+                Command::CreateQueue | Command::CreateContactQueue | Command::ContactAppend
+            ) =>
+        {
+            ErrorCode::PowRequired
+        }
+        WireCode::PowInvalid
+            if matches!(
+                command,
+                Command::CreateQueue | Command::CreateContactQueue | Command::ContactAppend
+            ) =>
+        {
+            ErrorCode::PowFailed
+        }
+        // 18 — GET_CHALLENGE can fill its challenge table; every signed
+        // command can fill the authenticated anti-replay set.
+        WireCode::Backpressure
+            if matches!(command, Command::GetChallenge)
+                || command.auth() != f2z_codec::commands::Auth::None =>
+        {
+            ErrorCode::RelayBackpressure
+        }
+        // 19 — per-connection/source admission after HELLO.
+        WireCode::RateLimited if !matches!(command, Command::Hello) => ErrorCode::RelayRateLimited,
         // 21
         WireCode::Internal => ErrorCode::Internal,
         // §8.1's default rule. `f2z_codec::ErrorCode` is `#[non_exhaustive]`,
@@ -171,9 +199,9 @@ pub const fn from_refusal(refusal: Refusal) -> ErrorCode {
 
 /// The whole of [`ProtoError`], mapped.
 #[must_use]
-pub fn from_proto(error: ProtoError, side: CommandSide, attempt: BindAttempt) -> ErrorCode {
+pub fn from_proto(error: ProtoError, command: Command, attempt: BindAttempt) -> ErrorCode {
     match error {
-        ProtoError::Wire(code) => from_relay(code, side, attempt),
+        ProtoError::Wire(code) => from_relay(code, command, attempt),
         ProtoError::Refused(refusal) => from_refusal(refusal),
         // §8.1's default rule: a status this build does not know, from a
         // relay — and, because `ProtoError` is `#[non_exhaustive]`, any variant
@@ -189,17 +217,86 @@ pub fn from_proto(error: ProtoError, side: CommandSide, attempt: BindAttempt) ->
 mod tests {
     use super::*;
 
+    fn expected_relay_mapping(code: WireCode, command: Command, attempt: BindAttempt) -> ErrorCode {
+        if matches!(attempt, BindAttempt::FirstForFreshAdvert)
+            && !matches!(command, Command::BindSend)
+        {
+            return ErrorCode::RelayProtocolViolation;
+        }
+        match code {
+            WireCode::UnsupportedVersion if matches!(command, Command::Hello) => {
+                ErrorCode::RelayVersionUnsupported
+            }
+            WireCode::TooManyInflight if !matches!(command, Command::Hello) => {
+                ErrorCode::RelayBackpressure
+            }
+            WireCode::StaleTimestamp if command.auth() != f2z_codec::commands::Auth::None => {
+                ErrorCode::DeviceClockSkew
+            }
+            WireCode::AlreadyBound
+                if matches!(command, Command::BindSend)
+                    && matches!(attempt, BindAttempt::FirstForFreshAdvert) =>
+            {
+                ErrorCode::SendAddressStolen
+            }
+            WireCode::BadSize if matches!(command, Command::Append | Command::ContactAppend) => {
+                ErrorCode::RelayCapabilityMismatch
+            }
+            WireCode::Quota
+                if matches!(command, Command::CreateQueue | Command::CreateContactQueue) =>
+            {
+                ErrorCode::RelayQuota
+            }
+            WireCode::Unavailable
+                if matches!(
+                    command,
+                    Command::BindSend | Command::Append | Command::ContactAppend
+                ) =>
+            {
+                ErrorCode::SendUnavailable
+            }
+            WireCode::PowRequired
+                if matches!(
+                    command,
+                    Command::CreateQueue | Command::CreateContactQueue | Command::ContactAppend
+                ) =>
+            {
+                ErrorCode::PowRequired
+            }
+            WireCode::PowInvalid
+                if matches!(
+                    command,
+                    Command::CreateQueue | Command::CreateContactQueue | Command::ContactAppend
+                ) =>
+            {
+                ErrorCode::PowFailed
+            }
+            WireCode::Backpressure
+                if matches!(command, Command::GetChallenge)
+                    || command.auth() != f2z_codec::commands::Auth::None =>
+            {
+                ErrorCode::RelayBackpressure
+            }
+            WireCode::RateLimited if !matches!(command, Command::Hello) => {
+                ErrorCode::RelayRateLimited
+            }
+            WireCode::Internal => ErrorCode::Internal,
+            _ => ErrorCode::RelayProtocolViolation,
+        }
+    }
+
     #[test]
-    fn every_wire_code_has_a_target_on_both_sides() {
-        // "Closed" is only real if the mapping is total. This is the assertion
-        // that makes the word honest.
+    fn every_command_code_and_attempt_matches_the_allowed_context_matrix() {
+        // This is deliberately exhaustive on all three axes. Removing a guard,
+        // allowing a code on one more command, or applying first-bind authority
+        // outside BIND_SEND changes at least one cell and fails here.
         for code in WireCode::ALL {
-            for side in [CommandSide::Send, CommandSide::Receive] {
+            for command in Command::ALL {
                 for attempt in [BindAttempt::FirstForFreshAdvert, BindAttempt::Later] {
-                    let mapped = from_relay(code, side, attempt);
-                    assert!(
-                        ErrorCode::ALL.contains(&mapped),
-                        "{code:?} on {side:?}/{attempt:?} left the union"
+                    assert_eq!(
+                        from_relay(code, command, attempt),
+                        expected_relay_mapping(code, command, attempt),
+                        "{code:?} on {command:?}/{attempt:?}",
                     );
                 }
             }
@@ -214,7 +311,7 @@ mod tests {
         assert_eq!(
             from_relay(
                 WireCode::StaleTimestamp,
-                CommandSide::Send,
+                Command::Append,
                 BindAttempt::Later
             ),
             ErrorCode::DeviceClockSkew
@@ -222,16 +319,48 @@ mod tests {
     }
 
     #[test]
-    fn no_access_and_unavailable_are_indistinguishable_on_the_send_side() {
-        // The #550 hedge. Whichever way the open question lands, the user sees
-        // the same thing, which is what §10's existence-oracle rule wants.
+    fn no_access_is_never_ordinary_send_unavailability() {
+        // #550 closed the old hedge: state-dependent send-side refusals use
+        // code 15. Code 10 on that path is a relay protocol violation, not an
+        // unavailable queue that the client may silently retry.
+        for command in Command::ALL {
+            assert_eq!(
+                from_relay(WireCode::NoAccess, command, BindAttempt::Later),
+                ErrorCode::RelayProtocolViolation,
+                "{command:?}",
+            );
+        }
         assert_eq!(
-            from_relay(WireCode::NoAccess, CommandSide::Send, BindAttempt::Later),
-            from_relay(WireCode::Unavailable, CommandSide::Send, BindAttempt::Later)
+            from_relay(WireCode::Unavailable, Command::Append, BindAttempt::Later),
+            ErrorCode::SendUnavailable
+        );
+    }
+
+    #[test]
+    fn state_revealing_codes_fail_closed_outside_their_commands() {
+        assert_eq!(
+            from_relay(WireCode::Unavailable, Command::Read, BindAttempt::Later),
+            ErrorCode::RelayProtocolViolation
         );
         assert_eq!(
-            from_relay(WireCode::NoAccess, CommandSide::Send, BindAttempt::Later),
-            ErrorCode::SendUnavailable
+            from_relay(WireCode::Quota, Command::Append, BindAttempt::Later),
+            ErrorCode::RelayProtocolViolation
+        );
+        assert_eq!(
+            from_relay(
+                WireCode::AlreadyBound,
+                Command::ContactAppend,
+                BindAttempt::FirstForFreshAdvert,
+            ),
+            ErrorCode::RelayProtocolViolation
+        );
+        assert_eq!(
+            from_relay(
+                WireCode::Unavailable,
+                Command::Append,
+                BindAttempt::FirstForFreshAdvert,
+            ),
+            ErrorCode::RelayProtocolViolation
         );
     }
 
@@ -240,7 +369,7 @@ mod tests {
         assert_eq!(
             from_relay(
                 WireCode::AlreadyBound,
-                CommandSide::Send,
+                Command::BindSend,
                 BindAttempt::FirstForFreshAdvert
             ),
             ErrorCode::SendAddressStolen
@@ -248,7 +377,7 @@ mod tests {
         assert_eq!(
             from_relay(
                 WireCode::AlreadyBound,
-                CommandSide::Send,
+                Command::BindSend,
                 BindAttempt::Later
             ),
             ErrorCode::RelayProtocolViolation
@@ -261,7 +390,7 @@ mod tests {
         assert_eq!(
             from_proto(
                 ProtoError::UnknownStatus(9999),
-                CommandSide::Receive,
+                Command::Read,
                 BindAttempt::Later
             ),
             ErrorCode::RelayProtocolViolation
@@ -272,13 +401,15 @@ mod tests {
     fn only_the_relays_own_faults_map_to_internal() {
         // `internal` means OUR engine faulted, so exactly one wire code on each
         // side may reach it: the peer reporting its own fault.
-        let internal: Vec<WireCode> = WireCode::ALL
-            .into_iter()
-            .filter(|code| {
-                from_relay(*code, CommandSide::Receive, BindAttempt::Later) == ErrorCode::Internal
-            })
-            .collect();
-        assert_eq!(internal, vec![WireCode::Internal]);
+        for command in Command::ALL {
+            let internal: Vec<WireCode> = WireCode::ALL
+                .into_iter()
+                .filter(|code| {
+                    from_relay(*code, command, BindAttempt::Later) == ErrorCode::Internal
+                })
+                .collect();
+            assert_eq!(internal, vec![WireCode::Internal], "{command:?}");
+        }
     }
 
     #[test]
