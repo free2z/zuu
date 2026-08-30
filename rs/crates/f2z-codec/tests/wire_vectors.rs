@@ -1536,13 +1536,6 @@ fn capabilities() -> Capabilities {
             difficulty_bits: 22,
             challenge_ttl_ms: 30_000,
         },
-        key_packages_enabled: 1,
-        contact_max_key_packages: 64,
-        claim_key_package_pow: PowParams {
-            algorithm: 1,
-            difficulty_bits: 22,
-            challenge_ttl_ms: 30_000,
-        },
         per_source_limits: 1,
         durability_mode: 2,
         operator_name: ShortBytes::new(b"Example Relay Co".to_vec()).unwrap(),
@@ -1557,7 +1550,7 @@ fn capabilities() -> Capabilities {
     }
 }
 
-/// The 41 fields of `Capabilities`, in the order §11.1 prints them.
+/// The frozen v1 fields of `Capabilities`, in the order §11.1 prints them.
 fn capabilities_fields() -> Vec<Field> {
     vec![
         // uint16 protocol_versions<1..255> — a one-byte *byte* length, then the
@@ -1688,23 +1681,6 @@ fn capabilities_fields() -> Vec<Field> {
             4,
             [0x00, 0x00, 0x75, 0x30],
         ),
-        f("uint8 key_packages_enabled = 1", 1, [0x01]),
-        f(
-            "uint32 contact_max_key_packages = 64 = 0x00000040",
-            4,
-            [0x00, 0x00, 0x00, 0x40],
-        ),
-        f("PowParams claim_key_package_pow.algorithm = 1", 1, [0x01]),
-        f(
-            "PowParams claim_key_package_pow.difficulty_bits = 22 = 0x16",
-            1,
-            [0x16],
-        ),
-        f(
-            "PowParams claim_key_package_pow.challenge_ttl_ms = 30000 = 0x00007530",
-            4,
-            [0x00, 0x00, 0x75, 0x30],
-        ),
         f("uint8 per_source_limits = 1 (on)", 1, [0x01]),
         f("uint8 durability_mode = 2 (fsync-per-append)", 1, [0x02]),
         // operator — every one is `opaque x<0..255>`: a one-byte length, then
@@ -1772,7 +1748,7 @@ fn signed_capabilities_is_the_document_then_a_signature() {
 fn every_command_code_is_the_uint16_the_table_assigns() {
     // WIRE.md:598-613. Codes are `uint16` and are **stable forever**, so they
     // are pinned as the two bytes they occupy rather than as integers.
-    let expected: [(Command, [u8; 2]); 16] = [
+    let expected: [(Command, [u8; 2]); 18] = [
         (Command::Hello, [0x00, 0x01]),
         (Command::GetCapabilities, [0x00, 0x02]),
         (Command::GetChallenge, [0x00, 0x03]),
@@ -1789,6 +1765,8 @@ fn every_command_code_is_the_uint16_the_table_assigns() {
         (Command::ContactAppend, [0x00, 0x31]),
         (Command::PublishKeyPackages, [0x00, 0x32]),
         (Command::ClaimKeyPackage, [0x00, 0x33]),
+        (Command::GetKeyPackagePolicy, [0x00, 0x34]),
+        (Command::GetClaimKeyPackageChallenge, [0x00, 0x35]),
     ];
     assert_eq!(expected.len(), Command::ALL.len());
     for (command, bytes) in expected {

@@ -213,7 +213,7 @@ deferred, which is a much larger normative change than filling the hole in.
   [§4.13](../THREAT-MODEL.md#413-a-relay-chooses-which-key-package-you-get-and-can-always-serve-the-reusable-one).
   The recipient can detect it; nothing in v1 requires it to.
 - **Draining a pool is cheaper than flooding a contact queue.** A claim consumes
-  and a `CONTACT_APPEND` does not, so `contact_max_key_packages` stamps push a
+  and a `CONTACT_APPEND` does not, so `max_pool_size` claim stamps push a
   device onto its reusable package until it refills.
   [`../WIRE.md` §12.6.9](../WIRE.md#1269-anti-abuse). Proof of work is the whole
   mitigation, and [§13-I](../ARCHITECTURE.md#13-open-questions)'s anonymous
@@ -221,10 +221,12 @@ deferred, which is a much larger normative change than filling the hole in.
 - **A claim is observable when first contact is abandoned.** One new bit beyond
   [§4.1](../THREAT-MODEL.md#41-directory-lookup-reveals-interest-in-a-handle),
   named in [§4.14](../THREAT-MODEL.md#414-claiming-a-key-package-tells-the-relay-someone-is-about-to-make-contact).
-- **A relay must publish whether it does this at all.** `key_packages_enabled`
-  is not implied by `contact_queues_enabled`, and a client reads it: the
-  difference is whether anyone can start a conversation with the devices that
-  relay hosts.
+- **A relay must publish whether it does this at all.** The additive
+  `GET_KEY_PACKAGE_POLICY` response's `enabled` flag is not implied by the
+  frozen v1 capability document's `contact_queues_enabled`, and a client reads
+  it: the difference is whether anyone can start a conversation with the
+  devices that relay hosts. Keeping it in a new command preserves old/new v1
+  interoperability under `WIRE.md` §3.5.
 - **`KT.md` §4.1 is unchanged.** The dated note there records that the exclusion
   is affirmed rather than reversed, so a reader arriving from the open-item list
   finds the answer instead of a hole.

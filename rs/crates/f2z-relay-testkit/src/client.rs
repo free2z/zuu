@@ -28,10 +28,11 @@ use std::time::{Duration, Instant};
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose, ChallengeRequest,
-    ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, ContactAppendRequest,
-    CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse,
-    HelloRequest, PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest,
-    ReadResponse, SignedCapabilities, SubscribeResponse,
+    ChallengeResponse, ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest,
+    ClaimKeyPackageResponse, ContactAppendRequest, CreateContactQueueRequest,
+    CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
+    KeyPackagePolicy, PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent,
+    ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
 };
 use f2z_codec::frame::Push;
 use f2z_codec::frame::{FramePayload, RelayFrame, Response};
@@ -282,6 +283,26 @@ impl Client {
     /// As [`Client::call_unsigned`].
     pub async fn capabilities(&mut self) -> Result<SignedCapabilities> {
         self.call_unsigned::<ops::GetCapabilities>(&Empty).await
+    }
+
+    /// Additive §12.6 key-package policy discovery.
+    pub async fn key_package_policy(&mut self) -> Result<KeyPackagePolicy> {
+        let policy = self
+            .call_unsigned::<ops::GetKeyPackagePolicy>(&Empty)
+            .await?;
+        policy.validate()?;
+        Ok(policy)
+    }
+
+    /// Obtain a challenge spendable only by `CLAIM_KEY_PACKAGE`.
+    pub async fn claim_key_package_challenge(
+        &mut self,
+        contact_addr: QueueAddress,
+    ) -> Result<ChallengeResponse> {
+        self.call_unsigned::<ops::GetClaimKeyPackageChallenge>(&ClaimKeyPackageChallengeRequest {
+            contact_addr,
+        })
+        .await
     }
 
     /// `GET_CHALLENGE` (§6.1).
@@ -579,15 +600,17 @@ impl Client {
     pub async fn claim_key_package(
         &mut self,
         contact_addr: QueueAddress,
-        pow: Option<PowParams>,
     ) -> Result<ClaimKeyPackageResponse> {
-        let stamp = self
-            .stamp_for(
-                ChallengePurpose::ClaimKeyPackage,
-                contact_addr.as_bytes(),
-                pow,
-            )
-            .await?;
+        let issued = self.claim_key_package_challenge(contact_addr).await?;
+        issued.pow.validate().map_err(|_| {
+            TestkitError::Config("relay issued invalid key-package claim proof-of-work parameters")
+        })?;
+        if !issued.pow.is_required() {
+            return Err(TestkitError::Config(
+                "relay issued an unmetered key-package claim challenge",
+            ));
+        }
+        let stamp = solve(issued.challenge, &mut self.rng, issued.pow.difficulty_bits);
         let body = ClaimKeyPackageRequest {
             contact_addr,
             stamp,

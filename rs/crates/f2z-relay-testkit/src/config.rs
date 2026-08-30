@@ -32,7 +32,7 @@
 
 use std::time::Duration;
 
-use f2z_codec::commands::Capabilities;
+use f2z_codec::commands::{Capabilities, KeyPackagePolicy};
 use f2z_codec::padding::PaddingBuckets;
 use f2z_codec::pow::{ALGORITHM_BLAKE2B_LEADING_ZERO_BITS, PowParams};
 use f2z_codec::types::{ChannelBinding, ShortBytes};
@@ -182,6 +182,8 @@ pub struct RelayConfig {
     /// The published policy. Start from [`RelayConfig::default`] and edit; the
     /// relay enforces what is in here, so an edit is a real policy change.
     pub capabilities: Capabilities,
+    /// Additive §12.6 policy. Separate from the frozen v1 capability document.
+    pub key_package_policy: KeyPackagePolicy,
     /// Deliberate departures from the specification. All off by default.
     pub relaxations: Relaxations,
     /// Faults that are properties of the relay rather than of a frame. Can also
@@ -235,6 +237,11 @@ impl Default for RelayConfig {
             ping_interval: Duration::from_millis(500),
             missed_pongs_before_close: 2,
             capabilities,
+            key_package_policy: KeyPackagePolicy {
+                enabled: 1,
+                max_pool_size: 64,
+                claim_pow: testkit_pow(),
+            },
             relaxations: Relaxations::default(),
             policy_faults: PolicyFaults::default(),
         }
@@ -363,9 +370,6 @@ pub fn default_capabilities(identity: &SigningKey, published_at_ms: u64) -> Resu
     // §12.3 requires proof of work whenever contact queues are offered, so the
     // difficulty is trivial rather than absent.
     capabilities.contact_append_pow = testkit_pow();
-    // §12.6, for the same reason: `CLAIM_KEY_PACKAGE` may not be published
-    // without a stamp, so the difficulty is trivial rather than absent.
-    capabilities.claim_key_package_pow = testkit_pow();
     // §13.3: nothing here rate-limits by source, and the field says so rather
     // than claiming a control that is not implemented.
     capabilities.per_source_limits = 0;

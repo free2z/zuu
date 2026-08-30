@@ -478,7 +478,8 @@ consequences for the UI:
   manual safety-number verification is the correct thing to offer.
 
 `start_engine` additionally publishes this device's own key-package pool
-(§12.6). A device whose relay reports `key_packages_enabled = 0`, or whose
+(§12.6). A device whose relay's additive key-package policy reports
+`enabled = 0`, whose relay does not know that additive command, or whose
 publish failed, is a device **nobody can start a conversation with** — the
 engine reports it through `lastError` and keeps running, because every existing
 conversation is unaffected. A UI that surfaces engine state should treat it the

@@ -45,10 +45,11 @@ use std::time::{Duration, Instant};
 use f2z_codec::canonical::{Canonical as _, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose, ChallengeRequest,
-    ClaimKeyPackageRequest, ClaimKeyPackageResponse, ContactAppendRequest,
-    CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse,
-    HelloRequest, PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest,
-    ReadResponse, SignedCapabilities, SubscribeResponse,
+    ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest, ClaimKeyPackageResponse,
+    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
+    CreateQueueRequest, CreateQueueResponse, HelloRequest, KeyPackagePolicy,
+    PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse,
+    SignedCapabilities, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, Push, RelayFrame, Response};
 use f2z_codec::padding::PaddingBuckets;
@@ -271,6 +272,20 @@ impl RelayConnection {
     /// As [`RelayConnection::call_unsigned`].
     pub async fn capabilities(&mut self) -> Result<SignedCapabilities> {
         self.call_unsigned::<ops::GetCapabilities>(&Empty).await
+    }
+
+    /// Additive §12.6 key-package policy discovery.
+    pub async fn key_package_policy(&mut self) -> Result<KeyPackagePolicy> {
+        let policy = self
+            .call_unsigned::<ops::GetKeyPackagePolicy>(&Empty)
+            .await?;
+        policy.validate().map_err(|error| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                format!("invalid key-package policy: {error:?}"),
+            )
+        })?;
+        Ok(policy)
     }
 
     /// `CREATE_QUEUE` (§6.2), solving a stamp first when the relay demands one.
@@ -574,15 +589,31 @@ impl RelayConnection {
     pub async fn claim_key_package(
         &mut self,
         contact_addr: QueueAddress,
-        pow: Option<PowParams>,
     ) -> Result<ClaimKeyPackageResponse> {
-        let stamp = self
-            .stamp_for(
-                ChallengePurpose::ClaimKeyPackage,
-                contact_addr.as_bytes(),
-                pow,
-            )
+        let issued = self
+            .call_unsigned::<ops::GetClaimKeyPackageChallenge>(&ClaimKeyPackageChallengeRequest {
+                contact_addr,
+            })
             .await?;
+        issued.pow.validate().map_err(|_| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued invalid key-package claim proof-of-work parameters",
+            )
+        })?;
+        if !issued.pow.is_required() {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued an unmetered key-package claim challenge",
+            ));
+        }
+        let challenge = issued.challenge;
+        let difficulty_bits = issued.pow.difficulty_bits;
+        let stamp = tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
+            .await
+            .map_err(|error| {
+                Error::internal(format!("the stamp search did not finish: {error}"))
+            })?;
         let body = ClaimKeyPackageRequest {
             contact_addr,
             stamp,

@@ -593,6 +593,29 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// validate, [`EngineError::Mls`] if OpenMLS refused,
     /// [`EngineError::Storage`] if the store did.
     pub fn join_from_welcome(&self, welcome_wire: &[u8], now_ms: u64) -> Result<MlsGroup> {
+        self.join_from_welcome_inner(welcome_wire, now_ms, None)
+    }
+
+    /// Join only when the decrypted `Welcome` carries the expected group id.
+    ///
+    /// The equality check runs inside the same store transaction as OpenMLS's
+    /// join. A mismatch therefore rolls back every group record rather than
+    /// leaving state that works in memory but cannot be found after restart.
+    pub fn join_from_welcome_for_group_id(
+        &self,
+        welcome_wire: &[u8],
+        now_ms: u64,
+        expected_group_id: &[u8],
+    ) -> Result<MlsGroup> {
+        self.join_from_welcome_inner(welcome_wire, now_ms, Some(expected_group_id))
+    }
+
+    fn join_from_welcome_inner(
+        &self,
+        welcome_wire: &[u8],
+        now_ms: u64,
+        expected_group_id: Option<&[u8]>,
+    ) -> Result<MlsGroup> {
         let welcome = parse_welcome(welcome_wire)?;
 
         let transaction = self.provider.store().begin()?;
@@ -609,6 +632,10 @@ impl<B: StorageBackend> MlsEngine<B> {
         let group = staged
             .into_group(&self.provider)
             .map_err(|_| EngineError::Mls("welcome into group"))?;
+
+        if expected_group_id.is_some_and(|expected| group.group_id().as_slice() != expected) {
+            return Err(EngineError::GroupIdMismatch);
+        }
 
         self.validate_members(&group, now_ms)?;
         self.write_protocol_version(group.group_id().as_slice())?;

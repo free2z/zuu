@@ -777,7 +777,7 @@ the ratchet tree and therefore the membership.
 **Why we take it.** The alternative is not "no reuse"; it is **unreachability**.
 Without a last-resort package, an exhausted pool means nobody new can start a
 conversation with that device until it comes back online and refills — and
-§12.6.9 is explicit that an attacker willing to pay `contact_max_key_packages`
+§12.6.9 is explicit that an attacker willing to pay `max_pool_size` claim
 proof-of-work stamps can put a device in that state deliberately, more cheaply
 than flooding its contact queue (§12.4). Trading the forward secrecy of a first
 `Welcome` for the ability to be contacted at all is the trade RFC 9420 designed

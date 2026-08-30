@@ -267,7 +267,6 @@ pub fn validate(capabilities: &Capabilities) -> Result<()> {
     let creation = QueueCreationMode::from_code(capabilities.queue_creation_mode)?;
     DurabilityMode::from_code(capabilities.durability_mode)?;
     let contact_queues = flag(capabilities.contact_queues_enabled)?;
-    let key_packages = flag(capabilities.key_packages_enabled)?;
     flag(capabilities.per_source_limits)?;
 
     // §2.3 obligation 2: no TLS session, so no exporter to derive from.
@@ -300,7 +299,6 @@ pub fn validate(capabilities: &Capabilities) -> Result<()> {
 
     validate_pow(&capabilities.queue_creation_pow)?;
     validate_pow(&capabilities.contact_append_pow)?;
-    validate_pow(&capabilities.claim_key_package_pow)?;
     // §13.1: `pow` mode without parameters is a gate with nothing behind it.
     if matches!(creation, QueueCreationMode::Pow) && !capabilities.queue_creation_pow.is_required()
     {
@@ -310,23 +308,6 @@ pub fn validate(capabilities: &Capabilities) -> Result<()> {
     // work is one of them. Offering contact queues without it is offering an
     // unsigned, unmetered write endpoint to the whole internet.
     if contact_queues && !capabilities.contact_append_pow.is_required() {
-        return Err(inconsistent);
-    }
-    // §12.6, and the same argument: `CLAIM_KEY_PACKAGE` is unsigned and drains
-    // a finite pool, so a relay that serves key packages without a stamp on the
-    // claim is publishing a one-request denial of service against every device
-    // it hosts. A pool of zero is the other way to publish nothing at all.
-    if key_packages
-        && (!capabilities.claim_key_package_pow.is_required()
-            || capabilities.contact_max_key_packages == 0)
-    {
-        return Err(inconsistent);
-    }
-    // §12.6: key packages live *beside* the contact endpoint, keyed by the
-    // `contact_addr` the directory publishes. A relay with no contact queues
-    // has no address to key them by, so the combination is not a stricter
-    // policy — it is an inconsistent document.
-    if key_packages && !contact_queues {
         return Err(inconsistent);
     }
 
@@ -559,18 +540,6 @@ pub fn defaults(relay_identity_pk: &PublicKey, published_at_ms: u64) -> Result<C
         contact_max_pending: 64,
         contact_max_bytes: 256 * 1024,
         contact_append_pow: PowParams {
-            algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
-            difficulty_bits: 20,
-            challenge_ttl_ms: 60_000,
-        },
-        key_packages_enabled: 1,
-        // §12.6. Sixty-four is `contact_max_pending`'s number, chosen for the
-        // same reason and with the same lack of measurement behind it: at #385's
-        // measured 2 647 bytes a full pool is about 170 KiB, which is under
-        // `contact_max_bytes` and therefore does not change what one contact
-        // queue can cost a relay by an order of magnitude.
-        contact_max_key_packages: 64,
-        claim_key_package_pow: PowParams {
             algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
             difficulty_bits: 20,
             challenge_ttl_ms: 60_000,
@@ -898,50 +867,9 @@ mod tests {
             validate(&capabilities),
             Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
         );
-        // Turning contact queues off makes the same document valid again — and
-        // key packages have to go with them, because §12.6 keys a pool by the
-        // `contact_addr` a relay with no contact queues never issues.
+        // Turning contact queues off makes the same document valid again.
         capabilities.contact_queues_enabled = 0;
-        capabilities.key_packages_enabled = 0;
         assert!(validate(&capabilities).is_ok());
-    }
-
-    #[test]
-    fn key_packages_without_proof_of_work_are_refused() {
-        // §12.6. `CLAIM_KEY_PACKAGE` is unsigned and *consumes*, which
-        // `CONTACT_APPEND` is not: one unmetered request per package empties a
-        // device's pool, so the stamp is the whole gate and a document that
-        // publishes the endpoint without one is inconsistent.
-        let mut capabilities = document();
-        capabilities.claim_key_package_pow = PowParams::none();
-        assert_eq!(
-            validate(&capabilities),
-            Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
-        );
-        capabilities.key_packages_enabled = 0;
-        assert!(validate(&capabilities).is_ok());
-    }
-
-    #[test]
-    fn a_key_package_pool_of_zero_is_not_a_policy() {
-        let mut capabilities = document();
-        capabilities.contact_max_key_packages = 0;
-        assert_eq!(
-            validate(&capabilities),
-            Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
-        );
-    }
-
-    #[test]
-    fn key_packages_without_contact_queues_are_refused() {
-        // The addressing argument of §12.6, asserted: a pool is keyed by the
-        // published `contact_addr`, so a relay that issues none cannot hold one.
-        let mut capabilities = document();
-        capabilities.contact_queues_enabled = 0;
-        assert_eq!(
-            validate(&capabilities),
-            Err(ProtoError::Refused(Refusal::CapabilitiesInconsistent))
-        );
     }
 
     #[test]

@@ -432,6 +432,7 @@ suite! {
     Nothing, "§4.1", an_oversize_frame_is_fatally_malformed;
     Nothing, "§4.2", a_text_frame_closes_the_connection;
     Nothing, "§3.5", an_unknown_command_is_not_fatal;
+    Nothing, "§3.5", claim_purpose_is_not_added_to_v1_get_challenge;
     Faults,  "§4.3", a_duplicate_inflight_request_id_is_fatal;
     Faults,  "§4.3", exceeding_the_inflight_window_is_fatal;
 
@@ -486,6 +487,7 @@ suite! {
     Nothing, "§12.6", an_exhausted_pool_with_no_last_resort_is_unavailable;
     Nothing, "§12.6", a_claim_requires_a_stamp_of_its_own_purpose;
     Nothing, "§12.6", publishing_is_idempotent_under_retry;
+    Nothing, "§12.6", multiple_last_resort_packages_are_fatally_malformed_before_mutation;
     Nothing, "§12.6", duplicate_bytes_never_cross_the_single_use_last_resort_boundary;
     Nothing, "§12.6", an_empty_publish_reports_the_pool_without_changing_it;
     Nothing, "§12.6", a_pool_is_clamped_to_the_published_maximum;
@@ -669,6 +671,19 @@ async fn an_unknown_command_is_not_fatal(context: &mut Context) -> Result<()> {
     )?;
     // Non-fatal: the connection still works.
     context.client.ping().await
+}
+
+async fn claim_purpose_is_not_added_to_v1_get_challenge(context: &mut Context) -> Result<()> {
+    let body = f2z_codec::commands::ChallengeRequest {
+        purpose: f2z_codec::commands::CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE,
+        scope: f2z_codec::types::ShortBytes::new(vec![0x35; QueueAddress::LEN])?,
+    };
+    let result = context
+        .client
+        .call_unsigned::<ops::GetChallenge>(&body)
+        .await;
+    expect_code(result, ErrorCode::Malformed)?;
+    context.client.expect_closed().await
 }
 
 async fn a_duplicate_inflight_request_id_is_fatal(context: &mut Context) -> Result<()> {
@@ -1482,17 +1497,8 @@ async fn a_published_pool_is_claimed_once_per_package(context: &mut Context) -> 
     let second_package = b"package-two".to_vec();
     let packages = vec![first_package.clone(), second_package.clone()];
     let (_owner, created) = with_pool(context, &packages, None).await?;
-    let pow = context
-        .client
-        .capabilities()
-        .await?
-        .capabilities
-        .claim_key_package_pow;
-
     let mut alice = context.open().await?;
-    let first = alice
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    let first = alice.claim_key_package(created.contact_addr).await?;
     expect_eq(
         first.key_package.as_slice().to_vec(),
         first_package,
@@ -1501,9 +1507,7 @@ async fn a_published_pool_is_claimed_once_per_package(context: &mut Context) -> 
     expect_eq(first.last_resort, 0, "a pooled package is not last-resort")?;
 
     let mut bob = context.open().await?;
-    let second = bob
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    let second = bob.claim_key_package(created.contact_addr).await?;
     // Consumed. This is the property an append-only log cannot express, which
     // is why §12.6 puts the pool at the relay and not in the directory.
     expect_eq(
@@ -1522,26 +1526,15 @@ async fn an_exhausted_pool_falls_back_to_the_last_resort_package(
         Some(b"last resort".to_vec()),
     )
     .await?;
-    let pow = context
-        .client
-        .capabilities()
-        .await?
-        .capabilities
-        .claim_key_package_pow;
-
     let mut alice = context.open().await?;
-    alice
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    alice.claim_key_package(created.contact_addr).await?;
 
     // Twice more, and both get the same reusable package. §12.6's exhaustion
     // behaviour: availability is preserved and the forward secrecy of first
     // contact is what pays for it (`THREAT-MODEL.md` §4.12).
     for _ in 0..2 {
         let mut stranger = context.open().await?;
-        let claimed = stranger
-            .claim_key_package(created.contact_addr, Some(pow))
-            .await?;
+        let claimed = stranger.claim_key_package(created.contact_addr).await?;
         expect_eq(
             claimed.key_package.as_slice().to_vec(),
             b"last resort".to_vec(),
@@ -1554,21 +1547,12 @@ async fn an_exhausted_pool_falls_back_to_the_last_resort_package(
 
 async fn an_exhausted_pool_with_no_last_resort_is_unavailable(context: &mut Context) -> Result<()> {
     let (_owner, created) = with_pool(context, &[b"the only one".to_vec()], None).await?;
-    let pow = context
-        .client
-        .capabilities()
-        .await?
-        .capabilities
-        .claim_key_package_pow;
-
     let mut alice = context.open().await?;
-    alice
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    alice.claim_key_package(created.contact_addr).await?;
 
     let mut stranger = context.open().await?;
     let result = stranger
-        .claim_key_package(created.contact_addr, Some(pow))
+        .claim_key_package(created.contact_addr)
         .await
         .map(|_| ());
     // §10's existence-oracle rule holds here too: exhausted and absent are the
@@ -1578,7 +1562,7 @@ async fn an_exhausted_pool_with_no_last_resort_is_unavailable(context: &mut Cont
 
     let mut prober = context.open().await?;
     let absent = prober
-        .claim_key_package(QueueAddress::new([0x5c; 32]), Some(pow))
+        .claim_key_package(QueueAddress::new([0x5c; 32]))
         .await
         .map(|_| ());
     expect_code(absent, ErrorCode::Unavailable)
@@ -1641,16 +1625,76 @@ async fn publishing_is_idempotent_under_retry(context: &mut Context) -> Result<(
     )
 }
 
+async fn multiple_last_resort_packages_are_fatally_malformed_before_mutation(
+    context: &mut Context,
+) -> Result<()> {
+    let owner = context.key();
+    let created = context
+        .client
+        .create_contact_queue(&owner, 0, 0, None)
+        .await?;
+    let mut client = context.open().await?;
+    let body = f2z_codec::commands::PublishKeyPackagesRequest {
+        packages: vec![f2z_codec::types::KeyPackage::new(
+            b"must-not-commit".to_vec(),
+        )?]
+        .into(),
+        last_resort: vec![
+            f2z_codec::types::KeyPackage::new(b"fallback-one".to_vec())?,
+            f2z_codec::types::KeyPackage::new(b"fallback-two".to_vec())?,
+        ]
+        .into(),
+    };
+    let encoded = body.encode_canonical()?;
+    let request_id = 0x7690;
+    let auth_context = f2z_codec::transcript::AuthContext {
+        address: created.recv_addr,
+        signer_key: owner.public_key(),
+        timestamp_ms: client.relay_time_ms(),
+        nonce: client.nonce(),
+    };
+    let transcript = client.session().transcripts().build(
+        Command::PublishKeyPackages.code(),
+        request_id,
+        &auth_context,
+        &encoded,
+    )?;
+    let auth = auth_context.into_auth(owner.sign(&transcript.signing_bytes()?));
+    let request = f2z_codec::frame::Request::new(
+        Command::PublishKeyPackages.code(),
+        f2z_codec::frame::CommandAuth::Signed(auth),
+        encoded,
+    )?;
+    client
+        .send_raw(f2z_codec::frame::RelayFrame::request(request_id, request).encode_canonical()?)
+        .await?;
+    let (_, response) = client.next_response().await?;
+    expect_eq(
+        response.error_code(),
+        Some(ErrorCode::Malformed),
+        "more than one last-resort package is fatal ERR_MALFORMED",
+    )?;
+    client.expect_closed().await?;
+
+    let mut probe = context.open().await?;
+    let state = probe
+        .publish_key_packages(&owner, created.recv_addr, &[], None)
+        .await?;
+    expect_eq(
+        state.pool_size,
+        0,
+        "the malformed package batch did not commit",
+    )?;
+    expect_eq(
+        state.has_last_resort,
+        0,
+        "the malformed fallback vector did not commit",
+    )
+}
+
 async fn duplicate_bytes_never_cross_the_single_use_last_resort_boundary(
     context: &mut Context,
 ) -> Result<()> {
-    let pow = context
-        .client
-        .capabilities()
-        .await?
-        .capabilities
-        .claim_key_package_pow;
-
     // Existing last-resort bytes cannot also enter the single-use pool.
     let duplicate = b"duplicate".to_vec();
     let (owner, created) = with_pool(context, &[], Some(duplicate.clone())).await?;
@@ -1669,9 +1713,7 @@ async fn duplicate_bytes_never_cross_the_single_use_last_resort_boundary(
         "last-resort bytes are skipped by a pooled publish",
     )?;
     let mut claimer = context.open().await?;
-    let claimed = claimer
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    let claimed = claimer.claim_key_package(created.contact_addr).await?;
     expect_eq(
         claimed.key_package.as_slice(),
         duplicate.as_slice(),
@@ -1706,9 +1748,7 @@ async fn duplicate_bytes_never_cross_the_single_use_last_resort_boundary(
     )?;
     for expected in [&promoted, &second] {
         let mut claimer = context.open().await?;
-        let claimed = claimer
-            .claim_key_package(created.contact_addr, Some(pow))
-            .await?;
+        let claimed = claimer.claim_key_package(created.contact_addr).await?;
         expect_eq(
             claimed.key_package.as_slice(),
             expected.as_slice(),
@@ -1717,9 +1757,7 @@ async fn duplicate_bytes_never_cross_the_single_use_last_resort_boundary(
         expect_eq(claimed.last_resort, 0, "the package remains single-use")?;
     }
     let mut claimer = context.open().await?;
-    let claimed = claimer
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    let claimed = claimer.claim_key_package(created.contact_addr).await?;
     expect_eq(
         claimed.key_package.as_slice(),
         old_fallback.as_slice(),
@@ -1765,17 +1803,8 @@ async fn an_empty_publish_reports_the_pool_without_changing_it(
     // noticing. An empty publish is how it asks, and it must not be a mutation.
     let packages = vec![b"one".to_vec(), b"two".to_vec(), b"three".to_vec()];
     let (owner, created) = with_pool(context, &packages, Some(b"last".to_vec())).await?;
-    let pow = context
-        .client
-        .capabilities()
-        .await?
-        .capabilities
-        .claim_key_package_pow;
-
     let mut stranger = context.open().await?;
-    stranger
-        .claim_key_package(created.contact_addr, Some(pow))
-        .await?;
+    stranger.claim_key_package(created.contact_addr).await?;
 
     let held = context
         .client
@@ -1801,12 +1830,7 @@ async fn an_empty_publish_reports_the_pool_without_changing_it(
 }
 
 async fn a_pool_is_clamped_to_the_published_maximum(context: &mut Context) -> Result<()> {
-    let max = context
-        .client
-        .capabilities()
-        .await?
-        .capabilities
-        .contact_max_key_packages;
+    let max = context.client.key_package_policy().await?.max_pool_size;
     let over = usize::try_from(max).unwrap_or(usize::MAX).saturating_add(8);
     let packages: Vec<Vec<u8>> = (0..over)
         .map(|index| format!("package-{index}").into_bytes())

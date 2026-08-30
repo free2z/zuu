@@ -16,6 +16,8 @@
 )]
 
 use f2z_msg_mls::{CredentialError, EngineError};
+use openmls::prelude::{GroupId, MlsGroup};
+use openmls_traits::OpenMlsProvider as _;
 
 mod common;
 use common::{NOW, device, directory_entry, with_revocation};
@@ -144,6 +146,48 @@ fn a_last_resort_package_is_usable_and_is_never_refused_for_being_one() {
         .expect("a last-resort package joins a group like any other");
     let bob_group = bob.join_from_welcome(&welcome, NOW).expect("bob joins");
     assert_eq!(group.group_id(), bob_group.group_id());
+}
+
+#[test]
+fn a_mismatched_outer_group_id_rolls_back_and_the_correct_group_reloads() {
+    let bob = device("bob", 22, 222);
+    let alice = device("alice", 11, 111);
+    let entry = directory_entry(&[bob.credential().clone()]);
+    let package = bob.generate_key_package().expect("package");
+    let verified = alice
+        .verify_key_package(&package, &entry, NOW)
+        .expect("verified package");
+    let actual_id = b"actual-conversation-id-32-bytes!";
+    assert_eq!(actual_id.len(), 32);
+    let mismatched_id = b"other-conversation-id--32-bytes!";
+    assert_eq!(mismatched_id.len(), 32);
+    let mut alice_group = alice.create_group(actual_id).expect("group");
+    let (_commit, welcome) = alice
+        .add_member(&mut alice_group, &verified, NOW)
+        .expect("welcome");
+
+    let error = bob
+        .join_from_welcome_for_group_id(&welcome, NOW, mismatched_id)
+        .expect_err("the outer id must agree with the Welcome");
+    assert!(matches!(error, EngineError::GroupIdMismatch));
+    assert!(
+        MlsGroup::load(bob.provider().storage(), &GroupId::from_slice(actual_id))
+            .expect("load after refused join")
+            .is_none(),
+        "the failed join must roll back instead of leaving an orphan group"
+    );
+
+    let joined = bob
+        .join_from_welcome_for_group_id(&welcome, NOW, actual_id)
+        .expect("the rolled-back init key remains usable");
+    assert_eq!(joined.group_id().as_slice(), actual_id);
+    drop(joined);
+    assert!(
+        MlsGroup::load(bob.provider().storage(), &GroupId::from_slice(actual_id))
+            .expect("restart-style reload")
+            .is_some(),
+        "a correctly keyed conversation must reload after the live group is dropped"
+    );
 }
 
 #[test]

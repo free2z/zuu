@@ -43,12 +43,12 @@ use std::sync::Mutex;
 
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
-    AckRequest, AckResponse, AppendRequest, Capabilities, ChallengePurpose, ChallengeRequest,
-    ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
-    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-    CreateQueueRequest, CreateQueueResponse, HelloRequest, HelloResponse,
-    PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse,
-    SubscribeResponse,
+    AckRequest, AckResponse, AppendRequest, CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE, Capabilities,
+    ChallengePurpose, ChallengeRequest, ChallengeResponse, ClaimKeyPackageChallengeRequest,
+    ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command, ContactAppendRequest,
+    CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse,
+    HelloRequest, HelloResponse, PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent,
+    ReadRequest, ReadResponse, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, RelayFrame, Request, Response};
 use f2z_codec::padding::PaddingBuckets;
@@ -139,6 +139,16 @@ impl Relay {
     pub fn new(config: RelayConfig) -> Result<Self> {
         capabilities::validate(&config.capabilities)
             .map_err(|_| TestkitError::Config("the configured capability document is invalid"))?;
+        config
+            .key_package_policy
+            .validate()
+            .map_err(|_| TestkitError::Config("the configured key-package policy is invalid"))?;
+        if config.key_package_policy.enabled != 0 && config.capabilities.contact_queues_enabled == 0
+        {
+            return Err(TestkitError::Config(
+                "key packages require contact queues to provide their published address",
+            ));
+        }
         if config.capabilities.queue_creation_mode == QueueCreationMode::Token.code() {
             return Err(TestkitError::Config(
                 "queue_creation_mode: token is not implemented; \
@@ -462,6 +472,10 @@ impl Relay {
             Command::Hello => self.hello(connection, request),
             Command::GetCapabilities => self.get_capabilities(request),
             Command::GetChallenge => self.get_challenge(now, request),
+            Command::GetKeyPackagePolicy => self.get_key_package_policy(request),
+            Command::GetClaimKeyPackageChallenge => {
+                self.get_claim_key_package_challenge(now, request)
+            }
             Command::Ping => self.ping(request),
             Command::CreateQueue => self.create_queue(connection, now, request_id, request),
             Command::CreateContactQueue => {
@@ -534,6 +548,51 @@ impl Relay {
         Ok(signed.encode_canonical()?)
     }
 
+    fn get_key_package_policy(
+        &self,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        let _: Empty = self
+            .accept_unsigned::<ops::GetKeyPackagePolicy>(request)?
+            .into_body();
+        let policy = self.config.key_package_policy;
+        policy
+            .validate()
+            .map_err(|_| ProtoError::Wire(ErrorCode::Internal))?;
+        Ok(policy.encode_canonical()?)
+    }
+
+    fn get_claim_key_package_challenge(
+        &self,
+        now: u64,
+        request: &Request,
+    ) -> std::result::Result<Vec<u8>, ProtoError> {
+        let body: ClaimKeyPackageChallengeRequest = self
+            .accept_unsigned::<ops::GetClaimKeyPackageChallenge>(request)?
+            .into_body();
+        let policy = self.config.key_package_policy;
+        if policy.enabled == 0 {
+            return Err(ProtoError::Wire(ErrorCode::NotPermitted));
+        }
+        let expires_at_ms = now.saturating_add(u64::from(policy.claim_pow.challenge_ttl_ms));
+        let challenge = {
+            let mut state = self.state()?;
+            state.expire_challenges(now);
+            state.issue_challenge(
+                CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE,
+                body.contact_addr.as_bytes(),
+                expires_at_ms,
+            )
+        };
+        Ok(ChallengeResponse {
+            relay_time_ms: now,
+            challenge,
+            expires_at_ms,
+            pow: policy.claim_pow,
+        }
+        .encode_canonical()?)
+    }
+
     fn ping(&self, request: &Request) -> std::result::Result<Vec<u8>, ProtoError> {
         let _: Empty = self.accept_unsigned::<ops::Ping>(request)?.into_body();
         Ok(Vec::new())
@@ -585,7 +644,6 @@ impl Relay {
             ChallengePurpose::Clock => PowParams::none(),
             ChallengePurpose::QueueCreate => published.queue_creation_pow,
             ChallengePurpose::ContactAppend => published.contact_append_pow,
-            ChallengePurpose::ClaimKeyPackage => published.claim_key_package_pow,
         }
     }
 
@@ -979,7 +1037,7 @@ impl Relay {
             now,
             &body.stamp,
             &params,
-            ChallengePurpose::ContactAppend,
+            ChallengePurpose::ContactAppend.code(),
             body.contact_addr.as_bytes(),
         )?;
 
@@ -1011,9 +1069,11 @@ impl Relay {
         let recv_addr = verified.address();
         let signer = verified.signer_key();
         let body: PublishKeyPackagesRequest = verified.into_body();
+        body.validate()
+            .map_err(|_| ProtoError::Wire(ErrorCode::Malformed))?;
 
-        let published = self.published_capabilities();
-        if published.key_packages_enabled == 0 {
+        let policy = self.config.key_package_policy;
+        if policy.enabled == 0 {
             return Err(ProtoError::Wire(ErrorCode::NotPermitted));
         }
 
@@ -1035,19 +1095,13 @@ impl Relay {
         let packages = body.packages.as_slice().to_vec();
         let last_resort = body.last_resort.as_slice().first().cloned();
         let (pool_size, has_last_resort) = state
-            .publish_key_packages(
-                &recv_addr,
-                packages,
-                last_resort,
-                published.contact_max_key_packages,
-                now,
-            )
+            .publish_key_packages(&recv_addr, packages, last_resort, policy.max_pool_size, now)
             .ok_or(ProtoError::Wire(ErrorCode::Internal))?;
         drop(state);
 
         let response = PublishKeyPackagesResponse {
             pool_size,
-            max_pool_size: published.contact_max_key_packages,
+            max_pool_size: policy.max_pool_size,
             has_last_resort: u8::from(has_last_resort),
         };
         Ok(response.encode_canonical()?)
@@ -1065,11 +1119,11 @@ impl Relay {
             return Err(ProtoError::Wire(ErrorCode::Unavailable));
         }
 
-        let published = self.published_capabilities();
-        if published.key_packages_enabled == 0 {
+        let policy = self.config.key_package_policy;
+        if policy.enabled == 0 {
             return Err(ProtoError::Wire(ErrorCode::NotPermitted));
         }
-        let params = published.claim_key_package_pow;
+        let params = policy.claim_pow;
 
         let mut state = self.state()?;
         // The stamp is checked *before* the pool is consulted, so that the cost
@@ -1083,7 +1137,7 @@ impl Relay {
             now,
             &body.stamp,
             &params,
-            ChallengePurpose::ClaimKeyPackage,
+            CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE,
             body.contact_addr.as_bytes(),
         )?;
 
@@ -1157,7 +1211,7 @@ impl Relay {
             now,
             stamp,
             &params,
-            ChallengePurpose::QueueCreate,
+            ChallengePurpose::QueueCreate.code(),
             &[],
         )
     }
@@ -1168,7 +1222,7 @@ impl Relay {
         now: u64,
         stamp: &PowStamp,
         params: &PowParams,
-        purpose: ChallengePurpose,
+        purpose: u8,
         scope: &[u8],
     ) -> std::result::Result<(), ProtoError> {
         if !params.is_required() || self.config.relaxations.accept_missing_pow {
@@ -1184,7 +1238,7 @@ impl Relay {
         if !stamp.meets_difficulty(params.difficulty_bits) {
             return Err(ProtoError::Wire(ErrorCode::PowInvalid));
         }
-        state.consume_challenge(&stamp.challenge, purpose.code(), scope, now)
+        state.consume_challenge(&stamp.challenge, purpose, scope, now)
     }
 
     fn window(&self) -> TimestampWindow {

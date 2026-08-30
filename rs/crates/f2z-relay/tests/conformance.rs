@@ -59,8 +59,8 @@ use f2z_relay_testkit::vectors::{self, Needs, Report, Status};
 // needs no fault or clock handle and therefore runs unchanged against both the
 // fake and real relay; keeping it out of the real count would make the server's
 // implementation of the downgrade prevention unproved.
-const REVIEWED_SUITE_VECTOR_COUNT: usize = 61;
-const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 48;
+const REVIEWED_SUITE_VECTOR_COUNT: usize = 63;
+const REVIEWED_REAL_RELAY_VECTOR_COUNT: usize = 50;
 
 /// A configuration that matches the FakeRelay's published policy wherever the
 /// policy is what a vector observes.

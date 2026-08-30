@@ -48,11 +48,11 @@ use alloc::vec::Vec;
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, Auth, BindSendRequest, ChallengePurpose,
-    ChallengeRequest, ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command,
-    ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-    CreateQueueRequest, CreateQueueResponse, HelloRequest, HelloResponse,
-    PublishKeyPackagesRequest, PublishKeyPackagesResponse, ReadRequest, ReadResponse,
-    SignedCapabilities, SubscribeResponse, TranscriptAddress,
+    ChallengeRequest, ChallengeResponse, ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest,
+    ClaimKeyPackageResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
+    CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
+    HelloResponse, KeyPackagePolicy, PublishKeyPackagesRequest, PublishKeyPackagesResponse,
+    ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse, TranscriptAddress,
 };
 use f2z_codec::frame::{CommandAuth, RelayFrame, Request, SignedAuth};
 use f2z_codec::padding::PaddingBuckets;
@@ -160,9 +160,10 @@ pub trait RelayCommand: Sized {
 pub mod ops {
     use super::{
         AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose,
-        ChallengeRequest, ChallengeResponse, ClaimKeyPackageRequest, ClaimKeyPackageResponse,
-        Command, ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-        CreateQueueRequest, CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse,
+        ChallengeRequest, ChallengeResponse, ClaimKeyPackageChallengeRequest,
+        ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command, ContactAppendRequest,
+        CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
+        CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse, KeyPackagePolicy,
         Payload, ProtoError, PublishKeyPackagesRequest, PublishKeyPackagesResponse, QueueAddress,
         ReadRequest, ReadResponse, RelayCommand, Result, SignedAuth, SignedCapabilities,
         SubscribeResponse, keys_equal,
@@ -214,9 +215,7 @@ pub mod ops {
             let _ = auth;
             let scope_is_valid = match request.purpose()? {
                 ChallengePurpose::Clock | ChallengePurpose::QueueCreate => request.scope.is_empty(),
-                ChallengePurpose::ContactAppend | ChallengePurpose::ClaimKeyPackage => {
-                    request.scope.len() == QueueAddress::LEN
-                }
+                ChallengePurpose::ContactAppend => request.scope.len() == QueueAddress::LEN,
             };
             if scope_is_valid {
                 Ok(())
@@ -427,6 +426,24 @@ pub mod ops {
         type Request = ClaimKeyPackageRequest;
         type Response = ClaimKeyPackageResponse;
     }
+
+    command!(
+        /// `0x0034` (§12.6). Additive discovery that leaves v1's signed
+        /// `Capabilities` body unchanged.
+        GetKeyPackagePolicy,
+        GetKeyPackagePolicy,
+        Empty,
+        KeyPackagePolicy
+    );
+
+    command!(
+        /// `0x0035` (§12.6). Issues a challenge spendable only by
+        /// `CLAIM_KEY_PACKAGE`, scoped to the target contact address.
+        GetClaimKeyPackageChallenge,
+        GetClaimKeyPackageChallenge,
+        ClaimKeyPackageChallengeRequest,
+        ChallengeResponse
+    );
 }
 
 /// A command that has been signed and is ready to send.

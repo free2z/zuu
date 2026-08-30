@@ -87,7 +87,7 @@ async fn online_owner_rotates_before_expiry_and_fallback_stays_verifiable() {
     let mut config = RelayConfig::default().with_system_clock();
     // One single-use claim reaches fallback without hiding the behavior behind
     // thirty-two unrelated claims.
-    config.capabilities.contact_max_key_packages = 1;
+    config.key_package_policy.max_pool_size = 1;
     let relay = FakeRelay::new(config).expect("relay");
     let server = relay.listen_loopback().await.expect("listener");
     let relay_url = server.url();
@@ -112,19 +112,13 @@ async fn online_owner_rotates_before_expiry_and_fallback_stays_verifiable() {
     let contact_addr = QueueAddress::from_slice(&hex::decode(contact_addr).expect("hex address"))
         .expect("contact address");
     let mut claimant = relay.client().await.expect("claimant");
-    let pow = claimant
-        .capabilities()
-        .await
-        .expect("capabilities")
-        .capabilities
-        .claim_key_package_pow;
     let pooled = claimant
-        .claim_key_package(contact_addr, Some(pow))
+        .claim_key_package(contact_addr)
         .await
         .expect("single-use package");
     assert_eq!(pooled.last_resort, 0);
     let old_fallback = claimant
-        .claim_key_package(contact_addr, Some(pow))
+        .claim_key_package(contact_addr)
         .await
         .expect("old fallback");
     assert_eq!(old_fallback.last_resort, 1);
@@ -161,12 +155,12 @@ async fn online_owner_rotates_before_expiry_and_fallback_stays_verifiable() {
     assert!(new_expiry > old_expiry);
 
     let replenished = claimant
-        .claim_key_package(contact_addr, Some(pow))
+        .claim_key_package(contact_addr)
         .await
         .expect("replenished single-use package");
     assert_eq!(replenished.last_resort, 0);
     let new_fallback = claimant
-        .claim_key_package(contact_addr, Some(pow))
+        .claim_key_package(contact_addr)
         .await
         .expect("new fallback");
     assert_eq!(new_fallback.last_resort, 1);

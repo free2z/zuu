@@ -472,14 +472,8 @@ fn two_instances_open_a_conversation_from_nothing_but_a_handle() {
     // --- step 2: alice claims a key package from that address ---------------
     let claimed = relay_runtime.block_on(async {
         let mut client = connect(&relay).await;
-        let pow = client
-            .capabilities()
-            .await
-            .unwrap()
-            .capabilities
-            .claim_key_package_pow;
         client
-            .claim_key_package(published_contact_addr, Some(pow))
+            .claim_key_package(published_contact_addr)
             .await
             .unwrap()
     });
@@ -538,16 +532,7 @@ fn two_instances_open_a_conversation_from_nothing_but_a_handle() {
     // --- and the pool really was consumed -----------------------------------
     let second = relay_runtime.block_on(async {
         let mut client = connect(&relay).await;
-        let pow = client
-            .capabilities()
-            .await
-            .unwrap()
-            .capabilities
-            .claim_key_package_pow;
-        client
-            .claim_key_package(bob.contact_addr, Some(pow))
-            .await
-            .unwrap()
+        client.claim_key_package(bob.contact_addr).await.unwrap()
     });
     assert_ne!(
         second.key_package.as_slice(),
@@ -583,15 +568,9 @@ fn a_key_package_whose_credential_is_not_the_directorys_is_refused() {
         let mut client = connect(&relay).await;
         let _ = bob.publish_key_packages(&mut client, 2).await;
         let _ = mallory.publish_key_packages(&mut client, 2).await;
-        let pow = client
-            .capabilities()
-            .await
-            .unwrap()
-            .capabilities
-            .claim_key_package_pow;
         // A real claim, from a real pool, at a real address — mallory's.
         let substituted = client
-            .claim_key_package(mallory.contact_addr, Some(pow))
+            .claim_key_package(mallory.contact_addr)
             .await
             .unwrap();
         (alice, bob, mallory, substituted)
@@ -623,16 +602,7 @@ fn a_key_package_whose_credential_is_not_the_directorys_is_refused() {
     // above is about the substitution rather than about the fixture.
     let honest = relay_runtime.block_on(async {
         let mut client = connect(&relay).await;
-        let pow = client
-            .capabilities()
-            .await
-            .unwrap()
-            .capabilities
-            .claim_key_package_pow;
-        client
-            .claim_key_package(bob.contact_addr, Some(pow))
-            .await
-            .unwrap()
+        client.claim_key_package(bob.contact_addr).await.unwrap()
     });
     alice
         .mls
@@ -689,18 +659,9 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
 
     relay_runtime.block_on(async {
         let mut client = connect(&relay).await;
-        let pow = client
-            .capabilities()
-            .await
-            .unwrap()
-            .capabilities
-            .claim_key_package_pow;
 
         // One, and it is single-use.
-        let first = client
-            .claim_key_package(bob.contact_addr, Some(pow))
-            .await
-            .unwrap();
+        let first = client.claim_key_package(bob.contact_addr).await.unwrap();
         assert_eq!(first.last_resort, 0);
 
         // Then twice more, and both are the same reusable package — which
@@ -709,10 +670,7 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
         // somebody.
         let mut seen = Vec::new();
         for _ in 0..2 {
-            let claimed = client
-                .claim_key_package(bob.contact_addr, Some(pow))
-                .await
-                .unwrap();
+            let claimed = client.claim_key_package(bob.contact_addr).await.unwrap();
             assert_eq!(claimed.last_resort, 1, "the relay says the pool is empty");
             let verified = alice
                 .mls
@@ -729,7 +687,7 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
         // The device that published no last-resort package: one claim, then
         // `ERR_UNAVAILABLE`. Not a panic, not an empty success.
         let only = client
-            .claim_key_package(spartan.contact_addr, Some(pow))
+            .claim_key_package(spartan.contact_addr)
             .await
             .unwrap();
         alice
@@ -737,7 +695,7 @@ fn an_exhausted_pool_falls_back_to_the_last_resort_package_and_then_refuses() {
             .verify_key_package(only.key_package.as_slice(), &spartan_entry, NOW + 3)
             .expect("the one package spartan published");
         let error = client
-            .claim_key_package(spartan.contact_addr, Some(pow))
+            .claim_key_package(spartan.contact_addr)
             .await
             .expect_err("an exhausted pool with no last-resort package is a refusal");
         assert!(

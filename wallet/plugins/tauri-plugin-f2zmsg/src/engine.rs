@@ -82,7 +82,7 @@ const LABEL_QUEUE_SEND: &[u8] = b"free2z/msg/v1/queue-send";
 
 /// How many single-use key packages this device tries to keep published
 /// (`WIRE.md` §12.6), clamped down to whatever the relay's
-/// `contact_max_key_packages` allows.
+/// key-package policy `max_pool_size` allows.
 ///
 /// **A placeholder, like §12.3's caps.** Nothing has measured how many first
 /// contacts a device receives between two sessions; 32 is chosen to be more
@@ -3161,14 +3161,33 @@ impl<B: StorageBackend> Inner<B> {
     ) -> Result<QueueAdvert> {
         let now = now_ms();
         let conversation_id = introduction.conversation_id.clone();
+        let expected_group_id = hex::decode(&conversation_id).map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the signed conversation id is not a canonical MLS group id",
+            )
+        })?;
+        if expected_group_id.len() != 32 {
+            return Err(Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the signed conversation id is not a 32-byte MLS group id",
+            ));
+        }
         let sealed: Result<()> = (|| {
             let mls = self.mls_ref("join_conversation")?;
             let group = mls
-                .join_from_welcome(
+                .join_from_welcome_for_group_id(
                     &introduction.welcome,
                     u64::try_from(now).unwrap_or_default(),
+                    &expected_group_id,
                 )
-                .map_err(|error| Error::internal(format!("joining: {error}")))?;
+                .map_err(|error| match error {
+                    f2z_msg_mls::EngineError::GroupIdMismatch => Error::new(
+                        ErrorCode::RelayIdentityMismatch,
+                        "the signed conversation id does not match the Welcome's MLS group id",
+                    ),
+                    other => Error::internal(format!("joining: {other}")),
+                })?;
             self.groups.insert(conversation_id.clone(), group);
             Ok(())
         })();
@@ -3254,8 +3273,8 @@ impl<B: StorageBackend> Inner<B> {
         let connection = self
             .endpoint_connection(&peer.contact_relay_url, peer.contact_relay_id)
             .await?;
-        let caps = connection.capabilities().await?.capabilities;
-        if caps.key_packages_enabled == 0 {
+        let policy = connection.key_package_policy().await?;
+        if policy.enabled == 0 {
             return Err(Error::new(
                 ErrorCode::RelayCapabilityMismatch,
                 format!(
@@ -3265,9 +3284,7 @@ impl<B: StorageBackend> Inner<B> {
             ));
         }
         tracing::info!(peer = %peer_handle, "first contact: claiming a key package");
-        let claimed = connection
-            .claim_key_package(contact_addr, Some(caps.claim_key_package_pow))
-            .await?;
+        let claimed = connection.claim_key_package(contact_addr).await?;
         let last_resort = claimed.last_resort != 0;
 
         let mls = self.mls_ref("start_conversation")?;
@@ -3443,7 +3460,7 @@ impl<B: StorageBackend> Inner<B> {
     ///
     /// # What it does when the relay does not offer §12.6
     ///
-    /// Nothing, loudly. A relay that publishes `key_packages_enabled = 0` is a
+    /// Nothing, loudly. A relay whose key-package policy has `enabled = 0` is a
     /// relay first contact cannot complete against, and the honest report is a
     /// log line plus `last_error` — not a silent success, and not a refusal to
     /// start: everything else about the relay still works, and an established
@@ -3465,8 +3482,8 @@ impl<B: StorageBackend> Inner<B> {
             .connections
             .get_mut(&queue.relay_url)
             .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
-        let caps = connection.capabilities().await?.capabilities;
-        if caps.key_packages_enabled == 0 {
+        let policy = connection.key_package_policy().await?;
+        if policy.enabled == 0 {
             tracing::warn!(
                 url = %queue.relay_url,
                 "this relay stores no MLS key packages (WIRE.md §12.6), so nobody can start a \
@@ -3474,11 +3491,11 @@ impl<B: StorageBackend> Inner<B> {
             );
             return Err(Error::new(
                 ErrorCode::RelayCapabilityMismatch,
-                "the relay publishes key_packages_enabled = 0, so first contact cannot complete",
+                "the relay's key-package policy is disabled, so first contact cannot complete",
             ));
         }
 
-        let target = KEY_PACKAGE_POOL_TARGET.min(caps.contact_max_key_packages);
+        let target = KEY_PACKAGE_POOL_TARGET.min(policy.max_pool_size);
         let low_water = KEY_PACKAGE_LOW_WATER.min(target);
 
         // **Ask the relay how many are left; never trust the stored count.**
@@ -4470,13 +4487,15 @@ mod tests {
     use std::sync::Arc;
 
     use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
-    use f2z_kt_core::entry::{DirectoryEntryTBS, EntryKind};
+    use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
     use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
     use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
     use f2z_msg_mls::{DeviceSigner, MlsEngine};
     use f2z_msg_store::MemoryBackend;
+    use openmls::prelude::{GroupId, MlsGroup};
+    use openmls_traits::OpenMlsProvider as _;
 
-    use super::{Engine, QueueAdvert, acknowledgeable, routing_advert_digest};
+    use super::{Engine, Introduction, QueueAdvert, acknowledgeable, routing_advert_digest};
     use crate::directory::{Directory, ResolvedIdentity, ResolvedPeer};
     use crate::error::{Error, Result};
     use crate::events::{EventSink, NullSink};
@@ -4505,6 +4524,42 @@ mod tests {
         fn threshold_met(&self) -> bool {
             true
         }
+    }
+
+    fn issued_device(
+        handle: &str,
+        account_seed: u8,
+        device_seed: u8,
+    ) -> (DeviceSigner, DeviceCredential, DirectoryEntryTBS) {
+        let account = AccountKeys::from_seed(&[account_seed; 64], 0).unwrap();
+        let signer = DeviceSigner::from_private_key([device_seed; 32]);
+        let credential = account
+            .identity
+            .issue_device_credential(&DeviceCredentialRequest {
+                handle: Handle::new(handle.as_bytes().to_vec()).unwrap(),
+                device_pk: PublicKey::new(*signer.public_key()),
+                device_kem_pk: KemPublicKey::new(vec![device_seed; 1216]).unwrap(),
+                not_before_ms: 0,
+                not_after_ms: u64::MAX / 2,
+            })
+            .unwrap();
+        let entry = DirectoryEntryTBS {
+            label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec()).unwrap(),
+            kt_version: 1,
+            log_id: LogId::new([account_seed; 32]),
+            handle: credential.credential.handle.clone(),
+            entry_version: 1,
+            kind: EntryKind::SameKey,
+            identity_pk: credential.credential.identity_pk,
+            directory_auth_pk: PublicKey::new([0x22; 32]),
+            devices: vec![credential.clone()].into(),
+            revocations: Vec::new().into(),
+            contact_endpoints: Vec::new().into(),
+            prev_entry_hash: Digest::new([0; 32]),
+            no_reset: 0,
+            created_at_ms: 0,
+        };
+        (signer, credential, entry)
     }
 
     fn authenticated_request() -> (ResolvedIdentity, StoredContactRequest) {
@@ -4687,6 +4742,86 @@ mod tests {
             request.advert_signature = hex::encode(signature);
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn a_signed_group_id_mismatch_fails_before_conversation_or_group_persistence() {
+        let engine = Engine::new(
+            MemoryBackend::new(),
+            Arc::new(NullSink) as Arc<dyn EventSink>,
+            Platform::ZuuliDesktop,
+        )
+        .unwrap();
+        let (bob_signer, bob_credential, bob_entry) = issued_device("bob", 0x22, 0xb2);
+        {
+            let mut inner = engine.inner.lock().await;
+            let backend = inner.backend.clone();
+            inner.mls = Some(
+                MlsEngine::new(backend, bob_signer, bob_credential, 0).expect("bob MLS engine"),
+            );
+        }
+        let bob_package = {
+            let inner = engine.inner.lock().await;
+            inner
+                .mls_ref("test")
+                .unwrap()
+                .generate_key_package()
+                .expect("bob package")
+        };
+
+        let (alice_signer, alice_credential, alice_entry) = issued_device("alice", 0x11, 0xa1);
+        let alice = MlsEngine::new(MemoryBackend::new(), alice_signer, alice_credential, 0)
+            .expect("alice MLS engine");
+        let verified = alice
+            .verify_key_package(&bob_package, &bob_entry, 0)
+            .expect("directory-bound package");
+        let actual_group_id = [0x31; 32];
+        let outer_group_id = [0x32; 32];
+        let mut alice_group = alice.create_group(&actual_group_id).expect("group");
+        let (_commit, welcome) = alice
+            .add_member(&mut alice_group, &verified, 0)
+            .expect("Welcome");
+        let advert = QueueAdvert {
+            relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        let outer = hex::encode(outer_group_id);
+        let digest = routing_advert_digest(&outer, &welcome, &advert).unwrap();
+        let introduction = Introduction {
+            conversation_id: outer.clone(),
+            welcome,
+            advert,
+            advert_device_pk: hex::encode(alice.credential().credential.device_pk.as_bytes()),
+            advert_signature: hex::encode(alice.sign_routing_advert(digest.as_bytes()).unwrap()),
+        };
+
+        let mut inner = engine.inner.lock().await;
+        inner
+            .authenticate_introduction(&alice_entry, &introduction, 0)
+            .expect("the peer really signed the contradictory envelope");
+        let error = inner
+            .join_conversation(
+                "alice",
+                &hex::encode(alice_entry.identity_pk.as_bytes()),
+                &introduction,
+                "wss://unused.example/relay/v1",
+            )
+            .await
+            .expect_err("the envelope and Welcome must name the same group");
+        assert_eq!(error.code(), ErrorCode::RelayIdentityMismatch);
+        assert!(!inner.groups.contains_key(&outer));
+        assert!(inner.records().conversation(&outer).unwrap().is_none());
+        let mls = inner.mls_ref("test").unwrap();
+        assert!(
+            MlsGroup::load(
+                mls.provider().storage(),
+                &GroupId::from_slice(&actual_group_id)
+            )
+            .expect("load after refused join")
+            .is_none(),
+            "the checked join must roll the OpenMLS transaction back"
+        );
     }
 
     #[test]

@@ -738,6 +738,8 @@ to error codes.
 | `0x0031` | `CONTACT_APPEND` | none (PoW) | — |
 | `0x0032` | `PUBLISH_KEY_PACKAGES` | recv key | `recv_addr` |
 | `0x0033` | `CLAIM_KEY_PACKAGE` | none (PoW) | — |
+| `0x0034` | `GET_KEY_PACKAGE_POLICY` | none | — |
+| `0x0035` | `GET_CLAIM_KEY_PACKAGE_CHALLENGE` | none | — |
 
 The last two columns are normative. A command listed as signed that arrives
 without `SignedAuth` is non-fatal `ERR_BAD_SIGNATURE`; a command listed as
@@ -784,14 +786,11 @@ policy change mid-connection without refetching.
 #### `GET_CHALLENGE` — `0x0003`
 
 ```
-enum {
-    clock(0), queue_create(1), contact_append(2), claim_key_package(3), (255)
-} ChallengePurpose;
+enum { clock(0), queue_create(1), contact_append(2), (255) } ChallengePurpose;
 
 struct {
     ChallengePurpose purpose;
-    opaque scope<0..255>;    /* for contact_append and claim_key_package:
-                                the target contact_addr */
+    opaque scope<0..255>;    /* for contact_append: the target contact_addr */
 } ChallengeRequest;
 
 struct {
@@ -802,19 +801,12 @@ struct {
 } ChallengeResponse;
 ```
 
-For `clock` and `queue_create`, `scope` MUST be empty. For `contact_append` and
-`claim_key_package`, it MUST be exactly the target `contact_addr`. A purpose
-byte not defined by the negotiated protocol version is fatal `ERR_MALFORMED`; a
-later version can assign new values only after negotiating that version. A
-challenge is spendable only by a command matching its purpose and, for the two
-address-scoped purposes, its scope.
-
-`claim_key_package` is a **separate purpose from `contact_append`** even though
-the two cost the same and name the same address. The property §12.3 buys by
-binding a stamp to a relay-issued challenge is that it cannot be precomputed,
-cannot be reused, and cannot be spent anywhere but where it was bought; sharing
-a purpose would give the third of those away, and a claim and an append are not
-interchangeable — one consumes a finite pool and the other does not.
+For `clock` and `queue_create`, `scope` MUST be empty. For `contact_append`, it
+MUST be exactly the target `contact_addr`. A purpose byte not defined by the
+negotiated protocol version is fatal `ERR_MALFORMED`; a later version can assign
+new values only after negotiating that version. In particular, value 3 remains
+undefined in v1. Key-package claims use the additive, command-bound challenge
+exchange in §12.6 rather than extending this frozen body.
 
 Three jobs, and each is a real reason for the command to exist:
 
@@ -1543,9 +1535,6 @@ struct {
     uint32   contact_max_pending;
     uint64   contact_max_bytes;
     PowParams contact_append_pow;
-    uint8    key_packages_enabled;        /* §12.6 */
-    uint32   contact_max_key_packages;    /* §12.6; default 64 */
-    PowParams claim_key_package_pow;
     uint8    per_source_limits;           /* 0 = off, 1 = on (§13.3) */
     uint8    durability_mode;             /* 0 = memory, 1 = batched, 2 = fsync-per-append */
 
@@ -1575,16 +1564,12 @@ text, not markup. Each byte MUST be printable ASCII (`0x20..0x7e`); the empty
 value remains valid. A renderer MUST display the bytes as text and MUST NOT
 interpret HTML, Markdown, terminal escapes, or any other embedded language.
 
-> **Addition (2026-08-26) — three fields for §12.6.** `key_packages_enabled`,
-> `contact_max_key_packages` and `claim_key_package_pow` are new in the
-> structure above and are **not** implied by `contact_queues_enabled`: a relay
-> may offer contact queues and store no key packages, and a client MUST read the
-> flag rather than infer it, because the difference is whether anyone can start
-> a conversation with the devices that relay hosts. A document is inconsistent —
-> and MUST be refused under §11.3 — if `key_packages_enabled` is nonzero while
-> `claim_key_package_pow` demands no work, while `contact_max_key_packages` is
-> zero, or while `contact_queues_enabled` is zero (§12.6 keys a pool by the
-> published `contact_addr`, which such a relay never issues).
+> **Compatibility correction (2026-08-30).** `Capabilities` is a frozen v1
+> structure: §3.5 forbids adding fields to it. Key-package availability, pool
+> size and claim PoW policy travel in the additive
+> `GET_KEY_PACKAGE_POLICY` command of §12.6. An old v1 peer therefore continues
+> to encode and verify this document byte-for-byte; it receives non-fatal
+> `ERR_UNKNOWN_COMMAND` only if it is explicitly asked for the new feature.
 
 > **Correction (2026-08-24) — the two anti-replay fields were published as
 > independent values, but they are not.** Section 5.5 derives the required
@@ -1920,9 +1905,35 @@ Nothing new is published, and the relay learns nothing new:
   pool."* No new key exists to be stolen, squatted or lost.
 - **Consumption.** A relay is a mutable store. Deleting a claimed package is the
   thing it was always able to do and the log never was.
-- **No wire change to a frozen structure.** `DirectoryEntry` is untouched, which
-  matters: `KT.md` §12 names a wire change to that structure as the cost of
-  closing an *unrelated* open item, and this one does not spend it.
+- **No wire change to a frozen structure.** `DirectoryEntry` and the v1
+  `Capabilities` document are untouched. §3.5's additive-command rule is used
+  for feature discovery and claim challenges, so old v1 clients and relays
+  remain interoperable during a rolling deploy.
+
+##### Additive policy and claim challenge — `0x0034`, `0x0035`
+
+Key-package support is discovered without extending `Capabilities`:
+
+```
+/* GET_KEY_PACKAGE_POLICY (0x0034): empty request */
+struct {
+    uint8    enabled;        /* 0 or 1 */
+    uint32   max_pool_size;  /* zero exactly when disabled; default 64 */
+    PowParams claim_pow;     /* required exactly when enabled */
+} KeyPackagePolicy;
+
+/* GET_CLAIM_KEY_PACKAGE_CHALLENGE (0x0035) */
+struct { opaque contact_addr[32]; } ClaimKeyPackageChallengeRequest;
+/* response: ChallengeResponse from §6.1 */
+```
+
+An enabled policy with a zero pool or no PoW, a disabled policy with a nonzero
+pool or required PoW, and any `enabled` value other than 0 or 1 are malformed.
+The challenge issued by `0x0035` is internally bound to
+`CLAIM_KEY_PACKAGE` and exactly that `contact_addr`; it cannot be spent on
+`CONTACT_APPEND`. Value 3 is deliberately **not** added to v1's existing
+`GET_CHALLENGE` enum. An implementation without §12.6 answers either additive
+command with non-fatal `ERR_UNKNOWN_COMMAND` under §3.5.
 
 #### 12.6.3 `PUBLISH_KEY_PACKAGES` — `0x0032`
 
@@ -1963,7 +1974,7 @@ A relay MUST:
    connection drops, so a publish must be safe to retry for the same reason §8.3
    makes `ACK` idempotent; a retry that doubled the pool would put one init key
    behind two `Welcome`s.
-3. **Clamp** to `contact_max_key_packages` by dropping from the **end** of
+3. **Clamp** to the policy's `max_pool_size` by dropping from the **end** of
    `packages`, so a client reading `pool_size` back knows which of its packages
    were kept: the first `max − held` of them.
 4. **Replace** the stored last-resort package when `last_resort` is non-empty
@@ -1994,8 +2005,7 @@ whole internet is entitled to ask.
 ```
 struct {
     opaque   contact_addr[32];
-    PowStamp stamp;      /* over a relay-issued challenge with
-                            purpose = claim_key_package, scope = contact_addr */
+    PowStamp stamp;      /* from GET_CLAIM_KEY_PACKAGE_CHALLENGE for this address */
 } ClaimKeyPackageRequest;
 
 struct {
@@ -2082,7 +2092,7 @@ every `Welcome` ever addressed to it. The full accounting is
 
 The alternative is worse and is the reason the trade is taken: **without it,
 exhaustion means a device becomes unreachable to anyone new** for as long as it
-is offline, and an attacker willing to pay `contact_max_key_packages` stamps can
+is offline, and an attacker willing to pay `max_pool_size` claim stamps can
 put it in that state deliberately. That is §12.4's contact-queue flood with a
 much smaller bill, and it would make first contact denial-of-service cheap.
 
@@ -2176,18 +2186,20 @@ directory a second time.
 
 #### 12.6.9 Anti-abuse
 
-A relay MUST enforce, and MUST publish (§11.1):
+A relay MUST enforce and publish the first and third rows through
+`GET_KEY_PACKAGE_POLICY`; the remaining controls are published by the frozen
+capability document (§11.1):
 
 | Cap | Field | Default | What it stops |
 |---|---|---|---|
-| Pool size | `contact_max_key_packages` | 64 | Unbounded storage from one device. |
+| Pool size | `max_pool_size` | 64 | Unbounded storage from one device. |
 | Package size | the `<1..2^16-1>` prefix | 65 535 B | A large-blob upload behind one stamp. |
-| Proof of work | `claim_key_package_pow` | required | Draining a device's pool for free. |
+| Proof of work | `claim_pow` | required | Draining a device's pool for free. |
 | Per-source rate | `per_source_limits` | on | Draining it from one host. |
 
 The honest limits of §12.4 apply here unchanged and are not restated, with one
 addition: **a claim consumes, and a `CONTACT_APPEND` does not.** An attacker who
-pays `contact_max_key_packages` stamps empties a device's pool and forces every
+pays `max_pool_size` claim stamps empties a device's pool and forces every
 subsequent first contact onto its reusable package until it refills — which is
 cheaper than filling its contact queue, because the pool is smaller than
 `contact_max_pending` need be and because the victim's own refill is what has to

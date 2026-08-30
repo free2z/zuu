@@ -61,6 +61,10 @@ pub enum Command {
     PublishKeyPackages,
     /// `0x0033`, unsigned; gated by proof of work (§12.6).
     ClaimKeyPackage,
+    /// `0x0034`, unsigned; additive key-package policy discovery (§12.6).
+    GetKeyPackagePolicy,
+    /// `0x0035`, unsigned; issues a claim-only challenge (§12.6).
+    GetClaimKeyPackageChallenge,
 }
 
 /// Which key authorizes a command (`WIRE.md` §6's table).
@@ -92,7 +96,7 @@ pub enum TranscriptAddress {
 
 impl Command {
     /// Every command, in code order.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 18] = [
         Self::Hello,
         Self::GetCapabilities,
         Self::GetChallenge,
@@ -109,6 +113,8 @@ impl Command {
         Self::ContactAppend,
         Self::PublishKeyPackages,
         Self::ClaimKeyPackage,
+        Self::GetKeyPackagePolicy,
+        Self::GetClaimKeyPackageChallenge,
     ];
 
     /// The wire code.
@@ -131,6 +137,8 @@ impl Command {
             Self::ContactAppend => 0x0031,
             Self::PublishKeyPackages => 0x0032,
             Self::ClaimKeyPackage => 0x0033,
+            Self::GetKeyPackagePolicy => 0x0034,
+            Self::GetClaimKeyPackageChallenge => 0x0035,
         }
     }
 
@@ -156,6 +164,8 @@ impl Command {
             0x0031 => Self::ContactAppend,
             0x0032 => Self::PublishKeyPackages,
             0x0033 => Self::ClaimKeyPackage,
+            0x0034 => Self::GetKeyPackagePolicy,
+            0x0035 => Self::GetClaimKeyPackageChallenge,
             _ => return None,
         })
     }
@@ -169,7 +179,9 @@ impl Command {
             | Self::GetChallenge
             | Self::Ping
             | Self::ContactAppend
-            | Self::ClaimKeyPackage => Auth::None,
+            | Self::ClaimKeyPackage
+            | Self::GetKeyPackagePolicy
+            | Self::GetClaimKeyPackageChallenge => Auth::None,
             Self::CreateQueue
             | Self::Subscribe
             | Self::Unsubscribe
@@ -191,7 +203,9 @@ impl Command {
             | Self::GetChallenge
             | Self::Ping
             | Self::ContactAppend
-            | Self::ClaimKeyPackage => TranscriptAddress::None,
+            | Self::ClaimKeyPackage
+            | Self::GetKeyPackagePolicy
+            | Self::GetClaimKeyPackageChallenge => TranscriptAddress::None,
             Self::CreateQueue | Self::CreateContactQueue => TranscriptAddress::Zeros,
             Self::Subscribe
             | Self::Unsubscribe
@@ -295,18 +309,12 @@ pub enum ChallengePurpose {
     /// `2` — a stamp for `CONTACT_APPEND`; `scope` is the target
     /// `contact_addr`.
     ContactAppend,
-    /// `3` — a stamp for `CLAIM_KEY_PACKAGE`; `scope` is the target
-    /// `contact_addr` (§12.6).
-    ///
-    /// A separate purpose from [`ChallengePurpose::ContactAppend`] and not a
-    /// reuse of it. §12.3 binds a stamp to a relay-issued challenge so that
-    /// stamps cannot be precomputed, reused, or *spent somewhere other than
-    /// where they were bought*. A claim and an append cost the same and target
-    /// the same address, so sharing a purpose would let one stamp buy both —
-    /// which is exactly the third of those three properties, given away for
-    /// nothing.
-    ClaimKeyPackage,
 }
+
+/// Internal purpose code bound to challenges issued by additive command
+/// `0x0035`. It is deliberately not a [`ChallengePurpose`]: value 3 remains
+/// invalid in v1's frozen `GET_CHALLENGE` request body.
+pub const CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE: u8 = 3;
 
 impl ChallengePurpose {
     /// The wire byte.
@@ -316,7 +324,6 @@ impl ChallengePurpose {
             Self::Clock => 0,
             Self::QueueCreate => 1,
             Self::ContactAppend => 2,
-            Self::ClaimKeyPackage => 3,
         }
     }
 
@@ -324,13 +331,12 @@ impl ChallengePurpose {
     ///
     /// # Errors
     ///
-    /// [`CodecError::InvalidValue`] for anything but 0, 1, 2 or 3.
+    /// [`CodecError::InvalidValue`] for anything but 0, 1 or 2.
     pub const fn from_code(code: u8) -> Result<Self, CodecError> {
         Ok(match code {
             0 => Self::Clock,
             1 => Self::QueueCreate,
             2 => Self::ContactAppend,
-            3 => Self::ClaimKeyPackage,
             _ => return Err(CodecError::InvalidValue),
         })
     }
@@ -633,7 +639,7 @@ pub struct ContactAppendRequest {
 /// # Append, not replace
 ///
 /// The relay adds `packages` to whatever the pool already holds, skipping any
-/// byte-identical duplicate, and clamps to `contact_max_key_packages` by
+/// byte-identical duplicate, and clamps to the policy's `max_pool_size` by
 /// dropping from the **end** of `packages`. Two consequences are deliberate:
 ///
 /// * **Retry is safe.** A publish whose response was lost can be sent again and
@@ -701,8 +707,8 @@ pub struct PublishKeyPackagesResponse {
 pub struct ClaimKeyPackageRequest {
     /// The published contact address whose pool is being claimed from.
     pub contact_addr: QueueAddress,
-    /// Over a relay-issued challenge scoped to `contact_addr`, with
-    /// `purpose = claim_key_package` (§12.6).
+    /// Over a relay-issued challenge scoped to `contact_addr`, issued by
+    /// `GET_CLAIM_KEY_PACKAGE_CHALLENGE` (§12.6).
     pub stamp: PowStamp,
 }
 
@@ -726,6 +732,47 @@ pub struct ClaimKeyPackageResponse {
     /// can tell a client that first contact is about to use a reusable key, and
     /// so the condition is measurable at all.
     pub last_resort: u8,
+}
+
+/// Additive `GET_KEY_PACKAGE_POLICY` response (§12.6).
+///
+/// This deliberately is not part of [`Capabilities`]. Version 1 has no
+/// ignore-unknown-fields rule, so extending that signed structure would make
+/// old and new v1 peers unable to decode one another during a rolling deploy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct KeyPackagePolicy {
+    /// Nonzero when this relay stores and serves MLS key packages.
+    pub enabled: u8,
+    /// Maximum single-use packages held per contact queue.
+    pub max_pool_size: u32,
+    /// PoW parameters returned by `GET_CLAIM_KEY_PACKAGE_CHALLENGE`.
+    pub claim_pow: PowParams,
+}
+
+impl KeyPackagePolicy {
+    /// Validate the complete policy response.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::InvalidValue`] for an undefined flag or a policy that
+    /// enables an unmetered or zero-sized pool.
+    pub fn validate(&self) -> Result<(), CodecError> {
+        self.claim_pow.validate()?;
+        if self.enabled > 1
+            || (self.enabled == 1 && (!self.claim_pow.is_required() || self.max_pool_size == 0))
+            || (self.enabled == 0 && (self.claim_pow.is_required() || self.max_pool_size != 0))
+        {
+            return Err(CodecError::InvalidValue);
+        }
+        Ok(())
+    }
+}
+
+/// Additive `GET_CLAIM_KEY_PACKAGE_CHALLENGE` request (§12.6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct ClaimKeyPackageChallengeRequest {
+    /// Public contact address the resulting stamp is scoped to.
+    pub contact_addr: QueueAddress,
 }
 
 // ---------------------------------------------------------------------------
@@ -804,17 +851,6 @@ pub struct Capabilities {
     pub contact_max_bytes: u64,
     /// PoW parameters for `CONTACT_APPEND`.
     pub contact_append_pow: PowParams,
-    /// Nonzero when the relay stores and serves MLS key packages (§12.6).
-    ///
-    /// A relay that offers contact queues and not key packages is a relay first
-    /// contact cannot complete against, and a client MUST read this rather than
-    /// assume it: `contact_queues_enabled` was published before §12.6 existed,
-    /// so it cannot be made to imply this one.
-    pub key_packages_enabled: u8,
-    /// Single-use packages held per contact queue; default 64 (§12.6).
-    pub contact_max_key_packages: u32,
-    /// PoW parameters for `CLAIM_KEY_PACKAGE`.
-    pub claim_key_package_pow: PowParams,
     /// 0 = off, 1 = on (§13.3).
     pub per_source_limits: u8,
     /// 0 = memory, 1 = batched, 2 = fsync-per-append.
@@ -877,6 +913,8 @@ mod tests {
             (Command::ContactAppend, 0x0031),
             (Command::PublishKeyPackages, 0x0032),
             (Command::ClaimKeyPackage, 0x0033),
+            (Command::GetKeyPackagePolicy, 0x0034),
+            (Command::GetClaimKeyPackageChallenge, 0x0035),
         ];
         assert_eq!(expected.len(), Command::ALL.len());
         for (command, code) in expected {
@@ -884,7 +922,7 @@ mod tests {
             assert_eq!(Command::from_code(code), Some(command));
         }
         assert_eq!(Command::from_code(0x0000), None);
-        assert_eq!(Command::from_code(0x0034), None);
+        assert_eq!(Command::from_code(0x0036), None);
     }
 
     #[test]
@@ -907,6 +945,16 @@ mod tests {
             (Command::ContactAppend, Auth::None, TranscriptAddress::None),
             (
                 Command::ClaimKeyPackage,
+                Auth::None,
+                TranscriptAddress::None,
+            ),
+            (
+                Command::GetKeyPackagePolicy,
+                Auth::None,
+                TranscriptAddress::None,
+            ),
+            (
+                Command::GetClaimKeyPackageChallenge,
                 Auth::None,
                 TranscriptAddress::None,
             ),
@@ -1032,11 +1080,56 @@ mod tests {
         assert_eq!(ChallengePurpose::from_code(0), Ok(ChallengePurpose::Clock));
         assert_eq!(
             ChallengePurpose::from_code(3),
-            Ok(ChallengePurpose::ClaimKeyPackage)
-        );
-        assert_eq!(
-            ChallengePurpose::from_code(4),
             Err(CodecError::InvalidValue)
         );
+    }
+
+    #[test]
+    fn key_package_policy_rejects_unmetered_or_zero_pools() {
+        let enabled = KeyPackagePolicy {
+            enabled: 1,
+            max_pool_size: 64,
+            claim_pow: PowParams {
+                algorithm: crate::pow::ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: 20,
+                challenge_ttl_ms: 60_000,
+            },
+        };
+        assert!(enabled.validate().is_ok());
+
+        let disabled = KeyPackagePolicy {
+            enabled: 0,
+            max_pool_size: 0,
+            claim_pow: PowParams::none(),
+        };
+        assert!(disabled.validate().is_ok());
+
+        for invalid in [
+            KeyPackagePolicy {
+                enabled: 2,
+                ..enabled
+            },
+            KeyPackagePolicy {
+                max_pool_size: 0,
+                ..enabled
+            },
+            KeyPackagePolicy {
+                claim_pow: PowParams::none(),
+                ..enabled
+            },
+            KeyPackagePolicy {
+                claim_pow: PowParams {
+                    algorithm: 2,
+                    ..enabled.claim_pow
+                },
+                ..enabled
+            },
+            KeyPackagePolicy {
+                max_pool_size: 1,
+                ..disabled
+            },
+        ] {
+            assert_eq!(invalid.validate(), Err(CodecError::InvalidValue));
+        }
     }
 }
