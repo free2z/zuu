@@ -110,7 +110,7 @@ export function Reader() {
         <SectionLoadError
           className="mt-6"
           title="Couldn't load this article"
-          description="Check your connection and try again."
+          description="Try again."
           retry={reload}
           retrying={loading}
         />

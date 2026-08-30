@@ -114,7 +114,7 @@ export default function CreatorFeature() {
         <SectionLoadError
           className="mt-6"
           title="Couldn't load this creator"
-          description="Check your connection and try again."
+          description="Try again."
           retry={reload}
           retrying={loading}
         />
