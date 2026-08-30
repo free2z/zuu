@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { Loader2, Newspaper, PenLine, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
   isArticleTagFilterable,
   MAX_ARTICLE_TAGS,
@@ -25,6 +27,7 @@ const SORTS: { value: ArticleSort; label: string }[] = [
 ];
 
 export function Feed() {
+  const { t } = useTranslation();
   const { viewport } = useRouteScroll();
   const [params, setParams] = useSearchParams();
   const [sort, setSort] = useState<ArticleSort>("popular");
@@ -135,8 +138,8 @@ export function Feed() {
               enterKeyHint="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search"
-              aria-label="Search articles"
+              placeholder={t(MESSAGE_KEYS.navSearchAction)}
+              aria-label={t(MESSAGE_KEYS.articlesSearchAccessible)}
               data-custom-search-clear
               className="pl-9 pr-12"
             />

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MESSAGE_KEYS } from "./messages";
 import { createTestI18n } from "./test-provider";
 
 describe("test i18n provider parity", () => {
@@ -15,6 +16,18 @@ describe("test i18n provider parity", () => {
     });
     expect(() => instance.t("broken", { count: 1 })).toThrow(
       /invalid ICU message for broken/,
+    );
+  });
+
+  it("resolves the concise recovery copy from each active catalog", () => {
+    expect(createTestI18n("en").t(MESSAGE_KEYS.commonTryAgain)).toBe(
+      "Try again.",
+    );
+    expect(createTestI18n("es").t(MESSAGE_KEYS.commonTryAgain)).toBe(
+      "Inténtalo de nuevo.",
+    );
+    expect(createTestI18n("fr").t(MESSAGE_KEYS.commonTryAgain)).toBe(
+      "Réessayez.",
     );
   });
 });

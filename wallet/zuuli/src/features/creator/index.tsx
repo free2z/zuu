@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -57,8 +58,10 @@ import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
 import { CreatorSocialLinks } from "./SocialLinks";
 import { useCreatorCatalog } from "./catalog";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 export default function CreatorFeature() {
+  const { t } = useTranslation();
   const { username = "" } = useParams<{ username: string }>();
   const { data, loading, error, reload } = useAsync<
     KeyedRemoteData<string, CreatorDetail>
@@ -114,7 +117,7 @@ export default function CreatorFeature() {
         <SectionLoadError
           className="mt-6"
           title="Couldn't load this creator"
-          description="Try again."
+          description={t(MESSAGE_KEYS.commonTryAgain)}
           retry={reload}
           retrying={loading}
         />

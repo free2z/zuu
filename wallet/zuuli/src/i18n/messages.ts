@@ -9,6 +9,7 @@ export const MESSAGE_KEYS = {
   commonPending: "common.pending",
   commonRetry: "common.retry",
   commonRetrying: "common.retrying",
+  commonTryAgain: "common.tryAgain",
   errorNotFoundBack: "error.notFound.back",
   errorNotFoundDescription: "error.notFound.description",
   errorNotFoundTitle: "error.notFound.title",
@@ -50,6 +51,9 @@ export const MESSAGE_KEYS = {
   navWallet: "navigation.wallet",
   navWalletAccessible: "navigation.walletAccessible",
   navZcashLogin: "navigation.zcashLogin",
+  articlesSearchAccessible: "articles.searchAccessible",
+  searchAll: "search.all",
+  searchClear: "search.clear",
 } as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[keyof typeof MESSAGE_KEYS];

@@ -332,6 +332,10 @@ const REVIEWED_IMPORTED_SINKS: Readonly<Record<string, ImportedSinkContract>> =
     "@/components/common/EmptyState": {
       EmptyState: ["action", "description", "title"],
     },
+    "@/components/common/PageHeader": { PageHeader: ["title"] },
+    "@/components/common/SectionLoadError": {
+      SectionLoadError: ["description"],
+    },
     "@/components/ui/button": { Button: ["children"] },
     "@/components/ui/dialog": {
       Dialog: ["children"],
@@ -347,6 +351,7 @@ const REVIEWED_IMPORTED_SINKS: Readonly<Record<string, ImportedSinkContract>> =
       DropdownMenuLabel: ["children"],
       DropdownMenuTrigger: ["children"],
     },
+    "@/components/ui/input": { Input: ["aria-label", "placeholder"] },
     "@/components/ui/tooltip": {
       Tooltip: ["children"],
       TooltipContent: ["children"],

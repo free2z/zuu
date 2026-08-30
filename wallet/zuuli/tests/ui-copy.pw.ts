@@ -106,3 +106,26 @@ for (const width of WIDTHS) {
     await expectCopyFits(page, "Search articles");
   });
 }
+
+test("changed Search copy resolves through the accepted locale catalog", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("free2z-locale", "es");
+  });
+  await page.goto("/search");
+
+  await expect(page.getByRole("heading", { name: "Buscar" })).toBeVisible();
+  const search = page.getByRole("searchbox", {
+    name: "Buscar creadores y páginas",
+  });
+  await expect(search).toHaveAttribute("placeholder", "Buscar");
+  await expect(page.getByText("Buscar en todo free2z")).toBeVisible();
+  await expect(page.getByText(REMOVED_EXPLAINERS)).toHaveCount(0);
+
+  await page.goto("/articles");
+  await expect(
+    page.getByRole("searchbox", { name: "Buscar artículos" }),
+  ).toHaveAttribute("placeholder", "Buscar");
+});

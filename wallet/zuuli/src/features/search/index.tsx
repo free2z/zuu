@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   BadgeCheck,
@@ -27,7 +28,8 @@ import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
 import type { Article, SimpleCreator } from "@/lib/api/types";
-import { SEARCH_INPUT_LABEL, withSearchQuery } from "@/lib/search-route";
+import { withSearchQuery } from "@/lib/search-route";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { useCreatorSearch, usePageSearch } from "./pagination";
 
 const DEBOUNCE_MS = 300;
@@ -42,6 +44,7 @@ function excerpt(text: string, max = 160): string {
 }
 
 export default function SearchFeature() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const debounced = useDebounced(query, DEBOUNCE_MS);
@@ -80,7 +83,7 @@ export default function SearchFeature() {
 
   return (
     <div className="animate-slide-up">
-      <PageHeader title="Search" />
+      <PageHeader title={t(MESSAGE_KEYS.navSearchAction)} />
 
       {/* Search box */}
       <div className="relative mb-6 max-w-2xl">
@@ -101,8 +104,8 @@ export default function SearchFeature() {
               replace: true,
             });
           }}
-          placeholder="Search"
-          aria-label={SEARCH_INPUT_LABEL}
+          placeholder={t(MESSAGE_KEYS.navSearchAction)}
+          aria-label={t(MESSAGE_KEYS.navSearch)}
           data-custom-search-clear
           className="h-12 pl-10 pr-14 text-base"
         />
@@ -115,7 +118,7 @@ export default function SearchFeature() {
               });
               inputRef.current?.focus();
             }}
-            aria-label="Clear search"
+            aria-label={t(MESSAGE_KEYS.searchClear)}
             className="min-tap absolute right-1.5 top-1/2 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-4 w-4" aria-hidden />
@@ -126,7 +129,7 @@ export default function SearchFeature() {
       {!hasQuery ? (
         <EmptyState
           icon={SearchIcon}
-          title="Search all of free2z"
+          title={t(MESSAGE_KEYS.searchAll)}
         />
       ) : (
         <Tabs
@@ -190,7 +193,6 @@ export default function SearchFeature() {
               <EmptyState
                 icon={Users}
                 title="No creators found"
-                description={`No creators match “${debounced.trim()}”.`}
               />
             ) : creators.items.length > 0 ? (
               <>

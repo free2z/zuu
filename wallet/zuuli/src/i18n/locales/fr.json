@@ -3,7 +3,8 @@
     "loading": "Chargement",
     "pending": "En attente",
     "retry": "Réessayer",
-    "retrying": "Nouvelle tentative"
+    "retrying": "Nouvelle tentative",
+    "tryAgain": "Réessayez."
   },
   "error": {
     "notFound": {
@@ -50,6 +51,13 @@
     "wallet": "Portefeuille",
     "walletAccessible": "Portefeuille Zcash",
     "zcashLogin": "Connexion Zcash"
+  },
+  "articles": {
+    "searchAccessible": "Rechercher des articles"
+  },
+  "search": {
+    "all": "Rechercher dans tout free2z",
+    "clear": "Effacer la recherche"
   },
   "shell": {
     "legacyWallet": {
