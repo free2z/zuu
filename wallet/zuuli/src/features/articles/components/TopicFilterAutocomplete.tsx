@@ -172,7 +172,7 @@ export function TopicFilterAutocomplete({
             onClick={() => onChange([])}
             className="min-tap inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            Clear tags
+            Clear topics
           </button>
         </div>
       ) : null}

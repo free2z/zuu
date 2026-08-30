@@ -85,6 +85,6 @@ test("a direct multi-tag Articles URL remains filtered across reload", async ({
   await expect(resultCount).toHaveText(expected ?? "");
   expect(new URL(page.url()).searchParams.get("tags")).toBe("Privacy,zcash");
 
-  await page.getByRole("button", { name: "Clear tags" }).click();
+  await page.getByRole("button", { name: "Clear topics" }).click();
   expect(new URL(page.url()).searchParams.has("tags")).toBe(false);
 });

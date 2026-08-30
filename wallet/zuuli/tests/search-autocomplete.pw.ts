@@ -64,19 +64,47 @@ test("global Search offers mixed keyboard and screen-reader suggestions", async 
   expect(viewport.scroll).toBeLessThanOrEqual(viewport.client);
 });
 
-test("global Search cancels stale suggestions and exposes a retryable error", async ({
+test("global Search rejects an older response that resolves last and exposes a retryable error", async ({
   page,
 }) => {
   await page.goto("/search");
   const input = globalSearch(page);
 
+  // Invert the two search generations deterministically: the first creator
+  // and page calls take 1.2s, while the second pair takes 10ms. This exercises
+  // the production request-generation guard instead of merely clearing an
+  // already-rendered list between sequential searches.
+  await page.evaluate(() => {
+    const nativeSetTimeout = window.setTimeout.bind(window);
+    let searchCalls = 0;
+    window.setTimeout = ((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      if (timeout === 200 || timeout === 220) {
+        const delay = searchCalls < 2 ? 1_200 : 10;
+        searchCalls += 1;
+        return nativeSetTimeout(handler, delay, ...args);
+      }
+      return nativeSetTimeout(handler, timeout, ...args);
+    }) as typeof window.setTimeout;
+  });
+
   await input.fill("z");
-  await expect(
-    page.getByRole("listbox", { name: "Search suggestions" }),
-  ).toBeVisible();
-  await input.fill("not-a-result");
-  await expect(page.locator("[data-suggestion-kind]")).toHaveCount(0);
-  await expect(page.getByText("No matches", { exact: true })).toBeVisible();
+  await page.waitForTimeout(350);
+  await input.fill("privacy");
+  const listbox = page.getByRole("listbox", { name: "Search suggestions" });
+  await expect(listbox.getByRole("option").first()).toBeVisible();
+  await expect(input).toHaveValue("privacy");
+  await expect(listbox).toContainText("#privacy");
+
+  // The delayed `z` response has resolved by now. It must not replace the
+  // newer privacy generation or resurrect its topic suggestions.
+  await page.waitForTimeout(1_000);
+  await expect(input).toHaveValue("privacy");
+  await expect(listbox).toContainText("#privacy");
+  await expect(listbox).not.toContainText("#zcash");
 
   await page.evaluate(() => {
     sessionStorage.setItem("zuuli.mock.search-creators", "unavailable");
