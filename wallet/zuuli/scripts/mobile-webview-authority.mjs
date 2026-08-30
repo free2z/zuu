@@ -5,13 +5,15 @@ import { fileURLToPath } from "node:url";
 
 // Exact commands exercised by the current mobile product. In particular this
 // omits the unused generic seed-reveal command, raw viewing/spending keys,
-// wallet deletion/switching/renaming, account creation, endpoint mutation, and
+// wallet deletion/renaming, account creation, endpoint mutation, and
 // send-all proposal authority. Backup-seed access remains because onboarding
 // currently uses that wallet-ID-bound command.
 export const REVIEWED_MOBILE_ZCASH_PERMISSIONS = [
   "zcash:allow-create-wallet",
   "zcash:allow-restore-wallet",
   "zcash:allow-get-wallet-status",
+  "zcash:allow-list-wallets",
+  "zcash:allow-switch-wallet",
   "zcash:allow-preview-legacy-wallet-import",
   "zcash:allow-retry-wallet-cleanup",
   "zcash:allow-get-backup-seed-phrase",

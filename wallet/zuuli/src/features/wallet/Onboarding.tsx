@@ -145,6 +145,7 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
       const res = await wallet.restoreWallet(phrase, height);
       if (res.success) {
         void sensitiveEntry.clear();
+        await useWallet.getState().refreshWalletIdentity(res.walletId);
         toast.success("Wallet restored");
         onRestored();
       } else {

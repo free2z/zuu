@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const route = vi.hoisted(() => ({
   clear: vi.fn(async () => {}),
-  restore: vi.fn(async () => ({ success: true })),
+  restore: vi.fn(async () => ({ success: true, walletId: "wallet-restored" })),
+  refreshIdentity: vi.fn(async (_walletId: string) => {}),
   useEntry: vi.fn(),
 }));
 
@@ -16,6 +17,11 @@ vi.mock("@/lib/wallet/bridge", () => ({
   wallet: {
     restoreWallet: route.restore,
   },
+}));
+vi.mock("@/store/wallet", () => ({
+  useWallet: Object.assign(vi.fn(), {
+    getState: () => ({ refreshWalletIdentity: route.refreshIdentity }),
+  }),
 }));
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -83,7 +89,10 @@ function expectPrivateTextServices(element: HTMLTextAreaElement) {
 
 beforeEach(async () => {
   route.clear.mockReset().mockResolvedValue(undefined);
-  route.restore.mockReset().mockResolvedValue({ success: true });
+  route.restore
+    .mockReset()
+    .mockResolvedValue({ success: true, walletId: "wallet-restored" });
+  route.refreshIdentity.mockReset().mockResolvedValue(undefined);
   route.useEntry.mockReset();
   await installDom();
 });
@@ -113,10 +122,13 @@ describe("ZUULI restore sensitive-entry route", () => {
     const events: string[] = [];
     route.restore.mockImplementation(async () => {
       events.push("restore");
-      return { success: true };
+      return { success: true, walletId: "wallet-restored" };
     });
     route.clear.mockImplementation(async () => {
       events.push("clear");
+    });
+    route.refreshIdentity.mockImplementation(async (walletId: string) => {
+      events.push(`refresh:${walletId}`);
     });
     const onRestored = vi.fn(() => events.push("exit"));
     await render(true, onRestored);
@@ -129,6 +141,11 @@ describe("ZUULI restore sensitive-entry route", () => {
     expect(submit.disabled).toBe(false);
     await act(async () => submit.click());
     await vi.waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1));
-    expect(events).toEqual(["restore", "clear", "exit"]);
+    expect(events).toEqual([
+      "restore",
+      "clear",
+      "refresh:wallet-restored",
+      "exit",
+    ]);
   });
 });
