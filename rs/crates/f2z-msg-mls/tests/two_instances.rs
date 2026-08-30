@@ -22,7 +22,10 @@
 )]
 
 use f2z_msg_mls::{EngineError, ExportLabel, MlsEngine, ProtocolVersion, Received};
-use f2z_msg_store::MemoryBackend;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use f2z_msg_store::{Durability, MemoryBackend, Op, StorageBackend, StoreError};
 
 mod common;
 use common::{NOW, device, directory_entry, issue_credential};
@@ -52,6 +55,66 @@ fn paired() -> (
         .add_member(&mut alice_group, &bob_key_package, NOW)
         .expect("add member");
 
+    let bob_group = bob.join_from_welcome(&welcome, NOW).expect("join");
+
+    (alice, alice_group, bob, bob_group)
+}
+
+#[derive(Clone, Debug)]
+struct FailableBackend {
+    inner: Arc<MemoryBackend>,
+    fail_apply: Arc<AtomicBool>,
+}
+
+impl FailableBackend {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(MemoryBackend::new()),
+            fail_apply: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn set_fail_apply(&self, fail: bool) {
+        self.fail_apply.store(fail, Ordering::SeqCst);
+    }
+}
+
+impl StorageBackend for FailableBackend {
+    fn get(&self, key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
+        self.inner.get(key)
+    }
+
+    fn apply(&self, ops: &[Op]) -> f2z_msg_store::Result<()> {
+        if self.fail_apply.load(Ordering::SeqCst) {
+            return Err(StoreError::Backend("injected apply failure"));
+        }
+        self.inner.apply(ops)
+    }
+
+    fn durability(&self) -> Durability {
+        self.inner.durability()
+    }
+}
+
+fn paired_with_bob_backend<B: StorageBackend>(
+    bob_backend: B,
+    bob_not_after_ms: u64,
+) -> (
+    MlsEngine<MemoryBackend>,
+    openmls::prelude::MlsGroup,
+    MlsEngine<B>,
+    openmls::prelude::MlsGroup,
+) {
+    let alice = device("alice", 11, 111);
+    let (bob_credential, bob_signer) =
+        issue_credential("bob", 22, 222, NOW - 1_000_000, bob_not_after_ms);
+    let bob = MlsEngine::new(bob_backend, bob_signer, bob_credential, NOW).expect("bob engine");
+
+    let bob_key_package = bob.generate_key_package().expect("key package");
+    let mut alice_group = alice.create_group(GROUP_ID).expect("create group");
+    let (_commit, welcome) = alice
+        .add_member(&mut alice_group, &bob_key_package, NOW)
+        .expect("add member");
     let bob_group = bob.join_from_welcome(&welcome, NOW).expect("join");
 
     (alice, alice_group, bob, bob_group)
@@ -375,6 +438,77 @@ fn a_refused_delivery_leaves_no_handled_record() {
     bob.receive(&mut bob_group, &second, b"commit-2", NOW)
         .expect("the redelivery must not have been swallowed as a duplicate");
     assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
+    let bob_backend = FailableBackend::new();
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
+
+    let commit = alice.update(&mut alice_group).expect("update");
+    let epoch_before = bob_group.epoch();
+
+    bob_backend.set_fail_apply(true);
+    let outcome = bob.receive(&mut bob_group, &commit, b"commit-apply", NOW);
+    assert!(
+        matches!(
+            outcome,
+            Err(EngineError::Storage(StoreError::Backend(
+                "injected apply failure"
+            )))
+        ),
+        "the injected durable-store failure must be returned, got {outcome:?}"
+    );
+    assert_eq!(
+        bob_group.epoch(),
+        epoch_before,
+        "a commit refused after merge must restore the caller's group"
+    );
+
+    bob_backend.set_fail_apply(false);
+    let redelivery = bob
+        .receive(&mut bob_group, &commit, b"commit-apply", NOW)
+        .expect("the unhandled commit must remain applicable after storage recovers");
+    assert_eq!(
+        redelivery,
+        Received::EpochChanged {
+            epoch: bob_group.epoch().as_u64()
+        }
+    );
+    assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn post_merge_credential_failure_restores_memory_for_redelivery() {
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(MemoryBackend::new(), NOW + 1);
+    let commit = alice.update(&mut alice_group).expect("update");
+    let epoch_before = bob_group.epoch();
+    let after_bob_expired = NOW + 2;
+
+    for attempt in 1..=2 {
+        let outcome = bob.receive(
+            &mut bob_group,
+            &commit,
+            b"commit-expired-member",
+            after_bob_expired,
+        );
+        assert!(
+            matches!(
+                outcome,
+                Err(EngineError::Credential(
+                    f2z_msg_mls::CredentialError::Expired
+                ))
+            ),
+            "redelivery {attempt} must reach post-merge credential validation, got {outcome:?}"
+        );
+        assert_eq!(
+            bob_group.epoch(),
+            epoch_before,
+            "redelivery {attempt} must restore the caller's pre-commit epoch"
+        );
+    }
 }
 
 #[test]
