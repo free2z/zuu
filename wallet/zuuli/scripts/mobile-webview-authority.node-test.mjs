@@ -22,12 +22,19 @@ function fixture() {
           identifier: "http:default",
           allow: [
             { url: "https://free2z.cash/*" },
+            { url: "https://*.free2z.cash/*" },
             { url: "https://stage.free2z.cash/*" },
           ],
         },
       ],
     },
-    tauri: { app: { security: { csp: "default-src 'self'; frame-src 'none'" } } },
+    tauri: {
+      app: {
+        security: {
+          csp: "default-src 'self'; img-src 'self' blob:; connect-src 'self' https://free2z.cash https://*.free2z.cash; frame-src 'none'",
+        },
+      },
+    },
   };
 }
 
@@ -141,6 +148,38 @@ test("remote, wildcard, and implicit frame policies fail closed", () => {
       /frame-src 'none'/,
     );
   }
+});
+
+test("trusted image transport and local-only rendering stay compiler-bound", () => {
+  const missingBlob = fixture();
+  missingBlob.tauri.app.security.csp =
+    "default-src 'self'; img-src 'self'; connect-src 'self' https://free2z.cash https://*.free2z.cash; frame-src 'none'";
+  assert.throws(
+    () => assertMobileWebviewAuthority(missingBlob.mobile, missingBlob.tauri),
+    /validated local blob URLs/,
+  );
+
+  const missingSubdomains = fixture();
+  missingSubdomains.tauri.app.security.csp =
+    "default-src 'self'; img-src 'self' blob:; connect-src 'self' https://free2z.cash; frame-src 'none'";
+  assert.throws(
+    () =>
+      assertMobileWebviewAuthority(
+        missingSubdomains.mobile,
+        missingSubdomains.tauri,
+      ),
+    /trusted Free2Z image transport/,
+  );
+
+  const widenedHttp = fixture();
+  const http = widenedHttp.mobile.permissions.find(
+    (permission) => typeof permission === "object",
+  );
+  http.allow.push({ url: "https://*.example.com/*" });
+  assert.throws(
+    () => assertMobileWebviewAuthority(widenedHttp.mobile, widenedHttp.tauri),
+    /mobile HTTP URLs differs/,
+  );
 });
 
 test("the committed mobile capability and packaged CSP satisfy the contract", async () => {

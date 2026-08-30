@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useState,
   type ImgHTMLAttributes,
@@ -10,9 +11,13 @@ import { Button } from "@/components/ui/button";
 import { MEDIA_BASE } from "@/lib/env";
 import { mediaUrl } from "@/lib/api/http";
 import {
+  downloadTrustedFirstPartyImage,
+  isTrustedFirstPartyImageTarget,
   normalizeRemoteMediaTarget,
   type RemoteMediaTarget,
 } from "@/lib/media/remote-media-policy";
+import { useStrictImagePrivacy } from "@/lib/media/image-privacy";
+import { isTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 export type RemoteMediaKind = "image" | "audio" | "video";
@@ -38,6 +43,99 @@ export function resolveRemoteMediaSource(
   return normalizeRemoteMediaTarget(candidate, documentBase());
 }
 
+async function fetchFirstPartyImage(
+  input: string,
+  init: RequestInit,
+): Promise<Response> {
+  if (isTauri() && !import.meta.env.DEV) {
+    const mod = await import("@tauri-apps/plugin-http");
+    return mod.fetch(input, init);
+  }
+  return window.fetch(input, init);
+}
+
+function FirstPartyImage({
+  target,
+  className,
+  children,
+}: {
+  target: RemoteMediaTarget;
+  className?: string;
+  children: (target: RemoteMediaTarget) => ReactNode;
+}) {
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    setLocalUrl(null);
+    setFailed(false);
+
+    void downloadTrustedFirstPartyImage(
+      target,
+      documentBase(),
+      fetchFirstPartyImage,
+      controller.signal,
+    )
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setLocalUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFailed(true);
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [target]);
+
+  if (failed) {
+    return (
+      <span
+        data-first-party-media-unavailable
+        data-remote-media-host={target.hostname}
+        className={cn(
+          "flex min-h-24 w-full min-w-0 items-center justify-center rounded-lg border border-border bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground",
+          className,
+        )}
+        role="status"
+      >
+        Image unavailable
+      </span>
+    );
+  }
+
+  if (!localUrl) {
+    return (
+      <span
+        data-first-party-media-loading
+        data-remote-media-host={target.hostname}
+        className={cn(
+          "flex min-h-24 w-full min-w-0 items-center justify-center rounded-lg border border-border bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground",
+          className,
+        )}
+        role="status"
+      >
+        Loading image
+      </span>
+    );
+  }
+
+  return (
+    <span
+      data-first-party-media-loaded
+      data-remote-media-host={target.hostname}
+      className={cn("block min-w-0", className)}
+    >
+      {children({ ...target, url: localUrl })}
+    </span>
+  );
+}
+
 /**
  * One-item consent boundary for creator-selected network media.
  *
@@ -59,6 +157,7 @@ export function RemoteMedia({
 }) {
   const target = useMemo(() => resolveRemoteMediaSource(source), [source]);
   const [consentedUrl, setConsentedUrl] = useState<string | null>(null);
+  const strictImagePrivacy = useStrictImagePrivacy();
 
   if (!target) {
     return (
@@ -72,6 +171,20 @@ export function RemoteMedia({
       >
         Media blocked
       </span>
+    );
+  }
+
+  const trustedFirstPartyImage =
+    kind === "image" &&
+    isTrustedFirstPartyImageTarget(target, documentBase());
+  if (
+    trustedFirstPartyImage &&
+    (!strictImagePrivacy || consentedUrl === target.url)
+  ) {
+    return (
+      <FirstPartyImage target={target} className={className}>
+        {children}
+      </FirstPartyImage>
     );
   }
 
