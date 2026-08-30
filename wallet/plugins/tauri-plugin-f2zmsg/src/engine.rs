@@ -4557,7 +4557,7 @@ mod tests {
     fn authenticated_request(
         recipient_package: &[u8],
         recipient_entry: &DirectoryEntryTBS,
-    ) -> (ResolvedIdentity, StoredContactRequest) {
+    ) -> (ResolvedIdentity, StoredContactRequest, Vec<u8>) {
         let (signer, credential, entry) = issued_device("alice", 7, 9);
         let signer_pk = credential.credential.device_pk;
         let mls = MlsEngine::new(MemoryBackend::new(), signer, credential, 0).unwrap();
@@ -4569,6 +4569,28 @@ mod tests {
         let (_commit, welcome) = mls
             .add_member(&mut group, &verified, 0)
             .expect("authentic Welcome");
+        let (attacker_signer, attacker_credential, _attacker_entry) =
+            issued_device("mallory", 8, 10);
+        let attacker = MlsEngine::new(
+            MemoryBackend::new(),
+            attacker_signer,
+            attacker_credential,
+            0,
+        )
+        .expect("attacker MLS engine");
+        let attacker_verified = attacker
+            .verify_key_package(recipient_package, recipient_entry, 0)
+            .expect("the same recipient package is usable by the attacker");
+        let mut attacker_group = attacker
+            .create_group(&group_id)
+            .expect("attacker group with the same outer id");
+        let (_attacker_commit, hostile_welcome) = attacker
+            .add_member(&mut attacker_group, &attacker_verified, 0)
+            .expect("valid hostile Welcome");
+        assert_ne!(
+            welcome, hostile_welcome,
+            "the hostile group must produce a distinct valid Welcome"
+        );
         let conversation_id = hex::encode(group_id);
         let advert = QueueAdvert {
             relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
@@ -4611,10 +4633,10 @@ mod tests {
             advert_device_pk: hex::encode(signer_pk.as_bytes()),
             advert_signature: hex::encode(signature),
         };
-        (identity, request)
+        (identity, request, hostile_welcome)
     }
 
-    async fn assert_acceptance_refuses(mut mutate: impl FnMut(&mut StoredContactRequest)) {
+    async fn assert_acceptance_refuses(mut mutate: impl FnMut(&mut StoredContactRequest, &[u8])) {
         let engine = Engine::new(
             MemoryBackend::new(),
             Arc::new(NullSink) as Arc<dyn EventSink>,
@@ -4634,8 +4656,9 @@ mod tests {
                 .generate_key_package()
                 .expect("bob package")
         };
-        let (identity, mut request) = authenticated_request(&bob_package, &bob_entry);
-        mutate(&mut request);
+        let (identity, mut request, hostile_welcome) =
+            authenticated_request(&bob_package, &bob_entry);
+        mutate(&mut request, &hostile_welcome);
         let conversation_id = request.conversation_id.clone();
         let group_id = hex::decode(&conversation_id).expect("canonical conversation id");
         assert_eq!(
@@ -4677,11 +4700,6 @@ mod tests {
             .accept_contact_request("req-conversation")
             .await
             .expect_err("the mutated first-contact transcript must be refused");
-        assert_eq!(
-            error.code(),
-            ErrorCode::RelayIdentityMismatch,
-            "this must fail in the shipping authentication call, before MLS join or relay I/O"
-        );
         let inner = engine.inner.lock().await;
         assert!(
             inner.groups.is_empty(),
@@ -4710,6 +4728,11 @@ mod tests {
         assert!(
             inner.connections.is_empty(),
             "authentication refusal must precede every relay connection or request"
+        );
+        assert_eq!(
+            error.code(),
+            ErrorCode::RelayIdentityMismatch,
+            "this must fail in the shipping authentication call, before MLS join or relay I/O"
         );
     }
 
@@ -4745,15 +4768,15 @@ mod tests {
 
     #[tokio::test]
     async fn accept_contact_request_refuses_a_swapped_welcome() {
-        assert_acceptance_refuses(|request| {
-            request.welcome = hex::encode(b"attacker Welcome");
+        assert_acceptance_refuses(|request, hostile_welcome| {
+            request.welcome = hex::encode(hostile_welcome);
         })
         .await;
     }
 
     #[tokio::test]
     async fn accept_contact_request_refuses_a_substituted_route() {
-        assert_acceptance_refuses(|request| {
+        assert_acceptance_refuses(|request, _hostile_welcome| {
             request.peer_relay_id = "33".repeat(32);
         })
         .await;
@@ -4761,7 +4784,7 @@ mod tests {
 
     #[tokio::test]
     async fn accept_contact_request_refuses_a_substituted_signature() {
-        assert_acceptance_refuses(|request| {
+        assert_acceptance_refuses(|request, _hostile_welcome| {
             let mut signature = hex::decode(&request.advert_signature).unwrap();
             signature[0] ^= 1;
             request.advert_signature = hex::encode(signature);
