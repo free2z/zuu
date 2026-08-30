@@ -67,3 +67,21 @@ test("local host and guest tickets never synthesize themselves into the count", 
     page.getByText("1 person watching", { exact: true }),
   ).toHaveCount(0);
 });
+
+test("joining a public room leaves its known count unchanged", async ({
+  page,
+}) => {
+  await page.goto("/live/nine");
+  await expect(page.getByText("214 people watching", { exact: true })).toHaveCount(
+    1,
+  );
+
+  await page.getByRole("button", { name: "Join free" }).click();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByText("214 people watching", { exact: true })).toHaveCount(
+    2,
+  );
+  await expect(page.getByText("215 people watching", { exact: true })).toHaveCount(
+    0,
+  );
+});
