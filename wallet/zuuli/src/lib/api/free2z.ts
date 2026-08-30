@@ -1538,67 +1538,67 @@ export const articles = {
     query: string,
     selected: string[] = [],
   ): Promise<ArticleTagSuggestion[]> {
-    try {
-      const selectedTags = normalizeArticleTags(selected);
-      if (useMock()) {
-        await delay(80);
-        const counts = new Map<string, number>();
-        for (const article of mockArticles) {
-          for (const tag of sanitizeArticleTags(article.tags ?? [])) {
-            counts.set(tag, (counts.get(tag) ?? 0) + 1);
-          }
+    const selectedTags = normalizeArticleTags(selected);
+    if (useMock()) {
+      await delay(80);
+      const scenario =
+        typeof window === "undefined"
+          ? null
+          : window.sessionStorage.getItem("zuuli.mock.article-topics");
+      if (scenario === "unavailable" || scenario === "unavailable-once") {
+        if (scenario === "unavailable-once") {
+          window.sessionStorage.removeItem("zuuli.mock.article-topics");
         }
-        const needle = query
-          .normalize("NFKC")
-          .trim()
-          .toLocaleLowerCase("en-US");
-        return [...counts]
-          .filter(
-            ([name]) =>
-              !selectedTags.includes(name) &&
-              (!needle || name.includes(needle)),
-          )
-          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-          .slice(0, 10)
-          .map(([name, count]) => ({ name, count }));
+        throw new Error("Mock topic autocomplete unavailable");
       }
-      const response = await request<unknown>("/api/tagging/autocomplete", {
-        query: {
-          query: query.trim(),
-          type: "zpage",
-          selected_tags: selectedTags.join(","),
-          num_results: 10,
-        },
-        anonymous: true,
-      });
-      if (!Array.isArray(response)) return [];
-      return response
-        .flatMap((value): ArticleTagSuggestion[] => {
-          if (!isRecord(value) || typeof value.name !== "string") return [];
-          const [name] = sanitizeArticleTags([value.name]);
-          if (!name) return [];
-          const count = Number(value.count);
-          return [
-            {
-              name,
-              count: Number.isFinite(count)
-                ? Math.max(0, Math.round(count))
-                : 0,
-            },
-          ];
-        })
+      const counts = new Map<string, number>();
+      for (const article of mockArticles) {
+        for (const tag of sanitizeArticleTags(article.tags ?? [])) {
+          counts.set(tag, (counts.get(tag) ?? 0) + 1);
+        }
+      }
+      const needle = query.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+      return [...counts]
         .filter(
-          (suggestion, index, all) =>
-            !selectedTags.includes(suggestion.name) &&
-            all.findIndex((candidate) => candidate.name === suggestion.name) ===
-              index,
+          ([name]) =>
+            !selectedTags.includes(name) && (!needle || name.includes(needle)),
         )
-        .slice(0, 10);
-    } catch {
-      // Autocomplete is an optional authoring aid. Network/schema failures
-      // must never prevent a valid open-vocabulary tag from being entered.
-      return [];
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 10)
+        .map(([name, count]) => ({ name, count }));
     }
+    const response = await request<unknown>("/api/tagging/autocomplete", {
+      query: {
+        query: query.trim(),
+        type: "zpage",
+        selected_tags: selectedTags.join(","),
+        num_results: 10,
+      },
+      anonymous: true,
+    });
+    if (!Array.isArray(response)) {
+      throw new Error("Malformed topic autocomplete response.");
+    }
+    const suggestions = response.map((value): ArticleTagSuggestion => {
+      if (!isRecord(value) || typeof value.name !== "string") {
+        throw new Error("Malformed topic autocomplete suggestion.");
+      }
+      const [name] = sanitizeArticleTags([value.name]);
+      if (!name) throw new Error("Malformed topic autocomplete name.");
+      const count = Number(value.count);
+      if (!Number.isFinite(count)) {
+        throw new Error("Malformed topic autocomplete count.");
+      }
+      return { name, count: Math.max(0, Math.round(count)) };
+    });
+    return suggestions
+      .filter(
+        (suggestion, index, all) =>
+          !selectedTags.includes(suggestion.name) &&
+          all.findIndex((candidate) => candidate.name === suggestion.name) ===
+            index,
+      )
+      .slice(0, 10);
   },
 };
 

@@ -208,8 +208,9 @@ const loadCreatorPage = (query: string, page: number) =>
   discover.searchCreatorPage(query, page);
 const loadPagePage = (query: string, page: number) =>
   discover.searchPagePage(query, page);
-const creatorIdentity = (creator: SimpleCreator) =>
-  creator.username.toLowerCase();
+/** The immutable creator address, not a locale/case-folded display handle. */
+export const creatorSearchIdentity = (creator: SimpleCreator) =>
+  creator.free2zaddr;
 const pageIdentity = (article: Article) => String(article.id);
 
 export function useCreatorSearch(query: string) {
@@ -217,7 +218,7 @@ export function useCreatorSearch(query: string) {
     query,
     creatorCache,
     loadCreatorPage,
-    creatorIdentity,
+    creatorSearchIdentity,
   );
 }
 

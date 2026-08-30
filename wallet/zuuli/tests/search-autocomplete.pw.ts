@@ -172,6 +172,93 @@ test("Articles replaces the topic wall with a quiet removable autocomplete", asy
   expect(viewport.scroll).toBeLessThanOrEqual(viewport.client);
 });
 
+test("Articles exposes a retryable topic failure instead of misreporting an empty corpus", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("zuuli.mock.article-topics", "unavailable-once");
+  });
+  await page.goto("/articles");
+
+  const input = page.getByRole("combobox", { name: "Filter by topic" });
+  await input.fill("pri");
+  await expect(
+    page.getByText("Topics unavailable", { exact: true }).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Try again" }).first().click();
+  await expect(
+    page.getByRole("listbox", { name: "Topic suggestions" }),
+  ).toContainText("privacy");
+});
+
+for (const width of [320, 360] as const) {
+  for (const signedIn of [false, true]) {
+    test(`${signedIn ? "signed-in" : "signed-out"} Search tabs remain operable while autocomplete loads and is empty at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await page.addInitScript((authenticated) => {
+        const key = "zuuli.knox.token";
+        if (authenticated) localStorage.setItem(key, "mock-knox-token");
+        else localStorage.removeItem(key);
+      }, signedIn);
+      await page.goto("/search?q=no-results-for-this-query");
+
+      const pagesTab = page.getByRole("tab", { name: /Pages/ });
+      await pagesTab.click();
+      await expect(pagesTab).toHaveAttribute("aria-selected", "true");
+      await globalSearch(page).fill("still-no-results-for-this-query");
+      await expect(page.getByText("No matches", { exact: true })).toBeVisible();
+
+      const creatorsTab = page.getByRole("tab", { name: /Creators/ });
+      await creatorsTab.click();
+      await expect(creatorsTab).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByText("No matches", { exact: true })).toHaveCount(
+        0,
+      );
+    });
+  }
+}
+
+test("Search clears a pointer transaction released outside the route", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 720 });
+  await page.goto("/search?q=no-results-for-this-query");
+
+  const input = globalSearch(page);
+  const noMatches = page.getByText("No matches", { exact: true });
+  await expect(noMatches).toBeVisible();
+
+  const clearSearch = page.getByRole("button", { name: "Clear search" });
+  const clearBounds = await clearSearch.boundingBox();
+  const topBarBounds = await page.locator("[data-app-top-bar]").boundingBox();
+  expect(clearBounds).not.toBeNull();
+  expect(topBarBounds).not.toBeNull();
+  await page.mouse.move(
+    clearBounds!.x + clearBounds!.width / 2,
+    clearBounds!.y + clearBounds!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    topBarBounds!.x + topBarBounds!.width / 2,
+    topBarBounds!.y + topBarBounds!.height / 2,
+  );
+  await page.mouse.up();
+  await expect(noMatches).toHaveCount(0);
+
+  // Force a new keyboard focus transition even on browsers that keep the
+  // pressed clear button from taking focus when released elsewhere.
+  await page.getByRole("button", { name: "Log in" }).focus();
+  await input.focus();
+  await expect(noMatches).toBeVisible();
+  await input.press("Tab");
+  await expect(clearSearch).toBeFocused();
+  await expect(noMatches).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(noMatches).toHaveCount(0);
+});
+
 test.describe("locale-aware Search", () => {
   test.use({ locale: "es-ES" });
 

@@ -52,6 +52,9 @@ export default function SearchFeature() {
   const query = params.get("q") ?? "";
   const debounced = useDebounced(query, DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<HTMLDivElement>(null);
+  const pointerInteractionRef = useRef(false);
+  const pointerReleaseTimerRef = useRef<number | null>(null);
   const listId = useId();
   const statusId = useId();
   const [focused, setFocused] = useState(false);
@@ -95,6 +98,45 @@ export default function SearchFeature() {
   // Focus the box on mount for a keyboard-first feel.
   useEffect(() => {
     inputRef.current?.focus();
+    const finishReleasedPointer = (event: PointerEvent) => {
+      if (!pointerInteractionRef.current) return;
+      if (pointerReleaseTimerRef.current !== null) {
+        window.clearTimeout(pointerReleaseTimerRef.current);
+      }
+      const target = event.target;
+      pointerReleaseTimerRef.current = window.setTimeout(() => {
+        pointerReleaseTimerRef.current = null;
+        if (!pointerInteractionRef.current) return;
+        pointerInteractionRef.current = false;
+        if (
+          target instanceof Node &&
+          autocompleteRef.current?.contains(target)
+        ) {
+          return;
+        }
+        setFocused(false);
+        setActiveIndex(-1);
+      }, 0);
+    };
+    const cancelPointer = () => {
+      if (!pointerInteractionRef.current) return;
+      pointerInteractionRef.current = false;
+      if (pointerReleaseTimerRef.current !== null) {
+        window.clearTimeout(pointerReleaseTimerRef.current);
+        pointerReleaseTimerRef.current = null;
+      }
+      setFocused(false);
+      setActiveIndex(-1);
+    };
+    window.addEventListener("pointerup", finishReleasedPointer);
+    window.addEventListener("pointercancel", cancelPointer);
+    return () => {
+      window.removeEventListener("pointerup", finishReleasedPointer);
+      window.removeEventListener("pointercancel", cancelPointer);
+      if (pointerReleaseTimerRef.current !== null) {
+        window.clearTimeout(pointerReleaseTimerRef.current);
+      }
+    };
   }, []);
 
   // The route, not the debounce timer, owns visible empty-vs-results state.
@@ -227,8 +269,37 @@ export default function SearchFeature() {
     }
   }
 
+  function dismissAutocomplete() {
+    setFocused(false);
+    setActiveIndex(-1);
+  }
+
+  function finishPointerInteraction(target: EventTarget | null) {
+    pointerInteractionRef.current = false;
+    if (pointerReleaseTimerRef.current !== null) {
+      window.clearTimeout(pointerReleaseTimerRef.current);
+      pointerReleaseTimerRef.current = null;
+    }
+    if (target instanceof Node && autocompleteRef.current?.contains(target)) {
+      return;
+    }
+    dismissAutocomplete();
+  }
+
   return (
-    <div className="animate-slide-up">
+    <div
+      className="animate-slide-up"
+      onPointerDownCapture={() => {
+        pointerInteractionRef.current = true;
+        if (pointerReleaseTimerRef.current !== null) {
+          window.clearTimeout(pointerReleaseTimerRef.current);
+          pointerReleaseTimerRef.current = null;
+        }
+      }}
+      onClickCapture={(event) => {
+        finishPointerInteraction(event.target);
+      }}
+    >
       <PageHeader title={t(MESSAGE_KEYS.navSearchAction)} />
 
       <div className="mb-6 max-w-2xl">
@@ -257,12 +328,15 @@ export default function SearchFeature() {
         ) : null}
 
         <div
+          ref={autocompleteRef}
           className="relative"
           onFocus={() => setFocused(true)}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) {
-              setFocused(false);
-              setActiveIndex(-1);
+              // A pointer click elsewhere in Search must finish against a
+              // stable target before this in-flow panel is removed. Otherwise
+              // blur shifts cards and tabs between pointer-down and click.
+              if (!pointerInteractionRef.current) dismissAutocomplete();
             }
           }}
         >
@@ -285,7 +359,7 @@ export default function SearchFeature() {
               );
             }}
             onKeyDown={onSearchKeyDown}
-            placeholder="Search creators, pages, topics"
+            placeholder="Search"
             aria-label={SEARCH_INPUT_LABEL}
             aria-autocomplete="list"
             aria-expanded={popupOpen && suggestions.length > 0}
@@ -325,7 +399,7 @@ export default function SearchFeature() {
                 id={listId}
                 role="listbox"
                 aria-label="Search suggestions"
-                className="absolute inset-x-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+                className="mt-1 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
               >
                 {suggestions.map((suggestion, index) => (
                   <button
@@ -373,7 +447,7 @@ export default function SearchFeature() {
                 ))}
               </div>
             ) : suggestionError ? (
-              <div className="absolute inset-x-0 top-full z-30 mt-1 flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-lg">
+              <div className="mt-1 flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-lg">
                 <span className="text-sm text-muted-foreground">
                   Search unavailable
                 </span>
@@ -390,11 +464,11 @@ export default function SearchFeature() {
                 </Button>
               </div>
             ) : suggestionsInitialized && !loadingSuggestions ? (
-              <p className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground shadow-lg">
+              <p className="mt-1 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground shadow-lg">
                 No matches
               </p>
             ) : (
-              <p className="absolute inset-x-0 top-full z-30 mt-1 flex min-h-11 items-center gap-2 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground shadow-lg">
+              <p className="mt-1 flex min-h-11 items-center gap-2 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground shadow-lg">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                 Searching
               </p>
@@ -420,6 +494,8 @@ export default function SearchFeature() {
         <Tabs
           value={selectedTab}
           onValueChange={(tab) => {
+            setDismissed(true);
+            setActiveIndex(-1);
             setParams(
               (current) => {
                 const next = new URLSearchParams(current);
@@ -478,7 +554,7 @@ export default function SearchFeature() {
               <EmptyState
                 icon={Users}
                 title="No creators found"
-                description={`No creators match “${searchKey}”. Creators are matched by username and name.`}
+                description={`No creators match “${searchKey}”.`}
               />
             ) : creators.items.length > 0 ? (
               <>

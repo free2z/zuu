@@ -6,10 +6,14 @@ import {
   rankTopicSuggestions,
 } from "./discovery-autocomplete";
 
-const creator = (username: string, display_name?: string): SimpleCreator => ({
+const creator = (
+  username: string,
+  display_name?: string,
+  free2zaddr = username,
+): SimpleCreator => ({
   username,
   display_name,
-  free2zaddr: username,
+  free2zaddr,
 });
 
 const page = (
@@ -88,6 +92,47 @@ describe("discovery autocomplete", () => {
         ({ kind, label }) => kind === "topic" && label === "ZERO",
       ),
     ).toBe(false);
+  });
+
+  it("deduplicates entities by stable identity, not normalized visible text", () => {
+    const suggestions = buildDiscoverySuggestions({
+      query: "shared",
+      locale: "en-US",
+      creators: [
+        creator("Shared", "Shared", "t-addr-one"),
+        creator("shared", "Shared", "t-addr-two"),
+      ],
+      pages: [page("one", "Shared title", []), page("two", "Shared title", [])],
+    });
+
+    expect(
+      suggestions
+        .filter(({ kind }) => kind === "creator")
+        .map(({ key }) => key),
+    ).toEqual(["creator:t-addr-one", "creator:t-addr-two"]);
+    expect(
+      suggestions.filter(({ kind }) => kind === "page").map(({ key }) => key),
+    ).toEqual(["page:one", "page:two"]);
+  });
+
+  it("never offers stored comma-bearing tags as selectable filters", () => {
+    expect(
+      buildDiscoverySuggestions({
+        query: "machine",
+        creators: [],
+        pages: [page("one", "Machine learning", ["machine, learning"])],
+      }).filter(({ kind }) => kind === "topic"),
+    ).toEqual([]);
+    expect(
+      rankTopicSuggestions(
+        [
+          { name: "machine, learning", count: 9 },
+          { name: "machine learning", count: 2 },
+        ],
+        "machine",
+        [],
+      ),
+    ).toEqual([{ name: "machine learning", count: 2 }]);
   });
 
   it("returns no default vocabulary before the user types", () => {

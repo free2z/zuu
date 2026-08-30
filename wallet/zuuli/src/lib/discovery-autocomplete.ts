@@ -1,5 +1,5 @@
 import type { Article, ArticleTagSuggestion, SimpleCreator } from "./api/types";
-import { sanitizeArticleTags } from "./article-tags";
+import { isArticleTagFilterable, sanitizeArticleTags } from "./article-tags";
 
 export type DiscoverySuggestion =
   | {
@@ -105,6 +105,10 @@ export function buildDiscoverySuggestions({
 
   pages.forEach((page, pageIndex) => {
     for (const tag of sanitizeArticleTags(page.tags ?? [])) {
+      // The feed API serializes selected topics as one comma-delimited value
+      // and has no escaping. Stored legacy tags containing commas remain
+      // displayable, but must never become selectable filters.
+      if (!isArticleTagFilterable(tag)) continue;
       const key = localeSearchKey(tag, locale);
       if (!key || selected.has(key)) continue;
       const existing = topicCounts.get(key);
@@ -134,7 +138,7 @@ export function buildDiscoverySuggestions({
   const seenCreators = new Set<string>();
   creators.forEach((creator, sourceOrder) => {
     const displayName = creator.display_name || creator.username;
-    const key = localeSearchKey(creator.username, locale);
+    const key = creator.free2zaddr;
     if (!key || seenCreators.has(key)) return;
     seenCreators.add(key);
     const match = bestMatch([displayName, creator.username], query, locale);
@@ -155,9 +159,9 @@ export function buildDiscoverySuggestions({
 
   const seenPages = new Set<string>();
   pages.forEach((article, sourceOrder) => {
-    const titleKey = localeSearchKey(article.title, locale);
-    if (!titleKey || seenPages.has(titleKey)) return;
-    seenPages.add(titleKey);
+    const key = String(article.id);
+    if (!key || seenPages.has(key)) return;
+    seenPages.add(key);
     const author = article.author.display_name || article.author.username;
     const match = bestMatch(
       [
@@ -172,7 +176,7 @@ export function buildDiscoverySuggestions({
     ranked.push({
       suggestion: {
         kind: "page",
-        key: `page:${String(article.id)}`,
+        key: `page:${key}`,
         label: article.title,
         detail: author,
         article,
@@ -221,6 +225,7 @@ export function rankTopicSuggestions(
   );
   const unique = new Map<string, ArticleTagSuggestion>();
   for (const suggestion of suggestions) {
+    if (!isArticleTagFilterable(suggestion.name)) continue;
     const key = localeSearchKey(suggestion.name, locale);
     if (!key || selectedKeys.has(key)) continue;
     const previous = unique.get(key);

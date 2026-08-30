@@ -10,6 +10,7 @@ import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
+  isArticleTagFilterable,
   MAX_ARTICLE_TAGS,
   parseArticleTagsParam,
   sanitizeArticleTags,
@@ -57,7 +58,9 @@ export function Feed() {
   } = useArticleFeed({ sort, tags: selectedTags, search });
 
   function updateSelectedTags(tags: string[]) {
-    const canonical = sanitizeArticleTags(tags).slice(0, MAX_ARTICLE_TAGS);
+    const canonical = sanitizeArticleTags(tags)
+      .filter(isArticleTagFilterable)
+      .slice(0, MAX_ARTICLE_TAGS);
     const next = new URLSearchParams(params);
     if (canonical.length > 0) next.set("tags", canonical.join(","));
     else next.delete("tags");
