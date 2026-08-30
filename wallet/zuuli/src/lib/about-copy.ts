@@ -29,6 +29,47 @@ export const ABOUT_MESSAGES = Object.freeze({
   fullCommitLabel: "Full source commit",
   metadataSourceLabel: "Metadata source",
   metadataSourceValue: "Embedded at build time",
+  feedbackHeading: "Send feedback",
+  feedbackDescription:
+    "Choose a destination, then review exactly what will leave ZUULI.",
+  feedbackChannelLegend: "Where should this report go?",
+  feedbackEmailName: "Private email",
+  feedbackEmailPrivacy:
+    "Opens a draft to help@free2z.com. Only that support inbox can read it unless you send it elsewhere.",
+  feedbackGithubName: "Public GitHub issue",
+  feedbackGithubPrivacy:
+    "Opens a public draft in free2z/zuu. Anyone can read the issue and its history.",
+  feedbackDescriptionLabel: "What happened?",
+  feedbackDescriptionHint:
+    "Do not include wallet secrets, passwords, tokens, addresses, transaction details, balances, device details, or local files.",
+  feedbackDiagnosticsLabel: "Include sanitized diagnostics",
+  feedbackDiagnosticsUnavailable:
+    "Off. This build does not collect logs or tracebacks for feedback because their privacy safety is not proven.",
+  feedbackReviewAction: "Review report",
+  feedbackPreviewTitle: "Review the complete outgoing draft",
+  feedbackPreviewDescription:
+    "Edit this draft before continuing. ZUULI never sends it automatically.",
+  feedbackSubjectLabel: "Outgoing subject or title",
+  feedbackBodyLabel: "Outgoing body",
+  feedbackRemoveDiagnosticsAction: "Remove diagnostics",
+  feedbackCopyAction: "Copy reviewed report",
+  feedbackEditAction: "Edit description",
+  feedbackCancelAction: "Cancel",
+  feedbackContinueAction: "Continue to chosen app",
+  feedbackScrubbedWarning:
+    "Potential private data was removed. Review the updated draft before trying again.",
+  feedbackTooLongWarning:
+    "This complete report is too long for a safe app handoff. It was not shortened or opened. Copy the same reviewed report instead.",
+  feedbackHandoffFailure:
+    "The chosen app could not be opened. Nothing was sent. Copy the same reviewed report instead.",
+  feedbackCopyFailure:
+    "The clipboard is unavailable. Nothing was sent. Select and copy the reviewed subject and body instead.",
+  feedbackCopiedStatus: "Reviewed report copied. Nothing was sent.",
+  feedbackHandoffStatus:
+    "The chosen app was opened with this draft. ZUULI cannot know whether you submit it.",
+  feedbackDefaultSubject: "ZUULI feedback",
+  feedbackRedactedValue: "[removed: sensitive value]",
+  feedbackCopiedSubjectPrefix: "Subject",
 } as const);
 
 export type AboutMessageKey = keyof typeof ABOUT_MESSAGES;

@@ -21,6 +21,7 @@ import {
   resolveAboutMessages,
   type AboutMessages,
 } from "./copy";
+import { FeedbackComposer } from "./FeedbackComposer";
 
 type AboutBuildCardProps = {
   buildInfo?: BuildInfo;
@@ -163,6 +164,12 @@ export default function AboutFeature() {
         description={messages.pageDescription}
       />
       <AboutBuildCard messages={messages} />
+      <div className="mt-6 px-4 sm:px-0">
+        <FeedbackComposer
+          minimalBuildBlock={formatBuildInfoMinimal(BUILD_INFO, messages)}
+          messages={messages}
+        />
+      </div>
     </div>
   );
 }
