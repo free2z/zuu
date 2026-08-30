@@ -73,15 +73,17 @@ export function AboutBuildCard({
   }
 
   return (
-    <Card className="min-w-0" data-about-build-card>
-      <CardHeader className="p-4 sm:p-6">
-        <CardTitle className="flex min-w-0 items-center gap-2 text-lg">
-          <h2>
+    <Card className="min-w-0 overflow-hidden" data-about-build-card>
+      <CardHeader className="min-w-0 p-4 sm:p-6">
+        <CardTitle className="min-w-0 break-words text-lg [overflow-wrap:anywhere]">
+          <h2 className="min-w-0 break-words [overflow-wrap:anywhere]">
             <Info className="mr-2 inline h-5 w-5" aria-hidden />
             {messages.buildHeading}
           </h2>
         </CardTitle>
-        <CardDescription>{messages.buildDescription}</CardDescription>
+        <CardDescription className="min-w-0 break-words [overflow-wrap:anywhere]">
+          {messages.buildDescription}
+        </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-5 p-4 pt-0 sm:p-6 sm:pt-0">
         <dl className="min-w-0 space-y-3" aria-label={messages.buildHeading}>

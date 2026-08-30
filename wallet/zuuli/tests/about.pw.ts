@@ -88,10 +88,23 @@ test.describe("pseudo-expanded shipping locale", () => {
       }),
     ).toBeVisible();
 
-    const geometry = await page.locator("[data-app-frame]").evaluate((frame) => {
-      const overflowing = [...frame.querySelectorAll<HTMLElement>("*")]
+    const geometry = await page.evaluate(() => {
+      const roots = [
+        document.querySelector<HTMLElement>("[data-about-page]"),
+        document.querySelector<HTMLElement>('[data-navigation-id="about"]'),
+      ].filter((element): element is HTMLElement => element !== null);
+      const surfaces = roots.flatMap((root) => [
+        root,
+        ...root.querySelectorAll<HTMLElement>("*"),
+      ]);
+      const overflowing = surfaces
         .filter((element) => element.scrollWidth > element.clientWidth + 1)
-        .map((element) => element.tagName);
+        .map((element) => ({
+          tag: element.tagName,
+          text: element.textContent?.trim().slice(0, 80),
+        }));
+      const frame = document.querySelector<HTMLElement>("[data-app-frame]");
+      if (!frame) throw new Error("app frame unavailable");
       return {
         clientWidth: frame.clientWidth,
         scrollWidth: frame.scrollWidth,

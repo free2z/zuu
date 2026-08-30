@@ -25,7 +25,7 @@ describe("About build identity", () => {
   it("renders semantic, offline build identity and a single copy action", () => {
     const markup = renderToStaticMarkup(<AboutBuildCard buildInfo={INFO} />);
 
-    expect(markup).toContain("<h2>");
+    expect(markup).toContain("<h2");
     expect(markup).toContain("<dl");
     expect(markup).toContain("<details");
     expect(markup).toContain("Build provenance");
@@ -85,7 +85,7 @@ describe("About build identity", () => {
     );
     expect(markup).not.toMatch(bannedCopyClipping);
     expect(formatBuildInfoMinimal(INFO, PSEUDO_ABOUT_MESSAGES)).toContain(
-      "expanded locale versionLabel",
+      "expanded locale version label",
     );
   });
 });

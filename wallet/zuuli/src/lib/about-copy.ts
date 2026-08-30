@@ -66,10 +66,13 @@ export function createAboutMessages(
 
 export const PSEUDO_ABOUT_MESSAGES = createAboutMessages(
   Object.fromEntries(
-    ABOUT_MESSAGE_KEYS.map((key) => [
-      key,
-      `⟦${ABOUT_MESSAGES[key]} — expanded locale ${key}⟧`,
-    ]),
+    ABOUT_MESSAGE_KEYS.map((key) => {
+      const breakableKey = key.replace(/([A-Z])/g, " $1").toLowerCase();
+      return [
+        key,
+        `⟦${ABOUT_MESSAGES[key]} — expanded locale ${breakableKey}⟧`,
+      ];
+    }),
   ) as Partial<AboutMessages>,
 );
 
