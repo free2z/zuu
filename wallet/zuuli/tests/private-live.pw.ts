@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { installMockCapture } from "./helpers/mock-capture";
 
 const secret = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -12,11 +13,14 @@ test("private host creates, displays, refreshes, and ends the opaque invite room
   page,
 }) => {
   await signIn(page);
+  await installMockCapture(page);
   await page.goto("/live");
   await page.getByRole("button", { name: "Go Live" }).click();
   await page.getByRole("radio", { name: /Private/ }).click();
   await page.getByLabel("Title").fill("Invite-only call");
-  await page.getByRole("button", { name: "Start stream" }).click();
+  await page.getByRole("button", { name: "Set up camera and microphone" }).click();
+  await expect(page.getByRole("heading", { name: "Preview ready" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm and start" }).click();
 
   await expect(page).toHaveURL(
     new RegExp(`/live/demo-creator#private=${secret}$`),
