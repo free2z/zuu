@@ -43,6 +43,19 @@ describe("mockWallet.parsePaymentUri", () => {
   });
 });
 
+describe("mockWallet.validateAddress", () => {
+  it("mirrors the native validator for a transparent-only Unified Address", () => {
+    const transparentOnlyUnified =
+      "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr";
+
+    expect(mockWallet.validateAddress(transparentOnlyUnified)).toEqual({
+      valid: true,
+      addressType: "unified",
+      canReceiveMemo: false,
+    });
+  });
+});
+
 describe("mockWallet.restoreWallet", () => {
   it("returns the exact published wallet identity without a backup obligation", async () => {
     expect(await mockWallet.restoreWallet(RECOVERY_PHRASE)).toEqual({

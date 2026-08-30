@@ -955,6 +955,10 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     p2paddr:
       uname === "transparent_creator"
         ? "t1mocktransparentcreatoraddressxxxxxxxx"
+        : uname === "transparent_unified_creator"
+          // Encoded by the native validator regression from a P2PKH receiver
+          // plus an unknown receiver: valid Unified Address, no memo receiver.
+          ? "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr"
         : uname === "testnet_creator"
           ? "tmocktestnetcreatoraddressxxxxxxxxxxx"
           : `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,

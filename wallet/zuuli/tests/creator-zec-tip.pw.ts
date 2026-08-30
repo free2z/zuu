@@ -12,7 +12,10 @@ async function openCreator(page: Page, username: string, delayMs = 0) {
   await page.getByRole("button", { name: new RegExp(`Tip ${username}`, "i") }).click();
 }
 
-async function chooseZec(page: Page) {
+async function chooseZec(
+  page: Page,
+  expectedUrl = /\/wallet\/send\/creator-tip$/,
+) {
   await expect(page.getByRole("group", { name: "Tip currency" })).toBeVisible();
   await expect(page.getByRole("button", { name: /^2Z Platform credits$/ })).toHaveAttribute(
     "aria-pressed",
@@ -21,7 +24,7 @@ async function chooseZec(page: Page) {
   await expect(page.getByLabel("Amount (2Z)")).toBeVisible();
   await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
   await page.getByRole("button", { name: "Continue with ZEC" }).click();
-  await expect(page).toHaveURL(/\/wallet\/send\/creator-tip$/);
+  await expect(page).toHaveURL(expectedUrl);
 }
 
 test("a 320px creator ZEC tip locks the issued destination through native review", async ({
@@ -195,4 +198,40 @@ test("transparent creator destinations warn before proposal and prohibit memos",
   await page.getByLabel("Amount").fill("0.0001");
   await page.getByRole("button", { name: "Review payment" }).click();
   await expect(page.getByTestId("send-review-memo")).toHaveText("None");
+});
+
+test("a native-valid transparent-only unified creator destination warns", async ({
+  page,
+}) => {
+  await openCreator(page, "transparent_unified_creator");
+  await chooseZec(page);
+
+  await expect(page.getByLabel("Recipient address")).toHaveValue(
+    "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr",
+  );
+  await expect(page.getByText(/Valid unified address/)).toContainText(
+    "no memo support",
+  );
+  await expect(page.getByTestId("creator-tip-privacy-warning")).toContainText(
+    "publicly visible on-chain",
+  );
+  await expect(page.getByLabel(/^Memo/)).toBeDisabled();
+});
+
+test("a pre-existing recovered payment is never attributed to a new creator tip", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("zuuli.mock.pending-send", "unknown");
+  });
+  await openCreator(page, "zooko");
+  await chooseZec(page, /\/wallet\/send$/);
+
+  await expect(page).toHaveURL(/\/wallet\/send$/);
+  await expect(page.getByText("A previous broadcast is unresolved")).toBeVisible();
+  await expect(page.getByTestId("creator-tip-context")).toHaveCount(0);
+  await expect(page.getByTestId("creator-tip-review-context")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Retry recovered transaction" }),
+  ).toBeVisible();
 });

@@ -153,6 +153,9 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
   const [sending, setSending] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<ExecuteSendResult | null>(null);
   const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(null);
+  const [pendingCheck, setPendingCheck] = useState<"loading" | "ready" | "failed">(
+    "loading",
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const debounceRef = useRef<number | null>(null);
@@ -217,15 +220,27 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
     void wallet
       .getPendingSend()
       .then((pending) => {
-        if (active && pending?.status === "unknown") setPendingSend(pending);
+        if (!active) return;
+        if (creatorTip && pending?.status === "unknown") {
+          // Recovery belongs to a transaction created before this in-memory
+          // creator intent. Move to the neutral recovery surface without ever
+          // attributing or retiring it as the newly selected creator's tip.
+          navigate("/wallet/send", { replace: true });
+          return;
+        }
+        if (pending?.status === "unknown") setPendingSend(pending);
+        setPendingCheck("ready");
       })
       .catch((error) => {
-        if (active) toast.error(errorMessage(error, "Couldn't load pending payment state"));
+        if (active) {
+          setPendingCheck("failed");
+          toast.error(errorMessage(error, "Couldn't load pending payment state"));
+        }
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [creatorTip, navigate]);
 
   // Parse a pasted `zcash:` payment URI and prefill the form.
   const applyUri = useCallback(
@@ -491,6 +506,33 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
     }
   }, [pendingSend]);
 
+  if (creatorTip && pendingCheck !== "ready") {
+    return (
+      <Card className="mx-auto max-w-xl rounded-xl">
+        <CardHeader>
+          <CardTitle>Checking wallet recovery</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pendingCheck === "failed" ? (
+            <Callout
+              tone="destructive"
+              icon={TriangleAlert}
+              title="Wallet recovery state unavailable"
+              role="alert"
+            >
+              Return to Wallet Send and resolve recovery before starting a new
+              payment.
+            </Callout>
+          ) : (
+            <p className="text-sm text-muted-foreground" role="status">
+              Checking for an earlier payment…
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-xl">
       <Card className="rounded-xl">
@@ -574,7 +616,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
 
           {creatorTip &&
             validation?.valid &&
-            validation.addressType === "transparent" ? (
+            !validation.canReceiveMemo ? (
             <Callout
               icon={TriangleAlert}
               title="Transparent ZEC tip"
