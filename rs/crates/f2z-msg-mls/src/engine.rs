@@ -22,10 +22,13 @@
 //! relay, un-acknowledged, and is redelivered — which is recoverable, and a
 //! half-applied epoch change is not.
 //!
-//! Rolling back storage is only half of that invariant after OpenMLS has merged
-//! a commit into the caller's [`MlsGroup`]. [`MlsEngine::receive`] reloads the
-//! durable pre-transaction group into that same handle before returning a
-//! post-merge error, so redelivery sees the epoch the store actually holds.
+//! Rolling back storage is only half of that invariant after OpenMLS has
+//! advanced a private-message receive ratchet or merged a commit into the
+//! caller's [`MlsGroup`]. [`MlsEngine::receive`] reloads the durable
+//! pre-transaction group into that same handle before returning an error, so
+//! redelivery sees the state the store actually holds. If that reload itself
+//! fails, [`EngineError::GroupStateUnavailable`] tells the caller to discard
+//! the possibly advanced handle and attempt a fresh durable load.
 //!
 //! # Delete-on-ack, and what `record_key` is for
 //!
@@ -683,7 +686,10 @@ impl<B: StorageBackend> MlsEngine<B> {
     /// [`EngineError::OutOfOrder`] for a message from an epoch this group is
     /// not in; [`EngineError::Credential`] if the sender's credential does not
     /// validate; [`EngineError::Mls`] if OpenMLS refused;
-    /// [`EngineError::Storage`] if the store did.
+    /// [`EngineError::Storage`] if the store did; or
+    /// [`EngineError::GroupStateUnavailable`] if rollback succeeded but its
+    /// durable state could not be reloaded. After that last outcome the caller
+    /// must discard `group` and load a fresh handle from durable storage.
     pub fn receive(
         &self,
         group: &mut MlsGroup,
@@ -702,9 +708,12 @@ impl<B: StorageBackend> MlsEngine<B> {
         let group_id = group.group_id().clone();
         let original_aad = group.aad().to_vec();
         let transaction = self.provider.store().begin()?;
-        let mut restore_group_on_error = false;
 
         let operation = || -> Result<Received> {
+            // Private-message processing advances the receive ratchet before
+            // content dispatch. Restoration therefore has to cover every
+            // failure from this call onward, not only the visibly mutating
+            // commit branches below.
             let processed = group
                 .process_message(&self.provider, protocol_message)
                 .map_err(map_process_error)?;
@@ -744,9 +753,6 @@ impl<B: StorageBackend> MlsEngine<B> {
                     Received::ProposalQueued
                 }
                 ProcessedMessageContent::StagedCommitMessage(staged) => {
-                    // Mark before the merge: OpenMLS is allowed to mutate the
-                    // caller's group before returning an error.
-                    restore_group_on_error = true;
                     group
                         .merge_staged_commit(&self.provider, *staged)
                         .map_err(|_| EngineError::Mls("merge staged commit"))?;
@@ -779,7 +785,6 @@ impl<B: StorageBackend> MlsEngine<B> {
                     // only correct action when a pending commit exists, and doing
                     // nothing is the only correct action when none does.
                     if group.pending_commit().is_some() {
-                        restore_group_on_error = true;
                         group
                             .merge_pending_commit(&self.provider)
                             .map_err(|_| EngineError::Mls("merge pending commit"))?;
@@ -805,8 +810,11 @@ impl<B: StorageBackend> MlsEngine<B> {
 
         let result = operation();
         if let Err(error) = result {
-            if restore_group_on_error {
-                self.restore_group_after_rollback(group, &group_id, original_aad)?;
+            if let Err(reload) = self.restore_group_after_rollback(group, &group_id, original_aad) {
+                return Err(EngineError::GroupStateUnavailable {
+                    operation: Box::new(error),
+                    reload: Box::new(reload),
+                });
             }
             return Err(error);
         }

@@ -31,6 +31,7 @@ mod common;
 use common::{NOW, device, directory_entry, issue_credential};
 
 const GROUP_ID: &[u8] = b"conversation-alice-bob";
+const TEST_AAD: &[u8] = b"free2z/test/non-empty-aad";
 
 /// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
 fn paired() -> (
@@ -64,6 +65,8 @@ fn paired() -> (
 struct FailableBackend {
     inner: Arc<MemoryBackend>,
     fail_apply: Arc<AtomicBool>,
+    fail_restore_get_after_apply: Arc<AtomicBool>,
+    fail_next_get: Arc<AtomicBool>,
 }
 
 impl FailableBackend {
@@ -71,21 +74,38 @@ impl FailableBackend {
         Self {
             inner: Arc::new(MemoryBackend::new()),
             fail_apply: Arc::new(AtomicBool::new(false)),
+            fail_restore_get_after_apply: Arc::new(AtomicBool::new(false)),
+            fail_next_get: Arc::new(AtomicBool::new(false)),
         }
     }
 
     fn set_fail_apply(&self, fail: bool) {
         self.fail_apply.store(fail, Ordering::SeqCst);
     }
+
+    fn fail_apply_and_restore_get_once(&self) {
+        self.fail_restore_get_after_apply
+            .store(true, Ordering::SeqCst);
+        self.fail_apply.store(true, Ordering::SeqCst);
+    }
 }
 
 impl StorageBackend for FailableBackend {
     fn get(&self, key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
+        if self.fail_next_get.swap(false, Ordering::SeqCst) {
+            return Err(StoreError::Backend("injected restore get failure"));
+        }
         self.inner.get(key)
     }
 
     fn apply(&self, ops: &[Op]) -> f2z_msg_store::Result<()> {
         if self.fail_apply.load(Ordering::SeqCst) {
+            if self
+                .fail_restore_get_after_apply
+                .swap(false, Ordering::SeqCst)
+            {
+                self.fail_next_get.store(true, Ordering::SeqCst);
+            }
             return Err(StoreError::Backend("injected apply failure"));
         }
         self.inner.apply(ops)
@@ -446,6 +466,8 @@ fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
     let (alice, mut alice_group, bob, mut bob_group) =
         paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
 
+    alice_group.set_aad(TEST_AAD.to_vec());
+    bob_group.set_aad(TEST_AAD.to_vec());
     let commit = alice.update(&mut alice_group).expect("update");
     let epoch_before = bob_group.epoch();
 
@@ -465,6 +487,11 @@ fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
         epoch_before,
         "a commit refused after merge must restore the caller's group"
     );
+    assert_eq!(
+        bob_group.aad(),
+        TEST_AAD,
+        "durable MLS state omits ephemeral AAD, so rollback must restore it explicitly"
+    );
 
     bob_backend.set_fail_apply(false);
     let redelivery = bob
@@ -477,6 +504,87 @@ fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
         }
     );
     assert_eq!(alice_group.epoch(), bob_group.epoch());
+}
+
+#[test]
+fn an_application_apply_failure_restores_the_receive_ratchet_for_redelivery() {
+    let bob_backend = FailableBackend::new();
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
+    alice_group.set_aad(TEST_AAD.to_vec());
+    bob_group.set_aad(TEST_AAD.to_vec());
+    let wire = alice
+        .send(&mut alice_group, b"ratchet rollback")
+        .expect("send");
+
+    bob_backend.set_fail_apply(true);
+    let outcome = bob.receive(&mut bob_group, &wire, b"application-apply", NOW);
+    assert!(
+        matches!(
+            outcome,
+            Err(EngineError::Storage(StoreError::Backend(
+                "injected apply failure"
+            )))
+        ),
+        "the injected durable-store failure must be returned, got {outcome:?}"
+    );
+    assert_eq!(
+        bob_group.aad(),
+        TEST_AAD,
+        "application rollback must preserve non-empty AAD"
+    );
+
+    bob_backend.set_fail_apply(false);
+    let redelivery = bob
+        .receive(&mut bob_group, &wire, b"application-apply", NOW)
+        .expect("the restored receive ratchet must accept redelivery");
+    assert_eq!(redelivery.payload(), Some(b"ratchet rollback".as_slice()));
+}
+
+#[test]
+fn a_restore_read_failure_requires_a_fresh_group_before_redelivery() {
+    let bob_backend = FailableBackend::new();
+    let (alice, mut alice_group, bob, mut bob_group) =
+        paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
+    alice_group.set_aad(TEST_AAD.to_vec());
+    bob_group.set_aad(TEST_AAD.to_vec());
+    let commit = alice.update(&mut alice_group).expect("update");
+    let group_id = bob_group.group_id().clone();
+
+    bob_backend.fail_apply_and_restore_get_once();
+    let outcome = bob.receive(&mut bob_group, &commit, b"restore-read", NOW);
+    match outcome {
+        Err(EngineError::GroupStateUnavailable { operation, reload }) => {
+            assert!(matches!(
+                operation.as_ref(),
+                EngineError::Storage(StoreError::Backend("injected apply failure"))
+            ));
+            assert!(matches!(
+                reload.as_ref(),
+                EngineError::Storage(StoreError::Backend("injected restore get failure"))
+            ));
+        }
+        other => panic!("the caller must be told to discard the group, got {other:?}"),
+    }
+
+    // The handle passed above may contain the uncommitted epoch and is never
+    // reused. This is the same fresh durable load the ZUULI caller performs
+    // when it sees GroupStateUnavailable.
+    bob_backend.set_fail_apply(false);
+    let mut restored = openmls::prelude::MlsGroup::load(bob.provider().store(), &group_id)
+        .expect("fresh durable load")
+        .expect("durable pre-transaction group");
+    restored.set_aad(TEST_AAD.to_vec());
+    let redelivery = bob
+        .receive(&mut restored, &commit, b"restore-read", NOW)
+        .expect("redelivery through the freshly loaded group");
+    assert_eq!(
+        redelivery,
+        Received::EpochChanged {
+            epoch: restored.epoch().as_u64()
+        }
+    );
+    assert_eq!(alice_group.epoch(), restored.epoch());
 }
 
 #[test]

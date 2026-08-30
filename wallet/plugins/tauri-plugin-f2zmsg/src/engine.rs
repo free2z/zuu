@@ -2500,6 +2500,23 @@ impl<B: StorageBackend> Inner<B> {
         Ok(())
     }
 
+    /// Load one conversation's MLS group from the durable provider.
+    ///
+    /// Used on demand after [`EngineError::GroupStateUnavailable`], where the
+    /// old in-memory handle is deliberately absent. Failure must propagate so
+    /// the queue cursor and ACK boundary remain before the ciphertext.
+    fn reload_group(&self, stored: &StoredConversation) -> Result<MlsGroup> {
+        let group_id = hex::decode(&stored.group_id)
+            .map_err(|_| Error::internal("the stored MLS group id is not hexadecimal"))?;
+        let mls = self.mls_ref("reload_group")?;
+        MlsGroup::load(
+            mls.provider().storage(),
+            &GroupId::from_slice(group_id.as_slice()),
+        )
+        .map_err(|error| Error::internal(format!("reloading an MLS group: {error:?}")))?
+        .ok_or_else(|| Error::internal("the durable MLS group is missing"))
+    }
+
     async fn subscribe_all(&mut self) {
         let Ok(ids) = self.records().conversation_ids() else {
             return;
@@ -3899,8 +3916,14 @@ impl<B: StorageBackend> Inner<B> {
         // rather than double-applied.
         let record_key = format!("{conversation_id}:{index}").into_bytes();
 
-        let Some(mut group) = self.groups.remove(&conversation_id) else {
-            return Ok(Vec::new());
+        let mut group = match self.groups.remove(&conversation_id) {
+            Some(group) => group,
+            // A prior receive can leave its caller handle explicitly
+            // unusable when durable rollback reload itself fails. Do not
+            // silently treat that as a handled delivery: retry the durable
+            // load first, leaving the queue cursor untouched if it still
+            // cannot be read.
+            None => self.reload_group(stored)?,
         };
         let received: Result<core::result::Result<Received, EngineError>> = (|| {
             let mls = self.mls_ref("apply_inbound")?;
@@ -3911,7 +3934,13 @@ impl<B: StorageBackend> Inner<B> {
                 u64::try_from(now).unwrap_or_default(),
             ))
         })();
-        self.groups.insert(conversation_id.clone(), group);
+        let group_state_unavailable = matches!(
+            &received,
+            Ok(Err(EngineError::GroupStateUnavailable { .. }))
+        );
+        if !group_state_unavailable {
+            self.groups.insert(conversation_id.clone(), group);
+        }
         let received = received?;
 
         let (payload, sender, epoch) = match received {
@@ -3933,6 +3962,13 @@ impl<B: StorageBackend> Inner<B> {
                 // it as nothing, so the transcript gets §3.4's marker instead.
                 self.advance(stored, index)?;
                 return self.record_unrecoverable(&conversation_id, index, now);
+            }
+            Err(error @ EngineError::GroupStateUnavailable { .. }) => {
+                // `receive` says this exact handle may be ahead of durable
+                // state. It stays out of the live map, and this index stays at
+                // the head of the queue until `reload_group` succeeds on a
+                // later pass and redelivery can be attempted safely.
+                return Err(Error::internal(format!("decrypting: {error}")));
             }
             Err(error) => {
                 self.advance(stored, index)?;
