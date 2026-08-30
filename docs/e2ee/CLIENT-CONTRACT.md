@@ -1705,7 +1705,7 @@ how a wrong device clock ends up rendered as a relay defect.
 | 7 | `ERR_STALE_TIMESTAMP` | **`device-clock-skew`** |
 | 8 | `ERR_REPLAY` | `relay-protocol-violation` — a repeated `(signer_key, nonce)` is our CSPRNG's fault |
 | 9 | `ERR_CHANNEL_BINDING` | `relay-protocol-violation` — reserved and unused in v1, so receiving it *is* the violation |
-| 10 | `ERR_NO_ACCESS` | `relay-protocol-violation`. It is valid for a frame-internal creation/`BIND_SEND` self-check or a recv-side authorization failure; a state-dependent send-side refusal using code 10 is itself a protocol violation, because that refusal MUST be code 15. See the note below. |
+| 10 | `ERR_NO_ACCESS` | `send-unavailable` on a send-side command; `relay-protocol-violation` on a recv-side one. **See the note below: the source contradicts itself here and this row is not a resolution of it.** |
 | 11 | `ERR_ALREADY_BOUND` | `send-address-stolen` on a first bind for a freshly advertised address (§3.3); `relay-protocol-violation` on any later bind, because we should not have tried |
 | 12 | `ERR_BAD_SIZE` | `relay-capability-mismatch` — our emitted size is not in the relay's `padding_sizes` |
 | 13 | `ERR_ACK_TOO_HIGH` | `relay-protocol-violation` — an `ACK` past the head is a client bug |
@@ -1757,24 +1757,22 @@ which means *our own engine* faulted, and it is never dropped. That is what
 a protocol that grows a code produces a defect report instead of an `undefined`
 branch.
 
-**`ERR_NO_ACCESS` (10) — distinguish frame-internal self-checks from relay-state
-lookups.** [`WIRE.md` §5.1](./WIRE.md#51-construction)'s correction settles the
-old contradiction in step 5. `CREATE_QUEUE`, `CREATE_CONTACT_QUEUE`, and
-`BIND_SEND` may return code 10 when the frame's `signer_key` does not equal the
-key carried in that same frame; those checks reveal no relay state. Recv-side
-commands also use code 10 for an absent address or wrong registered `recv_key`.
-Either result maps to `relay-protocol-violation`: the engine emitted an
-internally inconsistent creation/bind, or it used a receive credential that the
-relay rejected.
-
-For send-side state lookups, the answer is closed: `APPEND` uses
-`ERR_UNAVAILABLE` (15) for every absent, deleted, expired, unbound, full,
-backpressured, or wrong-key state, and `BIND_SEND` uses code 15 for an absent,
-deleted, or expired address. The client maps those code-15 refusals to
-`send-unavailable`. If a relay instead returns code 10 for one of those
-state-dependent send-side cases, the client MUST surface
-`relay-protocol-violation`; treating it as ordinary unavailability would hide a
-violation of §6.3's existence-oracle collapse.
+**`ERR_NO_ACCESS` (10) — the mapping is chosen so the client does not depend on
+an open question, and is not an answer to it.**
+[`WIRE.md` §5.1](./WIRE.md#51-construction) step 5 of the relay's verification
+order says a command whose `signer_key` does not authorize the address fails with
+`ERR_NO_ACCESS` (10);
+[`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key) and §10
+say every send-side refusal that would distinguish queue state collapses to
+`ERR_UNAVAILABLE` (15). Those contradict for a send-side command, and the
+contradiction is [#550](https://github.com/free2z/zuu/issues/550) item 1 —
+**open as of 2026-08-23**, and not settled by this document, which decides
+nothing about the protocol. Mapping *both* codes to `send-unavailable` on the
+send side makes the client behave identically whichever way #550 lands, and shows
+the user the same thing either way — which is independently what §10's
+existence-oracle rule wants, since a sender that could tell an absent queue from
+an unauthorized one is the oracle. If #550 resolves the other way, this row is
+where the change goes and nothing else moves.
 
 ---
 

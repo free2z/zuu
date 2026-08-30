@@ -1764,15 +1764,6 @@ a flood, when the relay is the resource under pressure. The calibration is
 unresolved and is recorded as
 [`ARCHITECTURE.md` §13-N](./ARCHITECTURE.md#13-open-questions).
 
-> **Correction (2026-08-30) — the phone-tolerability claim above was not
-> measured and is withdrawn.** No phone benchmark was recorded for the v1
-> contact-append proof of work, so this document has no evidence that any
-> difficulty is tolerable to the supported phones or imposes a particular cost
-> on attackers. Section 13.1's 20-bit value is a provisional interoperability
-> default, not a completed calibration or a nuisance estimate. Architecture
-> §13-N remains the required benchmark and adjustment work before either claim
-> can be made.
-
 **Disk exhaustion by mass queue creation is made expensive, not closed.** Nothing
 here prevents an adversary with real resources from creating a very large number
 of legitimate-looking queues, each with a valid stamp, from a large number of
