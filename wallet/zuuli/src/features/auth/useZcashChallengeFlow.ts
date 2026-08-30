@@ -389,16 +389,10 @@ export function useZcashChallengeFlow(
         // the editable state immediately after native custody succeeds.
         seedPhrase = "";
         const restored = await restoration;
-        if (!isCurrent()) {
-          clearPhrase();
-          return;
-        }
+        clearPhrase();
         if (!restored.success || !restored.walletId) {
           throw new Error("The recovery phrase could not be restored.");
         }
-        // Clear the editable renderer state immediately after successful native
-        // custody, before any identity/network continuation.
-        clearPhrase();
         // Publish the exact restored identity and all account-scoped data as a
         // single snapshot before any login work can observe it.
         await useWallet.getState().refreshWalletIdentity(restored.walletId);
@@ -436,7 +430,6 @@ export function useZcashChallengeFlow(
     setError(null);
     try {
       const { walletId } = await wallet.createWallet();
-      if (!isCurrent()) return;
       await useWallet.getState().refreshWalletIdentity(walletId);
       if (!isCurrent()) return;
       setBackupWalletId(walletId);

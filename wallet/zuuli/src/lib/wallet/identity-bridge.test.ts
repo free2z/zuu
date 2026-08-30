@@ -23,10 +23,9 @@ describe("wallet identity bridge", () => {
     native.invoke.mockResolvedValueOnce(inventory);
 
     await expect(wallet.listWallets()).resolves.toEqual(inventory);
-    expect(native.invoke).toHaveBeenCalledWith(
-      "plugin:zcash|list_wallets",
-      undefined,
-    );
+    expect(native.invoke.mock.calls).toEqual([
+      ["plugin:zcash|list_wallets", undefined],
+    ]);
   });
 
   it("passes only the exact wallet identifier to native switching", async () => {
@@ -34,8 +33,8 @@ describe("wallet identity bridge", () => {
 
     await wallet.switchWallet("wallet-b");
 
-    expect(native.invoke).toHaveBeenCalledWith("plugin:zcash|switch_wallet", {
-      args: { walletId: "wallet-b" },
-    });
+    expect(native.invoke.mock.calls).toEqual([
+      ["plugin:zcash|switch_wallet", { args: { walletId: "wallet-b" } }],
+    ]);
   });
 });

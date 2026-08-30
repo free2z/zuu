@@ -42,9 +42,11 @@ interface WalletState extends Omit<WalletSnapshot, "status"> {
   stopSyncPolling: () => void;
 }
 
-// Every identity read and mutation shares one queue. Serializing only state
+// Every identity read and native switch shares one queue. Serializing only
 // publication is insufficient: switch B could publish while switch A is still
-// in native code, leaving the engine on A and the renderer claiming B.
+// in native code, leaving the engine on A and the renderer claiming B. Native
+// create/restore calls originate in protected UI flows; their exact-ID refresh
+// is unconditional and enters this queue immediately after native success.
 let identityQueue: Promise<void> = Promise.resolve();
 let identityTransitionActive = false;
 

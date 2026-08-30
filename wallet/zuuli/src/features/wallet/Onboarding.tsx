@@ -30,10 +30,43 @@ import { useSensitiveMnemonicEntry } from "@/lib/wallet/sensitive-entry";
 
 export function Onboarding() {
   const bootstrap = useWallet((s) => s.bootstrap);
+  const status = useWallet((s) => s.status);
+  const activeWallet = useWallet((s) => s.activeWallet);
   const [created, setCreated] = useState<WalletCreated | null>(null);
+  const resumableCreated =
+    status?.backupRequired &&
+    activeWallet?.id === status.activeWalletId &&
+    activeWallet.birthdayHeight !== null
+      ? {
+          walletId: activeWallet.id,
+          birthdayHeight: activeWallet.birthdayHeight,
+        }
+      : null;
+  const backupWallet = created ?? resumableCreated;
 
-  if (created) {
-    return <SeedReveal created={created} onDone={() => void bootstrap()} />;
+  if (backupWallet) {
+    return <SeedReveal created={backupWallet} onDone={() => void bootstrap()} />;
+  }
+
+  // Never offer another create/restore operation over a native wallet that
+  // says its backup is pending but lacks a coherent active inventory entry.
+  if (status?.backupRequired) {
+    return (
+      <Card className="mx-auto max-w-lg rounded-xl">
+        <CardHeader>
+          <CardTitle className="text-base">Wallet backup unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            ZUULI could not verify which wallet needs backup. Reload the wallet
+            identity before continuing.
+          </p>
+          <Button type="button" variant="outline" onClick={() => void bootstrap()}>
+            Retry wallet identity
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -73,6 +106,7 @@ function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
     try {
       const w = await wallet.createWallet();
       onCreated(w);
+      await useWallet.getState().refreshWalletIdentity(w.walletId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't create wallet");
     } finally {
