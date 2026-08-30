@@ -48,14 +48,15 @@ use crate::state::F2zMsgExt as _;
 // §3.1 — engine lifecycle
 // ---------------------------------------------------------------------------
 
-/// The one command that **answers** instead of refusing when the plugin has no
-/// engine (#753).
+/// The lifecycle command that **answers** instead of refusing when the plugin
+/// has no engine (#753). Pure handle eligibility also answers without consulting
+/// plugin state (#762).
 ///
 /// A store that would not open leaves §6.1's `faulted` and the §8 code that
-/// caused it, because a UI told only "internal" on every command has nothing to
-/// render but an empty screen; told `faulted` with `lastError`, it can say that
-/// messaging is unavailable and why. Every *other* command refuses with the
-/// same code.
+/// caused it, because a UI whose engine-dependent commands only said "internal"
+/// would have nothing to render but an empty screen; told `faulted` with
+/// `lastError`, it can say that messaging is unavailable and why. Every
+/// engine- or storage-dependent command refuses with the same code.
 #[command]
 pub(crate) async fn get_engine_status<R: Runtime>(app: AppHandle<R>) -> Result<EngineStatus> {
     let state = app.f2zmsg();

@@ -53,7 +53,8 @@ fn a_store_that_will_not_open_still_lets_the_app_build() {
     // The state is registered either way, and that is the whole design:
     // `F2zMsgExt::f2zmsg` is `state::<F2zMsg<R>>().inner()`, which *panics* on
     // an unmanaged type, so skipping `app.manage(..)` would turn every command
-    // into a panic instead of a refusal.
+    // that needs state into a panic instead of a refusal. Pure handle
+    // eligibility deliberately needs no managed state (#762).
     let state = app.f2zmsg();
     let fault = state
         .fault()

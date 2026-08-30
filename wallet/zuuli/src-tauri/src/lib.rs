@@ -234,8 +234,9 @@ mod tests {
     ///
     /// Failing soft could not be done by skipping `app.manage(..)`:
     /// `F2zMsgExt::f2zmsg` is `state::<F2zMsg<R>>().inner()`, which panics on an
-    /// unmanaged type, so every command would have panicked instead of
-    /// refusing. That is precisely what this test would catch.
+    /// unmanaged type, so every command that needs state would have panicked
+    /// instead of refusing. Pure handle eligibility does not touch managed
+    /// state; that distinction is precisely what this test would catch.
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn an_unopenable_messaging_store_routes_only_engine_free_commands() {
