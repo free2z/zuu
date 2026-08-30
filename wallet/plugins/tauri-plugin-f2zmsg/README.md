@@ -258,13 +258,15 @@ unchanged (§11.2: a client that cannot promise durability must not ACK); its
 blast radius was. `setup` now always registers its state and never returns
 `Err`, because failing soft is *not* skipping `app.manage(..)`:
 `F2zMsgExt::f2zmsg` is `state::<F2zMsg<R>>().inner()`, which panics on an
-unmanaged type, so all 43 commands would have panicked instead of refusing.
+unmanaged type, so every command that needs state would have panicked instead
+of refusing.
 `F2zMsg` holds the engine **or** the §8 code that stopped it being built,
 `F2zMsg::engine` returns a `Result` — so the compiler, not a convention, is what
-makes every command handle it — `get_engine_status` answers §6.1's `faulted`
-carrying that code, and everything else refuses with it.
+makes every engine-dependent command handle it. `get_engine_status` answers
+§6.1's `faulted` carrying that code, and pure `check_handle_eligibility` answers
+from its string alone; every remaining plugin command refuses with the fault.
 `wallet/zuuli/src-tauri/src/lib.rs`'s
-`an_unopenable_messaging_store_leaves_zuuli_running_and_every_command_refusing`
+`an_unopenable_messaging_store_routes_only_engine_free_commands`
 drives the census off `COMMANDS`, so a forty-fourth command cannot be added
 without stating how it behaves in that state.
 
