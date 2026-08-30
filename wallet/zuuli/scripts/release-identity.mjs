@@ -130,6 +130,46 @@ if (release === undefined) {
   process.exit(1);
 }
 
+function parseCanonicalBuildMetadata(bytes, target) {
+  let contents;
+  try {
+    contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    target.push("build-info.json must contain valid UTF-8");
+    return {};
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    target.push("build-info.json must contain valid JSON");
+    return {};
+  }
+  const canonical = Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  if (!bytes.equals(canonical))
+    target.push(
+      "build-info.json bytes must be canonical UTF-8 JSON without duplicate or escaped property names",
+    );
+  const expectedKeys = ["$schema", "channel", "schemaVersion"];
+  if (
+    parsed === null ||
+    Array.isArray(parsed) ||
+    typeof parsed !== "object" ||
+    JSON.stringify(Object.keys(parsed).sort()) !== JSON.stringify(expectedKeys)
+  ) {
+    target.push("build-info.json must contain exactly its schema, version, and channel");
+    return {};
+  }
+  if (parsed.$schema !== "./build-info.schema.json")
+    target.push("build-info.json schema reference is unsupported");
+  return parsed;
+}
+
+const buildMetadata = parseCanonicalBuildMetadata(
+  readFileSync(resolve(root, "build-info.json")),
+  failures,
+);
+
 function expect(label, actual, expected) {
   if (`${actual}` !== `${expected}`) {
     failures.push(
@@ -153,8 +193,9 @@ function occurrenceCount(contents, value) {
 
 expect("release schema version", release.schemaVersion, 2);
 expect("release application ID", release.applicationId, "cash.free2z.zuuli");
-if (!["internal", "beta", "stable"].includes(release.channel))
-  failures.push(`release channel is unsupported: ${release.channel}`);
+expect("build metadata schema version", buildMetadata.schemaVersion, 1);
+if (!["internal", "beta", "stable"].includes(buildMetadata.channel))
+  failures.push(`release channel is unsupported: ${buildMetadata.channel}`);
 if (release.iosUsesNonExemptEncryption !== false)
   failures.push(
     "release iOS non-exempt encryption declaration must be Boolean false",
@@ -223,7 +264,8 @@ for (const [label, contents, contract] of [
   ["Vite build identity", viteConfig, "__ZUULI_BUILD_INFO__"],
   ["Vite build identity loader", viteConfig, "loadBuildIdentity({ root })"],
   ["build identity release source", buildIdentitySource, 'resolve(root, "release.json")'],
-  ["release manifest channel", releaseManifestSource, "channel: release.channel"],
+  ["build identity metadata source", buildIdentitySource, 'resolve(root, "build-info.json")'],
+  ["release manifest channel", releaseManifestSource, "channel: buildMetadata.channel"],
 ]) {
   if (!contents.includes(contract))
     failures.push(`${label} contract is missing: ${contract}`);
@@ -981,7 +1023,7 @@ if (failures.length) {
 console.log(
   JSON.stringify({
     applicationId: release.applicationId,
-    channel: release.channel,
+    channel: buildMetadata.channel,
     version: release.version,
     build: release.build,
     identity,

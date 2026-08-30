@@ -71,6 +71,14 @@ Gradle representation disagrees. Never fix a release mismatch with Tauri's
 `iosUsesNonExemptEncryption` to `false`; verification requires both the source
 and generated iOS plists to carry the matching Boolean.
 
+`build-info.json` separately pins the release channel embedded in the app and
+recorded in artifact provenance. It is canonical, schema-bound build metadata,
+not a version/build decision and not a store-release trigger. The bundle loader
+and release manifest both read this same file; `npm run release:verify` rejects
+channel/schema drift. Version and build remain exclusively owned by
+`release.json`, while each artifact's full source SHA distinguishes its exact
+bytes.
+
 The train pins Node `24.18.0`, Rust `1.97.1`, Java `21.0.12`, Xcode `26.6`,
 Android SDK/build tools `36`/`36.0.0`, Android NDK `27.0.12077973`, Gradle
 `8.14.3` with its distribution checksum, Bundletool `1.18.3` by its published

@@ -4,9 +4,12 @@ import { AboutBuildCard } from ".";
 import {
   ABOUT_MESSAGES,
   ABOUT_MESSAGE_KEYS,
+  PSEUDO_ABOUT_MESSAGES,
   createAboutMessages,
+  resolveAboutMessages,
+  validateAboutMessages,
 } from "./copy";
-import type { BuildInfo } from "@/lib/build-info";
+import { formatBuildInfoMinimal, type BuildInfo } from "@/lib/build-info";
 
 const INFO: BuildInfo = {
   productName: "ZUULI",
@@ -36,12 +39,29 @@ describe("About build identity", () => {
   });
 
   it("keeps every UI string in a complete typed message catalog", () => {
+    expect(Object.isFrozen(ABOUT_MESSAGES)).toBe(true);
     expect(new Set(ABOUT_MESSAGE_KEYS).size).toBe(
       Object.keys(ABOUT_MESSAGES).length,
     );
     expect(ABOUT_MESSAGE_KEYS.every((key) => ABOUT_MESSAGES[key].length > 0)).toBe(
       true,
     );
+  });
+
+  it("rejects malformed catalogs and resolves exact, language, and English fallbacks", () => {
+    expect(() => validateAboutMessages({ ...ABOUT_MESSAGES, extra: "no" })).toThrow();
+    const missing = { ...ABOUT_MESSAGES } as Record<string, string>;
+    delete missing.copyAction;
+    expect(() => validateAboutMessages(missing)).toThrow();
+    expect(() =>
+      validateAboutMessages({ ...ABOUT_MESSAGES, copyAction: " " }),
+    ).toThrow();
+
+    const french = createAboutMessages({ pageTitle: "À propos" });
+    const catalogs = { "en-US": ABOUT_MESSAGES, "fr-FR": french };
+    expect(resolveAboutMessages(["fr-FR"], catalogs)).toBe(french);
+    expect(resolveAboutMessages(["fr-CA"], catalogs)).toBe(french);
+    expect(resolveAboutMessages(["zz-ZZ"], catalogs)).toBe(ABOUT_MESSAGES);
   });
 
   it("renders expanded locale copy without clipping classes", () => {
@@ -64,5 +84,8 @@ describe("About build identity", () => {
       ["trun", "cate|text-elli", "psis|line-cla", "mp"].join(""),
     );
     expect(markup).not.toMatch(bannedCopyClipping);
+    expect(formatBuildInfoMinimal(INFO, PSEUDO_ABOUT_MESSAGES)).toContain(
+      "expanded locale versionLabel",
+    );
   });
 });

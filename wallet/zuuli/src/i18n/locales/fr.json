@@ -14,6 +14,8 @@
     }
   },
   "navigation": {
+    "about": "À propos et retours",
+    "aboutAccessible": "À propos et retours",
     "accountMenu": "Menu du compte",
     "ai": "IA",
     "aiAccessible": "Intelligence artificielle",

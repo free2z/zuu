@@ -18,7 +18,7 @@ import {
   type BuildInfo,
 } from "@/lib/build-info";
 import {
-  ABOUT_MESSAGES,
+  resolveAboutMessages,
   type AboutMessages,
 } from "./copy";
 
@@ -53,7 +53,7 @@ function BuildRow({
 
 export function AboutBuildCard({
   buildInfo = BUILD_INFO,
-  messages = ABOUT_MESSAGES,
+  messages = resolveAboutMessages(),
 }: AboutBuildCardProps) {
   const [copyState, setCopyState] = useState<"idle" | "success" | "failure">(
     "idle",
@@ -63,7 +63,9 @@ export function AboutBuildCard({
   async function copyBuildInfo() {
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
-      await navigator.clipboard.writeText(formatBuildInfoMinimal(buildInfo));
+      await navigator.clipboard.writeText(
+        formatBuildInfoMinimal(buildInfo, messages),
+      );
       setCopyState("success");
     } catch {
       setCopyState("failure");
@@ -88,11 +90,11 @@ export function AboutBuildCard({
           <BuildRow label={messages.buildLabel} value={String(buildInfo.build)} />
           <BuildRow
             label={messages.channelLabel}
-            value={buildChannelLabel(buildInfo.channel)}
+            value={buildChannelLabel(buildInfo.channel, messages)}
           />
           <BuildRow
             label={messages.platformLabel}
-            value={buildPlatformLabel(buildInfo.platform)}
+            value={buildPlatformLabel(buildInfo.platform, messages)}
           />
           <BuildRow
             label={messages.commitLabel}
@@ -151,13 +153,14 @@ export function AboutBuildCard({
 }
 
 export default function AboutFeature() {
+  const messages = resolveAboutMessages();
   return (
     <div className="mx-auto min-w-0 max-w-3xl pb-6" data-about-page>
       <PageHeader
-        title={ABOUT_MESSAGES.pageTitle}
-        description={ABOUT_MESSAGES.pageDescription}
+        title={messages.pageTitle}
+        description={messages.pageDescription}
       />
-      <AboutBuildCard />
+      <AboutBuildCard messages={messages} />
     </div>
   );
 }

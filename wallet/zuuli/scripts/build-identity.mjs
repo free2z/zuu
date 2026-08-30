@@ -38,6 +38,29 @@ function checkedOutSha(root, git) {
   }
 }
 
+function checkoutIsDirty(root, git) {
+  try {
+    return Boolean(
+      git(
+        "git",
+        [
+          "status",
+          "--porcelain=v1",
+          "--untracked-files=normal",
+          "--ignore-submodules=none",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      ).trim(),
+    );
+  } catch {
+    return true;
+  }
+}
+
 function sourceCommit(root, env, git) {
   const head = checkedOutSha(root, git);
   // Protected recovery builds intentionally check out a reviewed historical
@@ -52,6 +75,13 @@ function sourceCommit(root, env, git) {
     : env.GITHUB_ACTIONS === "true" && env.GITHUB_SHA !== undefined
       ? [["GITHUB_SHA", canonicalSha(env.GITHUB_SHA, "GITHUB_SHA")]]
       : [];
+
+  if (checkoutIsDirty(root, git)) {
+    if (declared.length) {
+      throw new Error("declared source SHA cannot identify a dirty checkout");
+    }
+    return null;
+  }
 
   for (const [label, value] of declared) {
     if (!head) {
@@ -86,8 +116,9 @@ export function loadBuildIdentity({
 } = {}) {
   if (!root) throw new Error("build identity root is required");
   const release = JSON.parse(read(resolve(root, "release.json"), "utf8"));
-  if (!CHANNELS.has(release.channel)) {
-    throw new Error(`unsupported release channel: ${release.channel}`);
+  const metadata = JSON.parse(read(resolve(root, "build-info.json"), "utf8"));
+  if (metadata.schemaVersion !== 1 || !CHANNELS.has(metadata.channel)) {
+    throw new Error(`unsupported release channel: ${metadata.channel}`);
   }
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(release.version)) {
     throw new Error(`invalid release version: ${release.version}`);
@@ -104,7 +135,7 @@ export function loadBuildIdentity({
     applicationId: release.applicationId,
     version: release.version,
     build: release.build,
-    channel: release.channel,
+    channel: metadata.channel,
     platform: buildPlatform(env),
     sourceCommit: sourceCommit(root, env, git),
   });

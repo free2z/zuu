@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import release from "../../release.json";
+import buildMetadata from "../../build-info.json";
 import {
   BUILD_INFO,
   formatBuildInfoMinimal,
@@ -21,10 +22,12 @@ describe("immutable build info", () => {
   it("agrees with the canonical release artifact identity", () => {
     expect(BUILD_INFO.version).toBe(release.version);
     expect(BUILD_INFO.build).toBe(release.build);
-    expect(BUILD_INFO.channel).toBe(release.channel);
+    expect(BUILD_INFO.channel).toBe(buildMetadata.channel);
     expect(BUILD_INFO.applicationId).toBe(release.applicationId);
     expect(Object.isFrozen(BUILD_INFO)).toBe(true);
-    expect(BUILD_INFO.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    if (BUILD_INFO.sourceCommit !== null) {
+      expect(BUILD_INFO.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    }
   });
 
   it("produces one stable minimal block and excludes private/runtime fields", () => {
@@ -39,7 +42,7 @@ describe("immutable build info", () => {
     const text = formatBuildInfoMinimal(hostile);
 
     expect(text).toBe(
-      "ZUULI\nVersion: 1.2.3\nBuild: 45\nChannel: Internal\nPlatform: iOS\nSource commit: abcdef012345",
+      "ZUULI\nVersion: 1.2.3\nBuild: 45\nRelease channel: Internal\nPlatform: iOS\nSource commit: abcdef012345",
     );
     for (const secret of [
       hostile.account,
@@ -67,4 +70,3 @@ describe("immutable build info", () => {
     );
   });
 });
-

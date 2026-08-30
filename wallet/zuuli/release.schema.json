@@ -8,7 +8,6 @@
     "schemaVersion",
     "applicationId",
     "iosUsesNonExemptEncryption",
-    "channel",
     "version",
     "build",
     "minimums"
@@ -18,7 +17,6 @@
     "schemaVersion": { "const": 2 },
     "applicationId": { "const": "cash.free2z.zuuli" },
     "iosUsesNonExemptEncryption": { "const": false },
-    "channel": { "enum": ["internal", "beta", "stable"] },
     "version": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"

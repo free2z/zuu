@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { PSEUDO_ABOUT_MESSAGES } from "../src/lib/about-copy";
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 760 });
@@ -43,31 +44,61 @@ test("copy uses the complete stable minimal block and announces completion", asy
   await expect(page.getByRole("status")).toHaveText("Build info copied.");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toMatch(
-    /^ZUULI\nVersion: 0\.1\.0\nBuild: 17\nChannel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{12}$/,
+    /^ZUULI\nVersion: 0\.1\.0\nBuild: 17\nRelease channel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{12}$/,
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
 });
 
-test("enlarged and long localized copy wraps without horizontal clipping", async ({
-  page,
-}) => {
-  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
-  await page.locator("[data-about-build-card]").evaluate((card) => {
-    for (const element of card.querySelectorAll<HTMLElement>("dt, summary, button")) {
-      element.textContent =
-        "Ausführlich lokalisierte Build-Information für internationale Benutzeroberflächen";
-    }
+test.describe("pseudo-expanded shipping locale", () => {
+  test.use({ locale: "en-XA" });
+
+  test("flows through navigation, page, formatter, and live status at 200%", async ({
+    page,
+  }) => {
+    await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+    await expect(
+      page.getByRole("heading", { name: PSEUDO_ABOUT_MESSAGES.pageTitle }),
+    ).toBeVisible();
+    await expect(page.getByText(PSEUDO_ABOUT_MESSAGES.pageDescription)).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: PSEUDO_ABOUT_MESSAGES.buildHeading }),
+    ).toBeVisible();
+
+    const copy = page.getByRole("button", {
+      name: PSEUDO_ABOUT_MESSAGES.copyAction,
+    });
+    await expect(copy).toBeVisible();
+    expect((await copy.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await copy.focus();
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(page.url()).origin,
+    });
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("status")).toHaveText(
+      PSEUDO_ABOUT_MESSAGES.copySuccess,
+    );
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+      PSEUDO_ABOUT_MESSAGES.versionLabel,
+    );
+
+    await page.locator('[data-navigation-id="more"]').click();
+    await expect(
+      page.getByRole("link", {
+        name: PSEUDO_ABOUT_MESSAGES.navigationAccessibleLabel,
+      }),
+    ).toBeVisible();
+
+    const geometry = await page.locator("[data-app-frame]").evaluate((frame) => {
+      const overflowing = [...frame.querySelectorAll<HTMLElement>("*")]
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => element.tagName);
+      return {
+        clientWidth: frame.clientWidth,
+        scrollWidth: frame.scrollWidth,
+        overflowing,
+      };
+    });
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+    expect(geometry.overflowing).toEqual([]);
   });
-  const geometry = await page.locator("[data-about-page]").evaluate((frame) => {
-    const overflowing = [...frame.querySelectorAll<HTMLElement>("*")]
-      .filter((element) => element.scrollWidth > element.clientWidth + 1)
-      .map((element) => element.tagName);
-    return {
-      clientWidth: frame.clientWidth,
-      scrollWidth: frame.scrollWidth,
-      overflowing,
-    };
-  });
-  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
-  expect(geometry.overflowing).toEqual([]);
 });
