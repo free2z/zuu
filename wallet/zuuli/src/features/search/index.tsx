@@ -80,10 +80,7 @@ export default function SearchFeature() {
 
   return (
     <div className="animate-slide-up">
-      <PageHeader
-        title="Search"
-        description="Find every creator and every page across free2z — semantic page search included."
-      />
+      <PageHeader title="Search" />
 
       {/* Search box */}
       <div className="relative mb-6 max-w-2xl">
@@ -104,7 +101,7 @@ export default function SearchFeature() {
               replace: true,
             });
           }}
-          placeholder="Search creators and pages…"
+          placeholder="Search"
           aria-label={SEARCH_INPUT_LABEL}
           data-custom-search-clear
           className="h-12 pl-10 pr-14 text-base"
@@ -130,7 +127,6 @@ export default function SearchFeature() {
         <EmptyState
           icon={SearchIcon}
           title="Search all of free2z"
-          description="Start typing to find creators by name and pages by meaning — results update as you go."
         />
       ) : (
         <Tabs
@@ -194,7 +190,7 @@ export default function SearchFeature() {
               <EmptyState
                 icon={Users}
                 title="No creators found"
-                description={`No creators match “${debounced.trim()}”. Creators are matched by username and name.`}
+                description={`No creators match “${debounced.trim()}”.`}
               />
             ) : creators.items.length > 0 ? (
               <>

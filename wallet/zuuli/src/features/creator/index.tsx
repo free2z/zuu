@@ -114,7 +114,7 @@ export default function CreatorFeature() {
         <SectionLoadError
           className="mt-6"
           title="Couldn't load this creator"
-          description="The server returned no profile. Try again."
+          description="Check your connection and try again."
           retry={reload}
           retrying={loading}
         />

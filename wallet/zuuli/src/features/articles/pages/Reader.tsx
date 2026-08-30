@@ -36,10 +36,7 @@ function StoredArticleTag({ tag }: { tag: string }) {
   const label = <span className="min-w-0 break-words">#{tag}</span>;
   if (!href) {
     return (
-      <span
-        className={articleTagClassName}
-        title="This stored tag cannot be represented by the server's comma-delimited filter."
-      >
+      <span className={articleTagClassName}>
         {label}
       </span>
     );
@@ -113,7 +110,7 @@ export function Reader() {
         <SectionLoadError
           className="mt-6"
           title="Couldn't load this article"
-          description="The server returned no article. Try again."
+          description="Check your connection and try again."
           retry={reload}
           retrying={loading}
         />
