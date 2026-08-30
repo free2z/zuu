@@ -27,7 +27,7 @@ const FAILURE_COPY = {
   },
   removed: {
     title: "The selected camera or microphone was removed.",
-    recovery: "Reconnect it or choose another device, then try again.",
+    recovery: "Reconnect it or try the available replacement.",
   },
   unsupported: {
     title: "Camera preview is unavailable here.",

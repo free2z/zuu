@@ -55,7 +55,7 @@ describe("MediaPreflight", () => {
     ["denied", "Allow access in system or browser settings"],
     ["no-device", "Connect both devices"],
     ["busy", "Close other apps using it"],
-    ["removed", "Reconnect it or choose another device"],
+    ["removed", "Reconnect it or try the available replacement"],
   ] as const)("renders a live alert and concise %s recovery", (status, recovery) => {
     const html = renderToStaticMarkup(<MediaPreflight model={model({ status })} />);
     expect(html).toContain('role="alert"');

@@ -295,6 +295,123 @@ describe("useMediaPreflight", () => {
     });
   });
 
+  it("resets a removed selected device to an available exact replacement", async () => {
+    const media = new FakeMediaDevices();
+    const current = fakeStream();
+    const replacement = fakeStream("mic-1", "cam-2");
+    media.getUserMedia
+      .mockResolvedValueOnce(current.stream)
+      .mockResolvedValueOnce(replacement.stream);
+    await render(media);
+    await act(async () => latest.requestPreview());
+    await act(async () => {
+      await media.changeDevices(
+        media.devices.filter((device) => device.deviceId !== "cam-1"),
+      );
+    });
+
+    expect(latest.status).toBe("removed");
+    expect(latest.selected).toEqual({ audio: "mic-1", video: "cam-2" });
+    await act(async () => latest.requestPreview());
+    expect(media.getUserMedia).toHaveBeenLastCalledWith({
+      audio: { deviceId: { exact: "mic-1" } },
+      video: { deviceId: { exact: "cam-2" } },
+    });
+    expect(latest.status).toBe("ready");
+    expect(latest.stream).toBe(replacement.stream);
+  });
+
+  it("keeps the newest device enumeration when device changes resolve out of order", async () => {
+    const media = new FakeMediaDevices();
+    const capture = fakeStream();
+    media.getUserMedia.mockResolvedValue(capture.stream);
+    await render(media);
+    await act(async () => latest.requestPreview());
+
+    const older = deferred<MediaDeviceInfo[]>();
+    const newer = deferred<MediaDeviceInfo[]>();
+    media.enumerateDevices
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    let olderChange!: Promise<unknown[]>;
+    let newerChange!: Promise<unknown[]>;
+    await act(async () => {
+      olderChange = Promise.all([...media.listeners].map((listener) => listener()));
+      newerChange = Promise.all([...media.listeners].map((listener) => listener()));
+      newer.resolve([
+        mediaDevice("audioinput", "mic-1", "Newest mic"),
+        mediaDevice("videoinput", "cam-1", "Newest camera"),
+        mediaDevice("videoinput", "cam-3", "Newest alternate"),
+      ]);
+      await newerChange;
+    });
+    await act(async () => {
+      older.resolve([
+        mediaDevice("audioinput", "mic-1", "Stale mic"),
+        mediaDevice("videoinput", "cam-1", "Stale camera"),
+        mediaDevice("videoinput", "cam-2", "Stale alternate"),
+      ]);
+      await olderChange;
+    });
+
+    expect(latest.devices.map((device) => device.label)).toEqual([
+      "Newest mic",
+      "Newest camera",
+      "Newest alternate",
+    ]);
+  });
+
+  it("direct ready-state unmount releases every track and ended listener", async () => {
+    const media = new FakeMediaDevices();
+    const capture = fakeStream(undefined, undefined, 2);
+    media.getUserMedia.mockResolvedValue(capture.stream);
+    await render(media);
+    await act(async () => latest.requestPreview());
+    await act(async () => root.unmount());
+
+    capture.stream.getTracks().forEach((track) => {
+      expect(track.stop).toHaveBeenCalledTimes(1);
+      expect(track.removeEventListener).toHaveBeenCalledWith(
+        "ended",
+        expect.any(Function),
+      );
+    });
+    expect(media.removeEventListener).toHaveBeenCalledWith(
+      "devicechange",
+      expect.any(Function),
+    );
+  });
+
+  it("direct unmount releases a provisional stream while enumeration is pending", async () => {
+    const media = new FakeMediaDevices();
+    const initialEnumeration = deferred<MediaDeviceInfo[]>();
+    const postCaptureEnumeration = deferred<MediaDeviceInfo[]>();
+    const capture = fakeStream(undefined, undefined, 1);
+    media.enumerateDevices
+      .mockReturnValueOnce(initialEnumeration.promise)
+      .mockReturnValueOnce(postCaptureEnumeration.promise);
+    media.getUserMedia.mockResolvedValue(capture.stream);
+    await render(media);
+    initialEnumeration.resolve(media.devices);
+    await act(async () => initialEnumeration.promise);
+
+    let request!: Promise<void>;
+    await act(async () => {
+      request = latest.requestPreview();
+      await vi.waitFor(() => expect(media.enumerateDevices).toHaveBeenCalledTimes(2));
+    });
+    await act(async () => root.unmount());
+    capture.stream.getTracks().forEach((track) => {
+      expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+
+    postCaptureEnumeration.resolve(media.devices);
+    await request;
+    capture.stream.getTracks().forEach((track) => {
+      expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("fails closed and releases all tracks when an active track ends", async () => {
     const media = new FakeMediaDevices();
     const capture = fakeStream(undefined, undefined, 1);
@@ -305,6 +422,7 @@ describe("useMediaPreflight", () => {
 
     expect(latest.status).toBe("removed");
     expect(latest.stream).toBeNull();
+    expect(latest.selected.video).toBe("");
     capture.stream.getTracks().forEach((track) => {
       expect(track.stop).toHaveBeenCalledTimes(1);
     });

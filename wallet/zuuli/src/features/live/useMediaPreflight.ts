@@ -54,6 +54,7 @@ export function useMediaPreflight({
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const activeRef = useRef(active);
   const requestGeneration = useRef(0);
+  const enumerationSequence = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const provisionalStreamsRef = useRef(new Map<number, MediaStream>());
   const selectedRef = useRef(selected);
@@ -99,11 +100,19 @@ export function useMediaPreflight({
     setCameraEnabled(true);
   }, [invalidateAndStop]);
 
-  const refreshDevices = useCallback(async () => {
+  const refreshDevices = useCallback(async (expectedGeneration: number) => {
     if (!mediaDevices) return null;
+    const sequence = ++enumerationSequence.current;
     try {
       const next = captureDevices(await mediaDevices.enumerateDevices());
-      if (activeRef.current) setDevices(next);
+      if (
+        !activeRef.current ||
+        sequence !== enumerationSequence.current ||
+        expectedGeneration !== requestGeneration.current
+      ) {
+        return null;
+      }
+      setDevices(next);
       return next;
     } catch {
       // Some WebViews expose getUserMedia but withhold enumeration. Capture can
@@ -125,17 +134,23 @@ export function useMediaPreflight({
       track.enabled = true;
     });
 
-    const onEnded = () => {
+    const onEnded = (kind: string) => {
       if (!activeRef.current || streamRef.current !== next) return;
+      const nextSelection = kind === "audio"
+        ? { ...selectedRef.current, audio: "" }
+        : { ...selectedRef.current, video: "" };
+      selectedRef.current = nextSelection;
+      setSelected(nextSelection);
       invalidateAndStop();
       setStatus("removed");
       setMicrophoneEnabled(false);
       setCameraEnabled(false);
-      void refreshDevices();
+      void refreshDevices(requestGeneration.current);
     };
     endedListenersRef.current = next.getTracks().map((track) => {
-      track.addEventListener("ended", onEnded);
-      return { track, listener: onEnded };
+      const listener = () => onEnded(track.kind);
+      track.addEventListener("ended", listener);
+      return { track, listener };
     });
 
     setStream(next);
@@ -179,7 +194,7 @@ export function useMediaPreflight({
       // Own the result before any further await. Cancel/unmount can now release
       // it synchronously even if enumerateDevices hangs forever.
       provisionalStreamsRef.current.set(generation, acquired);
-      const enumerated = await refreshDevices();
+      await refreshDevices(generation);
       if (provisionalStreamsRef.current.get(generation) !== acquired) {
         // A cancel or newer request already stopped and removed this stream.
         return;
@@ -201,7 +216,6 @@ export function useMediaPreflight({
       const nextSelection = { audio: audioId, video: videoId };
       selectedRef.current = nextSelection;
       setSelected(nextSelection);
-      if (enumerated && enumerated.length > 0) setDevices(enumerated);
       installStream(acquired);
     } catch (error) {
       if (activeRef.current && generation === requestGeneration.current) {
@@ -255,6 +269,7 @@ export function useMediaPreflight({
   }, []);
 
   useEffect(() => {
+    activeRef.current = active;
     if (!active) {
       invalidateAndStop();
       setStatus("idle");
@@ -265,11 +280,19 @@ export function useMediaPreflight({
       return;
     }
 
-    void refreshDevices();
+    void refreshDevices(requestGeneration.current);
     const onDeviceChange = async () => {
-      const next = await refreshDevices();
+      const expectedGeneration = requestGeneration.current;
+      const next = await refreshDevices(expectedGeneration);
       const current = streamRef.current;
-      if (!next || !current || !activeRef.current) return;
+      if (
+        !next ||
+        !current ||
+        !activeRef.current ||
+        expectedGeneration !== requestGeneration.current
+      ) {
+        return;
+      }
 
       const audioId =
         selectedRef.current.audio ||
@@ -284,6 +307,16 @@ export function useMediaPreflight({
         (device) => device.kind === "videoinput" && device.deviceId === videoId,
       );
       if (audioGone || videoGone) {
+        const nextSelection = {
+          audio: audioGone
+            ? next.find((device) => device.kind === "audioinput")?.deviceId ?? ""
+            : selectedRef.current.audio,
+          video: videoGone
+            ? next.find((device) => device.kind === "videoinput")?.deviceId ?? ""
+            : selectedRef.current.video,
+        };
+        selectedRef.current = nextSelection;
+        setSelected(nextSelection);
         invalidateAndStop();
         setStatus("removed");
         setMicrophoneEnabled(false);
@@ -293,6 +326,8 @@ export function useMediaPreflight({
     mediaDevices.addEventListener?.("devicechange", onDeviceChange);
 
     return () => {
+      activeRef.current = false;
+      enumerationSequence.current += 1;
       mediaDevices.removeEventListener?.("devicechange", onDeviceChange);
       invalidateAndStop();
     };
