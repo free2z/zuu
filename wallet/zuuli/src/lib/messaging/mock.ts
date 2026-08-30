@@ -354,9 +354,9 @@ function later(fn: () => void, ms: number): void {
 }
 
 /**
- * §11.3. Non-ASCII is checked before case mapping by protocol rule, closing
- * Unicode mappings such as U+212A KELVIN SIGN to ASCII `k`. `toLowerCase()` is
- * safe only after this guard because its input is then ASCII.
+ * §11.3. Reason precedence is this function's choice, not §3.2's: non-ASCII is
+ * checked before length because `toLowerCase()` can change a non-ASCII string's
+ * length, reporting a number the user cannot map to what they typed.
  */
 export function evaluateHandle(username: string | null): HandleEligibility {
   if (!username) {

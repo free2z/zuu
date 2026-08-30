@@ -675,17 +675,15 @@ resists homograph or mixed-script impersonation. It does not, that is the
 finding, and no part of this design changes it.
 
 **The same mapping carries a second directory-integrity failure, and it involves
-no confusable at all.** Eligibility rejects raw non-ASCII input first, then maps
-ASCII `A`–`Z` to `a`–`z`; no Unicode lowercasing or case-folding occurs.
-Platform case-insensitive uniqueness turns out to be an application convention in
+no confusable at all.** Eligibility is evaluated on the *lowercased* username,
+platform case-insensitive uniqueness turns out to be an application convention in
 two serializers rather than a database constraint, and production holds
-case-variant duplicate accounts today. The corrected eligible-only census must
-determine which historical groups survive the raw ASCII check. Any surviving
-group maps distinct real accounts to one messaging handle and makes the directory
-pick a winner — the same outcome a successful homograph produces, reached without
-one. It is **blocking**: every surviving group must be resolved before the
-mapping ships. The correction, the evidence and the intended end state (a
-database-level `UniqueConstraint(Lower("username"))`) are in
+case-variant duplicate accounts today. Within each colliding group, two distinct
+real accounts map to one messaging handle and the directory would have to pick a
+winner — the same outcome a successful homograph produces, reached without one.
+It is **blocking**: those accounts must be resolved before the mapping ships. The
+correction, the evidence and the intended end state (a database-level
+`UniqueConstraint(Lower("username"))`) are in
 [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted), and the
 open question is
 [`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions).
