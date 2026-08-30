@@ -60,7 +60,9 @@ test("authored tags autocomplete and round-trip into reader filter links", async
     page.getByText("1 article tagged c++", { exact: true }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "privacy" }).click();
+  const topicFilter = page.getByRole("combobox", { name: "Filter by topic" });
+  await topicFilter.fill("privacy");
+  await page.getByRole("option", { name: /#privacy/ }).click();
   expect(new URL(page.url()).searchParams.get("tags")).toBe("c++,privacy");
   await expect(
     page.getByText("1 article tagged c++ + privacy", { exact: true }),

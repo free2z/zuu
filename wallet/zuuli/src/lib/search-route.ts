@@ -1,4 +1,4 @@
-export const SEARCH_INPUT_LABEL = "Search creators and pages";
+export const SEARCH_INPUT_LABEL = "Search creators, pages, and topics";
 
 /** Search owns the chrome for every route mounted below `/search/*`. */
 export function isSearchRoute(pathname: string): boolean {
@@ -8,9 +8,7 @@ export function isSearchRoute(pathname: string): boolean {
 /** TopBar submissions enter the canonical Search route with a trimmed query. */
 export function searchHref(query: string): string {
   const canonical = query.trim();
-  return canonical
-    ? `/search?q=${encodeURIComponent(canonical)}`
-    : "/search";
+  return canonical ? `/search?q=${encodeURIComponent(canonical)}` : "/search";
 }
 
 /**

@@ -1,22 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   BadgeCheck,
   BookOpen,
   Clock,
   FileText,
+  Hash,
   Loader2,
   Radio,
   Search as SearchIcon,
   Users,
   X,
 } from "lucide-react";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +25,12 @@ import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { formatTuzis, initials, timeAgo } from "@/lib/format";
 import type { Article, SimpleCreator } from "@/lib/api/types";
-import { withSearchQuery } from "@/lib/search-route";
+import {
+  buildDiscoverySuggestions,
+  type DiscoverySuggestion,
+} from "@/lib/discovery-autocomplete";
+import { MAX_ARTICLE_TAGS, sanitizeArticleTags } from "@/lib/article-tags";
+import { SEARCH_INPUT_LABEL, withSearchQuery } from "@/lib/search-route";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 import { useCreatorSearch, usePageSearch } from "./pagination";
 
@@ -46,12 +48,49 @@ function excerpt(text: string, max = 160): string {
 export default function SearchFeature() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const query = params.get("q") ?? "";
   const debounced = useDebounced(query, DEBOUNCE_MS);
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchKey = debounced.trim();
+  const listId = useId();
+  const statusId = useId();
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const selectedTopics = useMemo(
+    () =>
+      sanitizeArticleTags(params.getAll("topic")).slice(0, MAX_ARTICLE_TAGS),
+    [params],
+  );
+  const debouncedInput = debounced.trim();
+  const inputSettled = query.trim() === debouncedInput;
+  const searchKey = [debouncedInput, ...selectedTopics]
+    .filter(Boolean)
+    .join(" ");
   const creators = useCreatorSearch(searchKey);
   const pages = usePageSearch(searchKey);
+  const locale =
+    typeof navigator === "undefined" ? undefined : navigator.language;
+  const suggestions = useMemo(() => {
+    if (!inputSettled) return [];
+    const next = buildDiscoverySuggestions({
+      query,
+      creators: creators.items,
+      pages: pages.items,
+      selectedTopics,
+      locale,
+    });
+    return selectedTopics.length >= MAX_ARTICLE_TAGS
+      ? next.filter((suggestion) => suggestion.kind !== "topic")
+      : next;
+  }, [
+    creators.items,
+    inputSettled,
+    locale,
+    pages.items,
+    query,
+    selectedTopics,
+  ]);
 
   // Focus the box on mount for a keyboard-first feel.
   useEffect(() => {
@@ -60,7 +99,28 @@ export default function SearchFeature() {
 
   // The route, not the debounce timer, owns visible empty-vs-results state.
   // Clearing `?q=` must clear the screen in the same render.
-  const hasQuery = query.trim().length > 0;
+  const hasQuery = query.trim().length > 0 || selectedTopics.length > 0;
+  const loadingSuggestions =
+    !inputSettled ||
+    creators.loading ||
+    pages.loading ||
+    (!creators.initialized && !creators.error) ||
+    (!pages.initialized && !pages.error);
+  const suggestionsInitialized =
+    inputSettled &&
+    (creators.initialized || Boolean(creators.error)) &&
+    (pages.initialized || Boolean(pages.error));
+  const suggestionError = Boolean(
+    (creators.error || pages.error) && suggestions.length === 0,
+  );
+  const popupOpen =
+    focused &&
+    !dismissed &&
+    query.trim().length > 0 &&
+    (loadingSuggestions ||
+      suggestionsInitialized ||
+      suggestionError ||
+      suggestions.length > 0);
   const creatorCount = creators.count ?? 0;
   const pageCount = pages.count ?? 0;
 
@@ -81,57 +141,282 @@ export default function SearchFeature() {
     params,
   ]);
 
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [query, searchKey]);
+
+  useEffect(() => {
+    setActiveIndex((current) =>
+      current >= suggestions.length ? suggestions.length - 1 : current,
+    );
+  }, [suggestions.length]);
+
+  function updateTopics(topics: string[]) {
+    setParams(
+      (current) => {
+        return withSelectedTopics(current, topics);
+      },
+      { replace: true },
+    );
+  }
+
+  function withSelectedTopics(current: URLSearchParams, topics: string[]) {
+    const next = new URLSearchParams(current);
+    next.delete("topic");
+    for (const topic of sanitizeArticleTags(topics).slice(
+      0,
+      MAX_ARTICLE_TAGS,
+    )) {
+      next.append("topic", topic);
+    }
+    return next;
+  }
+
+  function chooseSuggestion(suggestion: DiscoverySuggestion) {
+    if (suggestion.kind === "topic") {
+      setParams(
+        (current) => {
+          return withSelectedTopics(withSearchQuery(current, ""), [
+            ...selectedTopics,
+            suggestion.label,
+          ]);
+        },
+        { replace: true },
+      );
+      setDismissed(false);
+      inputRef.current?.focus();
+      return;
+    }
+    if (suggestion.kind === "creator") {
+      navigate(`/creator/${suggestion.creator.username}`);
+      return;
+    }
+    navigate(`/articles/${suggestion.article.slug ?? suggestion.article.id}`);
+  }
+
+  function onSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setDismissed(false);
+      setActiveIndex((current) =>
+        suggestions.length === 0
+          ? -1
+          : Math.min(current + 1, suggestions.length - 1),
+      );
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setDismissed(false);
+      setActiveIndex((current) =>
+        suggestions.length === 0
+          ? -1
+          : current <= 0
+            ? suggestions.length - 1
+            : current - 1,
+      );
+    } else if (
+      event.key === "Enter" &&
+      activeIndex >= 0 &&
+      activeIndex < suggestions.length
+    ) {
+      event.preventDefault();
+      chooseSuggestion(suggestions[activeIndex]);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setDismissed(true);
+      setActiveIndex(-1);
+    }
+  }
+
   return (
     <div className="animate-slide-up">
       <PageHeader title={t(MESSAGE_KEYS.navSearchAction)} />
 
-      {/* Search box */}
-      <div className="relative mb-6 max-w-2xl">
-        <SearchIcon
-          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          ref={inputRef}
-          type="text"
-          role="searchbox"
-          inputMode="search"
-          enterKeyHint="search"
-          value={query}
-          onChange={(e) => {
-            const value = e.target.value;
-            setParams((current) => withSearchQuery(current, value), {
-              replace: true,
-            });
-          }}
-          placeholder={t(MESSAGE_KEYS.navSearchAction)}
-          aria-label={t(MESSAGE_KEYS.navSearch)}
-          data-custom-search-clear
-          className="h-12 pl-10 pr-14 text-base"
-        />
-        {query ? (
-          <button
-            type="button"
-            onClick={() => {
-              setParams((current) => withSearchQuery(current, ""), {
-                replace: true,
-              });
-              inputRef.current?.focus();
-            }}
-            aria-label={t(MESSAGE_KEYS.searchClear)}
-            className="min-tap absolute right-1.5 top-1/2 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      <div className="mb-6 max-w-2xl">
+        {selectedTopics.length > 0 ? (
+          <div
+            className="mb-2 flex flex-wrap gap-2"
+            aria-label="Selected topics"
           >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
+            {selectedTopics.map((topic) => (
+              <button
+                key={topic}
+                type="button"
+                onClick={() =>
+                  updateTopics(
+                    selectedTopics.filter((candidate) => candidate !== topic),
+                  )
+                }
+                aria-label={`Remove topic ${topic}`}
+                className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-left text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="min-w-0 break-words">#{topic}</span>
+                <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              </button>
+            ))}
+          </div>
         ) : null}
+
+        <div
+          className="relative"
+          onFocus={() => setFocused(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+              setFocused(false);
+              setActiveIndex(-1);
+            }
+          }}
+        >
+          <SearchIcon
+            className="pointer-events-none absolute left-3.5 top-6 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            inputMode="search"
+            enterKeyHint="search"
+            value={query}
+            onChange={(event) => {
+              setDismissed(false);
+              setParams(
+                (current) => withSearchQuery(current, event.target.value),
+                { replace: true },
+              );
+            }}
+            onKeyDown={onSearchKeyDown}
+            placeholder="Search creators, pages, topics"
+            aria-label={SEARCH_INPUT_LABEL}
+            aria-autocomplete="list"
+            aria-expanded={popupOpen && suggestions.length > 0}
+            aria-controls={
+              popupOpen && suggestions.length > 0 ? listId : undefined
+            }
+            aria-activedescendant={
+              popupOpen && activeIndex >= 0 && activeIndex < suggestions.length
+                ? `${listId}-${activeIndex}`
+                : undefined
+            }
+            aria-describedby={statusId}
+            autoComplete="off"
+            data-custom-search-clear
+            className="h-12 pl-10 pr-14 text-base"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => {
+                setParams((current) => withSearchQuery(current, ""), {
+                  replace: true,
+                });
+                setDismissed(false);
+                inputRef.current?.focus();
+              }}
+              aria-label={t(MESSAGE_KEYS.searchClear)}
+              className="min-tap absolute right-1.5 top-6 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          ) : null}
+
+          {popupOpen ? (
+            suggestions.length > 0 ? (
+              <div
+                id={listId}
+                role="listbox"
+                aria-label="Search suggestions"
+                className="absolute inset-x-0 top-full z-30 mt-1 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+              >
+                {suggestions.map((suggestion, index) => (
+                  <button
+                    id={`${listId}-${index}`}
+                    key={suggestion.key}
+                    type="button"
+                    role="option"
+                    data-suggestion-kind={suggestion.kind}
+                    aria-selected={activeIndex === index}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => chooseSuggestion(suggestion)}
+                    className="flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    {suggestion.kind === "topic" ? (
+                      <Hash
+                        className="h-4 w-4 shrink-0 text-muted-foreground"
+                        aria-hidden
+                      />
+                    ) : suggestion.kind === "creator" ? (
+                      <Users
+                        className="h-4 w-4 shrink-0 text-muted-foreground"
+                        aria-hidden
+                      />
+                    ) : (
+                      <FileText
+                        className="h-4 w-4 shrink-0 text-muted-foreground"
+                        aria-hidden
+                      />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-medium">
+                        {suggestion.kind === "topic" ? "#" : ""}
+                        {suggestion.label}
+                      </span>
+                      <span className="block break-words text-xs text-muted-foreground">
+                        {suggestion.kind === "topic"
+                          ? "Topic"
+                          : suggestion.kind === "creator"
+                            ? suggestion.detail
+                            : `Page · ${suggestion.detail}`}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : suggestionError ? (
+              <div className="absolute inset-x-0 top-full z-30 mt-1 flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-lg">
+                <span className="text-sm text-muted-foreground">
+                  Search unavailable
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    creators.retry();
+                    pages.retry();
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : suggestionsInitialized && !loadingSuggestions ? (
+              <p className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground shadow-lg">
+                No matches
+              </p>
+            ) : (
+              <p className="absolute inset-x-0 top-full z-30 mt-1 flex min-h-11 items-center gap-2 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground shadow-lg">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Searching
+              </p>
+            )
+          ) : null}
+          <span id={statusId} className="sr-only" aria-live="polite">
+            {loadingSuggestions && query.trim()
+              ? "Searching"
+              : suggestionError
+                ? "Search unavailable"
+                : suggestionsInitialized && query.trim()
+                  ? `${suggestions.length} suggestions`
+                  : ""}
+          </span>
+        </div>
       </div>
 
       {!hasQuery ? (
-        <EmptyState
-          icon={SearchIcon}
-          title={t(MESSAGE_KEYS.searchAll)}
-        />
-      ) : (
+        <p className="text-sm text-muted-foreground">
+          {t(MESSAGE_KEYS.searchAll)}
+        </p>
+      ) : !inputSettled ? null : (
         <Tabs
           value={selectedTab}
           onValueChange={(tab) => {
@@ -193,6 +478,7 @@ export default function SearchFeature() {
               <EmptyState
                 icon={Users}
                 title="No creators found"
+                description={`No creators match “${searchKey}”. Creators are matched by username and name.`}
               />
             ) : creators.items.length > 0 ? (
               <>
@@ -241,7 +527,7 @@ export default function SearchFeature() {
               <EmptyState
                 icon={BookOpen}
                 title="No pages found"
-                description={`No pages match “${debounced.trim()}”. Try different or broader terms.`}
+                description={`No pages match “${searchKey}”. Try different or broader terms.`}
               />
             ) : pages.items.length > 0 ? (
               <>
