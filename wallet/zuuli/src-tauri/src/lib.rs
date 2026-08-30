@@ -213,14 +213,19 @@ mod tests {
     /// data directory can be full or read-only, and a half-written
     /// `f2zmsg.sqlite` is a state a real device reaches.
     ///
-    /// Three things are asserted here and nothing weaker would do:
+    /// Four things are asserted here and nothing weaker would do:
     ///
     /// 1. **The app still builds.** That single `.expect` on `build()` below is
     ///    the defect: before the fix it failed, and ZUULI did not start.
     /// 2. **`get_engine_status` answers** §6.1's `faulted` carrying the §8
     ///    code, so the UI can say *why* messaging is unavailable rather than
     ///    render an empty screen.
-    /// 3. **Every other command refuses, and none panics** — driven off
+    /// 3. **`check_handle_eligibility` still answers from the string alone,**
+    ///    including a positive control that rejects malformed input. A test
+    ///    that only accepts `alice` would also pass an implementation that says
+    ///    yes to everything.
+    /// 4. **Every engine- or storage-dependent command refuses, and none
+    ///    panics** — driven off
     ///    `tauri_plugin_f2zmsg::COMMANDS`, the same `with_f2zmsg_commands!`
     ///    expansion that builds the invoke handler and the permission manifest,
     ///    so this cannot cover forty of forty-three and look green. The
@@ -233,7 +238,7 @@ mod tests {
     /// refusing. That is precisely what this test would catch.
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn an_unopenable_messaging_store_leaves_zuuli_running_and_every_command_refusing() {
+    fn an_unopenable_messaging_store_routes_only_engine_free_commands() {
         /// The §8 code an occupied store path produces. `SqliteBackend::open`
         /// answers `SQLITE_CANTOPEN`, which is the same statement as a
         /// read-only or permission-denied data directory: this device cannot
@@ -391,18 +396,56 @@ mod tests {
         );
         assert_eq!(status["lastError"], json!(FAULT), "…and why: {status}");
 
-        // (3) Every other command refuses with that same §8 code.
+        // (3) The pure validator answers without an engine. Both cases are
+        // mutation controls: routing through `engine()?` breaks the eligible
+        // assertion, while replacing validation with an unconditional answer
+        // breaks the malformed one.
+        let eligible = invoke(
+            "plugin:f2zmsg|check_handle_eligibility".to_owned(),
+            json!({ "args": { "username": "SkylarSaveland" } }),
+        )
+        .expect("pure handle eligibility must survive a store startup fault")
+        .deserialize::<serde_json::Value>()
+        .expect("handle eligibility is JSON");
+        assert_eq!(
+            eligible,
+            json!({
+                "eligible": true,
+                "candidate": "skylarsaveland",
+                "reason": null,
+            })
+        );
+
+        let malformed = invoke(
+            "plugin:f2zmsg|check_handle_eligibility".to_owned(),
+            json!({ "args": { "username": "Not A Handle!" } }),
+        )
+        .expect("malformed eligibility is an answer, not an engine failure")
+        .deserialize::<serde_json::Value>()
+        .expect("handle eligibility is JSON");
+        assert_eq!(
+            malformed,
+            json!({
+                "eligible": false,
+                "candidate": null,
+                "reason": "punctuation",
+            })
+        );
+
+        // (4) Every engine- or storage-dependent command refuses with the same
+        // §8 code. The registry-driven census makes any new answering command
+        // fail until its faulted-state behavior is reviewed here explicitly.
         assert_eq!(
             tauri_plugin_f2zmsg::COMMANDS.len(),
             43,
             "§3's plugin surface changed; the census below covers whatever it now is"
         );
         for command in tauri_plugin_f2zmsg::COMMANDS {
-            if *command == "get_engine_status" {
+            if matches!(*command, "get_engine_status" | "check_handle_eligibility") {
                 continue;
             }
             let refused = invoke(format!("plugin:f2zmsg|{command}"), body_for(command))
-                .expect_err("a command with no engine must refuse, not answer");
+                .expect_err("an engine-dependent command with no engine must refuse, not answer");
             assert_eq!(
                 refused,
                 json!(FAULT),

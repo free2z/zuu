@@ -18,12 +18,13 @@
 //!
 //! Failing soft cannot be done by skipping `app.manage(..)`, because
 //! [`F2zMsgExt::f2zmsg`] is `self.state::<F2zMsg<R>>().inner()` and `state()`
-//! panics on an unmanaged type: all forty-three commands would panic rather
-//! than refuse. **The state has to exist and answer.** So it holds either the
-//! engine or the §8 [`ErrorCode`](crate::models::ErrorCode) that stopped the
+//! panics on an unmanaged type: every engine-dependent command would panic
+//! rather than refuse. **The state has to exist and answer.** So it holds either
+//! the engine or the §8 [`ErrorCode`](crate::models::ErrorCode) that stopped the
 //! engine from being built, and [`F2zMsg::engine`] returns a `Result` — which
 //! makes the refusal the compiler's business rather than a convention: a
-//! command cannot reach the engine without handling the fault.
+//! command cannot reach the engine without handling the fault. Pure handle
+//! eligibility deliberately does not reach this state at all (#762).
 
 use std::sync::Arc;
 
@@ -81,9 +82,9 @@ impl<R: Runtime> F2zMsg<R> {
     ///
     /// The §8 code that stopped the engine from being built, when the store
     /// did not open. Returning a `Result` here rather than panicking is the
-    /// whole fix for #753, and returning it *by type* is what makes every one
-    /// of the forty-three commands handle it: there is no way to reach the
-    /// engine that does not go through this.
+    /// whole fix for #753, and returning it *by type* is what makes every
+    /// engine-dependent command handle it: there is no way to reach the engine
+    /// that does not go through this.
     pub fn engine(&self) -> Result<&Engine<Backend>> {
         match &self.engine {
             Ok(engine) => Ok(engine),

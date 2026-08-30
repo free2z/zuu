@@ -11,10 +11,11 @@
 //!
 //! This file proves the plugin half: the app builds, the managed state exists,
 //! and it says why it has no engine. ZUULI's own
-//! `an_unopenable_messaging_store_leaves_zuuli_running_and_every_command_refusing`
-//! proves the other half — that all forty-three commands and the enrollment
-//! trio refuse over IPC rather than panic — because that needs the shipping
-//! capabilities, which only the app crate has.
+//! `an_unopenable_messaging_store_routes_only_engine_free_commands` proves the
+//! other half — status and pure handle eligibility answer, while every
+//! engine-dependent command and the enrollment trio refuse over IPC rather
+//! than panic — because that needs the shipping capabilities, which only the
+//! app crate has.
 //!
 //! **`SqliteBackend::open`'s strictness is not what changed.** It still
 //! verifies every pragma and refuses otherwise, because §11.2 says a client
