@@ -952,7 +952,12 @@ export function mockCreatorDetail(username: string): CreatorDetail {
     // hint, while the independently paginated catalog owns its exact count.
     zpages: base?.zpages ?? pages,
     total: (seed % 900) + 42,
-    p2paddr: `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
+    p2paddr:
+      uname === "transparent_creator"
+        ? "t1mocktransparentcreatoraddressxxxxxxxx"
+        : uname === "testnet_creator"
+          ? "tmocktestnetcreatoraddressxxxxxxxxxxx"
+          : `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
   };
 }
 

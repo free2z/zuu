@@ -350,6 +350,19 @@ export const mockWallet = {
     return history;
   },
   validateAddress(address: string): AddressValidation {
+    const wrongNetwork =
+      address.startsWith("utest") ||
+      address.startsWith("ztestsapling") ||
+      address.startsWith("tm") ||
+      address.startsWith("t2");
+    if (wrongNetwork) {
+      return {
+        valid: false,
+        addressType: null,
+        canReceiveMemo: false,
+        error: "Address belongs to a different Zcash network",
+      };
+    }
     const valid =
       address.startsWith("u1") ||
       address.startsWith("zs1") ||

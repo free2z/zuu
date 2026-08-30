@@ -1,11 +1,13 @@
 // Send ZEC: live address validation, memo, payment-URI paste, review + confirm.
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
+  Heart,
   Loader2,
   ShieldCheck,
+  TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Callout } from "@/components/ui/callout";
 import {
   formatZec,
   formatZecDisplay,
@@ -30,6 +33,11 @@ import {
   truncateAddress,
 } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
+import {
+  readCreatorTipRouteState,
+  retireCreatorTipIntent,
+  type CreatorTipIntent,
+} from "@/lib/wallet/creator-tip";
 import {
   assertExactSendProposal,
   assertFreshSendConfirmation,
@@ -78,12 +86,61 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export function Send() {
+export function Send({
+  creatorTipRoute = false,
+}: {
+  creatorTipRoute?: boolean;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const creatorTip = useMemo(
+    () =>
+      creatorTipRoute ? readCreatorTipRouteState(location.state) : null,
+    [creatorTipRoute, location.state],
+  );
+
+  if (creatorTipRoute && !creatorTip) {
+    return (
+      <Card className="mx-auto max-w-xl rounded-xl">
+        <CardHeader>
+          <CardTitle>Creator ZEC tip unavailable</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Callout
+            tone="destructive"
+            icon={TriangleAlert}
+            title="The creator payment details could not be verified"
+            role="alert"
+          >
+            Return to the creator profile and start the ZEC tip again. No
+            recipient or payment has been substituted.
+          </Callout>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate("/search")}
+          >
+            Browse creators
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <SendForm
+      key={location.key}
+      creatorTip={creatorTipRoute ? creatorTip : null}
+    />
+  );
+}
+
+function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
   const navigate = useNavigate();
   const balance = useWallet((s) => s.balance);
   const refreshBalance = useWallet((s) => s.refreshBalance);
 
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(creatorTip?.recipient ?? "");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
 
@@ -213,21 +270,36 @@ export function Send() {
   // Debounced live validation of the destination address.
   useEffect(() => {
     const addr = to.trim();
+    let active = true;
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
     if (!addr) {
       setValidation(null);
       setValidating(false);
       return;
     }
+    setValidation(null);
     setValidating(true);
     debounceRef.current = window.setTimeout(() => {
       void wallet
         .validateAddress(addr)
-        .then((res) => setValidation(res))
-        .catch(() => setValidation({ valid: false, addressType: null, canReceiveMemo: false }))
-        .finally(() => setValidating(false));
+        .then((res) => {
+          if (active) setValidation(res);
+        })
+        .catch(() => {
+          if (active) {
+            setValidation({
+              valid: false,
+              addressType: null,
+              canReceiveMemo: false,
+            });
+          }
+        })
+        .finally(() => {
+          if (active) setValidating(false);
+        });
     }, 350);
     return () => {
+      active = false;
       if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
     };
   }, [to]);
@@ -247,7 +319,7 @@ export function Send() {
     if (!canReview || zatoshis === null) return;
     const generation = invalidateReview();
     const requested = {
-      recipient: to.trim(),
+      recipient: creatorTip?.recipient ?? to.trim(),
       amount: zatoshis,
       memo: canReceiveMemo && memo ? memo : undefined,
     };
@@ -290,6 +362,7 @@ export function Send() {
     zatoshis,
     invalidateReview,
     to,
+    creatorTip,
     canReceiveMemo,
     memo,
     discardNativeProposal,
@@ -320,6 +393,7 @@ export function Send() {
       setDialogOpen(false);
       setBroadcastResult(result);
       if (result.status === "accepted") {
+        if (creatorTip) retireCreatorTipIntent(creatorTip);
         setPendingSend(null);
         toast.success("Transaction sent", {
           description: `txid ${truncateAddress(result.txid)}`,
@@ -359,7 +433,7 @@ export function Send() {
       confirmingRef.current = false;
       if (mountedRef.current && generation === generationRef.current) setSending(false);
     }
-  }, [discardNativeProposal, refreshBalance, navigate]);
+  }, [creatorTip, discardNativeProposal, refreshBalance, navigate]);
 
   const onRetryPending = useCallback(async () => {
     setSending(true);
@@ -367,6 +441,7 @@ export function Send() {
       const result = await wallet.retryPendingSend();
       setBroadcastResult(result);
       if (result.status === "accepted") {
+        if (creatorTip) retireCreatorTipIntent(creatorTip);
         setPendingSend(null);
         toast.success("Transaction broadcast confirmed", {
           description: `txid ${truncateAddress(result.txid)}`,
@@ -393,7 +468,7 @@ export function Send() {
     } finally {
       setSending(false);
     }
-  }, [navigate, refreshBalance]);
+  }, [creatorTip, navigate, refreshBalance]);
 
   const onDiscardUnrecoverable = useCallback(async () => {
     if (!pendingSend?.canDiscard) return;
@@ -423,6 +498,19 @@ export function Send() {
           <CardTitle>Send ZEC</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
+          {creatorTip ? (
+            <Callout
+              tone="info"
+              icon={Heart}
+              title={`ZEC tip for ${creatorTip.label}`}
+              data-testid="creator-tip-context"
+            >
+              <p className="text-muted-foreground">
+                @{creatorTip.username} · The creator destination is locked from
+                the profile you just loaded.
+              </p>
+            </Callout>
+          ) : null}
           {pendingSend?.status === "unknown" ? (
             <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning" role="status">
               <p className="font-medium">A previous broadcast is unresolved</p>
@@ -444,10 +532,14 @@ export function Send() {
             <Input
               id="to"
               value={to}
-              onChange={(e) => onToChange(e.target.value)}
+              onChange={
+                creatorTip ? undefined : (e) => onToChange(e.target.value)
+              }
               placeholder="u1… / zs1… / t1… or paste a zcash: link"
               autoComplete="off"
               spellCheck={false}
+              readOnly={Boolean(creatorTip)}
+              aria-readonly={creatorTip ? true : undefined}
               disabled={formLocked}
               className={cn(
                 "font-mono",
@@ -479,6 +571,20 @@ export function Send() {
               ) : null}
             </div>
           </div>
+
+          {creatorTip &&
+            validation?.valid &&
+            validation.addressType === "transparent" ? (
+            <Callout
+              icon={TriangleAlert}
+              title="Transparent ZEC tip"
+              role="alert"
+              data-testid="creator-tip-privacy-warning"
+            >
+              This payment will be publicly visible on-chain, and this
+              destination cannot receive an encrypted memo.
+            </Callout>
+          ) : null}
 
           {/* Amount */}
           <div className="space-y-1.5">
@@ -655,58 +761,73 @@ export function Send() {
           </DialogHeader>
 
           {proposal ? (
-            <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
-              <Row label="To">
-                <span
-                  className="mono-id min-w-0 break-all text-right font-mono text-xs"
-                  data-testid="send-review-recipient"
+            <div className="space-y-3">
+              {creatorTip ? (
+                <Callout
+                  tone="info"
+                  icon={Heart}
+                  title={`Creator tip for ${creatorTip.label}`}
+                  data-testid="creator-tip-review-context"
                 >
-                  {proposal.review.payments[0]?.recipient ?? ""}
-                </span>
-              </Row>
-              <Row label="Amount">
-                <span className="tabular-nums" data-testid="send-review-amount">
-                  {formatZecDisplay(proposal.review.payments[0]?.amount ?? 0)}
-                </span>
-              </Row>
-              <Row label="Network fee">
-                <span
-                  className="tabular-nums text-muted-foreground"
-                  title={proposal.review.feePolicy}
-                >
-                  {formatZecDisplay(proposal.review.fee)}
-                </span>
-              </Row>
-              {proposal.review.payments[0]?.memo ? (
+                  @{creatorTip.username}
+                </Callout>
+              ) : null}
+              <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
+                <Row label="To">
+                  <span
+                    className="mono-id min-w-0 break-all text-right font-mono text-xs"
+                    data-testid="send-review-recipient"
+                  >
+                    {proposal.review.payments[0]?.recipient ?? ""}
+                  </span>
+                </Row>
+                <Row label="Amount">
+                  <span
+                    className="tabular-nums"
+                    data-testid="send-review-amount"
+                  >
+                    {formatZecDisplay(
+                      proposal.review.payments[0]?.amount ?? 0,
+                    )}
+                  </span>
+                </Row>
+                <Row label="Network fee">
+                  <span
+                    className="tabular-nums text-muted-foreground"
+                    title={proposal.review.feePolicy}
+                  >
+                    {formatZecDisplay(proposal.review.fee)}
+                  </span>
+                </Row>
                 <Row label="Memo">
                   <span
                     className="min-w-0 whitespace-pre-wrap break-words text-right text-muted-foreground"
                     data-testid="send-review-memo"
                   >
-                    {proposal.review.payments[0].memo}
+                    {proposal.review.payments[0]?.memo ?? "None"}
                   </span>
                 </Row>
-              ) : null}
-              <Row label="Network">
-                <span className="capitalize text-muted-foreground">
-                  {proposal.review.network}
-                </span>
-              </Row>
-              <Row label="Change">
-                <span
-                  className="text-muted-foreground"
-                  data-testid="send-review-change-policy"
-                  title={proposal.review.changePolicy}
-                >
-                  Shielded automatically
-                </span>
-              </Row>
-              <Separator />
-              <Row label="Total">
-                <span className="text-base font-semibold tabular-nums text-zec">
-                  {formatZecDisplay(proposal.review.total)}
-                </span>
-              </Row>
+                <Row label="Network">
+                  <span className="capitalize text-muted-foreground">
+                    {proposal.review.network}
+                  </span>
+                </Row>
+                <Row label="Change">
+                  <span
+                    className="text-muted-foreground"
+                    data-testid="send-review-change-policy"
+                    title={proposal.review.changePolicy}
+                  >
+                    Shielded automatically
+                  </span>
+                </Row>
+                <Separator />
+                <Row label="Total">
+                  <span className="text-base font-semibold tabular-nums text-zec">
+                    {formatZecDisplay(proposal.review.total)}
+                  </span>
+                </Row>
+              </div>
             </div>
           ) : null}
 

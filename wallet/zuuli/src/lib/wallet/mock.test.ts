@@ -38,7 +38,7 @@ describe("mockWallet.parsePaymentUri", () => {
 
   it("rejects a recipient outside the mock app's mainnet shape", () => {
     expect(() => mockWallet.parsePaymentUri("zcash:tmTestRecipient?amount=1")).toThrow(
-      "Invalid Zcash recipient address",
+      "Address belongs to a different Zcash network",
     );
   });
 });
