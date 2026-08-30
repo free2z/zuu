@@ -138,7 +138,7 @@ export type IneligibilityReason = z.infer<typeof IneligibilityReasonSchema>;
 
 export const HandleEligibilitySchema = z.object({
   eligible: z.boolean(),
-  /** `lowercase(username)`, present only when it matches. */
+  /** ASCII-only lowercase candidate, present only after the raw ASCII check. */
   candidate: z.string().nullable(),
   reason: IneligibilityReasonSchema.nullable(),
 });

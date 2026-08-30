@@ -375,7 +375,7 @@ interface EnrollmentStatus {
 
 interface HandleEligibility {
   eligible: boolean;
-  candidate: string | null;        // lowercase(username), if it matches
+  candidate: string | null;        // ascii_lower(username), after raw ASCII check
   reason:
     | null
     | "punctuation"                // contains . @ + or - — the dominant cause (§11.3)
@@ -1885,7 +1885,7 @@ should be designed around speculatively.
 | **Groups larger than 2** | 1:1 is one MLS group like any other, so the model generalizes; fan-out is O(members × devices) and the scale limit is unanswered ([§13-M](./ARCHITECTURE.md#13-open-questions)). `Conversation` deliberately carries `peerHandle` rather than a member list — that is the v1 shape, and it will change. |
 | **Handle rename and transfer** | A change of *owner* rather than of *key*, creating a MITM window of a different shape. Still open ([§13-K](./ARCHITECTURE.md#13-open-questions)); [ADR 0014](./decisions/0014-directory-key-rotation.md) settles key rotation only. |
 | **Client gossip** | The only anti-equivocation that functions before independent witnesses exist, and **its wire format does not exist** ([`KT.md` §8.4](./KT.md#84-gossip), [§13-R](./ARCHITECTURE.md#13-open-questions)). No UI for it in v1. |
-| **A separate opt-in messaging handle** | The clean answer for the ~10% of real, active accounts the charset rule excludes (§11.3), deferred as directory design ([`WIRE.md` §14.4](./WIRE.md#144-alternatives-rejected)). Whether v1 simply excludes them or serves them this way is **an undecided product question**, not a settled omission ([§13-O](./ARCHITECTURE.md#13-open-questions)) — the one row in this table that may still move before v1. |
+| **A separate opt-in messaging handle** | The clean answer for real, active accounts the charset rule excludes (§11.3), deferred as directory design ([`WIRE.md` §14.4](./WIRE.md#144-alternatives-rejected)). The historical estimate was ~10%, but the corrected predicate still needs its census. Whether v1 simply excludes them or serves them this way is **an undecided product question**, not a settled omission ([§13-O](./ARCHITECTURE.md#13-open-questions)) — the one row in this table that may still move before v1. |
 | **P2P (WebRTC) transport for messages** | An optimization, not a dependency ([`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-p2p-webrtc--an-optimization-not-a-dependency)). Not in the v1 command surface. |
 
 ---
@@ -1996,7 +1996,11 @@ against that. Three build rules follow.
   address, not an authentication, and first-contact copy should say so rather
   than implying the handle did the work.
 
-An account is eligible iff `lowercase(username)` matches the pattern. The
+An account is eligible iff its raw username is ASCII and
+`ascii_lower(username)` matches the pattern. `ascii_lower` maps only ASCII
+`A`–`Z` to `a`–`z`; Unicode lowercasing, Unicode case-folding, locale-sensitive
+mapping and normalization are forbidden. The raw ASCII check happens first, so
+U+212A KELVIN SIGN is ineligible rather than becoming `k`. The
 argument originally given for folding case — that platform uniqueness is already
 enforced case-insensitively, so folding *cannot* collide two distinct existing
 accounts — **is false, and was retracted on the record**
@@ -2008,43 +2012,47 @@ disqualifies nobody; what does not hold is that the mapping is injective, and
 the client consequences of that are spelled out below.
 
 free2z usernames are considerably broader — Django's `^[\w.@+-]+$` up to 150
-characters — so **existing accounts containing `.`, `@`, `+`, `-`, any non-ASCII
-character, or exceeding 30 characters after lowercasing are not eligible for a
-messaging handle in v1.**
+characters — so **existing accounts whose raw username contains any non-ASCII
+character, whose ASCII username contains `.`, `@`, `+` or `-`, or whose
+`ascii_lower` result exceeds 30 characters are not eligible for a messaging
+handle in v1.**
 
-**How many accounts that is, is now measured, and the answer is the reason this
-screen matters.** Measured against production on 2026-08-23
+**A historical production measurement is the reason this screen must already be
+treated as material, but it is not a census of the corrected predicate.** The
+2026-08-23 run predates the raw-ASCII-first `ascii_lower` definition and its
+query artifact is not in this public repository
 ([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured),
 [§13-O](./ARCHITECTURE.md#13-open-questions)):
 
 | Of all existing accounts | Share |
 |---|---:|
-| Eligible after case-folding | **~90%** |
+| Reported eligible under the then-unnamed mapping | **~90%** |
 | **Ineligible** | **~10%** |
 
-Ineligibility is overwhelmingly caused by `.` `@` `+` or `-` in the username —
-just under a tenth of all accounts. Non-ASCII characters and over-length names
-account for very few, and uppercase disqualifies nobody because the mapping
-folds case. **Every ineligible account has logged in at least once and all but
-one is still active**: this is not a set of dead rows, it is roughly a tenth of
-real, current users. Design the ineligible state as a state a tenth of users
-will see, because it is one.
+That run found ineligibility overwhelmingly associated with `.` `@` `+` or `-`
+in the username; non-ASCII characters and over-length names accounted for very
+few. **Every row it classified as ineligible had logged in at least once and all
+but one was still active.** The deployment owner must rerun the corrected
+predicate and collision grouping before shipping. Until then, design the
+ineligible state as material rather than promising the historical percentage.
 
 Two things the frontend must not infer from that number:
 
-- **It is not a temporary gap awaiting a migration.** Whether that ~10% is
-  excluded from messaging discovery in v1 or served by a separate opt-in
-  messaging handle is an **undecided product question**
+- **It is not a temporary gap awaiting a migration.** Whether the corrected
+  ineligible population is excluded from messaging discovery in v1 or served by
+  a separate opt-in messaging handle is an **undecided product question**
   ([§13-O](./ARCHITECTURE.md#13-open-questions), §13-K). Do not write copy that
   promises either outcome.
-- **`lowercase(username)` is not yet a unique key.** Case-insensitive username
+- **`ascii_lower(username)` is not yet a unique key.** Case-insensitive username
   uniqueness lives in two serializers and **not in the database**, and
   production holds case-variant duplicate accounts today, in more than one
   group ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
-  Those must be resolved before the mapping ships — backend work, tracked
-  elsewhere — but the client consequence is now: never derive a messaging handle
-  from a username locally, and never assume two accounts that fold to the same
-  string are the same account. Always ask `check_handle_eligibility`.
+  The corrected eligible-only census must determine which groups survive the raw
+  ASCII check, and every surviving group must be resolved before the mapping
+  ships — backend work, tracked elsewhere. The client consequence is unchanged:
+  never derive a messaging handle from a username locally, and never assume two
+  accounts that fold to the same string are the same account. Always ask
+  `check_handle_eligibility`.
 
 Note also that the platform's *own* username space already contains the
 homograph surface — `UnicodeUsernameValidator` is the validator actually
@@ -2136,9 +2144,10 @@ transfer ([§13-K](./ARCHITECTURE.md#13-open-questions)), group scale
 ([§13-M](./ARCHITECTURE.md#13-open-questions)), proof-of-work calibration
 ([§13-N](./ARCHITECTURE.md#13-open-questions)) — which directly sets how slow
 first contact feels on a phone — messaging-handle eligibility
-([§13-O](./ARCHITECTURE.md#13-open-questions): the *measurement* is closed as of
-2026-08-23 and is in §11.3, but the **product** question of whether the ~10% is
-excluded in v1 or served by a separate opt-in handle is not), KT epoch cadence
+([§13-O](./ARCHITECTURE.md#13-open-questions): the 2026-08-23 historical
+measurement is in §11.3, but the corrected predicate's census and the
+**product** question of exclusion versus a separate opt-in handle are open), KT
+epoch cadence
 ([§13-P](./ARCHITECTURE.md#13-open-questions)), witness independence and the
 default *t* ([§13-Q](./ARCHITECTURE.md#13-open-questions)), the client gossip
 wire format ([§13-R](./ARCHITECTURE.md#13-open-questions)), and MLS `KeyPackage`

@@ -1333,7 +1333,11 @@ deliberate.
   function narrows the hardware gap and multiplies the relay's own verification
   cost by the same factor. What difficulty is simultaneously a real cost to an
   attacker and tolerable on a cheap Android device is **unmeasured**, and whether
-  a memory-hard function is affordable at relay scale is undecided.
+  a memory-hard function is affordable at relay scale is undecided. `WIRE.md`
+  publishes **20 bits** as v1's concrete interoperability default so two clients
+  do not invent different values; it labels that value provisional and makes no
+  calibration claim for it. This question remains open until the measurements,
+  not merely a number, exist.
 - **O. Messaging-handle eligibility for existing accounts.** Opened 2026-08-23 by
   [`WIRE.md` §14](./WIRE.md#14-handle-charset-for-messaging--blocking-pre-check-resolved).
   Messaging handles are `[a-z0-9_]{1,30}`, ASCII, so that **cross-script**
@@ -1342,17 +1346,19 @@ deliberate.
   ([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
   free2z usernames are broader
   (`^[\w.@+-]+$`, up to 150 characters), so some existing accounts are not
-  eligible. **Measured 2026-08-23 — and still open**, because measurement was
-  never the whole question. What the measurement settled:
-  - **What share, closed.** **Approximately 90% of existing accounts are eligible
-    after case-folding and approximately 10% are not** — overwhelmingly because
-    the username contains `.` `@` `+` or `-`; non-ASCII characters and
-    over-length names account for very few. It is not a set of dead rows:
-    **every ineligible account has logged in at least once and all but one is
-    still active.** Whether that is a rounding error or a migration project is a
-    question about the *absolute* count and not about the share, and absolute
-    counts are business data, deliberately not published in this repository; they
-    are recorded in the deployment repository. The earlier answer that it was
+  eligible. **Historically measured 2026-08-23 — corrected census open.** That
+  run reported approximately 90% eligible and 10% ineligible, but it predates
+  the normative raw-ASCII-first `ascii_lower` predicate and its query artifact
+  is not available in this public repository. The figures are planning evidence,
+  not a measurement of the corrected rule. What remains:
+  - **What share, reopened for the corrected predicate.** The deployment owner
+    must rerun the exact `WIRE.md` §14.3 algorithm and its collision grouping.
+    The historical run found punctuation dominant and non-ASCII and over-length
+    names rare; every row it classified as ineligible had logged in at least once
+    and all but one was active. Whether that is a rounding error or a migration
+    project is a question about the *absolute* count and not about the share, and
+    absolute counts are business data, deliberately not published in this
+    repository; they are recorded in the deployment repository. The earlier answer that it was
     "neither" rested on a scale qualifier that the redaction to proportions
     removed, and is withdrawn — see the correction in
     [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted).
@@ -1364,16 +1370,18 @@ deliberate.
     tense, as a property of the shipped product rather than a risk of a future one
     ([`WIRE.md` §14.2](./WIRE.md#142-checked-against-free2zs-real-username-rules--measured),
     [`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not)).
-  - **Still open — and it is a product decision, not a measurement.** Is that
-    ~10% of real users simply excluded from messaging discovery in v1, or are
-    they served by a separate opt-in messaging handle? The latter is directory
-    design and touches §13-K. Nobody has decided, so this stays open.
+  - **Still open — and it is a product decision, not only a measurement.** Is
+    the corrected ineligible population simply excluded from messaging
+    discovery in v1, or is it served by a separate opt-in messaging handle? The
+    latter is directory design and touches §13-K. Nobody has decided, so this
+    stays open.
   - **Surfaced by the measurement, and blocking.** Case-insensitive username
     uniqueness is enforced only in two serializers, not in the database, and
     **production holds case-variant duplicate accounts today, in more than one
-    group**. Those must
-    be resolved before the handle mapping ships; the correction and the intended
-    end state (a database-level `UniqueConstraint(Lower("username"))`) are in
+    group**. The corrected eligible-only census must determine which groups
+    survive the raw ASCII check, and every surviving group must be resolved
+    before the handle mapping ships; the correction and the intended end state
+    (a database-level `UniqueConstraint(Lower("username"))`) are in
     [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted). The
     backend work is tracked in the deployment repository.
 - **P. KT epoch cadence and maximum merge delay.** Opened 2026-08-23 by

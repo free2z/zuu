@@ -76,7 +76,18 @@ contact queue plays no further part for that pair.
   magnitude. A difficulty high enough to meaningfully cost an attacker is a
   difficulty that makes a cheap Android device heat up before it can say hello. We
   have chosen a difficulty that is a nuisance to attackers and tolerable to
-  phones, which means it is *only* a nuisance.
+  phones, which means it is *only* a nuisance. **That calibration claim was not
+  measured; see the correction below.**
+
+  > **Correction (2026-08-30).** v1 publishes `difficulty_bits = 20` as the
+  > concrete interoperability default for both queue creation and contact
+  > append, because an unnamed default makes independent implementations
+  > diverge. No cheap-Android or attacker-hardware measurement supported the
+  > sentence above, so 20 bits is explicitly provisional rather than described
+  > as tolerable or effective. The calibration question remains open in
+  > [`ARCHITECTURE.md` §13-N](../ARCHITECTURE.md#13-open-questions); changing the
+  > default after measurement is an observable policy change, not a retroactive
+  > claim that the measurement existed here.
 - **Disk exhaustion via mass queue creation is made expensive, not closed.**
   Nothing prevents an adversary with real resources from creating very many
   legitimate-looking queues with valid stamps from many sources. The caps bound

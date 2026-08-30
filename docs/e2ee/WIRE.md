@@ -1530,11 +1530,13 @@ struct {
     uint8    queue_creation_mode;         /* 0 = open, 1 = pow, 2 = token — reserved
                                              and MUST NOT be published; see §13.1's
                                              correction */
-    PowParams queue_creation_pow;
+    PowParams queue_creation_pow;         /* v1 default: algorithm 1, 20 bits,
+                                             challenge_ttl_ms 60000 */
     uint8    contact_queues_enabled;
     uint32   contact_max_pending;
     uint64   contact_max_bytes;
-    PowParams contact_append_pow;
+    PowParams contact_append_pow;         /* v1 default: algorithm 1, 20 bits,
+                                             challenge_ttl_ms 60000 */
     uint8    per_source_limits;           /* 0 = off, 1 = on (§13.3) */
     uint8    durability_mode;             /* 0 = memory, 1 = batched, 2 = fsync-per-append */
 
@@ -2231,7 +2233,10 @@ allocates durable state out of nothing, so it is the one that needs a gate.
 
 - `open` — no gate. Appropriate only for a private relay on a closed network.
 - `pow` — **the default.** `CREATE_QUEUE` and `CREATE_CONTACT_QUEUE` require a
-  `PowStamp` over a relay-issued challenge.
+  `PowStamp` over a relay-issued challenge. The v1 default parameters are
+  algorithm 1, `difficulty_bits = 20`, and `challenge_ttl_ms = 60000`; the
+  calibration warning below is part of that default, not permission to invent a
+  different number silently.
 - `token` — an operator-issued bearer token. Honest note: **a token is an
   identifier.** It lets the operator link every queue created with it, which
   reintroduces exactly the linkability that opaque per-pair addresses exist to
@@ -2342,6 +2347,16 @@ At this point of use, `counter` is exactly an eight-byte unsigned `uint64` in
 network (big-endian) order, concatenated directly with no length prefix.
 Verification is one hash; the relay marks the challenge consumed. The choice of a
 verify-cheap, GPU-friendly function and its consequences are argued in §12.4.
+
+**The 20-bit value is an interoperability default, not a calibration result.** It
+names the number every v1 implementation uses when the operator has not supplied
+one, closing the previously unspecified default that caused implementations to
+diverge. It does **not** establish that 20 bits is a meaningful cost to rented
+hardware or tolerable on a cheap Android device; those measurements remain open
+in [`ARCHITECTURE.md` §13-N](./ARCHITECTURE.md#13-open-questions). An operator MAY
+publish a different nonzero value, and a future measured default is a policy
+change carried by a newly signed capability document. No implementation may call
+its own unmeasured value “the WIRE.md default.”
 
 **Layer 4 — global backpressure.** The relay tracks storage and memory against
 published high-water marks. On crossing them it refuses work in this order:
@@ -2509,14 +2524,37 @@ Two things follow, and the second is the one that matters most:
    а and `@alice` with a Latin a are two different, equally valid, equally
    registerable free2z accounts right now.
 
-#### Eligibility, measured on production 2026-08-23
+#### Eligibility — historical 2026-08-23 measurement; corrected census required
 
-Eligibility is evaluated as `lowercase(username) matches /^[a-z0-9_]{1,30}$/`
-(§14.3).
+The normative predicate is now evaluated by rejecting a raw username containing
+any non-ASCII code point, applying the ASCII `A`–`Z` to `a`–`z` mapping, and then
+matching `^[a-z0-9_]{1,30}$` (§14.3). “Case-folding” in the historical table
+below refers to its then-unnamed mapping; it must not be read as evidence that
+the measurement used this corrected ASCII-only algorithm.
 
+> **Correction (2026-08-30) — the published proportions have not been rerun
+> under that named predicate.** The 2026-08-23 measurement predates the
+> `ascii_lower` definition, and this public repository contains neither its query
+> artifact nor the production data needed to reproduce it. The property table
+> counted raw non-ASCII input as disqualifying, but that is not evidence that the
+> aggregate eligibility query applied the checks in the same order. The ~90% and
+> ~10% values below are retained as historical approximations, not promoted into
+> a fresh measurement by changing the prose around them.
+>
+> Before this mapping ships, the deployment owner MUST rerun the census with the
+> exact §14.3 algorithm: reject non-ASCII raw usernames; compute `ascii_lower`
+> for the survivors; retain only candidates matching `[a-z0-9_]{1,30}`; then
+> group eligible rows by the candidate and report every group containing more
+> than one distinct account. No candidate handle may ship until every such group
+> is resolved and a database invariant prevents recurrence. Aggregate results
+> may be recorded here; usernames, absolute account totals, and other private
+> deployment data must not be copied into this repository. Until that rerun and
+> cleanup are confirmed, the mapping is **not safe to implement**. Tracking:
+> [#550](https://github.com/free2z/zuu/issues/550).
+>
 | Of all existing accounts | Share |
 |---|---:|
-| Eligible after case-folding | **~90%** |
+| Reported eligible under the then-unnamed mapping | **~90%** |
 | **Ineligible** | **~10%** |
 
 Which properties the population carries — these overlap, and each share is of
@@ -2550,6 +2588,25 @@ for a messaging handle iff:
 ```
 lowercase(username) matches /^[a-z0-9_]{1,30}$/
 ```
+
+> **Correction (2026-08-30) — the predicate above applied an unnamed mapping
+> before the ASCII check.** Eligibility is evaluated in this exact order:
+>
+> 1. Inspect the original username. If any Unicode scalar value is outside
+>    U+0000–U+007F, it is ineligible. Stop; no case mapping is performed.
+> 2. On the remaining ASCII string only, replace each byte `A` through `Z` with
+>    the corresponding byte `a` through `z`; leave every other byte unchanged.
+>    Call this operation `ascii_lower`. Unicode lowercasing, Unicode case-folding,
+>    locale-sensitive mapping, NFC, NFKC, and confusable folding are forbidden.
+> 3. The username is eligible iff `ascii_lower(username)` matches
+>    `^[a-z0-9_]{1,30}$`. That exact matched byte string is the candidate handle.
+>
+> In compact form: `is_ascii(username) &&
+> ascii_lower(username) matches /^[a-z0-9_]{1,30}$/`. U+212A KELVIN SIGN is
+> therefore rejected at step 1; it never maps to `k`. This derivation happens
+> once when deciding eligibility and producing a candidate. §14.1's ban on
+> normalization **at handle-comparison time** remains unchanged: candidate
+> handles are compared as their exact ASCII bytes.
 
 The lowercase mapping is included deliberately: because platform uniqueness is
 already enforced case-insensitively, folding case **cannot** introduce a
@@ -2594,8 +2651,9 @@ resolved by hand before the mapping ships.
 > existing accounts.
 >
 > **What survives and what does not.** The *decision* is unchanged: messaging
-> handles use the restricted charset and eligibility is evaluated on the
-> lowercased username. Uppercase on its own still disqualifies nobody — a little
+> handles use the restricted charset and, after the raw ASCII check above,
+> eligibility is evaluated on `ascii_lower(username)`. ASCII uppercase on its
+> own still disqualifies nobody — a little
 > over half of all accounts carry an uppercase letter and none is excluded for
 > that reason (§14.2). What does not survive is the claim that the mapping is
 > free. It is not: **every account in those collision groups must be resolved by
@@ -2608,31 +2666,43 @@ resolved by hand before the mapping ships.
 > accounts are tracked in the deployment repository; they are backend work and
 > are not specified here.
 
-**Accepted product cost, stated plainly.** Existing accounts whose username
-contains `.`, `@`, `+` or `-`, contains any non-ASCII character, or exceeds 30
-characters after lowercasing are **not eligible for a messaging handle in v1**.
+> **Correction (2026-08-30) — the duplicate-group conclusion above is narrowed
+> by the raw ASCII check.** The historical groups prove that case-insensitive
+> uniqueness was not a database invariant, but the public record does not prove
+> that every member survives the corrected eligibility predicate. “Every account
+> in those collision groups must be resolved” now means every group the corrected
+> eligible-only census reports. The database invariant remains required because
+> an application convention is still not a uniqueness guarantee.
+
+**Accepted product cost, stated plainly.** Existing accounts whose raw username
+contains any non-ASCII character, whose ASCII username contains `.`, `@`, `+` or
+`-`, or whose `ascii_lower` result exceeds 30 characters are **not eligible for
+a messaging handle in v1**.
 Those users can use free2z exactly as they do today; they cannot be discovered by
 handle in the messenger until they have a compliant handle.
 
-**How large is that population? Measured 2026-08-23: approximately 10% of
-existing accounts.** The first revision of this section said the number "MUST be
-measured before the rule ships, because it is the difference between a rounding
-error and a migration project." **The share alone does not settle that question,
-and this document does not settle it.** Which of the two it is depends on the
-absolute count rather than the proportion: one account in ten of a user base of a
-few thousand is an afternoon of hand resolution, and one account in ten of a user
-base of a few million is a programme of work. The absolute count is business data
-and is deliberately not published here; it is recorded in the deployment
-repository, and whoever plans the work has to read it there.
+**How large is that population? Historically estimated on 2026-08-23 as
+approximately 10% of existing accounts, under a predicate that was not preserved
+well enough to reproduce.** The corrected census above must replace that estimate
+before the rule ships. The first revision of this section said the number "MUST
+be measured before the rule ships, because it is the difference between a
+rounding error and a migration project." **The share alone does not settle that
+question, and this document does not settle it.** Which of the two it is depends
+on the absolute count rather than the proportion: one account in ten of a user
+base of a few thousand is an afternoon of hand resolution, and one account in
+ten of a user base of a few million is a programme of work. The absolute count
+is business data and is deliberately not published here; it is recorded in the
+deployment repository, and whoever plans the work has to read it there.
 
-What the share *does* settle is the part the design turns on. This is **about
-one account in ten**, not a fringe, and **every ineligible account has logged in
-at least once, with all but one still active** — they are real users, not
-abandoned rows (§14.2). That is enough to force a *product* decision: exclude
-that ~10% from messaging discovery in v1, or serve them with the separate opt-in
-messaging handle deferred in §14.4. That decision is not made here, so
+What the historical estimate *does* settle is that the product cannot treat the
+ineligible state as a fringe while it waits for the corrected census. The rows
+classified as ineligible in 2026 were real users, not abandoned rows (§14.2).
+That is enough to force a *product* decision after the corrected population is
+known: exclude those accounts from messaging discovery in v1, or serve them with
+the separate opt-in messaging handle deferred in §14.4. That decision is not
+made here, so
 [`ARCHITECTURE.md` §13-O](./ARCHITECTURE.md#13-open-questions) **stays open** —
-its measurement sub-questions are closed, its policy sub-question is not.
+its corrected-census and policy sub-questions are both open.
 
 > **Correction (2026-08-23) — the "neither a rounding error nor a migration
 > project" answer is withdrawn.** The first published version of the paragraph
@@ -2765,12 +2835,11 @@ Deliberately, and listed rather than invented:
 - **Proof-of-work function and calibration** —
   [§13-N](./ARCHITECTURE.md#13-open-questions), opened by §12.4.
 - **Messaging-handle eligibility for existing accounts** —
-  [§13-O](./ARCHITECTURE.md#13-open-questions), opened by §14.3. **Measured
-  2026-08-23 and still open**: the measurement is in (approximately 10% of
-  existing accounts are ineligible, and all of them are real users), so the
-  measurement sub-question is closed; whether those users are simply excluded
-  from messaging discovery in v1 or given a separate opt-in messaging handle is a
-  product decision nobody has made.
+  [§13-O](./ARCHITECTURE.md#13-open-questions), opened by §14.3. The historical
+  2026-08-23 run estimated approximately 10% ineligible and found real users in
+  that population, but it did not preserve the corrected predicate's query. The
+  raw-ASCII-first census, collision cleanup, and product decision between
+  exclusion and a separate opt-in messaging handle are all still open.
 
 ---
 
