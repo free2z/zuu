@@ -162,7 +162,10 @@ export default function WalletFeature() {
   }
 
   // No wallet yet → create/restore flow (no sub-nav).
-  if (!isFunding && status && !status.initialized) {
+  if (
+    !isFunding &&
+    (!status || !status.initialized || status.backupRequired)
+  ) {
     return <Onboarding />;
   }
 

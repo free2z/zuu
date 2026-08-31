@@ -11,6 +11,8 @@
     "zcash:allow-create-wallet",
     "zcash:allow-restore-wallet",
     "zcash:allow-get-wallet-status",
+    "zcash:allow-list-wallets",
+    "zcash:allow-switch-wallet",
     "zcash:allow-preview-legacy-wallet-import",
     "zcash:allow-retry-wallet-cleanup",
     "zcash:allow-get-backup-seed-phrase",

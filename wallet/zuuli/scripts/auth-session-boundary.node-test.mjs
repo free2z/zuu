@@ -97,7 +97,13 @@ test("recovery phrases cannot enter browser persistence, URLs, logs, or toasts",
   );
   assert.match(
     restoreFlow,
-    /clearPhrase\(\);[\s\S]*?await useWallet\.getState\(\)\.bootstrap\(\);[\s\S]*?if \(!isCurrent\(\)\) return;[\s\S]*?await runCrypto/,
+    /clearPhrase\(\);[\s\S]*?await useWallet\.getState\(\)\.refreshWalletIdentity\(restored\.walletId\);[\s\S]*?if \(!isCurrent\(\)\) return;[\s\S]*?await runCrypto/,
   );
+  const committedRestoreBeforeRefresh = between(
+    restoreFlow,
+    "const restored = await restoration;",
+    "await useWallet.getState().refreshWalletIdentity(restored.walletId);",
+  );
+  assert.doesNotMatch(committedRestoreBeforeRefresh, /isCurrent\(\)/);
   assert.doesNotMatch(form, /await onRestore\(/);
 });

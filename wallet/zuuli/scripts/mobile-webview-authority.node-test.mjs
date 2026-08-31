@@ -110,6 +110,22 @@ test("unreviewed named wallet authority and widened windows fail closed", () => 
   );
 });
 
+for (const requiredIdentityPermission of [
+  "zcash:allow-list-wallets",
+  "zcash:allow-switch-wallet",
+]) {
+  test(`${requiredIdentityPermission} is required by the mobile wallet identity bridge`, () => {
+    const missing = fixture();
+    missing.mobile.permissions = missing.mobile.permissions.filter(
+      (permission) => permission !== requiredIdentityPermission,
+    );
+    assert.throws(
+      () => assertMobileWebviewAuthority(missing.mobile, missing.tauri),
+      /mobile Zcash permissions differs/,
+    );
+  });
+}
+
 test("legacy preview authority is exact and cannot be dropped or widened", () => {
   const missing = fixture();
   missing.mobile.permissions = missing.mobile.permissions.filter(

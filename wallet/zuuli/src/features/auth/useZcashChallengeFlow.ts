@@ -24,7 +24,7 @@ import {
   useAttemptLease,
   type IsCurrentAttempt,
 } from "@/hooks/useAttemptLease";
-import { useWallet } from "@/store/wallet";
+import { useWallet, WalletIdentityError } from "@/store/wallet";
 import {
   SensitiveSeedSession,
   walletSensitiveSeedAuthority,
@@ -389,26 +389,24 @@ export function useZcashChallengeFlow(
         // the editable state immediately after native custody succeeds.
         seedPhrase = "";
         const restored = await restoration;
-        if (!isCurrent()) {
-          clearPhrase();
-          return;
-        }
+        clearPhrase();
         if (!restored.success || !restored.walletId) {
           throw new Error("The recovery phrase could not be restored.");
         }
-        // Clear the editable renderer state immediately after successful native
-        // custody, before any identity/network continuation.
-        clearPhrase();
-        // The app-level bootstrap may already have cached `initialized: false`.
-        // Publish the restored wallet to the shared renderer store before login
-        // continues so Wallet does not show onboarding until the next reload.
-        await useWallet.getState().bootstrap();
+        // Publish the exact restored identity and all account-scoped data as a
+        // single snapshot before any login work can observe it.
+        await useWallet.getState().refreshWalletIdentity(restored.walletId);
         if (!isCurrent()) return;
         setPhase("running");
         setStep("prepare", "done");
         await runCrypto(isCurrent, restored.walletId);
-      } catch {
+      } catch (error) {
         if (!isCurrent()) return;
+        if (error instanceof WalletIdentityError) {
+          setError(error.message);
+          setPhase("restoreIdentity");
+          return;
+        }
         // Native mnemonic diagnostics are intentionally content-free. Keep the
         // renderer message fixed as a second defense against phrase leakage,
         // while acknowledging that words, birthday, network, or native custody
@@ -432,6 +430,7 @@ export function useZcashChallengeFlow(
     setError(null);
     try {
       const { walletId } = await wallet.createWallet();
+      await useWallet.getState().refreshWalletIdentity(walletId);
       if (!isCurrent()) return;
       setBackupWalletId(walletId);
       // Creation returns no mnemonic to the renderer. The explicit reveal

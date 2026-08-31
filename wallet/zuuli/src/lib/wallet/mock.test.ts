@@ -69,6 +69,45 @@ describe("mockWallet.restoreWallet", () => {
   });
 });
 
+describe("mockWallet wallet identity inventory", () => {
+  it("lists deterministic identities and switches exactly one active wallet", () => {
+    mockWallet.switchWallet("mock-wallet-0");
+    expect(mockWallet.listWallets()).toEqual([
+      {
+        id: "mock-wallet-0",
+        name: "Main",
+        isActive: true,
+        birthdayHeight: 2_611_904,
+        createdAt: "2026-01-02T03:04:05Z",
+      },
+      {
+        id: "mock-wallet-1",
+        name: "Savings",
+        isActive: false,
+        birthdayHeight: 2_600_000,
+        createdAt: "2026-02-03T04:05:06Z",
+      },
+    ]);
+
+    mockWallet.switchWallet("mock-wallet-1");
+    expect(mockWallet.listWallets().map(({ id, isActive }) => [id, isActive])).toEqual([
+      ["mock-wallet-0", false],
+      ["mock-wallet-1", true],
+    ]);
+    expect(mockWallet.getWalletStatus()).toMatchObject({
+      activeWalletId: "mock-wallet-1",
+      activeWalletName: "Savings",
+      walletCount: 2,
+    });
+
+    expect(() => mockWallet.switchWallet("stale-wallet")).toThrow(
+      "unknown or stale",
+    );
+    expect(mockWallet.getWalletStatus().activeWalletId).toBe("mock-wallet-1");
+    mockWallet.switchWallet("mock-wallet-0");
+  });
+});
+
 describe("mockWallet sensitive-display purpose", () => {
   it("never authorizes a seed read with a typed-entry lease", () => {
     const lease = mockWallet.beginSensitiveDisplay("zuuliRestore");
