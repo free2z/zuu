@@ -88,7 +88,13 @@
 [submodule "z/ZcashFoundation/z3"]
 	path = z/ZcashFoundation/z3
 	url = https://github.com/ZcashFoundation/z3
-	branch = dev
+	# Upstream renamed its default branch `dev` -> `main` on 2026-05-30
+	# (PR #39, `ci/main-default-branch`, commit 567a9b4 "ci: switch push
+	# triggers from dev to main"). No `dev` ref exists on the remote any
+	# more, so `git submodule update --remote` could not resolve this
+	# submodule at all. History was carried over, not forked: our previous
+	# pin 35d1adf is a linear ancestor of `main`.
+	branch = main
 [submodule "z/zodl-inc/zodl-android"]
 	path = z/zodl-inc/zodl-android
 	url = https://github.com/zodl-inc/zodl-android
