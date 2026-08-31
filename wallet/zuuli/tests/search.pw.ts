@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const SEARCH_NAME = "Search creators and pages";
+const SEARCH_NAME = "Search creators, pages, and topics";
 const VIEWPORTS = [
   { name: "phone", width: 320, height: 568 },
   { name: "tablet", width: 768, height: 1024 },
@@ -25,7 +25,7 @@ async function enterSearch(page: Page, width: number) {
 }
 
 async function expectSingleRouteSearch(page: Page) {
-  const input = page.getByRole("searchbox", { name: SEARCH_NAME });
+  const input = page.getByRole("combobox", { name: SEARCH_NAME });
   const topBar = page.locator("[data-app-top-bar]");
 
   await expect(input).toHaveCount(1);
@@ -36,6 +36,7 @@ async function expectSingleRouteSearch(page: Page) {
   await expect(topBar.getByLabel("Search", { exact: true })).toHaveCount(0);
   await expect(input).toHaveAttribute("data-custom-search-clear", "true");
   await expect(input).toHaveAttribute("type", "text");
+  await expect(input).toHaveAttribute("aria-autocomplete", "list");
   await expect(input).toHaveAttribute("inputmode", "search");
   return input;
 }
@@ -106,7 +107,9 @@ for (const viewport of VIEWPORTS) {
       await expect(input).toHaveValue("");
       await expect(input).toBeFocused();
       await expect(clear).toHaveCount(0);
-      await expect(page.getByText("Search all of free2z")).toBeVisible();
+      await expect(
+        page.getByText("Search all of free2z", { exact: true }),
+      ).toBeVisible();
 
       await page.goBack();
       await expect(page).toHaveURL(/\/$/);

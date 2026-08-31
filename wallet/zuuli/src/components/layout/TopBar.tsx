@@ -19,11 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,8 +53,7 @@ export function TopBar() {
   // link starts at 0). Reading it during render keyed on `location` keeps it
   // reactive. Hidden on the root/home route, where "back" is meaningless, so
   // it never dead-ends the user out of the app.
-  const historyIdx =
-    (window.history.state?.idx as number | undefined) ?? 0;
+  const historyIdx = (window.history.state?.idx as number | undefined) ?? 0;
   const canGoBack = historyIdx > 0 && location.pathname !== "/";
 
   return (

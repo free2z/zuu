@@ -78,8 +78,6 @@ describe("article tag HTTP contract", () => {
       { name: "Privacy", count: 12 },
       { name: "privacy", count: "11" },
       { name: "C++", count: null },
-      { nope: true },
-      { name: "bad\u0000tag", count: 3 },
     ]);
     await expect(articles.suggestTags("pri", ["zcash"])).resolves.toEqual([
       { name: "Privacy", count: 12 },
@@ -127,11 +125,18 @@ describe("article tag HTTP contract", () => {
     });
   });
 
-  it("fails soft when optional autocomplete is unavailable or malformed", async () => {
+  it("exposes autocomplete transport and schema failures to its UI boundary", async () => {
     requestMock.mockRejectedValueOnce(new Error("offline"));
-    await expect(articles.suggestTags("privacy")).resolves.toEqual([]);
+    await expect(articles.suggestTags("privacy")).rejects.toThrow("offline");
 
     requestMock.mockResolvedValueOnce({ results: [] });
-    await expect(articles.suggestTags("privacy")).resolves.toEqual([]);
+    await expect(articles.suggestTags("privacy")).rejects.toThrow(
+      "Malformed topic autocomplete response",
+    );
+
+    requestMock.mockResolvedValueOnce([{ nope: true }]);
+    await expect(articles.suggestTags("privacy")).rejects.toThrow(
+      "Malformed topic autocomplete suggestion",
+    );
   });
 });

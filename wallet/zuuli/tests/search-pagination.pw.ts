@@ -4,6 +4,14 @@ function viewport(page: Page) {
   return page.locator("[data-scroll-area-viewport]");
 }
 
+async function dismissAutocomplete(page: Page) {
+  const input = page.getByRole("combobox", {
+    name: "Search creators, pages, and topics",
+  });
+  await input.press("Escape");
+  await expect(input).toHaveAttribute("aria-expanded", "false");
+}
+
 async function useSearchScenarios(page: Page, creators: string, pages: string) {
   await page.addInitScript(
     ({ creatorScenario, pageScenario }) => {
@@ -23,6 +31,7 @@ test("every result remains loaded with its tab and scroll position across back n
 
   const creatorResults = page.locator("[data-search-creator-result]");
   await expect(creatorResults).toHaveCount(2);
+  await dismissAutocomplete(page);
   await expect(page.getByRole("tab", { name: /Creators/ })).toContainText("4");
   await page.getByRole("button", { name: "Load more creators" }).click();
   await expect(creatorResults).toHaveCount(4);
@@ -66,7 +75,7 @@ test("every result remains loaded with its tab and scroll position across back n
 
   await page.getByRole("tab", { name: /Creators/ }).click();
   await expect(creatorResults).toHaveCount(4);
-  await expect(page.getByRole("searchbox")).toHaveValue("a");
+  await expect(page.getByRole("combobox")).toHaveValue("a");
 });
 
 test("a fully duplicated page advances to later unique results", async ({
@@ -77,6 +86,7 @@ test("a fully duplicated page advances to later unique results", async ({
 
   const creators = page.locator("[data-search-creator-result]");
   await expect(creators).toHaveCount(2);
+  await dismissAutocomplete(page);
   await page.getByRole("button", { name: "Load more creators" }).click();
   await expect(creators).toHaveCount(2);
   await page.getByRole("button", { name: "Load more creators" }).click();
@@ -94,10 +104,13 @@ test("count drift and tied-row skips retain the valid terminal results", async (
 
   const creators = page.locator("[data-search-creator-result]");
   await expect(creators).toHaveCount(2);
+  await dismissAutocomplete(page);
   await page.getByRole("button", { name: "Load more creators" }).click();
   await expect(creators).toHaveCount(4);
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByText("4 of 5 creators", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("4 of 5 creators", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("tab", { name: /Pages/ }).click();
   const pages = page.locator("[data-search-page-result]");
@@ -129,6 +142,7 @@ test("overlapping backend pages are deduplicated without losing order", async ({
 
   const creators = page.locator("[data-search-creator-result]");
   await expect(creators).toHaveCount(2);
+  await dismissAutocomplete(page);
   await page.getByRole("button", { name: "Load more creators" }).click();
   await expect(creators).toHaveCount(3);
   await page.getByRole("button", { name: "Load more creators" }).click();

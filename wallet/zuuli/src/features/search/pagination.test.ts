@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SearchResultPage } from "@/lib/api/types";
+import type { SearchResultPage, SimpleCreator } from "@/lib/api/types";
 import {
+  creatorSearchIdentity,
   mergeSearchPage,
   SearchSnapshotCache,
   type SearchSnapshot,
@@ -63,7 +64,9 @@ describe("global Search result pagination", () => {
   });
 
   it("advances past a fully duplicated nonterminal page to later rows", () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
     const first = mergeSearchPage(
       initial(),
       page([result("a"), result("b")], 2, 3),
@@ -96,7 +99,9 @@ describe("global Search result pagination", () => {
   });
 
   it("keeps valid rows when advisory counts drift or a tied row is skipped", () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
     const first = mergeSearchPage(
       initial(),
       page([result("a")], 2, 2),
@@ -137,5 +142,35 @@ describe("global Search result pagination", () => {
     expect(cache.restore("two")).toBeNull();
     expect(cache.restore("one")?.key).toBe("one");
     expect(cache.restore("three")?.key).toBe("three");
+  });
+
+  it("keeps case-variant creator accounts distinct by stable address", () => {
+    const creator = (username: string, free2zaddr: string): SimpleCreator => ({
+      username,
+      free2zaddr,
+    });
+    const merged = mergeSearchPage(
+      {
+        key: "shared",
+        items: [],
+        next: 1,
+        count: null,
+        initialized: false,
+      },
+      {
+        items: [
+          creator("Shared", "t-addr-one"),
+          creator("shared", "t-addr-two"),
+        ],
+        next: null,
+        count: 2,
+      },
+      1,
+      creatorSearchIdentity,
+    );
+    expect(merged.items.map(({ free2zaddr }) => free2zaddr)).toEqual([
+      "t-addr-one",
+      "t-addr-two",
+    ]);
   });
 });

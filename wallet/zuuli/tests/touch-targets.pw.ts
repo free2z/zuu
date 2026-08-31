@@ -43,8 +43,12 @@ async function setSession(page: Page, signedIn: boolean) {
   }, signedIn);
 }
 
-async function expectEditableTextClearsButton(page: Page, inputName: string) {
-  const input = page.getByRole("searchbox", { name: inputName });
+async function expectEditableTextClearsButton(
+  page: Page,
+  inputName: string,
+  role: "searchbox" | "combobox" = "searchbox",
+) {
+  const input = page.getByRole(role, { name: inputName });
   const clear = page.getByRole("button", { name: "Clear search" });
   const [inputBox, clearBox, inset] = await Promise.all([
     input.boundingBox(),
@@ -272,9 +276,15 @@ for (const signedIn of [false, true]) {
 
       await page.goto("/search?q=zcash");
       await page
-        .getByRole("searchbox", { name: "Search creators and pages" })
+        .getByRole("combobox", {
+          name: "Search creators, pages, and topics",
+        })
         .fill("a long creator and page query that reaches the trailing control");
-      await expectEditableTextClearsButton(page, "Search creators and pages");
+      await expectEditableTextClearsButton(
+        page,
+        "Search creators, pages, and topics",
+        "combobox",
+      );
       await page.getByRole("tab", { name: /Pages/ }).click();
       routeFailures.push(
         ...(await auditTouchTargets(page)).failures.map(
