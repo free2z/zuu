@@ -721,6 +721,9 @@ pub struct Alarm {
     pub raised_at: i64,
     pub dismissible: NeverDismissible,
     pub handle: Option<String>,
+    /// The exact conversation this alarm attributes, when conversation-specific.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
     /// The relay this alarm attributes, when the alarm is relay-specific.
     #[serde(default)]
     pub relay_url: Option<String>,
@@ -1101,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn relay_attribution_serializes_and_old_alarms_default_to_none() {
+    fn conversation_and_relay_attribution_serialize_and_old_alarms_default_to_none() {
         let alarm = Alarm {
             alarm_id: "alarm".into(),
             kind: AlarmKind::QueueSendAddressStolen,
@@ -1109,6 +1112,7 @@ mod tests {
             raised_at: 7,
             dismissible: NeverDismissible,
             handle: Some("peer".into()),
+            conversation_id: Some("conversation-1".into()),
             relay_url: Some("wss://relay.example/relay/v1".into()),
             old_fingerprint: None,
             new_fingerprint: None,
@@ -1117,6 +1121,7 @@ mod tests {
             acknowledged_at: None,
         };
         let json = serde_json::to_value(&alarm).expect("serialize alarm");
+        assert_eq!(json["conversationId"], "conversation-1");
         assert_eq!(json["relayUrl"], "wss://relay.example/relay/v1");
 
         let mut legacy = json;
@@ -1124,12 +1129,13 @@ mod tests {
             .as_object_mut()
             .expect("alarm object")
             .remove("relayUrl");
-        assert_eq!(
-            serde_json::from_value::<Alarm>(legacy)
-                .expect("legacy alarm")
-                .relay_url,
-            None
-        );
+        legacy
+            .as_object_mut()
+            .expect("alarm object")
+            .remove("conversationId");
+        let legacy_alarm = serde_json::from_value::<Alarm>(legacy).expect("legacy alarm");
+        assert_eq!(legacy_alarm.conversation_id, None);
+        assert_eq!(legacy_alarm.relay_url, None);
     }
 
     #[test]

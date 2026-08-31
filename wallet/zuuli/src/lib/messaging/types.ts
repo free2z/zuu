@@ -492,6 +492,7 @@ export const AlarmSchema = z.object({
   raisedAt: z.number().int(),
   dismissible: z.literal(false),
   handle: z.string().nullable(),
+  conversationId: z.string().nullable(),
   relayUrl: z.string().nullable(),
   oldFingerprint: z.string().nullable(),
   newFingerprint: z.string().nullable(),

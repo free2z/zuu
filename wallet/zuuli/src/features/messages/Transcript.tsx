@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { messaging } from "@/lib/messaging/bridge";
 import { listenMessaging } from "@/lib/messaging/events";
 import {
+  type Alarm,
   type Conversation,
   type DeliveryState,
   type Message,
@@ -81,6 +82,9 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
   const [hasGapBefore, setHasGapBefore] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [compromiseRelayUrl, setCompromiseRelayUrl] = useState<string | null>(
+    null,
+  );
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
@@ -95,6 +99,40 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (conversation.transportHealth !== "compromised") {
+      setCompromiseRelayUrl(null);
+      return;
+    }
+    // React may reuse this component while navigating between two compromised
+    // conversations. Never render the previous conversation's relay while the
+    // exact-id alarm lookup for the new conversation is in flight.
+    setCompromiseRelayUrl(null);
+    void messaging
+      .listAlarms()
+      .then((alarms) => {
+        let newest: Alarm | null = null;
+        for (const alarm of alarms) {
+          if (
+            alarm.kind === "queue-send-address-stolen" &&
+            alarm.conversationId === conversation.conversationId &&
+            alarm.relayUrl !== null &&
+            (newest === null || alarm.raisedAt > newest.raisedAt)
+          ) {
+            newest = alarm;
+          }
+        }
+        if (!cancelled) setCompromiseRelayUrl(newest?.relayUrl ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setCompromiseRelayUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation.conversationId, conversation.transportHealth]);
 
   // Events say state changed; the store is the truth. Both handlers re-read
   // rather than mutating a local list (§5.2).
@@ -156,11 +194,17 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
         <Callout
           tone="destructive"
           icon={ShieldAlert}
-          title="Someone else took the write capability for this conversation"
+          title="This conversation's send queue is compromised"
         >
-          A relay operator bound the send side of a queue this conversation
-          depends on. Stop using this conversation and re-establish contact
-          through a different relay.
+          The send side was already bound to another or unknown key. The result
+          does not identify who bound it.
+          {compromiseRelayUrl !== null && (
+            <>
+              {" "}The relay that returned the refusal was {compromiseRelayUrl}.
+            </>
+          )}{" "}
+          Stop using this conversation and re-establish contact through a
+          different relay.
         </Callout>
       )}
 

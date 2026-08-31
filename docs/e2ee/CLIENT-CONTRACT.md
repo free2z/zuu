@@ -828,6 +828,7 @@ interface Alarm {
   raisedAt: number;
   dismissible: false;            // structurally false for every critical alarm
   handle: string | null;
+  conversationId: string | null; // exact conversation for conversation alarms
   relayUrl: string | null;       // required for queue/relay attribution
   oldFingerprint: string | null;
   newFingerprint: string | null;

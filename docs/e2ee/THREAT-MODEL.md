@@ -220,8 +220,9 @@ if direct P2P is used, the peer's IP.
   ([`ARCHITECTURE.md` §6.5](./ARCHITECTURE.md#65-padding)).
 - Active tampering with the transport causes MLS authentication failures, not
   silent corruption.
-- Queue identifiers are opaque and rotate, so a long-lived relationship does not
-  present a long-lived on-wire identifier.
+- Queue identifiers are opaque. The protocol designs authenticated replacement,
+  but automated overlapped rotation is not shipping, so a current relationship
+  may retain a long-lived on-wire identifier.
 
 **Not defended.**
 
@@ -599,8 +600,12 @@ any timing analysis.
 
 What limits the damage is what the addresses are *not*: they are opaque, they
 carry no handle or identity key, they are per device pair and per direction, and
-they rotate on the `free2z/queue/v1` exporter schedule, so the graph is over
-short-lived pseudonyms rather than over people. Deanonymizing it requires
+the protocol can rotate them through authenticated replacement adverts. The
+shipping engine can consume such a replacement safely, but it does not automate
+the full overlapped rotation flow. Rotation would shorten the lifetime of those
+pseudonyms, but the reserved `free2z/queue/v1` synchronized schedule is not yet
+shipping, so today's path can leave them long-lived. Deanonymizing the graph
+still requires
 attaching a queue address to a person by some other means — source IP, timing
 against a known event, or correlation with the platform's own logs when free2z
 runs both. Publishing queue addresses on *k* relays, and using different relays
@@ -878,7 +883,7 @@ section's narrower reading is the one intended.
 | PQ confidentiality (harvest-now) | **Yes** — X-Wing hybrid | Yes, same caveat |
 | PQ authentication | **No** (§3.8) | No |
 | Relay learns no handles or identity keys | **Yes** (§3.3) | Same |
-| Relay learns no social graph | **No** — it holds the pairing table for its own queues, over opaque rotating addresses (§3.3, §4.9), and receipt timing adds to it (§4.2) | Same |
+| Relay learns no social graph | **No** — it holds the pairing table for its own queues, over opaque addresses that current shipping may retain long-term (§3.3, §4.9), and receipt timing adds to it (§4.2) | Same |
 | Server retains nothing after ack | **Auditable, not verifiable** (§4.5) | Same |
 | Deniability | **No** (§4.6) | No |
 | Anonymity vs. global passive adversary | **No** (§3.7) | No |

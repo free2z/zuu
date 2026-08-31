@@ -33,6 +33,21 @@ const contractPath = fileURLToPath(
 const wirePath = fileURLToPath(
   new URL("../../../docs/e2ee/WIRE.md", import.meta.url),
 );
+const architecturePath = fileURLToPath(
+  new URL("../../../docs/e2ee/ARCHITECTURE.md", import.meta.url),
+);
+const threatModelPath = fileURLToPath(
+  new URL("../../../docs/e2ee/THREAT-MODEL.md", import.meta.url),
+);
+const e2eReadmePath = fileURLToPath(
+  new URL("../../../docs/e2ee/README.md", import.meta.url),
+);
+const queueAdrPath = fileURLToPath(
+  new URL(
+    "../../../docs/e2ee/decisions/0009-queue-addressing-and-binding.md",
+    import.meta.url,
+  ),
+);
 const bridgePath = fileURLToPath(
   new URL("../src/lib/messaging/bridge.ts", import.meta.url),
 );
@@ -78,9 +93,22 @@ const modelsPath = fileURLToPath(
 const typesPath = fileURLToPath(
   new URL("../src/lib/messaging/types.ts", import.meta.url),
 );
+const transcriptPath = fileURLToPath(
+  new URL("../src/features/messages/Transcript.tsx", import.meta.url),
+);
+const exporterPath = fileURLToPath(
+  new URL("../../../rs/crates/f2z-msg-mls/src/exporter.rs", import.meta.url),
+);
+const queueProtoPath = fileURLToPath(
+  new URL("../../../rs/crates/f2z-relay-proto/src/queue.rs", import.meta.url),
+);
 
 const contract = readFileSync(contractPath, "utf8");
 const wire = readFileSync(wirePath, "utf8");
+const architecture = readFileSync(architecturePath, "utf8");
+const threatModel = readFileSync(threatModelPath, "utf8");
+const e2eReadme = readFileSync(e2eReadmePath, "utf8");
+const queueAdr = readFileSync(queueAdrPath, "utf8");
 const bridge = readFileSync(bridgePath, "utf8");
 const events = readFileSync(eventsPath, "utf8");
 const registry = readFileSync(registryPath, "utf8");
@@ -90,6 +118,9 @@ const engine = readFileSync(enginePath, "utf8");
 const store = readFileSync(storePath, "utf8");
 const models = readFileSync(modelsPath, "utf8");
 const types = readFileSync(typesPath, "utf8");
+const transcript = readFileSync(transcriptPath, "utf8");
+const exporter = readFileSync(exporterPath, "utf8");
+const queueProto = readFileSync(queueProtoPath, "utf8");
 
 /// §2.2: these three need the wallet seed, so they live in
 /// `wallet/zuuli/src-tauri/src/messaging.rs` and are invoked with no `plugin:`
@@ -279,24 +310,38 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
   acknowledge_alarm: "45679d36b649e2b4f94efe5fa410cb7a57d78d6c36304b39bae66b0dfcf7a7d5",
   append_and_confirm_binding: "616c0079ee090b81565faa6edb08a1d555e4974cc1f3be316240035df29e6a2c",
   persist_and_emit_send_address_stolen: "d354fa606aebbfd60e3c9da844c214e00916f6d0afb0966d596748ccda04157a",
-  ensure_bound: "8a9e4793f8e896892fbb34d16e0d3622fdbc8ea6c63ca0305acb0a0c45de2851",
+  ensure_bound: "4132da9eedf5ed84f82e523f619de13b7345b86ab1334690642e6757995ba64b",
   persist_bind_state: "f9d9a95dee05a8ad5821707b315a39efb5bd7900e7492e6155214a9c7b5e9555",
   set_peer_advert: "ed9eccea11aca60298f0549e47486e46a00db816ff320bea7512eca0fe0add61",
   unenroll: "7010b1db1c2ad84340fa54fb6e068f9b6775644df6dd2cde86ab6e906009ffea",
   leave_conversation: "673121980c042560f89118c0f3e10e1e03433bf26471c4efaac6cec33fd0b376",
+  flush_volatile_compromise_alarms: "b948b2da7ce0e2a51a95a72dda3e79f273eb69ef3c06e0b950ec5ad28ccbad22",
   mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",
-  send_address_stolen_alarm: "3aca370f3dcc4321fa7ebe5ef06fdc85cea259e7d3ff99a1f745eee0d47a3b2f",
+  send_address_stolen_alarm: "7f193c76d773a699df1e03823faa3e15a416f6a5bf9f8a9fa297cf2df566c742",
+  send_address_stolen_alarm_at: "cf9a5e1f5a88eeb3e5eff3cb7d5112e9cde80a71ff888ce1c4d07f1499ab2c35",
+};
+
+const REVIEWED_LIFECYCLE_DIGESTS = {
+  stop: "1ab5cc28add926019943b9bdbde5c09db05d9b47f74aac99a8814e04d40c6f99",
+  shutdown: "0279d85eee1e4b74bc6284ed26bd1e603affe0e4f2677be61941493eb0ba144c",
 };
 
 function relayErrorContractFailures({
   clientContract = contract,
   wireSpec = wire,
+  architectureSpec = architecture,
+  threatSpec = threatModel,
+  readmeSpec = e2eReadme,
+  queueDecision = queueAdr,
   relayRuntime = relay,
   mapperRuntime = wireCodes,
   engineRuntime = engine,
   storeRuntime = store,
   publicModels = models,
   shippingTypes = types,
+  shippingTranscript = transcript,
+  exporterRuntime = exporter,
+  queueProtoRuntime = queueProto,
 } = {}) {
   const failures = [];
   const code10Rows = clientContract
@@ -457,8 +502,10 @@ function relayErrorContractFailures({
     "set_peer_advert",
     "unenroll",
     "leave_conversation",
+    "flush_volatile_compromise_alarms",
     "mark_send_address_stolen_delivery",
     "send_address_stolen_alarm",
+    "send_address_stolen_alarm_at",
   ]) {
     const normalized = normalizedRustFunction(engineRuntime, name);
     const digest =
@@ -553,6 +600,19 @@ function relayErrorContractFailures({
       if (commit < 0 || flushAlarm < commit || clearFallback < commit) {
         failures.push("leave_conversation clears queue compromise before durable removal/alarm flush");
       }
+    } else if (name === "flush_volatile_compromise_alarms") {
+      const commit = normalized?.indexOf(".commit(") ?? -1;
+      const persistAlarm = normalized?.indexOf("records.put_alarms(&alarms)") ?? -1;
+      const persistBlocker = normalized?.indexOf("records.put_conversation(stored)") ?? -1;
+      const clearFallback = normalized?.indexOf(".volatile_compromise_alarms.remove(") ?? -1;
+      if (
+        commit < 0 ||
+        persistAlarm < commit ||
+        persistBlocker < persistAlarm ||
+        clearFallback < commit
+      ) {
+        failures.push("graceful recovery does not atomically persist alarm/blocker before clearing fallback");
+      }
     } else if (name === "mark_send_address_stolen_delivery") {
       if (
         !normalized?.includes("Some(ErrorCode::SendAddressStolen)") ||
@@ -561,10 +621,47 @@ function relayErrorContractFailures({
         failures.push("delivery-state failure can mask definitive theft");
       }
     } else if (name === "send_address_stolen_alarm") {
-      if (!normalized?.includes("relay_url: Some(relay_url.to_owned())")) {
-        failures.push("queue theft alarm omits the relay returning AlreadyBound");
+      if (
+        !normalized?.includes("rand::rng().fill_bytes(&mut nonce)") ||
+        !normalized.includes("send_address_stolen_alarm_at(") ||
+        !normalized.includes("now_ms(), nonce")
+      ) {
+        failures.push("production theft alarm does not feed a fresh CSPRNG nonce into its ID");
+      }
+    } else if (name === "send_address_stolen_alarm_at") {
+      if (
+        !normalized?.includes("hex::encode(nonce)") ||
+        !normalized.includes("conversation_id: Some(conversation_id.to_owned())") ||
+        !normalized.includes("relay_url: Some(relay_url.to_owned())")
+      ) {
+        failures.push("queue theft alarm ID or exact conversation/relay attribution is incomplete");
       }
     }
+  }
+
+  for (const name of ["stop", "shutdown"]) {
+    const normalized = normalizedRustFunction(engineRuntime, name);
+    const digest =
+      normalized === null
+        ? "missing"
+        : createHash("sha256").update(normalized).digest("hex");
+    if (digest !== REVIEWED_LIFECYCLE_DIGESTS[name]) {
+      failures.push(`${name} complete comment/literal-insensitive body digest: ${digest}`);
+    }
+    const flush = normalized?.indexOf("flush_volatile_compromise_alarms()") ?? -1;
+    const teardown = normalized?.indexOf("connections.drain()") ?? -1;
+    if (flush < 0 || teardown < flush) {
+      failures.push(`${name} tears down before flushing volatile compromise evidence`);
+    }
+  }
+
+  const innerImpl = engineRuntime.slice(engineRuntime.indexOf("impl<B: StorageBackend> Inner<B>"));
+  const innerStatus = normalizedRustFunction(innerImpl, "status");
+  if (
+    !innerStatus?.includes("let alarms = self.alarms()?") ||
+    innerStatus.includes("let alarms = self.records().alarms()?")
+  ) {
+    failures.push("engine status does not count the merged durable and volatile alarm view");
   }
 
   const productionEngine = engineRuntime.slice(0, engineRuntime.indexOf("#[cfg(test)]"));
@@ -648,10 +745,13 @@ function relayErrorContractFailures({
   }
 
   for (const [name, source, required] of [
+    ["CLIENT-CONTRACT Alarm conversation", clientContract, "conversationId: string | null; // exact conversation for conversation alarms"],
     ["CLIENT-CONTRACT Alarm", clientContract, "relayUrl: string | null;       // required for queue/relay attribution"],
+    ["shipping Alarm conversation schema", shippingTypes, "conversationId: z.string().nullable()"],
     ["shipping Alarm schema", shippingTypes, "relayUrl: z.string().nullable()"],
+    ["Rust Alarm conversation model", publicModels, "#[serde(default)]\n    pub conversation_id: Option<String>"],
     ["Rust Alarm model", publicModels, "#[serde(default)]\n    pub relay_url: Option<String>"],
-    ["shipping theft alarm", engineRuntime, "send_address_stolen_alarm(&current.peer_handle, &outbound.relay_url)"],
+    ["shipping theft alarm conversation", engineRuntime, "&current.conversation_id,"],
     ["shipping theft alarm field", engineRuntime, "relay_url: Some(relay_url.to_owned())"],
   ]) {
     if (!source.includes(required)) {
@@ -685,8 +785,71 @@ function relayErrorContractFailures({
   }
 
   for (const required of [
-    "acknowledging_volatile_alarm_durably_preserves_active_queue_blocker",
-    "relay_attribution_serializes_and_old_alarms_default_to_none",
+    'alarm.conversationId === conversation.conversationId',
+    'setCompromiseRelayUrl(null);',
+    'already bound to another or unknown key',
+    'does not identify who bound it',
+    'The relay that returned the refusal was',
+  ]) {
+    if (!shippingTranscript.includes(required)) {
+      failures.push(`shipping Transcript attribution is missing ${JSON.stringify(required)}`);
+    }
+  }
+  if (shippingTranscript.includes('alarm.handle === conversation.peerHandle')) {
+    failures.push("shipping Transcript selects queue alarms by ambiguous peer handle");
+  }
+  if ((shippingTranscript.match(/setCompromiseRelayUrl\(null\);/g) ?? []).length !== 3) {
+    failures.push("shipping Transcript can retain a previous compromised conversation's relay during lookup");
+  }
+
+  for (const [name, source, required] of [
+    ["WIRE queue schedule", wireSpec, "No\ndurable counter or advert field synchronizes such an exporter schedule in v1"],
+    ["architecture queue schedule", architectureSpec, "no counter or advert field\n> synchronizes such a schedule today"],
+    ["queue ADR", queueDecision, "no durable counter or advert field synchronizes\n  such an exporter schedule in v1"],
+    ["MLS exporter", exporterRuntime, "no durable counter or advert field synchronizes such an\n//! exporter schedule in v1"],
+    ["threat model", threatSpec, "today's path can leave them long-lived"],
+  ]) {
+    if (!source.includes(required)) {
+      failures.push(`${name} does not state the reserved/non-shipping queue schedule limitation`);
+    }
+  }
+  for (const required of [
+    "automated overlapped rotation is not shipping",
+    "current shipping may retain long-term",
+  ]) {
+    if (!threatSpec.includes(required)) {
+      failures.push(`threat model rotation scope is missing ${JSON.stringify(required)}`);
+    }
+  }
+  for (const [name, source, required] of [
+    ["WIRE runtime rotation scope", wireSpec, "does not\nautomate this section's full create/advertise/`valid_from_epoch`/overlap/drain\nflow"],
+    ["architecture runtime rotation scope", architectureSpec, "does not yet automate the full\ncreate/advertise/overlap/drain rotation flow"],
+    ["ADR runtime rotation scope", queueDecision, "does not automate the full\n  create/advertise/overlap/drain rotation flow"],
+    ["threat-model runtime rotation scope", threatSpec, "does not automate\nthe full overlapped rotation flow"],
+  ]) {
+    if (!source.includes(required)) {
+      failures.push(`${name} overstates the shipping rotation implementation`);
+    }
+  }
+  for (const source of [wireSpec, architectureSpec, queueDecision, exporterRuntime]) {
+    if (source.includes("next queue signing keys")) {
+      failures.push("public/runtime documentation still claims queue signing keys are exporter outputs");
+    }
+  }
+  if (!queueDecision.includes("authenticated advert carries\n  relay/address/rotation intent, never either private key")) {
+    failures.push("queue ADR does not separate authenticated advert intent from private capability keys");
+  }
+  if (!queueProtoRuntime.includes("another or unknown key") || !readmeSpec.includes("rather than the actor")) {
+    failures.push("adjacent queue protocol documentation over-attributes the bind actor");
+  }
+
+  for (const required of [
+    "acknowledging one same-millisecond alarm must not acknowledge the other",
+    "conversation_and_relay_attribution_serialize_and_old_alarms_default_to_none",
+    "same_millisecond_volatile_alarms_remain_distinct_and_acknowledge_independently",
+    "recovered_storage_flushes_volatile_theft_before_stop_and_shutdown",
+    "volatile fallback must contribute to the engine status count",
+    "successful graceful flush removes the volatile copy only after commit",
     "a failed unenrollment must not partially flush volatile evidence",
     "successful removal must discard the queue-scoped blocker",
     "recovered storage installs replacement and flushes alarm",
@@ -1192,11 +1355,37 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     relayErrorContractFailures({ clientContract: alarmContractMutation }),
     [],
   );
+  const alarmConversationContractMutation = contract.replace(
+    "  conversationId: string | null; // exact conversation for conversation alarms\n",
+    "",
+  );
+  assert.notEqual(
+    alarmConversationContractMutation,
+    contract,
+    "Alarm conversation contract mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: alarmConversationContractMutation }),
+    [],
+  );
 
   const alarmSchemaMutation = types.replace("  relayUrl: z.string().nullable(),\n", "");
   assert.notEqual(alarmSchemaMutation, types, "Alarm schema mutation did not apply");
   assert.notDeepEqual(
     relayErrorContractFailures({ shippingTypes: alarmSchemaMutation }),
+    [],
+  );
+  const alarmConversationSchemaMutation = types.replace(
+    "  conversationId: z.string().nullable(),\n",
+    "",
+  );
+  assert.notEqual(
+    alarmConversationSchemaMutation,
+    types,
+    "Alarm conversation schema mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTypes: alarmConversationSchemaMutation }),
     [],
   );
 
@@ -1209,8 +1398,21 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     relayErrorContractFailures({ publicModels: alarmModelMutation }),
     [],
   );
+  const alarmConversationModelMutation = models.replace(
+    "#[serde(default)]\n    pub conversation_id: Option<String>",
+    "pub conversation_id: Option<String>",
+  );
+  assert.notEqual(
+    alarmConversationModelMutation,
+    models,
+    "Alarm conversation model mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ publicModels: alarmConversationModelMutation }),
+    [],
+  );
 
-  const alarmFieldMutation = mutateRustFunction(engine, "send_address_stolen_alarm", (body) =>
+  const alarmFieldMutation = mutateRustFunction(engine, "send_address_stolen_alarm_at", (body) =>
     body.replace("relay_url: Some(relay_url.to_owned())", "relay_url: None"),
   );
   assert.notDeepEqual(
@@ -1218,13 +1420,26 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     [],
   );
 
-  const alarmCallMutation = engine.replace(
-    "send_address_stolen_alarm(&current.peer_handle, &outbound.relay_url)",
-    "send_address_stolen_alarm(&current.peer_handle, \"unknown relay\")",
+  const alarmCallMutation = mutateRustFunction(engine, "ensure_bound", (body) =>
+    body.replace("&current.conversation_id,", '"wrong-conversation",'),
   );
-  assert.notEqual(alarmCallMutation, engine, "Alarm attribution call mutation did not apply");
   assert.notDeepEqual(
     relayErrorContractFailures({ engineRuntime: alarmCallMutation }),
+    [],
+  );
+
+  const alarmNonceMutation = mutateRustFunction(engine, "send_address_stolen_alarm", (body) =>
+    body.replace("rand::rng().fill_bytes(&mut nonce);", "let _ = &mut nonce;"),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: alarmNonceMutation }),
+    [],
+  );
+  const alarmIdMutation = mutateRustFunction(engine, "send_address_stolen_alarm_at", (body) =>
+    body.replace("hex::encode(nonce)", '"timestamp-only"'),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: alarmIdMutation }),
     [],
   );
 
@@ -1267,6 +1482,91 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
       [],
       `${name} volatile alarm flush mutation escaped`,
     );
+  }
+
+  const statusMutation = engine.replace(
+    "let alarms = self.alarms()?;",
+    "let alarms = self.records().alarms()?;",
+  );
+  assert.notEqual(statusMutation, engine, "status merged-alarm mutation did not apply");
+  assert.notDeepEqual(relayErrorContractFailures({ engineRuntime: statusMutation }), []);
+
+  const gracefulFlushMutation = mutateRustFunction(
+    engine,
+    "flush_volatile_compromise_alarms",
+    (body) => body.replace("records.put_conversation(stored)?;", "let _ = stored;"),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: gracefulFlushMutation }),
+    [],
+  );
+  for (const name of ["stop", "shutdown"]) {
+    const lifecycleMutation = mutateRustFunction(engine, name, (body) =>
+      body.replace("flush_volatile_compromise_alarms()", "alarms()"),
+    );
+    assert.notDeepEqual(
+      relayErrorContractFailures({ engineRuntime: lifecycleMutation }),
+      [],
+      `${name} graceful flush mutation escaped`,
+    );
+  }
+
+  const transcriptSelectorMutation = transcript.replace(
+    "alarm.conversationId === conversation.conversationId",
+    "alarm.handle === conversation.peerHandle",
+  );
+  assert.notEqual(transcriptSelectorMutation, transcript, "Transcript selector mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTranscript: transcriptSelectorMutation }),
+    [],
+  );
+  const transcriptClearMutation = transcript.replace(
+    "    setCompromiseRelayUrl(null);\n    void messaging",
+    "    void messaging",
+  );
+  assert.notEqual(transcriptClearMutation, transcript, "Transcript stale relay mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTranscript: transcriptClearMutation }),
+    [],
+  );
+  const transcriptActorMutation = transcript.replace(
+    "The result\n          does not identify who bound it.",
+    "The relay operator bound it.",
+  );
+  assert.notEqual(transcriptActorMutation, transcript, "Transcript actor mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTranscript: transcriptActorMutation }),
+    [],
+  );
+
+  for (const [argument, source, needle, replacement] of [
+    ["wireSpec", wire, "No\ndurable counter or advert field synchronizes such an exporter schedule in v1", "The schedule is shipping"],
+    ["architectureSpec", architecture, "no counter or advert field\n> synchronizes such a schedule today", "a synchronized schedule ships today"],
+    ["queueDecision", queueAdr, "no durable counter or advert field synchronizes\n  such an exporter schedule in v1", "v1 ships a synchronized counter"],
+    ["exporterRuntime", exporter, "no durable counter or advert field synchronizes such an\n//! exporter schedule in v1", "v1 ships a synchronized counter"],
+    ["threatSpec", threatModel, "today's path can leave them long-lived", "today's path makes them short-lived"],
+  ]) {
+    const mutation = source.replace(needle, replacement);
+    assert.notEqual(mutation, source, `${argument} schedule mutation did not apply`);
+    assert.notDeepEqual(relayErrorContractFailures({ [argument]: mutation }), []);
+  }
+  for (const needle of [
+    "automated overlapped rotation is not shipping",
+    "current shipping may retain long-term",
+  ]) {
+    const mutation = threatModel.replace(needle, "addresses rotate automatically");
+    assert.notEqual(mutation, threatModel, "threat-model prevalence mutation did not apply");
+    assert.notDeepEqual(relayErrorContractFailures({ threatSpec: mutation }), []);
+  }
+  for (const [argument, source, needle] of [
+    ["wireSpec", wire, "does not\nautomate this section's full create/advertise/`valid_from_epoch`/overlap/drain\nflow"],
+    ["architectureSpec", architecture, "does not yet automate the full\ncreate/advertise/overlap/drain rotation flow"],
+    ["queueDecision", queueAdr, "does not automate the full\n  create/advertise/overlap/drain rotation flow"],
+    ["threatSpec", threatModel, "does not automate\nthe full overlapped rotation flow"],
+  ]) {
+    const mutation = source.replace(needle, "automates the full rotation flow");
+    assert.notEqual(mutation, source, `${argument} rotation-scope mutation did not apply`);
+    assert.notDeepEqual(relayErrorContractFailures({ [argument]: mutation }), []);
   }
 
   const neutralContractMutation = contract.replace(

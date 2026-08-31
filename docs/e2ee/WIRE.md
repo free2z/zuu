@@ -1232,30 +1232,25 @@ transport state; the historical alarm from §7.4 remains non-dismissible.
 5. Recipient: drains recv_addr, then DELETE_QUEUE on recv_addr
 ```
 
-The schedule is the `free2z/queue/v1` exporter of
-[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets),
-with context `peer_leaf_index`, so both sides know a rotation is due at the same
-moment without negotiating it.
+Queue capability signing keys are endpoint-owned and independently generated or
+derived; they are not shared MLS exporter outputs. The authenticated advert
+carries the relay, address, and rotation intent, never a private recv or send
+capability key. On a genuinely distinct advert the sender MUST install a fresh
+CSPRNG signing seed before binding; an identical authenticated replay preserves
+the existing seed and state.
 
-**A narrowing of §5.4 that must be stated.** `ARCHITECTURE.md` §5.4's table says
-the queue exporter *"derives the next queue addresses without a round trip."*
-Under §7.1 that is no longer accurate, and the docs should not be read as though
-it were. What the exporter derives is the **rotation schedule and the next queue
-signing keys**:
-
-```
-rot = MLS-Exporter("free2z/queue/v1", peer_leaf_index || rotation_counter, 64)
-      → (next_recv_queue_key_seed, next_send_queue_key_seed)
-```
-
-The **addresses still come from the relay**, and the new `send_addr` still has to
-reach the peer in an advert. So rotation costs one relay round trip and one
-in-band message that the pair was not otherwise sending. That is the price of
-refusing client-chosen addresses (§7.1), it is small — one message per rotation
-period, against a conversation that is exchanging messages anyway — and it is
-recorded here rather than left as a contradiction between two documents. The
-tracking note is in
-[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets).
+`free2z/queue/v1` is reserved for a future synchronized rotation schedule. No
+durable counter or advert field synchronizes such an exporter schedule in v1,
+and the shipping path does not invoke that exporter, so this document does not
+claim such a schedule is active. The shipping engine can consume a distinct
+authenticated advert and safely replace its outbound queue, but it does not
+automate this section's full create/advertise/`valid_from_epoch`/overlap/drain
+flow. The address still comes
+from the relay and the new `send_addr` still has to reach the peer in an advert,
+so a complete rotation costs one relay round trip and one in-band message. This
+deliberate architecture correction is recorded in
+[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets)
+and [ADR 0009](./decisions/0009-queue-addressing-and-binding.md).
 
 Overlap: the old queue MUST remain readable until the recipient has drained it.
 The sender switches at `valid_from_epoch`; the recipient deletes only after the
