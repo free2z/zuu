@@ -27,7 +27,7 @@ worse than no register.
 
 | | |
 |---|---|
-| **Kind** | Submodule fork (the *only* one in `z/`) |
+| **Kind** | Submodule fork — the only one in `z/` pointing at a repository **we control**. (`z/QED-it/librustzcash` is also a librustzcash fork, but a third party's, vendored reference-only like the rest of `z/`.) |
 | **Points at** | `https://github.com/free2z/librustzcash`, branch `f2z/drop-stale-rustcrypto-rc-pins` |
 | **Upstream** | `zcash/librustzcash`, `main` |
 | **Delta** | one 4-line deletion (the `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` workspace pins and the two `zcash_primitives` lines consuming them), plus the lockfile |
