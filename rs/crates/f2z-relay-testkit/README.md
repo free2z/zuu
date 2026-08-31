@@ -175,10 +175,14 @@ see it fail before they see it pass.
 - **`queue_creation_mode: token` is not implemented.** §13.1 defines it as an
   operator-issued bearer credential and gives it no protocol shape in v1;
   configuring it is refused at construction rather than faked.
-- **The channel binding is not a TLS exporter.** `ChannelBindingSource::Simulated`
-  hands both ends a constant so the §5.3 exporter code path is reachable, but it
-  binds a signature to *this configuration*, not to a TLS session. A passing test
-  there is not evidence about RFC 8446 §7.5.
+- **`channel_binding_mode: tls-exporter` is not reachable here.** A `FakeRelay`
+  always serves `ws://`, and `capabilities::validate` requires
+  `transport_security: none` to pair with `channel_binding_mode: none` (§2.3
+  obligation 2), so no channel-binding value this harness could publish makes
+  a startable relay. (An earlier `ChannelBindingSource::Simulated` tried to
+  fake the pairing with a constant instead of a real TLS exporter; #740 found
+  it could never construct a valid `FakeRelay` and removed it.) Exercise
+  `tls-exporter` against the real relay instead.
 
 ## Licence
 

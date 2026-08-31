@@ -56,9 +56,7 @@ use f2z_codec::pow::{PowParams, PowStamp};
 use f2z_codec::transcript::TranscriptBuilder;
 use f2z_codec::types::{Digest, QueueAddress, RelayId};
 use f2z_codec::{ErrorCode, PROTOCOL_VERSION};
-use f2z_relay_proto::capabilities::{
-    self, ChannelBindingMode, QueueCreationMode, TransportSecurity,
-};
+use f2z_relay_proto::capabilities::{self, QueueCreationMode, TransportSecurity};
 use f2z_relay_proto::command::{CommandVerifier, Empty, RelayCommand, Verified, ops};
 use f2z_relay_proto::hello::{RelayAnnouncement, hello_response};
 use f2z_relay_proto::key::{SigningKey, dummy_verify};
@@ -68,7 +66,7 @@ use f2z_relay_proto::{ProtoError, capabilities::AntiReplayPersistence};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::clock::Clock;
-use crate::config::{ChannelBindingSource, RelayConfig};
+use crate::config::RelayConfig;
 use crate::error::{Result, TestkitError};
 use crate::faults::{Effect, FaultInjector, PolicyFaults};
 use crate::outbound::{
@@ -521,10 +519,7 @@ impl Relay {
         let announcement = RelayAnnouncement {
             protocol_version: PROTOCOL_VERSION,
             relay_time_ms: self.clock.now_ms(),
-            channel_binding_mode: match self.config.channel_binding {
-                ChannelBindingSource::None => ChannelBindingMode::None,
-                ChannelBindingSource::Simulated(_) => ChannelBindingMode::TlsExporter,
-            },
+            channel_binding_mode: self.config.channel_binding.mode(),
             transport_security: TransportSecurity::None,
             capabilities_digest: digest,
         };
@@ -1389,6 +1384,8 @@ fn recover_request_id(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use f2z_relay_proto::capabilities::ChannelBindingMode;
+
     use super::*;
 
     #[test]
@@ -1413,6 +1410,27 @@ mod tests {
         let mut config = RelayConfig::default();
         config.capabilities.transport_security = TransportSecurity::Tls.code();
         assert!(Relay::new(config).is_err());
+    }
+
+    // #740: `tls-exporter` cannot be published by a startable `FakeRelay`
+    // under either `transport_security` value, which is why the crate no
+    // longer offers a way to configure it. `transport_security: tls` is
+    // refused above because a `FakeRelay` serves `ws://`; this covers the
+    // other side, `transport_security: none`, which `capabilities::validate`
+    // refuses under §2.3 obligation 2 regardless of what claims `tls-exporter`
+    // channel binding.
+    #[test]
+    fn tls_exporter_channel_binding_cannot_produce_a_startable_relay() {
+        for transport in [TransportSecurity::None, TransportSecurity::Tls] {
+            let mut config = RelayConfig::default();
+            config.capabilities.transport_security = transport.code();
+            config.capabilities.channel_binding_mode = ChannelBindingMode::TlsExporter.code();
+            assert!(
+                Relay::new(config).is_err(),
+                "transport_security={transport:?} paired with channel_binding_mode: \
+                 tls-exporter must not start a FakeRelay"
+            );
+        }
     }
 
     #[test]
