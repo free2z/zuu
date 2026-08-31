@@ -10,21 +10,41 @@ import { ApiError, request } from "./http";
 
 const requestMock = vi.mocked(request);
 const secret = "123e4567-e89b-42d3-a456-426614174000";
+function participantToken(
+  meetingId: string,
+  participantId: string,
+  orgId = "production-org",
+): string {
+  const encode = (value: unknown) =>
+    btoa(JSON.stringify(value))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  return `${encode({ alg: "RS256" })}.${encode({
+    meetingId,
+    participantId,
+    orgId,
+    exp: 4_102_444_800,
+  })}.signature`;
+}
 
 describe("private livestream HTTP contract", () => {
   beforeEach(() => requestMock.mockReset());
 
   it("creates the secret and then joins the same private room as host", async () => {
+    const hostToken = participantToken("private-room", "host-participant");
     requestMock
       .mockResolvedValueOnce({ username: "alice", tuzis: "500" })
       .mockResolvedValueOnce({ secret, e2ee: true, meeting_id: "not-a-ticket" })
-      .mockResolvedValueOnce({ auth_token: "host-ticket", e2ee: true });
+      .mockResolvedValueOnce({ auth_token: hostToken, e2ee: true });
 
     await expect(live.start("private")).resolves.toEqual({
       inviteSecret: secret,
       ticket: {
-        authToken: "host-ticket",
-        meetingId: "",
+        authToken: hostToken,
+        meetingId: "private-room",
+        environmentId: "production-org",
+        expiresAt: 4_102_444_800,
         as: "host",
       },
     });
@@ -66,17 +86,21 @@ describe("private livestream HTTP contract", () => {
   });
 
   it("uses the secret join endpoint for cold guests and refreshed hosts", async () => {
+    const guestToken = participantToken("private-room", "guest-participant");
+    const hostToken = participantToken("private-room", "host-participant");
     requestMock
-      .mockResolvedValueOnce({ auth_token: "guest-ticket" })
-      .mockResolvedValueOnce({ auth_token: "refreshed-host-ticket" });
+      .mockResolvedValueOnce({ auth_token: guestToken })
+      .mockResolvedValueOnce({ auth_token: hostToken });
     await expect(live.join("alice", "private", secret)).resolves.toMatchObject({
-      authToken: "guest-ticket",
+      authToken: guestToken,
+      meetingId: "private-room",
       as: "participant",
     });
     await expect(
       live.join("alice", "private", secret, "host"),
     ).resolves.toMatchObject({
-      authToken: "refreshed-host-ticket",
+      authToken: hostToken,
+      meetingId: "private-room",
       as: "host",
     });
     expect(requestMock.mock.calls.map(([path]) => path)).toEqual([

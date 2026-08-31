@@ -362,6 +362,8 @@ export interface LiveStatus {
 
 export interface Livestream {
   id: string;
+  /** Provider meeting selected by discovery; binds the subsequent join ticket. */
+  meetingId?: string;
   username: string;
   creator: SimpleCreator;
   title: string;
@@ -379,6 +381,10 @@ export interface Livestream {
 export interface DyteJoinTicket {
   authToken: string;
   meetingId: string;
+  /** Provider tenant binding. Never render or include in diagnostics. */
+  environmentId?: string;
+  /** JWT expiry in seconds since Unix epoch, when the provider supplies it. */
+  expiresAt?: number;
   roomName?: string;
   as: "host" | "participant";
 }

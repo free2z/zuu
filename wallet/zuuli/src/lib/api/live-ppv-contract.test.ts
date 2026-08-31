@@ -15,6 +15,29 @@ import type { StreamKind } from "./types";
 
 const requestMock = vi.mocked(request);
 
+/**
+ * A minimally valid RealtimeKit-shaped auth token: three base64url segments
+ * whose payload carries the claims `live-ticket.ts` requires before it will
+ * bind a ticket to a meeting.
+ */
+function fakeAuthToken(
+  claims: Record<string, unknown> = {},
+  header: Record<string, unknown> = { alg: "RS256" },
+): string {
+  const encode = (value: unknown) =>
+    btoa(JSON.stringify(value))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  return `${encode(header)}.${encode({
+    meetingId: "authoritative-meeting",
+    orgId: "production-org",
+    participantId: "viewer-participant",
+    exp: 2_100_000_000,
+    ...claims,
+  })}.signature`;
+}
+
 function meeting(meetingType: unknown, ...pricePerMinute: [unknown?]) {
   return {
     id: 814,
@@ -30,6 +53,7 @@ describe("PPV livestream HTTP contract", () => {
   beforeEach(() => requestMock.mockReset());
 
   it("round-trips the authoritative ppv kind through listing, status, and participant join", async () => {
+    const participantToken = fakeAuthToken({ participantId: "participant-ticket" });
     requestMock
       .mockResolvedValueOnce({ results: [meeting("ppv")] })
       .mockResolvedValueOnce({
@@ -37,7 +61,7 @@ describe("PPV livestream HTTP contract", () => {
       })
       .mockResolvedValueOnce({
         meeting_id: "authoritative-meeting",
-        auth_token: "participant-ticket",
+        auth_token: participantToken,
       });
 
     const [stream] = await live.listPublic({ force: true });
@@ -53,7 +77,7 @@ describe("PPV livestream HTTP contract", () => {
     });
 
     await expect(live.join("alice", stream!.kind)).resolves.toMatchObject({
-      authToken: "participant-ticket",
+      authToken: participantToken,
       meetingId: "authoritative-meeting",
       as: "participant",
     });
@@ -65,16 +89,17 @@ describe("PPV livestream HTTP contract", () => {
   });
 
   it("uses the ppv wire enum for the existing host-start endpoint", async () => {
+    const hostToken = fakeAuthToken({ participantId: "host-ticket" });
     requestMock
       .mockResolvedValueOnce({ username: "alice", tuzis: "500" })
       .mockResolvedValueOnce({
         meeting_id: "authoritative-meeting",
-        auth_token: "host-ticket",
+        auth_token: hostToken,
       });
 
     await expect(live.start("ppv")).resolves.toMatchObject({
       ticket: {
-        authToken: "host-ticket",
+        authToken: hostToken,
         meetingId: "authoritative-meeting",
         as: "host",
       },

@@ -103,6 +103,7 @@ import type {
   TuziTransaction,
 } from "./types";
 import { validateStripeCheckoutUrl } from "./checkout";
+import { parseJoinTicketResponse } from "./live-ticket";
 import { parseSocialProvidersStatus } from "./social-providers";
 import {
   parseCheckoutPaymentStatus,
@@ -699,6 +700,7 @@ function mapLivestream(m: RawDyteMeeting): Livestream {
   const creator = mapCreator(m.creator);
   return {
     id: String(m.id),
+    meetingId: m.meeting_id,
     username: m.creator.username,
     creator,
     title: `${creator.display_name} is live`,
@@ -1882,18 +1884,17 @@ export const live = {
       const ticket = await live.join(me.username, "private", secret, "host");
       return { ticket, inviteSecret: secret };
     }
-    const r = await request<{ meeting_id: string; auth_token: string }>(
+    const r = await request<unknown>(
       `/api/dyte/${me.username}/${meetingType}`,
       { method: "POST" },
     );
     // A new public meeting changed discovery; private rooms never touch it.
     listingCache = null;
     return {
-      ticket: {
-        authToken: r.auth_token,
-        meetingId: r.meeting_id,
+      ticket: parseJoinTicketResponse(r, {
         as: "host",
-      },
+        responseMeetingIdRequired: true,
+      }),
     };
   },
 
@@ -1912,6 +1913,11 @@ export const live = {
     kind: StreamKind,
     secret?: string,
     as: "host" | "participant" = "participant",
+    constraints: {
+      expectedMeetingId?: string;
+      expectedEnvironmentId?: string;
+      previousAuthToken?: string;
+    } = {},
   ): Promise<DyteJoinTicket> {
     const meetingType = typeFromStreamKind(kind);
     if (useMock()) {
@@ -1937,13 +1943,14 @@ export const live = {
         : `/api/dyte/${encodeURIComponent(username)}/${meetingType}`;
     // The private-join response omits meeting_id (returns { e2ee, auth_token }).
     try {
-      const r = await request<{ meeting_id?: string; auth_token: string }>(path, {
+      const r = await request<unknown>(path, {
         method: "POST",
       });
-      if (!r || typeof r.auth_token !== "string" || !r.auth_token) {
-        throw new Error("Livestream join returned no authentication ticket");
-      }
-      return { authToken: r.auth_token, meetingId: r.meeting_id ?? "", as };
+      return parseJoinTicketResponse(r, {
+        as,
+        responseMeetingIdRequired: kind !== "private",
+        ...constraints,
+      });
     } catch (error) {
       if (
         kind === "private" &&
@@ -1954,6 +1961,27 @@ export const live = {
       }
       throw error;
     }
+  },
+
+  /**
+   * Refresh a viewer credential by repeating only the authoritative join
+   * operation. This never calls `start` or either creator management endpoint,
+   * remains bound to the selected meeting/environment, and rejects a replay.
+   */
+  async refreshParticipant(
+    username: string,
+    kind: StreamKind,
+    previous: DyteJoinTicket,
+    secret?: string,
+  ): Promise<DyteJoinTicket> {
+    if (previous.as !== "participant") {
+      throw new Error("Only participant join tickets can be refreshed here.");
+    }
+    return live.join(username, kind, secret, "participant", {
+      expectedMeetingId: previous.meetingId,
+      expectedEnvironmentId: previous.environmentId,
+      previousAuthToken: previous.authToken,
+    });
   },
 };
 
