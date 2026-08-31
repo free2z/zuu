@@ -154,6 +154,16 @@ describe("feedback privacy boundary", () => {
     "IMEI: 490154203237518",
     "Android ID: 9774d56d682e549c",
     "contraseña: hunter2",
+    "ztJ1EWLKcGwF2S4NA17pAJVdco8Sdkz4AQPxt1cLTEfNuyNswJJc2BbBqYrsRZsp31xbVZwhF7c7a2L9jsF3p3ZwRWpqqyS",
+    "9213qJab2HNEpMpYNBa7wHGFKKbkDn24jpANDs2huN3yi4J11ko",
+    "cTpB4YiyKiBcPxnefsDpbnDxFDffjqJob8wGCEDXxgQ7zQoMXJdH",
+    "utest10c5kutapazdnf8ztl3pu43nkfsjx89fy3uuff8tsmxm6s86j37pe7uz94z5jhkl49pqe8yz75rlsaygexk6jpaxwx0esjr8wm5ut7d5s",
+    "uregtest15xk7vj4grjkay6mnfl93dhsflc2yeunhxwdh38rul0rq3dfhzzxgm5szjuvtqdha4t4p2q02ks0jgzrhjkrav70z9xlvq0plpcjkd5z3",
+    "uviewtest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "uviewregtest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "contraseña: hunter",
+    "IMEI 490154203237518",
+    "Android ID = 9774d56d682e549c",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -349,6 +359,8 @@ describe("feedback privacy boundary", () => {
     "ABCDEFGHIJKLMNOP",
     "please open account page again click transfer close screen help error report",
     "Status: settings screen failed to open",
+    "Versión: beta123",
+    "Aplicación: crashes2",
   ])("preserves ordinary user prose: %s", (description) => {
     const result = createFeedbackDraft(
       description,
