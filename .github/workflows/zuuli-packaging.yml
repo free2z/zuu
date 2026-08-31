@@ -393,6 +393,9 @@ jobs:
         run: |
           scripts/install-cargo-auditable.sh
       - run: npm ci
+      - name: Verify macOS capture authority source policy
+        if: runner.os == 'macOS'
+        run: node scripts/macos-keychain-entitlements.mjs
       - name: Test Linux artifact inspectors against real packages
         if: runner.os == 'Linux'
         run: node scripts/run-linux-artifact-fixtures.mjs
@@ -418,6 +421,9 @@ jobs:
           if [[ "${{ runner.os }}" == macOS ]]; then
             app=$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d -print -quit)
             test -n "$app"
+            plutil -lint "$app/Contents/Info.plist"
+            test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "$app/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
+            test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "$app/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
             ditto -c -k --keepParent "$app" release-artifacts/ZUULI-macos-universal-unsigned.zip
           fi
           if [[ "${{ runner.os }}" == Linux ]]; then

@@ -29,6 +29,14 @@ const profileValidityMarkers = `
           date -j -u -f "%Y-%m-%dT%H:%M:%SZ"
           created_epoch <= profile_now && profile_now < expiration_epoch`;
 
+const captureAuthorityMarkers = `
+          echo '"com.apple.security.device.audio-input"'
+          echo '"com.apple.security.device.camera"'
+          echo NSCameraUsageDescription
+          echo NSMicrophoneUsageDescription
+          echo 'ZUULI uses the camera when you broadcast or join a live video stream.'
+          echo 'ZUULI uses the microphone when you broadcast or join a live stream.'`;
+
 function removeLast(source, needle) {
   const index = source.lastIndexOf(needle);
   assert.notEqual(index, -1, `fixture is missing ${needle}`);
@@ -38,7 +46,7 @@ function removeLast(source, needle) {
 const buildJob = (name, command) => {
   const checksumMembers = name === "ios-build"
     ? "ZUULI.xcarchive.zip ExportOptions.plist source-record.json"
-    : "Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json";
+    : "Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json";
   const macosPolicy = name === "macos-build"
     ? "      - run: node scripts/macos-keychain-entitlements.mjs\n"
     : "";
@@ -69,7 +77,7 @@ const credentialJob = (name, command, secret) => {
           test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
           (cd unsigned-macos && shasum -a 256 -c CHECKSUMS.sha256)
           gh attestation verify unsigned-macos/CHECKSUMS.sha256 --repo repo${profileValidityMarkers}
-          verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"`
+          verify_developer_id_profile "$secret_dir/profile.plist" "$profile_now"${captureAuthorityMarkers}`
         : "          echo verified";
   const cleanupMarkers = name === "ios-sign" || name === "macos-sign"
     ? name === "ios-sign"
@@ -104,6 +112,7 @@ const finalizeJob = (name) => `  ${name}:
       - uses: actions/download-artifact@sha
 ${name === "macos-finalize" ? `      - run: |${profileValidityMarkers}
           verify_developer_id_profile "$inspect/profile.plist" "$profile_now"
+${captureAuthorityMarkers}
 ` : ""}      - uses: actions/attest-build-provenance@sha
       - uses: actions/upload-artifact@sha
 `;
@@ -1018,8 +1027,8 @@ for (const [name, mutate, expected] of [
   ],
   [
     "rejects an unsigned macOS manifest that omits the shipping layout",
-    (source) => source.replace("Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json", "Entitlements.plist ZUULI.app.zip source-record.json"),
-    "macOS unsigned builder is missing \"Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
+    (source) => source.replace("Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json", "Entitlements.plist Info.macos.plist ZUULI.app.zip source-record.json"),
+    "macOS unsigned builder is missing \"Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256\"",
   ],
   [
     "rejects a macOS build that skips the entitlement policy",
