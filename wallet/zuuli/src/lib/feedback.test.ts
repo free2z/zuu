@@ -164,6 +164,8 @@ describe("feedback privacy boundary", () => {
     "contraseña: hunter",
     "IMEI 490154203237518",
     "Android ID = 9774d56d682e549c",
+    "LNiZqQdeOqqL5ghssJ8QT5yDElWh5vJQaqEfNpu9cHM=",
+    "LNiZqQdeOqqL5ghssJ8QT5yDElWh5vJQaqEfNpu9cHM",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -361,6 +363,9 @@ describe("feedback privacy boundary", () => {
     "Status: settings screen failed to open",
     "Versión: beta123",
     "Aplicación: crashes2",
+    "VGhpcyBpcyBhIHNhZmUgc3VwcG9ydCByZWZlcmVuY2Uu",
+    "Ошибка при запуске",
+    "Σφάλμα κατά την εκκίνηση",
   ])("preserves ordinary user prose: %s", (description) => {
     const result = createFeedbackDraft(
       description,

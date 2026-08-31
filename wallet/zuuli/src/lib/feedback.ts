@@ -100,12 +100,6 @@ const PATH_PATTERNS: readonly RegExp[] = [
 const SECRET_LABEL_SKELETON = /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|passwort|senha|contrasena|mot[\s_-]*de[\s_-]*passe|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
 
 function hasSuspiciousMixedScriptToken(value: string): boolean {
-  if (
-    /\p{Script=Latin}/u.test(value) &&
-    /(?:\p{Script=Cyrillic}|\p{Script=Greek})/u.test(value)
-  ) {
-    return true;
-  }
   for (const match of value.matchAll(/[\p{Letter}\p{Mark}]+/gu)) {
     const token = match[0];
     if (
@@ -114,6 +108,37 @@ function hasSuspiciousMixedScriptToken(value: string): boolean {
     ) {
       return true;
     }
+  }
+  return false;
+}
+
+const SECURITY_CONFUSABLES: Readonly<Record<string, string>> = Object.freeze({
+  "а": "a",
+  "α": "a",
+  "е": "e",
+  "ε": "e",
+  "і": "i",
+  "ι": "i",
+  "о": "o",
+  "ο": "o",
+  "р": "p",
+  "ρ": "p",
+  "с": "c",
+  "ѕ": "s",
+  "ԝ": "w",
+  "г": "r",
+  "ԁ": "d",
+});
+
+function hasConfusableSensitiveLabel(value: string): boolean {
+  for (const match of value.matchAll(/[\p{Letter}\p{Mark}]+/gu)) {
+    const token = normalizeForInspection(match[0]).toLowerCase();
+    const skeleton = [...token]
+      .map((character) => SECURITY_CONFUSABLES[character] ?? character)
+      .join("");
+    if (skeleton === token) continue;
+    SECRET_LABEL_SKELETON.lastIndex = 0;
+    if (SECRET_LABEL_SKELETON.test(skeleton)) return true;
   }
   return false;
 }
@@ -172,6 +197,7 @@ function hasSensitiveContent(value: string): boolean {
   if (
     containsEnglishBip39Candidate(inspected) ||
     hasSuspiciousMixedScriptToken(value) ||
+    hasConfusableSensitiveLabel(value) ||
     hasTotpShapedValue(inspected)
   ) {
     return true;
@@ -240,7 +266,7 @@ function recursivelyDecodePercent(value: string): string {
   return decoded;
 }
 
-function decodeBase64(value: string): string | undefined {
+function decodeBase64Bytes(value: string): Uint8Array | undefined {
   const compact = value.replace(/\s+/gu, "");
   if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(compact) || compact.length > FEEDBACK_BODY_LIMIT) {
     return undefined;
@@ -248,9 +274,44 @@ function decodeBase64(value: string): string | undefined {
   try {
     const canonical = compact.replace(/-/g, "+").replace(/_/g, "/");
     const padded = canonical.padEnd(Math.ceil(canonical.length / 4) * 4, "=");
-    const bytes = Uint8Array.from(atob(padded), (character) =>
+    const binary = atob(padded);
+    const roundTrip = btoa(binary).replace(/=+$/u, "");
+    if (roundTrip !== canonical.replace(/=+$/u, "")) return undefined;
+    return Uint8Array.from(binary, (character) =>
       character.charCodeAt(0),
     );
+  } catch {
+    return undefined;
+  }
+}
+
+function hasBase64EncodedPrivateEntropy(value: string): boolean {
+  const compact = value.replace(/\s+/gu, "");
+  const bytes = decodeBase64Bytes(value);
+  if (
+    bytes === undefined ||
+    !/[A-Z]/u.test(compact) ||
+    !/[a-z]/u.test(compact) ||
+    !/[0-9+/_-]/u.test(compact) ||
+    ![16, 20, 24, 28, 32, 48, 64].includes(bytes.byteLength)
+  ) {
+    return false;
+  }
+  try {
+    // Text encodings continue through the ordinary decoded-content scanner.
+    // Opaque binary at a standard seed/private-key entropy length cannot be
+    // safely distinguished from private material, so the boundary fails shut.
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function decodeBase64(value: string): string | undefined {
+  const bytes = decodeBase64Bytes(value);
+  if (bytes === undefined) return undefined;
+  try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     return undefined;
@@ -258,7 +319,8 @@ function decodeBase64(value: string): string | undefined {
 }
 
 function decodedValueContainsSensitiveContent(value: string): boolean {
-  const pending = [value];
+  const compact = value.replace(/\s+/gu, "");
+  const pending = compact === value ? [value] : [value, compact];
   const seen = new Set<string>();
   while (pending.length > 0) {
     const candidate = pending.pop();
@@ -277,6 +339,7 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
       pending.push(escapeDecoded);
     }
 
+    if (hasBase64EncodedPrivateEntropy(candidate)) return true;
     const base64Decoded = decodeBase64(candidate);
     if (base64Decoded !== undefined && base64Decoded.length < candidate.length) {
       if (hasSensitiveContent(base64Decoded)) return true;
@@ -290,6 +353,9 @@ function scrubEncodedTokens(
   value: string,
   redactedValue: string,
 ): { value: string; changed: boolean } {
+  if (decodedValueContainsSensitiveContent(value)) {
+    return { value: redactedValue, changed: true };
+  }
   let changed = false;
   let next = value.replace(/\S{8,}/gu, (token) => {
     if (decodedValueContainsSensitiveContent(token)) {
@@ -364,6 +430,7 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
     containsEnglishBip39Candidate(text) ||
     hasTotpShapedValue(text) ||
     hasSuspiciousMixedScriptToken(text) ||
+    hasConfusableSensitiveLabel(text) ||
     hasSensitiveContent(text)
   ) {
     findings.add("secret-or-wallet-data");
@@ -423,12 +490,11 @@ export function reviewFeedbackDraft(
     redactedValue,
   );
   for (const finding of combined.findings) findings.add(finding);
-  const compactCombined = scrubFeedbackText(
+  const compactCombinedIsEncodedSecret = decodedValueContainsSensitiveContent(
     `${subject.text}${body.text}`,
-    redactedValue,
   );
-  for (const finding of compactCombined.findings) findings.add(finding);
-  if (combined.findings.length > 0 || compactCombined.findings.length > 0) {
+  if (compactCombinedIsEncodedSecret) findings.add("encoded-sensitive-value");
+  if (combined.findings.length > 0 || compactCombinedIsEncodedSecret) {
     return {
       draft: { subject: redactedValue, body: redactedValue },
       findings: [...findings],
