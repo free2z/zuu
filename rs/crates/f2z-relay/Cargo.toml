@@ -29,7 +29,28 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "rt-multi
 tokio-tungstenite = "0.30"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-rand = { version = "0.9", default-features = false, features = ["os_rng"] }
+# The OS CSPRNG behind `crate::rng`, and **only** that: `default-features =
+# false` drops `std_rng`/`thread_rng`, so nothing here can seed a deterministic
+# generator. `WIRE.md` §7.1 requires queue addresses to come from the relay's
+# own OS source, and `rng.rs` explains at length why this crate has no seedable
+# constructor at all; the feature list is the second half of that argument.
+#
+# **0.10, and the version is the point.** On 0.9 this crate was the sole
+# non-dev consumer of `rand 0.9` in the workspace — everything in the
+# openmls/libcrux stack resolves `rand 0.10.2` — so the shipped relay binary
+# carried a second, private RNG island. `cargo tree --edges normal` now finds no
+# `rand 0.9`, `rand_core 0.9` or `getrandom 0.3` anywhere in it.
+#
+# The lockfile still lists all three, and that is expected rather than a failed
+# bump: `proptest` (a dev-dependency) pulls `rand 0.9` + `rand_chacha 0.9` +
+# `rand_xorshift` → `rand_core 0.9` → `getrandom 0.3`. Nothing we ship links
+# them. Do not read the lock's duplicate count as this line's verdict.
+#
+# 0.10 renamed the surface `rng.rs` uses: the feature `os_rng` → `sys_rng`,
+# `rngs::OsRng` → `rngs::SysRng`, `rand_core::OsError` → `rngs::SysError` (it is
+# `getrandom::Error` re-exported), and the trait `TryRngCore` → `TryRng`. The
+# operation is unchanged — one `try_fill_bytes` straight from the OS.
+rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
 serde = { version = "1", features = ["derive"] }
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 

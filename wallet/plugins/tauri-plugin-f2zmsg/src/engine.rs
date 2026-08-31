@@ -55,7 +55,7 @@ use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use f2z_relay_proto::key::SigningKey;
 use openmls::prelude::{GroupId, MlsGroup};
 use openmls_traits::OpenMlsProvider as _;
-use rand::RngCore as _;
+use rand::Rng as _;
 
 use crate::directory::{Directory, NoDirectory};
 use crate::envelope::{

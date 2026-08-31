@@ -63,7 +63,21 @@ futures-util = { version = "0.3", default-features = false, features = [
 # The OS CSPRNG, and the `CryptoRng` marker `f2z-msg-identity` requires of a
 # caller. Device keys are generated here and are deliberately not seed-derivable
 # (`ARCHITECTURE.md` §4.2).
-rand = "0.9"
+#
+# **0.10, and the version is the point.** On 0.9 this crate was the *only* thing
+# in either lockfile holding the `rand 0.9` line up: `rand 0.9.5` had exactly one
+# consumer here and in `wallet/zuuli/src-tauri`, and the whole island beneath it
+# — `rand_chacha 0.9.0` and `rand_core 0.9.5` — hung off that single edge, while
+# the openmls/libcrux stack it sits beside was already on `rand 0.10.2`. Moving
+# this one line deletes all three from both locks, so the shipped ZUULI binary
+# carries one RNG implementation instead of two.
+#
+# The API this crate touches is `rand::rng()` (unchanged) and `fill_bytes`, whose
+# trait was renamed `RngCore` → `Rng` in 0.10. The operation is identical; only
+# the import moved. Note `rand::Rng` in 0.10 is the *core* trait — 0.9's
+# extension trait of that name is now `RngExt` — so a future `random_range` call
+# needs the other import, not this one.
+rand = "0.10"
 zeroize = { version = "1.8", features = ["derive"] }
 hex = "0.4"
 # Harness only, and optional so it is absent from every shipping build. The
