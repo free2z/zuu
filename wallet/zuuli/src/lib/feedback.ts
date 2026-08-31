@@ -75,6 +75,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b\d[\d,.]*\s*(?:ZEC|zatoshi(?:s)?|2Zs?)\b/giu,
   /\b(?:ZEC|zatoshi(?:s)?|2Zs?)\s*\d[\d,.]*\b/giu,
   /\b(?:payment\s+for|copied\s+text|pasted\s+text)\b[^\n]*/giu,
+  /\bpasteboard\b\s*(?:=|:|is\b)\s*[^\n]+/giu,
   /\b(?:IMEI|Android\s+ID)\b\s*(?:(?:=|:|is)\s*)?[A-Fa-f0-9]{14,16}\b/giu,
   /\b(?:serial\s+(?:number|no\.?)|device\s+serial)\b\s*(?:(?:=|:|is)\s*)?(?=[A-Za-z0-9-]{6,}\b)(?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]+\b/giu,
 ];
@@ -91,6 +92,7 @@ const NETWORK_PATTERNS: readonly RegExp[] = [
 
 const PATH_PATTERNS: readonly RegExp[] = [
   /(?:^|[\s('"`])\/(?:[^\s/]+\/)*[^\s]+/gmu,
+  /(?:^|\s)(?:Library\/Application Support|Documents|Desktop|Downloads|Pictures|Movies|Music)\/[^\n]+/gimu,
   /(?:^|\s)(?:\.{0,2}\/)?(?:src|lib|app|etc|opt|Users|home|private|var|tmp|data|storage|sdcard)\/[^\s]+/gimu,
   /(?:^|\s)(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\.{1,2}[\\/])[^\n]+/gmu,
   /\b(?:file|filename|path)\s*(?:=|:|is\b)\s*[^\n]+/giu,
@@ -362,7 +364,26 @@ function scrubEncodedTokens(
   next = next.replace(
     /(?:[A-Za-z0-9+/_-]{4,}={0,2}[ \t\r\n]+){1,}[A-Za-z0-9+/_-]{4,}={0,2}/gu,
     (candidate) => {
-      if (!decodedValueContainsSensitiveContent(candidate)) return candidate;
+      const decoded = decodeBase64(candidate);
+      const segments = candidate.trim().split(/\s+/gu);
+      const wrappedWidth = segments[0]?.replace(/=+$/u, "").length ?? 0;
+      const canonicallyWrapped =
+        wrappedWidth >= 4 &&
+        segments.slice(0, -1).every(
+          (segment) => segment.replace(/=+$/u, "").length === wrappedWidth,
+        ) &&
+        (segments[segments.length - 1]?.replace(/=+$/u, "").length ?? 0) <=
+          wrappedWidth;
+      const containsSensitiveText =
+        decoded !== undefined &&
+        (hasSensitiveContent(decoded) ||
+          decodedValueContainsSensitiveContent(decoded));
+      if (
+        !containsSensitiveText &&
+        !(canonicallyWrapped && hasBase64EncodedPrivateEntropy(candidate))
+      ) {
+        return candidate;
+      }
       changed = true;
       return redactedValue;
     },

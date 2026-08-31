@@ -176,6 +176,9 @@ describe("feedback privacy boundary", () => {
     "JbSwY3DpEhPk3PxP",
     "例え.テスト",
     "Serial number: C02ZQ0ABC123",
+    "Library/Application Support/Wallet",
+    "Documents/Wallet/config",
+    "Pasteboard: hunter2",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -376,6 +379,8 @@ describe("feedback privacy boundary", () => {
     "VGhpcyBpcyBhIHNhZmUgc3VwcG9ydCByZWZlcmVuY2Uu",
     "Support reference -_v7-_v7-_v7-_v7-_v7",
     "The serial number field is empty",
+    "Use the pasteboard button to retry",
+    "Open settings/privacy and try again",
     "Ошибка при запуске",
     "Σφάλμα κατά την εκκίνηση",
   ])("preserves ordinary user prose: %s", (description) => {
