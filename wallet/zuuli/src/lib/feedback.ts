@@ -271,8 +271,34 @@ function recursivelyDecodePercent(value: string): string {
   return decoded;
 }
 
-function decodeBase64Bytes(value: string): Uint8Array | undefined {
-  const compact = value.replace(/\s+/gu, "");
+const PRIVATE_ENTROPY_BYTE_LENGTHS = Object.freeze([
+  16, 20, 24, 28, 32, 48, 64,
+]);
+
+function isPrivateEntropyByteLength(byteLength: number): boolean {
+  return PRIVATE_ENTROPY_BYTE_LENGTHS.includes(byteLength);
+}
+
+function hasPercentEncodedPrivateEntropy(value: string): boolean {
+  if (!/^(?:%[0-9a-f]{2})+$/iu.test(value)) return false;
+  return isPrivateEntropyByteLength(value.length / 3);
+}
+
+function hasEscapedPrivateEntropy(value: string): boolean {
+  if (/^(?:\\x[0-9a-f]{2})+$/iu.test(value)) {
+    return isPrivateEntropyByteLength(value.length / 4);
+  }
+  if (/^(?:\\u00[0-9a-f]{2})+$/iu.test(value)) {
+    return isPrivateEntropyByteLength(value.length / 6);
+  }
+  return false;
+}
+
+function decodeBase64Bytes(
+  value: string,
+  compactWhitespace = false,
+): Uint8Array | undefined {
+  const compact = compactWhitespace ? value.replace(/\s+/gu, "") : value;
   if (!/^[A-Za-z0-9+/_-]{16,}={0,2}$/.test(compact) || compact.length > FEEDBACK_BODY_LIMIT) {
     return undefined;
   }
@@ -290,19 +316,25 @@ function decodeBase64Bytes(value: string): Uint8Array | undefined {
   }
 }
 
-function hasBase64EncodedPrivateEntropy(value: string): boolean {
-  const bytes = decodeBase64Bytes(value);
+function hasBase64EncodedPrivateEntropy(
+  value: string,
+  compactWhitespace = false,
+): boolean {
+  const bytes = decodeBase64Bytes(value, compactWhitespace);
   // Any canonical encoding at a standard seed/private-key byte length is
   // indistinguishable from private entropy. Printability and UTF-8 validity
   // are attacker-controlled, so the boundary fails shut on length alone.
   return (
     bytes !== undefined &&
-    [16, 20, 24, 28, 32, 48, 64].includes(bytes.byteLength)
+    isPrivateEntropyByteLength(bytes.byteLength)
   );
 }
 
-function decodeBase64(value: string): string | undefined {
-  const bytes = decodeBase64Bytes(value);
+function decodeBase64(
+  value: string,
+  compactWhitespace = false,
+): string | undefined {
+  const bytes = decodeBase64Bytes(value, compactWhitespace);
   if (bytes === undefined) return undefined;
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -318,7 +350,10 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
   // evidence; compacting arbitrary prose creates attacker-controlled/private-
   // entropy-length false positives.
   const pending =
-    compact !== value && /^(?:%[0-9a-f]{2})+$/iu.test(compact)
+    compact !== value &&
+    (/^(?:%[0-9a-f]{2})+$/iu.test(compact) ||
+      /^(?:\\x[0-9a-f]{2})+$/iu.test(compact) ||
+      /^(?:\\u00[0-9a-f]{2})+$/iu.test(compact))
       ? [value, compact]
       : [value];
   const seen = new Set<string>();
@@ -326,6 +361,13 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
     const candidate = pending.pop();
     if (candidate === undefined || seen.has(candidate)) continue;
     seen.add(candidate);
+
+    if (
+      hasPercentEncodedPrivateEntropy(candidate) ||
+      hasEscapedPrivateEntropy(candidate)
+    ) {
+      return true;
+    }
 
     const percentDecoded = recursivelyDecodePercent(candidate);
     if (percentDecoded !== candidate) {
@@ -365,13 +407,34 @@ function scrubEncodedTokens(
     return token;
   });
 
+  // Inspect whitespace-wrapped structural byte encodings as one value. The
+  // grammar, rather than arbitrary prose whitespace, authorizes compaction.
+  next = next.replace(
+    /(?:(?:%[0-9a-f]{2})[ \t\r\n]+){1,}(?:%[0-9a-f]{2})/giu,
+    (candidate) => {
+      const compact = candidate.replace(/\s+/gu, "");
+      if (!decodedValueContainsSensitiveContent(compact)) return candidate;
+      changed = true;
+      return redactedValue;
+    },
+  );
+  next = next.replace(
+    /(?:(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})[ \t\r\n]+){1,}(?:\\x[0-9a-f]{2}|\\u00[0-9a-f]{2})/giu,
+    (candidate) => {
+      const compact = candidate.replace(/\s+/gu, "");
+      if (!decodedValueContainsSensitiveContent(compact)) return candidate;
+      changed = true;
+      return redactedValue;
+    },
+  );
+
   // Base64 is routinely wrapped by mail clients and text areas. Inspect a
   // whitespace-separated run as one encoded value and remove the exact run if
   // any finite decode chain exposes prohibited content.
   next = next.replace(
     /(?:[A-Za-z0-9+/_-]{4,}={0,2}[ \t\r\n]+){1,}[A-Za-z0-9+/_-]{4,}={0,2}/gu,
     (candidate) => {
-      const decoded = decodeBase64(candidate);
+      const decoded = decodeBase64(candidate, true);
       const segments = candidate.trim().split(/\s+/gu);
       const wrappedWidth = segments[0]?.replace(/=+$/u, "").length ?? 0;
       const canonicallyWrapped =
@@ -387,7 +450,10 @@ function scrubEncodedTokens(
           decodedValueContainsSensitiveContent(decoded));
       if (
         !containsSensitiveText &&
-        !(canonicallyWrapped && hasBase64EncodedPrivateEntropy(candidate))
+        !(
+          canonicallyWrapped &&
+          hasBase64EncodedPrivateEntropy(candidate, true)
+        )
       ) {
         return candidate;
       }

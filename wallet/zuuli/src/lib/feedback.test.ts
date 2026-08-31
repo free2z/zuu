@@ -180,6 +180,14 @@ describe("feedback privacy boundary", () => {
     "Documents/Wallet/config",
     "Pasteboard: hunter2",
     "Error reference aaaaaaaaaaaaaaaaaaaaaaaaaaaa1234",
+    "%AA".repeat(32),
+    "%67".repeat(32),
+    encodeURIComponent("%AA".repeat(32)),
+    Array.from({ length: 32 }, () => "%AA").join(" \n"),
+    "\\xAA".repeat(32),
+    "\\x67".repeat(32),
+    "\\u00AA".repeat(32),
+    "\\u0067".repeat(32),
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -387,6 +395,8 @@ describe("feedback privacy boundary", () => {
     "settings screen stopped now",
     "the app stopped responding again",
     "the app crashed when opening settings",
+    "Progress is 20% complete",
+    "Use %20 only as an example",
     "Ошибка при запуске",
     "Σφάλμα κατά την εκκίνηση",
   ])("preserves ordinary user prose: %s", (description) => {
@@ -398,6 +408,22 @@ describe("feedback privacy boundary", () => {
     );
     expect(result.findings).toEqual([]);
     expect(result.draft.body).toContain(description);
+  });
+
+  it.each([
+    "the app stopped now",
+    "settings screen failed",
+    "settings screen stopped now",
+    "the app stopped responding again",
+    "the app crashed when opening settings",
+  ])("preserves ordinary editable-preview prose at both handoffs: %s", (body) => {
+    const draft = { subject: DEFAULT_SUBJECT, body };
+    const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+    expect(reviewed).toEqual({ draft, findings: [] });
+    for (const channel of ["email", "github"] as const) {
+      const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
+      expect(handoff.status).toBe("ready");
+    }
   });
 
   it("revalidates edits and returns the changed preview instead of approving it", () => {
