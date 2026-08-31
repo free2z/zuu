@@ -166,20 +166,69 @@ impl Subscriptions {
     }
 
     /// Push a `NOTICE` to every subscribed connection (§6.4).
+    ///
+    /// The frame is identical for every recipient — a `NOTICE` carries no
+    /// per-subscriber field (§4.3 fixes `request_id` at 0 for every push, and
+    /// [`NoticePush`] is just `kind` and `at_ms`) — so it is built **once**,
+    /// before the table lock is even taken, and the encoded [`Outbound`] is
+    /// cloned to each subscriber of each address. Building it per subscriber,
+    /// under the lock, used to pay one encode per recipient for bytes that
+    /// were always going to come out the same (zuu#749).
+    ///
+    /// If the encode itself fails, that failure is not a function of *which*
+    /// subscriber is being served — it is a function of `kind`/`at_ms` alone —
+    /// so nobody receives the push. See [`Subscriptions::deliver`]'s doc
+    /// comment for why "fail closed for everyone" is the right call and not
+    /// merely a side effect of hoisting.
     pub fn notify_all(&self, kind: u8, at_ms: u64, metrics: &Metrics) {
         let body = NoticePush { kind, at_ms };
+        let Some(outbound) = push(PushEvent::Notice, &body) else {
+            return;
+        };
         let tables = self.lock();
         for entries in tables.by_recv.values() {
             for subscriber in entries {
-                let Some(outbound) = push(PushEvent::Notice, &body) else {
-                    continue;
-                };
-                count_push(subscriber.sender.try_send(outbound), metrics);
+                count_push(subscriber.sender.try_send(outbound.clone()), metrics);
             }
         }
     }
 
-    fn deliver<F: Fn() -> Option<Outbound>>(
+    /// Encode `build()` once and fan the result out to every subscriber of
+    /// `recv_addr` (zuu#749).
+    ///
+    /// # Why one encode is safe to share
+    ///
+    /// Every caller of `deliver` closes over data that does not change across
+    /// the loop — a `recv_addr`, a `QueuedMessage`, a `QueueEventPush` body —
+    /// and none of that encodes any per-subscriber field: a push's
+    /// `request_id` is always 0 (§4.3), and none of `MsgPush`, `QueueEventPush`
+    /// carries a connection id, a sequence number or a nonce that would differ
+    /// between two subscribers of the same address. `Outbound` is `Clone`, so
+    /// building it once and cloning per subscriber produces the exact bytes
+    /// the old per-subscriber loop did — this is a pure fan-out, not a change
+    /// to what goes over the wire.
+    ///
+    /// # The encode-failure decision, made on purpose
+    ///
+    /// `build()` is a pure function of that same closed-over data — encoding
+    /// has no dependency on which subscriber is being served — so if it fails
+    /// for one subscriber it fails identically for all of them. The old
+    /// per-subscriber loop called `build()` fresh for every subscriber and
+    /// skipped just that one on `None`, which *looked* like a subscriber-scoped
+    /// failure but, for any real encode failure (the body does not fit under
+    /// `Body::MAX_LEN`; see the `encode_failure` tests), was never anything
+    /// but the same failure repeated once per subscriber.
+    ///
+    /// Given that, failing the whole address once `build()` returns `None` is
+    /// not a behaviour change hiding in a refactor — it is the behaviour the
+    /// old code already had, made explicit and paid for once instead of N
+    /// times. It also matches this module's doctrine on backpressure (top of
+    /// file): a push is only ever a hint that a `READ` is worth doing, the
+    /// message stays in the queue, and dropping the hint is safe in a way that
+    /// dropping the message would not be. Nobody is unsubscribed, nothing
+    /// partial or corrupt goes out, and no success is reported — the caller
+    /// gets silence, exactly as it does today when `build()` fails.
+    fn deliver<F: FnOnce() -> Option<Outbound>>(
         &self,
         recv_addr: &QueueAddress,
         metrics: &Metrics,
@@ -189,13 +238,13 @@ impl Subscriptions {
         let Some(entries) = tables.by_recv.get(recv_addr) else {
             return;
         };
+        let Some(outbound) = build() else {
+            return;
+        };
         for subscriber in entries {
-            let Some(outbound) = build() else {
-                continue;
-            };
             // `try_send`, never `send`: a slow reader must not be able to stall
             // the task that just committed somebody else's append.
-            count_push(subscriber.sender.try_send(outbound), metrics);
+            count_push(subscriber.sender.try_send(outbound.clone()), metrics);
         }
     }
 
@@ -419,6 +468,88 @@ mod tests {
         table.notify_message(address, &message(), &metrics);
         table.notify_all(NOTICE_SHUTDOWN, 1_000, &metrics);
         assert!(receiver.try_recv().is_ok());
+        assert_eq!(dropped(&metrics), 0);
+        assert_eq!(to_closed(&metrics), 0);
+    }
+
+    #[tokio::test]
+    async fn deliver_encodes_once_and_shares_it_across_every_subscriber() {
+        // zuu#749: an identical push must be encoded once, then fanned out —
+        // not rebuilt fresh for every subscriber on the address. This drives
+        // `deliver` directly with a counting build so the encode count is
+        // asserted, not just inferred from timing.
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let address = QueueAddress::new([12u8; 32]);
+        let mut receivers = Vec::new();
+        for connection in 0..5u64 {
+            let (sender, receiver) = tokio::sync::mpsc::channel(4);
+            table.subscribe(address, connection, sender);
+            receivers.push(receiver);
+        }
+
+        let encodes = std::sync::atomic::AtomicUsize::new(0);
+        let outbound = push(PushEvent::Notice, &NoticePush { kind: 1, at_ms: 0 }).unwrap();
+        table.deliver(&address, &metrics, || {
+            encodes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Some(outbound.clone())
+        });
+
+        assert_eq!(
+            encodes.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "5 subscribers on one address must share a single encode"
+        );
+        for mut receiver in receivers {
+            assert!(
+                receiver.try_recv().is_ok(),
+                "every subscriber still gets the (shared) frame"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_oversized_message_fails_the_encode_closed_not_partial() {
+        // §6.4's `MSG` push wraps a `QueuedMessage` inside a `Push` whose body
+        // is bounded by `Body::MAX_LEN` (2^24-1, the same cap `Payload::MAX_LEN`
+        // uses). A payload sitting at that cap adds `MsgPush`'s own framing on
+        // top of it — a 32-byte `recv_addr`, an 8-byte index, an 8-byte
+        // timestamp and a 3-byte length prefix — so the encoded push can never
+        // fit. That is a real encode failure driven by real production code
+        // (`msg_push`/`push`), not a mocked `build()`.
+        let table = Subscriptions::new();
+        let metrics = Metrics::new();
+        let address = QueueAddress::new([13u8; 32]);
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+        table.subscribe(address, 1, sender);
+
+        let oversized = QueuedMessage {
+            index: 0,
+            received_at_ms: 1,
+            payload: Payload::new(vec![0u8; Payload::MAX_LEN]).unwrap(),
+        };
+        // Confirm the premise before trusting what follows: this input really
+        // does fail to encode, so the assertions below exercise the failure
+        // path and not a payload that happened to succeed.
+        assert!(
+            msg_push(address, &oversized).is_none(),
+            "test setup must actually overflow Body::MAX_LEN"
+        );
+
+        table.notify_message(address, &oversized, &metrics);
+
+        // Fails closed: no partial or garbage frame reaches the subscriber…
+        assert!(
+            receiver.try_recv().is_err(),
+            "an encode failure must not deliver a partial/corrupt frame"
+        );
+        // …the subscriber is not silently dropped from the table…
+        assert!(
+            table.has_subscriber(&address),
+            "an encode failure must not silently unsubscribe anyone"
+        );
+        // …and nothing is miscounted as ordinary backpressure or a closed
+        // receiver — both would misreport what actually happened.
         assert_eq!(dropped(&metrics), 0);
         assert_eq!(to_closed(&metrics), 0);
     }
