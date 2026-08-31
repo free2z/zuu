@@ -70,6 +70,13 @@ const RUST_ROOT_CONTRACTS = [
       "wallet/README.md",
       "wallet/docs/architecture.md",
       "rs/crates/f2z-relay/src/lib.rs",
+      // Markdown under wallet/zuuli/ is prose about the app, not an input to
+      // any job the gate awaits, and `wallet/zuuli/*` would otherwise select
+      // the whole native matrix for a STATUS re-derivation. Probed at the root
+      // and at depth because the guard is a glob whose `*` spans `/`.
+      "wallet/zuuli/STATUS.md",
+      "wallet/zuuli/CLAUDE.md",
+      "wallet/zuuli/docs/e2ee/notes.md",
     ],
     jobs: [
       [
@@ -3397,6 +3404,38 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           'must actively select "docs/e2ee/WIRE.md"',
         ],
       ];
+      // The markdown-only guard is a *negative* selector: it exists to keep
+      // `wallet/zuuli/*` from dragging prose into the native matrix. Its two
+      // failure directions are deleting it and narrowing it to the top level,
+      // so both are exercised against the live workflow.
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects deleting the ZUULI markdown-only guard",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '            if [[ "$file" == wallet/zuuli/*.md ]]; then\n' +
+              "              continue\n" +
+              "            fi\n",
+            "",
+          ),
+        'must leave zuuli false for unrelated input "wallet/zuuli/STATUS.md"',
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "wallet/ rejects a ZUULI markdown-only guard that misses nested prose",
+        (value) =>
+          mutateJob(
+            value,
+            "changes",
+            '"$file" == wallet/zuuli/*.md',
+            '"$file" == wallet/zuuli/STATUS.md',
+          ),
+        'must leave zuuli false for unrelated input "wallet/zuuli/docs/e2ee/notes.md"',
+      );
       for (const [guard, target, replacement, needle] of
         selectorPatternMutations) {
         const action = replacement ? "broadened" : "removed";
