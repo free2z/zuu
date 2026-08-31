@@ -2447,6 +2447,87 @@ document, and are a rendering and verification obligation on the client
 ([`THREAT-MODEL.md` §4.10](./THREAT-MODEL.md#410-the-platform-username-space-contains-homographs-messaging-handles-do-not),
 [`CLIENT-CONTRACT.md` §11.3](./CLIENT-CONTRACT.md#113-the-handle-charset-and-accounts-that-cannot-have-a-handle)).
 
+**Two different operations share the word "no normalization," and conflating
+them is the exact defect this correction closes (#820).** This section states
+one of each kind and they must not be read as the same rule applied twice.
+
+- **Comparison-time matching (this section, and every directory lookup or
+  `DirectoryEntry` comparison downstream of it) never folds anything.** Two
+  handles, or a handle and a lookup key, are equal iff they are byte-identical.
+  There is no case to fold here because a published handle has already been
+  through candidate derivation (next) and is already lowercase; running any
+  fold at comparison time would let two byte-distinct inputs compare equal,
+  which is the one thing this rule exists to prevent.
+- **Candidate derivation (§14.3) runs once, ahead of comparison, turning a
+  platform username into the messaging handle it would become.** It is not
+  "no normalization" at all — it is exactly one normalization step, ASCII case
+  folding, applied in a fixed order relative to the ASCII check, and that order
+  is load-bearing:
+
+  1. **Reject the raw username if it is not ASCII**, checked on the string
+     **as typed, before any folding.** This is not a stylistic ordering choice.
+     Some non-ASCII characters fold *to* ASCII under general Unicode
+     case-folding — the Kelvin sign, U+212A, folds to `k` — so a fold-first
+     implementation could turn a non-ASCII username into a well-formed ASCII
+     handle, exactly the homograph surface this whole section exists to keep
+     out. Checking ASCII-ness first, on the unfolded string, forecloses that
+     regardless of which case-folding function a later implementation reaches
+     for.
+  2. **Fold only ASCII `A`–`Z` to `a`–`z`.** Nothing else is normalized: no
+     Unicode case folding, no NFKC, no confusable mapping. This is why every
+     restatement of the rule in this document set says `ascii_lower`, not
+     `lowercase` — "lowercase" is Unicode-aware by default in most runtimes
+     (JavaScript's `String.prototype.toLowerCase`, Python's `str.lower`), and
+     Unicode-aware case folding is precisely the normalization step 1 already
+     ran to avoid needing. Wherever an older sentence in this document set says
+     `lowercase(username)`, it means `ascii_lower(username)` in this exact
+     sense, never a locale- or Unicode-aware fold.
+  3. **Check the result against `/^[a-z0-9_]{1,30}$/`.**
+
+  This is what ships:
+  [`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs`](../../wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs)'s
+  `eligibility()` runs these three steps in this order, gates step 2 behind
+  `username.is_ascii()`, and its `#[cfg(test)]` module fixes the Cyrillic-а case
+  as a rejected `non-ascii`, not a folded ASCII string.
+
+**What the regex alone does not say: the empty string.** `{1,30}` requires at
+least one character, but a charset-membership check implemented as "every byte
+of the candidate is in `[a-z0-9_]`" is vacuously true on zero bytes — an
+implementation that checks charset membership and a length *ceiling* without
+also, separately, checking a length *floor* accepts the empty string as a
+"handle" of zero length. The reference implementation closes this with an
+explicit early case rather than by relying on the regex to be applied
+correctly: an empty username is `ineligible`, reason `punctuation` — one fixed,
+if slightly arbitrary, choice among the four `IneligibilityReason` values,
+picked because none of the four means "empty" and the type does not have a
+fifth. **Every restatement of this rule MUST return exactly that pair —
+`eligible: false`, `reason: punctuation` — for the empty string**, because
+nothing about that answer follows from the regex by itself; it has to be
+stated once, here, or two conforming restatements will disagree on it. They
+currently do: [`wallet/zuuli/src/lib/messaging/mock.ts`](../../wallet/zuuli/src/lib/messaging/mock.ts)'s
+`evaluateHandle` treats an empty string the same as no signed-in account
+(`reason: "not-signed-in"`), which this section now states is the wrong
+answer. [#838](https://github.com/free2z/zuu/issues/838) tracks the mock fix;
+this document does not overstate the mock as already conforming.
+
+**A restatement is not proof of agreement, and this document requires one.**
+Three independent restatements of the same three-step rule already exist —
+`handle.rs` (Rust, the shipped backend), `evaluateHandle` (the TypeScript mock),
+and this prose — and prose cannot catch the other two drifting from each other,
+which is exactly how the empty-string disagreement above went unnoticed until
+now. A conforming implementation of this section **MUST** maintain a
+mutation-sensitive test that checks the Rust and TypeScript implementations
+against one shared table of `(input → expected HandleEligibility)` fixtures —
+at minimum: `null`, the empty string, an ASCII-uppercase username, each of
+`.`/`@`/`+`/`-`, a non-ASCII character, the Kelvin sign U+212A specifically
+(because it is the case where fold-then-check and check-then-fold disagree),
+and lengths 30 and 31 — so that an edit to either implementation which drifts
+from the other, or from this table, fails a test rather than shipping unnoticed.
+**This does not exist yet.** [#838](https://github.com/free2z/zuu/issues/838)
+tracks adding it; until it lands, the parity this section specifies is
+maintained by hand, and the empty-string case above is the demonstrated cost of
+that.
+
 ### 14.2 Checked against free2z's real username rules — measured
 
 **This was checked before being written down**, and the answer is that real
@@ -2512,7 +2593,20 @@ Two things follow, and the second is the one that matters most:
 #### Eligibility, measured on production 2026-08-23
 
 Eligibility is evaluated as `lowercase(username) matches /^[a-z0-9_]{1,30}$/`
-(§14.3).
+(§14.3) — read `lowercase` as `ascii_lower` per §14.1.
+
+**These are historical figures from one query, not a live property, and this
+document does not claim they still hold.** Every share below is evidence
+gathered against production on 2026-08-23, under a predicate this repository
+cannot re-run: it required a query against a live database this repository
+does not have access to, at a point in time that has since passed. New
+accounts have registered since, and §14.3's collision groups — found by the
+same query — are expected to be *resolved* by the time the mapping ships,
+which changes the count of eligible accounts without changing this table. Read
+these numbers as what motivated the v1 design decision below, not as a
+guarantee about today's account population; whoever plans the collision-cleanup
+or migration work must re-query production rather than cite this table as
+current.
 
 | Of all existing accounts | Share |
 |---|---:|
@@ -2550,6 +2644,14 @@ for a messaging handle iff:
 ```
 lowercase(username) matches /^[a-z0-9_]{1,30}$/
 ```
+
+**Read `lowercase` here as `ascii_lower`, in the precise sense §14.1 now
+states**: reject a non-ASCII username before folding anything, then fold ASCII
+`A`–`Z` to `a`–`z` and nothing else. This section's `lowercase` was never meant
+to mean general Unicode case-folding — the whole point of §14.1's charset is to
+avoid needing one — but the word alone does not say so, which is the
+terminology #820 corrects. No decision below changes; the two steps described
+here are the one mapping this section has always meant.
 
 The lowercase mapping is included deliberately: because platform uniqueness is
 already enforced case-insensitively, folding case **cannot** introduce a
@@ -2607,6 +2709,23 @@ resolved by hand before the mapping ships.
 > it can be relied on. That constraint and the resolution of the colliding
 > accounts are tracked in the deployment repository; they are backend work and
 > are not specified here.
+
+**Two different claims share the word "eligibility," and this document makes
+only one of them (#820).** "Given this username string, what handle would it
+become, and is it well-formed" is **candidate derivation** — a pure function of
+the string, asking nothing about any account, and it is implemented and safe
+to ship exactly as specified in §14.1:
+`wallet/plugins/tauri-plugin-f2zmsg/src/handle.rs::eligibility`, exposed to the
+client as `check_handle_eligibility` (`CLIENT-CONTRACT.md` §3.2), does this and
+only this — no network call, no account lookup, no ownership claim. "This
+account is the authoritative holder of that handle in the directory" is a
+different claim, and nothing in this document authorizes publishing it yet:
+that requires the corrected census above, resolution of every collision group
+the query already found, and the database-level `UniqueConstraint` becoming
+real, none of which is done. A client MUST NOT read a `true` from
+`check_handle_eligibility` as anything more than "this string could become a
+handle" — it is not a reservation, a claim, or a promise that submitting it
+will succeed, and copy built on top of it must not imply otherwise.
 
 **Accepted product cost, stated plainly.** Existing accounts whose username
 contains `.`, `@`, `+` or `-`, contains any non-ASCII character, or exceeds 30
