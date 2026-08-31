@@ -640,7 +640,7 @@ if (mobileRelease.includes("tauri ios build") || mobileRelease.includes("platfor
   failures.push("mobile-release.sh must not recombine iOS credentials with dependency-controlled builds");
 for (const preservedContract of [
   "node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing",
-  "./node_modules/.bin/tauri ios build --ci --no-sign --archive-only -- --locked",
+  "./node_modules/.bin/tauri ios build --ci --no-sign --archive-only --config '{\"build\":{\"beforeBuildCommand\":null}}' -- --locked",
   "node scripts/normalize-generated-ios-project.mjs",
   "xcodebuild -exportArchive",
   "scripts/verify-ios-ipa.sh --expected-profile-sha256",
@@ -837,6 +837,9 @@ for (const workflowPath of [
 const unsignedIosBuild = packagingWorkflow.indexOf(
   "./node_modules/.bin/tauri ios build --ci --no-sign",
 );
+const unsignedIosFrontend = packagingWorkflow.indexOf(
+  "- name: Build source-bound frontend from the clean checkout",
+);
 const unsignedIosInspection = packagingWorkflow.indexOf(
   'scripts/verify-ios-ipa.sh --verify-app-structure "${apps[0]}"',
 );
@@ -844,15 +847,28 @@ const unsignedIosCollection = packagingWorkflow.indexOf(
   "- name: Collect unsigned package",
 );
 if (
+  unsignedIosFrontend === -1 ||
   unsignedIosBuild === -1 ||
   unsignedIosInspection === -1 ||
   unsignedIosCollection === -1 ||
+  unsignedIosFrontend > unsignedIosBuild ||
   unsignedIosBuild > unsignedIosInspection ||
   unsignedIosInspection > unsignedIosCollection
 ) {
   failures.push(
     "unsigned iOS packaging must build, inspect the app structure, then collect the artifact",
   );
+}
+for (const [label, workflow, contract] of [
+  ["packaging iOS build platform", packagingWorkflow, "ZUULI_BUILD_PLATFORM: ios"],
+  ["protected iOS build platform", releaseWorkflow, "ZUULI_BUILD_PLATFORM: ios"],
+  [
+    "packaging iOS clean frontend handoff",
+    packagingWorkflow,
+    "--config '{\"build\":{\"beforeBuildCommand\":null}}'",
+  ],
+]) {
+  if (!workflow.includes(contract)) failures.push(`${label} contract is missing: ${contract}`);
 }
 for (const target of [
   "aarch64-linux-android",
