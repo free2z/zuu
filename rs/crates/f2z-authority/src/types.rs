@@ -85,8 +85,8 @@ macro_rules! opaque_fixed {
         }
 
         impl SerializeBytes for $name {
-            fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-                self.0.tls_serialize()
+            fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+                self.0.tls_serialize_bytes()
             }
         }
 
@@ -255,7 +255,7 @@ impl Size for Handle {
 }
 
 impl SerializeBytes for Handle {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         let len = u8::try_from(self.0.len()).map_err(|_| TlsError::InvalidVectorLength)?;
         if self.0.is_empty() || self.0.len() > HANDLE_MAX_LEN {
             return Err(TlsError::InvalidVectorLength);
@@ -349,7 +349,7 @@ impl Size for Intent {
 }
 
 impl SerializeBytes for Intent {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         Ok(alloc::vec![self.code()])
     }
 }

@@ -106,8 +106,8 @@ macro_rules! opaque_fixed {
         }
 
         impl SerializeBytes for $name {
-            fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-                self.0.tls_serialize()
+            fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+                self.0.tls_serialize_bytes()
             }
         }
 
@@ -243,8 +243,8 @@ impl Size for Payload {
 }
 
 impl SerializeBytes for Payload {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 
@@ -316,8 +316,8 @@ impl Size for Body {
 }
 
 impl SerializeBytes for Body {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 
@@ -405,8 +405,8 @@ impl Size for KeyPackage {
 }
 
 impl SerializeBytes for KeyPackage {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 
@@ -505,8 +505,8 @@ impl Size for ShortBytes {
 }
 
 impl SerializeBytes for ShortBytes {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 
@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn fixed_newtypes_round_trip() {
         let address = QueueAddress::new([7u8; 32]);
-        let encoded = SerializeBytes::tls_serialize(&address).unwrap();
+        let encoded = SerializeBytes::tls_serialize_bytes(&address).unwrap();
         assert_eq!(encoded, [7u8; 32]);
         let (decoded, rest) = QueueAddress::tls_deserialize_bytes(&encoded).unwrap();
         assert_eq!(decoded, address);

@@ -361,14 +361,18 @@ impl Size for RelayFrame {
 }
 
 impl SerializeBytes for RelayFrame {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         let mut out = Vec::with_capacity(self.tls_serialized_len());
         out.push(self.kind().code());
         out.extend_from_slice(&self.request_id.to_be_bytes());
         match &self.payload {
-            FramePayload::Request(request) => out.extend_from_slice(&request.tls_serialize()?),
-            FramePayload::Response(response) => out.extend_from_slice(&response.tls_serialize()?),
-            FramePayload::Push(push) => out.extend_from_slice(&push.tls_serialize()?),
+            FramePayload::Request(request) => {
+                out.extend_from_slice(&request.tls_serialize_bytes()?)
+            }
+            FramePayload::Response(response) => {
+                out.extend_from_slice(&response.tls_serialize_bytes()?)
+            }
+            FramePayload::Push(push) => out.extend_from_slice(&push.tls_serialize_bytes()?),
         }
         Ok(out)
     }
@@ -482,11 +486,11 @@ impl Size for CommandAuth {
 }
 
 impl SerializeBytes for CommandAuth {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         let mut out = Vec::with_capacity(self.tls_serialized_len());
         out.push(self.present());
         if let Self::Signed(auth) = self {
-            out.extend_from_slice(&auth.tls_serialize()?);
+            out.extend_from_slice(&auth.tls_serialize_bytes()?);
         }
         Ok(out)
     }

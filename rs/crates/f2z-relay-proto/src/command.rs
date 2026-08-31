@@ -91,7 +91,7 @@ mod empty {
     }
 
     impl SerializeBytes for Empty {
-        fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+        fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
             Ok(Vec::new())
         }
     }

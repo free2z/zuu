@@ -159,8 +159,12 @@ f2z-codec = { path = "../../../rs/crates/f2z-codec", version = "0.1.0" }
 # in-flight window, the queue state machine and `ClientPolicy`.
 f2z-relay-proto = { path = "../../../rs/crates/f2z-relay-proto", version = "0.1.0" }
 # `tls_codec`'s traits are in `f2z-codec`'s public API (`Canonical`), so the
-# 0.4 line is named here rather than inherited by luck.
-tls_codec = { version = "0.4", default-features = false, features = ["derive"] }
+# line is named here rather than inherited by luck — and it must be the line
+# `rs/Cargo.toml` names, because a trait implemented by one copy of the crate is
+# not the trait the other copy's bound asks for. Moved 0.4 → 0.5 with the
+# workspace in #853; the reasoning, and the byte-compatibility measurement that
+# justified it, live at that declaration.
+tls_codec = { version = "0.5", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
