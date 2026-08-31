@@ -49,8 +49,11 @@ export const FEEDBACK_SUBJECT_LIMIT = 120;
 export const FEEDBACK_BODY_LIMIT = 6_000;
 
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu;
-const INVISIBLE_CHARACTERS = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\uffa0]/gu;
+const DEFAULT_IGNORABLE_CHARACTERS = /\p{Default_Ignorable_Code_Point}/gu;
+const COMBINING_OVERLAYS = /[\u0334-\u0338]/gu;
+const COMBINING_MARKS = /\p{Mark}/gu;
 const UNPAIRED_SURROGATES = /[\uD800-\uDFFF]/gu;
+const ALLOWED_EMAIL = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}/giu;
 
 const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:seed|mnemonic|recovery\s+phrase|spending\s+key|viewing\s+key|password|passphrase|secret|private\s+key|auth(?:entication|orization)?(?:\s+token)?|access[\s_-]*token|session(?:\s+(?:id|token))?|oauth(?:\s+token)?|bearer|jwt|cookie|totp|otp|memo|balance|device(?:\s+(?:id|identifier|name))?|clipboard)\b\s*(?:(?:=|:|is)\s*)?[^\n]+/giu,
@@ -62,60 +65,66 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:u1[0-9a-z]{40,}|zs1[0-9a-z]{40,}|ztestsapling1[0-9a-z]{40,}|t[13][1-9A-HJ-NP-Za-km-z]{25,34})\b/gu,
   /\b[a-f0-9]{32,64}\b/giu,
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu,
-  /\b(?=[^\n]{0,200},)(?:[a-z]{2,16}(?:\s*,\s*|\s+)){11}[a-z]{2,16}\b/giu,
-  /\b(?=[A-Z2-7]{16,}={0,6}\b)(?=[A-Z2-7]*[2-7])[A-Z2-7]+={0,6}\b/gu,
-  /\b(?=[A-Za-z0-9._~+/_=-]{20,}\b)(?=[A-Za-z0-9._~+/_=-]*[A-Za-z])(?=[A-Za-z0-9._~+/_=-]*\d)[A-Za-z0-9._~+/_=-]+\b/gu,
+  /\b(?:sent\s+from|device\s+name)\s+[^\n]+/giu,
+  /\b\d[\d,.]*\s*(?:ZEC|zatoshi(?:s)?|2Zs?)\b/giu,
 ];
 
 const NETWORK_PATTERNS: readonly RegExp[] = [
   /\b(?:\d{1,3}\.){3}\d{1,3}\b/gu,
   /\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9]{0,4}\b/giu,
   /\b(?:https?|wss?):\/\/[^\s]+/giu,
-  /(?<!@)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:[/?#][^\s]*)?/giu,
+  /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:[/?#][^\s]*)?/giu,
   /\b(?:host(?:name)?|ip(?:\s+address)?|ssid|network)\s*(?:=|:|is\b)\s*[^\n]+/giu,
 ];
 
 const PATH_PATTERNS: readonly RegExp[] = [
-  /(?:^|\s)(?:\/(?:Users|home|private|var|tmp|data|storage|sdcard)\/[^\s]+)/giu,
-  /\b[A-Za-z]:\\[^\n]+/gu,
+  /(?:^|[\s('"`])\/(?:[^\s/]+\/)*[^\s]+/gmu,
+  /(?:^|\s)(?:\.{0,2}\/)?(?:src|lib|app|etc|opt|Users|home|private|var|tmp|data|storage|sdcard)\/[^\s]+/gimu,
+  /(?:^|\s)(?:[A-Za-z]:\\|\\\\)[^\n]+/gmu,
   /\b(?:file|filename|path)\s*(?:=|:|is\b)\s*[^\n]+/giu,
-  /\b[^\s/\\]+\.(?:log|txt|json|db|sqlite|key|pem|p12|keystore|wallet)\b/giu,
+  /\b(?:rust_backtrace|backtrace|traceback|stack\s+trace|TauriInvokeError|JavaScriptError)\b[^\n]*/giu,
+  /\b[^\s/\\]+\.[A-Za-z][A-Za-z0-9]{0,11}(?::\d+(?::\d+)?)?\b/gu,
 ];
 
-const CONFUSABLE_ASCII: Readonly<Record<string, string>> = Object.freeze({
-  "α": "a",
-  "Α": "A",
-  "ο": "o",
-  "Ο": "O",
-  "ρ": "p",
-  "Ρ": "P",
-  "ϲ": "c",
-  "Ϲ": "C",
-  "χ": "x",
-  "Χ": "X",
-  "ι": "i",
-  "Ι": "I",
-  "а": "a",
-  "А": "A",
-  "е": "e",
-  "Е": "E",
-  "о": "o",
-  "О": "O",
-  "р": "p",
-  "Р": "P",
-  "с": "c",
-  "С": "C",
-  "х": "x",
-  "Х": "X",
-  "і": "i",
-  "І": "I",
-});
+const SECRET_LABEL_SKELETON = /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
+
+function hasSuspiciousMixedScriptToken(value: string): boolean {
+  for (const match of value.matchAll(/[\p{Letter}\p{Mark}]+/gu)) {
+    const token = match[0];
+    if (
+      /\p{Script=Latin}/u.test(token) &&
+      /(?:\p{Script=Cyrillic}|\p{Script=Greek})/u.test(token)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shannonEntropy(value: string): number {
+  const counts = new Map<string, number>();
+  for (const character of value) {
+    counts.set(character, (counts.get(character) ?? 0) + 1);
+  }
+  let entropy = 0;
+  for (const count of counts.values()) {
+    const probability = count / value.length;
+    entropy -= probability * Math.log2(probability);
+  }
+  return entropy;
+}
+
+function hasTotpShapedValue(value: string): boolean {
+  return [...value.matchAll(/\b[A-Z2-7]{16,64}={0,6}\b/gu)].some(
+    ([candidate]) => /[2-7]/u.test(candidate) || shannonEntropy(candidate) >= 3.5,
+  );
+}
 
 function normalizeForInspection(value: string): string {
-  return [...value.normalize("NFKC")]
-    .map((character) => CONFUSABLE_ASCII[character] ?? character)
-    .join("")
-    .replace(INVISIBLE_CHARACTERS, "")
+  return value
+    .normalize("NFKD")
+    .replace(DEFAULT_IGNORABLE_CHARACTERS, "")
+    .replace(COMBINING_MARKS, "")
     .replace(CONTROL_CHARACTERS, "");
 }
 
@@ -131,12 +140,53 @@ function replaceMatches(
 
 function hasSensitiveContent(value: string): boolean {
   const inspected = normalizeForInspection(value);
+  if (
+    containsEnglishBip39Candidate(inspected) ||
+    hasSuspiciousMixedScriptToken(value) ||
+    hasTotpShapedValue(inspected)
+  ) {
+    return true;
+  }
+  SECRET_LABEL_SKELETON.lastIndex = 0;
+  if (SECRET_LABEL_SKELETON.test(inspected)) return true;
   return [...SECRET_PATTERNS, ...NETWORK_PATTERNS, ...PATH_PATTERNS].some(
     (pattern) => {
       pattern.lastIndex = 0;
       return pattern.test(inspected);
     },
   );
+}
+
+function decodeCommonEscapes(value: string): string {
+  let decoded = value;
+  const namedEntities: Readonly<Record<string, string>> = Object.freeze({
+    amp: "&",
+    colon: ":",
+    equals: "=",
+    num: "#",
+    sol: "/",
+  });
+  for (;;) {
+    const next = decoded
+      .replace(/&#(?:x([0-9a-f]+)|(\d+));/giu, (entity, hexadecimal, decimal) => {
+        const codePoint = Number.parseInt(hexadecimal ?? decimal, hexadecimal ? 16 : 10);
+        return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : entity;
+      })
+      .replace(/&(amp|colon|equals|num|sol);/giu, (_entity, name: string) =>
+        namedEntities[name.toLowerCase()] ?? _entity,
+      )
+      .replace(/\\u\{([0-9a-f]{1,6})\}/giu, (escape, hexadecimal) => {
+        const codePoint = Number.parseInt(hexadecimal, 16);
+        return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : escape;
+      })
+      .replace(/\\u([0-9a-f]{4})/giu, (_escape, hexadecimal) =>
+        String.fromCharCode(Number.parseInt(hexadecimal, 16)),
+      );
+    if (next === decoded) return decoded;
+    decoded = next;
+  }
 }
 
 function recursivelyDecodePercent(value: string): string {
@@ -189,6 +239,12 @@ function decodedValueContainsSensitiveContent(value: string): boolean {
       pending.push(percentDecoded);
     }
 
+    const escapeDecoded = decodeCommonEscapes(candidate);
+    if (escapeDecoded !== candidate) {
+      if (hasSensitiveContent(escapeDecoded)) return true;
+      pending.push(escapeDecoded);
+    }
+
     const base64Decoded = decodeBase64(candidate);
     if (base64Decoded !== undefined && base64Decoded.length < candidate.length) {
       if (hasSensitiveContent(base64Decoded)) return true;
@@ -234,7 +290,14 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
 } {
   const findings = new Set<ScrubFinding>();
   let text = value.normalize("NFKC").replace(/\r\n?/gu, "\n");
-  const withoutInvisible = text.replace(INVISIBLE_CHARACTERS, "");
+  const allowedEmails: string[] = [];
+  text = text.replace(ALLOWED_EMAIL, (email) => {
+    const index = allowedEmails.push(email) - 1;
+    return `zuuliAllowedEmail${index}Placeholder`;
+  });
+  const withoutInvisible = text
+    .replace(DEFAULT_IGNORABLE_CHARACTERS, "")
+    .replace(COMBINING_OVERLAYS, "");
   // With the Unicode flag, a valid surrogate pair is one code point and does
   // not match this range; only unpaired UTF-16 code units match. Removing them
   // before preview prevents WebIDL/URI encoders from silently substituting
@@ -265,12 +328,23 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   // replacing that normalized spelling in the original would be ambiguous.
   // Fail closed by removing the whole remaining field instead of guessing a
   // source span and risking partial disclosure.
-  if (hasSensitiveContent(text)) {
+  if (
+    containsEnglishBip39Candidate(text) ||
+    hasTotpShapedValue(text) ||
+    hasSuspiciousMixedScriptToken(text) ||
+    hasSensitiveContent(text)
+  ) {
     findings.add("secret-or-wallet-data");
-    text = redactedValue;
   }
 
-  return { text, findings: [...findings] };
+  // Any partial removal risks leaving a second-pass-safe residual (for
+  // example, the directory portion of a path). A field with any finding is
+  // therefore replaced atomically; a second review is stable by construction.
+  if (findings.size > 0) return { text: redactedValue, findings: [...findings] };
+  text = text.replace(/zuuliAllowedEmail(\d+)Placeholder/gu, (_match, index) =>
+    allowedEmails[Number(index)] ?? redactedValue,
+  );
+  return { text, findings: [] };
 }
 
 /**
@@ -305,9 +379,27 @@ export function reviewFeedbackDraft(
     draft.body.slice(0, FEEDBACK_BODY_LIMIT),
     redactedValue,
   );
+  const findings = new Set([...subject.findings, ...body.findings]);
+  if (findings.size > 0) {
+    return {
+      draft: { subject: redactedValue, body: redactedValue },
+      findings: [...findings],
+    };
+  }
+  const combined = scrubFeedbackText(
+    `${subject.text}\n${body.text}`,
+    redactedValue,
+  );
+  for (const finding of combined.findings) findings.add(finding);
+  if (combined.findings.length > 0) {
+    return {
+      draft: { subject: redactedValue, body: redactedValue },
+      findings: [...findings],
+    };
+  }
   return {
     draft: { subject: subject.text, body: body.text },
-    findings: [...new Set([...subject.findings, ...body.findings])],
+    findings: [...findings],
   };
 }
 
@@ -385,3 +477,4 @@ export function buildFeedbackHandoffUrl(
   }
   return { status: "ready", url };
 }
+import { containsEnglishBip39Candidate } from "./bip39";

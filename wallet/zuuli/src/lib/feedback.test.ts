@@ -11,6 +11,7 @@ import {
   scrubFeedbackText,
   type FeedbackDraft,
 } from "./feedback";
+import { isValidEnglishBip39Mnemonic } from "./bip39";
 
 const BUILD_BLOCK =
   "ZUULI\nVersion: 0.1.0\nBuild: 17\nChannel: Internal\nPlatform: iOS\nSource commit: 0123456789ab";
@@ -110,6 +111,24 @@ describe("feedback privacy boundary", () => {
     "0123456789abcdef0123456789abcdef",
     "0123456789abcdef0123456789abcdef01234567",
     "example.com?access_token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+    "p\u{E0001}assword: hunter2",
+    "p\u0336assword: hunter2",
+    "paѕѕword: hunter2",
+    "pαssword: hunter2",
+    "p&#97;ssword: hunter2",
+    "p&#x61;ssword: hunter2",
+    "p\\u0061ssword: hunter2",
+    "p%26%2397%3Bssword%3A%20hunter2",
+    "pass-word: hunter2",
+    "p4ssword: hunter2",
+    "JBSWYDPFGEZDGNBV",
+    "I have 42.000 ZEC available",
+    "Sent from Alice iPhone 15 Pro",
+    "Crash at /etc/zuuli/config",
+    "Screenshot IMG_1234.PNG",
+    "Saved in /opt/zuuli/wallet.dat",
+    "Read \\\\server\\share\\wallet.bin",
+    "TauriInvokeError { code: 7, rust_backtrace: src/main.rs:42 }",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -123,13 +142,15 @@ describe("feedback privacy boundary", () => {
       expect(reviewed.draft.body).toContain(REDACTED_VALUE);
       expect(reviewed.draft.body).not.toContain(attack);
 
-      const handoff = buildFeedbackHandoffUrl(
-        "github",
-        { subject: DEFAULT_SUBJECT, body: `Observed failure: ${attack}` },
-        REDACTED_VALUE,
-      );
-      expect(handoff.status).toBe("unsafe");
-      expect("url" in handoff).toBe(false);
+      for (const channel of ["email", "github"] as const) {
+        const handoff = buildFeedbackHandoffUrl(
+          channel,
+          { subject: DEFAULT_SUBJECT, body: `Observed failure: ${attack}` },
+          REDACTED_VALUE,
+        );
+        expect(handoff.status).toBe("unsafe");
+        expect("url" in handoff).toBe(false);
+      }
     },
   );
 
@@ -145,6 +166,84 @@ describe("feedback privacy boundary", () => {
     expect(reviewed.findings).toContain("encoded-sensitive-value");
     expect(reviewed.draft.body).toBe(REDACTED_VALUE);
   });
+
+  const validTwelveWordMnemonic = `${"abandon ".repeat(11)}about`.trim();
+  const validTwentyFourWordMnemonic = `${"abandon ".repeat(23)}art`.trim();
+
+  it("matches the shipping English BIP39 dictionary and checksum", () => {
+    expect(isValidEnglishBip39Mnemonic(validTwelveWordMnemonic.split(" "))).toBe(
+      true,
+    );
+    expect(
+      isValidEnglishBip39Mnemonic(validTwentyFourWordMnemonic.split(" ")),
+    ).toBe(true);
+    expect(
+      isValidEnglishBip39Mnemonic(
+        `${"abandon ".repeat(11)}ability`.trim().split(" "),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    validTwelveWordMnemonic,
+    validTwentyFourWordMnemonic,
+    "abandon ability able about above absent absorb abstract absurd abuse access accident",
+    "abandon;ability;able;about;above;absent;absorb;abstract;absurd;abuse;access;accident",
+    validTwelveWordMnemonic.replace(/ /gu, "\n"),
+    percentEncode(validTwelveWordMnemonic, 3),
+    btoa(validTwelveWordMnemonic),
+  ])("removes unlabeled BIP39-shaped material at review and transport: %s", (phrase) => {
+    const draft = { subject: DEFAULT_SUBJECT, body: phrase };
+    const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+    expect(reviewed.findings.length).toBeGreaterThan(0);
+    expect(reviewed.draft.body).toBe(REDACTED_VALUE);
+    for (const channel of ["email", "github"] as const) {
+      const handoff = buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE);
+      expect(handoff.status).toBe("unsafe");
+      expect("url" in handoff).toBe(false);
+    }
+  });
+
+  it.each([
+    "Saved in /opt/zuuli/wallet.dat",
+    "Read \\\\server\\share\\wallet.bin",
+    "TauriInvokeError { code: 7, rust_backtrace: src/main.rs:42 }",
+  ])("is stable and leaves no second-pass path or trace residual: %s", (attack) => {
+    const first = reviewFeedbackDraft(
+      { subject: DEFAULT_SUBJECT, body: attack },
+      REDACTED_VALUE,
+    );
+    expect(first.draft.body).toBe(REDACTED_VALUE);
+    const second = reviewFeedbackDraft(first.draft, REDACTED_VALUE);
+    expect(second.findings).toEqual([]);
+    expect(second.draft).toEqual(first.draft);
+    expect(
+      buildFeedbackHandoffUrl("github", first.draft, REDACTED_VALUE).status,
+    ).toBe("ready");
+  });
+
+  it.each(["email", "github"] as const)(
+    "blocks %s secrets split across subject and body",
+    (channel) => {
+      for (const draft of [
+        { subject: "password", body: "hunter2" },
+        {
+          subject: "abandon abandon abandon abandon abandon abandon",
+          body: "abandon abandon abandon abandon abandon about",
+        },
+      ]) {
+        const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
+        expect(reviewed.findings.length).toBeGreaterThan(0);
+        expect(reviewed.draft).toEqual({
+          subject: REDACTED_VALUE,
+          body: REDACTED_VALUE,
+        });
+        expect(
+          buildFeedbackHandoffUrl(channel, draft, REDACTED_VALUE).status,
+        ).toBe("unsafe");
+      }
+    },
+  );
 
   it.each(["\uD800", "\uDC00"])(
     "canonicalizes an unpaired surrogate before preview and preserves both handoffs: %s",
@@ -187,6 +286,33 @@ describe("feedback privacy boundary", () => {
     );
     expect(result.findings).toEqual([]);
     expect(result.draft.body).toContain("alice@example.com");
+  });
+
+  it.each([
+    "Please reply to alice12345678901234567890@example.com",
+    "Please reply to alice+feedback12345678901234567890@mail.example.com",
+    "username alice12345678901234567890",
+    "Crash reference abcdefghijklmnopqrstuvwxyz123456",
+  ])("preserves explicitly typed identity or ordinary reference text: %s", (text) => {
+    const reviewed = createFeedbackDraft(
+      text,
+      BUILD_BLOCK,
+      DEFAULT_SUBJECT,
+      REDACTED_VALUE,
+    );
+    expect(reviewed.findings).toEqual([]);
+    expect(reviewed.draft.body).toContain(text);
+    for (const channel of ["email", "github"] as const) {
+      const handoff = buildFeedbackHandoffUrl(
+        channel,
+        reviewed.draft,
+        REDACTED_VALUE,
+      );
+      expect(handoff.status).toBe("ready");
+      if (handoff.status !== "ready") continue;
+      const fields = new URLSearchParams(handoff.url.slice(handoff.url.indexOf("?") + 1));
+      expect(fields.get("body")).toBe(reviewed.draft.body);
+    }
   });
 
   it.each([

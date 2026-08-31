@@ -45,8 +45,20 @@ async function defaultOpenExternal(url: string): Promise<void> {
     await openUrl(url);
     return;
   }
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!navigator.onLine) throw new Error("Browser is offline");
+  // `noopener` deliberately makes Chromium return null even when the target
+  // opened, so it cannot distinguish success from popup rejection. Open a
+  // same-origin blank synchronously, sever its opener immediately, then
+  // navigate only the detached context.
+  const opened = window.open("about:blank", "_blank");
   if (opened === null) throw new Error("External app handoff was rejected");
+  try {
+    opened.opener = null;
+    opened.location.replace(url);
+  } catch (error) {
+    opened.close();
+    throw error;
+  }
 }
 
 async function defaultCopyText(text: string): Promise<void> {

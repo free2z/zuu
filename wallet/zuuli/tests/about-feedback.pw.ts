@@ -10,9 +10,16 @@ declare global {
 async function captureExternalOpen(page: Page, succeeds = true) {
   await page.addInitScript((allowOpen) => {
     window.__feedbackOpenedUrl = undefined;
-    window.open = ((url?: string | URL) => {
-      window.__feedbackOpenedUrl = String(url ?? "");
-      return allowOpen ? window : null;
+    window.open = (() => {
+      if (!allowOpen) return null;
+      return {
+        opener: window,
+        location: {
+          replace(url: string | URL) {
+            window.__feedbackOpenedUrl = String(url);
+          },
+        },
+      } as unknown as Window;
     }) as typeof window.open;
   }, succeeds);
 }
@@ -165,12 +172,48 @@ test("private email remains explicit and uses the same reviewed subject and body
   expect(parameters.get("body")).toBe(body);
 });
 
+test("real Chromium popup receives the exact online GitHub draft without a false failure", async ({
+  context,
+  page,
+}) => {
+  await context.route("https://github.com/free2z/zuu/issues/new**", async (route) => {
+    await route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Captured GitHub draft</title>",
+    });
+  });
+  await openComposer(page);
+  await page.getByRole("radio", { name: /Public GitHub issue/ }).check();
+  await page.getByLabel("What happened?").fill("Real popup parity report.");
+  await page.getByRole("button", { name: "Review report" }).click();
+  const reviewedSubject = await page
+    .getByLabel("Outgoing subject or title")
+    .inputValue();
+  const reviewedBody = await page.getByLabel("Outgoing body").inputValue();
+
+  const popupPromise = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "Continue to chosen app" }).click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  const opened = new URL(popup.url());
+  expect(opened.origin + opened.pathname).toBe(
+    "https://github.com/free2z/zuu/issues/new",
+  );
+  expect(opened.searchParams.get("title")).toBe(reviewedSubject);
+  expect(opened.searchParams.get("body")).toBe(reviewedBody);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("region", { name: /Review the complete outgoing/ })
+      .getByRole("status"),
+  ).toContainText("ZUULI cannot know whether you submit it");
+});
+
 test("offline handoff failure preserves the exact reviewed report and copy fallback", async ({
   context,
   page,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await captureExternalOpen(page, false);
   await openComposer(page);
   await page.getByRole("radio", { name: /Public GitHub issue/ }).check();
   await page
