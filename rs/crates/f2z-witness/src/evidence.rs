@@ -21,6 +21,7 @@
 //! The witness signs its own reports. That is deliberate: §7.3 — *"a witness
 //! that cries wolf is on the record too."*
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -39,7 +40,13 @@ use crate::error::{Result, WitnessError};
 /// `Vec<SignedTreeHead>` of the same type in adjacent positions, and getting
 /// them the wrong way round would produce a report that reads as an accusation
 /// against the witness's own history. Named fields make that a compile error.
-#[derive(Clone, Copy, Debug)]
+///
+/// `Debug` is hand-written below rather than derived: `detail` is a bare
+/// `&[u8]` — the raw `append_only_failure` proof bytes — and a derived `Debug`
+/// would render it as a decimal byte dump, exactly the leak class
+/// `f2z-codec`'s redaction doctrine exists to close (`workspace_debug_scan`
+/// found this one, #636).
+#[derive(Clone, Copy)]
 pub struct Finding<'a> {
     /// The witness making the accusation. Inside the signed bytes, so a report
     /// cannot be re-attributed.
@@ -59,6 +66,23 @@ pub struct Finding<'a> {
     pub detail: &'a [u8],
     /// The witness's clock.
     pub observed_at_ms: u64,
+}
+
+impl fmt::Debug for Finding<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Finding")
+            .field("witness_pk", &self.witness_pk)
+            .field("log_id", &self.log_id)
+            .field("kind", &self.kind)
+            .field("held", &self.held)
+            .field("served", &self.served)
+            .field(
+                "detail",
+                &format_args!("<redacted; {} bytes>", self.detail.len()),
+            )
+            .field("observed_at_ms", &self.observed_at_ms)
+            .finish()
+    }
 }
 
 /// Where a witness writes what it found, and what it said.
