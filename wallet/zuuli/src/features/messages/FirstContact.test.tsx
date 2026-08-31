@@ -58,6 +58,7 @@ const CONVERSATION: Conversation = {
   receiptPolicy: { deliveryReceipts: true, readReceipts: false },
   hasGaps: false,
   transportHealth: "ok",
+  compromiseRelayUrl: null,
 };
 
 let root: Root;

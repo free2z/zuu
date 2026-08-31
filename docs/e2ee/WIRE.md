@@ -226,6 +226,14 @@ like an attack and behaves like one.
    was not received has **unknown** status and MUST be retried under the retry
    rules in §8.3 and §7.3.
 
+`BIND_SEND` needs durable state because it is once-only. A new or replacement
+advert starts `Fresh`; before sending its first bind, the client MUST durably
+write `OutcomeUnknown`. A successful bind durably becomes `Confirmed`. A
+client that cannot durably establish freshness MUST interpret the state
+conservatively as `OutcomeUnknown`. Thus a failed preflight write sends no
+bind, while a crash after the relay applied one cannot turn an honest retry
+into theft evidence.
+
 A relay MUST cap the time between TCP accept and a valid `HELLO`
 (`handshake_timeout_ms`, default 10 000) and close on expiry.
 
@@ -707,7 +715,7 @@ is bounded by what the commands do:
 | `READ` | No-op; reads do not mutate. Reveals nothing the operator does not hold. |
 | `DELETE_QUEUE` | No-op after the first. |
 | `CREATE_QUEUE` | A second queue, at the operator's own expense, with addresses only the operator learns. |
-| `BIND_SEND` | No-op after the first (§7.3). |
+| `BIND_SEND` | Once-only: a replay after the first returns `ERR_ALREADY_BOUND`. A client retrying a durably unknown outcome handles that response internally under §7.3. |
 
 So the residual is "duplicate or no-op, at the operator's expense, against an
 adversary who could already refuse service." That is acceptable. It is **not**
@@ -1129,6 +1137,22 @@ signature by that key, forever.
 "reset by the recv key". A queue whose send side is bound to the wrong key is
 dead and must be replaced by a new queue (§7.5).
 
+There is one narrow retry rule for a durable `OutcomeUnknown`: retry
+`BIND_SEND` with the same key. Success confirms the binding directly. If the
+relay returns `ERR_ALREADY_BOUND`, the client MUST consume that response
+internally and issue a same-key `APPEND`; a successful `APPEND` confirms the
+binding under the protocol's authorization semantics and the client durably
+records `Confirmed`. If that `APPEND` is unavailable or its outcome is unknown,
+the bind remains `OutcomeUnknown`; the client neither emits a public protocol
+error nor accuses the relay of theft. This exception is reconciliation of an
+operation that may already have succeeded, not permission for an ordinary
+second bind.
+
+If the same-key `APPEND` returns status 0 but the client's auxiliary
+`Confirmed` store write fails, §8.4 still makes that message `accepted`. The
+bind remains durably `OutcomeUnknown`, and a later send repeats the safe
+reconciliation; local bookkeeping MUST NOT rewrite relay acceptance as failure.
+
 The alternative — letting the recv-side key rebind — was rejected because it
 turns the recv key into a control over the send side, and the recv key is the
 one that lives on the recipient's device with the ability to drain the queue. We
@@ -1137,36 +1161,47 @@ to recover from a failure that has a clean, cheap alternative: make a new queue.
 
 ### 7.4 The consequence, said plainly
 
-**A relay operator who reads `send_addr` out of its own database and calls
-`BIND_SEND` first steals the write capability.** The legitimate sender then gets
-`ERR_ALREADY_BOUND`, and the operator can append whatever it likes to the
-recipient's queue.
+**Anyone who learns `send_addr` and calls `BIND_SEND` first takes the write
+capability.** A malicious relay operator can do that by reading its own database,
+but so can any holder of a leaked, observed, or decommissioned address. The
+legitimate sender then gets `ERR_ALREADY_BOUND`, and the winning key can append
+whatever it likes to the recipient's queue.
 
 The client rule is therefore: **`ERR_ALREADY_BOUND` on a first bind attempt for
 an address that arrived in a fresh `queue_advert` is a loud, non-dismissible
 failure.** Not a retry, not a warning toast, not a log line. The conversation is
 marked as compromised at the transport layer, the queue is abandoned, and the
-user is told that the relay it names behaved incorrectly.
+user is shown the relay that returned the result. The observable fact is only
+that the fresh address was already bound to another or unknown key; the result
+does not identify who performed that bind.
+
+The durable `OutcomeUnknown` reconciliation in §7.3 is deliberately excluded:
+its `ERR_ALREADY_BOUND` is ambiguous rather than theft evidence and is never
+exposed through the public error mapper. Any ordinary later bind remains a
+client protocol defect.
 
 **This does not prevent the theft of the write capability. It makes it noisy.**
-The operator gets the capability; what it does not get is silence. That is the
-entire property, and it should be read as exactly that much and no more:
+The winning key holder gets the capability; what it does not get is silence.
+That is the entire property, and it should be read as exactly that much and no
+more:
 
-- The operator cannot **read** the queue — `send_addr` authorizes `APPEND` only,
+- The holder cannot **read** the queue — `send_addr` authorizes `APPEND` only,
   and the recv key is not derivable from it
   ([`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues)).
-- Anything the operator appends fails MLS authentication at the recipient, so it
+- Anything the holder appends fails MLS authentication at the recipient, so it
   is garbage, not forgery
   ([`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)).
-- What the operator gains is the ability to **deny** the legitimate sender its
+- What the holder gains is the ability to **deny** the legitimate sender its
   queue, and to fill the recipient's quota. Both are denial of service, which the
   operator already had by simply refusing to serve.
-- What the design buys is that the denial is **attributable to a specific relay
-  at a specific moment**, rather than presenting as flaky delivery.
+- What the design buys is that the refusal is **attributable to a specific relay
+  at a specific moment**, rather than presenting as flaky delivery. It does not
+  attribute the winning key to that relay.
 
-An operator willing to be caught can do this. Nothing here stops it. The relevant
-comparison is not "secure versus insecure" but "detected versus undetected", and
-the same comparison governs
+A malicious relay operator is one possible winning holder and can do this
+without being prevented. A holder who learned the address elsewhere can do the
+same. The relevant comparison is not "secure versus insecure" but "detected
+versus undetected", and the same comparison governs
 [`THREAT-MODEL.md` §4.5](./THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable).
 
 A partial narrowing that was considered and **not** adopted in v1: requiring the
@@ -1184,6 +1219,11 @@ than rediscovered later.
 Queue rotation is: **create a new queue, advertise it in-band, delete the old
 one.** There is no `ROTATE` command and there should not be one.
 
+An authenticated replay of the same relay and send-address bytes is idempotent:
+it preserves the existing bind state and any active compromise. Only a genuinely
+distinct replacement address enters `Fresh` and abandons the old queue's active
+transport state; the historical alarm from §7.4 remains non-dismissible.
+
 ```
 1. Recipient: CREATE_QUEUE           → (recv_addr', send_addr')
 2. Recipient: queue_advert{ send_addr', replaces: [send_addr] }   (inside MLS)
@@ -1192,30 +1232,25 @@ one.** There is no `ROTATE` command and there should not be one.
 5. Recipient: drains recv_addr, then DELETE_QUEUE on recv_addr
 ```
 
-The schedule is the `free2z/queue/v1` exporter of
-[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets),
-with context `peer_leaf_index`, so both sides know a rotation is due at the same
-moment without negotiating it.
+Queue capability signing keys are endpoint-owned and independently generated or
+derived; they are not shared MLS exporter outputs. The authenticated advert
+carries the relay, address, and rotation intent, never a private recv or send
+capability key. On a genuinely distinct advert the sender MUST install a fresh
+CSPRNG signing seed before binding; an identical authenticated replay preserves
+the existing seed and state.
 
-**A narrowing of §5.4 that must be stated.** `ARCHITECTURE.md` §5.4's table says
-the queue exporter *"derives the next queue addresses without a round trip."*
-Under §7.1 that is no longer accurate, and the docs should not be read as though
-it were. What the exporter derives is the **rotation schedule and the next queue
-signing keys**:
-
-```
-rot = MLS-Exporter("free2z/queue/v1", peer_leaf_index || rotation_counter, 64)
-      → (next_recv_queue_key_seed, next_send_queue_key_seed)
-```
-
-The **addresses still come from the relay**, and the new `send_addr` still has to
-reach the peer in an advert. So rotation costs one relay round trip and one
-in-band message that the pair was not otherwise sending. That is the price of
-refusing client-chosen addresses (§7.1), it is small — one message per rotation
-period, against a conversation that is exchanging messages anyway — and it is
-recorded here rather than left as a contradiction between two documents. The
-tracking note is in
-[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets).
+`free2z/queue/v1` is reserved for a future synchronized rotation schedule. No
+durable counter or advert field synchronizes such an exporter schedule in v1,
+and the shipping path does not invoke that exporter, so this document does not
+claim such a schedule is active. The shipping engine can consume a distinct
+authenticated advert and safely replace its outbound queue, but it does not
+automate this section's full create/advertise/`valid_from_epoch`/overlap/drain
+flow. The address still comes
+from the relay and the new `send_addr` still has to reach the peer in an advert,
+so a complete rotation costs one relay round trip and one in-band message. This
+deliberate architecture correction is recorded in
+[`ARCHITECTURE.md` §5.4](./ARCHITECTURE.md#54-exporter-derived-application-secrets)
+and [ADR 0009](./decisions/0009-queue-addressing-and-binding.md).
 
 Overlap: the old queue MUST remain readable until the recipient has drained it.
 The sender switches at `valid_from_epoch`; the recipient deletes only after the

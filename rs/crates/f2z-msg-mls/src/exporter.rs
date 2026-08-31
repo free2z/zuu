@@ -9,7 +9,7 @@
 //! |---|---|---|
 //! | FROST/DKG (§11) | `free2z/frost/v1` | `ceremony_id` |
 //! | WebRTC binding (§10) | `free2z/webrtc/v1` | `session_id` |
-//! | Queue rotation (§6.2) | `free2z/queue/v1` | `peer_leaf_index` |
+//! | Queue rotation (§6.2) | `free2z/queue/v1` | reserved; not shipping |
 //! | Local history wrap | `free2z/history/v1` | `conversation_id` |
 //!
 //! # Why an enum and not four `&str` constants
@@ -36,11 +36,14 @@
 //! An earlier revision of §5.4 said the queue exporter "derives the next queue
 //! addresses without a round trip". [ADR 0009][adr9] has the **relay** generate
 //! both addresses from its own CSPRNG, because client-chosen addresses permit
-//! squatting and collisions. So `free2z/queue/v1` derives the rotation
-//! *schedule* and the next queue *signing keys*; the address comes back from
-//! the relay. That does not change this label or its context — it changes what
-//! the caller does with the bytes — and it is restated here so nobody
-//! re-derives an address from it.
+//! squatting and collisions. Queue capability signing keys are endpoint-owned
+//! and independently generated or derived; they are not shared exporter output.
+//! The authenticated advert carries relay/address/rotation intent, never a
+//! private key. `free2z/queue/v1` remains reserved for a future synchronized
+//! schedule, but no durable counter or advert field synchronizes such an
+//! exporter schedule in v1 and the shipping queue path does not call it.
+//! Keeping the enum member reserves the domain; it does not claim the schedule
+//! exists.
 //!
 //! [adr9]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0009-queue-addressing-and-binding.md
 
@@ -54,9 +57,9 @@ pub enum ExportLabel {
     /// WebRTC binding (§10). Context: `session_id`. Binds DTLS fingerprints to
     /// the group.
     Webrtc,
-    /// Queue rotation (§6.2). Context: `peer_leaf_index`. The rotation
-    /// *schedule* and the next queue *signing keys* — **not** the address; see
-    /// the module note.
+    /// Queue rotation (§6.2), reserved for a future synchronized schedule.
+    /// Neither a context format nor a shipping use is defined in v1; see the
+    /// module note.
     Queue,
     /// Local history wrap. Context: `conversation_id`. The at-rest key for
     /// retained plaintext.
