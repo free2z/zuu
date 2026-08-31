@@ -74,6 +74,7 @@ describe("app navigation information architecture", () => {
         MESSAGE_KEYS.navRevenueShare,
         null,
       ],
+      ["about", MESSAGE_KEYS.navAbout, MESSAGE_KEYS.navAboutAccessible, null],
       ["sign-in", MESSAGE_KEYS.navLogin, MESSAGE_KEYS.navLogin, null],
       [
         "more",
