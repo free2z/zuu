@@ -62,7 +62,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:sk-proj-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/gu,
   /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?:\.[A-Za-z0-9_-]{6,})?\b/gu,
   /\botpauth:\/\/\S+/giu,
-  /\b(?:secret-extended-key-(?:main|test)|zxviews|zxviewtestsapling|uview(?:test|regtest)?|usk(?:test|regtest)?|uvk|spendingkey|viewingkey)1[0-9a-z]{20,}\b/giu,
+  /\b(?:secret-extended-key-(?:main|test)|zxviews|zxviewtestsapling|uview(?:test|regtest)?|uivk(?:test|regtest)?|usk(?:test|regtest)?|spendingkey|viewingkey)1[0-9a-z]{20,}\b/giu,
   /\b(?:(?:u|utest|uregtest)1[0-9a-z]{40,}|zs1[0-9a-z]{40,}|ztestsapling1[0-9a-z]{40,}|t[13][1-9A-HJ-NP-Za-km-z]{25,34})\b/giu,
   /\bz[ct][1-9A-HJ-NP-Za-km-z]{80,100}\b/gu,
   /\b(?:tm|t2)[1-9A-HJ-NP-Za-km-z]{25,40}\b/gu,
@@ -76,6 +76,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:ZEC|zatoshi(?:s)?|2Zs?)\s*\d[\d,.]*\b/giu,
   /\b(?:payment\s+for|copied\s+text|pasted\s+text)\b[^\n]*/giu,
   /\b(?:IMEI|Android\s+ID)\b\s*(?:(?:=|:|is)\s*)?[A-Fa-f0-9]{14,16}\b/giu,
+  /\b(?:serial\s+(?:number|no\.?)|device\s+serial)\b\s*(?:(?:=|:|is)\s*)?(?=[A-Za-z0-9-]{6,}\b)(?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]+\b/giu,
 ];
 
 const NETWORK_PATTERNS: readonly RegExp[] = [
@@ -84,6 +85,7 @@ const NETWORK_PATTERNS: readonly RegExp[] = [
   /\b(?:https?|wss?):\/\/[^\s]+/giu,
   /\blocalhost(?::\d+)?\b/giu,
   /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:[/?#][^\s]*)?/giu,
+  /(?:[\p{Letter}\p{Number}](?:[\p{Letter}\p{Number}-]{0,61}[\p{Letter}\p{Number}])?\.)+[\p{Letter}]{2,63}/gu,
   /\b(?:host(?:name)?|ip(?:\s+address)?|ssid|network)\s*(?:=|:|is\b)\s*[^\n]+/giu,
 ];
 
@@ -157,18 +159,19 @@ function shannonEntropy(value: string): number {
 }
 
 function hasTotpShapedValue(value: string): boolean {
-  return [...value.matchAll(/\b[A-Z2-7]{16,64}={0,6}\b/gu)].some(
+  return [...value.matchAll(/\b[A-Z2-7]{16,64}={0,6}\b/giu)].some(
     ([candidate]) => {
+      const upperCandidate = candidate.toUpperCase();
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-      const sequential = [...candidate].every(
+      const sequential = [...upperCandidate].every(
         (character, index) =>
           index === 0 ||
           alphabet.indexOf(character) ===
-            (alphabet.indexOf(candidate[index - 1]) + 1) % alphabet.length,
+            (alphabet.indexOf(upperCandidate[index - 1]) + 1) % alphabet.length,
       );
       return (
         !sequential &&
-        (/[2-7]/u.test(candidate) || shannonEntropy(candidate) >= 3.5)
+        (/[2-7]/u.test(upperCandidate) || shannonEntropy(upperCandidate) >= 3.5)
       );
     },
   );
@@ -286,26 +289,14 @@ function decodeBase64Bytes(value: string): Uint8Array | undefined {
 }
 
 function hasBase64EncodedPrivateEntropy(value: string): boolean {
-  const compact = value.replace(/\s+/gu, "");
   const bytes = decodeBase64Bytes(value);
-  if (
-    bytes === undefined ||
-    !/[A-Z]/u.test(compact) ||
-    !/[a-z]/u.test(compact) ||
-    !/[0-9+/_-]/u.test(compact) ||
-    ![16, 20, 24, 28, 32, 48, 64].includes(bytes.byteLength)
-  ) {
-    return false;
-  }
-  try {
-    // Text encodings continue through the ordinary decoded-content scanner.
-    // Opaque binary at a standard seed/private-key entropy length cannot be
-    // safely distinguished from private material, so the boundary fails shut.
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return false;
-  } catch {
-    return true;
-  }
+  // Any canonical encoding at a standard seed/private-key byte length is
+  // indistinguishable from private entropy. Printability and UTF-8 validity
+  // are attacker-controlled, so the boundary fails shut on length alone.
+  return (
+    bytes !== undefined &&
+    [16, 20, 24, 28, 32, 48, 64].includes(bytes.byteLength)
+  );
 }
 
 function decodeBase64(value: string): string | undefined {
@@ -389,10 +380,18 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   const findings = new Set<ScrubFinding>();
   let text = value.normalize("NFKC").replace(/\r\n?/gu, "\n");
   const allowedEmails: string[] = [];
+  const allowedReferences: string[] = [];
   text = text.replace(ALLOWED_EMAIL, (email) => {
     const index = allowedEmails.push(email) - 1;
     return `zuuliAllowedEmail${index}Placeholder`;
   });
+  text = text.replace(
+    /\b((?:crash|error|support)\s+reference\s+)([a-z]{8,40}\d{2,12})\b/giu,
+    (_match, label: string, reference: string) => {
+      const index = allowedReferences.push(reference) - 1;
+      return `${label}zuuli-allowed-reference-${index}`;
+    },
+  );
   const withoutInvisible = text
     .replace(DEFAULT_IGNORABLE_CHARACTERS, "")
     .replace(COMBINING_OVERLAYS, "");
@@ -442,6 +441,10 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   if (findings.size > 0) return { text: redactedValue, findings: [...findings] };
   text = text.replace(/zuuliAllowedEmail(\d+)Placeholder/gu, (_match, index) =>
     allowedEmails[Number(index)] ?? redactedValue,
+  );
+  text = text.replace(
+    /zuuli-allowed-reference-(\d+)/gu,
+    (_match, index) => allowedReferences[Number(index)] ?? redactedValue,
   );
   return { text, findings: [] };
 }

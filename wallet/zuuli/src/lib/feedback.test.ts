@@ -161,11 +161,21 @@ describe("feedback privacy boundary", () => {
     "uregtest15xk7vj4grjkay6mnfl93dhsflc2yeunhxwdh38rul0rq3dfhzzxgm5szjuvtqdha4t4p2q02ks0jgzrhjkrav70z9xlvq0plpcjkd5z3",
     "uviewtest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
     "uviewregtest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "uivk1z28yg638vjwusmf0zc9ad2j0mpv6s42wc5kqt004aaqfu5xxxgu7mdcydn9qf723fnryt34s6jyxyw0jt7spq04c3v9ze6qe9gjjc5aglz8zv5pqtw58czd0actynww5n85z3052kzgy6cu0fyjafyp4sr4kppyrrwhwev2rr0awq6m8d66esvk6fgacggqnswg5g9gkv6t6fj9ajhyd0gmel4yzscprpzduncc0e2lywufup6fvzf6y8cefez2r99pgge5yyfuus0r60khgu895pln5e7nn77q6s9kh2uwf6lrfu06ma2kd7r05jjvl4hn6nupge8fajh0cazd7mkmz23t79w",
+    "uivktest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+    "uivkregtest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
     "contraseña: hunter",
     "IMEI 490154203237518",
     "Android ID = 9774d56d682e549c",
     "LNiZqQdeOqqL5ghssJ8QT5yDElWh5vJQaqEfNpu9cHM=",
     "LNiZqQdeOqqL5ghssJ8QT5yDElWh5vJQaqEfNpu9cHM",
+    "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=",
+    "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo",
+    "Z2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2c=",
+    "jbswy3dpehpk3pxp",
+    "JbSwY3DpEhPk3PxP",
+    "例え.テスト",
+    "Serial number: C02ZQ0ABC123",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -364,6 +374,8 @@ describe("feedback privacy boundary", () => {
     "Versión: beta123",
     "Aplicación: crashes2",
     "VGhpcyBpcyBhIHNhZmUgc3VwcG9ydCByZWZlcmVuY2Uu",
+    "Support reference -_v7-_v7-_v7-_v7-_v7",
+    "The serial number field is empty",
     "Ошибка при запуске",
     "Σφάλμα κατά την εκκίνηση",
   ])("preserves ordinary user prose: %s", (description) => {
