@@ -327,15 +327,20 @@ fn removing_one_proposal_leaves_the_other() {
     );
 }
 
-/// The defect this crate fixes relative to `openmls_memory_storage 0.5.0`.
+/// The defect this crate fixes relative to every released
+/// `openmls_memory_storage`, 0.6.0 included.
 ///
-/// Upstream's `clear_proposal_queue` removes a map key that nothing was ever
+/// The released `clear_proposal_queue` removes a map key that nothing was ever
 /// stored under — `serde_json::to_vec(&(group_id, proposal_ref))` with no label
 /// prefix and no version suffix — so the reference list is deleted and every
 /// serialised proposal body is left in the store forever. Ported faithfully
 /// that is an unbounded leak in every client's local database.
 ///
-/// This test is what would fail if someone "restored fidelity" with upstream.
+/// openmls/openmls#2163 fixed it on upstream `main` on 2026-08-31, after 0.6.0
+/// was published; `storage_impl.rs` carries the full status. The test stays
+/// either way — it guards this crate's own behaviour, and until a release
+/// newer than 0.6.0 carries that fix it is also what would fail if someone
+/// "restored fidelity" with the reference.
 #[test]
 fn clearing_the_queue_removes_the_proposal_bodies_and_not_only_the_references() {
     let store = provider();

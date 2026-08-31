@@ -347,6 +347,18 @@ name = "openmls_rust_crypto"
 # *hands it to OpenMLS*: `f2z-msg-mls::F2zProvider` implements `OpenMlsProvider`
 # itself and never constructs `openmls_libcrux_crypto::Provider`, so the
 # transaction-free store is linked and unreachable.
+#
+# The version matters to a reader for one reason, and it is worth stating so it
+# does not have to be rediscovered: the resolved **0.6.0** (published
+# 2026-08-25) still carries the `clear_proposal_queue` proposal-body leak that
+# `f2z-msg-store` fixes. openmls/openmls#2163 fixed it on upstream `main` on
+# 2026-08-31 — after that publish — so **no release contains the fix**. The exit
+# condition for the corresponding note in
+# `crates/f2z-msg-store/src/storage_impl.rs` is an `openmls_memory_storage`
+# release **newer than 0.6.0** whose `clear_proposal_queue` carries #2163 —
+# read the release's source rather than its version number, since nothing else
+# retires the note. Being unreachable here, the leak is not a supply-chain
+# finding: this is a pointer, not a ban.
 
 # =============================================================================
 # Sources. Everything resolves to crates.io. Making that a rule rather than a
