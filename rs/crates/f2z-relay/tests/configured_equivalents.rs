@@ -114,6 +114,11 @@ fn key(seed: u8) -> SigningKey {
 /// relay has authorized the signed queue identity. This goes through the
 /// production WebSocket listener and the production `RelayStore` lookup; the
 /// count is the live relay-wide seen-set, not a verifier fixture.
+///
+/// This is one of six `RelayState`-authorized commands wired through
+/// `f2z-relay/src/engine.rs`'s `verify_with` (§5's ordering added by #658):
+/// `SUBSCRIBE` (here), `UNSUBSCRIBE`, `READ`, `ACK`, `DELETE_QUEUE` and
+/// `APPEND` (below). Issue #659 found this guarantee tested for only this one.
 #[tokio::test(flavor = "multi_thread")]
 async fn denied_queue_authorization_does_not_commit_the_replay_key() {
     let server = relay(|_| {}).await;
@@ -131,6 +136,151 @@ async fn denied_queue_authorization_does_not_commit_the_replay_key() {
 
     let after = server.relay().sweep_memory(0).0;
     assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// `UNSUBSCRIBE`'s share of the same guarantee: a signed-but-unauthorized
+/// `UNSUBSCRIBE` must not consume the seen-set either.
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_unsubscribe_authorization_does_not_commit_the_replay_key() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x61).await;
+    let owner = key(0x62);
+    let intruder = key(0x63);
+    let queue = alice.create_queue(&owner, 0, 0, None).await.unwrap();
+    let before = server.relay().sweep_memory(0).0;
+
+    expect_code(
+        alice.unsubscribe(&intruder, queue.recv_addr).await,
+        ErrorCode::NoAccess,
+    )
+    .unwrap();
+
+    let after = server.relay().sweep_memory(0).0;
+    assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// `READ`'s share of the same guarantee.
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_read_authorization_does_not_commit_the_replay_key() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x64).await;
+    let owner = key(0x65);
+    let intruder = key(0x66);
+    let queue = alice.create_queue(&owner, 0, 0, None).await.unwrap();
+    let before = server.relay().sweep_memory(0).0;
+
+    expect_code(
+        alice.read(&intruder, queue.recv_addr, 0, 0, 0).await,
+        ErrorCode::NoAccess,
+    )
+    .unwrap();
+
+    let after = server.relay().sweep_memory(0).0;
+    assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// `ACK`'s share of the same guarantee.
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_ack_authorization_does_not_commit_the_replay_key() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x67).await;
+    let owner = key(0x68);
+    let intruder = key(0x69);
+    let queue = alice.create_queue(&owner, 0, 0, None).await.unwrap();
+    let before = server.relay().sweep_memory(0).0;
+
+    expect_code(
+        alice.ack(&intruder, queue.recv_addr, 0).await,
+        ErrorCode::NoAccess,
+    )
+    .unwrap();
+
+    let after = server.relay().sweep_memory(0).0;
+    assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// `DELETE_QUEUE`'s share of the same guarantee.
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_delete_queue_authorization_does_not_commit_the_replay_key() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x6a).await;
+    let owner = key(0x6b);
+    let intruder = key(0x6c);
+    let queue = alice.create_queue(&owner, 0, 0, None).await.unwrap();
+    let before = server.relay().sweep_memory(0).0;
+
+    expect_code(
+        alice.delete_queue(&intruder, queue.recv_addr).await,
+        ErrorCode::NoAccess,
+    )
+    .unwrap();
+
+    let after = server.relay().sweep_memory(0).0;
+    assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// `APPEND`'s share of the same guarantee, send side. A signer that never
+/// bound `send_addr` gets §6.3's collapsed `ERR_UNAVAILABLE`, not
+/// `ERR_NO_ACCESS` — the send-side lookup gives every refusal one code so a
+/// bound sender cannot learn queue state by filling it — but it must still not
+/// touch the seen-set before that refusal is decided.
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_append_authorization_does_not_commit_the_replay_key() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x6d).await;
+    let recv = key(0x6e);
+    let send = key(0x6f);
+    let intruder = key(0x70);
+    let queue = alice.create_queue(&recv, 0, 0, None).await.unwrap();
+    alice.bind_send(&send, queue.send_addr).await.unwrap();
+    let before = server.relay().sweep_memory(0).0;
+
+    expect_code(
+        alice
+            .append(&intruder, queue.send_addr, b"ciphertext")
+            .await,
+        ErrorCode::Unavailable,
+    )
+    .unwrap();
+
+    let after = server.relay().sweep_memory(0).0;
+    assert_eq!(after, before, "denied command entered the relay seen-set");
+    server.shutdown().await;
+}
+
+/// The padding-policy oracle #658 closed, named the way the issue asked: a
+/// correctly signed `APPEND` under an unrelated (never-bound) key, carrying a
+/// payload that is not one of the published padding buckets, must answer the
+/// same collapsed `ERR_UNAVAILABLE` an authorized-but-otherwise-identical
+/// refusal would — never `ERR_BAD_SIZE`, which would tell an attacker holding
+/// no relationship to this queue that their signature and framing were fine
+/// and only the padding was wrong, i.e. that the queue exists and is
+/// reachable at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn unauthorized_append_with_bad_padding_gets_collapsed_refusal_not_bad_size() {
+    let server = relay(|_| {}).await;
+    let mut alice = client(&server, 0x71).await;
+    let recv = key(0x72);
+    let send = key(0x73);
+    let intruder = key(0x74);
+    let queue = alice.create_queue(&recv, 0, 0, None).await.unwrap();
+    alice.bind_send(&send, queue.send_addr).await.unwrap();
+
+    let bucket = alice.padding().sizes().first().copied().unwrap_or(1024);
+    let odd_size = usize::try_from(bucket).unwrap_or(1024).saturating_sub(1);
+
+    expect_code(
+        alice
+            .append_raw_size(&intruder, queue.send_addr, odd_size)
+            .await,
+        ErrorCode::Unavailable,
+    )
+    .unwrap();
     server.shutdown().await;
 }
 
