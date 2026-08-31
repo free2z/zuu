@@ -1376,6 +1376,15 @@ deliberate.
     end state (a database-level `UniqueConstraint(Lower("username"))`) are in
     [`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted). The
     backend work is tracked in the deployment repository.
+  - **Candidate derivation and authoritative binding are two different claims,
+    and only the first ships (2026-08-31, #820).** "What handle would this
+    username become, and is it well-formed" is a pure, already-implemented,
+    already-safe function of the string
+    ([`WIRE.md` §14.1](./WIRE.md#141-proposed-rule),
+    `check_handle_eligibility`). "This account authoritatively owns that handle"
+    is what the census, collision resolution and database invariant above are
+    blocking, and this document does not treat the first as evidence for the
+    second.
 - **P. KT epoch cadence and maximum merge delay.** Opened 2026-08-23 by
   [`KT.md` §5](./KT.md#5-epochs-and-the-merge-promise). The values there — a
   600-second epoch published whether or not there is work, and a 3,600-second

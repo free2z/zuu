@@ -375,12 +375,12 @@ interface EnrollmentStatus {
 
 interface HandleEligibility {
   eligible: boolean;
-  candidate: string | null;        // lowercase(username), if it matches
+  candidate: string | null;        // ascii_lower(username), if it matches (§11.3, WIRE.md §14.1)
   reason:
     | null
-    | "punctuation"                // contains . @ + or - — the dominant cause (§11.3)
-    | "non-ascii"                  // contains a non-ASCII character
-    | "too-long"                   // > 30 chars after lowercasing
+    | "punctuation"                // contains . @ + or - — the dominant cause (§11.3); also the empty string
+    | "non-ascii"                  // raw username contains a non-ASCII byte, checked before folding
+    | "too-long"                   // > 30 chars after ascii_lower
     | "not-signed-in";
 }
 ```
@@ -389,7 +389,10 @@ interface HandleEligibility {
 prevalence and the UI should say the true specific thing: punctuation accounts
 for almost the whole of the ineligible population, non-ASCII and over-length for
 very little (§11.3). A single "invalid handle" string would be accurate and
-useless.
+useless. The empty string is `"punctuation"` — one fixed choice among these four
+values, since none of them means "empty" and nothing about that answer follows
+from the pattern alone; every implementation of this predicate, including the
+mock, MUST agree on it (`WIRE.md` §14.1).
 
 `f2zmsg_unenroll` takes a typed confirmation string, in the shape
 `discard_unrecoverable_send` already uses (`"I CHECKED WALLET HISTORY"`), because
@@ -1996,16 +1999,38 @@ against that. Three build rules follow.
   address, not an authentication, and first-contact copy should say so rather
   than implying the handle did the work.
 
-An account is eligible iff `lowercase(username)` matches the pattern. The
-argument originally given for folding case — that platform uniqueness is already
-enforced case-insensitively, so folding *cannot* collide two distinct existing
-accounts — **is false, and was retracted on the record**
+An account is eligible iff `ascii_lower(username)` matches the pattern —
+**`ascii_lower`, never a general "lowercase," and the distinction is load-
+bearing.** Reject the raw username if it is not ASCII, checked before any
+folding; only then fold ASCII `A`–`Z` to `a`–`z` and nothing else
+([`WIRE.md` §14.1](./WIRE.md#141-proposed-rule)). A locale- or Unicode-aware
+`lowercase()` folds some non-ASCII characters *to* ASCII — the Kelvin sign,
+U+212A, folds to `k` — which would let a non-ASCII username slip past this
+charset entirely, defeating the reason the charset exists. Older sentences in
+this document set that say `lowercase(username)` mean `ascii_lower(username)`
+in this exact sense.
+
+The argument originally given for folding case — that platform uniqueness is
+already enforced case-insensitively, so folding *cannot* collide two distinct
+existing accounts — **is false, and was retracted on the record**
 ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
 Case-insensitive uniqueness is an application convention living in two
 serializers, not a property of the database, and folding case does collide real
 accounts today. The eligibility *rule* is unchanged and uppercase still
 disqualifies nobody; what does not hold is that the mapping is injective, and
 the client consequences of that are spelled out below.
+
+**What this predicate answers, and what it does not.** `ascii_lower(username)
+matches the pattern` is candidate derivation: a pure function of the string,
+implemented and safe to ship as
+`tauri-plugin-f2zmsg`'s `handle.rs::eligibility`, exposed as
+`check_handle_eligibility` below. It asserts nothing about who owns a handle in
+the directory — that is authoritative publication, and it remains blocked on
+backend work this contract does not do (the corrected census below, the
+collision groups §14.3 of `WIRE.md` found in production, and a database-level
+uniqueness invariant that does not exist yet). A client MUST NOT treat
+`check_handle_eligibility` returning `eligible: true` as a reservation or a
+guarantee that enrollment will succeed — only as "this string is well-formed."
 
 free2z usernames are considerably broader — Django's `^[\w.@+-]+$` up to 150
 characters — so **existing accounts containing `.`, `@`, `+`, `-`, any non-ASCII
@@ -2030,14 +2055,21 @@ one is still active**: this is not a set of dead rows, it is roughly a tenth of
 real, current users. Design the ineligible state as a state a tenth of users
 will see, because it is one.
 
-Two things the frontend must not infer from that number:
+Three things the frontend must not infer from that number:
 
+- **It is not a live guarantee about today's account population.** This is a
+  historical figure from one query against production on 2026-08-23, and this
+  repository cannot re-run it: registrations continue, and `WIRE.md` §14.3's
+  collision groups — found by the same query — are expected to be resolved
+  before the mapping ships, which moves the eligible share without updating
+  this table. Treat it as the evidence that motivated the design below, not as
+  a number to cite as current.
 - **It is not a temporary gap awaiting a migration.** Whether that ~10% is
   excluded from messaging discovery in v1 or served by a separate opt-in
   messaging handle is an **undecided product question**
   ([§13-O](./ARCHITECTURE.md#13-open-questions), §13-K). Do not write copy that
   promises either outcome.
-- **`lowercase(username)` is not yet a unique key.** Case-insensitive username
+- **`ascii_lower(username)` is not yet a unique key.** Case-insensitive username
   uniqueness lives in two serializers and **not in the database**, and
   production holds case-variant duplicate accounts today, in more than one
   group ([`WIRE.md` §14.3](./WIRE.md#143-the-decision-and-the-cost-accepted)).
