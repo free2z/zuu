@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  configureFormattingLocale,
+  formatDate,
   formatZec,
   MAX_COMMENT_TUZIS,
   MAX_MEMBER_PRICE_TUZIS,
@@ -8,9 +10,11 @@ import {
   MAX_ZEC_INPUT_LENGTH,
   parseTuzis,
   parseZecToZatoshis,
+  timeAgo,
   tuziInputMaxLength,
   validateTuzis,
 } from "./format";
+import { afterEach, beforeEach, vi } from "vitest";
 
 // `parseTuzis` is locale-dependent now (#324), so tests asserting on ASCII
 // commas have to pin `locale: "en-US"` instead of relying on the runner's
@@ -173,5 +177,43 @@ describe("formatZec", () => {
   it("rejects values that cannot represent an exact zatoshi amount", () => {
     expect(() => formatZec(1.5)).toThrow(RangeError);
     expect(() => formatZec(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
+});
+
+describe("localized date and relative-time formatting", () => {
+  beforeEach(() => {
+    configureFormattingLocale("en-US", "Pending");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-02-11T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses the bootstrapped pending label and explicit date-time fields", () => {
+    expect(formatDate(null)).toBe("Pending");
+    const timestamp = Date.parse("2025-01-02T15:04:00Z") / 1000;
+    const expected = new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(timestamp * 1000);
+    expect(formatDate(timestamp)).toBe(expected);
+  });
+
+  it("uses Intl.RelativeTimeFormat instead of English suffix concatenation", () => {
+    const threeMinutesAgo = Date.parse("2025-02-11T11:57:00Z") / 1000;
+    expect(timeAgo(threeMinutesAgo, "en")).toBe("3 minutes ago");
+    expect(timeAgo(threeMinutesAgo, "es")).toBe("hace 3 minutos");
+    expect(timeAgo("2025-02-11T12:00:00Z", "fr")).toBe("maintenant");
+    expect(timeAgo("2025-02-11T12:03:00Z", "en")).toBe("in 3 minutes");
+  });
+
+  it("uses an explicit calendar-date context beyond the relative window", () => {
+    const old = Date.parse("2025-01-01T01:02:03Z") / 1000;
+    expect(timeAgo(old, "en-US")).toBe("Jan 1, 2025");
   });
 });

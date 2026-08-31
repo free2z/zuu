@@ -8,12 +8,12 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { NotFound } from "@/components/common/NotFound";
+import { RouteFallback } from "@/components/common/RouteFallback";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { auth, tuzi } from "@/lib/api/free2z";
@@ -50,18 +50,6 @@ const SearchFeature = lazy(() => import("@/features/search"));
 const CreatorFeature = lazy(() => import("@/features/creator"));
 const ProfileFeature = lazy(() => import("@/features/profile"));
 const KycFeature = lazy(() => import("@/features/kyc"));
-
-function RouteFallback() {
-  return (
-    <div
-      className="flex min-h-[40vh] w-full items-center justify-center"
-      role="status"
-      aria-label="Loading"
-    >
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden />
-    </div>
-  );
-}
 
 /** Keep old links/bookmarks working while funding now lives inside Wallet. */
 function LegacyBuyRedirect() {
