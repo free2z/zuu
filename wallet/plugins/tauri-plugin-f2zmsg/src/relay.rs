@@ -62,7 +62,7 @@ use f2z_relay_proto::hello::{RelaySession, verify_hello_response};
 use f2z_relay_proto::inflight::InFlight;
 use f2z_relay_proto::key::SigningKey;
 use futures_util::{SinkExt as _, StreamExt as _};
-use rand::RngCore as _;
+use rand::Rng as _;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 

@@ -907,7 +907,7 @@ dependencies = [
  "f2z-relay-store",
  "f2z-relay-testkit",
  "futures-util",
- "rand 0.9.5",
+ "rand 0.10.2",
  "serde",
  "tls_codec",
  "tokio",

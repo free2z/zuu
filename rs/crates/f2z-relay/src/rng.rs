@@ -15,7 +15,7 @@
 //! relay by a build-flag mistake.
 
 use f2z_codec::types::{Challenge, QueueAddress};
-use rand::TryRngCore as _;
+use rand::TryRng as _;
 
 /// Fill a buffer from the operating system's CSPRNG.
 ///
@@ -24,17 +24,17 @@ use rand::TryRngCore as _;
 /// The OS refused to provide randomness. A relay that cannot draw an
 /// unpredictable address must not invent one, so every caller propagates this
 /// rather than falling back.
-fn fill(buffer: &mut [u8; 32]) -> Result<(), rand::rand_core::OsError> {
-    rand::rngs::OsRng.try_fill_bytes(buffer)
+fn fill(buffer: &mut [u8; 32]) -> Result<(), rand::rngs::SysError> {
+    rand::rngs::SysRng.try_fill_bytes(buffer)
 }
 
 /// A fresh queue address (§7.1).
 ///
 /// # Errors
 ///
-/// [`rand::rand_core::OsError`] if the operating system refused. The caller
+/// [`rand::rngs::SysError`] if the operating system refused. The caller
 /// answers `ERR_INTERNAL`; §10 says that code carries no detail, ever.
-pub fn queue_address() -> Result<QueueAddress, rand::rand_core::OsError> {
+pub fn queue_address() -> Result<QueueAddress, rand::rngs::SysError> {
     let mut bytes = [0u8; 32];
     fill(&mut bytes)?;
     Ok(QueueAddress::new(bytes))
@@ -45,7 +45,7 @@ pub fn queue_address() -> Result<QueueAddress, rand::rand_core::OsError> {
 /// # Errors
 ///
 /// As [`queue_address`].
-pub fn challenge() -> Result<Challenge, rand::rand_core::OsError> {
+pub fn challenge() -> Result<Challenge, rand::rngs::SysError> {
     let mut bytes = [0u8; 32];
     fill(&mut bytes)?;
     Ok(Challenge::new(bytes))
@@ -56,7 +56,7 @@ pub fn challenge() -> Result<Challenge, rand::rand_core::OsError> {
 /// # Errors
 ///
 /// As [`queue_address`].
-pub fn seed() -> Result<[u8; 32], rand::rand_core::OsError> {
+pub fn seed() -> Result<[u8; 32], rand::rngs::SysError> {
     let mut bytes = [0u8; 32];
     fill(&mut bytes)?;
     Ok(bytes)

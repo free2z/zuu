@@ -53,7 +53,7 @@ blake2 = { version = "0.10", default-features = false }
 # refused to pay for CBOR.
 #
 # **The bump is byte-compatible with 0.4.2, and that was measured rather than
-# assumed** (#853). 0.5.0's only breaking change on the surface this tree uses
+# assumed** (#854). 0.5.0's only breaking change on the surface this tree uses
 # is the *method* rename `SerializeBytes::tls_serialize` →
 # `tls_serialize_bytes`; every encode path we reach — the derived
 # `SerializeBytes`, the integer `to_be_bytes`, `[u8; N]`, `TlsByteVecU8/16/24`,
