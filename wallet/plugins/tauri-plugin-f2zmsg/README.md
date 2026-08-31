@@ -216,8 +216,9 @@ crate is referenced in `zcash_primitives`' source at all.
 So, per `AGENTS.md`'s "branch, PR, pin, resume", **two transient pins**:
 
 * `z/zcash/librustzcash` → **free2z/librustzcash**
-  `f2z/drop-stale-rustcrypto-rc-pins`: upstream `main` at the previously
-  reviewed `330e4c0` plus that 4-line deletion.
+  `f2z/drop-stale-rustcrypto-rc-pins`: upstream `main` at the currently
+  reviewed `91f448b` plus that 4-line deletion, offered upstream as
+  zcash/librustzcash#3010 and rebased forward as upstream `main` moves.
 * `[patch.crates-io] bip32` → **free2z/crates** `f2z/bip32-secp256k1-0.29`,
   pinned by `rev`. iqlusioninc/crates `main` already moved bip32 onto the
   released RustCrypto lines — but the same branch bumped `secp256k1-ffi`
