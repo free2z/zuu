@@ -146,6 +146,14 @@ describe("feedback privacy boundary", () => {
     "Copied text was hunter2",
     "I have ZEC 42 available",
     "Connected to localhost",
+    "zc8E5gYid86n4bo2Usdq1cpr7PpfoJGzttwBHEEgGhGkLUg7SPPVFNB2AkRFXZ7usfphup5426dt1buMmY3fkYeRrQGLa8y",
+    "tm9iMLAuYMzJ6jtFLcA7rzUmfreGuKvr7Ma",
+    "t26YoyZ1iPgiMEWL4zGUm74eVWfhyDMXzY2",
+    "5HpHagT65TZzG1PH3CSu63k8DbpvD8s5ip4nEB3kEsreAnchuDf",
+    "npm_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "IMEI: 490154203237518",
+    "Android ID: 9774d56d682e549c",
+    "contraseña: hunter2",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -248,6 +256,9 @@ describe("feedback privacy boundary", () => {
           subject: "abandon abandon abandon abandon abandon abandon",
           body: "abandon abandon abandon abandon abandon about",
         },
+        { subject: "cGF", body: "zc3dvcmQ6IGh1bnRlcjI=" },
+        { subject: "%70%61%73%73", body: "%77%6f%72%64%3a%20hunter2" },
+        { subject: "p\\x61ss", body: "word: hunter2" },
       ]) {
         const reviewed = reviewFeedbackDraft(draft, REDACTED_VALUE);
         expect(reviewed.findings.length).toBeGreaterThan(0);
@@ -337,6 +348,7 @@ describe("feedback privacy boundary", () => {
     "THISISANERRORMESSAGE",
     "ABCDEFGHIJKLMNOP",
     "please open account page again click transfer close screen help error report",
+    "Status: settings screen failed to open",
   ])("preserves ordinary user prose: %s", (description) => {
     const result = createFeedbackDraft(
       description,

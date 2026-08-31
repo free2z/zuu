@@ -58,12 +58,15 @@ const ALLOWED_EMAIL = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,6
 const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:seed|mnemonic|recovery\s+phrase|spending\s+key|viewing\s+key|password|passphrase|secret|private\s+key|auth(?:entication|orization)?(?:\s+token)?|access[\s_-]*token|session(?:\s+(?:id|token))?|oauth(?:\s+token)?|bearer|jwt|cookie|totp|otp|memo|balance|device(?:\s+(?:id|identifier|name))?|clipboard)\b\s*(?:(?:=|:|is)\s*)?[^\n]+/giu,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/giu,
-  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|ya29\.[A-Za-z0-9._-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[A-Z0-9]{16}|sk_(?:live|test)_[A-Za-z0-9]{16,})\b/gu,
+  /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|ya29\.[A-Za-z0-9._-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[A-Z0-9]{16}|sk_(?:live|test)_[A-Za-z0-9]{16,}|npm_[A-Za-z0-9]{20,})\b/gu,
   /\b(?:sk-proj-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/gu,
   /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?:\.[A-Za-z0-9_-]{6,})?\b/gu,
   /\botpauth:\/\/\S+/giu,
   /\b(?:secret-extended-key-(?:main|test)|zxviews|zxviewtestsapling|uview|usk|uvk|spendingkey|viewingkey)1[0-9a-z]{20,}\b/giu,
   /\b(?:u1[0-9a-z]{40,}|zs1[0-9a-z]{40,}|ztestsapling1[0-9a-z]{40,}|t[13][1-9A-HJ-NP-Za-km-z]{25,34})\b/giu,
+  /\bzc[1-9A-HJ-NP-Za-km-z]{80,100}\b/gu,
+  /\b(?:tm|t2)[1-9A-HJ-NP-Za-km-z]{25,40}\b/gu,
+  /\b[5KL][1-9A-HJ-NP-Za-km-z]{50,51}\b/gu,
   /\b[a-f0-9]{32,64}\b/giu,
   /\b0x[a-f0-9]{64}\b/giu,
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu,
@@ -72,6 +75,8 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b\d[\d,.]*\s*(?:ZEC|zatoshi(?:s)?|2Zs?)\b/giu,
   /\b(?:ZEC|zatoshi(?:s)?|2Zs?)\s*\d[\d,.]*\b/giu,
   /\b(?:payment\s+for|copied\s+text|pasted\s+text)\b[^\n]*/giu,
+  /\b(?:IMEI|Android\s+ID)\s*:\s*[A-Fa-f0-9]{14,16}\b/gu,
+  /\b(?=[\p{Letter}]{4,24}\s*:)(?=[\p{Letter}]*[^\u0000-\u007f])\p{Letter}{4,24}\s*:\s*(?=[A-Za-z0-9._~+/_=-]{6,}\b)(?=[A-Za-z0-9._~+/_=-]*\d)[A-Za-z0-9._~+/_=-]+\b/gu,
 ];
 
 const NETWORK_PATTERNS: readonly RegExp[] = [
@@ -93,7 +98,7 @@ const PATH_PATTERNS: readonly RegExp[] = [
   /(?:^|\s)\.[A-Za-z_][A-Za-z0-9_-]*(?=\s|$)/gmu,
 ];
 
-const SECRET_LABEL_SKELETON = /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
+const SECRET_LABEL_SKELETON = /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|passwort|senha|mot[\s_-]*de[\s_-]*passe|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
 
 function hasSuspiciousMixedScriptToken(value: string): boolean {
   if (
@@ -419,7 +424,12 @@ export function reviewFeedbackDraft(
     redactedValue,
   );
   for (const finding of combined.findings) findings.add(finding);
-  if (combined.findings.length > 0) {
+  const compactCombined = scrubFeedbackText(
+    `${subject.text}${body.text}`,
+    redactedValue,
+  );
+  for (const finding of compactCombined.findings) findings.add(finding);
+  if (combined.findings.length > 0 || compactCombined.findings.length > 0) {
     return {
       draft: { subject: redactedValue, body: redactedValue },
       findings: [...findings],
