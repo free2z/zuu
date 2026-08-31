@@ -56,6 +56,7 @@ import { useSession } from "@/store/session";
 import type { Article, CreatorDetail, Subscription } from "@/lib/api/types";
 import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent, type PaidIntent } from "@/lib/auth/paid-intent";
+import { createCreatorTipRouteState } from "@/lib/wallet/creator-tip";
 import { CreatorSocialLinks } from "./SocialLinks";
 import { useCreatorCatalog } from "./catalog";
 import { MESSAGE_KEYS } from "@/i18n/messages";
@@ -827,11 +828,13 @@ function TipButton({
       ? restored
       : null;
   const [open, setOpen] = useState(false);
+  const [currency, setCurrency] = useState<"zec" | "tuzi">("tuzi");
   const [amount, setAmount] = useState("100");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!restoredTip) return;
+    setCurrency("tuzi");
     setAmount(restoredTip.amount);
     setOpen(true);
   }, [restoredTip]);
@@ -878,6 +881,20 @@ function TipButton({
     }
   }
 
+  function continueWithZec() {
+    try {
+      const state = createCreatorTipRouteState({
+        username: creator.username,
+        label: name,
+        recipient: creator.p2paddr ?? "",
+      });
+      setOpen(false);
+      navigate("/wallet/send/creator-tip", { state });
+    } catch {
+      toast.error("This creator doesn't have a usable ZEC tip address.");
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -890,65 +907,122 @@ function TipButton({
         <DialogHeader>
           <DialogTitle>Tip {name}</DialogTitle>
           <DialogDescription>
-            Send 2Zs straight to the creator, from your platform credit balance.
+            Choose ZEC from your wallet or 2Z from your platform credit balance.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-4 gap-2">
-            {TIP_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setAmount(String(preset))}
-                aria-pressed={parsedAmount === preset}
-                className={cn(
-                  "min-tap rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  parsedAmount === preset
-                    ? "border-primary bg-primary/15 text-primary"
-                    : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
-                )}
-              >
-                {preset}
-              </button>
-            ))}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="creator-tip-amount">Amount (2Z)</Label>
-            <Input
-              id="creator-tip-amount"
-              type="text"
-              inputMode="numeric"
-              maxLength={tuziInputMaxLength(MAX_TUZIS)}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="tabular-nums"
-              aria-describedby={
-                user
-                  ? "creator-tip-error creator-tip-balance"
-                  : "creator-tip-error"
-              }
-              aria-invalid={amount.length > 0 && !validAmount}
-            />
-            {user ? (
-              <p
-                id="creator-tip-balance"
-                className="text-xs text-muted-foreground tabular-nums"
-              >
-                Balance: {formatTuzis(balance)}
-              </p>
-            ) : null}
-            <p
-              id="creator-tip-error"
-              className="min-h-[1rem] text-xs text-destructive"
+          <div
+            className="grid grid-cols-2 gap-2"
+            role="group"
+            aria-label="Tip currency"
+          >
+            <button
+              type="button"
+              onClick={() => setCurrency("zec")}
+              aria-pressed={currency === "zec"}
+              className={cn(
+                "min-tap rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                currency === "zec"
+                  ? "border-zec/50 bg-zec/10 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-secondary",
+              )}
             >
-              {amountResult.error === "tooLarge"
-                ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
-                : amount.length > 0 && amountResult.error !== null
-                  ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
-                  : null}
-            </p>
+              <span className="block font-semibold text-zec">ZEC</span>
+              <span className="block text-xs">Zcash wallet</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrency("tuzi")}
+              aria-pressed={currency === "tuzi"}
+              className={cn(
+                "min-tap rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                currency === "tuzi"
+                  ? "border-primary bg-primary/15 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-secondary",
+              )}
+            >
+              <span className="block font-semibold text-tuzi">2Z</span>
+              <span className="block text-xs">Platform credits</span>
+            </button>
           </div>
+          {currency === "zec" ? (
+            <div className="space-y-3 rounded-xl border border-border bg-card/50 p-4">
+              <div>
+                <p className="font-medium">Send ZEC from your wallet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose the amount in Wallet Send, then review the native
+                  destination, fee, network, memo, and change policy.
+                </p>
+              </div>
+              {creator.p2paddr ? (
+                <p className="text-xs text-muted-foreground">
+                  {name}'s exact creator address will be locked in Wallet Send.
+                </p>
+              ) : (
+                <p className="text-sm text-warning" role="status">
+                  {name} hasn't added a ZEC tip address yet.
+                </p>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-2">
+                {TIP_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setAmount(String(preset))}
+                    aria-pressed={parsedAmount === preset}
+                    className={cn(
+                      "min-tap rounded-lg border px-3 py-2 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      parsedAmount === preset
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
+                    )}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="creator-tip-amount">Amount (2Z)</Label>
+                <Input
+                  id="creator-tip-amount"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={tuziInputMaxLength(MAX_TUZIS)}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="tabular-nums"
+                  aria-describedby={
+                    user
+                      ? "creator-tip-error creator-tip-balance"
+                      : "creator-tip-error"
+                  }
+                  aria-invalid={amount.length > 0 && !validAmount}
+                />
+                {user ? (
+                  <p
+                    id="creator-tip-balance"
+                    className="text-xs text-muted-foreground tabular-nums"
+                  >
+                    Balance: {formatTuzis(balance)}
+                  </p>
+                ) : null}
+                <p
+                  id="creator-tip-error"
+                  className="min-h-[1rem] text-xs text-destructive"
+                >
+                  {amountResult.error === "tooLarge"
+                    ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
+                    : amount.length > 0 && amountResult.error !== null
+                      ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
+                      : null}
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         <DialogFooter>
@@ -959,7 +1033,16 @@ function TipButton({
           >
             Cancel
           </Button>
-          {gate === "loading" ? (
+          {currency === "zec" ? (
+            <Button
+              variant="zec"
+              onClick={continueWithZec}
+              disabled={!creator.p2paddr}
+            >
+              Continue with ZEC
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Button>
+          ) : gate === "loading" ? (
             <Button disabled>
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Checking account

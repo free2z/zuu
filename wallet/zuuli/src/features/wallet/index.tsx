@@ -186,6 +186,7 @@ export default function WalletFeature() {
       <Routes>
         <Route index element={<Overview />} />
         <Route path="send" element={<Send />} />
+        <Route path="send/creator-tip" element={<Send creatorTipRoute />} />
         <Route path="receive" element={<Receive />} />
         <Route path="history" element={<History />} />
         <Route path="fund/*" element={<FundingFeature />} />
@@ -203,6 +204,10 @@ const SECTION_TITLES: Record<
   "/wallet/send": {
     heading: "Send",
     description: "Send shielded ZEC with an optional encrypted memo.",
+  },
+  "/wallet/send/creator-tip": {
+    heading: "Tip with ZEC",
+    description: "Review a creator payment through Wallet Send.",
   },
   "/wallet/receive": {
     heading: "Receive",

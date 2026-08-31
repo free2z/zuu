@@ -38,8 +38,21 @@ describe("mockWallet.parsePaymentUri", () => {
 
   it("rejects a recipient outside the mock app's mainnet shape", () => {
     expect(() => mockWallet.parsePaymentUri("zcash:tmTestRecipient?amount=1")).toThrow(
-      "Invalid Zcash recipient address",
+      "Address belongs to a different Zcash network",
     );
+  });
+});
+
+describe("mockWallet.validateAddress", () => {
+  it("mirrors the native validator for a transparent-only Unified Address", () => {
+    const transparentOnlyUnified =
+      "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr";
+
+    expect(mockWallet.validateAddress(transparentOnlyUnified)).toEqual({
+      valid: true,
+      addressType: "unified",
+      canReceiveMemo: false,
+    });
   });
 });
 

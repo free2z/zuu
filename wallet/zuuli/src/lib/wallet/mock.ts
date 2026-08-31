@@ -23,6 +23,11 @@ import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-s
 const MOCK_UA =
   "u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexz";
 
+// Produced by the native validator's transparent-only Unified Address test:
+// P2PKH([0x24; 20]) plus an unknown receiver on mainnet.
+const MOCK_TRANSPARENT_ONLY_UA =
+  "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr";
+
 const MOCK_SEED =
   "wisdom shadow orchard zebra pledge notice frost violet render " +
   "summer harvest mirror canyon velvet ranch fossil pupil sunset " +
@@ -407,6 +412,19 @@ export const mockWallet = {
     return history;
   },
   validateAddress(address: string): AddressValidation {
+    const wrongNetwork =
+      address.startsWith("utest") ||
+      address.startsWith("ztestsapling") ||
+      address.startsWith("tm") ||
+      address.startsWith("t2");
+    if (wrongNetwork) {
+      return {
+        valid: false,
+        addressType: null,
+        canReceiveMemo: false,
+        error: "Address belongs to a different Zcash network",
+      };
+    }
     const valid =
       address.startsWith("u1") ||
       address.startsWith("zs1") ||
@@ -421,7 +439,9 @@ export const mockWallet = {
             ? "sapling"
             : "transparent"
         : null,
-      canReceiveMemo: address.startsWith("u1") || address.startsWith("zs1"),
+      canReceiveMemo:
+        (address.startsWith("u1") && address !== MOCK_TRANSPARENT_ONLY_UA) ||
+        address.startsWith("zs1"),
     };
   },
   parsePaymentUri(uri: string): PaymentRequest {
@@ -561,6 +581,16 @@ export const mockWallet = {
     pendingConfirmation = null;
   },
   getPendingSend() {
+    if (globalThis.localStorage?.getItem("zuuli.mock.pending-send") === "unknown") {
+      return {
+        proposalId: 41,
+        txid: "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+        status: "unknown" as const,
+        message: null,
+        recoveryRequired: false,
+        canDiscard: false,
+      };
+    }
     return null;
   },
   retryPendingSend() {
