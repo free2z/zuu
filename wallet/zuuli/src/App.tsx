@@ -50,6 +50,7 @@ const SearchFeature = lazy(() => import("@/features/search"));
 const CreatorFeature = lazy(() => import("@/features/creator"));
 const ProfileFeature = lazy(() => import("@/features/profile"));
 const KycFeature = lazy(() => import("@/features/kyc"));
+const AboutFeature = lazy(() => import("@/features/about"));
 
 /** Keep old links/bookmarks working while funding now lives inside Wallet. */
 function LegacyBuyRedirect() {
@@ -197,6 +198,14 @@ function AppRoutes() {
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <HomeFeature />
+                </Suspense>
+              }
+            />
+            <Route
+              path={APP_ROUTES.about}
+              element={
+                <Suspense fallback={<RouteFallback />}>
+                  <AboutFeature />
                 </Suspense>
               }
             />

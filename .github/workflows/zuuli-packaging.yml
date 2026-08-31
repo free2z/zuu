@@ -218,6 +218,8 @@ jobs:
     name: iOS / unsigned target app
     runs-on: macos-26
     timeout-minutes: 90
+    env:
+      ZUULI_BUILD_PLATFORM: ios
     defaults:
       run:
         working-directory: wallet/zuuli
@@ -259,10 +261,14 @@ jobs:
           git diff --exit-code
       - name: Verify Rust compiler
         run: rustc --version | grep -F "rustc $ZUULI_RUST_VERSION "
+      - name: Build source-bound frontend from the clean checkout
+        run: npm run build
       - name: Build without signing
         # A device archive has the same Rust target as TestFlight. It remains
-        # unsigned and this job receives no Apple credentials.
-        run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64 -- --locked
+        # unsigned and this job receives no Apple credentials. Tauri updates
+        # generated Xcode files before its normal frontend hook, so the hook is
+        # disabled only after the clean source-bound dist has been built.
+        run: ./node_modules/.bin/tauri ios build --ci --no-sign --target aarch64 --config '{"build":{"beforeBuildCommand":null}}' -- --locked
       - name: Verify the release archive collection path
         # The protected release resolves the .xcarchive it ships with this exact
         # script. Exercising it on every pull request is what keeps a

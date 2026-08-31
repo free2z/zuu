@@ -14,6 +14,8 @@
     }
   },
   "navigation": {
+    "about": "Acerca de y comentarios",
+    "aboutAccessible": "Acerca de y comentarios",
     "accountMenu": "Menú de cuenta",
     "ai": "IA",
     "aiAccessible": "Inteligencia artificial",

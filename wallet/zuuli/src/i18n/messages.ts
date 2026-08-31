@@ -16,6 +16,8 @@ export const MESSAGE_KEYS = {
   legacyWalletDescription: "shell.legacyWallet.description",
   legacyWalletLabel: "shell.legacyWallet.label",
   legacyWalletTitle: "shell.legacyWallet.title",
+  navAbout: "navigation.about",
+  navAboutAccessible: "navigation.aboutAccessible",
   navAccountMenu: "navigation.accountMenu",
   navAi: "navigation.ai",
   navAiAccessible: "navigation.aiAccessible",

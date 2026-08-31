@@ -46,6 +46,7 @@ describe("Sidebar localization", () => {
         ["/ai", "IA"],
         ["/wallet", "Billetera"],
         ["/login", "Iniciar sesión"],
+        ["/about", "Acerca de y comentarios"],
       ],
     ],
     [
@@ -59,6 +60,7 @@ describe("Sidebar localization", () => {
         ["/wallet", "Billetera"],
         ["/profile", "Perfil"],
         ["/kyc", "Reparto de ingresos"],
+        ["/about", "Acerca de y comentarios"],
       ],
     ],
   ] as const)(

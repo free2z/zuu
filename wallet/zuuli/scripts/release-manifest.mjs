@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const release = JSON.parse(readFileSync(resolve(root, "release.json"), "utf8"));
+const buildMetadata = JSON.parse(
+  readFileSync(resolve(root, "build-info.json"), "utf8"),
+);
 const option = (name, fallback) => {
   const prefix = `--${name}=`;
   const value = process.argv.find((arg) => arg.startsWith(prefix));
@@ -71,6 +74,7 @@ artifacts.push({
 const manifest = {
   schemaVersion: 1,
   applicationId: release.applicationId,
+  channel: buildMetadata.channel,
   version: release.version,
   build: release.build,
   identity: `${release.version}+${release.build}`,

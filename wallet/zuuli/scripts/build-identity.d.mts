@@ -1,6 +1,4 @@
-/// <reference types="vite/client" />
-
-declare const __ZUULI_BUILD_INFO__: Readonly<{
+export type EmbeddedBuildIdentity = Readonly<{
   productName: "ZUULI";
   applicationId: "cash.free2z.zuuli";
   version: string;
@@ -10,9 +8,8 @@ declare const __ZUULI_BUILD_INFO__: Readonly<{
   sourceCommit: string | null;
 }>;
 
-declare module "*?init&no-inline" {
-  const initialize: (
-    imports?: WebAssembly.Imports,
-  ) => Promise<WebAssembly.Instance>;
-  export default initialize;
-}
+export function loadBuildIdentity(options: {
+  root: string;
+  env?: NodeJS.ProcessEnv;
+}): EmbeddedBuildIdentity;
+

@@ -74,6 +74,7 @@ describe("app navigation information architecture", () => {
         MESSAGE_KEYS.navRevenueShare,
         null,
       ],
+      ["about", MESSAGE_KEYS.navAbout, MESSAGE_KEYS.navAboutAccessible, null],
       ["sign-in", MESSAGE_KEYS.navLogin, MESSAGE_KEYS.navLogin, null],
       [
         "more",
@@ -88,6 +89,7 @@ describe("app navigation information architecture", () => {
     expect(mobileMoreNavigation(false).map((item) => item.id)).toEqual([
       "articles",
       "sign-in",
+      "about",
     ]);
     // Messaging is signed-in only, so it appears here and not in the
     // signed-out list above. CLIENT-CONTRACT.md §2.4 places it at
@@ -98,6 +100,7 @@ describe("app navigation information architecture", () => {
       "messages",
       "profile",
       "revenue-share",
+      "about",
     ]);
     const messages = NAVIGATION.find((item) => item.id === "messages");
     expect(messages?.labelKey).toBe(MESSAGE_KEYS.navMessages);
@@ -118,6 +121,7 @@ describe("app navigation information architecture", () => {
       "articles",
       "ai",
       "wallet",
+      "about",
       "sign-in",
     ]);
     // Messaging is `tools` order 1, directly after AI at order 0, and before
@@ -131,6 +135,7 @@ describe("app navigation information architecture", () => {
       "wallet",
       "profile",
       "revenue-share",
+      "about",
     ]);
   });
 

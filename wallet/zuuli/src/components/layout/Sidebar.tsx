@@ -67,7 +67,9 @@ function DesktopRoute({ item }: { item: NavigationRoute }) {
       onClick={onClick}
     >
       <Icon className="h-[18px] w-[18px]" aria-hidden />
-      <span aria-hidden>{t(item.labelKey)}</span>
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]" aria-hidden>
+        {t(item.labelKey)}
+      </span>
     </NavLink>
   );
 }
@@ -164,6 +166,7 @@ function MobileMoreRoute({
       to={item.to}
       end={item.end}
       aria-label={t(item.accessibleLabelKey)}
+      data-navigation-id={item.id}
       onClick={(event) => {
         onRetap(event);
         onSelect();
@@ -178,7 +181,9 @@ function MobileMoreRoute({
       }
     >
       <item.icon className="h-5 w-5 shrink-0" aria-hidden />
-      <span className="min-w-0">{t(item.labelKey)}</span>
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+        {t(item.labelKey)}
+      </span>
     </NavLink>
   );
 }

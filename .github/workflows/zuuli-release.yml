@@ -639,6 +639,7 @@ jobs:
       payload_sha256: ${{ steps.unsigned.outputs.payload_sha256 }}
     env:
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      ZUULI_BUILD_PLATFORM: ios
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -682,8 +683,9 @@ jobs:
           RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           set -euo pipefail
+          npm run build
           node scripts/normalize-generated-ios-project.mjs --prepare-manual-signing
-          ./node_modules/.bin/tauri ios build --ci --no-sign --archive-only -- --locked
+          ./node_modules/.bin/tauri ios build --ci --no-sign --archive-only --config '{"build":{"beforeBuildCommand":null}}' -- --locked
           node scripts/normalize-generated-ios-project.mjs
           git diff --exit-code
           # `test`, not `[[ ]]`: macOS runners execute this step with bash 3.2,
@@ -1153,6 +1155,8 @@ jobs:
       run:
         working-directory: wallet/zuuli
         shell: bash
+    env:
+      ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
       - name: Verify pinned Linux build image
         working-directory: /
