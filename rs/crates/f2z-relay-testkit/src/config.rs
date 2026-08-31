@@ -58,7 +58,19 @@ use crate::faults::PolicyFaults;
 pub const TESTKIT_POW_DIFFICULTY_BITS: u8 = 8;
 
 /// Where the channel binding of §5.3 comes from.
-#[derive(Clone, Copy, PartialEq, Eq)]
+///
+/// A `FakeRelay` always serves `ws://` (see [`Relay::new`]'s §2.3 obligation-2
+/// check), so `None` — `transport_security: none` paired with
+/// `channel_binding_mode: none` — is the only value that can ever produce a
+/// startable relay. There used to be a second variant, `Simulated([u8; 32])`,
+/// that published `channel_binding_mode: tls-exporter` from a constant instead
+/// of a real TLS exporter; #740 found it could not be paired with any
+/// `transport_security` a `FakeRelay` can honestly publish and removed it. See
+/// the "Known gaps" section of the crate README for how to exercise
+/// `tls-exporter` instead: against the real relay.
+///
+/// [`Relay::new`]: crate::engine::Relay::new
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum ChannelBindingSource {
     /// 32 zero bytes, published as `channel_binding_mode: none`.
@@ -68,27 +80,6 @@ pub enum ChannelBindingSource {
     /// seen-set does not hold, so the document also says
     /// `antireplay_persistence: volatile` and a client may refuse.
     None,
-    /// A fixed value both ends are told, published as
-    /// `channel_binding_mode: tls-exporter`.
-    ///
-    /// **This is a simulation and is not a TLS exporter.** There is no TLS
-    /// session; the value is a constant handed to both ends, so it binds a
-    /// signature to *this configuration*, not to a session. It exists because
-    /// the exporter path is code a client must have and would otherwise be
-    /// unreachable without terminating TLS in a test. A client that treats a
-    /// passing test here as evidence about RFC 8446 §7.5 has misread it.
-    Simulated([u8; 32]),
-}
-
-// A channel binding is what every signature on the connection is bound to
-// (§5.3). It is never transmitted, and it is not printed either.
-impl core::fmt::Debug for ChannelBindingSource {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::None => f.write_str("ChannelBindingSource::None"),
-            Self::Simulated(_) => f.write_str("ChannelBindingSource::Simulated(<redacted>)"),
-        }
-    }
 }
 
 impl ChannelBindingSource {
@@ -97,7 +88,6 @@ impl ChannelBindingSource {
     pub const fn value(self) -> ChannelBinding {
         match self {
             Self::None => ChannelBinding::zero(),
-            Self::Simulated(bytes) => ChannelBinding::new(bytes),
         }
     }
 
@@ -106,7 +96,6 @@ impl ChannelBindingSource {
     pub const fn mode(self) -> ChannelBindingMode {
         match self {
             Self::None => ChannelBindingMode::None,
-            Self::Simulated(_) => ChannelBindingMode::TlsExporter,
         }
     }
 }
@@ -263,15 +252,6 @@ impl RelayConfig {
     #[must_use]
     pub fn with_system_clock(mut self) -> Self {
         self.clock = Clock::system();
-        self
-    }
-
-    /// Simulate a TLS exporter binding. Read [`ChannelBindingSource::Simulated`]
-    /// before relying on what this proves.
-    #[must_use]
-    pub fn with_simulated_channel_binding(mut self, value: [u8; 32]) -> Self {
-        self.channel_binding = ChannelBindingSource::Simulated(value);
-        self.capabilities.channel_binding_mode = ChannelBindingMode::TlsExporter.code();
         self
     }
 
