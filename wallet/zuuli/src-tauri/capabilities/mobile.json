@@ -11,6 +11,8 @@
     "zcash:allow-create-wallet",
     "zcash:allow-restore-wallet",
     "zcash:allow-get-wallet-status",
+    "zcash:allow-list-wallets",
+    "zcash:allow-switch-wallet",
     "zcash:allow-preview-legacy-wallet-import",
     "zcash:allow-retry-wallet-cleanup",
     "zcash:allow-get-backup-seed-phrase",
@@ -82,6 +84,7 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://free2z.cash/*" },
+        { "url": "https://*.free2z.cash/*" },
         { "url": "https://stage.free2z.cash/*" }
       ]
     }

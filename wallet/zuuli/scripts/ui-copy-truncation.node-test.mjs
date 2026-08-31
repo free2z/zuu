@@ -111,6 +111,51 @@ function enclosingOpeningTag(source, index) {
 
 const FILES = sourceFiles(SRC);
 
+const CHROME_ROOTS = [
+  join(SRC, "components"),
+  join(SRC, "features"),
+];
+const CHROME_FILES = CHROME_ROOTS.flatMap(sourceFiles).filter(
+  (file) => !/\.test\.tsx?$/.test(file),
+);
+
+/**
+ * A deliberately small, high-confidence policy for implementation prose in
+ * product chrome. Privacy, security, money, consent, and recovery language is
+ * outside this list and remains visible.
+ */
+const TECHNICAL_EXPLAINERS = [
+  {
+    label: "names the search implementation",
+    pattern: /\bsemantic(?:\s+\w+)?\s+search\b/giu,
+  },
+  {
+    label: "explains search ranking",
+    pattern:
+      /\b(?:search(?:es|ing)?|results?|pages?|articles?)\b[^\n"'`]{0,90}\b(?:by\s+meaning|rank(?:ed|ing)?\s+by)\b/giu,
+  },
+  {
+    label: "contrasts meaning with keywords",
+    pattern: /\bmeaning\b[^\n"'`]{0,50}\bkeywords?\b/giu,
+  },
+  {
+    label: "describes matching internals",
+    pattern: /\b(?:creators?|pages?|articles?)\s+are\s+matched\s+by\b/giu,
+  },
+  {
+    label: "pitches the article implementation",
+    pattern: /\bbacked\s+by\s+free2z\s+zpages\b/giu,
+  },
+  {
+    label: "exposes a server response diagnostic",
+    pattern: /\bthe\s+server\s+returned\s+no\b/giu,
+  },
+  {
+    label: "exposes the tag wire format",
+    pattern: /\bserver(?:'s)?\s+comma-delimited\s+filter\b/giu,
+  },
+];
+
 test("no source file ships a CSS ellipsis clip", () => {
   const violations = [];
   for (const file of FILES) {
@@ -155,4 +200,60 @@ test("every line-clamp is annotated as user-authored content", () => {
     [],
     `line-clamp is reserved for user-authored body content, and the markup must say so. Add ${USER_CONTENT_ATTRIBUTE} to the clamped element — or, if it is UI copy, let it wrap:\n  ${violations.join("\n  ")}\n`,
   );
+});
+
+test("product chrome contains no Search implementation explainer", () => {
+  assert.ok(
+    CHROME_FILES.length > 0,
+    "product chrome source scan selected no files",
+  );
+  assert.ok(
+    CHROME_FILES.some(
+      (file) => relative(ROOT, file) === "src/features/search/index.tsx",
+    ),
+    "product chrome source scan omitted the reported Search surface",
+  );
+
+  const violations = [];
+  for (const file of CHROME_FILES) {
+    const source = stripComments(readFileSync(file, "utf8"));
+    for (const rule of TECHNICAL_EXPLAINERS) {
+      rule.pattern.lastIndex = 0;
+      for (const match of source.matchAll(rule.pattern)) {
+        violations.push(
+          `${relative(ROOT, file)}:${lineOf(source, match.index)} ${rule.label}: ${JSON.stringify(match[0])}`,
+        );
+      }
+    }
+  }
+
+  assert.deepEqual(
+    violations,
+    [],
+    `Move implementation detail to source comments or logs; keep product chrome to actions and states:\n  ${violations.join("\n  ")}\n`,
+  );
+});
+
+test("the source audit recognizes the reported phrase and close rewrites", () => {
+  const fixtures = [
+    "Semantic search",
+    "semantic page search",
+    "Search articles by meaning",
+    "Results ranked by meaning",
+    "meaning, not just keywords",
+    "Creators are matched by username",
+    "backed by free2z zpages",
+    "The server returned no article",
+    "the server's comma-delimited filter",
+  ];
+
+  for (const fixture of fixtures) {
+    assert.ok(
+      TECHNICAL_EXPLAINERS.some((rule) => {
+        rule.pattern.lastIndex = 0;
+        return rule.pattern.test(fixture);
+      }),
+      `audit fixture was not recognized: ${fixture}`,
+    );
+  }
 });

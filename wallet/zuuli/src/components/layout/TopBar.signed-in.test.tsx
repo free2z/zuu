@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TopBar } from "./TopBar";
+import { TestI18nProvider } from "@/i18n/test-provider";
 
 vi.mock("@/store/session", () => ({
   useSession: () => ({
@@ -31,9 +32,11 @@ describe("TopBar signed-in account chrome", () => {
 
     const markup = renderToStaticMarkup(
       <MemoryRouter initialEntries={["/"]}>
-        <TooltipProvider>
-          <TopBar />
-        </TooltipProvider>
+        <TestI18nProvider>
+          <TooltipProvider>
+            <TopBar />
+          </TooltipProvider>
+        </TestI18nProvider>
       </MemoryRouter>,
     );
 

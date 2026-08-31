@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https:; media-src 'self' https:; frame-src 'none'; connect-src 'self' https://free2z.com https://*.free2z.com https://*.zec.rocks https://*.dyte.io wss://*.dyte.io https://*.stripe.com https://checkout.stripe.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
+      "csp": "default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' https:; frame-src 'none'; connect-src 'self' https://free2z.cash https://*.free2z.cash https://free2z.com https://*.free2z.com https://*.zec.rocks https://*.dyte.io wss://*.dyte.io https://api.realtime.cloudflare.com https://api-silos.realtime.cloudflare.com https://da-collector.realtime.cloudflare.com https://location.realtime.cloudflare.com https://location-legacy.realtime.cloudflare.com https://r2.cloudflarestorage.com https://rtk-assets.realtime.cloudflare.com wss://socket-edge.realtime.cloudflare.com https://*.stripe.com https://checkout.stripe.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
     }
   },
   "bundle": {
@@ -34,17 +34,18 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "entitlements": "./Entitlements.plist"
+      "entitlements": "./Entitlements.plist",
+      "infoPlist": "Info.macos.plist"
     },
     "iOS": {
-      "bundleVersion": "17",
+      "bundleVersion": "18",
       "developmentTeam": "F9AV5HKF6N",
       "minimumSystemVersion": "18.0",
       "infoPlist": "Info.ios.plist"
     },
     "android": {
       "minSdkVersion": 29,
-      "versionCode": 17
+      "versionCode": 18
     }
   },
   "plugins": {

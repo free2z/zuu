@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeRemoteMediaTarget } from "./remote-media-policy";
+import {
+  downloadTrustedFirstPartyImage,
+  isTrustedFirstPartyImageTarget,
+  normalizeRemoteMediaTarget,
+  type RemoteMediaTarget,
+} from "./remote-media-policy";
 
 const BASE = "https://media.free2z.test/root/";
 
@@ -72,5 +77,169 @@ describe("remote media URL policy", () => {
         expect(target?.hostname, `code point ${code}`).toBe("example.com");
       }
     }
+  });
+});
+
+describe("trusted Free2Z image origins", () => {
+  const APP = "https://app.example/reader";
+
+  it.each([
+    "https://free2z.cash/image.png",
+    "https://FREE2Z.CASH./image.png",
+    "https://media.free2z.cash/image.png",
+    "https://deep.media.free2z.cash/image.png",
+    "https://free2z.cash:443/image.png",
+  ])("approves the canonical HTTPS zone: %s", (source) => {
+    const target = normalizeRemoteMediaTarget(source, APP);
+    expect(target).not.toBeNull();
+    expect(isTrustedFirstPartyImageTarget(target!, APP)).toBe(true);
+  });
+
+  it.each([
+    "https://free2z.cash.evil.example/image.png",
+    "https://notfree2z.cash/image.png",
+    "https://free2z-cash.example/image.png",
+    "https://free2z.com/image.png",
+    "https://xn--free2z-9za.cash/image.png",
+    "https://free2z.cash:8443/image.png",
+    "http://free2z.cash/image.png",
+  ])("does not approve lookalikes, other zones, ports, or schemes: %s", (source) => {
+    const target = normalizeRemoteMediaTarget(source, APP);
+    expect(
+      target ? isTrustedFirstPartyImageTarget(target, APP) : false,
+    ).toBe(false);
+  });
+
+  it("allows only the exact same-origin loopback development proxy", () => {
+    const app = "http://127.0.0.1:1423/articles/example";
+    const sameOrigin = normalizeRemoteMediaTarget("/uploadz/a.png", app)!;
+    const otherPort = normalizeRemoteMediaTarget(
+      "http://127.0.0.1:1424/uploadz/a.png",
+      app,
+    );
+    expect(isTrustedFirstPartyImageTarget(sameOrigin, app)).toBe(true);
+    expect(otherPort).toBeNull();
+  });
+});
+
+describe("trusted Free2Z image download", () => {
+  const APP = "https://app.example/reader";
+  const START: RemoteMediaTarget = {
+    url: "https://free2z.cash/uploadz/start.png",
+    hostname: "free2z.cash",
+  };
+
+  it("revalidates every first-party hop before returning image bytes", async () => {
+    const requested: Array<{ url: string; init: RequestInit }> = [];
+    const responses = [
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://media.free2z.cash/second.png" },
+      }),
+      new Response(null, {
+        status: 307,
+        headers: { location: "../final.png" },
+      }),
+      new Response("safe", {
+        status: 200,
+        headers: { "content-type": "image/png", "content-length": "4" },
+      }),
+    ];
+    const fetchImage = async (url: string, init: RequestInit) => {
+      requested.push({ url, init });
+      return responses.shift()!;
+    };
+
+    const blob = await downloadTrustedFirstPartyImage(
+      START,
+      APP,
+      fetchImage,
+    );
+
+    expect(await blob.text()).toBe("safe");
+    expect(requested.map(({ url }) => url)).toEqual([
+      "https://free2z.cash/uploadz/start.png",
+      "https://media.free2z.cash/second.png",
+      "https://media.free2z.cash/final.png",
+    ]);
+    expect(
+      requested.every(
+        ({ init }) =>
+          init.redirect === "manual" &&
+          init.credentials === "omit" &&
+          init.referrerPolicy === "no-referrer",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "https://free2z.cash.evil.example/pixel.png",
+    "https://tracker.example/pixel.png",
+    "http://free2z.cash/pixel.png",
+    "https://free2z.cash:8443/pixel.png",
+  ])("stops before requesting an unapproved redirect: %s", async (location) => {
+    const requested: string[] = [];
+    const fetchImage = async (url: string) => {
+      requested.push(url);
+      return new Response(null, { status: 302, headers: { location } });
+    };
+
+    await expect(
+      downloadTrustedFirstPartyImage(START, APP, fetchImage),
+    ).rejects.toThrow("left the approved origin");
+    expect(requested).toEqual([START.url]);
+  });
+
+  it("fails closed when the browser conceals a redirect", async () => {
+    const opaque = new Response(null, { status: 200 });
+    Object.defineProperty(opaque, "type", { value: "opaqueredirect" });
+
+    await expect(
+      downloadTrustedFirstPartyImage(START, APP, async () => opaque),
+    ).rejects.toThrow("could not be verified");
+  });
+
+  it("rejects non-image responses", async () => {
+    await expect(
+      downloadTrustedFirstPartyImage(
+        START,
+        APP,
+        async () =>
+          new Response("not an image", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          }),
+      ),
+    ).rejects.toThrow("wrong type");
+  });
+
+  it("rejects SVG because it can carry attacker-selected subresources", async () => {
+    await expect(
+      downloadTrustedFirstPartyImage(
+        START,
+        APP,
+        async () =>
+          new Response("<svg/>", {
+            status: 200,
+            headers: { "content-type": "image/svg+xml" },
+          }),
+      ),
+    ).rejects.toThrow("wrong type");
+  });
+
+  it("stops at the redirect cap", async () => {
+    let requests = 0;
+    await expect(
+      downloadTrustedFirstPartyImage(START, APP, async () => {
+        requests += 1;
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: `https://hop${requests}.free2z.cash/image.png`,
+          },
+        });
+      }),
+    ).rejects.toThrow("Too many image redirects");
+    expect(requests).toBe(6);
   });
 });

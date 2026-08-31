@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { wallet } from "@/lib/wallet/bridge";
 import type { LegacyImportPreview } from "@/lib/wallet/types";
 import { useWallet } from "@/store/wallet";
@@ -69,6 +71,7 @@ function PreviewResult({ preview }: { preview: LegacyImportPreview }) {
 }
 
 export function LegacyWalletNotice() {
+  const { t } = useTranslation();
   const legacy = useWallet((state) => state.status?.legacyAppData);
   const authorityActive = legacy?.state === "importPending";
   const [preview, setPreview] = useState<LegacyImportPreview | null>(null);
@@ -131,7 +134,7 @@ export function LegacyWalletNotice() {
   return (
     <section
       role="status"
-      aria-label="Preserved legacy wallet"
+      aria-label={t(MESSAGE_KEYS.legacyWalletLabel)}
       aria-live="polite"
       className="border-b border-warning/30 bg-warning/10 px-4 py-3 md:px-8"
     >
@@ -140,10 +143,12 @@ export function LegacyWalletNotice() {
         <div className="min-w-0 flex-1">
           {!preview && !failed ? (
             <>
-              <p className="text-sm font-medium text-foreground">Earlier wallet preserved</p>
+              <p className="text-sm font-medium text-foreground">
+                {t(MESSAGE_KEYS.legacyWalletTitle)}
+              </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {legacy.diagnostic ??
-                  "An earlier ZUULI wallet remains safely preserved. Nothing has been imported, moved, or deleted."}
+                  t(MESSAGE_KEYS.legacyWalletDescription)}
               </p>
             </>
           ) : null}

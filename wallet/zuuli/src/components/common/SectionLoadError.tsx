@@ -1,6 +1,8 @@
 import { RefreshCw, TriangleAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 
 /** A retryable section failure that never masquerades as successful emptiness. */
 export function SectionLoadError({
@@ -18,6 +20,7 @@ export function SectionLoadError({
   stale?: boolean;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       role={stale ? "status" : "alert"}
@@ -49,7 +52,7 @@ export function SectionLoadError({
           className={cn("h-4 w-4", retrying && "animate-spin")}
           aria-hidden
         />
-        {retrying ? "Retrying" : "Retry"}
+        {t(retrying ? MESSAGE_KEYS.commonRetrying : MESSAGE_KEYS.commonRetry)}
       </Button>
     </div>
   );

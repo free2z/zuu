@@ -38,8 +38,21 @@ describe("mockWallet.parsePaymentUri", () => {
 
   it("rejects a recipient outside the mock app's mainnet shape", () => {
     expect(() => mockWallet.parsePaymentUri("zcash:tmTestRecipient?amount=1")).toThrow(
-      "Invalid Zcash recipient address",
+      "Address belongs to a different Zcash network",
     );
+  });
+});
+
+describe("mockWallet.validateAddress", () => {
+  it("mirrors the native validator for a transparent-only Unified Address", () => {
+    const transparentOnlyUnified =
+      "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr";
+
+    expect(mockWallet.validateAddress(transparentOnlyUnified)).toEqual({
+      valid: true,
+      addressType: "unified",
+      canReceiveMemo: false,
+    });
   });
 });
 
@@ -66,6 +79,45 @@ describe("mockWallet.restoreWallet", () => {
     } catch (error) {
       expect(String(error)).not.toContain(privateInput);
     }
+  });
+});
+
+describe("mockWallet wallet identity inventory", () => {
+  it("lists deterministic identities and switches exactly one active wallet", () => {
+    mockWallet.switchWallet("mock-wallet-0");
+    expect(mockWallet.listWallets()).toEqual([
+      {
+        id: "mock-wallet-0",
+        name: "Main",
+        isActive: true,
+        birthdayHeight: 2_611_904,
+        createdAt: "2026-01-02T03:04:05Z",
+      },
+      {
+        id: "mock-wallet-1",
+        name: "Savings",
+        isActive: false,
+        birthdayHeight: 2_600_000,
+        createdAt: "2026-02-03T04:05:06Z",
+      },
+    ]);
+
+    mockWallet.switchWallet("mock-wallet-1");
+    expect(mockWallet.listWallets().map(({ id, isActive }) => [id, isActive])).toEqual([
+      ["mock-wallet-0", false],
+      ["mock-wallet-1", true],
+    ]);
+    expect(mockWallet.getWalletStatus()).toMatchObject({
+      activeWalletId: "mock-wallet-1",
+      activeWalletName: "Savings",
+      walletCount: 2,
+    });
+
+    expect(() => mockWallet.switchWallet("stale-wallet")).toThrow(
+      "unknown or stale",
+    );
+    expect(mockWallet.getWalletStatus().activeWalletId).toBe("mock-wallet-1");
+    mockWallet.switchWallet("mock-wallet-0");
   });
 });
 

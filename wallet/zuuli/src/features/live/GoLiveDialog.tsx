@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Radio, Loader2, LogIn } from "lucide-react";
 import { toast } from "sonner";
@@ -28,6 +28,9 @@ import type { StreamKind } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { privateInvitePath } from "@/lib/private-live";
 import { KIND_META, KIND_ORDER } from "./lib";
+import { MediaPreflight } from "./MediaPreflight";
+import { useMediaPreflight } from "./useMediaPreflight";
+import { startAfterMediaConfirmation } from "./media-preflight";
 
 export function GoLiveDialog() {
   const navigate = useNavigate();
@@ -37,6 +40,8 @@ export function GoLiveDialog() {
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("100");
   const [starting, setStarting] = useState(false);
+  const startInFlight = useRef(false);
+  const preflight = useMediaPreflight({ active: open });
 
   const priceResult = validateTuzis(price, {
     minimum: 1,
@@ -47,13 +52,24 @@ export function GoLiveDialog() {
   const canStart =
     title.trim().length > 0 &&
     !starting &&
+    preflight.status === "ready" &&
     (kind !== "ppv" || validPrice);
 
   async function handleStart() {
-    if (!canStart || (kind === "ppv" && priceNum === null)) return;
+    if (
+      !canStart ||
+      startInFlight.current ||
+      preflight.status !== "ready" ||
+      (kind === "ppv" && priceNum === null)
+    ) return;
+    startInFlight.current = true;
     setStarting(true);
     try {
-      const { ticket, inviteSecret } = await live.start(kind);
+      const { ticket, inviteSecret } = await startAfterMediaConfirmation({
+        confirmed: preflight.status === "ready",
+        release: preflight.release,
+        provision: () => live.start(kind),
+      });
       const username = user?.username || "you";
       toast.success("You're live", {
         description: title.trim(),
@@ -94,8 +110,14 @@ export function GoLiveDialog() {
         description: e instanceof Error ? e.message : "Please try again.",
       });
     } finally {
+      startInFlight.current = false;
       setStarting(false);
     }
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) preflight.release();
+    setOpen(nextOpen);
   }
 
   // Going live requires an account. When signed out, don't offer a broadcast
@@ -115,18 +137,22 @@ export function GoLiveDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button size="lg" className="gap-2">
           <Radio className="h-4 w-4" aria-hidden />
           Go Live
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent
+        className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-md overflow-y-auto rounded-xl p-4 sm:p-6"
+        closeClassName="min-tap grid place-items-center rounded-md"
+      >
         <DialogHeader>
           <DialogTitle>Go live</DialogTitle>
           <DialogDescription>
-            Start a stream. Choose who can watch and how they pay to get in.
+            Choose who can watch, then check your camera and microphone before
+            anything is started.
           </DialogDescription>
         </DialogHeader>
 
@@ -207,12 +233,14 @@ export function GoLiveDialog() {
               </p>
             </div>
           ) : null}
+
+          <MediaPreflight model={preflight} disabled={starting} />
         </div>
 
         <DialogFooter>
           <Button
             variant="ghost"
-            onClick={() => setOpen(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={starting}
           >
             Cancel
@@ -224,7 +252,7 @@ export function GoLiveDialog() {
                 Starting…
               </>
             ) : (
-              "Start stream"
+              "Confirm and start"
             )}
           </Button>
         </DialogFooter>

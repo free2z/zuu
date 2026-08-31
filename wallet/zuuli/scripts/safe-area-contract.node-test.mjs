@@ -17,6 +17,7 @@ const auth = source("../src/features/auth/index.tsx");
 const ai = source("../src/features/ai/index.tsx");
 const reader = source("../src/features/articles/pages/Reader.tsx");
 const root = source("../src/main.tsx");
+const appBootstrap = source("../src/app-bootstrap.tsx");
 const androidManifest = source(
   "../src-tauri/gen/android/app/src/main/AndroidManifest.xml",
 );
@@ -83,9 +84,9 @@ test("the document and app are bounded to one dynamic viewport frame", () => {
   assert.match(cssRule("app-viewport"), /overflow: hidden;/);
   assert.match(shell, /className="app-viewport flex bg-background"/);
   assert.match(shell, /data-app-frame/);
-  assert.match(root, /className="app-crash-frame"/);
+  assert.match(appBootstrap, /className="app-crash-frame"/);
 
-  for (const framingSource of [shell, auth, root]) {
+  for (const framingSource of [shell, auth, root, appBootstrap]) {
     assert.doesNotMatch(framingSource, /(?:min-h-screen|\bh-screen\b)/);
   }
 });

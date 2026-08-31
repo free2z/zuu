@@ -13,6 +13,7 @@ import type {
   SyncStatus,
   TransactionEntry,
   WalletCreated,
+  WalletInfo,
   WalletRestored,
   WalletStatus,
 } from "./types";
@@ -21,6 +22,11 @@ import type { SensitiveEntryPurpose } from "../../../../shared/sensitive-entry-s
 
 const MOCK_UA =
   "u1l8xunezsvpntq2snz67h6md2eq09u09vv3xh6z8kqvxg7pdvz4qc9x2u84kqmpc0mz0kmvexz";
+
+// Produced by the native validator's transparent-only Unified Address test:
+// P2PKH([0x24; 20]) plus an unknown receiver on mainnet.
+const MOCK_TRANSPARENT_ONLY_UA =
+  "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr";
 
 const MOCK_SEED =
   "wisdom shadow orchard zebra pledge notice frost violet render " +
@@ -55,6 +61,49 @@ const MOCK_WALLET_SCENARIO_KEY = "zuuli.mock.wallet-scenario";
 const MOCK_CREATED_WALLET_KEY = "zuuli.mock.created-wallet";
 const MOCK_BACKUP_REQUIRED_KEY = "zuuli.mock.backup-required";
 const MOCK_WALLET_ID = "mock-wallet-0";
+const MOCK_SECONDARY_WALLET_ID = "mock-wallet-1";
+const MOCK_SWITCHED_WALLET_ID = "mock-wallet-switched-after-restore";
+let activeMockWalletId = MOCK_WALLET_ID;
+
+const MOCK_WALLETS: readonly Omit<WalletInfo, "isActive">[] = [
+  {
+    id: MOCK_WALLET_ID,
+    name: "Main",
+    birthdayHeight: 2_611_904,
+    createdAt: "2026-01-02T03:04:05Z",
+  },
+  {
+    id: MOCK_SECONDARY_WALLET_ID,
+    name: "Savings",
+    birthdayHeight: 2_600_000,
+    createdAt: "2026-02-03T04:05:06Z",
+  },
+];
+
+function activeMockWallet(
+  scenario: ReturnType<typeof mockWalletScenario>,
+): Omit<WalletInfo, "isActive"> {
+  if (scenario === "wallet-switch") {
+    return {
+      id: MOCK_SWITCHED_WALLET_ID,
+      name: "Switched identity",
+      birthdayHeight: 2_600_100,
+      createdAt: "2026-03-04T05:06:07Z",
+    };
+  }
+  return (
+    MOCK_WALLETS.find((wallet) => wallet.id === activeMockWalletId) ??
+    MOCK_WALLETS[0]
+  );
+}
+
+function availableMockWallets(
+  scenario: ReturnType<typeof mockWalletScenario>,
+): readonly Omit<WalletInfo, "isActive">[] {
+  return scenario === "wallet-switch"
+    ? [MOCK_WALLETS[0], activeMockWallet(scenario)]
+    : MOCK_WALLETS;
+}
 function mockWalletScenario():
   | "empty"
   | "sign-error"
@@ -153,19 +202,16 @@ export const mockWallet = {
     ].includes(scenario ?? "");
     const initialized =
       needsRestore && !persistedCreated ? false : created || persistedCreated;
+    const active = activeMockWallet(scenario);
+    const wallets = initialized ? availableMockWallets(scenario) : [];
     return {
       initialized,
       hasSeed: initialized,
       syncedHeight: synced,
       chainTip: tip,
-      activeWalletId:
-        initialized && scenario === "wallet-switch"
-          ? "mock-wallet-switched-after-restore"
-          : initialized
-            ? MOCK_WALLET_ID
-            : null,
-      activeWalletName: "Main",
-      walletCount: 1,
+      activeWalletId: initialized ? active.id : null,
+      activeWalletName: initialized ? active.name : null,
+      walletCount: wallets.length,
       backupRequired:
         initialized &&
         globalThis.localStorage?.getItem(MOCK_BACKUP_REQUIRED_KEY) ===
@@ -187,6 +233,20 @@ export const mockWallet = {
             : null,
       },
     };
+  },
+  listWallets(): WalletInfo[] {
+    const status = this.getWalletStatus();
+    if (!status.initialized || !status.activeWalletId) return [];
+    return availableMockWallets(mockWalletScenario()).map((wallet) => ({
+      ...wallet,
+      isActive: wallet.id === status.activeWalletId,
+    }));
+  },
+  switchWallet(walletId: string): void {
+    if (!MOCK_WALLETS.some((wallet) => wallet.id === walletId)) {
+      throw new Error("wallet identifier is unknown or stale");
+    }
+    activeMockWalletId = walletId;
   },
   retryWalletCleanup() {
     return {
@@ -236,6 +296,7 @@ export const mockWallet = {
   },
   createWallet(): WalletCreated {
     created = true;
+    activeMockWalletId = MOCK_WALLET_ID;
     globalThis.localStorage?.setItem(MOCK_CREATED_WALLET_KEY, "1");
     globalThis.localStorage?.setItem(MOCK_BACKUP_REQUIRED_KEY, MOCK_WALLET_ID);
     return { walletId: MOCK_WALLET_ID, birthdayHeight: tip - 100 };
@@ -283,6 +344,7 @@ export const mockWallet = {
     }
     const publish = (): WalletRestored => {
       created = true;
+      activeMockWalletId = MOCK_WALLET_ID;
       globalThis.localStorage?.setItem(MOCK_CREATED_WALLET_KEY, "1");
       globalThis.localStorage?.removeItem(MOCK_BACKUP_REQUIRED_KEY);
       return { success: true, walletId: MOCK_WALLET_ID };
@@ -350,6 +412,19 @@ export const mockWallet = {
     return history;
   },
   validateAddress(address: string): AddressValidation {
+    const wrongNetwork =
+      address.startsWith("utest") ||
+      address.startsWith("ztestsapling") ||
+      address.startsWith("tm") ||
+      address.startsWith("t2");
+    if (wrongNetwork) {
+      return {
+        valid: false,
+        addressType: null,
+        canReceiveMemo: false,
+        error: "Address belongs to a different Zcash network",
+      };
+    }
     const valid =
       address.startsWith("u1") ||
       address.startsWith("zs1") ||
@@ -364,7 +439,9 @@ export const mockWallet = {
             ? "sapling"
             : "transparent"
         : null,
-      canReceiveMemo: address.startsWith("u1") || address.startsWith("zs1"),
+      canReceiveMemo:
+        (address.startsWith("u1") && address !== MOCK_TRANSPARENT_ONLY_UA) ||
+        address.startsWith("zs1"),
     };
   },
   parsePaymentUri(uri: string): PaymentRequest {
@@ -504,6 +581,16 @@ export const mockWallet = {
     pendingConfirmation = null;
   },
   getPendingSend() {
+    if (globalThis.localStorage?.getItem("zuuli.mock.pending-send") === "unknown") {
+      return {
+        proposalId: 41,
+        txid: "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+        status: "unknown" as const,
+        message: null,
+        recoveryRequired: false,
+        canDiscard: false,
+      };
+    }
     return null;
   },
   retryPendingSend() {

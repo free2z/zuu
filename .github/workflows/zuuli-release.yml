@@ -1360,14 +1360,18 @@ jobs:
           dmgs=(src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
           [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one unsigned macOS app" >&2; exit 1; }
           [[ ${#dmgs[@]} -eq 1 && -f "${dmgs[0]}" ]] || { echo "expected exactly one unsigned macOS layout DMG" >&2; exit 1; }
+          plutil -lint "${apps[0]}/Contents/Info.plist"
+          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
+          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
           mkdir unsigned-macos
           ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" unsigned-macos/ZUULI.app.zip
           cp "${dmgs[0]}" unsigned-macos/ZUULI-layout.dmg
           cp src-tauri/Entitlements.plist unsigned-macos/Entitlements.plist
+          cp src-tauri/Info.macos.plist unsigned-macos/Info.macos.plist
           jq -n --arg identity "$RELEASE_IDENTITY" --arg sourceSha "$RELEASE_SOURCE_SHA" \
             '{schemaVersion:1,identity:$identity,sourceSha:$sourceSha,kind:"macos-unsigned-app-and-layout"}' \
             > unsigned-macos/source-record.json
-          (cd unsigned-macos && shasum -a 256 Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256)
+          (cd unsigned-macos && shasum -a 256 Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256)
           artifact_sha256=$(shasum -a 256 unsigned-macos/ZUULI.app.zip | awk '{print $1}')
           payload_sha256=$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')
           echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
@@ -1419,10 +1423,10 @@ jobs:
           [[ "$EXPECTED_APP_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected macOS app digest" >&2; exit 1; }
           [[ "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected macOS payload digest" >&2; exit 1; }
           expected_members=$(printf '%s\n' \
-            ./CHECKSUMS.sha256 ./Entitlements.plist ./ZUULI-layout.dmg ./ZUULI.app.zip ./source-record.json | LC_ALL=C sort)
+            ./CHECKSUMS.sha256 ./Entitlements.plist ./Info.macos.plist ./ZUULI-layout.dmg ./ZUULI.app.zip ./source-record.json | LC_ALL=C sort)
           actual_members=$(cd unsigned-macos && find . -mindepth 1 -print | LC_ALL=C sort)
           [[ "$actual_members" == "$expected_members" ]] || { echo "unexpected unsigned macOS artifact inventory" >&2; exit 1; }
-          for member in CHECKSUMS.sha256 Entitlements.plist ZUULI-layout.dmg ZUULI.app.zip source-record.json; do
+          for member in CHECKSUMS.sha256 Entitlements.plist Info.macos.plist ZUULI-layout.dmg ZUULI.app.zip source-record.json; do
             [[ -f "unsigned-macos/$member" && ! -L "unsigned-macos/$member" ]] || { echo "unsafe unsigned macOS member: $member" >&2; exit 1; }
           done
           test "$(shasum -a 256 unsigned-macos/CHECKSUMS.sha256 | awk '{print $1}')" = "$EXPECTED_PAYLOAD_SHA256"
@@ -1438,6 +1442,9 @@ jobs:
           ditto -x -k unsigned-macos/ZUULI.app.zip signing-work
           apps=(signing-work/*.app)
           [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "expected exactly one unpacked macOS app" >&2; exit 1; }
+          plutil -lint "${apps[0]}/Contents/Info.plist"
+          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
+          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
           echo "ZUULI_SIGNED_APP=${apps[0]}" >> "$GITHUB_ENV"
       - name: Materialize, sign app, and destroy ephemeral Developer ID credential
         env:
@@ -1530,9 +1537,11 @@ jobs:
             plutil -lint "$entitlements"
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.application-identifier"')" = F9AV5HKF6N.cash.free2z.zuuli
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.developer.team-identifier"')" = F9AV5HKF6N
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.security.device.audio-input"')" = true
+            test "$(plutil -convert json -o - "$entitlements" | jq -r '."com.apple.security.device.camera"')" = true
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."keychain-access-groups"[0]')" = F9AV5HKF6N.cash.free2z.zuuli
             test "$(plutil -convert json -o - "$entitlements" | jq -r '."keychain-access-groups" | length')" = 1
-            test "$(plutil -convert json -o - "$entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
+            test "$(plutil -convert json -o - "$entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,com.apple.security.device.audio-input,com.apple.security.device.camera,keychain-access-groups
           }
           verify_keychain_entitlements unsigned-macos/Entitlements.plist
           cp "$secret_dir/zuuli.provisionprofile" "$ZUULI_SIGNED_APP/Contents/embedded.provisionprofile"
@@ -1804,9 +1813,14 @@ jobs:
           plutil -lint "$signed_entitlements"
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.application-identifier"')" = F9AV5HKF6N.cash.free2z.zuuli
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.developer.team-identifier"')" = F9AV5HKF6N
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.security.device.audio-input"')" = true
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."com.apple.security.device.camera"')" = true
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."keychain-access-groups"[0]')" = F9AV5HKF6N.cash.free2z.zuuli
           test "$(plutil -convert json -o - "$signed_entitlements" | jq -r '."keychain-access-groups" | length')" = 1
-          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,keychain-access-groups
+          test "$(plutil -convert json -o - "$signed_entitlements" | jq -r 'keys | sort | join(",")')" = com.apple.application-identifier,com.apple.developer.team-identifier,com.apple.security.device.audio-input,com.apple.security.device.camera,keychain-access-groups
+          plutil -lint "${apps[0]}/Contents/Info.plist"
+          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
+          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "${apps[0]}/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
           signature=$(codesign -dvv "${apps[0]}" 2>&1)
           grep -F 'Authority=Developer ID Application: Corpora Inc (F9AV5HKF6N)' <<<"$signature"
           grep -F 'TeamIdentifier=F9AV5HKF6N' <<<"$signature"
@@ -1827,6 +1841,9 @@ jobs:
           [[ -d "$mountpoint/ZUULI.app" && ! -L "$mountpoint/ZUULI.app" ]] || { echo "signed DMG contains no safe ZUULI.app directory" >&2; exit 1; }
           [[ -L "$mountpoint/Applications" && "$(readlink "$mountpoint/Applications")" == /Applications ]] || { echo "signed DMG Applications link is not canonical" >&2; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$mountpoint/ZUULI.app"
+          plutil -lint "$mountpoint/ZUULI.app/Contents/Info.plist"
+          test "$(plutil -extract NSCameraUsageDescription raw -expect string -o - -- "$mountpoint/ZUULI.app/Contents/Info.plist")" = 'ZUULI uses the camera when you broadcast or join a live video stream.'
+          test "$(plutil -extract NSMicrophoneUsageDescription raw -expect string -o - -- "$mountpoint/ZUULI.app/Contents/Info.plist")" = 'ZUULI uses the microphone when you broadcast or join a live stream.'
           xcrun stapler validate "$mountpoint/ZUULI.app"
           hdiutil detach "$mountpoint" >/dev/null
           mounted=false

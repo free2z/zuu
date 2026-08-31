@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
-import { Loader2, Newspaper, PenLine, Search, Sparkles, X } from "lucide-react";
+import { Loader2, Newspaper, PenLine, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useRouteScroll } from "@/hooks/useRouteScroll";
 import { cn } from "@/lib/utils";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
   isArticleTagFilterable,
   MAX_ARTICLE_TAGS,
@@ -25,6 +27,7 @@ const SORTS: { value: ArticleSort; label: string }[] = [
 ];
 
 export function Feed() {
+  const { t } = useTranslation();
   const { viewport } = useRouteScroll();
   const [params, setParams] = useSearchParams();
   const [sort, setSort] = useState<ArticleSort>("popular");
@@ -110,7 +113,6 @@ export function Feed() {
     <div className="animate-slide-up">
       <PageHeader
         title="Articles"
-        description="Long-form writing from the Zcash community — backed by free2z zpages."
         actions={
           <Button asChild>
             <Link to="/articles/new" aria-label="Write a new article">
@@ -136,8 +138,8 @@ export function Feed() {
               enterKeyHint="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search articles by meaning…"
-              aria-label="Search articles"
+              placeholder={t(MESSAGE_KEYS.navSearchAction)}
+              aria-label={t(MESSAGE_KEYS.articlesSearchAccessible)}
               data-custom-search-clear
               className="pl-9 pr-12"
             />
@@ -152,10 +154,6 @@ export function Feed() {
               </button>
             ) : null}
           </div>
-          <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3 text-primary" aria-hidden />
-            Semantic search — results ranked by meaning, not just keywords.
-          </p>
         </div>
 
         <div
@@ -193,7 +191,6 @@ export function Feed() {
                 <span
                   key={tag}
                   className="min-tap inline-flex max-w-full items-center rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground"
-                  title="This stored tag cannot be represented by the server's comma-delimited filter."
                 >
                   <span className="min-w-0 break-words">{tag}</span>
                 </span>
