@@ -86,13 +86,15 @@ for (const width of WIDTHS) {
     await page.goto("/search");
     await expect(page.getByRole("heading", { name: "Search" })).toBeVisible();
     await expect(
-      page.getByRole("searchbox", { name: "Search creators and pages" }),
+      page.getByRole("combobox", {
+        name: "Search creators, pages, and topics",
+      }),
     ).toBeVisible();
     await expect(page.getByText(REMOVED_EXPLAINERS)).toHaveCount(0);
     await expect(page.locator("h1").locator("xpath=..").locator("p")).toHaveCount(0);
 
     await expandText(page);
-    await expectCopyFits(page, "Search creators and pages");
+    await expectCopyFits(page, "Search creators, pages, and topics");
 
     await page.goto("/articles");
     const articleSearch = page.getByRole("searchbox", {
@@ -117,8 +119,8 @@ test("changed Search copy resolves through the accepted locale catalog", async (
   await page.goto("/search");
 
   await expect(page.getByRole("heading", { name: "Buscar" })).toBeVisible();
-  const search = page.getByRole("searchbox", {
-    name: "Buscar creadores y páginas",
+  const search = page.getByRole("combobox", {
+    name: "Buscar creadores, páginas y temas",
   });
   await expect(search).toHaveAttribute("placeholder", "Buscar");
   await expect(page.getByText("Buscar en todo free2z")).toBeVisible();

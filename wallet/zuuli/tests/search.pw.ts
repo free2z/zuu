@@ -108,7 +108,7 @@ for (const viewport of VIEWPORTS) {
       await expect(input).toBeFocused();
       await expect(clear).toHaveCount(0);
       await expect(
-        page.getByText("Start typing.", { exact: true }),
+        page.getByText("Search all of free2z", { exact: true }),
       ).toBeVisible();
 
       await page.goBack();

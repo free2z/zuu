@@ -1,5 +1,3 @@
-export const SEARCH_INPUT_LABEL = "Search creators, pages, and topics";
-
 /** Search owns the chrome for every route mounted below `/search/*`. */
 export function isSearchRoute(pathname: string): boolean {
   return pathname === "/search" || pathname.startsWith("/search/");

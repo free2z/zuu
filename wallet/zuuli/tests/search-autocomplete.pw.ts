@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const SEARCH_NAME = "Search creators, pages, and topics";
+const SEARCH_NAME_ES = "Buscar creadores, páginas y temas";
 
 function globalSearch(page: Page) {
   return page.getByRole("combobox", { name: SEARCH_NAME });
@@ -266,7 +267,7 @@ test.describe("locale-aware Search", () => {
     page,
   }) => {
     await page.goto("/search");
-    const input = globalSearch(page);
+    const input = page.getByRole("combobox", { name: SEARCH_NAME_ES });
     await input.fill("privacy");
     const options = page.getByRole("option");
     await expect(options.first()).toBeVisible();

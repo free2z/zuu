@@ -30,7 +30,7 @@ import {
   type DiscoverySuggestion,
 } from "@/lib/discovery-autocomplete";
 import { MAX_ARTICLE_TAGS, sanitizeArticleTags } from "@/lib/article-tags";
-import { SEARCH_INPUT_LABEL, withSearchQuery } from "@/lib/search-route";
+import { withSearchQuery } from "@/lib/search-route";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 import { useCreatorSearch, usePageSearch } from "./pagination";
 
@@ -359,8 +359,8 @@ export default function SearchFeature() {
               );
             }}
             onKeyDown={onSearchKeyDown}
-            placeholder="Search"
-            aria-label={SEARCH_INPUT_LABEL}
+            placeholder={t(MESSAGE_KEYS.navSearchAction)}
+            aria-label={t(MESSAGE_KEYS.navSearch)}
             aria-autocomplete="list"
             aria-expanded={popupOpen && suggestions.length > 0}
             aria-controls={
