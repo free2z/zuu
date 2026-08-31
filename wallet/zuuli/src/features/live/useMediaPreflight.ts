@@ -40,6 +40,8 @@ function defaultMediaDevices(): MediaDevicesLike | null {
   return typeof navigator === "undefined" ? null : navigator.mediaDevices ?? null;
 }
 
+const STALE_DEVICE_REFRESH = Symbol("stale-device-refresh");
+
 export function useMediaPreflight({
   active,
   mediaDevices = defaultMediaDevices(),
@@ -107,10 +109,12 @@ export function useMediaPreflight({
       const next = captureDevices(await mediaDevices.enumerateDevices());
       if (
         !activeRef.current ||
-        sequence !== enumerationSequence.current ||
         expectedGeneration !== requestGeneration.current
       ) {
         return null;
+      }
+      if (sequence !== enumerationSequence.current) {
+        return STALE_DEVICE_REFRESH;
       }
       const sanitizedSelection = {
         audio: !selectedRef.current.audio || next.some(
@@ -131,11 +135,29 @@ export function useMediaPreflight({
       setDevices(next);
       return next;
     } catch {
+      if (
+        activeRef.current &&
+        expectedGeneration === requestGeneration.current &&
+        sequence !== enumerationSequence.current
+      ) {
+        return STALE_DEVICE_REFRESH;
+      }
       // Some WebViews expose getUserMedia but withhold enumeration. Capture can
       // still proceed with the platform defaults, so enumeration is optional.
       return null;
     }
   }, [mediaDevices]);
+
+  const refreshLatestDevices = useCallback(async (expectedGeneration: number) => {
+    while (
+      activeRef.current &&
+      expectedGeneration === requestGeneration.current
+    ) {
+      const refreshed = await refreshDevices(expectedGeneration);
+      if (refreshed !== STALE_DEVICE_REFRESH) return refreshed;
+    }
+    return null;
+  }, [refreshDevices]);
 
   const installStream = useCallback((next: MediaStream) => {
     stopCurrentStream();
@@ -210,7 +232,7 @@ export function useMediaPreflight({
       // Own the result before any further await. Cancel/unmount can now release
       // it synchronously even if enumerateDevices hangs forever.
       provisionalStreamsRef.current.set(generation, acquired);
-      await refreshDevices(generation);
+      const refreshed = await refreshLatestDevices(generation);
       if (provisionalStreamsRef.current.get(generation) !== acquired) {
         // A cancel or newer request already stopped and removed this stream.
         return;
@@ -229,6 +251,30 @@ export function useMediaPreflight({
         selection.video ||
         acquired.getVideoTracks()[0]?.getSettings().deviceId ||
         "";
+      const captureEnded = acquired.getTracks().some(
+        (track) => track.readyState === "ended",
+      );
+      const refreshedAudioDevices = refreshed?.filter(
+        (device) => device.kind === "audioinput",
+      ) ?? [];
+      const refreshedVideoDevices = refreshed?.filter(
+        (device) => device.kind === "videoinput",
+      ) ?? [];
+      const selectedDeviceMissing = refreshed !== null && (
+        (audioId !== "" && refreshedAudioDevices.length > 0 &&
+          !refreshedAudioDevices.some((device) => device.deviceId === audioId)) ||
+        (videoId !== "" && refreshedVideoDevices.length > 0 &&
+          !refreshedVideoDevices.some((device) => device.deviceId === videoId))
+      );
+      if (captureEnded || selectedDeviceMissing) {
+        stopMediaStream(acquired);
+        if (activeRef.current && generation === requestGeneration.current) {
+          setStatus("removed");
+          setMicrophoneEnabled(false);
+          setCameraEnabled(false);
+        }
+        return;
+      }
       const nextSelection = { audio: audioId, video: videoId };
       selectedRef.current = nextSelection;
       setSelected(nextSelection);
@@ -238,7 +284,7 @@ export function useMediaPreflight({
         stopCurrentStream();
         const errorStatus = statusForCaptureError(error);
         if (errorStatus === "no-device") {
-          const refreshed = await refreshDevices(generation);
+          const refreshed = await refreshLatestDevices(generation);
           if (
             refreshed === null &&
             activeRef.current &&
@@ -259,7 +305,7 @@ export function useMediaPreflight({
   }, [
     installStream,
     mediaDevices,
-    refreshDevices,
+    refreshLatestDevices,
     stopCurrentStream,
     stopProvisionalStreams,
   ]);
@@ -326,7 +372,7 @@ export function useMediaPreflight({
         current?.getVideoTracks()[0]?.getSettings().deviceId;
       const next = await refreshDevices(expectedGeneration);
       if (
-        !next ||
+        !Array.isArray(next) ||
         !current ||
         !activeRef.current ||
         expectedGeneration !== requestGeneration.current
