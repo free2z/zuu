@@ -100,10 +100,23 @@ subtle = { version = "2", default-features = false }
 # four account leaves out of one account key with
 # `HKDF-Expand(PRK = ik_account, info = label, L)`; only the Expand half is
 # used, because the PRK is already a uniformly random BLAKE2b output and an
-# Extract over it would buy nothing. `sha2` is pinned to the 0.10 line so that
-# it resolves to the copy `akd_core`'s graph already carries rather than adding
-# a third: 0.11 is in this lock only because `ed25519-dalek` 3 uses it
-# internally, and a hash this crate names should be one a reader can find.
+# Extract over it would buy nothing.
+#
+# `sha2` is pinned to the 0.10 line, and the reason is the SHIPPING WALLET, not
+# this workspace. An earlier version of this comment said 0.10 "resolves to the
+# copy `akd_core`'s graph already carries"; that was wrong. `akd_core` 0.13.0
+# does not depend on `sha2` at all — its digest is `blake3` — and reaches
+# `sha2 0.10.9` only transitively through `ed25519-dalek` 2. The real
+# constraint: `f2z-msg-identity` is linked into `wallet/zuuli/src-tauri`, and in
+# that binary `sha2 0.10.9` is what `zcash_primitives`, `zcash_transparent`,
+# `zcash_script`, `tauri-plugin-zcash`, `bip0039`, `bs58`, `tauri-codegen` and
+# `wry` all resolve to, because librustzcash's workspace declares
+# `sha2 = "0.10"`. Moving to 0.11 would put a second SHA-256 in the shipped
+# wallet. `hkdf` 0.12 is the line that pairs with it (both on `digest` 0.10), so
+# the two move together and only when upstream librustzcash moves.
+# `docs/DEPENDENCIES.md` section 3 tracks that, and
+# `scripts/check-dependency-register.mjs` re-reads upstream's manifest so this
+# paragraph cannot go stale unnoticed a second time.
 hkdf = { version = "0.12", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 # The CSPRNG **boundary** for `ARCHITECTURE.md` §4.1's device keys, and not a
