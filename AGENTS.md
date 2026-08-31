@@ -121,6 +121,14 @@ First decide **whose bug it is**:
 The point of pinning our own commit is never to park there. It's a bridge that
 keeps the synthetic monorepo building **while** the fix is in flight upstream.
 
+Every bridge currently standing — and the event that retires each one — is
+listed in **[docs/DEPENDENCIES.md](./docs/DEPENDENCIES.md)**, the fork & pin
+register. Step 5 above is what nothing enforced until that page existed;
+`scripts/check-dependency-register.mjs` and
+`.github/workflows/dependency-register.yml` now watch it. Add a row when you add
+a fork or a `[patch.crates-io]`, and delete the row when you retire it — the
+check fails in both directions.
+
 ### Branching a dep is a signal to vendor it
 
 If we need to branch something to make it work, that's a strong candidate to
