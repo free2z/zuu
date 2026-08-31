@@ -164,8 +164,8 @@ impl Size for MsgId {
 }
 
 impl SerializeBytes for MsgId {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.0.tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize_bytes()
     }
 }
 
@@ -292,8 +292,8 @@ impl Size for RetentionClass {
 }
 
 impl SerializeBytes for RetentionClass {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.code().tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.code().tls_serialize_bytes()
     }
 }
 

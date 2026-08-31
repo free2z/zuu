@@ -93,10 +93,10 @@ macro_rules! length_prefixed_vec {
         }
 
         impl<T: SerializeBytes + Size> SerializeBytes for $name<T> {
-            fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+            fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
                 let mut body = Vec::new();
                 for item in &self.0 {
-                    body.extend_from_slice(&item.tls_serialize()?);
+                    body.extend_from_slice(&item.tls_serialize_bytes()?);
                 }
                 if body.len() > Self::MAX_BYTES {
                     return Err(TlsError::InvalidVectorLength);

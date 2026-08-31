@@ -1257,7 +1257,7 @@ name = "f2z-codec"
 version = "0.1.0"
 dependencies = [
  "blake2",
- "tls_codec 0.4.2",
+ "tls_codec",
 ]
 
 [[package]]
@@ -1277,7 +1277,7 @@ dependencies = [
  "ed25519-dalek 3.0.0",
  "f2z-codec",
  "protobuf",
- "tls_codec 0.4.2",
+ "tls_codec",
 ]
 
 [[package]]
@@ -1286,7 +1286,7 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "f2z-codec",
- "tls_codec 0.4.2",
+ "tls_codec",
 ]
 
 [[package]]
@@ -1300,7 +1300,7 @@ dependencies = [
  "hkdf 0.12.4",
  "rand_core 0.10.1",
  "sha2 0.10.9",
- "tls_codec 0.4.2",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -1336,7 +1336,7 @@ dependencies = [
  "ed25519-dalek 3.0.0",
  "f2z-codec",
  "subtle",
- "tls_codec 0.4.2",
+ "tls_codec",
 ]
 
 [[package]]
@@ -1346,7 +1346,7 @@ dependencies = [
  "f2z-codec",
  "f2z-relay-proto",
  "futures-util",
- "tls_codec 0.4.2",
+ "tls_codec",
  "tokio",
  "tokio-tungstenite",
 ]
@@ -2013,7 +2013,7 @@ dependencies = [
  "log",
  "serde",
  "subtle",
- "tls_codec 0.5.0",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -2695,7 +2695,7 @@ dependencies = [
  "libcrux-curve25519",
  "libcrux-p256",
  "rand 0.10.2",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -2800,7 +2800,7 @@ dependencies = [
  "libcrux-sha3",
  "libcrux-traits",
  "rand 0.10.2",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -3420,7 +3420,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "thiserror 2.0.20",
- "tls_codec 0.5.0",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -3437,7 +3437,7 @@ dependencies = [
  "p384",
  "rand_core 0.6.4",
  "serde",
- "tls_codec 0.5.0",
+ "tls_codec",
  "zeroize",
 ]
 
@@ -3460,7 +3460,7 @@ dependencies = [
  "openmls_memory_storage",
  "openmls_traits",
  "rand 0.10.2",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -3501,7 +3501,7 @@ dependencies = [
  "rand_core 0.6.4",
  "sha2 0.11.0",
  "thiserror 2.0.20",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -3549,7 +3549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac13edad8698eb1917cbc1dab99591fa1594d84320904fe3fc5121854f95831c"
 dependencies = [
  "serde",
- "tls_codec 0.5.0",
+ "tls_codec",
 ]
 
 [[package]]
@@ -5310,7 +5310,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin",
  "tempfile",
- "tls_codec 0.4.2",
+ "tls_codec",
  "tokio",
  "tokio-tungstenite",
  "tracing",
@@ -5546,35 +5546,14 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tls_codec"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de2e01245e2bb89d6f05801c564fa27624dbd7b1846859876c7dad82e90bf6b"
-dependencies = [
- "tls_codec_derive 0.4.2",
- "zeroize",
-]
-
-[[package]]
-name = "tls_codec"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18cc98286004cea38f717e2b03d990fc774fbfd38a82720de40e5c94365067c8"
 dependencies = [
  "serde",
  "serde_bytes",
- "tls_codec_derive 0.5.0",
+ "tls_codec_derive",
  "zeroize",
-]
-
-[[package]]
-name = "tls_codec_derive"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2e76690929402faae40aebdda620a2c0e25dd6d3b9afe48867dfd95991f4bd"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]

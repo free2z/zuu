@@ -65,21 +65,24 @@ use f2z_msg_store::{Durability, StorageBackend};
 use openmls::prelude::*;
 // **Through the prelude, deliberately, and not as a dependency of this crate.**
 //
-// `openmls 0.9` moved to `tls_codec 0.5`, while `f2z-codec` and `f2z-kt-core`
-// — the crates that define free2z's own wire structures — are on `tls_codec
-// 0.4`. Both live in this graph. The two `tls_codec` traits below are used on
-// **OpenMLS's** types (`MlsMessageOut`, `MlsMessageIn`) and on nothing else, so
-// they must be the version OpenMLS derived them with; naming the crate directly
-// would let a future workspace bump resolve them to the other one and produce a
-// trait-not-implemented error whose cause is invisible. `openmls::prelude`
-// re-exports `tls_codec::{self, *}`, so this import cannot drift from what
-// OpenMLS itself uses.
+// The two `tls_codec` traits below are used on **OpenMLS's** types
+// (`MlsMessageOut`, `MlsMessageIn`) and on nothing else, so they must be the
+// version OpenMLS derived them with. `openmls::prelude` re-exports
+// `tls_codec::{self, *}`, so this import cannot drift from what OpenMLS itself
+// uses.
 //
-// Nothing crosses the seam. A `DeviceCredential` reaches MLS as the opaque
-// identity bytes of a `BasicCredential` (`credential::encode`, which is
-// `f2z-codec`'s canonical encoding), so no `tls_codec` *type* from either
-// version appears in an interface between the two halves — the same shape as
-// the two `ed25519-dalek` majors this workspace already carries.
+// This graph carried **two** majors of `tls_codec` until #853 — `openmls 0.9`
+// on 0.5, `f2z-codec` and `f2z-kt-core` on 0.4 — and the workspace is now on
+// 0.5 with them, so the two resolve to one crate today. The indirection stays
+// anyway: naming `tls_codec` directly here would make that unification
+// load-bearing, and the next time OpenMLS moves ahead of us the failure is a
+// trait-not-implemented error on a derive nobody edited.
+//
+// Nothing crosses the seam in either case. A `DeviceCredential` reaches MLS as
+// the opaque identity bytes of a `BasicCredential` (`credential::encode`, which
+// is `f2z-codec`'s canonical encoding), so no `tls_codec` *type* appears in an
+// interface between the two halves — the same shape as the two
+// `ed25519-dalek` majors this workspace still carries.
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
 
 use crate::credential::{DeviceCredential, encode as encode_credential, validate_for_leaf};

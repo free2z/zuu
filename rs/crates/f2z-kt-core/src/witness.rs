@@ -412,7 +412,7 @@ impl Size for FaultKind {
 }
 
 impl SerializeBytes for FaultKind {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         Ok(vec![self.code()])
     }
 }

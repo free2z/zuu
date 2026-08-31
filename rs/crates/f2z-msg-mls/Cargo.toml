@@ -61,11 +61,12 @@ openmls_libcrux_crypto = { workspace = true }
 # uses (`openmls_libcrux_crypto`'s `crypto.rs` calls exactly these functions),
 # so naming it here adds no crate to the graph and removes two.
 libcrux-ed25519 = { workspace = true }
-# `tls_codec` is deliberately NOT a dependency of this crate. `openmls 0.9` is
-# on `tls_codec 0.5` and `f2z-codec`/`f2z-kt-core` are on `0.4`; the only two
-# `tls_codec` calls here are on OpenMLS's own types, and `src/engine.rs` reaches
-# them through `openmls::prelude::tls_codec` so they cannot resolve to the other
-# version. See the note at that import.
+# `tls_codec` is deliberately NOT a dependency of this crate, and it stays that
+# way even though the workspace and `openmls 0.9` now agree on 0.5 (#853). The
+# only two `tls_codec` calls here are on OpenMLS's own types, so `src/engine.rs`
+# reaches them through `openmls::prelude::tls_codec`: the trait a derive
+# generated must be the one that crate derived it with, whether or not the
+# resolver currently makes those the same crate. See the note at that import.
 serde = { workspace = true }
 
 [dev-dependencies]

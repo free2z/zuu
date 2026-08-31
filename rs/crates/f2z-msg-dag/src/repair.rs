@@ -163,8 +163,8 @@ impl Size for RepairRefusal {
 }
 
 impl SerializeBytes for RepairRefusal {
-    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
-        self.code().tls_serialize()
+    fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
+        self.code().tls_serialize_bytes()
     }
 }
 
