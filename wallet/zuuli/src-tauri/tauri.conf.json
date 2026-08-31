@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "entitlements": "./Entitlements.plist"
+      "entitlements": "./Entitlements.plist",
+      "infoPlist": "Info.macos.plist"
     },
     "iOS": {
       "bundleVersion": "17",

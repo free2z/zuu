@@ -112,6 +112,22 @@ export function useMediaPreflight({
       ) {
         return null;
       }
+      const sanitizedSelection = {
+        audio: !selectedRef.current.audio || next.some(
+          (device) => device.kind === "audioinput" &&
+            device.deviceId === selectedRef.current.audio,
+        )
+          ? selectedRef.current.audio
+          : next.find((device) => device.kind === "audioinput")?.deviceId ?? "",
+        video: !selectedRef.current.video || next.some(
+          (device) => device.kind === "videoinput" &&
+            device.deviceId === selectedRef.current.video,
+        )
+          ? selectedRef.current.video
+          : next.find((device) => device.kind === "videoinput")?.deviceId ?? "",
+      };
+      selectedRef.current = sanitizedSelection;
+      setSelected(sanitizedSelection);
       setDevices(next);
       return next;
     } catch {
@@ -220,7 +236,24 @@ export function useMediaPreflight({
     } catch (error) {
       if (activeRef.current && generation === requestGeneration.current) {
         stopCurrentStream();
-        setStatus(statusForCaptureError(error));
+        const errorStatus = statusForCaptureError(error);
+        if (errorStatus === "no-device") {
+          const refreshed = await refreshDevices(generation);
+          if (
+            refreshed === null &&
+            activeRef.current &&
+            generation === requestGeneration.current
+          ) {
+            // An exact ID can become invalid between enumeration and capture.
+            // If re-enumeration is unavailable, forget both exact constraints
+            // so the next explicit retry can use platform defaults.
+            selectedRef.current = EMPTY_DEVICE_SELECTION;
+            setSelected(EMPTY_DEVICE_SELECTION);
+          }
+        }
+        if (activeRef.current && generation === requestGeneration.current) {
+          setStatus(errorStatus);
+        }
       }
     }
   }, [
@@ -283,8 +316,15 @@ export function useMediaPreflight({
     void refreshDevices(requestGeneration.current);
     const onDeviceChange = async () => {
       const expectedGeneration = requestGeneration.current;
-      const next = await refreshDevices(expectedGeneration);
       const current = streamRef.current;
+      const selectionBeforeRefresh = selectedRef.current;
+      const audioId =
+        selectionBeforeRefresh.audio ||
+        current?.getAudioTracks()[0]?.getSettings().deviceId;
+      const videoId =
+        selectionBeforeRefresh.video ||
+        current?.getVideoTracks()[0]?.getSettings().deviceId;
+      const next = await refreshDevices(expectedGeneration);
       if (
         !next ||
         !current ||
@@ -294,12 +334,6 @@ export function useMediaPreflight({
         return;
       }
 
-      const audioId =
-        selectedRef.current.audio ||
-        current.getAudioTracks()[0]?.getSettings().deviceId;
-      const videoId =
-        selectedRef.current.video ||
-        current.getVideoTracks()[0]?.getSettings().deviceId;
       const audioGone = !audioId || !next.some(
         (device) => device.kind === "audioinput" && device.deviceId === audioId,
       );
@@ -307,14 +341,7 @@ export function useMediaPreflight({
         (device) => device.kind === "videoinput" && device.deviceId === videoId,
       );
       if (audioGone || videoGone) {
-        const nextSelection = {
-          audio: audioGone
-            ? next.find((device) => device.kind === "audioinput")?.deviceId ?? ""
-            : selectedRef.current.audio,
-          video: videoGone
-            ? next.find((device) => device.kind === "videoinput")?.deviceId ?? ""
-            : selectedRef.current.video,
-        };
+        const nextSelection = selectedRef.current;
         selectedRef.current = nextSelection;
         setSelected(nextSelection);
         invalidateAndStop();

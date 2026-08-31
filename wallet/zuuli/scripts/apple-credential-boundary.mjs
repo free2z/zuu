@@ -56,7 +56,7 @@ const CREDENTIAL_JOB_SHA256 = new Map([
   ["android-sign-upload", "75fdef979a86d93f3d623a7cd04fc8058d74a6fb073f7bdeff559d98c707a6fa"],
   ["ios-sign", "6e63107606388e3862f81e41da65b1fa8bfca1588b5232f9ca4354203536393c"],
   ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "c1e218197291583ef9c021ed9e32506bf6696f0a1566d5dc6e4e954aa2833dbb"],
+  ["macos-sign", "1373f642a57f24f1943020f0123ab1c58a05bde81ca545e7fd3633678e09e857"],
 ]);
 // The credential-free builder is also exact: its source-identity check and
 // compile happen in separate steps, so an unreviewed command between them
@@ -636,7 +636,7 @@ export function verifyAppleCredentialBoundary(
     failures,
     "macOS unsigned builder",
     jobs.get("macos-build"),
-    "Entitlements.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256",
+    "Entitlements.plist Info.macos.plist ZUULI.app.zip ZUULI-layout.dmg source-record.json > CHECKSUMS.sha256",
   );
   requireText(
     failures,
@@ -673,6 +673,17 @@ export function verifyAppleCredentialBoundary(
   );
   requireText(failures, "macOS signer", jobs.get("macos-sign"), "signed-entitlements.plist");
   requireText(failures, "macOS signer", jobs.get("macos-sign"), '"keychain-access-groups"[0]');
+  for (const marker of [
+    '"com.apple.security.device.audio-input"',
+    '"com.apple.security.device.camera"',
+    "NSCameraUsageDescription",
+    "NSMicrophoneUsageDescription",
+    "ZUULI uses the camera when you broadcast or join a live video stream.",
+    "ZUULI uses the microphone when you broadcast or join a live stream.",
+  ]) {
+    requireText(failures, "macOS signer", jobs.get("macos-sign"), marker);
+    requireText(failures, "macOS finalizer", jobs.get("macos-finalize"), marker);
+  }
   requireText(
     failures,
     "macOS signer",

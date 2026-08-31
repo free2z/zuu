@@ -321,6 +321,73 @@ describe("useMediaPreflight", () => {
     expect(latest.stream).toBe(replacement.stream);
   });
 
+  it("sanitizes a stored exact selection after close, unplug, and reopen", async () => {
+    const media = new FakeMediaDevices();
+    const first = fakeStream();
+    const replacement = fakeStream("mic-2", "cam-2");
+    media.getUserMedia
+      .mockResolvedValueOnce(first.stream)
+      .mockResolvedValueOnce(replacement.stream);
+    await render(media);
+    await act(async () => latest.requestPreview());
+    expect(latest.selected).toEqual({ audio: "mic-1", video: "cam-1" });
+
+    await act(async () => {
+      root.render(
+        <Harness
+          active={false}
+          mediaDevices={media as unknown as UseMediaPreflightOptions["mediaDevices"]}
+        />,
+      );
+    });
+    media.devices = [
+      mediaDevice("audioinput", "mic-2", "Replacement mic"),
+      mediaDevice("videoinput", "cam-2", "Replacement camera"),
+    ];
+    await act(async () => {
+      root.render(
+        <Harness
+          active
+          mediaDevices={media as unknown as UseMediaPreflightOptions["mediaDevices"]}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(latest.selected).toEqual({ audio: "mic-2", video: "cam-2" });
+    });
+    await act(async () => latest.requestPreview());
+
+    expect(media.getUserMedia).toHaveBeenLastCalledWith({
+      audio: { deviceId: { exact: "mic-2" } },
+      video: { deviceId: { exact: "cam-2" } },
+    });
+    expect(latest.status).toBe("ready");
+  });
+
+  it("recovers when an exact selection disappears during acquisition", async () => {
+    const media = new FakeMediaDevices();
+    const first = fakeStream();
+    const replacement = fakeStream("mic-1", "cam-2");
+    media.getUserMedia
+      .mockResolvedValueOnce(first.stream)
+      .mockRejectedValueOnce({ name: "OverconstrainedError" })
+      .mockResolvedValueOnce(replacement.stream);
+    await render(media);
+    await act(async () => latest.requestPreview());
+
+    media.devices = media.devices.filter((device) => device.deviceId !== "cam-1");
+    await act(async () => latest.selectDevice("videoinput", "cam-1"));
+    expect(latest.status).toBe("no-device");
+    expect(latest.selected).toEqual({ audio: "mic-1", video: "cam-2" });
+
+    await act(async () => latest.requestPreview());
+    expect(media.getUserMedia).toHaveBeenLastCalledWith({
+      audio: { deviceId: { exact: "mic-1" } },
+      video: { deviceId: { exact: "cam-2" } },
+    });
+    expect(latest.status).toBe("ready");
+  });
+
   it("keeps the newest device enumeration when device changes resolve out of order", async () => {
     const media = new FakeMediaDevices();
     const capture = fakeStream();
