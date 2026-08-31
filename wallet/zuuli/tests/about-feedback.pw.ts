@@ -194,7 +194,7 @@ test("real Chromium popup receives the exact online GitHub draft without a false
   const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Continue to chosen app" }).click();
   const popup = await popupPromise;
-  await popup.waitForLoadState("domcontentloaded");
+  await popup.waitForURL("https://github.com/free2z/zuu/issues/new**");
   const opened = new URL(popup.url());
   expect(opened.origin + opened.pathname).toBe(
     "https://github.com/free2z/zuu/issues/new",
