@@ -2,22 +2,30 @@ name: ZUULI / packaging smoke
 
 on:
   pull_request:
+    # Narrowed to packaging/signing-relevant paths: an app-code-only PR (e.g.
+    # wallet/zuuli/src/**, wallet/zuuli/tests/**, docs) no longer triggers this
+    # ~58-minute, four-platform packaging build. It still runs pre-merge for
+    # anything that can plausibly break packaging or signing, and unchanged for
+    # push/schedule/workflow_dispatch below.
     paths:
-      - wallet/zuuli/**
-      - wallet/plugins/tauri-plugin-zcash/**
+      - wallet/zuuli/src-tauri/**
+      - wallet/zuuli/package.json
+      - wallet/zuuli/package-lock.json
+      - wallet/zuuli/release.json
+      - wallet/zuuli/release.schema.json
+      - wallet/zuuli/build-info.json
+      - wallet/zuuli/build-info.schema.json
+      - wallet/zuuli/scripts/**
+      - wallet/plugins/**
       - wallet/rust-toolchain.toml
-      - scripts/check-rust-toolchain.sh
+      - wallet/deny.toml
       - z/zcash/librustzcash
       - .gitmodules
-      - .github/workflows/zuuli.yml
-      - .github/workflows/zuuli-packaging.yml
-      - .github/workflows/zuuli-release.yml
+      - .github/workflows/zuuli*.yml
       - .github/workflows/cache-cleanup.yml
-      - .github/workflows/zuuli-store-audit.yml
-      - .github/workflows/zuuli-store-publish.yml
-      - .github/workflows/zuuli-testflight-bootstrap.yml
-      - .github/workflows/zuuli-testflight-recovery.yml
-      - .github/actions/zuuli-rust-cache/**
+      - .github/actions/**
+      - .github/containers/**
+      - scripts/check-rust-toolchain.sh
   push:
     branches: [main]
     paths:
