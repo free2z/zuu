@@ -28,16 +28,18 @@ use std::time::{Duration, Instant};
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose, ChallengeRequest,
-    ChallengeResponse, ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-    CreateQueueRequest, CreateQueueResponse, HelloRequest, PushEvent, ReadRequest, ReadResponse,
-    SignedCapabilities, SubscribeResponse,
+    ChallengeResponse, ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest,
+    ClaimKeyPackageResponse, ContactAppendRequest, CreateContactQueueRequest,
+    CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
+    KeyPackagePolicy, PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent,
+    ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
 };
 use f2z_codec::frame::Push;
 use f2z_codec::frame::{FramePayload, RelayFrame, Response};
 use f2z_codec::padding::PaddingBuckets;
 use f2z_codec::pow::{PowParams, PowStamp};
 use f2z_codec::types::{
-    Challenge, ChannelBinding, Nonce, Payload, QueueAddress, RelayId, ShortBytes,
+    Challenge, ChannelBinding, KeyPackage, Nonce, Payload, QueueAddress, RelayId, ShortBytes,
 };
 use f2z_codec::{ErrorCode, PROTOCOL_VERSION};
 use f2z_relay_proto::ProtoError;
@@ -281,6 +283,26 @@ impl Client {
     /// As [`Client::call_unsigned`].
     pub async fn capabilities(&mut self) -> Result<SignedCapabilities> {
         self.call_unsigned::<ops::GetCapabilities>(&Empty).await
+    }
+
+    /// Additive §12.6 key-package policy discovery.
+    pub async fn key_package_policy(&mut self) -> Result<KeyPackagePolicy> {
+        let policy = self
+            .call_unsigned::<ops::GetKeyPackagePolicy>(&Empty)
+            .await?;
+        policy.validate()?;
+        Ok(policy)
+    }
+
+    /// Obtain a challenge spendable only by `CLAIM_KEY_PACKAGE`.
+    pub async fn claim_key_package_challenge(
+        &mut self,
+        contact_addr: QueueAddress,
+    ) -> Result<ChallengeResponse> {
+        self.call_unsigned::<ops::GetClaimKeyPackageChallenge>(&ClaimKeyPackageChallengeRequest {
+            contact_addr,
+        })
+        .await
     }
 
     /// `GET_CHALLENGE` (§6.1).
@@ -538,6 +560,62 @@ impl Client {
         self.call_unsigned::<ops::ContactAppend>(&body)
             .await
             .map(|_| ())
+    }
+
+    /// `PUBLISH_KEY_PACKAGES` — §12.6. Signed by the contact queue's recv key.
+    ///
+    /// # Errors
+    ///
+    /// The relay's §10 code, or a transport failure.
+    pub async fn publish_key_packages(
+        &mut self,
+        recv_key: &SigningKey,
+        recv_addr: QueueAddress,
+        packages: &[Vec<u8>],
+        last_resort: Option<Vec<u8>>,
+    ) -> Result<PublishKeyPackagesResponse> {
+        let packages = packages
+            .iter()
+            .map(|bytes| KeyPackage::new(bytes.clone()))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let last_resort = match last_resort {
+            Some(bytes) => vec![KeyPackage::new(bytes)?],
+            None => Vec::new(),
+        };
+        let body = PublishKeyPackagesRequest {
+            packages: packages.into(),
+            last_resort: last_resort.into(),
+        };
+        self.call_signed::<ops::PublishKeyPackages>(recv_key, recv_addr, &body)
+            .await
+    }
+
+    /// `CLAIM_KEY_PACKAGE` — §12.6. Unsigned, behind a proof-of-work stamp.
+    ///
+    /// # Errors
+    ///
+    /// The relay's §10 code — [`f2z_codec::ErrorCode::Unavailable`] when the
+    /// pool is empty and no last-resort package is stored — or a transport
+    /// failure.
+    pub async fn claim_key_package(
+        &mut self,
+        contact_addr: QueueAddress,
+    ) -> Result<ClaimKeyPackageResponse> {
+        let issued = self.claim_key_package_challenge(contact_addr).await?;
+        issued.pow.validate().map_err(|_| {
+            TestkitError::Config("relay issued invalid key-package claim proof-of-work parameters")
+        })?;
+        if !issued.pow.is_required() {
+            return Err(TestkitError::Config(
+                "relay issued an unmetered key-package claim challenge",
+            ));
+        }
+        let stamp = solve(issued.challenge, &mut self.rng, issued.pow.difficulty_bits);
+        let body = ClaimKeyPackageRequest {
+            contact_addr,
+            stamp,
+        };
+        self.call_unsigned::<ops::ClaimKeyPackage>(&body).await
     }
 
     // -- the machinery ----------------------------------------------------

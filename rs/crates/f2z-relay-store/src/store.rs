@@ -44,14 +44,14 @@
 //!
 //! [`SqliteStore`]: crate::SqliteStore
 
-use f2z_codec::types::{PublicKey, QueueAddress};
+use f2z_codec::types::{KeyPackage, PublicKey, QueueAddress};
 use f2z_relay_proto::queue::AckOutcome;
 
 use crate::durability::{Committed, Durability};
 use crate::error::Result;
 use crate::record::{
-    Append, Appended, Deleted, ExpiryReport, QueueRecord, QueueSpec, ReadPage, ReadWindow,
-    SendAuth, StoreStats,
+    Append, Appended, ClaimedKeyPackage, Deleted, ExpiryReport, KeyPackagePool, QueueRecord,
+    QueueSpec, ReadPage, ReadWindow, SendAuth, StoreStats,
 };
 
 /// Queue storage for a relay.
@@ -205,6 +205,72 @@ pub trait RelayStore {
         up_to_index: u64,
         now_ms: u64,
     ) -> Result<Committed<AckOutcome>>;
+
+    /// `PUBLISH_KEY_PACKAGES` — append to a contact queue's pool (§12.6).
+    ///
+    /// The authorization is the ordinary receive-side one, checked inside the
+    /// same transaction as the write for the reason the module header gives:
+    /// a `DELETE_QUEUE` must not be able to land between the check and the
+    /// insert.
+    ///
+    /// Three rules the store owns, because each is only correct inside the
+    /// transaction:
+    ///
+    /// * A byte-identical duplicate — of a stored package, of the stored
+    ///   last-resort package, or of an earlier element of this same batch — is
+    ///   **skipped**, not refused. A publish whose response was lost is retried
+    ///   under §8.3's argument, and a retry that doubled the pool would put one
+    ///   init key behind two `Welcome`s, against RFC 9420 §10's use-once rule.
+    /// * Overflow past `max_pool` drops from the **end** of `packages`, so a
+    ///   client reading `pool_size` back knows exactly which of its packages
+    ///   were kept.
+    /// * `last_resort` **replaces**; `None` leaves whatever is stored.
+    ///
+    /// # Errors
+    ///
+    /// - `ERR_NO_ACCESS` if the address does not exist or this signer does not
+    ///   authorize it — §10's existence-oracle rule, unchanged.
+    /// - `ERR_NOT_PERMITTED` on a standard queue. §12.6 keys a pool by the
+    ///   *published* address, and a standard queue has none. Distinguishable
+    ///   because the caller already proved it owns this queue.
+    fn publish_key_packages(
+        &self,
+        recv_addr: &QueueAddress,
+        signer: &PublicKey,
+        packages: &[KeyPackage],
+        last_resort: Option<&KeyPackage>,
+        max_pool: u32,
+        now_ms: u64,
+    ) -> Result<Committed<KeyPackagePool>>;
+
+    /// `CLAIM_KEY_PACKAGE` — take one package from a published pool (§12.6).
+    ///
+    /// Returns a [`Committed`], and that is not decoration. A claim
+    /// **consumes**: if the deletion is not durable before the package is on
+    /// the wire, a crash resurrects it and the same init key is handed to a
+    /// second initiator — which is precisely the reuse the pool exists to
+    /// avoid. Serving from a store that reports
+    /// [`Durability::Memory`](crate::Durability::Memory) is therefore a
+    /// published weakening and not a hidden one.
+    ///
+    /// The last-resort package is **not** consumed. That is its entire purpose
+    /// and its entire cost (`THREAT-MODEL.md` §4.12).
+    ///
+    /// This call does not touch §7.7's idle timer. §7.7 resets the idle clock
+    /// on `APPEND`, `READ`, `ACK` and `SUBSCRIBE`; a queue kept alive only by
+    /// strangers claiming from it is a queue its owner has abandoned.
+    ///
+    /// # Errors
+    ///
+    /// `ERR_UNAVAILABLE` when the address does not exist, is not a contact
+    /// address, or holds neither a pooled package nor one of last resort. One
+    /// code, by §10's rule and §6.3's collapse: exhaustion must not be
+    /// distinguishable from absence, or the published address space becomes an
+    /// enumerable list of live devices.
+    fn claim_key_package(
+        &self,
+        contact_addr: &QueueAddress,
+    ) -> Result<Committed<ClaimedKeyPackage>>;
 
     /// Delete the queue, both addresses and every message it holds,
     /// acknowledged or not (§6.2, §7.6). Irreversible, and no tombstone.

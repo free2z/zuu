@@ -20,7 +20,8 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use tls_codec::{
-    DeserializeBytes, Error as TlsError, SerializeBytes, Size, TlsByteVecU8, TlsByteVecU24,
+    DeserializeBytes, Error as TlsError, SerializeBytes, Size, TlsByteVecU8, TlsByteVecU16,
+    TlsByteVecU24,
 };
 
 use crate::error::CodecError;
@@ -323,6 +324,106 @@ impl SerializeBytes for Body {
 impl DeserializeBytes for Body {
     fn tls_deserialize_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), TlsError> {
         let (inner, rest) = TlsByteVecU24::tls_deserialize_bytes(bytes)?;
+        Ok((Self(inner), rest))
+    }
+}
+
+/// One MLS `KeyPackage`, framed as an `MlsMessage`: `opaque key_package<1..2^16-1>`.
+///
+/// `WIRE.md` §12.6. The relay stores these and hands one out; it never parses
+/// one and could not check it if it tried. **The length prefix is the size
+/// cap**: a `u16` prefix cannot describe more than 65 535 bytes, and #385
+/// measured a real package under
+/// `MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519` at 2 647 bytes, so the
+/// encoding itself bounds what a publisher can make a relay hold per package.
+/// That is deliberate: a `<0..2^24-1>` prefix would have put a 16 MiB blob
+/// behind a single proof-of-work stamp.
+///
+/// The `Debug` redacts. A key package is public material — it is *published*,
+/// and anyone who asks gets one — but it names a device, and §12.6's whole
+/// privacy argument is about who learns that a particular device is being
+/// contacted. A trace log full of them would be a linkability corpus written by
+/// the operator, which is the hazard this module exists for.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct KeyPackage(TlsByteVecU16);
+
+impl KeyPackage {
+    /// The largest package the `<1..2^16-1>` length prefix can describe.
+    pub const MAX_LEN: usize = (1usize << 16) - 1;
+
+    /// Wrap key-package bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::Overflow`] if the bytes exceed [`KeyPackage::MAX_LEN`],
+    /// [`CodecError::InvalidValue`] if they are empty — the vector is
+    /// `<1..2^16-1>`, and an empty package is a publisher telling a relay to
+    /// hold nothing while paying nothing for it.
+    pub fn new(bytes: impl Into<Vec<u8>>) -> Result<Self, CodecError> {
+        let bytes = bytes.into();
+        if bytes.is_empty() {
+            return Err(CodecError::InvalidValue);
+        }
+        if bytes.len() > Self::MAX_LEN {
+            return Err(CodecError::Overflow);
+        }
+        Ok(Self(TlsByteVecU16::new(bytes)))
+    }
+
+    /// The package bytes.
+    #[must_use]
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    /// The package length in bytes.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.as_slice().len()
+    }
+
+    /// Whether the package is empty. Only reachable through a decode, which
+    /// [`KeyPackage::tls_deserialize_bytes`] refuses.
+    ///
+    /// [`KeyPackage::tls_deserialize_bytes`]: tls_codec::DeserializeBytes::tls_deserialize_bytes
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.as_slice().is_empty()
+    }
+}
+
+impl fmt::Debug for KeyPackage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "KeyPackage(<redacted; {} bytes>)", self.len())
+    }
+}
+
+impl Size for KeyPackage {
+    fn tls_serialized_len(&self) -> usize {
+        self.0.tls_serialized_len()
+    }
+}
+
+impl SerializeBytes for KeyPackage {
+    fn tls_serialize(&self) -> Result<Vec<u8>, TlsError> {
+        self.0.tls_serialize()
+    }
+}
+
+impl DeserializeBytes for KeyPackage {
+    /// `<1..2^16-1>`, and the lower bound is enforced on decode.
+    ///
+    /// Without this an empty package decodes, re-encodes to the same bytes, and
+    /// therefore passes §3.3's re-encode-equality check — so the zero-length
+    /// case has to be refused *here* rather than by a validator somebody
+    /// remembers to call.
+    fn tls_deserialize_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), TlsError> {
+        let (inner, rest) = TlsByteVecU16::tls_deserialize_bytes(bytes)?;
+        if inner.as_slice().is_empty() {
+            return Err(TlsError::DecodingError(alloc::string::String::from(
+                "a key package vector is <1..2^16-1>",
+            )));
+        }
         Ok((Self(inner), rest))
     }
 }

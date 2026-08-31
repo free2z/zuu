@@ -449,19 +449,41 @@ interface ContactRequest {
 ```
 
 `start_conversation` performs the whole first-contact handshake of
-[`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end): resolve the
-handle against a witness-cosigned root, build the group, obtain a challenge,
-compute a proof-of-work stamp, and `CONTACT_APPEND` the `Welcome`. Two
+[`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end), with
+[§12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)'s
+two steps inside it: resolve the handle against a witness-cosigned root, **claim
+a `KeyPackage` from the relay the resolved entry names**, **authenticate it
+against that entry**, build the group, obtain a second challenge, compute a
+second proof-of-work stamp, and `CONTACT_APPEND` the `Welcome`. Four
 consequences for the UI:
 
-- **It can take seconds, and the delay is proof-of-work on the user's device.**
-  On a cheap phone it is meaningfully slow and the reason is unfixable by tuning
+- **It can take seconds, and the delay is proof-of-work on the user's device —
+  now twice.** §12.6 gives the claim its own challenge purpose, so first contact
+  pays two stamps rather than one. On a cheap phone that is meaningfully slow and
+  the reason is unfixable by tuning
   ([`WIRE.md` §12.4](./WIRE.md#124-the-honest-limits)). Show progress; do not
   present it as a network wait.
 - **It fails closed when the witness threshold is unmet.** Resolving a *new*
   handle is refused, not degraded
   ([`KT.md` §8.3](./KT.md#83-the-threshold-rule-and-failing-closed)). See rule 5
   in §9.
+- **`relay-unavailable` here can mean the peer's key-package pool is empty**,
+  not that the peer does not exist. §10's existence-oracle rule gives both the
+  same wire code, and only the client knows the directory lookup succeeded — so
+  the client MUST say *"this person cannot be reached right now"* and MUST NOT
+  say *"no such user"*.
+- **A key package that does not authenticate is never retried.** It is either a
+  broken relay or an attempted MITM and the two are indistinguishable from the
+  client (§12.6.5). Rule 5 applies: no "try anyway", no silent degrade, and
+  manual safety-number verification is the correct thing to offer.
+
+`start_engine` additionally publishes this device's own key-package pool
+(§12.6). A device whose relay's additive key-package policy reports
+`enabled = 0`, whose relay does not know that additive command, or whose
+publish failed, is a device **nobody can start a conversation with** — the
+engine reports it through `lastError` and keeps running, because every existing
+conversation is unaffected. A UI that surfaces engine state should treat it the
+same way it treats a missing contact queue: reachable-by-nobody, not broken.
 
 `transportHealth: "compromised"` means the send side of a queue this conversation
 depends on was bound by somebody else — `ERR_ALREADY_BOUND` on a first bind for

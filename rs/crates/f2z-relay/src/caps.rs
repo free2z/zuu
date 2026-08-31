@@ -45,7 +45,7 @@
 //! and never consumes attacker input. That asymmetry is the whole argument, and
 //! it is why the encoder is here while a parser is not.
 
-use f2z_codec::commands::{Capabilities, SignedCapabilities};
+use f2z_codec::commands::{Capabilities, KeyPackagePolicy, SignedCapabilities};
 use f2z_codec::padding::PaddingBuckets;
 use f2z_codec::pow::{ALGORITHM_BLAKE2B_LEADING_ZERO_BITS, PowParams};
 use f2z_codec::types::{Digest, PublicKey, ShortBytes};
@@ -234,6 +234,30 @@ pub fn build(
 
     capabilities::validate(&capabilities).map_err(CapabilitiesError::Invalid)?;
     Ok(capabilities)
+}
+
+/// Build the additive §12.6 policy response from the same configuration the
+/// relay enforces. Keeping it out of `Capabilities` preserves that frozen v1
+/// structure byte-for-byte for rolling deploys.
+#[must_use]
+pub fn key_package_policy(config: &Config) -> KeyPackagePolicy {
+    if config.antiabuse.key_packages_enabled {
+        KeyPackagePolicy {
+            enabled: 1,
+            max_pool_size: config.antiabuse.contact_max_key_packages,
+            claim_pow: PowParams {
+                algorithm: ALGORITHM_BLAKE2B_LEADING_ZERO_BITS,
+                difficulty_bits: config.antiabuse.claim_key_package_pow_bits,
+                challenge_ttl_ms: config.antiabuse.challenge_ttl_ms,
+            },
+        }
+    } else {
+        KeyPackagePolicy {
+            enabled: 0,
+            max_pool_size: 0,
+            claim_pow: PowParams::none(),
+        }
+    }
 }
 
 /// Sign a document and precompute what `HELLO` and `GET_CAPABILITIES` need.

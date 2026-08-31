@@ -8,11 +8,10 @@
 //!   file and its own CSPRNG-generated device keys. Two engines in one process
 //!   would pass this test while a store or a group registry was accidentally
 //!   shared, and nothing would notice.
-//! * **A real relay over a real socket.** `FakeRelay::listen_loopback` serves
-//!   `ws://127.0.0.1:0` through the same `connection::drive` and `engine::Relay`
-//!   its in-process transport uses, so framing, ordering and reconnection are
-//!   exercised rather than assumed. The peers reach it over TCP from outside
-//!   this process.
+//! * **Two real relays over real sockets.** Each peer configures only its own
+//!   `FakeRelay::listen_loopback` server. First contact must therefore connect
+//!   on demand to the other peer's signed directory endpoint; preconnecting the
+//!   configured relay set cannot make this test pass.
 //! * **The shipping path.** `start_conversation` and `accept_contact_request`
 //!   are the plugin's own, unchanged. `CREATE_CONTACT_QUEUE`, `CONTACT_APPEND`
 //!   with a proof-of-work stamp, `CREATE_QUEUE`, `SUBSCRIBE`, `BIND_SEND`,
@@ -69,17 +68,20 @@ struct Report {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn two_instances_exchange_a_message_over_a_real_relay() {
-    let relay = FakeRelay::with_defaults().expect("fake relay");
-    let server = relay.listen_loopback().await.expect("listener");
-    let url = server.url();
+async fn two_instances_exchange_messages_across_two_independent_relays() {
+    let alice_relay = FakeRelay::with_defaults().expect("alice relay");
+    let alice_server = alice_relay.listen_loopback().await.expect("alice listener");
+    let alice_url = alice_server.url();
+    let bob_relay = FakeRelay::with_defaults().expect("bob relay");
+    let bob_server = bob_relay.listen_loopback().await.expect("bob listener");
+    let bob_url = bob_server.url();
 
     let root = tempfile::tempdir().expect("tempdir");
     let shared = root.path().join("shared");
     std::fs::create_dir_all(&shared).expect("shared dir");
 
     let alice = spawn(
-        &url,
+        &alice_url,
         &shared,
         &root.path().join("alice"),
         "alice",
@@ -90,7 +92,7 @@ async fn two_instances_exchange_a_message_over_a_real_relay() {
         "hello, alice",
     );
     let bob = spawn(
-        &url,
+        &bob_url,
         &shared,
         &root.path().join("bob"),
         "bob",
@@ -274,7 +276,8 @@ async fn two_instances_exchange_a_message_over_a_real_relay() {
     println!("alice: {alice:?}");
     println!("bob:   {bob:?}");
 
-    server.shutdown().await;
+    alice_server.shutdown().await;
+    bob_server.shutdown().await;
 }
 
 #[expect(clippy::too_many_arguments, reason = "a spawn helper for one test")]

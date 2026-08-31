@@ -136,8 +136,8 @@ pub use durability::{Committed, Durability};
 pub use error::{Result, StoreError};
 pub use memory::MemoryStore;
 pub use record::{
-    Append, Appended, Deleted, ExpiryReason, ExpiryReport, QueueExpiry, QueueRecord, QueueSpec,
-    ReadPage, ReadWindow, SendAuth, StoreStats, StoredMessage,
+    Append, Appended, ClaimedKeyPackage, Deleted, ExpiryReason, ExpiryReport, KeyPackagePool,
+    QueueExpiry, QueueRecord, QueueSpec, ReadPage, ReadWindow, SendAuth, StoreStats, StoredMessage,
 };
 pub use sqlite::SqliteStore;
 pub use store::RelayStore;

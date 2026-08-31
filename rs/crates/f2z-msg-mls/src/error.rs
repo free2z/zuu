@@ -39,6 +39,11 @@ pub enum EngineError {
     /// boundary — `CLIENT-CONTRACT.md` §8's `internal` "carries no detail by
     /// design".
     Mls(&'static str),
+    /// A first-contact envelope named a different conversation than the MLS
+    /// `Welcome` actually joins. The peer signs both values, so accepting the
+    /// contradiction would persist a group that cannot be reloaded by the
+    /// conversation identifier after restart.
+    GroupIdMismatch,
     /// A message arrived for an epoch this device has already moved past, or
     /// has not reached yet.
     ///
@@ -112,6 +117,9 @@ impl fmt::Display for EngineError {
             Self::Credential(error) => write!(f, "device credential rejected: {error}"),
             Self::Storage(error) => write!(f, "the local store refused: {error}"),
             Self::Mls(operation) => write!(f, "MLS refused during {operation}"),
+            Self::GroupIdMismatch => {
+                f.write_str("the Welcome group id does not match the conversation id")
+            }
             Self::OutOfOrder => f.write_str("the message is for a different epoch"),
             Self::Duplicate => f.write_str("the message has already been processed"),
         }
@@ -150,6 +158,7 @@ mod tests {
             EngineError::Signature,
             EngineError::Credential(CredentialError::DeviceKeyMismatch),
             EngineError::Mls("process_message"),
+            EngineError::GroupIdMismatch,
             EngineError::OutOfOrder,
             EngineError::Duplicate,
         ];

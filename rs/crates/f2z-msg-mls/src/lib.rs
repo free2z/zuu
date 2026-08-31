@@ -108,6 +108,7 @@ pub mod credential;
 pub mod engine;
 pub mod error;
 pub mod exporter;
+pub mod keypackage;
 pub mod provider;
 pub mod signer;
 pub mod version;
@@ -118,6 +119,7 @@ pub use credential::{
 pub use engine::{CIPHERSUITE, MlsEngine, Received};
 pub use error::{CredentialError, EngineError, Result};
 pub use exporter::ExportLabel;
+pub use keypackage::VerifiedKeyPackage;
 pub use provider::F2zProvider;
 pub use signer::DeviceSigner;
 pub use version::{ProtocolVersion, XWING_CIPHERSUITE_CODEPOINT};

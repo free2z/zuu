@@ -48,10 +48,11 @@ use alloc::vec::Vec;
 use f2z_codec::canonical::{Canonical, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, Auth, BindSendRequest, ChallengePurpose,
-    ChallengeRequest, ChallengeResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
+    ChallengeRequest, ChallengeResponse, ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest,
+    ClaimKeyPackageResponse, Command, ContactAppendRequest, CreateContactQueueRequest,
     CreateContactQueueResponse, CreateQueueRequest, CreateQueueResponse, HelloRequest,
-    HelloResponse, ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse,
-    TranscriptAddress,
+    HelloResponse, KeyPackagePolicy, PublishKeyPackagesRequest, PublishKeyPackagesResponse,
+    ReadRequest, ReadResponse, SignedCapabilities, SubscribeResponse, TranscriptAddress,
 };
 use f2z_codec::frame::{CommandAuth, RelayFrame, Request, SignedAuth};
 use f2z_codec::padding::PaddingBuckets;
@@ -159,11 +160,13 @@ pub trait RelayCommand: Sized {
 pub mod ops {
     use super::{
         AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose,
-        ChallengeRequest, ChallengeResponse, Command, ContactAppendRequest,
+        ChallengeRequest, ChallengeResponse, ClaimKeyPackageChallengeRequest,
+        ClaimKeyPackageRequest, ClaimKeyPackageResponse, Command, ContactAppendRequest,
         CreateContactQueueRequest, CreateContactQueueResponse, CreateQueueRequest,
-        CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse, Payload, ProtoError,
-        QueueAddress, ReadRequest, ReadResponse, RelayCommand, Result, SignedAuth,
-        SignedCapabilities, SubscribeResponse, keys_equal,
+        CreateQueueResponse, Empty, ErrorCode, HelloRequest, HelloResponse, KeyPackagePolicy,
+        Payload, ProtoError, PublishKeyPackagesRequest, PublishKeyPackagesResponse, QueueAddress,
+        ReadRequest, ReadResponse, RelayCommand, Result, SignedAuth, SignedCapabilities,
+        SubscribeResponse, keys_equal,
     };
 
     macro_rules! command {
@@ -382,6 +385,65 @@ pub mod ops {
             Some(&request.payload)
         }
     }
+
+    /// `0x0032` (§12.6). Signed by the contact queue's recv key, addressed to
+    /// its `recv_addr`.
+    ///
+    /// There is no `check` beyond the shape rule, and that is the point of
+    /// putting this on the **receive** side: §5.1 step 5 already requires the
+    /// signer to be the key registered for the address, so the relay's ordinary
+    /// authorization is exactly "the owner of this contact queue". A publish
+    /// command that carried its own key, `CREATE_QUEUE`-style, would be
+    /// self-authenticating about a queue that already exists — which authorizes
+    /// nothing.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct PublishKeyPackages;
+
+    impl RelayCommand for PublishKeyPackages {
+        const COMMAND: Command = Command::PublishKeyPackages;
+        type Request = PublishKeyPackagesRequest;
+        type Response = PublishKeyPackagesResponse;
+
+        fn check(request: &Self::Request, auth: Option<&SignedAuth>) -> Result<()> {
+            let _ = auth;
+            request.validate()?;
+            Ok(())
+        }
+    }
+
+    /// `0x0033` (§12.6). Unsigned; the proof-of-work stamp is the gate.
+    ///
+    /// No [`RelayCommand::payload`], deliberately: §9's padding buckets apply
+    /// to **ciphertext on a queue**, whose length would otherwise leak the size
+    /// of a message. A key package is a fixed-shape public object whose length
+    /// is a property of the ciphersuite, so padding it to a bucket would spend
+    /// bytes to hide a constant.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct ClaimKeyPackage;
+
+    impl RelayCommand for ClaimKeyPackage {
+        const COMMAND: Command = Command::ClaimKeyPackage;
+        type Request = ClaimKeyPackageRequest;
+        type Response = ClaimKeyPackageResponse;
+    }
+
+    command!(
+        /// `0x0034` (§12.6). Additive discovery that leaves v1's signed
+        /// `Capabilities` body unchanged.
+        GetKeyPackagePolicy,
+        GetKeyPackagePolicy,
+        Empty,
+        KeyPackagePolicy
+    );
+
+    command!(
+        /// `0x0035` (§12.6). Issues a challenge spendable only by
+        /// `CLAIM_KEY_PACKAGE`, scoped to the target contact address.
+        GetClaimKeyPackageChallenge,
+        GetClaimKeyPackageChallenge,
+        ClaimKeyPackageChallengeRequest,
+        ChallengeResponse
+    );
 }
 
 /// A command that has been signed and is ready to send.

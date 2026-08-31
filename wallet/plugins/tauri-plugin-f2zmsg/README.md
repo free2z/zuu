@@ -272,15 +272,26 @@ without stating how it behaves in that state.
 
 ## What is still not wired, and exactly why
 
-**The key-transparency directory has no client.** `f2z-kt` is a running server
-and `f2z-kt-core` is the client verifier, but nothing carries a `/kt/v1/lookup`
-between them. So `resolve_handle`, `start_conversation`,
-`accept_contact_request` and self-audit fail closed with
-`witness-threshold-unmet`, which is the truthful code: zero independent
-witnesses have cosigned anything. §6.4's matrix and §9 rule 5 make that the
-required behaviour rather than a placeholder — an unverified key at first
-contact *is* the MITM. Manual safety-number verification, which §8 tells the UI
-to offer instead, works in this build.
+**The shipping build has no directory configured, and that is not the same as
+having no client.** `KtDirectory` is `KT.md` §8 over HTTPS through
+`f2z-kt-client` and it is real; `NoDirectory` is the **default**, because a
+client cannot be configured without the log's identity, its signing key, the
+shipped witness list and *t*, and `KT.md` §12 has decided none of them. So
+`resolve_handle`, `start_conversation`, `accept_contact_request` and self-audit
+fail closed with `witness-threshold-unmet`, which is the truthful code: zero
+independent witnesses have cosigned anything. §6.4's matrix and §9 rule 5 make
+that the required behaviour rather than a placeholder — an unverified key at
+first contact *is* the MITM. Manual safety-number verification, which §8 tells
+the UI to offer instead, works in this build.
+
+Since `WIRE.md` §12.6 the *rest* of first contact is complete: `start_engine`
+publishes this device's MLS key packages to its relay, `start_conversation`
+claims one from the peer's relay, authenticates it against the directory entry
+the log proved, and sends the `Welcome`. The two-process harness runs that path
+over a real relay; `rs/crates/f2z-kt-client/tests/first_contact.rs` runs it
+against a real `f2z-kt` log and a real `f2z-witness` too, and lives there
+because both are AGPL-3.0 and this crate is on the client side of
+`rs/README.md`'s boundary.
 
 **A credential does not attest the key a peer encrypts to.** `DeviceCredential`
 binds a `device_kem_pk`, and the HPKE init key MLS actually uses is the one
@@ -289,6 +300,16 @@ OpenMLS generates inside each `KeyPackage`. Neither `f2z-msg-mls` nor
 before it exists, and the credential needs the key — so this crate supplies an
 opaque placeholder, exactly as `f2z-msg-mls`'s own tests do. `KT.md` §4.1
 requires only that it is non-empty. Breaking that circularity is upstream work.
+
+This is **not** a hole in `WIRE.md` §12.6's authentication, and the distinction
+is worth stating because the two look adjacent. §12.6 does not check
+`device_kem_pk` at all; it checks that the key package's `DeviceCredential` is
+one the directory entry publishes for this handle, signed by the identity key
+the log proved, and bound to the leaf it arrived in. A relay cannot forge that
+without the device's signing key. What the placeholder costs is a *second*,
+independent path to the same conclusion — see ADR 0015's rejected alternative 4
+for why using `device_kem_pk` as an init key would be worse than having no
+second path.
 
 **The local store is not encrypted at rest.** §6.1's `locked` is implemented as
 a state machine, and the device signing key is sealed under the seed-derived

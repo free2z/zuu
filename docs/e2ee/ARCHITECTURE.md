@@ -447,7 +447,9 @@ holds attributable evidence.
 What we *do* provide is strict key-context separation
 ([#305 §3.3](https://github.com/free2z/zuu/issues/305)): `CeremonySigningKey`
 signs ceremony payloads and nothing else; `DeviceSignatureKey` signs MLS framing
-and nothing else; `IdentitySigningKey` signs credentials and directory entries
+and the domain-separated, Welcome-bound first-routing advert that bootstraps its
+delivery;
+`IdentitySigningKey` signs credentials and directory entries
 and nothing else. A FROST transcript can never be replayed as chat evidence and
 vice versa. See also
 [Real-World Deniability in Messaging](https://petsymposium.org/popets/2025/popets-2025-0018.pdf)
@@ -547,6 +549,22 @@ long-lived identifier.
 > **contact queue** whose send side is never bound and whose address is published
 > in the owner's directory entry — together with the honest limits on what its
 > anti-abuse actually buys.
+
+> **Addition (2026-08-26) — the contact queue's address also carries the
+> recipient's MLS `KeyPackage`s.** A `Welcome` has to be addressed to one, and
+> the directory publishes none: a key package is **consumed on use** and
+> [`KT.md` §4.1](./KT.md#41-structure)'s append-only entry cannot express
+> consumption, which is why it excludes them and why it still does.
+> [`WIRE.md` §12.6](./WIRE.md#126-keypackage-publication--where-a-consumable-key-lives)
+> puts a per-device pool at the **relay**, keyed by the very `contact_addr`
+> above, published with the contact queue's own receive key and claimed one at a
+> time behind a proof-of-work stamp. The relay gains no identifier it did not
+> already hold, and it is not trusted with the packages: a fetcher authenticates
+> what it gets against the directory entry the log proved, or refuses.
+> [ADR 0015](./decisions/0015-key-package-publication.md), and the two costs —
+> a reusable package of last resort, and a relay that can force one — are
+> [`THREAT-MODEL.md` §4.12](./THREAT-MODEL.md#412-a-last-resort-key-package-is-a-reused-init-key)
+> and [§4.13](./THREAT-MODEL.md#413-a-relay-chooses-which-key-package-you-get-and-can-always-serve-the-reusable-one).
 
 **Fan-out (D2):** a message to a recipient with *d* registered devices is sent
 to *d* queues, one per device, as *d* independently encrypted MLS messages

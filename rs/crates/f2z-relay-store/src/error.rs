@@ -101,6 +101,19 @@ impl StoreError {
     pub(crate) const fn unavailable() -> Self {
         Self::Protocol(ProtoError::Wire(ErrorCode::Unavailable))
     }
+
+    /// §10 code 20: the command is not valid for this queue kind.
+    ///
+    /// Used by `PUBLISH_KEY_PACKAGES` on a standard queue (§12.6), and it is
+    /// deliberately **not** collapsed into [`StoreError::no_access`]. The
+    /// caller has already proved it holds the receive key for this address, so
+    /// nothing it is told here is an oracle about an address it does not
+    /// already own — this is the same reasoning §12.2 uses to keep `BIND_SEND`
+    /// on a contact address distinguishable.
+    #[must_use]
+    pub(crate) const fn not_permitted() -> Self {
+        Self::Protocol(ProtoError::Wire(ErrorCode::NotPermitted))
+    }
 }
 
 impl From<ProtoError> for StoreError {

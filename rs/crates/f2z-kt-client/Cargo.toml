@@ -76,3 +76,27 @@ f2z-witness = { path = "../f2z-witness", version = "0.1.0" }
 f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
 akd_core = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+# ---------------------------------------------------------------------------
+# `tests/first_contact.rs` — the cold-start acceptance for `WIRE.md` §12.5 and
+# §12.6, and the reason it lives in *this* crate's tests rather than in the
+# plugin's.
+#
+# The claim is "two independent instances complete a conversation from a cold
+# start, against a real log, a real witness and a real relay". Making that true
+# needs the AGPL log and witness above **and** the messaging stack below in one
+# process. The plugin cannot host it: `f2z-kt` and `f2z-witness` are AGPL-3.0
+# and `tauri-plugin-f2zmsg` is on the client side of `rs/README.md`'s boundary,
+# so a dev-dependency on either would put them in ZUULI's lockfile. This crate
+# already dev-depends on both, by the argument above, so the test belongs here —
+# and it is the right seam anyway: it is exactly the join between a
+# key-transparency lookup and the first-contact handshake it exists to make
+# safe.
+#
+# Same rule as the two above: these must stay dev-dependencies.
+# ---------------------------------------------------------------------------
+f2z-msg-mls = { path = "../f2z-msg-mls", version = "0.1.0" }
+f2z-msg-identity = { path = "../f2z-msg-identity", version = "0.1.0" }
+f2z-msg-store = { path = "../f2z-msg-store", version = "0.1.0" }
+f2z-relay-testkit = { path = "../f2z-relay-testkit", version = "0.1.0" }
+f2z-relay-proto = { path = "../f2z-relay-proto", version = "0.1.0" }

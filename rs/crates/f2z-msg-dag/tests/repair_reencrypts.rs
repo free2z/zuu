@@ -41,8 +41,9 @@
     clippy::arithmetic_side_effects
 )]
 
-use f2z_codec::types::{Body, PublicKey};
-use f2z_kt_core::types::{Handle, KemPublicKey};
+use f2z_codec::types::{Body, Digest, PublicKey};
+use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
+use f2z_kt_core::types::{Handle, KemPublicKey, LogId, label_field};
 use f2z_msg_dag::{
     AppMessage, AppMessageTbs, DagEntry, GapRequest, GapResponse, MessageDag, MessageType, MsgId,
     Parents, PlaintextOutbox, Provenance, RepairEntry, RepairOutcome, RepairRefusal,
@@ -59,7 +60,16 @@ const ALICE_LEAF: u32 = 0;
 const BOB_LEAF: u32 = 1;
 
 /// One device, built the way enrollment builds one.
-fn device(handle: &str, account_seed: u8, device_seed: u8) -> MlsEngine<MemoryBackend> {
+///
+/// The credential is returned beside the engine because `WIRE.md` §12.6 makes
+/// the *directory entry* the thing a key package is authenticated against, and
+/// `MlsEngine::add_member` will not accept bytes — so a caller has to be able to
+/// say what the directory publishes for this device.
+fn device(
+    handle: &str,
+    account_seed: u8,
+    device_seed: u8,
+) -> (MlsEngine<MemoryBackend>, DeviceCredential) {
     let seed = [account_seed; 64];
     let account = AccountKeys::from_seed(&seed, 0).unwrap();
     let signer = DeviceSigner::from_private_key([device_seed; 32]);
@@ -73,7 +83,32 @@ fn device(handle: &str, account_seed: u8, device_seed: u8) -> MlsEngine<MemoryBa
             not_after_ms: NOW + 1_000_000,
         })
         .unwrap();
-    MlsEngine::new(MemoryBackend::new(), signer, credential, NOW).unwrap()
+    let engine = MlsEngine::new(MemoryBackend::new(), signer, credential.clone(), NOW).unwrap();
+    (engine, credential)
+}
+
+/// The entry a log would publish for one device.
+///
+/// Built directly rather than through a log: this file is about §7's repair
+/// path, and `rs/crates/f2z-kt-client/tests/first_contact.rs` is where the
+/// entry comes from a real `f2z-kt` with a real inclusion proof.
+fn entry_for(credential: &DeviceCredential) -> DirectoryEntryTBS {
+    DirectoryEntryTBS {
+        label: label_field(f2z_kt_core::labels::LABEL_ENTRY).unwrap(),
+        kt_version: 1,
+        log_id: LogId::new([0x11; 32]),
+        handle: credential.credential.handle.clone(),
+        entry_version: 1,
+        kind: EntryKind::SameKey,
+        identity_pk: credential.credential.identity_pk,
+        directory_auth_pk: PublicKey::new([0x22; 32]),
+        devices: vec![credential.clone()].into(),
+        revocations: Vec::new().into(),
+        contact_endpoints: Vec::new().into(),
+        prev_entry_hash: Digest::new([0; 32]),
+        no_reset: 0,
+        created_at_ms: NOW,
+    }
 }
 
 /// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
@@ -86,9 +121,12 @@ fn device(handle: &str, account_seed: u8, device_seed: u8) -> MlsEngine<MemoryBa
 /// parties rather than about one process talking to itself.
 macro_rules! paired {
     ($alice:ident, $alice_group:ident, $bob:ident, $bob_group:ident) => {
-        let $alice = device("alice", 11, 111);
-        let $bob = device("bob", 22, 222);
+        let ($alice, _alice_credential) = device("alice", 11, 111);
+        let ($bob, bob_credential) = device("bob", 22, 222);
         let bob_key_package = $bob.generate_key_package().unwrap();
+        let bob_key_package = $alice
+            .verify_key_package(&bob_key_package, &entry_for(&bob_credential), NOW)
+            .unwrap();
         let mut $alice_group = $alice.create_group(GROUP_ID).unwrap();
         let (_commit, welcome) = $alice
             .add_member(&mut $alice_group, &bob_key_package, NOW)

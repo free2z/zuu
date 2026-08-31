@@ -45,14 +45,16 @@ use std::time::{Duration, Instant};
 use f2z_codec::canonical::{Canonical as _, decode_canonical};
 use f2z_codec::commands::{
     AckRequest, AckResponse, AppendRequest, BindSendRequest, ChallengePurpose, ChallengeRequest,
+    ClaimKeyPackageChallengeRequest, ClaimKeyPackageRequest, ClaimKeyPackageResponse,
     ContactAppendRequest, CreateContactQueueRequest, CreateContactQueueResponse,
-    CreateQueueRequest, CreateQueueResponse, HelloRequest, PushEvent, ReadRequest, ReadResponse,
+    CreateQueueRequest, CreateQueueResponse, HelloRequest, KeyPackagePolicy,
+    PublishKeyPackagesRequest, PublishKeyPackagesResponse, PushEvent, ReadRequest, ReadResponse,
     SignedCapabilities, SubscribeResponse,
 };
 use f2z_codec::frame::{FramePayload, Push, RelayFrame, Response};
 use f2z_codec::padding::PaddingBuckets;
 use f2z_codec::pow::{PowParams, PowStamp};
-use f2z_codec::types::{ChannelBinding, Nonce, Payload, QueueAddress, RelayId, Salt};
+use f2z_codec::types::{ChannelBinding, KeyPackage, Nonce, Payload, QueueAddress, RelayId, Salt};
 use f2z_codec::{Challenge, PROTOCOL_VERSION};
 use f2z_relay_proto::capabilities::ClientPolicy;
 use f2z_relay_proto::command::{Empty, RelayCommand, SignedCommand, ops, unsigned_request};
@@ -270,6 +272,20 @@ impl RelayConnection {
     /// As [`RelayConnection::call_unsigned`].
     pub async fn capabilities(&mut self) -> Result<SignedCapabilities> {
         self.call_unsigned::<ops::GetCapabilities>(&Empty).await
+    }
+
+    /// Additive §12.6 key-package policy discovery.
+    pub async fn key_package_policy(&mut self) -> Result<KeyPackagePolicy> {
+        let policy = self
+            .call_unsigned::<ops::GetKeyPackagePolicy>(&Empty)
+            .await?;
+        policy.validate().map_err(|error| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                format!("invalid key-package policy: {error:?}"),
+            )
+        })?;
+        Ok(policy)
     }
 
     /// `CREATE_QUEUE` (§6.2), solving a stamp first when the relay demands one.
@@ -503,6 +519,108 @@ impl RelayConnection {
             .map(|_: Empty| ())
     }
 
+    /// `PUBLISH_KEY_PACKAGES` (§12.6). Signed by the contact queue's recv key.
+    ///
+    /// The pool is **appended to**, not replaced, and the relay skips a
+    /// byte-identical duplicate — so a publish whose response was lost is safe
+    /// to retry, which under §4.3's window and §2.5's unknown-status rule it
+    /// has to be.
+    ///
+    /// # Errors
+    ///
+    /// As [`RelayConnection::call_signed`]. `relay-capability-mismatch` if a
+    /// package does not fit the `<1..2^16-1>` wire vector, which no package
+    /// under this ciphersuite does — #385 measured 2 647 bytes.
+    pub async fn publish_key_packages(
+        &mut self,
+        recv_key: &SigningKey,
+        recv_addr: QueueAddress,
+        packages: &[Vec<u8>],
+        last_resort: Option<&[u8]>,
+    ) -> Result<PublishKeyPackagesResponse> {
+        let wrap = |bytes: &[u8]| {
+            KeyPackage::new(bytes.to_vec()).map_err(|error| {
+                Error::new(
+                    ErrorCode::RelayCapabilityMismatch,
+                    format!("a key package does not fit the wire vector: {error:?}"),
+                )
+            })
+        };
+        let packages = packages
+            .iter()
+            .map(|bytes| wrap(bytes))
+            .collect::<Result<Vec<_>>>()?;
+        let last_resort = match last_resort {
+            Some(bytes) => vec![wrap(bytes)?],
+            None => Vec::new(),
+        };
+        let body = PublishKeyPackagesRequest {
+            packages: packages.into(),
+            last_resort: last_resort.into(),
+        };
+        self.call_signed::<ops::PublishKeyPackages>(
+            recv_key,
+            recv_addr,
+            &body,
+            CommandSide::Receive,
+            BindAttempt::Later,
+        )
+        .await
+    }
+
+    /// `CLAIM_KEY_PACKAGE` (§12.6), with a stamp scoped to `contact_addr`.
+    ///
+    /// The second proof of work first contact pays, and it is deliberately its
+    /// own challenge purpose: a stamp bought for a `CONTACT_APPEND` cannot be
+    /// spent here.
+    ///
+    /// **The bytes this returns are not trusted.** They come from a relay the
+    /// design assumes is hostile, and the caller MUST hand them to
+    /// `f2z_msg_mls::VerifiedKeyPackage::verify` against the directory entry
+    /// before anything else happens to them. The type system enforces that one
+    /// step further up: `MlsEngine::add_member` will not take bytes.
+    ///
+    /// # Errors
+    ///
+    /// `relay-unavailable` when the pool is empty and the peer published no
+    /// package of last resort — §12.6's exhaustion behaviour, and the same code
+    /// an address that does not exist returns, by §10's existence-oracle rule.
+    /// Otherwise as [`RelayConnection::call_unsigned`].
+    pub async fn claim_key_package(
+        &mut self,
+        contact_addr: QueueAddress,
+    ) -> Result<ClaimKeyPackageResponse> {
+        let issued = self
+            .call_unsigned::<ops::GetClaimKeyPackageChallenge>(&ClaimKeyPackageChallengeRequest {
+                contact_addr,
+            })
+            .await?;
+        issued.pow.validate().map_err(|_| {
+            Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued invalid key-package claim proof-of-work parameters",
+            )
+        })?;
+        if !issued.pow.is_required() {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "relay issued an unmetered key-package claim challenge",
+            ));
+        }
+        let challenge = issued.challenge;
+        let difficulty_bits = issued.pow.difficulty_bits;
+        let stamp = tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
+            .await
+            .map_err(|error| {
+                Error::internal(format!("the stamp search did not finish: {error}"))
+            })?;
+        let body = ClaimKeyPackageRequest {
+            contact_addr,
+            stamp,
+        };
+        self.call_unsigned::<ops::ClaimKeyPackage>(&body).await
+    }
+
     /// Any `MSG` push already queued, without waiting.
     ///
     /// Pushes are a *hint* that a queue moved, never the message path: §4.3
@@ -686,6 +804,28 @@ impl RelayConnection {
 
     /// Obtain a challenge and solve a stamp, when and only when the relay's
     /// published parameters require one (§13.1).
+    ///
+    /// # The search runs on a blocking thread, and that is not a nicety
+    ///
+    /// [`solve`] is an unbounded synchronous loop — a leading-zero-bit search
+    /// that takes seconds on a phone at the shipped difficulty, and §12.4 is
+    /// blunt that no tuning fixes that. Run inline on the async task it would
+    /// hold a runtime worker for the whole search, stalling **every other task
+    /// in the process**: the inbound pump that must ACK, the other relay
+    /// connections, and every Tauri command. Since `WIRE.md` §12.6 first
+    /// contact pays **two** stamps rather than one, so the window doubled.
+    ///
+    /// # The residual, stated rather than implied
+    ///
+    /// This moves the search off the worker; it does **not** make this
+    /// connection's socket readable while the search runs. A `RelayConnection`
+    /// is polled only from inside its own methods, so nothing answers §2.4's
+    /// server-driven Ping until this call returns, and a relay whose keepalive
+    /// is shorter than the search will close — correctly. The shipping relay's
+    /// interval is 25 s with two missed Pongs, so this is bounded well above a
+    /// realistic solve; a relay that published a tighter one would break first
+    /// contact here. Closing it for real needs a reader task owning the socket,
+    /// which is a change to this file's ownership model and not a line.
     async fn stamp_for(
         &mut self,
         purpose: ChallengePurpose,
@@ -701,7 +841,11 @@ impl RelayConnection {
                 .map_err(|error| Error::internal(format!("challenge scope: {error:?}")))?,
         };
         let issued = self.call_unsigned::<ops::GetChallenge>(&body).await?;
-        Ok(solve(issued.challenge, params.difficulty_bits))
+        let challenge = issued.challenge;
+        let difficulty_bits = params.difficulty_bits;
+        tokio::task::spawn_blocking(move || solve(challenge, difficulty_bits))
+            .await
+            .map_err(|error| Error::internal(format!("the stamp search did not finish: {error}")))
     }
 
     fn take_request_id(&mut self) -> u32 {

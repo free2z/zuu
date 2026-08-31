@@ -432,6 +432,7 @@ suite! {
     Nothing, "§4.1", an_oversize_frame_is_fatally_malformed;
     Nothing, "§4.2", a_text_frame_closes_the_connection;
     Nothing, "§3.5", an_unknown_command_is_not_fatal;
+    Nothing, "§3.5", claim_purpose_is_not_added_to_v1_get_challenge;
     Faults,  "§4.3", a_duplicate_inflight_request_id_is_fatal;
     Faults,  "§4.3", exceeding_the_inflight_window_is_fatal;
 
@@ -479,6 +480,18 @@ suite! {
     Nothing, "§12.3", a_contact_stamp_is_single_use;
     Nothing, "§12.3", a_contact_stamp_is_scoped_to_its_target;
     Nothing, "§12.5", first_contact_reaches_the_recipient;
+
+    // §12.6 — key-package publication
+    Nothing, "§12.6", a_published_pool_is_claimed_once_per_package;
+    Nothing, "§12.6", an_exhausted_pool_falls_back_to_the_last_resort_package;
+    Nothing, "§12.6", an_exhausted_pool_with_no_last_resort_is_unavailable;
+    Nothing, "§12.6", a_claim_requires_a_stamp_of_its_own_purpose;
+    Nothing, "§12.6", publishing_is_idempotent_under_retry;
+    Nothing, "§12.6", multiple_last_resort_packages_are_fatally_malformed_before_mutation;
+    Nothing, "§12.6", duplicate_bytes_never_cross_the_single_use_last_resort_boundary;
+    Nothing, "§12.6", an_empty_publish_reports_the_pool_without_changing_it;
+    Nothing, "§12.6", a_pool_is_clamped_to_the_published_maximum;
+    Nothing, "§12.6", a_standard_queue_holds_no_pool;
 
     // §13 — anti-abuse
     Faults,  "§13.1", a_full_queue_is_indistinguishable_from_an_absent_one;
@@ -658,6 +671,19 @@ async fn an_unknown_command_is_not_fatal(context: &mut Context) -> Result<()> {
     )?;
     // Non-fatal: the connection still works.
     context.client.ping().await
+}
+
+async fn claim_purpose_is_not_added_to_v1_get_challenge(context: &mut Context) -> Result<()> {
+    let body = f2z_codec::commands::ChallengeRequest {
+        purpose: f2z_codec::commands::CLAIM_KEY_PACKAGE_CHALLENGE_PURPOSE,
+        scope: f2z_codec::types::ShortBytes::new(vec![0x35; QueueAddress::LEN])?,
+    };
+    let result = context
+        .client
+        .call_unsigned::<ops::GetChallenge>(&body)
+        .await;
+    expect_code(result, ErrorCode::Malformed)?;
+    context.client.expect_closed().await
 }
 
 async fn a_duplicate_inflight_request_id_is_fatal(context: &mut Context) -> Result<()> {
@@ -1436,6 +1462,409 @@ async fn first_contact_reaches_the_recipient(context: &mut Context) -> Result<()
     // is the assertion above.
     let acked = context.client.ack(&bob, created.recv_addr, index).await?;
     expect_eq(acked.pending, 0, "the contact queue drains like any other")
+}
+
+// ---------------------------------------------------------------------------
+// §12.6 — key-package publication.
+//
+// Every vector here uses opaque byte strings where a real client uses an MLS
+// `KeyPackage`. That is the point: the relay never parses one, cannot check
+// one, and is not trusted to. Authenticating the package against the
+// directory's identity key is the *fetcher's* obligation (§12.6), and it is
+// asserted where it lives — in `f2z-msg-mls` and in the plugin — not here.
+// ---------------------------------------------------------------------------
+
+/// A contact queue with a pool, for the vectors below.
+async fn with_pool(
+    context: &mut Context,
+    packages: &[Vec<u8>],
+    last_resort: Option<Vec<u8>>,
+) -> Result<(SigningKey, f2z_codec::commands::CreateContactQueueResponse)> {
+    let owner = context.key();
+    let created = context
+        .client
+        .create_contact_queue(&owner, 0, 0, None)
+        .await?;
+    context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, packages, last_resort)
+        .await?;
+    Ok((owner, created))
+}
+
+async fn a_published_pool_is_claimed_once_per_package(context: &mut Context) -> Result<()> {
+    let first_package = b"package-one".to_vec();
+    let second_package = b"package-two".to_vec();
+    let packages = vec![first_package.clone(), second_package.clone()];
+    let (_owner, created) = with_pool(context, &packages, None).await?;
+    let mut alice = context.open().await?;
+    let first = alice.claim_key_package(created.contact_addr).await?;
+    expect_eq(
+        first.key_package.as_slice().to_vec(),
+        first_package,
+        "the oldest package is served first",
+    )?;
+    expect_eq(first.last_resort, 0, "a pooled package is not last-resort")?;
+
+    let mut bob = context.open().await?;
+    let second = bob.claim_key_package(created.contact_addr).await?;
+    // Consumed. This is the property an append-only log cannot express, which
+    // is why §12.6 puts the pool at the relay and not in the directory.
+    expect_eq(
+        second.key_package.as_slice().to_vec(),
+        second_package,
+        "a claimed package is never served twice",
+    )
+}
+
+async fn an_exhausted_pool_falls_back_to_the_last_resort_package(
+    context: &mut Context,
+) -> Result<()> {
+    let (_owner, created) = with_pool(
+        context,
+        &[b"the only one".to_vec()],
+        Some(b"last resort".to_vec()),
+    )
+    .await?;
+    let mut alice = context.open().await?;
+    alice.claim_key_package(created.contact_addr).await?;
+
+    // Twice more, and both get the same reusable package. §12.6's exhaustion
+    // behaviour: availability is preserved and the forward secrecy of first
+    // contact is what pays for it (`THREAT-MODEL.md` §4.12).
+    for _ in 0..2 {
+        let mut stranger = context.open().await?;
+        let claimed = stranger.claim_key_package(created.contact_addr).await?;
+        expect_eq(
+            claimed.key_package.as_slice().to_vec(),
+            b"last resort".to_vec(),
+            "an empty pool serves the package of last resort",
+        )?;
+        expect_eq(claimed.last_resort, 1, "and says so")?;
+    }
+    Ok(())
+}
+
+async fn an_exhausted_pool_with_no_last_resort_is_unavailable(context: &mut Context) -> Result<()> {
+    let (_owner, created) = with_pool(context, &[b"the only one".to_vec()], None).await?;
+    let mut alice = context.open().await?;
+    alice.claim_key_package(created.contact_addr).await?;
+
+    let mut stranger = context.open().await?;
+    let result = stranger
+        .claim_key_package(created.contact_addr)
+        .await
+        .map(|_| ());
+    // §10's existence-oracle rule holds here too: exhausted and absent are the
+    // same code, so sweeping published addresses learns nothing about which
+    // devices are reachable.
+    expect_code(result, ErrorCode::Unavailable)?;
+
+    let mut prober = context.open().await?;
+    let absent = prober
+        .claim_key_package(QueueAddress::new([0x5c; 32]))
+        .await
+        .map(|_| ());
+    expect_code(absent, ErrorCode::Unavailable)
+}
+
+async fn a_claim_requires_a_stamp_of_its_own_purpose(context: &mut Context) -> Result<()> {
+    let (_owner, created) = with_pool(context, &[b"package".to_vec()], None).await?;
+    let mut stranger = context.open().await?;
+
+    // No stamp at all.
+    let body = f2z_codec::commands::ClaimKeyPackageRequest {
+        contact_addr: created.contact_addr,
+        stamp: f2z_codec::pow::PowStamp::empty(),
+    };
+    let result = stranger
+        .call_unsigned::<ops::ClaimKeyPackage>(&body)
+        .await
+        .map(|_| ());
+    expect_code(result, ErrorCode::PowRequired)?;
+
+    // A perfectly good `contact_append` stamp, for the right address, spent on
+    // a claim. §12.6 gives the claim its own challenge purpose precisely so one
+    // stamp cannot buy both.
+    let capabilities = stranger.capabilities().await?.capabilities;
+    let issued = stranger
+        .challenge(
+            ChallengePurpose::ContactAppend,
+            created.contact_addr.as_bytes(),
+        )
+        .await?;
+    let mut rng = Csprng::from_seed([0x5b; 32]);
+    let stamp = solve(
+        issued.challenge,
+        &mut rng,
+        capabilities.contact_append_pow.difficulty_bits,
+    );
+    let crossed = f2z_codec::commands::ClaimKeyPackageRequest {
+        contact_addr: created.contact_addr,
+        stamp,
+    };
+    let result = stranger
+        .call_unsigned::<ops::ClaimKeyPackage>(&crossed)
+        .await
+        .map(|_| ());
+    expect_code(result, ErrorCode::PowInvalid)
+}
+
+async fn publishing_is_idempotent_under_retry(context: &mut Context) -> Result<()> {
+    let packages = vec![b"one".to_vec(), b"two".to_vec()];
+    let (owner, created) = with_pool(context, &packages, None).await?;
+    // The same batch again — the shape of a client whose response was lost.
+    let again = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &packages, None)
+        .await?;
+    expect_eq(
+        again.pool_size,
+        2,
+        "a retried publish must not double the pool: two Welcomes to one init key",
+    )
+}
+
+async fn multiple_last_resort_packages_are_fatally_malformed_before_mutation(
+    context: &mut Context,
+) -> Result<()> {
+    let owner = context.key();
+    let created = context
+        .client
+        .create_contact_queue(&owner, 0, 0, None)
+        .await?;
+    let mut client = context.open().await?;
+    let body = f2z_codec::commands::PublishKeyPackagesRequest {
+        packages: vec![f2z_codec::types::KeyPackage::new(
+            b"must-not-commit".to_vec(),
+        )?]
+        .into(),
+        last_resort: vec![
+            f2z_codec::types::KeyPackage::new(b"fallback-one".to_vec())?,
+            f2z_codec::types::KeyPackage::new(b"fallback-two".to_vec())?,
+        ]
+        .into(),
+    };
+    let encoded = body.encode_canonical()?;
+    let request_id = 0x7690;
+    let auth_context = f2z_codec::transcript::AuthContext {
+        address: created.recv_addr,
+        signer_key: owner.public_key(),
+        timestamp_ms: client.relay_time_ms(),
+        nonce: client.nonce(),
+    };
+    let transcript = client.session().transcripts().build(
+        Command::PublishKeyPackages.code(),
+        request_id,
+        &auth_context,
+        &encoded,
+    )?;
+    let auth = auth_context.into_auth(owner.sign(&transcript.signing_bytes()?));
+    let request = f2z_codec::frame::Request::new(
+        Command::PublishKeyPackages.code(),
+        f2z_codec::frame::CommandAuth::Signed(auth),
+        encoded,
+    )?;
+    client
+        .send_raw(f2z_codec::frame::RelayFrame::request(request_id, request).encode_canonical()?)
+        .await?;
+    let (_, response) = client.next_response().await?;
+    expect_eq(
+        response.error_code(),
+        Some(ErrorCode::Malformed),
+        "more than one last-resort package is fatal ERR_MALFORMED",
+    )?;
+    client.expect_closed().await?;
+
+    let mut probe = context.open().await?;
+    let state = probe
+        .publish_key_packages(&owner, created.recv_addr, &[], None)
+        .await?;
+    expect_eq(
+        state.pool_size,
+        0,
+        "the malformed package batch did not commit",
+    )?;
+    expect_eq(
+        state.has_last_resort,
+        0,
+        "the malformed fallback vector did not commit",
+    )
+}
+
+async fn duplicate_bytes_never_cross_the_single_use_last_resort_boundary(
+    context: &mut Context,
+) -> Result<()> {
+    // Existing last-resort bytes cannot also enter the single-use pool.
+    let duplicate = b"duplicate".to_vec();
+    let (owner, created) = with_pool(context, &[], Some(duplicate.clone())).await?;
+    let published = context
+        .client
+        .publish_key_packages(
+            &owner,
+            created.recv_addr,
+            std::slice::from_ref(&duplicate),
+            None,
+        )
+        .await?;
+    expect_eq(
+        published.pool_size,
+        0,
+        "last-resort bytes are skipped by a pooled publish",
+    )?;
+    let mut claimer = context.open().await?;
+    let claimed = claimer.claim_key_package(created.contact_addr).await?;
+    expect_eq(
+        claimed.key_package.as_slice(),
+        duplicate.as_slice(),
+        "the fallback remains",
+    )?;
+    expect_eq(
+        claimed.last_resort,
+        1,
+        "the surviving role remains last-resort",
+    )?;
+
+    // A last-resort candidate already in the committed pool is ignored. The
+    // current fallback remains, so a request cannot turn a single-use init key
+    // into a reusable one or retire a valid fallback as a side effect.
+    let promoted = b"promoted".to_vec();
+    let second = b"second".to_vec();
+    let old_fallback = b"old-fallback".to_vec();
+    let (owner, created) = with_pool(
+        context,
+        &[promoted.clone(), second.clone()],
+        Some(old_fallback.clone()),
+    )
+    .await?;
+    let published = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[], Some(promoted.clone()))
+        .await?;
+    expect_eq(
+        published.pool_size,
+        2,
+        "a single-use package stays in the pool",
+    )?;
+    for expected in [&promoted, &second] {
+        let mut claimer = context.open().await?;
+        let claimed = claimer.claim_key_package(created.contact_addr).await?;
+        expect_eq(
+            claimed.key_package.as_slice(),
+            expected.as_slice(),
+            "pool order is unchanged",
+        )?;
+        expect_eq(claimed.last_resort, 0, "the package remains single-use")?;
+    }
+    let mut claimer = context.open().await?;
+    let claimed = claimer.claim_key_package(created.contact_addr).await?;
+    expect_eq(
+        claimed.key_package.as_slice(),
+        old_fallback.as_slice(),
+        "the old fallback remains",
+    )?;
+    expect_eq(claimed.last_resort, 1, "and remains last-resort")?;
+
+    // The same rule is atomic inside one request: X is accepted into the pool
+    // first, then rejected as a last-resort candidate.
+    let owner = context.key();
+    let created = context
+        .client
+        .create_contact_queue(&owner, 0, 0, None)
+        .await?;
+    let published = context
+        .client
+        .publish_key_packages(
+            &owner,
+            created.recv_addr,
+            &[promoted.clone(), second.clone()],
+            Some(promoted.clone()),
+        )
+        .await?;
+    expect_eq(
+        published.pool_size,
+        2,
+        "same-request bytes remain single-use",
+    )?;
+    expect_eq(
+        published.has_last_resort,
+        0,
+        "the duplicate fallback is skipped",
+    )
+}
+
+async fn an_empty_publish_reports_the_pool_without_changing_it(
+    context: &mut Context,
+) -> Result<()> {
+    // §12.6.6's refill rule depends on this and it is easy to get wrong. Claims
+    // are invisible to the owner — most never produce a `Welcome` — so a device
+    // that decided when to refill from its own last-recorded number would drain
+    // to zero and fall back to its reusable package of last resort without ever
+    // noticing. An empty publish is how it asks, and it must not be a mutation.
+    let packages = vec![b"one".to_vec(), b"two".to_vec(), b"three".to_vec()];
+    let (owner, created) = with_pool(context, &packages, Some(b"last".to_vec())).await?;
+    let mut stranger = context.open().await?;
+    stranger.claim_key_package(created.contact_addr).await?;
+
+    let held = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[], None)
+        .await?;
+    expect_eq(
+        held.pool_size,
+        2,
+        "the owner is told what the relay really holds",
+    )?;
+    expect_eq(
+        held.has_last_resort,
+        1,
+        "and whether a package of last resort is stored",
+    )?;
+
+    // Asking twice does not consume, publish or replace anything.
+    let again = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[], None)
+        .await?;
+    expect_eq(again.pool_size, 2, "an empty publish is not a mutation")
+}
+
+async fn a_pool_is_clamped_to_the_published_maximum(context: &mut Context) -> Result<()> {
+    let max = context.client.key_package_policy().await?.max_pool_size;
+    let over = usize::try_from(max).unwrap_or(usize::MAX).saturating_add(8);
+    let packages: Vec<Vec<u8>> = (0..over)
+        .map(|index| format!("package-{index}").into_bytes())
+        .collect();
+    let owner = context.key();
+    let created = context
+        .client
+        .create_contact_queue(&owner, 0, 0, None)
+        .await?;
+    let published = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &packages, None)
+        .await?;
+    expect_eq(published.pool_size, max, "the pool is clamped, not refused")?;
+    expect_eq(
+        published.max_pool_size,
+        max,
+        "and the cap is reported so a client can compute its own low-water mark",
+    )
+}
+
+async fn a_standard_queue_holds_no_pool(context: &mut Context) -> Result<()> {
+    // §12.6 keys a pool by the *published* address. A standard queue has none,
+    // so there is nothing to key one by — and the refusal is `ERR_NOT_PERMITTED`
+    // rather than `ERR_NO_ACCESS`, because the caller proved it owns the queue
+    // and nothing here is an oracle.
+    let owner = context.key();
+    let created = context.client.create_queue(&owner, 0, 0, None).await?;
+    let result = context
+        .client
+        .publish_key_packages(&owner, created.recv_addr, &[b"package".to_vec()], None)
+        .await
+        .map(|_| ());
+    expect_code(result, ErrorCode::NotPermitted)
 }
 
 // ---------------------------------------------------------------------------

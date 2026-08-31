@@ -9,19 +9,31 @@
 //!
 //! # What is substituted, and nothing else
 //!
-//! Exactly one thing: the **directory resolution**. `CLIENT-CONTRACT.md` §6.4
-//! and §9 rule 5 say a client must never proceed on an unverified key at first
-//! contact, and the shipping build therefore refuses — see `crate::directory`.
-//! So [`FileDirectory`] below reads what each peer published into a shared
-//! directory, and the engine's own `start_conversation` and
-//! `accept_contact_request` run **unchanged** from there: the MLS group, the
-//! `KeyPackage`, the `Welcome`, `CREATE_CONTACT_QUEUE`, `CONTACT_APPEND` with a
-//! proof-of-work stamp, `CREATE_QUEUE`, `BIND_SEND`, `APPEND`, `READ`, the
-//! durable write, the `ACK`, and the events.
+//! Exactly one thing: the **proof machinery** behind the directory resolution.
+//! `CLIENT-CONTRACT.md` §6.4 and §9 rule 5 say a client must never proceed on an
+//! unverified key at first contact, and the shipping build therefore refuses —
+//! see `crate::directory`. So [`FileDirectory`] below reads what each peer
+//! published into a shared filesystem directory, and the engine's own
+//! `start_conversation` and `accept_contact_request` run **unchanged** from
+//! there.
 //!
-//! Nothing else is faked. In particular the relay is a real one over a real
-//! socket, the ciphertext is real MLS `PrivateMessage`s under the X-Wing hybrid
-//! ciphersuite, and the ACK is sent only after the local write commits.
+//! What is *not* substituted, and matters since `WIRE.md` §12.6: the
+//! `DirectoryEntry` each peer publishes is a **real, canonically encoded
+//! `DirectoryEntryTBS`** carrying a real `DeviceCredential` signed by a real
+//! seed-derived identity key. That is what §12.6's authentication runs against,
+//! so the check `f2z_msg_mls::VerifiedKeyPackage::verify` performs here is the
+//! shipping one against real bytes; what a real log adds on top is the
+//! inclusion proof, the witness cosignatures and the pin, and those are
+//! exercised — with a real `f2z-kt` and a real `f2z-witness` — by
+//! `rs/crates/f2z-kt-client/tests/first_contact.rs`. They live there rather
+//! than here because `f2z-kt` and `f2z-witness` are AGPL-3.0 and this crate is
+//! on the client side of the boundary `rs/README.md` describes; a dev-dependency
+//! on either would put them in ZUULI's lockfile.
+//!
+//! Nothing else is faked. The relay is a real one over a real socket, key
+//! packages are really published to it and really claimed from it (§12.6), the
+//! ciphertext is real MLS `PrivateMessage`s under the X-Wing hybrid ciphersuite,
+//! and the ACK is sent only after the local write commits.
 //!
 //! # Usage
 //!
@@ -38,8 +50,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use f2z_codec::types::PublicKey;
-use f2z_kt_core::types::{Handle, KemPublicKey};
+use f2z_codec::canonical::{decode_canonical, encode as encode_canonical};
+use f2z_codec::types::{Digest, PublicKey, QueueAddress, RelayId, ShortBytes};
+use f2z_kt_core::entry::{ContactEndpoint, DeviceCredential, DirectoryEntryTBS, EntryKind};
+use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
 use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
 use f2z_msg_store::SqliteBackend;
 use serde::{Deserialize, Serialize};
@@ -49,15 +63,42 @@ use tauri_plugin_f2zmsg::error::{Error, Result};
 use tauri_plugin_f2zmsg::events::RecordingSink;
 use tauri_plugin_f2zmsg::models::{DirectoryResolution, ErrorCode, Platform};
 
-/// What a peer publishes about itself. In a real deployment every field is an
-/// entry in the key-transparency log, cosigned by witnesses.
+/// What a peer publishes about itself.
+///
+/// `entry` is a **real** canonically encoded `DirectoryEntryTBS`, exactly the
+/// structure a log would commit to its tree and exactly what §12.6's key-package
+/// authentication is checked against. There is deliberately no `key_package`
+/// field any more: since §12.6 a key package is *not* published in the
+/// directory — it is claimed from the relay, one per claimer, and authenticated
+/// against this entry.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Published {
     handle: String,
     identity_pk: String,
-    key_package: String,
+    /// `hex(tls_codec(DirectoryEntryTBS))`.
+    entry: String,
     contact_relay_url: String,
+    contact_relay_id: String,
     contact_addr: String,
+}
+
+impl Published {
+    fn decoded_entry(&self) -> Result<DirectoryEntryTBS> {
+        let bytes = hex::decode(&self.entry).map_err(|_| {
+            Error::new(
+                ErrorCode::DirectoryProtocolViolation,
+                "a published entry is not hex",
+            )
+        })?;
+        Ok(decode_canonical::<DirectoryEntryTBS>(&bytes)
+            .map_err(|_| {
+                Error::new(
+                    ErrorCode::DirectoryProtocolViolation,
+                    "a published entry is not a canonical DirectoryEntryTBS",
+                )
+            })?
+            .into_value())
+    }
 }
 
 /// A [`Directory`] backed by a shared filesystem directory.
@@ -88,17 +129,14 @@ impl Directory for FileDirectory {
     }
 
     fn resolve_identity(&self, handle: &str) -> Result<ResolvedIdentity> {
-        let published = self.read(handle).ok_or_else(|| {
-            Error::new(
-                ErrorCode::DirectoryUnreachable,
-                format!("{handle} has published nothing yet"),
-            )
-        })?;
+        let peer = self.resolve_peer(handle)?;
         Ok(ResolvedIdentity {
-            resolution: self.resolve(handle)?,
-            identity_pk: published.identity_pk,
-            contact_relay_url: published.contact_relay_url,
-            contact_addr: published.contact_addr,
+            resolution: peer.resolution,
+            identity_pk: peer.identity_pk,
+            entry: peer.entry,
+            contact_relay_url: peer.contact_relay_url,
+            contact_relay_id: peer.contact_relay_id,
+            contact_addr: peer.contact_addr,
         })
     }
 
@@ -109,16 +147,18 @@ impl Directory for FileDirectory {
                 format!("{handle} has published nothing yet"),
             )
         })?;
+        let entry = published.decoded_entry()?;
         Ok(ResolvedPeer {
             resolution: self.resolve(handle)?,
             identity_pk: published.identity_pk,
-            key_package: hex::decode(&published.key_package).map_err(|_| {
-                Error::new(
-                    ErrorCode::DirectoryProtocolViolation,
-                    "key package is not hex",
-                )
-            })?,
+            entry,
             contact_relay_url: published.contact_relay_url,
+            contact_relay_id: RelayId::new(
+                hex::decode(published.contact_relay_id)
+                    .map_err(|_| Error::internal("a relay id is not hex"))?
+                    .try_into()
+                    .map_err(|_| Error::internal("a relay id is the wrong length"))?,
+            ),
             contact_addr: published.contact_addr,
         })
     }
@@ -233,6 +273,7 @@ async fn run() -> std::result::Result<String, String> {
     let sink = Arc::new(RecordingSink::new());
     let engine = Engine::new(backend, sink.clone(), Platform::ZuuliDesktop)
         .map_err(|error| describe(&error))?
+        .with_insecure_directory_relays_for_harness()
         .with_directory(Arc::new(FileDirectory {
             shared: options.shared.clone(),
         }));
@@ -452,12 +493,24 @@ async fn connect(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()
     Ok(())
 }
 
-/// Publish what a directory entry would carry.
+/// Publish the directory entry this device would submit to a log.
+///
+/// **No key package.** Since `WIRE.md` §12.6 those are published to the relay by
+/// `start_engine` and claimed one at a time; a directory entry carries none, and
+/// `KT.md` §4.1's exclusion stands.
 async fn publish(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()> {
-    let (contact_relay_url, contact_addr) = engine
+    let (contact_relay_url, contact_relay_id, contact_addr) = engine
         .contact_advert()
         .await?
         .ok_or_else(|| Error::internal("start_engine did not open a contact queue"))?;
+    let entry = directory_entry(
+        engine,
+        options,
+        &contact_relay_url,
+        contact_relay_id,
+        &contact_addr,
+    )
+    .await?;
     let published = Published {
         handle: options.handle.clone(),
         identity_pk: engine
@@ -465,8 +518,12 @@ async fn publish(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()
             .await?
             .identity_fingerprint
             .replace(' ', ""),
-        key_package: hex::encode(engine.key_package().await?),
+        entry: hex::encode(
+            encode_canonical(&entry)
+                .map_err(|error| Error::internal(format!("encoding an entry: {error:?}")))?,
+        ),
         contact_relay_url,
+        contact_relay_id: hex::encode(contact_relay_id.as_bytes()),
         contact_addr,
     };
     let path = options.shared.join(format!("{}.peer.json", options.handle));
@@ -481,6 +538,61 @@ async fn publish(engine: &Engine<SqliteBackend>, options: &Options) -> Result<()
     // a file — the same reason a real client would not publish a partial entry.
     std::fs::rename(&temporary, &path).map_err(Error::from)?;
     Ok(())
+}
+
+/// The `DirectoryEntryTBS` this device would submit to a log.
+///
+/// Assembled here rather than faked: every field is the real value, the
+/// `DeviceCredential` is the one enrollment issued and signed with the
+/// seed-derived identity key, and the `ContactEndpoint` is the address
+/// `start_engine` actually opened. What a real log adds is the inclusion proof
+/// and the witness cosignatures over a root — the parts this harness cannot
+/// carry without an AGPL dependency, and which
+/// `rs/crates/f2z-kt-client/tests/first_contact.rs` exercises for real.
+async fn directory_entry(
+    engine: &Engine<SqliteBackend>,
+    options: &Options,
+    contact_relay_url: &str,
+    contact_relay_id: RelayId,
+    contact_addr: &str,
+) -> Result<DirectoryEntryTBS> {
+    let credential_bytes = engine.installed_credential().await?;
+    let credential = decode_canonical::<DeviceCredential>(&credential_bytes)
+        .map_err(|error| Error::internal(format!("decoding a credential: {error:?}")))?
+        .into_value();
+    let identity_pk = credential.credential.identity_pk;
+    let seed = [options.seed; 64];
+    let account = AccountKeys::from_seed(&seed, 0)
+        .map_err(|error| Error::internal(format!("deriving §4.2 keys: {error}")))?;
+
+    let contact_addr =
+        hex::decode(contact_addr).map_err(|_| Error::internal("a contact address is not hex"))?;
+    let contact_addr = QueueAddress::from_slice(&contact_addr)
+        .map_err(|_| Error::internal("a contact address is the wrong length"))?;
+
+    Ok(DirectoryEntryTBS {
+        label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec())
+            .map_err(|error| Error::internal(format!("entry label: {error:?}")))?,
+        kt_version: 1,
+        log_id: LogId::new([0u8; 32]),
+        handle: credential.credential.handle.clone(),
+        entry_version: 1,
+        kind: EntryKind::SameKey,
+        identity_pk,
+        directory_auth_pk: PublicKey::new(*account.directory_auth.public().as_bytes()),
+        devices: vec![credential].into(),
+        revocations: Vec::new().into(),
+        contact_endpoints: vec![ContactEndpoint {
+            relay_url: ShortBytes::new(contact_relay_url.as_bytes().to_vec())
+                .map_err(|error| Error::internal(format!("relay url: {error:?}")))?,
+            relay_id: contact_relay_id,
+            contact_addr,
+        }]
+        .into(),
+        prev_entry_hash: Digest::new([0u8; 32]),
+        no_reset: 0,
+        created_at_ms: 0,
+    })
 }
 
 fn wait_for_peer(options: &Options) -> std::result::Result<(), String> {

@@ -47,8 +47,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
-use f2z_codec::hash::hash2;
-use f2z_msg_mls::{EngineError, MlsEngine, Received};
+use f2z_codec::hash::{hash, hash2};
+use f2z_codec::types::RelayId;
+use f2z_msg_mls::{EngineError, MlsEngine, Received, VerifiedKeyPackage};
 use f2z_msg_store::{F2zStorageProvider, StorageBackend};
 use f2z_relay_proto::key::SigningKey;
 use openmls::prelude::{GroupId, MlsGroup};
@@ -78,6 +79,43 @@ use crate::store::{
 const LABEL_QUEUE_RECV: &[u8] = b"free2z/msg/v1/queue-recv";
 /// The same, for the send-side key this device binds on a peer's queue.
 const LABEL_QUEUE_SEND: &[u8] = b"free2z/msg/v1/queue-send";
+
+/// How many single-use key packages this device tries to keep published
+/// (`WIRE.md` §12.6), clamped down to whatever the relay's
+/// key-package policy `max_pool_size` allows.
+///
+/// **A placeholder, like §12.3's caps.** Nothing has measured how many first
+/// contacts a device receives between two sessions; 32 is chosen to be more
+/// than a person is plausibly contacted by while offline for a day and small
+/// enough that a full pool is around 85 KiB on the relay at #385's measured
+/// 2 647 bytes a package.
+const KEY_PACKAGE_POOL_TARGET: u32 = 32;
+
+/// Refill when the relay's reported pool drops to this (§12.6).
+///
+/// Not zero, deliberately. A device that waited for exhaustion would fall back
+/// to the reusable package of last resort — trading forward secrecy for
+/// availability, `THREAT-MODEL.md` §4.12 — every time it was slightly late,
+/// and the whole point of the pool is that the fallback is rare.
+const KEY_PACKAGE_LOW_WATER: u32 = 8;
+
+/// The lifetime this device asks for on its package of last resort, in seconds:
+/// thirty days.
+///
+/// **Deliberately shorter than a device credential's**, which enrollment issues
+/// for a year. A last-resort package is reusable, so the only mitigation
+/// available against its reuse is that it stops being usable; a long-lived one
+/// would make the trade of `THREAT-MODEL.md` §4.12 permanent instead of
+/// bounded. The cost is stated with it: a device offline for longer than this
+/// becomes unreachable to *new* contacts until it comes back.
+const LAST_RESORT_LIFETIME_SECONDS: u64 = 2_592_000;
+/// Rotate one day before expiry. The receive pump runs every five seconds, so
+/// an online owner has a full day of retries without ever publishing a package
+/// whose validity has already ended.
+const LAST_RESORT_ROTATE_BEFORE_MS: i64 = 86_400_000;
+const LABEL_ROUTING_ADVERT: &[u8] = b"free2z/msg/v1/first-routing-advert";
+const LABEL_ROUTING_FIELDS: &[u8] = b"free2z/msg/v1/first-routing-fields";
+const LABEL_ROUTING_WELCOME: &[u8] = b"free2z/msg/v1/first-routing-welcome";
 
 /// `WIRE.md` §7.7's default message TTL: seven days.
 const MESSAGE_TTL_SECONDS: u32 = 604_800;
@@ -116,6 +154,10 @@ struct Inner<B: StorageBackend> {
     groups: HashMap<String, MlsGroup>,
     /// One per relay URL. `WIRE.md` §2.5's session is per connection.
     connections: HashMap<String, RelayConnection>,
+    /// Policy for a relay learned from a verified directory entry rather than
+    /// the user's configured relay list. Shipping is strict. The relay harness
+    /// alone relaxes transport and channel binding for loopback `ws://` relays.
+    directory_connection_policy: ConnectionPolicy,
     state: EngineState,
     last_error: Option<ErrorCode>,
     platform: Platform,
@@ -196,6 +238,7 @@ impl<B: StorageBackend> Engine<B> {
                 mls: None,
                 groups: HashMap::new(),
                 connections: HashMap::new(),
+                directory_connection_policy: ConnectionPolicy::default(),
                 state: EngineState::Uninitialized,
                 last_error: None,
                 platform,
@@ -215,6 +258,17 @@ impl<B: StorageBackend> Engine<B> {
     #[must_use]
     pub fn with_directory(mut self, directory: Arc<dyn Directory>) -> Self {
         self.directory = directory;
+        self
+    }
+
+    /// Permit the loopback relay harness to exercise on-demand federated
+    /// connections over `ws://`. Shipping callers cannot compile this method.
+    #[cfg(feature = "relay-harness")]
+    #[must_use]
+    pub fn with_insecure_directory_relays_for_harness(mut self) -> Self {
+        let policy = &mut self.inner.get_mut().directory_connection_policy.policy;
+        policy.allow_insecure_transport = true;
+        policy.require_channel_binding = false;
         self
     }
 
@@ -277,6 +331,14 @@ impl<B: StorageBackend> Engine<B> {
         inner.subscribe_all().await;
         if let Err(error) = inner.ensure_contact_queue().await {
             tracing::info!(code = %error.code(), "contact queue not opened");
+            inner.last_error = Some(error.code());
+        }
+        // §12.6. Not fatal, and not silent: a device with no published pool is
+        // one nobody can start a conversation with, which is a state to report
+        // rather than a state to crash on. Everything else about this engine —
+        // every established conversation — is unaffected.
+        if let Err(error) = inner.ensure_key_packages().await {
+            tracing::info!(code = %error.code(), "key packages not published");
             inner.last_error = Some(error.code());
         }
 
@@ -599,10 +661,21 @@ impl<B: StorageBackend> Engine<B> {
 
     /// §3.3 `start_conversation` — the whole first-contact handshake.
     ///
-    /// # Errors
+    /// `WIRE.md` §12.5, in the order that section states it, with §12.6's two
+    /// steps between 1 and 2:
     ///
-    /// **This does not succeed in any configuration yet, and the directory is
-    /// no longer the reason.**
+    /// 1. Resolve the handle against a witness-cosigned root, yielding the
+    ///    **verified `DirectoryEntryTBS`** and the published contact endpoint.
+    /// 2. `CLAIM_KEY_PACKAGE` from the relay that endpoint names, behind a
+    ///    proof-of-work stamp.
+    /// 3. **Authenticate the claimed package against the entry from step 1.**
+    ///    The relay is not trusted with it; a package that does not verify is a
+    ///    refusal, and the type system will not let one through — `add_member`
+    ///    takes a `VerifiedKeyPackage`.
+    /// 4. Build the group, produce the `Welcome`, and `CONTACT_APPEND` it with
+    ///    a second stamp.
+    ///
+    /// # Errors
     ///
     /// On the default `NoDirectory`: `witness-threshold-unmet`. Zero
     /// independent witnesses have cosigned any root, and §6.4's matrix says
@@ -610,13 +683,11 @@ impl<B: StorageBackend> Engine<B> {
     /// #133 moment — an unverified key here *is* the MITM — and §9 rule 5
     /// forbids proceeding silently.
     ///
-    /// On a configured `KtDirectory`, against a real log: the lookup **runs and
-    /// verifies**, and then this fails anyway, because a `Welcome` has to be
-    /// addressed to an MLS `KeyPackage` and no directory publishes one —
-    /// `KT.md` §4.1 says a `DirectoryEntry` carries *"no `KeyPackage`"* and
-    /// §1.2 leaves publication and exhaustion open. `accept_contact_request` is
-    /// unaffected: it needs the identity key alone, which the directory does
-    /// publish and this build does verify.
+    /// `relay-unavailable` when the peer's pool is exhausted and they published
+    /// no package of last resort (§12.6). `internal` — carrying the credential
+    /// failure — when the claimed package does not belong to the identity the
+    /// directory vouched for, which is the substitution §12.6 exists to catch
+    /// and is **never** retried.
     pub async fn start_conversation(&self, peer_handle: &str) -> Result<Conversation> {
         if !handle::is_handle(peer_handle) {
             // §11.3: a homograph does not match the charset, so the directory
@@ -628,21 +699,15 @@ impl<B: StorageBackend> Engine<B> {
                 format!("{peer_handle:?} is not a messaging handle"),
             ));
         }
-        // §6.4's first row. Everything below this line is `WIRE.md` §12.5's
-        // handshake and is the same code the harness drives; the only step this
-        // build cannot take is this one.
+        // §6.4's first row, and everything below it is §12.5's handshake.
         let peer = self.directory.resolve_peer(peer_handle)?;
 
         let mut inner = self.inner.lock().await;
         inner.require_running("start_conversation")?;
         let relay_url = inner.first_relay_url()?;
+        let key_package = inner.claim_key_package(&peer, peer_handle).await?;
         let introduction = inner
-            .create_conversation(
-                peer_handle,
-                &peer.identity_pk,
-                &peer.key_package,
-                &relay_url,
-            )
+            .create_conversation(peer_handle, &peer.identity_pk, &key_package, &relay_url)
             .await?;
 
         // The `Welcome`, this device's queue advert and who is calling, on the
@@ -719,9 +784,13 @@ impl<B: StorageBackend> Engine<B> {
             welcome,
             advert: QueueAdvert {
                 relay_url: request.peer_relay_url.clone(),
+                relay_id: request.peer_relay_id.clone(),
                 send_addr: request.peer_send_addr.clone(),
             },
+            advert_device_pk: request.advert_device_pk.clone(),
+            advert_signature: request.advert_signature.clone(),
         };
+        inner.authenticate_introduction(&peer.entry, &introduction, now_ms())?;
         inner
             .join_conversation(
                 &request.peer_handle,
@@ -1954,6 +2023,16 @@ impl<B: StorageBackend> Engine<B> {
         if inner.mls.is_none() {
             return Ok(0);
         }
+        // Rotation cannot depend on a contact arrival: an unused reusable
+        // package still expires. Failure is reported but does not stop
+        // established conversations, and the old persisted deadline remains
+        // so the next timer tick retries.
+        if inner.last_resort_rotation_due(now_ms())?
+            && let Err(error) = inner.ensure_key_packages().await
+        {
+            tracing::info!(code = %error.code(), "last-resort key package not rotated");
+            inner.last_error = Some(error.code());
+        }
         let mut delivered = match inner.pump_contact_queue().await {
             Ok(events) => events,
             Err(error) => {
@@ -2017,6 +2096,28 @@ impl<B: StorageBackend> Engine<B> {
             .map_err(|error| Error::internal(format!("key package: {error}")))
     }
 
+    /// The `DeviceCredential` this device installed at enrollment, canonically
+    /// encoded.
+    ///
+    /// Harness only. The app crate issues the credential and therefore already
+    /// has it; this exists so the two-process harness can assemble the
+    /// `DirectoryEntryTBS` a log would commit, which is what §12.6's key-package
+    /// authentication is checked against.
+    ///
+    /// # Errors
+    ///
+    /// `not-enrolled` if this device has no identity.
+    #[cfg(any(test, feature = "relay-harness"))]
+    pub async fn installed_credential(&self) -> Result<Vec<u8>> {
+        let inner = self.inner.lock().await;
+        let identity = inner
+            .records()
+            .identity()?
+            .ok_or_else(|| Error::not_enrolled("installed_credential"))?;
+        hex::decode(&identity.credential)
+            .map_err(|_| Error::internal("a stored credential is not hex"))
+    }
+
     /// This device's published contact address (§12.2), once `start_engine` has
     /// opened one.
     ///
@@ -2024,12 +2125,83 @@ impl<B: StorageBackend> Engine<B> {
     ///
     /// `internal` if the store cannot be read.
     #[cfg(any(test, feature = "relay-harness"))]
-    pub async fn contact_advert(&self) -> Result<Option<(String, String)>> {
+    pub async fn contact_advert(&self) -> Result<Option<(String, RelayId, String)>> {
+        let inner = self.inner.lock().await;
+        let Some(queue) = inner.records().contact_queue()? else {
+            return Ok(None);
+        };
+        let relay_id = inner
+            .connections
+            .get(&queue.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "contact relay not connected"))?
+            .relay_id();
+        Ok(Some((queue.relay_url, relay_id, queue.contact_addr)))
+    }
+
+    /// Run the key-package maintenance pass at an explicit time.
+    ///
+    /// Harness only: production reaches the same method from `start_engine`
+    /// and the online receive timer, both with the wall clock.
+    #[cfg(feature = "relay-harness")]
+    pub async fn refresh_key_packages_at_for_harness(&self, now_ms: i64) -> Result<()> {
+        self.inner.lock().await.ensure_key_packages_at(now_ms).await
+    }
+
+    /// The persisted expiry that drives last-resort rotation.
+    #[cfg(feature = "relay-harness")]
+    pub async fn last_resort_expiry_for_harness(&self) -> Result<Option<i64>> {
         let inner = self.inner.lock().await;
         Ok(inner
             .records()
             .contact_queue()?
-            .map(|queue| (queue.relay_url, queue.contact_addr)))
+            .and_then(|queue| queue.last_resort_expires_at_ms))
+    }
+
+    /// Move the persisted rotation deadline without changing relay state.
+    /// Harness only, so a thirty-day lifecycle is testable without sleeping.
+    #[cfg(feature = "relay-harness")]
+    pub async fn set_last_resort_expiry_for_harness(&self, expiry_ms: i64) -> Result<()> {
+        let inner = self.inner.lock().await;
+        let Some(mut queue) = inner.records().contact_queue()? else {
+            return Err(Error::internal("contact queue not opened"));
+        };
+        queue.last_resort_expires_at_ms = Some(expiry_ms);
+        inner
+            .records()
+            .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    /// Apply the shipping key-package verifier at an explicit time.
+    #[cfg(feature = "relay-harness")]
+    pub async fn verify_key_package_for_harness(
+        &self,
+        wire: &[u8],
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        at_ms: u64,
+    ) -> Result<()> {
+        self.inner
+            .lock()
+            .await
+            .mls_ref("verify_key_package_for_harness")?
+            .verify_key_package(wire, entry, u64::try_from(now_ms()).unwrap_or(0))
+            .and_then(|verified| verified.lifetime_valid_at(at_ms / 1000))
+            .map_err(|error| Error::internal(format!("key-package verification: {error}")))
+    }
+
+    /// Exercise the exact managed endpoint identity check without requiring a
+    /// complete first-contact exchange.
+    #[cfg(feature = "relay-harness")]
+    pub async fn connect_endpoint_for_harness(
+        &self,
+        relay_url: &str,
+        expected_relay_id: RelayId,
+    ) -> Result<()> {
+        self.inner
+            .lock()
+            .await
+            .endpoint_connection(relay_url, expected_relay_id)
+            .await
+            .map(|_| ())
     }
 }
 
@@ -2038,6 +2210,10 @@ impl<B: StorageBackend> Engine<B> {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct QueueAdvert {
     pub relay_url: String,
+    /// Hex relay identity supplied beside the URL and checked during every
+    /// on-demand connection. Subsequent adverts travel in authenticated MLS
+    /// messages; the first travels beside the `Welcome` it is needed to join.
+    pub relay_id: String,
     /// The **send** address of this device's receive queue, hex. Never the
     /// receive address: §7.3's asymmetry is the whole point, and a peer that
     /// held the receive address could read the queue.
@@ -2061,6 +2237,8 @@ struct ContactEnvelope {
     /// The MLS `Welcome`, hex.
     welcome: String,
     advert: QueueAdvert,
+    advert_device_pk: String,
+    advert_signature: String,
 }
 
 /// What the initiator hands the joiner out of band.
@@ -2071,6 +2249,9 @@ pub struct Introduction {
     pub welcome: Vec<u8>,
     /// The initiator's own advert.
     pub advert: QueueAdvert,
+    /// Active DSK and its signature over conversation id + complete advert.
+    pub advert_device_pk: String,
+    pub advert_signature: String,
 }
 
 /// What one pass of the inbound pump produced, so the events are emitted after
@@ -2363,11 +2544,11 @@ impl<B: StorageBackend> Inner<B> {
         let send_key = signing_key(&outbound.send_key_seed)?;
         let send_addr = queue_address(&outbound.send_addr)?;
 
-        if !self.connections.contains_key(&outbound.relay_url) {
+        if let Err(error) = self.ensure_outbound_connection(&outbound).await {
             // §8: keep the message `pending` and retry with backoff. Do not
             // mark anything failed — an unreachable relay is not a delivery
             // failure, it is an absence of evidence either way.
-            return self.mark_delivery(msg_id, "pending", Some(ErrorCode::RelayUnreachable), now);
+            return self.mark_delivery(msg_id, "pending", Some(error.code()), now);
         }
 
         self.ensure_bound(stored).await?;
@@ -2414,6 +2595,7 @@ impl<B: StorageBackend> Inner<B> {
                 "no advertised send address for this conversation",
             ));
         };
+        self.ensure_outbound_connection(&outbound).await?;
         if outbound.bound {
             return Ok(());
         }
@@ -2451,6 +2633,23 @@ impl<B: StorageBackend> Inner<B> {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Ensure a peer-advertised conversation relay has a managed connection.
+    /// New adverts carry the relay identity inside the authenticated MLS
+    /// payload. Old persisted adverts can use an already-configured connection
+    /// but are never allowed to invent the missing identity for a new one.
+    async fn ensure_outbound_connection(&mut self, outbound: &OutboundQueue) -> Result<()> {
+        if self.connections.contains_key(&outbound.relay_url) && outbound.relay_id.is_empty() {
+            return Ok(());
+        }
+        let bytes = hex::decode(&outbound.relay_id)
+            .map_err(|_| Error::internal("an advertised relay identity is not hex"))?;
+        let relay_id = RelayId::from_slice(&bytes)
+            .map_err(|_| Error::internal("an advertised relay identity is the wrong length"))?;
+        self.endpoint_connection(&outbound.relay_url, relay_id)
+            .await
+            .map(|_| ())
     }
 
     fn mark_delivery(
@@ -2725,6 +2924,22 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+fn routing_advert_digest(
+    conversation_id: &str,
+    welcome: &[u8],
+    advert: &QueueAdvert,
+) -> Result<f2z_codec::types::Digest> {
+    let advert = serde_json::to_vec(advert)
+        .map_err(|error| Error::internal(format!("encoding routing advert: {error}")))?;
+    let fields = hash2(LABEL_ROUTING_FIELDS, conversation_id.as_bytes(), &advert);
+    let welcome = hash(LABEL_ROUTING_WELCOME, welcome);
+    Ok(hash2(
+        LABEL_ROUTING_ADVERT,
+        fields.as_bytes(),
+        welcome.as_bytes(),
+    ))
+}
+
 fn decode_key(hex_key: &str) -> Result<[u8; 32]> {
     let bytes = hex::decode(hex_key).map_err(|_| Error::internal("a stored key is not hex"))?;
     bytes
@@ -2817,7 +3032,7 @@ impl<B: StorageBackend> Inner<B> {
         &mut self,
         peer_handle: &str,
         peer_identity_pk: &str,
-        peer_key_package: &[u8],
+        peer_key_package: &VerifiedKeyPackage,
         relay_url: &str,
     ) -> Result<Introduction> {
         let now = now_ms();
@@ -2843,6 +3058,19 @@ impl<B: StorageBackend> Inner<B> {
         let welcome = sealed?;
 
         let (advert, inbound) = self.open_inbound_queue(&conversation_id, relay_url).await?;
+        let digest = routing_advert_digest(&conversation_id, &welcome, &advert)?;
+        let (advert_device_pk, advert_signature) = {
+            let mls = self.mls_ref("sign_routing_advert")?;
+            (
+                hex::encode(mls.credential().credential.device_pk.as_bytes()),
+                hex::encode(
+                    mls.sign_routing_advert(digest.as_bytes())
+                        .map_err(|error| {
+                            Error::internal(format!("signing routing advert: {error}"))
+                        })?,
+                ),
+            )
+        };
         let stored = StoredConversation {
             conversation_id: conversation_id.clone(),
             peer_handle: peer_handle.to_owned(),
@@ -2871,6 +3099,46 @@ impl<B: StorageBackend> Inner<B> {
             conversation_id,
             welcome,
             advert,
+            advert_device_pk,
+            advert_signature,
+        })
+    }
+
+    fn authenticate_introduction(
+        &self,
+        entry: &f2z_kt_core::entry::DirectoryEntryTBS,
+        introduction: &Introduction,
+        now: i64,
+    ) -> Result<()> {
+        let digest = routing_advert_digest(
+            &introduction.conversation_id,
+            &introduction.welcome,
+            &introduction.advert,
+        )?;
+        let device_pk = hex::decode(&introduction.advert_device_pk).map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "routing device key is not hex",
+            )
+        })?;
+        let signature = hex::decode(&introduction.advert_signature).map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "routing signature is not hex",
+            )
+        })?;
+        MlsEngine::<B>::authenticate_routing_advert(
+            entry,
+            &device_pk,
+            digest.as_bytes(),
+            &signature,
+            u64::try_from(now).unwrap_or(0),
+        )
+        .map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the first routing advert is not signed by an active directory device",
+            )
         })
     }
 
@@ -2885,14 +3153,33 @@ impl<B: StorageBackend> Inner<B> {
     ) -> Result<QueueAdvert> {
         let now = now_ms();
         let conversation_id = introduction.conversation_id.clone();
+        let expected_group_id = hex::decode(&conversation_id).map_err(|_| {
+            Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the signed conversation id is not a canonical MLS group id",
+            )
+        })?;
+        if expected_group_id.len() != 32 {
+            return Err(Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the signed conversation id is not a 32-byte MLS group id",
+            ));
+        }
         let sealed: Result<()> = (|| {
             let mls = self.mls_ref("join_conversation")?;
             let group = mls
-                .join_from_welcome(
+                .join_from_welcome_for_group_id(
                     &introduction.welcome,
                     u64::try_from(now).unwrap_or_default(),
+                    &expected_group_id,
                 )
-                .map_err(|error| Error::internal(format!("joining: {error}")))?;
+                .map_err(|error| match error {
+                    f2z_msg_mls::EngineError::GroupIdMismatch => Error::new(
+                        ErrorCode::RelayIdentityMismatch,
+                        "the signed conversation id does not match the Welcome's MLS group id",
+                    ),
+                    other => Error::internal(format!("joining: {other}")),
+                })?;
             self.groups.insert(conversation_id.clone(), group);
             Ok(())
         })();
@@ -2916,6 +3203,7 @@ impl<B: StorageBackend> Inner<B> {
                 inbound: Some(inbound),
                 outbound: Some(OutboundQueue {
                     relay_url: introduction.advert.relay_url.clone(),
+                    relay_id: introduction.advert.relay_id.clone(),
                     send_addr: introduction.advert.send_addr.clone(),
                     send_key_seed,
                     bound: false,
@@ -2942,6 +3230,7 @@ impl<B: StorageBackend> Inner<B> {
         let mut stored = self.conversation(conversation_id)?;
         stored.queues.outbound = Some(OutboundQueue {
             relay_url: advert.relay_url.clone(),
+            relay_id: advert.relay_id.clone(),
             send_addr: advert.send_addr.clone(),
             send_key_seed: hex::encode(self.queue_key(conversation_id, LABEL_QUEUE_SEND)?),
             bound: false,
@@ -2950,14 +3239,93 @@ impl<B: StorageBackend> Inner<B> {
             .commit(|records| records.put_conversation(&stored))
     }
 
+    /// `CLAIM_KEY_PACKAGE` from the peer's relay, then authenticate what came
+    /// back against the entry the directory proved (`WIRE.md` §12.6).
+    ///
+    /// **The two halves are inseparable and are one function for that reason.**
+    /// A claim is bytes from a relay the threat model assumes is hostile; the
+    /// verification is the only thing that makes them safe to encrypt a
+    /// `Welcome` to. Returning the raw bytes from here and verifying at the
+    /// call site would put a `?` between them that somebody could later delete.
+    ///
+    /// # Errors
+    ///
+    /// `relay-unreachable` if the peer's relay is not connected,
+    /// `relay-unavailable` if the pool is exhausted and there is no package of
+    /// last resort — §12.6's exhaustion behaviour, and the same code an address
+    /// that does not exist returns — and `internal` naming the credential
+    /// failure if the package does not belong to the identity the directory
+    /// vouched for.
+    async fn claim_key_package(
+        &mut self,
+        peer: &crate::directory::ResolvedPeer,
+        peer_handle: &str,
+    ) -> Result<VerifiedKeyPackage> {
+        let contact_addr = queue_address(&peer.contact_addr)?;
+        let connection = self
+            .endpoint_connection(&peer.contact_relay_url, peer.contact_relay_id)
+            .await?;
+        let policy = connection.key_package_policy().await?;
+        if policy.enabled == 0 {
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                format!(
+                    "{peer_handle:?} publishes a contact endpoint on a relay that stores no key \
+                     packages (WIRE.md §12.6), so there is nothing to address a Welcome to"
+                ),
+            ));
+        }
+        tracing::info!(peer = %peer_handle, "first contact: claiming a key package");
+        let claimed = connection.claim_key_package(contact_addr).await?;
+        let last_resort = claimed.last_resort != 0;
+
+        let mls = self.mls_ref("start_conversation")?;
+        let verified = mls
+            .verify_key_package(
+                claimed.key_package.as_slice(),
+                &peer.entry,
+                u64::try_from(now_ms()).unwrap_or_default(),
+            )
+            .map_err(|error| {
+                // Not a network error and never retried. A package that does not
+                // authenticate against the entry the log proved is either a
+                // broken relay or an attempted MITM, and the two are
+                // indistinguishable from here — §9 rule 5 forbids proceeding
+                // either way.
+                tracing::warn!(
+                    peer = %peer_handle,
+                    "a claimed key package does not belong to the identity the directory \
+                     vouched for; refusing to start a conversation (WIRE.md §12.6)"
+                );
+                Error::internal(format!(
+                    "the key package served for {peer_handle:?} does not match the directory \
+                     entry the log proved: {error}"
+                ))
+            })?;
+        if verified.last_resort() || last_resort {
+            // §12.6, and `THREAT-MODEL.md` §4.12: the peer's pool was empty, so
+            // this `Welcome` goes to a key that may be reused. Reported, not
+            // refused — refusing would convert a documented trade into a
+            // failure to reach somebody.
+            tracing::info!(
+                peer = %peer_handle,
+                "first contact is using the peer's package of last resort: their pool is \
+                 exhausted, and this Welcome's init key may be reused"
+            );
+        }
+        Ok(verified)
+    }
+
     /// `CONTACT_APPEND` the introduction to the peer's published contact queue
     /// (§12.2).
     ///
     /// Unsigned at the relay and gated by a proof-of-work stamp: that is the
     /// whole design — a stranger can reach you exactly once, expensively — and
     /// §12.4 is honest that the cost lands far harder on a phone than on rented
-    /// hardware. The solve runs on a blocking task so a slow one does not stall
-    /// the runtime; §3.3 tells the UI to show it as work, not as a network wait.
+    /// hardware. The search runs on a blocking thread — see
+    /// `RelayConnection::stamp_for`, which is where that is arranged and where
+    /// the residual it does *not* close is written down — and §3.3 tells the UI
+    /// to show it as work, not as a network wait.
     async fn contact_append(
         &mut self,
         peer: &crate::directory::ResolvedPeer,
@@ -2974,14 +3342,15 @@ impl<B: StorageBackend> Inner<B> {
             conversation_id: introduction.conversation_id.clone(),
             welcome: hex::encode(&introduction.welcome),
             advert: introduction.advert.clone(),
+            advert_device_pk: introduction.advert_device_pk.clone(),
+            advert_signature: introduction.advert_signature.clone(),
         };
         let body = serde_json::to_vec(&envelope)
             .map_err(|error| Error::internal(format!("framing first contact: {error}")))?;
         let contact_addr = queue_address(&peer.contact_addr)?;
         let connection = self
-            .connections
-            .get_mut(&peer.contact_relay_url)
-            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+            .endpoint_connection(&peer.contact_relay_url, peer.contact_relay_id)
+            .await?;
         let pow = Some(
             connection
                 .capabilities()
@@ -3029,9 +3398,205 @@ impl<B: StorageBackend> Inner<B> {
             recv_key_seed: hex::encode(recv_seed),
             next_index: 0,
             acked_through: None,
+            key_package_pool: 0,
+            has_last_resort: false,
+            last_resort_expires_at_ms: None,
         };
         self.records()
             .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    /// Return a managed connection to a directory-published endpoint, opening
+    /// it on demand when the peer federates through a relay this device did not
+    /// preconfigure. The signed `relay_id` is checked both for a new session and
+    /// for a connection already present under the same URL.
+    async fn endpoint_connection(
+        &mut self,
+        relay_url: &str,
+        expected_relay_id: RelayId,
+    ) -> Result<&mut RelayConnection> {
+        if !self.connections.contains_key(relay_url) {
+            let mut policy = self.directory_connection_policy.clone();
+            if let Some(configured) = self
+                .records()
+                .relays()?
+                .into_iter()
+                .find(|relay| relay.relay_url == relay_url)
+            {
+                policy.policy.allow_insecure_transport = configured.allow_insecure_transport;
+                policy.policy.require_channel_binding = !configured.allow_no_channel_binding;
+            }
+            policy.expected_relay_id = Some(expected_relay_id);
+            let connection = RelayConnection::connect(relay_url, &policy).await?;
+            self.connections.insert(relay_url.to_owned(), connection);
+        }
+
+        let connection = self
+            .connections
+            .get_mut(relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        if connection.relay_id() != expected_relay_id {
+            return Err(Error::new(
+                ErrorCode::RelayIdentityMismatch,
+                "the relay at the directory-published URL does not have the signed relay_id",
+            ));
+        }
+        Ok(connection)
+    }
+
+    /// Publish or top up this device's key-package pool (`WIRE.md` §12.6).
+    ///
+    /// Called from `start_engine`, and again whenever something arrives on the
+    /// contact queue — a `Welcome` is proof that a package was claimed, and it
+    /// is the only proof this device gets without asking.
+    ///
+    /// # What it does when the relay does not offer §12.6
+    ///
+    /// Nothing, loudly. A relay whose key-package policy has `enabled = 0` is a
+    /// relay first contact cannot complete against, and the honest report is a
+    /// log line plus `last_error` — not a silent success, and not a refusal to
+    /// start: everything else about the relay still works, and an established
+    /// conversation is unaffected.
+    ///
+    /// # Errors
+    ///
+    /// `relay-unreachable` if the relay is not connected, `internal` if MLS
+    /// could not generate the packages or the store could not record the count.
+    async fn ensure_key_packages(&mut self) -> Result<()> {
+        self.ensure_key_packages_at(now_ms()).await
+    }
+
+    async fn ensure_key_packages_at(&mut self, now: i64) -> Result<()> {
+        let Some(mut queue) = self.records().contact_queue()? else {
+            return Ok(());
+        };
+        let connection = self
+            .connections
+            .get_mut(&queue.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let policy = connection.key_package_policy().await?;
+        if policy.enabled == 0 {
+            tracing::warn!(
+                url = %queue.relay_url,
+                "this relay stores no MLS key packages (WIRE.md §12.6), so nobody can start a \
+                 conversation with this device through it"
+            );
+            return Err(Error::new(
+                ErrorCode::RelayCapabilityMismatch,
+                "the relay's key-package policy is disabled, so first contact cannot complete",
+            ));
+        }
+
+        let target = KEY_PACKAGE_POOL_TARGET.min(policy.max_pool_size);
+        let low_water = KEY_PACKAGE_LOW_WATER.min(target);
+
+        // **Ask the relay how many are left; never trust the stored count.**
+        //
+        // A publish with an empty batch changes nothing and returns the truth,
+        // and it is the only way to learn it: claims are invisible to this
+        // device — most never produce a `Welcome` — so a device that decided
+        // from its own last-recorded number would drain to zero, fall back to
+        // its reusable package of last resort (`THREAT-MODEL.md` §4.12) and
+        // never notice. The stored fields below are a *report*, not an input.
+        //
+        // The probe is owner-authenticated, so it is no oracle: §6.3's rule
+        // about responses carrying queue state is about a *sender* escalating
+        // into a reader, and this is the queue's owner asking about its own
+        // pool (§12.6.3).
+        let recv_key = signing_key(&queue.recv_key_seed)?;
+        let recv_addr = queue_address(&queue.recv_addr)?;
+        let held = connection
+            .publish_key_packages(&recv_key, recv_addr, &[], None)
+            .await?;
+        queue.key_package_pool = held.pool_size;
+        queue.has_last_resort = held.has_last_resort != 0;
+        if !queue.has_last_resort {
+            queue.last_resort_expires_at_ms = None;
+        }
+
+        // Replace only when missing or nearing expiry. Replacing on every
+        // top-up would retire a package a `Welcome` may already be in flight
+        // against; never replacing would make strict lifetime verification
+        // permanently reject fallback after thirty days.
+        let needs_last_resort = Self::last_resort_rotation_due_for(&queue, now);
+        if held.pool_size > low_water && !needs_last_resort {
+            // Record what the relay reported even when nothing is added, so the
+            // stored number is never staler than the last time anything looked.
+            let snapshot = queue.clone();
+            return self
+                .records()
+                .commit(|records| records.put_contact_queue(&snapshot));
+        }
+
+        let wanted = usize::try_from(target.saturating_sub(held.pool_size)).unwrap_or(0);
+        let (packages, last_resort, next_last_resort_expiry) = {
+            let mls = self.mls_ref("ensure_key_packages")?;
+            let packages = mls
+                .generate_key_packages(wanted, None)
+                .map_err(|error| Error::internal(format!("key packages: {error}")))?;
+            let last_resort = if needs_last_resort {
+                let not_before = u64::try_from(now.max(0)).unwrap_or(0) / 1000;
+                let not_after = not_before.saturating_add(LAST_RESORT_LIFETIME_SECONDS);
+                Some(
+                    mls.generate_last_resort_key_package_for_window(not_before, not_after)
+                        .map_err(|error| {
+                            Error::internal(format!("last-resort key package: {error}"))
+                        })?,
+                )
+            } else {
+                None
+            };
+            let expiry = needs_last_resort.then(|| {
+                now.saturating_add(
+                    i64::try_from(LAST_RESORT_LIFETIME_SECONDS)
+                        .unwrap_or(i64::MAX)
+                        .saturating_mul(1000),
+                )
+            });
+            (packages, last_resort, expiry)
+        };
+
+        let connection = self
+            .connections
+            .get_mut(&queue.relay_url)
+            .ok_or_else(|| Error::new(ErrorCode::RelayUnreachable, "relay not connected"))?;
+        let published = connection
+            .publish_key_packages(&recv_key, recv_addr, &packages, last_resort.as_deref())
+            .await?;
+
+        tracing::info!(
+            pool = published.pool_size,
+            max = published.max_pool_size,
+            "published MLS key packages (WIRE.md §12.6)"
+        );
+        // The relay's count, never this device's arithmetic: the relay clamps,
+        // skips duplicates, and has been serving claims since the last publish.
+        queue.key_package_pool = published.pool_size;
+        queue.has_last_resort = published.has_last_resort != 0;
+        if last_resort.is_some() && queue.has_last_resort {
+            // Advance this only after the relay confirms publication. On a
+            // transport/refusal failure, the prior persisted expiry survives
+            // and the online pump retries without losing the existing fallback.
+            queue.last_resort_expires_at_ms = next_last_resort_expiry;
+        } else if !queue.has_last_resort {
+            queue.last_resort_expires_at_ms = None;
+        }
+        self.records()
+            .commit(|records| records.put_contact_queue(&queue))
+    }
+
+    fn last_resort_rotation_due(&self, now: i64) -> Result<bool> {
+        Ok(self
+            .records()
+            .contact_queue()?
+            .is_some_and(|queue| Self::last_resort_rotation_due_for(&queue, now)))
+    }
+
+    fn last_resort_rotation_due_for(queue: &crate::store::ContactQueue, now: i64) -> bool {
+        !queue.has_last_resort
+            || queue
+                .last_resort_expires_at_ms
+                .is_none_or(|expiry| now >= expiry.saturating_sub(LAST_RESORT_ROTATE_BEFORE_MS))
     }
 
     /// Read this device's contact queue and turn each arrival into a pending
@@ -3114,6 +3679,9 @@ impl<B: StorageBackend> Inner<B> {
                 welcome: contact.welcome.clone(),
                 peer_send_addr: contact.advert.send_addr.clone(),
                 peer_relay_url: contact.advert.relay_url.clone(),
+                peer_relay_id: contact.advert.relay_id.clone(),
+                advert_device_pk: contact.advert_device_pk.clone(),
+                advert_signature: contact.advert_signature.clone(),
             };
             requests.push(request.clone());
             events.push(Inbound::ContactRequest(ContactRequest {
@@ -3141,6 +3709,17 @@ impl<B: StorageBackend> Inner<B> {
             && let Err(error) = connection.ack(&recv_key, recv_addr, highest).await
         {
             tracing::info!(code = %error.code(), "contact-queue ACK not delivered");
+        }
+
+        // §12.6's refill. An arrival on the contact queue is the only evidence
+        // this device gets, without asking, that somebody claimed a package —
+        // so it is the moment to check the pool. A claim that never produced a
+        // `Welcome` is invisible here and is caught by the next `start_engine`,
+        // which is the honest bound on how stale the count can be.
+        if highest.is_some()
+            && let Err(error) = self.ensure_key_packages().await
+        {
+            tracing::info!(code = %error.code(), "key packages not topped up");
         }
         Ok(events)
     }
@@ -3196,6 +3775,7 @@ impl<B: StorageBackend> Inner<B> {
         Ok((
             QueueAdvert {
                 relay_url: relay_url.to_owned(),
+                relay_id: hex::encode(connection.relay_id().as_bytes()),
                 send_addr: queue.send_addr.clone(),
             },
             queue,
@@ -3896,7 +4476,401 @@ fn capabilities_view(capabilities: &f2z_codec::commands::Capabilities) -> RelayC
 
 #[cfg(test)]
 mod tests {
-    use super::acknowledgeable;
+    use std::sync::Arc;
+
+    use f2z_codec::types::{Digest, PublicKey, RelayId, ShortBytes};
+    use f2z_kt_core::entry::{DeviceCredential, DirectoryEntryTBS, EntryKind};
+    use f2z_kt_core::types::{Handle, KemPublicKey, LogId};
+    use f2z_msg_identity::{AccountKeys, DeviceCredentialRequest};
+    use f2z_msg_mls::{DeviceSigner, MlsEngine};
+    use f2z_msg_store::MemoryBackend;
+    use openmls::prelude::{GroupId, MlsGroup};
+    use openmls_traits::OpenMlsProvider as _;
+
+    use super::{Engine, Introduction, QueueAdvert, acknowledgeable, routing_advert_digest};
+    use crate::directory::{Directory, ResolvedIdentity, ResolvedPeer};
+    use crate::error::{Error, Result};
+    use crate::events::{EventSink, NullSink};
+    use crate::models::{DirectoryResolution, EngineState, ErrorCode, Platform, RelayOperator};
+    use crate::store::{StoredContactRequest, StoredRelay};
+
+    struct AcceptDirectory(ResolvedIdentity);
+
+    impl Directory for AcceptDirectory {
+        fn resolve(&self, _handle: &str) -> Result<DirectoryResolution> {
+            Ok(self.0.resolution.clone())
+        }
+
+        fn resolve_identity(&self, _handle: &str) -> Result<ResolvedIdentity> {
+            Ok(self.0.clone())
+        }
+
+        fn resolve_peer(&self, _handle: &str) -> Result<ResolvedPeer> {
+            Err(Error::internal("acceptance must not resolve a key package"))
+        }
+
+        fn independent_witnesses(&self) -> u32 {
+            1
+        }
+
+        fn threshold_met(&self) -> bool {
+            true
+        }
+    }
+
+    fn issued_device(
+        handle: &str,
+        account_seed: u8,
+        device_seed: u8,
+    ) -> (DeviceSigner, DeviceCredential, DirectoryEntryTBS) {
+        let account = AccountKeys::from_seed(&[account_seed; 64], 0).unwrap();
+        let signer = DeviceSigner::from_private_key([device_seed; 32]);
+        let credential = account
+            .identity
+            .issue_device_credential(&DeviceCredentialRequest {
+                handle: Handle::new(handle.as_bytes().to_vec()).unwrap(),
+                device_pk: PublicKey::new(*signer.public_key()),
+                device_kem_pk: KemPublicKey::new(vec![device_seed; 1216]).unwrap(),
+                not_before_ms: 0,
+                not_after_ms: u64::MAX / 2,
+            })
+            .unwrap();
+        let entry = DirectoryEntryTBS {
+            label: ShortBytes::new(f2z_kt_core::labels::LABEL_ENTRY.to_vec()).unwrap(),
+            kt_version: 1,
+            log_id: LogId::new([account_seed; 32]),
+            handle: credential.credential.handle.clone(),
+            entry_version: 1,
+            kind: EntryKind::SameKey,
+            identity_pk: credential.credential.identity_pk,
+            directory_auth_pk: PublicKey::new([0x22; 32]),
+            devices: vec![credential.clone()].into(),
+            revocations: Vec::new().into(),
+            contact_endpoints: Vec::new().into(),
+            prev_entry_hash: Digest::new([0; 32]),
+            no_reset: 0,
+            created_at_ms: 0,
+        };
+        (signer, credential, entry)
+    }
+
+    fn authenticated_request(
+        recipient_package: &[u8],
+        recipient_entry: &DirectoryEntryTBS,
+    ) -> (ResolvedIdentity, StoredContactRequest, Vec<u8>) {
+        let (signer, credential, entry) = issued_device("alice", 7, 9);
+        let signer_pk = credential.credential.device_pk;
+        let mls = MlsEngine::new(MemoryBackend::new(), signer, credential, 0).unwrap();
+        let verified = mls
+            .verify_key_package(recipient_package, recipient_entry, 0)
+            .expect("recipient package is directory-bound");
+        let group_id = [0x31; 32];
+        let mut group = mls.create_group(&group_id).expect("sender group");
+        let (_commit, welcome) = mls
+            .add_member(&mut group, &verified, 0)
+            .expect("authentic Welcome");
+        let (attacker_signer, attacker_credential, _attacker_entry) =
+            issued_device("mallory", 8, 10);
+        let attacker = MlsEngine::new(
+            MemoryBackend::new(),
+            attacker_signer,
+            attacker_credential,
+            0,
+        )
+        .expect("attacker MLS engine");
+        let attacker_verified = attacker
+            .verify_key_package(recipient_package, recipient_entry, 0)
+            .expect("the same recipient package is usable by the attacker");
+        let mut attacker_group = attacker
+            .create_group(&group_id)
+            .expect("attacker group with the same outer id");
+        let (_attacker_commit, hostile_welcome) = attacker
+            .add_member(&mut attacker_group, &attacker_verified, 0)
+            .expect("valid hostile Welcome");
+        assert_ne!(
+            welcome, hostile_welcome,
+            "the hostile group must produce a distinct valid Welcome"
+        );
+        let conversation_id = hex::encode(group_id);
+        let advert = QueueAdvert {
+            relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        let digest = routing_advert_digest(&conversation_id, &welcome, &advert).unwrap();
+        let signature = mls.sign_routing_advert(digest.as_bytes()).unwrap();
+        let identity_pk = hex::encode(entry.identity_pk.as_bytes());
+        let resolution = DirectoryResolution {
+            handle: "alice".to_owned(),
+            found: true,
+            identity_fingerprint: Some(identity_pk.clone()),
+            device_count: 1,
+            entry_version: Some(1),
+            epoch: 1,
+            witness_cosignatures: 1,
+            independent_witnesses: 1,
+            threshold_met: true,
+        };
+        let identity = ResolvedIdentity {
+            resolution,
+            identity_pk: identity_pk.clone(),
+            entry,
+            contact_relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
+            contact_relay_id: RelayId::new([0x11; 32]),
+            contact_addr: "44".repeat(32),
+        };
+        let request = StoredContactRequest {
+            request_id: "req-conversation".to_owned(),
+            peer_handle: "alice".to_owned(),
+            peer_identity_fingerprint: identity_pk,
+            conversation_id,
+            received_at: 0,
+            body_preview: None,
+            welcome: hex::encode(welcome),
+            peer_send_addr: advert.send_addr,
+            peer_relay_url: advert.relay_url,
+            peer_relay_id: advert.relay_id,
+            advert_device_pk: hex::encode(signer_pk.as_bytes()),
+            advert_signature: hex::encode(signature),
+        };
+        (identity, request, hostile_welcome)
+    }
+
+    async fn assert_acceptance_refuses(mut mutate: impl FnMut(&mut StoredContactRequest, &[u8])) {
+        let engine = Engine::new(
+            MemoryBackend::new(),
+            Arc::new(NullSink) as Arc<dyn EventSink>,
+            Platform::ZuuliDesktop,
+        )
+        .unwrap();
+        let (bob_signer, bob_credential, bob_entry) = issued_device("bob", 0x22, 0xb2);
+        let bob_package = {
+            let mut inner = engine.inner.lock().await;
+            let backend = inner.backend.clone();
+            inner.mls = Some(
+                MlsEngine::new(backend, bob_signer, bob_credential, 0).expect("bob MLS engine"),
+            );
+            inner
+                .mls_ref("test")
+                .unwrap()
+                .generate_key_package()
+                .expect("bob package")
+        };
+        let (identity, mut request, hostile_welcome) =
+            authenticated_request(&bob_package, &bob_entry);
+        mutate(&mut request, &hostile_welcome);
+        let conversation_id = request.conversation_id.clone();
+        let group_id = hex::decode(&conversation_id).expect("canonical conversation id");
+        assert_eq!(
+            group_id.len(),
+            32,
+            "the fixture must reach MLS join if authentication is bypassed"
+        );
+        let engine = engine.with_directory(Arc::new(AcceptDirectory(identity)));
+        {
+            let mut inner = engine.inner.lock().await;
+            inner.state = EngineState::Running;
+            inner
+                .records()
+                .commit(|records| {
+                    records.put_relays(&[StoredRelay {
+                        relay_id: "55".repeat(32),
+                        relay_url: "wss://bob-relay.example/relay/v1".to_owned(),
+                        allow_insecure_transport: false,
+                        allow_no_channel_binding: false,
+                        warnings: Vec::new(),
+                        operator: RelayOperator {
+                            name: String::new(),
+                            contact: String::new(),
+                            abuse_contact: String::new(),
+                            jurisdiction: String::new(),
+                            policy_url: String::new(),
+                            source_repo_url: String::new(),
+                            source_commit: String::new(),
+                            build_digest: String::new(),
+                        },
+                        capabilities_digest: String::new(),
+                    }])?;
+                    records.put_contact_requests(&[request])
+                })
+                .unwrap();
+        }
+
+        let error = engine
+            .accept_contact_request("req-conversation")
+            .await
+            .expect_err("the mutated first-contact transcript must be refused");
+        let inner = engine.inner.lock().await;
+        assert!(
+            inner.groups.is_empty(),
+            "authentication refusal must precede the in-memory MLS join"
+        );
+        assert!(
+            MlsGroup::load(
+                inner.mls_ref("test").unwrap().provider().storage(),
+                &GroupId::from_slice(&group_id),
+            )
+            .expect("load after authentication refusal")
+            .is_none(),
+            "authentication refusal must precede the persisted MLS join"
+        );
+        assert!(
+            inner
+                .records()
+                .conversation(&conversation_id)
+                .unwrap()
+                .is_none(),
+            "authentication refusal must not persist a conversation"
+        );
+        let requests = inner.records().contact_requests().unwrap();
+        assert_eq!(requests.len(), 1, "the refused request must remain pending");
+        assert_eq!(requests[0].request_id, "req-conversation");
+        assert!(
+            inner.connections.is_empty(),
+            "authentication refusal must precede every relay connection or request"
+        );
+        assert_eq!(
+            error.code(),
+            ErrorCode::RelayIdentityMismatch,
+            "this must fail in the shipping authentication call, before MLS join or relay I/O"
+        );
+    }
+
+    #[test]
+    fn relay_identity_is_inside_the_device_authenticated_routing_digest() {
+        let first = QueueAdvert {
+            relay_url: "wss://relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        let mut substituted = first.clone();
+        substituted.relay_id = "33".repeat(32);
+        assert_ne!(
+            routing_advert_digest("conversation", b"welcome", &first).unwrap(),
+            routing_advert_digest("conversation", b"welcome", &substituted).unwrap(),
+            "deleting relay-id coverage makes the substitution mutation survive"
+        );
+    }
+
+    #[test]
+    fn welcome_is_inside_the_device_authenticated_routing_digest() {
+        let advert = QueueAdvert {
+            relay_url: "wss://relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        assert_ne!(
+            routing_advert_digest("conversation", b"alice welcome", &advert).unwrap(),
+            routing_advert_digest("conversation", b"attacker welcome", &advert).unwrap(),
+            "deleting Welcome coverage makes the substitution mutation survive"
+        );
+    }
+
+    #[tokio::test]
+    async fn accept_contact_request_refuses_a_swapped_welcome() {
+        assert_acceptance_refuses(|request, hostile_welcome| {
+            request.welcome = hex::encode(hostile_welcome);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn accept_contact_request_refuses_a_substituted_route() {
+        assert_acceptance_refuses(|request, _hostile_welcome| {
+            request.peer_relay_id = "33".repeat(32);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn accept_contact_request_refuses_a_substituted_signature() {
+        assert_acceptance_refuses(|request, _hostile_welcome| {
+            let mut signature = hex::decode(&request.advert_signature).unwrap();
+            signature[0] ^= 1;
+            request.advert_signature = hex::encode(signature);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_signed_group_id_mismatch_fails_before_conversation_or_group_persistence() {
+        let engine = Engine::new(
+            MemoryBackend::new(),
+            Arc::new(NullSink) as Arc<dyn EventSink>,
+            Platform::ZuuliDesktop,
+        )
+        .unwrap();
+        let (bob_signer, bob_credential, bob_entry) = issued_device("bob", 0x22, 0xb2);
+        {
+            let mut inner = engine.inner.lock().await;
+            let backend = inner.backend.clone();
+            inner.mls = Some(
+                MlsEngine::new(backend, bob_signer, bob_credential, 0).expect("bob MLS engine"),
+            );
+        }
+        let bob_package = {
+            let inner = engine.inner.lock().await;
+            inner
+                .mls_ref("test")
+                .unwrap()
+                .generate_key_package()
+                .expect("bob package")
+        };
+
+        let (alice_signer, alice_credential, alice_entry) = issued_device("alice", 0x11, 0xa1);
+        let alice = MlsEngine::new(MemoryBackend::new(), alice_signer, alice_credential, 0)
+            .expect("alice MLS engine");
+        let verified = alice
+            .verify_key_package(&bob_package, &bob_entry, 0)
+            .expect("directory-bound package");
+        let actual_group_id = [0x31; 32];
+        let outer_group_id = [0x32; 32];
+        let mut alice_group = alice.create_group(&actual_group_id).expect("group");
+        let (_commit, welcome) = alice
+            .add_member(&mut alice_group, &verified, 0)
+            .expect("Welcome");
+        let advert = QueueAdvert {
+            relay_url: "wss://alice-relay.example/relay/v1".to_owned(),
+            relay_id: "11".repeat(32),
+            send_addr: "22".repeat(32),
+        };
+        let outer = hex::encode(outer_group_id);
+        let digest = routing_advert_digest(&outer, &welcome, &advert).unwrap();
+        let introduction = Introduction {
+            conversation_id: outer.clone(),
+            welcome,
+            advert,
+            advert_device_pk: hex::encode(alice.credential().credential.device_pk.as_bytes()),
+            advert_signature: hex::encode(alice.sign_routing_advert(digest.as_bytes()).unwrap()),
+        };
+
+        let mut inner = engine.inner.lock().await;
+        inner
+            .authenticate_introduction(&alice_entry, &introduction, 0)
+            .expect("the peer really signed the contradictory envelope");
+        let error = inner
+            .join_conversation(
+                "alice",
+                &hex::encode(alice_entry.identity_pk.as_bytes()),
+                &introduction,
+                "wss://unused.example/relay/v1",
+            )
+            .await
+            .expect_err("the envelope and Welcome must name the same group");
+        assert_eq!(error.code(), ErrorCode::RelayIdentityMismatch);
+        assert!(!inner.groups.contains_key(&outer));
+        assert!(inner.records().conversation(&outer).unwrap().is_none());
+        let mls = inner.mls_ref("test").unwrap();
+        assert!(
+            MlsGroup::load(
+                mls.provider().storage(),
+                &GroupId::from_slice(&actual_group_id)
+            )
+            .expect("load after refused join")
+            .is_none(),
+            "the checked join must roll the OpenMLS transaction back"
+        );
+    }
 
     #[test]
     fn a_clean_batch_is_acknowledged_to_its_end() {
