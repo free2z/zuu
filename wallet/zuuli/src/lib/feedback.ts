@@ -300,12 +300,18 @@ function hasNumericEntityPrivateEntropy(value: string): boolean {
     if (next === canonical) break;
     canonical = next;
   }
-  if (!/^(?:&#(?:x[0-9a-f]{1,2}|\d{1,3});)+$/iu.test(canonical)) {
+  if (!/^(?:&#(?:x[0-9a-f]+|\d+);)+$/iu.test(canonical)) {
     return false;
   }
   const byteValues = [
-    ...canonical.matchAll(/&#(?:x([0-9a-f]{1,2})|(\d{1,3}));/giu),
-  ].map((match) => Number.parseInt(match[1] ?? match[2], match[1] ? 16 : 10));
+    ...canonical.matchAll(/&#(?:x([0-9a-f]+)|(\d+));/giu),
+  ].map((match) => {
+    const hexadecimal = match[1] !== undefined;
+    const digits = match[1] ?? match[2];
+    const significant = digits.replace(/^0+/u, "") || "0";
+    if (significant.length > (hexadecimal ? 2 : 3)) return Number.NaN;
+    return Number.parseInt(significant, hexadecimal ? 16 : 10);
+  });
   return (
     byteValues.every((byte) => byte >= 0 && byte <= 0xff) &&
     isPrivateEntropyByteLength(byteValues.length)
@@ -446,7 +452,7 @@ function scrubEncodedTokens(
     },
   );
   next = next.replace(
-    /(?:(?:&(?:amp;)*#(?:x[0-9a-f]{1,2}|\d{1,3});)[ \t\r\n]+){1,}(?:&(?:amp;)*#(?:x[0-9a-f]{1,2}|\d{1,3});)/giu,
+    /(?:(?:&(?:amp;)*#(?:x[0-9a-f]+|\d+);)[ \t\r\n]+){1,}(?:&(?:amp;)*#(?:x[0-9a-f]+|\d+);)/giu,
     (candidate) => {
       const compact = candidate.replace(/\s+/gu, "");
       if (!decodedValueContainsSensitiveContent(compact)) return candidate;
