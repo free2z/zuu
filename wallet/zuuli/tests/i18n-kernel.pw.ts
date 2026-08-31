@@ -59,7 +59,7 @@ test("browser locale loads only the normalized Spanish shell catalog", async ({
   await expect(navigation).toBeVisible();
   await navigation.getByRole("button", { name: "Más navegación" }).click();
   await expect(page.getByRole("dialog")).toContainText("Más");
-  await expect(page.getByText("2 destinos adicionales")).toBeAttached();
+  await expect(page.getByText("3 destinos adicionales")).toBeAttached();
   expect(catalogRequests).toEqual(["es"]);
   await context.close();
 });

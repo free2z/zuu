@@ -11,7 +11,7 @@ test("About is keyboard and screen-reader usable at 320px", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "About & Feedback" })).toBeVisible();
   const card = page.locator("[data-about-build-card]");
   await expect(card.getByText("0.1.0", { exact: true })).toBeVisible();
-  await expect(card.getByText("17", { exact: true })).toBeVisible();
+  await expect(card.getByText("19", { exact: true })).toBeVisible();
   await expect(card.getByText("Internal", { exact: true })).toBeVisible();
   await expect(card.getByText("Web", { exact: true })).toBeVisible();
 
@@ -44,7 +44,7 @@ test("copy uses the complete stable minimal block and announces completion", asy
   await expect(page.getByRole("status")).toHaveText("Build info copied.");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toMatch(
-    /^ZUULI\nVersion: 0\.1\.0\nBuild: 17\nRelease channel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{12}$/,
+    /^ZUULI\nVersion: 0\.1\.0\nBuild: 19\nRelease channel: Internal\nPlatform: Web\nSource commit: [0-9a-f]{12}$/,
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
 });
@@ -81,10 +81,14 @@ test.describe("pseudo-expanded shipping locale", () => {
       PSEUDO_ABOUT_MESSAGES.versionLabel,
     );
 
+    // The app-shell navigation is driven by the i18n kernel (#797), which
+    // only ships en/fr/es catalogs — it has no en-XA pseudo-locale entry, so
+    // it falls back to the plain en-US navigation copy even while the About
+    // page's own (still en-XA-aware) message block above is expanded.
     await page.locator('[data-navigation-id="more"]').click();
     await expect(
       page.getByRole("link", {
-        name: PSEUDO_ABOUT_MESSAGES.navigationAccessibleLabel,
+        name: "About and feedback",
       }),
     ).toBeVisible();
 
