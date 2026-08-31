@@ -129,6 +129,23 @@ describe("feedback privacy boundary", () => {
     "Saved in /opt/zuuli/wallet.dat",
     "Read \\\\server\\share\\wallet.bin",
     "TauriInvokeError { code: 7, rust_backtrace: src/main.rs:42 }",
+    "раѕѕԝогԁ: hunter2",
+    "p\\x61ssword: hunter2",
+    "C:/Users/Alice/Wallet/config",
+    "~/Library/Application Support/Wallet",
+    "../wallet/config",
+    ".env",
+    "Crash on Alice iPhone 15 Pro",
+    "01941f2e-7cc4-7a1d-9c88-0123456789ab",
+    "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+    "glpat-abcdefghijklmnopqrstuvwxyz1234567890",
+    "github_pat_abcdefghijklmnopqrstuvwxyz1234567890",
+    "U1L8XUNEZSVPNTQ2SNZ67H6MD2EQ09U09VV3XH6Z8KQVXG7PDVZ4QC9X2U84KQMPC0MZ0KMVEXZ",
+    `0x${"a".repeat(64)}`,
+    "Payment for Alice birthday gift",
+    "Copied text was hunter2",
+    "I have ZEC 42 available",
+    "Connected to localhost",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -318,6 +335,8 @@ describe("feedback privacy boundary", () => {
   it.each([
     "the app crashed when i opened settings and tried to go back",
     "THISISANERRORMESSAGE",
+    "ABCDEFGHIJKLMNOP",
+    "please open account page again click transfer close screen help error report",
   ])("preserves ordinary user prose: %s", (description) => {
     const result = createFeedbackDraft(
       description,

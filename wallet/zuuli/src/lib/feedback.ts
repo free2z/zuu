@@ -59,20 +59,26 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:seed|mnemonic|recovery\s+phrase|spending\s+key|viewing\s+key|password|passphrase|secret|private\s+key|auth(?:entication|orization)?(?:\s+token)?|access[\s_-]*token|session(?:\s+(?:id|token))?|oauth(?:\s+token)?|bearer|jwt|cookie|totp|otp|memo|balance|device(?:\s+(?:id|identifier|name))?|clipboard)\b\s*(?:(?:=|:|is)\s*)?[^\n]+/giu,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/giu,
   /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|ya29\.[A-Za-z0-9._-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[A-Z0-9]{16}|sk_(?:live|test)_[A-Za-z0-9]{16,})\b/gu,
+  /\b(?:sk-proj-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/gu,
   /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?:\.[A-Za-z0-9_-]{6,})?\b/gu,
   /\botpauth:\/\/\S+/giu,
   /\b(?:secret-extended-key-(?:main|test)|zxviews|zxviewtestsapling|uview|usk|uvk|spendingkey|viewingkey)1[0-9a-z]{20,}\b/giu,
-  /\b(?:u1[0-9a-z]{40,}|zs1[0-9a-z]{40,}|ztestsapling1[0-9a-z]{40,}|t[13][1-9A-HJ-NP-Za-km-z]{25,34})\b/gu,
+  /\b(?:u1[0-9a-z]{40,}|zs1[0-9a-z]{40,}|ztestsapling1[0-9a-z]{40,}|t[13][1-9A-HJ-NP-Za-km-z]{25,34})\b/giu,
   /\b[a-f0-9]{32,64}\b/giu,
-  /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/giu,
+  /\b0x[a-f0-9]{64}\b/giu,
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu,
   /\b(?:sent\s+from|device\s+name)\s+[^\n]+/giu,
+  /\b(?:iPhone|iPad|iPod|MacBook|Pixel|Galaxy)\b[^\n]*/giu,
   /\b\d[\d,.]*\s*(?:ZEC|zatoshi(?:s)?|2Zs?)\b/giu,
+  /\b(?:ZEC|zatoshi(?:s)?|2Zs?)\s*\d[\d,.]*\b/giu,
+  /\b(?:payment\s+for|copied\s+text|pasted\s+text)\b[^\n]*/giu,
 ];
 
 const NETWORK_PATTERNS: readonly RegExp[] = [
   /\b(?:\d{1,3}\.){3}\d{1,3}\b/gu,
   /\b(?:[a-f0-9]{0,4}:){2,}[a-f0-9]{0,4}\b/giu,
   /\b(?:https?|wss?):\/\/[^\s]+/giu,
+  /\blocalhost(?::\d+)?\b/giu,
   /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:[/?#][^\s]*)?/giu,
   /\b(?:host(?:name)?|ip(?:\s+address)?|ssid|network)\s*(?:=|:|is\b)\s*[^\n]+/giu,
 ];
@@ -80,15 +86,22 @@ const NETWORK_PATTERNS: readonly RegExp[] = [
 const PATH_PATTERNS: readonly RegExp[] = [
   /(?:^|[\s('"`])\/(?:[^\s/]+\/)*[^\s]+/gmu,
   /(?:^|\s)(?:\.{0,2}\/)?(?:src|lib|app|etc|opt|Users|home|private|var|tmp|data|storage|sdcard)\/[^\s]+/gimu,
-  /(?:^|\s)(?:[A-Za-z]:\\|\\\\)[^\n]+/gmu,
+  /(?:^|\s)(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\.{1,2}[\\/])[^\n]+/gmu,
   /\b(?:file|filename|path)\s*(?:=|:|is\b)\s*[^\n]+/giu,
   /\b(?:rust_backtrace|backtrace|traceback|stack\s+trace|TauriInvokeError|JavaScriptError)\b[^\n]*/giu,
   /\b[^\s/\\]+\.[A-Za-z][A-Za-z0-9]{0,11}(?::\d+(?::\d+)?)?\b/gu,
+  /(?:^|\s)\.[A-Za-z_][A-Za-z0-9_-]*(?=\s|$)/gmu,
 ];
 
 const SECRET_LABEL_SKELETON = /\b(?:p[a4]ss[\s_-]*w[o0]rd|pass[\s_-]*phrase|auth(?:entication|orization)?|[o0]auth|sess[i1][o0]n|bearer|c[o0]{2}kie|t[o0]tp|mnemonic|seed|spend[i1]ng[\s_-]*key|v[i1]ew[i1]ng[\s_-]*key|private[\s_-]*key|access[\s_-]*t[o0]ken)\b/giu;
 
 function hasSuspiciousMixedScriptToken(value: string): boolean {
+  if (
+    /\p{Script=Latin}/u.test(value) &&
+    /(?:\p{Script=Cyrillic}|\p{Script=Greek})/u.test(value)
+  ) {
+    return true;
+  }
   for (const match of value.matchAll(/[\p{Letter}\p{Mark}]+/gu)) {
     const token = match[0];
     if (
@@ -116,7 +129,19 @@ function shannonEntropy(value: string): number {
 
 function hasTotpShapedValue(value: string): boolean {
   return [...value.matchAll(/\b[A-Z2-7]{16,64}={0,6}\b/gu)].some(
-    ([candidate]) => /[2-7]/u.test(candidate) || shannonEntropy(candidate) >= 3.5,
+    ([candidate]) => {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      const sequential = [...candidate].every(
+        (character, index) =>
+          index === 0 ||
+          alphabet.indexOf(character) ===
+            (alphabet.indexOf(candidate[index - 1]) + 1) % alphabet.length,
+      );
+      return (
+        !sequential &&
+        (/[2-7]/u.test(candidate) || shannonEntropy(candidate) >= 3.5)
+      );
+    },
   );
 }
 
@@ -182,6 +207,9 @@ function decodeCommonEscapes(value: string): string {
         return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : escape;
       })
       .replace(/\\u([0-9a-f]{4})/giu, (_escape, hexadecimal) =>
+        String.fromCharCode(Number.parseInt(hexadecimal, 16)),
+      )
+      .replace(/\\x([0-9a-f]{2})/giu, (_escape, hexadecimal) =>
         String.fromCharCode(Number.parseInt(hexadecimal, 16)),
       );
     if (next === decoded) return decoded;

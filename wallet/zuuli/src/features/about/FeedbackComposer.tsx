@@ -45,7 +45,9 @@ async function defaultOpenExternal(url: string): Promise<void> {
     await openUrl(url);
     return;
   }
-  if (!navigator.onLine) throw new Error("Browser is offline");
+  if (!navigator.onLine && /^https?:/u.test(url)) {
+    throw new Error("Browser is offline");
+  }
   // `noopener` deliberately makes Chromium return null even when the target
   // opened, so it cannot distinguish success from popup rejection. Open a
   // same-origin blank synchronously, sever its opener immediately, then

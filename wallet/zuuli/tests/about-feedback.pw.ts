@@ -241,6 +241,30 @@ test("offline handoff failure preserves the exact reviewed report and copy fallb
   );
 });
 
+test("offline mode still hands the exact private draft to a local mail composer", async ({
+  context,
+  page,
+}) => {
+  await captureExternalOpen(page);
+  await openComposer(page);
+  await page.getByRole("radio", { name: /Private email/ }).check();
+  await page.getByLabel("What happened?").fill("Queue this private draft offline.");
+  await page.getByRole("button", { name: "Review report" }).click();
+  const reviewedSubject = await page
+    .getByLabel("Outgoing subject or title")
+    .inputValue();
+  const reviewedBody = await page.getByLabel("Outgoing body").inputValue();
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Continue to chosen app" }).click();
+
+  const opened = await page.evaluate(() => window.__feedbackOpenedUrl);
+  expect(opened?.startsWith("mailto:help@free2z.com?")).toBe(true);
+  const fields = new URLSearchParams(opened!.slice(opened!.indexOf("?") + 1));
+  expect(fields.get("subject")).toBe(reviewedSubject);
+  expect(fields.get("body")).toBe(reviewedBody);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test.describe("pseudo-expanded shipping locale feedback", () => {
   test.use({ locale: "en-XA", viewport: { width: 320, height: 760 } });
 

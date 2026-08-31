@@ -123,16 +123,29 @@ export function isValidEnglishBip39Mnemonic(words: readonly string[]): boolean {
 }
 
 export function containsEnglishBip39Candidate(value: string): boolean {
-  const words = [...value.normalize("NFKD").toLowerCase().matchAll(/[a-z]+/gu)].map(
-    (match) => match[0],
-  );
+  const normalized = value.normalize("NFKD").toLowerCase();
+  const words = [...normalized.matchAll(/[a-z]+/gu)].map((match) => match[0]);
   for (const count of [...SUPPORTED_WORD_COUNTS].reverse()) {
     for (let start = 0; start + count <= words.length; start += 1) {
       const candidate = words.slice(start, start + count);
       // A checksum-valid phrase is certainly private. A supported-length
       // all-dictionary phrase is also removed because one mistyped checksum
       // bit does not make recovery words safe to disclose.
-      if (wordIndices(candidate) !== undefined) {
+      const indices = wordIndices(candidate);
+      if (indices === undefined) continue;
+      const repeated = new Set(candidate).size <= Math.ceil(count / 2);
+      const sequential = indices.every(
+        (index, position) => position === 0 || index === indices[position - 1] + 1,
+      );
+      const recoveryContext = /\b(?:seed|mnemonic|recovery\s+phrase)\b/iu.test(
+        normalized,
+      );
+      if (
+        isValidEnglishBip39Mnemonic(candidate) ||
+        repeated ||
+        sequential ||
+        recoveryContext
+      ) {
         return true;
       }
     }
