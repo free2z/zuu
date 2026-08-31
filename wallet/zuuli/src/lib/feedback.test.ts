@@ -179,6 +179,7 @@ describe("feedback privacy boundary", () => {
     "Library/Application Support/Wallet",
     "Documents/Wallet/config",
     "Pasteboard: hunter2",
+    "Error reference aaaaaaaaaaaaaaaaaaaaaaaaaaaa1234",
   ] as const;
 
   it.each(exactReviewerCorpus)(
@@ -345,7 +346,7 @@ describe("feedback privacy boundary", () => {
     "Please reply to alice12345678901234567890@example.com",
     "Please reply to alice+feedback12345678901234567890@mail.example.com",
     "username alice12345678901234567890",
-    "Crash reference abcdefghijklmnopqrstuvwxyz123456",
+    "Crash reference issue-1234",
   ])("preserves explicitly typed identity or ordinary reference text: %s", (text) => {
     const reviewed = createFeedbackDraft(
       text,
@@ -381,6 +382,11 @@ describe("feedback privacy boundary", () => {
     "The serial number field is empty",
     "Use the pasteboard button to retry",
     "Open settings/privacy and try again",
+    "the app stopped now",
+    "settings screen failed",
+    "settings screen stopped now",
+    "the app stopped responding again",
+    "the app crashed when opening settings",
     "Ошибка при запуске",
     "Σφάλμα κατά την εκκίνηση",
   ])("preserves ordinary user prose: %s", (description) => {

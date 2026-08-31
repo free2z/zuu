@@ -313,7 +313,14 @@ function decodeBase64(value: string): string | undefined {
 
 function decodedValueContainsSensitiveContent(value: string): boolean {
   const compact = value.replace(/\s+/gu, "");
-  const pending = compact === value ? [value] : [value, compact];
+  // Whitespace is discarded only when it interrupts a structurally complete
+  // percent-encoded value. Base64 wrapping is handled separately with segment
+  // evidence; compacting arbitrary prose creates attacker-controlled/private-
+  // entropy-length false positives.
+  const pending =
+    compact !== value && /^(?:%[0-9a-f]{2})+$/iu.test(compact)
+      ? [value, compact]
+      : [value];
   const seen = new Set<string>();
   while (pending.length > 0) {
     const candidate = pending.pop();
@@ -401,18 +408,10 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   const findings = new Set<ScrubFinding>();
   let text = value.normalize("NFKC").replace(/\r\n?/gu, "\n");
   const allowedEmails: string[] = [];
-  const allowedReferences: string[] = [];
   text = text.replace(ALLOWED_EMAIL, (email) => {
     const index = allowedEmails.push(email) - 1;
     return `zuuliAllowedEmail${index}Placeholder`;
   });
-  text = text.replace(
-    /\b((?:crash|error|support)\s+reference\s+)([a-z]{8,40}\d{2,12})\b/giu,
-    (_match, label: string, reference: string) => {
-      const index = allowedReferences.push(reference) - 1;
-      return `${label}zuuli-allowed-reference-${index}`;
-    },
-  );
   const withoutInvisible = text
     .replace(DEFAULT_IGNORABLE_CHARACTERS, "")
     .replace(COMBINING_OVERLAYS, "");
@@ -462,10 +461,6 @@ export function scrubFeedbackText(value: string, redactedValue: string): {
   if (findings.size > 0) return { text: redactedValue, findings: [...findings] };
   text = text.replace(/zuuliAllowedEmail(\d+)Placeholder/gu, (_match, index) =>
     allowedEmails[Number(index)] ?? redactedValue,
-  );
-  text = text.replace(
-    /zuuli-allowed-reference-(\d+)/gu,
-    (_match, index) => allowedReferences[Number(index)] ?? redactedValue,
   );
   return { text, findings: [] };
 }
