@@ -11,6 +11,10 @@ import { usdToTuzis } from "../format";
 import { normalizeArticleTags, sanitizeArticleTags } from "../article-tags";
 import { normalizePrivateSecret } from "../private-live";
 import {
+  normalizeParticipantCount,
+  sumParticipantCounts,
+} from "../participant-count";
+import {
   cancelMobileOAuth,
   captureOAuthCode,
   finishMobileOAuth,
@@ -706,7 +710,9 @@ function mapLivestream(m: RawDyteMeeting): Livestream {
     title: `${creator.display_name} is live`,
     kind,
     live: !!m.live_now,
-    participants: 0,
+    // The public meeting listing does not carry an authoritative count. #265
+    // will hydrate one; until then the only truthful client value is unknown.
+    participants: null,
     price_tuzis: kind === "ppv" ? ppvPrice(m.price_per_minute) : 0,
     thumbnail: creator.image ?? null,
     started_at: undefined,
@@ -1819,12 +1825,15 @@ export const live = {
   async status(
     username: string,
     kind?: StreamKind,
-  ): Promise<{ live: boolean; participants: number }> {
+  ): Promise<{ live: boolean; participants: number | null }> {
     const expectedType = kind ? typeFromStreamKind(kind) : undefined;
     if (useMock()) {
       await delay(120);
       const s = mockLivestreams.find((l) => l.username === username);
-      return { live: s?.live ?? false, participants: s?.participants ?? 0 };
+      return {
+        live: s?.live ?? false,
+        participants: normalizeParticipantCount(s?.participants),
+      };
     }
     try {
       const s = await request<
@@ -1842,14 +1851,13 @@ export const live = {
         })
         .filter(({ key }) => !expectedType || key === expectedType)
         .map(({ entry }) => entry);
-      const participants = entries.reduce(
-        (n, e) => n + (e.participants ?? 0),
-        0,
+      const participants = sumParticipantCounts(
+        entries.map((entry) => entry.participants),
       );
       return { live: entries.length > 0, participants };
     } catch (error) {
       if (error instanceof LivestreamKindContractError) throw error;
-      return { live: false, participants: 0 };
+      return { live: false, participants: null };
     }
   },
 
