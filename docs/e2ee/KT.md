@@ -496,11 +496,23 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
    [ADR 0014](./decisions/0014-directory-key-rotation.md) does not make
    sufficient to install a new identity — and the log MUST reject it with
    `ERR_BAD_AUTHORIZATION` (§9.5) rather than treat it as a rotation. This rule
-   constrains `identity_pk` only.
+   constrains `identity_pk` only; rule 13 states the parallel constraint on
+   `directory_auth_pk`.
 7. For `key_change`: the `RotationProof`'s `old_identity_pk` equals the previous
    entry's `identity_pk`, its `new_identity_pk` equals this entry's, its
    `entry_version` and `prev_entry_hash` match, and its signature verifies.
    **A key change carrying only one of the two signatures MUST be rejected.**
+   **`old_identity_pk` and `new_identity_pk` MUST also differ; a `key_change`
+   naming the same key on both sides changes no key, is a `same_key` update
+   wearing the wrong label, and the log MUST reject it with
+   `ERR_BAD_AUTHORIZATION`.** (This has always been enforced by the reference
+   implementation — `f2z-kt-core`'s `submit.rs` calls it out as "a key change
+   that changes no key" — but was absent from this list before this rule was
+   written down here; an implementer working from an earlier revision of this
+   document must add it.) One consequence is worth stating because rule 13
+   depends on it: `key_change` cannot be used to rotate `directory_auth_pk`
+   while leaving `identity_pk` numerically unchanged, so it does not offer a
+   lighter-weight path around rule 13.
 8. For `platform_reset`: the reset signature verifies under the pinned reset
    authority key, `effective_at_ms - created_at_ms` is at least the published
    cooldown, and the log MUST NOT publish the entry before `effective_at_ms`.
@@ -530,6 +542,25 @@ Verification rules the log MUST apply, in order, before an entry enters a batch:
     version 1 and both cases MUST be rejected with `ERR_BAD_AUTHORIZATION`
     rather than left to fail obscurely inside a rule that dereferences a
     predecessor that does not exist.
+13. **For `same_key` at `entry_version >= 2`: `directory_auth_pk` MUST equal the
+    previous entry's `directory_auth_pk`.** A `same_key` entry that carries a
+    different one hands off the authority that authorizes *every future entry*
+    for the handle, on a single signature, by the very key whose authority is
+    being replaced — with `identity_pk` untouched, no `RotationProof`, and no
+    involvement of the key that ADR 0014 requires for every other change to what
+    a peer trusts. To every rule above this one, that entry is the most routine
+    kind there is. The log MUST reject it with `ERR_BAD_AUTHORIZATION` (§9.5)
+    rather than publish it as a routine update. This rule constrains
+    `directory_auth_pk` only, symmetrically with rule 6.
+
+    Resolving [#619](https://github.com/free2z/zuu/issues/619) — see the
+    correction below — settles this the same way rule 6 was settled for
+    `identity_pk`, and for the same reason: `directory_auth_pk` is not a
+    routine-update key that happens to also gate identity changes, it is *the*
+    key that decides who writes next, and §4.4's blast-radius design already
+    puts every operation that changes what a peer trusts behind `identity_pk`.
+    A directory-write handoff is such an operation even though it leaves
+    `identity_pk` itself unchanged.
 
 **Rule 11 runs last, and the order is deliberate rather than a numbering
 accident.** §4.5's checks are the most expensive in the list — two signature
@@ -584,6 +615,61 @@ this paragraph be restated without its scope.
 > Rule 6 is deliberately narrow. Whether a `same_key` entry may rotate
 > `directory_auth_pk` is **not** stated by this document in either direction, and
 > the new rule does not settle it.
+
+> **Correction (2026-08-31) — the gap named directly above is closed: rule 13
+> states it.** A `same_key` entry MUST NOT change `directory_auth_pk`,
+> symmetrically with rule 6's `identity_pk` constraint. The two readings the
+> silence admitted were not equally bad: allowing the rotation lets whoever
+> holds the current `directory_auth_pk` transfer directory-write authority for
+> the handle to a key of their choosing, on one signature, with `identity_pk`
+> never involved — and to a verifier applying every rule stated before this one,
+> that entry is indistinguishable from the most routine update there is.
+> Forbidding it costs nothing rule 6 did not already cost: `directory_auth_pk`
+> was never claimed to be a routine-update key independent of who controls
+> `identity_pk`: it is the key that decides who writes next, and letting it
+> reassign itself on its own signature is a bigger unstated capability than the
+> `identity_pk` gap rule 6 closed, not a smaller one.
+>
+> **This forecloses a use this document never granted, so nothing already
+> promised is lost.** The `same_key` case's *name*, and ADR 0014's case 1 — "the
+> identity key is unchanged and available" — already described a narrow,
+> routine operation. A directory-write handoff was never that, even before this
+> correction said so.
+>
+> **There is no lighter-weight path, and none is invented here.** Rotating a
+> compromised or lost `directory_auth_pk` now requires a `key_change`, which
+> (rule 7, also extended above) requires `old_identity_pk` and `new_identity_pk`
+> to differ — so recovering from a directory-key compromise alone costs a full
+> identity rotation, exactly the disproportionate cost
+> [#619](https://github.com/free2z/zuu/issues/619) named. **That cost is
+> accepted here, not solved.** A cheaper path — a distinct `EntryKind` for a
+> directory-auth-only rotation, cosigned by `identity_pk` without changing it —
+> is deferred (§12): it is a new wire structure two implementations would have
+> to agree on byte-for-byte, and inventing one to close a documentation issue is
+> exactly the failure mode §4.5's history warns against. The alternative
+> considered and rejected here was to allow the rotation given a countersignature
+> by the current `identity_pk` (a `same_key` entry cosigned by both keys) — which
+> would give a lighter path without the full cost above, at the price of a wire
+> change and a new rule for what counts as a valid countersignature. Rejected
+> for this document as scope creep on a specification defect: it is a real
+> option and an implementer or a future ADR may still take it, but it is not
+> free to add here and the MUST NOT above is the one that requires nothing new.
+>
+> **What a verifier MUST do:** treat a `same_key` entry whose `directory_auth_pk`
+> differs from the previous entry's exactly as rule 6 treats one whose
+> `identity_pk` differs — reject it with `ERR_BAD_AUTHORIZATION` (§9.5) — rather
+> than accept it as a routine update. §9.5's table now names this case
+> explicitly.
+>
+> **A gap between this document and the shipped log, named rather than
+> papered over.** `f2z-kt-core`'s `submit.rs` does not yet check this: its
+> `same_key` branch verifies `auth_signature` against the previous entry's
+> `directory_auth_pk` and never compares that field to the value the new entry
+> publishes, so the takeover this correction forbids is, right now, what the
+> reference implementation accepts. [#837](https://github.com/free2z/zuu/issues/837)
+> tracks the code fix and a negative test vector. Until it lands, running this
+> log leaves a handle's directory-write authority transferable on one signature
+> — this document specifies the rule; it does not enforce it.
 
 > **Correction (2026-08-24) — nothing in this section authorizes a handle's
 > *first* entry, and the section read as though the table above were
@@ -2307,7 +2393,7 @@ is never reused** — [`WIRE.md` §10](./WIRE.md#10-error-codes)'s rule, for
 | 1 | `ERR_MALFORMED` | Decode failure, re-encode mismatch, oversize body. |
 | 2 | `ERR_UNSUPPORTED_VERSION` | Unknown `kt_version`, or a `log_id` this server does not serve. |
 | 3 | `ERR_BAD_SIGNATURE` | An `auth_signature`, `RotationProof`, reset, cosignature, **authority signature or `AssertionBinding` signature** (§4.5 A13, A16) failed verification. |
-| 4 | `ERR_BAD_AUTHORIZATION` | Structurally valid but §4.4's rules unmet — e.g. a key change with one signature (rule 7), a `same_key` entry that changes `identity_pk` (rule 6), or any of §4.5's rules other than the four §4.5.6 maps elsewhere (rule 11). |
+| 4 | `ERR_BAD_AUTHORIZATION` | Structurally valid but §4.4's rules unmet — e.g. a key change with one signature (rule 7), a key change naming the same `identity_pk` on both sides (rule 7), a `same_key` entry that changes `identity_pk` (rule 6), a `same_key` entry that changes `directory_auth_pk` (rule 13), or any of §4.5's rules other than the four §4.5.6 maps elsewhere (rule 11). |
 | 5 | `ERR_VERSION_CONFLICT` | `entry_version` not `previous + 1`, `prev_entry_hash` mismatch, or a second entry for this handle in this epoch (§4.3). |
 | 6 | `ERR_COOLDOWN` | A `platform_reset` whose `effective_at_ms` has not arrived. |
 | 7 | `ERR_EPOCH_UNAVAILABLE` | The requested epoch or audit range is outside the served horizon (§9.3). |
@@ -2519,6 +2605,18 @@ Deliberately, and listed rather than invented.
   refuses a clock-shaped `account_epoch`. What is left is not a specification
   gap but an issuer that must hold a durable per-account counter, which A18 can
   bound but cannot verify (§4.5.4).
+- **A lighter-weight rotation for a compromised `directory_auth_pk` alone.**
+  §4.4 rule 13 (closed 2026-08-31,
+  [#619](https://github.com/free2z/zuu/issues/619)) forbids a `same_key` entry
+  from changing `directory_auth_pk`, so recovering from a directory-key
+  compromise — with `identity_pk` intact and undisturbed — currently costs a
+  full `key_change`, which rule 7 requires to actually change `identity_pk` too.
+  A cheaper path (a distinct `EntryKind`, or a `same_key` entry cosigned by the
+  current `identity_pk` without changing it) is a defensible design and is
+  deliberately not specified here: it is a new wire structure, not a reading of
+  the existing one, and belongs in an ADR and a two-implementation agreement
+  the way §4.5's `HandleAssertion` was, not invented to close a documentation
+  defect. Named, not designed.
 - **The authority key's own distribution and rotation.** §4.6 publishes the
   authority set in a document signed by the log, which is not a trust root —
   exactly the caveat §9.1 states for `reset_authority_pk`, and the same
