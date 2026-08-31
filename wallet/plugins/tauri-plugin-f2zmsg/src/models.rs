@@ -416,6 +416,8 @@ pub struct Conversation {
     /// §3.5. Never render this silently.
     pub has_gaps: bool,
     pub transport_health: TransportHealth,
+    /// The current compromised outbound queue's relay, never alarm-history inference.
+    pub compromise_relay_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

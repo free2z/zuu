@@ -430,6 +430,7 @@ interface Conversation {
   receiptPolicy: ReceiptPolicy;      // §3.6
   hasGaps: boolean;                  // §3.5 — never render this silently
   transportHealth: TransportHealth;
+  compromiseRelayUrl: string | null; // current compromised outbound queue only
 }
 
 type TransportHealth = "ok" | "degraded" | "unavailable" | "compromised";
@@ -447,6 +448,12 @@ interface ContactRequest {
   bodyPreview: string | null;        // PROVISIONAL — see §12
 }
 ```
+
+`compromiseRelayUrl` names the **current outbound queue's relay** exactly when
+`transportHealth` is `compromised`, and is `null` otherwise. The client MUST NOT
+infer current transport attribution from Alarm history: historical alarms remain
+after a queue replacement, timestamps can tie or move backward, and their relay
+continues to describe the queue that raised them rather than the active queue.
 
 `start_conversation` performs the whole first-contact handshake of
 [`WIRE.md` §12.5](./WIRE.md#125-the-full-handshake-end-to-end), with

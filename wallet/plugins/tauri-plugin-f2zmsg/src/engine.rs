@@ -2573,6 +2573,16 @@ impl<B: StorageBackend> Inner<B> {
             .inbound
             .as_ref()
             .is_some_and(|queue| self.connections.contains_key(&queue.relay_url));
+        let send_address_stolen = self.send_address_is_stolen(stored);
+        let compromise_relay_url = if send_address_stolen {
+            stored
+                .queues
+                .outbound
+                .as_ref()
+                .map(|queue| queue.relay_url.clone())
+        } else {
+            None
+        };
         Ok(Conversation {
             conversation_id: stored.conversation_id.clone(),
             peer_handle: stored.peer_handle.clone(),
@@ -2594,7 +2604,7 @@ impl<B: StorageBackend> Inner<B> {
             // alone would tell the UI a message can be sent when there is no
             // address to send it to — and §3.3's transport health is the field
             // a send affordance is supposed to be gated on.
-            transport_health: if self.send_address_is_stolen(stored) {
+            transport_health: if send_address_stolen {
                 // §7.4: the send side of a queue this conversation depends on
                 // was already bound to another or unknown key. Attribute the
                 // relay returning that result, not an unobservable actor. Loud
@@ -2610,6 +2620,7 @@ impl<B: StorageBackend> Inner<B> {
                 // yet", which is what `degraded` means.
                 TransportHealth::Degraded
             },
+            compromise_relay_url,
         })
     }
 
@@ -5683,6 +5694,19 @@ mod tests {
 
         let listed = engine.list_alarms().await.expect("merged alarms");
         assert_eq!(listed.len(), 2);
+        {
+            let inner = engine.inner.lock().await;
+            let first_view = inner.view(&first).expect("first public conversation");
+            let second_view = inner.view(&second).expect("second public conversation");
+            assert_eq!(
+                first_view.compromise_relay_url.as_deref(),
+                Some("ws://relay-a.invalid/relay/v1")
+            );
+            assert_eq!(
+                second_view.compromise_relay_url.as_deref(),
+                Some("ws://relay-b.invalid/relay/v1")
+            );
+        }
         assert_eq!(
             engine.status().await.expect("status").unacknowledged_alarms,
             2,
@@ -6319,6 +6343,10 @@ mod tests {
             .and_then(|stored| inner.view(&stored))
             .expect("public conversation");
         assert_eq!(compromised.transport_health, TransportHealth::Compromised);
+        assert_eq!(
+            compromised.compromise_relay_url.as_deref(),
+            Some(url.as_str())
+        );
         let failed = inner
             .records()
             .message("message")
@@ -6379,6 +6407,10 @@ mod tests {
         assert_eq!(
             still_compromised.transport_health,
             TransportHealth::Compromised
+        );
+        assert_eq!(
+            still_compromised.compromise_relay_url.as_deref(),
+            Some(url.as_str())
         );
         assert_eq!(
             inner
@@ -6692,12 +6724,14 @@ mod tests {
         let replaced = inner
             .conversation("conversation")
             .expect("replacement conversation");
+        let replacement_view = inner.view(&replaced).expect("replacement public view");
         assert_ne!(
-            inner
-                .view(&replaced)
-                .expect("replacement public view")
-                .transport_health,
+            replacement_view.transport_health,
             TransportHealth::Compromised
+        );
+        assert_eq!(
+            replacement_view.compromise_relay_url, None,
+            "historical alarm relay must not describe the active replacement queue"
         );
         assert!(inner.volatile_compromise_alarms.is_empty());
         let durable_alarms = inner.records().alarms().expect("durable alarms");

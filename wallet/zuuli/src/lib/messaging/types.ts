@@ -241,6 +241,8 @@ export const ConversationSchema = z.object({
   /** §3.5. Never render this silently. */
   hasGaps: z.boolean(),
   transportHealth: TransportHealthSchema,
+  /** Current compromised outbound relay; never selected from alarm history. */
+  compromiseRelayUrl: z.string().nullable(),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
 

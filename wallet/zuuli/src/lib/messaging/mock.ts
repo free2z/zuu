@@ -138,6 +138,7 @@ function echoConversation(): Conversation {
     receiptPolicy: defaultReceiptPolicy(),
     hasGaps: active === "gap" || active === "gap-unrecoverable",
     transportHealth: "ok",
+    compromiseRelayUrl: null,
   };
 }
 

@@ -319,6 +319,7 @@ const REVIEWED_BIND_HELPER_DIGESTS = {
   mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",
   send_address_stolen_alarm: "7f193c76d773a699df1e03823faa3e15a416f6a5bf9f8a9fa297cf2df566c742",
   send_address_stolen_alarm_at: "cf9a5e1f5a88eeb3e5eff3cb7d5112e9cde80a71ff888ce1c4d07f1499ab2c35",
+  view: "b12d419a8645ee07065ab9a9006d3316d5a4f4e003fe6bff44ddda07c3d02200",
 };
 
 const REVIEWED_LIFECYCLE_DIGESTS = {
@@ -506,6 +507,7 @@ function relayErrorContractFailures({
     "mark_send_address_stolen_delivery",
     "send_address_stolen_alarm",
     "send_address_stolen_alarm_at",
+    "view",
   ]) {
     const normalized = normalizedRustFunction(engineRuntime, name);
     const digest =
@@ -636,6 +638,15 @@ function relayErrorContractFailures({
       ) {
         failures.push("queue theft alarm ID or exact conversation/relay attribution is incomplete");
       }
+    } else if (name === "view") {
+      if (
+        !normalized?.includes("let send_address_stolen = self.send_address_is_stolen(stored)") ||
+        !/stored\s*\.queues\s*\.outbound\s*\.as_ref\(\)\s*\.map\(/.test(normalized) ||
+        !normalized.includes("compromise_relay_url") ||
+        normalized.includes("self.alarms()")
+      ) {
+        failures.push("public conversation does not derive current compromise relay from its active outbound queue");
+      }
     }
   }
 
@@ -753,6 +764,10 @@ function relayErrorContractFailures({
     ["Rust Alarm model", publicModels, "#[serde(default)]\n    pub relay_url: Option<String>"],
     ["shipping theft alarm conversation", engineRuntime, "&current.conversation_id,"],
     ["shipping theft alarm field", engineRuntime, "relay_url: Some(relay_url.to_owned())"],
+    ["CLIENT-CONTRACT Conversation", clientContract, "compromiseRelayUrl: string | null; // current compromised outbound queue only"],
+    ["shipping Conversation schema", shippingTypes, "compromiseRelayUrl: z.string().nullable()"],
+    ["Rust Conversation model", publicModels, "pub compromise_relay_url: Option<String>"],
+    ["CLIENT current compromise attribution", clientContract, "The client MUST NOT\ninfer current transport attribution from Alarm history"],
   ]) {
     if (!source.includes(required)) {
       failures.push(`${name} is missing ${JSON.stringify(required)}`);
@@ -785,8 +800,8 @@ function relayErrorContractFailures({
   }
 
   for (const required of [
-    'alarm.conversationId === conversation.conversationId',
-    'setCompromiseRelayUrl(null);',
+    'conversation.compromiseRelayUrl !== null',
+    '{conversation.compromiseRelayUrl}',
     'already bound to another or unknown key',
     'does not identify who bound it',
     'The relay that returned the refusal was',
@@ -795,11 +810,8 @@ function relayErrorContractFailures({
       failures.push(`shipping Transcript attribution is missing ${JSON.stringify(required)}`);
     }
   }
-  if (shippingTranscript.includes('alarm.handle === conversation.peerHandle')) {
-    failures.push("shipping Transcript selects queue alarms by ambiguous peer handle");
-  }
-  if ((shippingTranscript.match(/setCompromiseRelayUrl\(null\);/g) ?? []).length !== 3) {
-    failures.push("shipping Transcript can retain a previous compromised conversation's relay during lookup");
+  if (shippingTranscript.includes("listAlarms") || shippingTranscript.includes("alarm.relayUrl")) {
+    failures.push("shipping Transcript infers active relay attribution from historical alarms");
   }
 
   for (const [name, source, required] of [
@@ -850,6 +862,9 @@ function relayErrorContractFailures({
     "recovered_storage_flushes_volatile_theft_before_stop_and_shutdown",
     "volatile fallback must contribute to the engine status count",
     "successful graceful flush removes the volatile copy only after commit",
+    "historical alarm relay must not describe the active replacement queue",
+    "first_view.compromise_relay_url.as_deref()",
+    "second_view.compromise_relay_url.as_deref()",
     "a failed unenrollment must not partially flush volatile evidence",
     "successful removal must discard the queue-scoped blocker",
     "recovered storage installs replacement and flushes alarm",
@@ -1412,6 +1427,54 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     [],
   );
 
+  const conversationContractMutation = contract.replace(
+    "  compromiseRelayUrl: string | null; // current compromised outbound queue only\n",
+    "",
+  );
+  assert.notEqual(conversationContractMutation, contract, "Conversation contract mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: conversationContractMutation }),
+    [],
+  );
+  const conversationAttributionRuleMutation = contract.replace(
+    "The client MUST NOT\ninfer current transport attribution from Alarm history",
+    "The client selects the newest historical Alarm",
+  );
+  assert.notEqual(
+    conversationAttributionRuleMutation,
+    contract,
+    "Conversation attribution rule mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: conversationAttributionRuleMutation }),
+    [],
+  );
+  const conversationSchemaMutation = types.replace(
+    "  compromiseRelayUrl: z.string().nullable(),\n",
+    "",
+  );
+  assert.notEqual(conversationSchemaMutation, types, "Conversation schema mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTypes: conversationSchemaMutation }),
+    [],
+  );
+  const conversationModelMutation = models.replace(
+    "    pub compromise_relay_url: Option<String>,\n",
+    "",
+  );
+  assert.notEqual(conversationModelMutation, models, "Conversation model mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ publicModels: conversationModelMutation }),
+    [],
+  );
+  const conversationViewMutation = mutateRustFunction(engine, "view", (body) =>
+    body.replace("            compromise_relay_url,", "            compromise_relay_url: None,"),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: conversationViewMutation }),
+    [],
+  );
+
   const alarmFieldMutation = mutateRustFunction(engine, "send_address_stolen_alarm_at", (body) =>
     body.replace("relay_url: Some(relay_url.to_owned())", "relay_url: None"),
   );
@@ -1511,22 +1574,13 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     );
   }
 
-  const transcriptSelectorMutation = transcript.replace(
-    "alarm.conversationId === conversation.conversationId",
-    "alarm.handle === conversation.peerHandle",
+  const transcriptSelectorMutation = transcript.replaceAll(
+    "conversation.compromiseRelayUrl",
+    "null",
   );
-  assert.notEqual(transcriptSelectorMutation, transcript, "Transcript selector mutation did not apply");
+  assert.notEqual(transcriptSelectorMutation, transcript, "Transcript current relay mutation did not apply");
   assert.notDeepEqual(
     relayErrorContractFailures({ shippingTranscript: transcriptSelectorMutation }),
-    [],
-  );
-  const transcriptClearMutation = transcript.replace(
-    "    setCompromiseRelayUrl(null);\n    void messaging",
-    "    void messaging",
-  );
-  assert.notEqual(transcriptClearMutation, transcript, "Transcript stale relay mutation did not apply");
-  assert.notDeepEqual(
-    relayErrorContractFailures({ shippingTranscript: transcriptClearMutation }),
     [],
   );
   const transcriptActorMutation = transcript.replace(
