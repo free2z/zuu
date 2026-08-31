@@ -21,6 +21,17 @@ Everything below was verified against the live sources on the date in the
 marker above. Re-verify when you edit; a register of unverified restatements is
 worse than no register.
 
+**And "verified" has to mean re-read, not read once.** Two claims on this page
+had already rotted by the time anyone looked: §3's `rand` row still said the
+shipping lock carried "0.8, 0.9 and 0.10" after #855 collapsed the 0.9 island,
+and the `sha2` correction still said moving off 0.10 "would add a second
+SHA-256" long after the MLS half of the graph brought 0.11 in. The check passed
+both times, because it was re-reading librustzcash's manifest — the right source
+for *who forces a hold*, and no source at all for *what the graph contains*.
+Every row in §3 now names the file that verifies it and every number in it is an
+`evidence` entry the check re-reads; see
+[How each row is re-read](#how-each-row-is-re-read).
+
 ---
 
 ## 1. `z/zcash/librustzcash` → `free2z/librustzcash`
@@ -86,20 +97,68 @@ patch is pinned by `branch` instead of `rev`.
 
 ## 3. Deliberate version holds that look stale but are not
 
-Every version below is **verified against
+**Every row names the file that verifies it, and
+`scripts/check-dependency-register.mjs` re-reads exactly that file.** Most are
 [`z/zcash/librustzcash/Cargo.toml`](../z/zcash/librustzcash/Cargo.toml)'s
-`[workspace.dependencies]`**, not against a summary. The check re-reads that
-file, so upstream bumping any of them turns this table red rather than leaving
-it quietly wrong.
+`[workspace.dependencies]`; two are not, and that difference is the point —
+see [How each row is re-read](#how-each-row-is-re-read) below.
+
+The check requires this table and its registry to agree row for row in both
+directions. A hold cannot be dropped from the page while the version is still
+pinned in the tree, and a row cannot be **added** to the page unless something
+re-reads it: a row nobody re-reads is worse than no row, because it wears the
+same badge as the ones that are checked.
 
 | Crate | Held at | Who forces it | Where the reason lives |
 |---|---|---|---|
-| `rusqlite` | 0.37 | **Upstream librustzcash** *and* a repository-wide singleton: `libsqlite3-sys` declares `links = "sqlite3"` and Cargo hard-errors on two versions of a `links` package | [`rs/Cargo.toml`](../rs/Cargo.toml) (`rusqlite` entry), `wallet/plugins/tauri-plugin-zcash/Cargo.toml`, upstream's own CocoaPods note |
-| `secrecy` | 0.8 | **Upstream librustzcash** workspace (`secrecy = "0.8"`). `wallet/zuuli/src-tauri` names it only to match what `tauri-plugin-zcash` already resolves | `wallet/zuuli/src-tauri/Cargo.toml` |
-| `secp256k1` | 0.29 | **Upstream librustzcash** workspace. Also the second half of row 2's exit condition | `z/zcash/librustzcash/Cargo.toml`; `wallet/zuuli/src-tauri/Cargo.toml` `[patch.crates-io]` block |
-| `rand` | 0.8 | **Upstream librustzcash** workspace (`rand = "0.8"`, `rand_core = "0.6"`). Not a repository-wide hold — `rs/` is on `rand_core 0.10` and the shipping wallet lock legitimately carries 0.8, 0.9 and 0.10 | `z/zcash/librustzcash/Cargo.toml`; `rs/Cargo.toml` (`rand_core` entry) |
-| `sha2` | 0.10 | **Upstream librustzcash** workspace (`sha2 = "0.10"`) — see the correction below | [`rs/Cargo.toml`](../rs/Cargo.toml) (`sha2` entry) |
-| `hkdf` | 0.12 | **Our own choice.** `hkdf` appears nowhere in librustzcash. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
+| `rusqlite` | 0.37 | **Upstream librustzcash** (`z/zcash/librustzcash/Cargo.toml:161`) *and* a repository-wide singleton: `libsqlite3-sys` declares `links = "sqlite3"` and Cargo hard-errors on two versions of a `links` package | [`rs/Cargo.toml`](../rs/Cargo.toml) (`rusqlite` entry), `wallet/plugins/tauri-plugin-zcash/Cargo.toml`, upstream's own CocoaPods note |
+| `secrecy` | 0.8 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:154` (`secrecy = "0.8"`). `wallet/zuuli/src-tauri` names it only to match what `tauri-plugin-zcash` already resolves | `wallet/zuuli/src-tauri/Cargo.toml` |
+| `secp256k1` | 0.29 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:86`. Also the second half of row 2's exit condition | `z/zcash/librustzcash/Cargo.toml`; `wallet/zuuli/src-tauri/Cargo.toml` `[patch.crates-io]` block |
+| `rand` | 0.8 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:98-99` (`rand = "0.8"`, `rand_core = "0.6"`). Not a repository-wide hold — `rs/` is on `rand_core 0.10`, and since #855 collapsed the `rand 0.9` island the shipping wallet lock carries **0.8.7 and 0.10.2 only** (`rand_core` 0.6.4 and 0.10.1) | `z/zcash/librustzcash/Cargo.toml`; `rs/Cargo.toml` (`rand_core` entry) |
+| `sha2` | 0.10 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:107` (`sha2 = "0.10"`) — see the correction below | [`rs/Cargo.toml`](../rs/Cargo.toml) (`sha2` entry) |
+| `ripemd` | 0.1 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:85`. `zcash_transparent` and `zcash_script` resolve to `ripemd 0.1.3`, and so does ours. Bumping to 0.2 adds no copy — `bip32` already carries 0.2.0 — but 0.2 is on `digest 0.11`, so `hash160`'s `Ripemd160` and its `Sha256` would be on **two different `digest` traits in the same six-line function** | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`ripemd` entry) and `src/wallet/keys.rs`'s `hash160` |
+| `nonempty` | 0.11 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:94`. This one crosses an API boundary rather than merely duplicating: `send/native.rs` returns `nonempty::NonEmpty<TxId>` straight out of a librustzcash call, so a second `nonempty` is a type mismatch, not a bigger binary. Single copy (0.11.0), shared by 9 packages in the wallet lock | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`nonempty` entry) |
+| `base64` | 0.22 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:113`. 0.22.1 is the **shared** copy — 11 packages, including `zcash_client_backend`, `zip321`, `reqwest`, `tonic`, `wry` and `tauri-codegen`. Bumping ours would not retire it; it would move our one crate onto `ureq`'s 0.23 island and lose the alignment for nothing | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`base64` entry) |
+| `bip0039` | 0.12 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:192`. Weaker than the rows above, deliberately: upstream declares it only `optional`, behind `zcash_keys`'s `zcashd-compat` and a `zcash_client_sqlite` feature, and neither is on — so today exactly 1 package resolves `bip0039` in the wallet lock, and it is ours (`tauri-plugin-zcash`). Matching 0.12 is what keeps turning either feature on from adding a second BIP-39 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`bip0039` entry) |
+| `chacha20poly1305` | 0.10 | **A different upstream.** Not librustzcash's — `z/zcash/zcash_note_encryption/Cargo.toml:24` declares it, under plain `[dependencies]`, because `zcash_note_encryption` is a standalone crate. Every wallet lock carries exactly **one** copy (0.10.1), shared by 5 packages: ours (`tauri-plugin-zcash`, `tauri-plugin-f2zmsg`), `zcash_note_encryption`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`. Bumping ours to 0.11 strands the other three on 0.10 and adds a second AEAD to **all four** wallet locks | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
+| `getrandom` | 0.3 | **A registry crate, not a vendored one.** `tauri 2.11.5` declares `getrandom = "0.3"` unconditionally in its own published manifest, so 0.3 is in the shipping graph whatever we choose; `wallet/zuuli/src-tauri/Cargo.lock` records the edge as `tauri 2.11.5 → getrandom 0.3.4`. Our single call site is `oauth.rs`'s PKCE randomness. Bumping to 0.4 would not retire tauri's copy — the lock already carries 0.2.17, 0.3.4 and 0.4.3 — it would only move us off the copy the framework links. This hold retires when **tauri** moves, not when we decide to | `wallet/zuuli/src-tauri/Cargo.toml` (`getrandom` entry); the edge in `wallet/zuuli/src-tauri/Cargo.lock` |
+| `hkdf` | 0.12 | **Our own choice.** `hkdf` appears in neither constraint source. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
+
+### How each row is re-read
+
+The first version of this check re-read one file, librustzcash's
+`[workspace.dependencies]`. That is why it caught `sha2`'s justification being
+wrong — and it is also why the two rows above that are **not** librustzcash's
+were, until now, exactly the thing that rotted before: a claim wearing a
+checked-looking badge that nothing re-read.
+
+Each hold now names its own constraint source, and the checker reads whichever
+is named:
+
+| Kind | Rows | What is re-read | Strength |
+|---|---|---|---|
+| Manifest | `rusqlite`, `secrecy`, `secp256k1`, `rand`, `sha2`, `ripemd`, `nonempty`, `base64`, `bip0039` (and `bip32`, section 2's) | `z/zcash/librustzcash/Cargo.toml`'s `[workspace.dependencies]` | Strongest — it reads the *requirement* the upstream author wrote, so a bump is caught the moment the submodule moves |
+| Manifest | `chacha20poly1305` | `z/zcash/zcash_note_encryption/Cargo.toml`'s `[dependencies]` | Same, against a different upstream |
+| Lockfile | `getrandom` | `wallet/zuuli/src-tauri/Cargo.lock`: `tauri` must still resolve to **2.11.5**, and that package must still pull `getrandom` on the 0.3 line | Weaker, and labelled so. A lockfile is a resolution, not a requirement |
+| Negative | `hkdf` | Both manifests above, asserting `hkdf` appears in **neither** | "Our own choice" stops being true the moment an upstream takes a position |
+
+And separately from *who forces a hold*, every **number** this page states —
+"0.8.7 and 0.10.2", "11 packages", "5 packages", "0.2.17, 0.3.4 and 0.4.3" — is
+an `evidence` entry re-read from the resolved lockfile it was measured in, and
+the check requires the **sentence** to carry the number it measured. Both halves
+matter. Verifying the lock while letting the prose say something else is exactly
+how the `rand` row and the `sha2` correction stayed wrong through a green check:
+the measurement had no reader, and then the sentence had no link to it. A stale
+number now fails the pull request that carries it.
+
+The `getrandom` row is the honest edge case. `tauri` is a registry crate with
+no manifest in this tree, so there is nothing here to re-read for its
+*requirement* — only its resolution. The requirement (`[dependencies.getrandom]
+version = "0.3"` in tauri 2.11.5's published manifest) was read by hand on the
+date in the marker. Pinning the check to that exact version is what makes the
+staleness visible: **the next tauri bump turns this row red**, which is not the
+check crying wolf but the check saying nobody has re-read tauri's requirement
+since. Re-read it, and move the version in the registry.
 
 ### Correction: the `sha2` hold's stated reason was wrong
 
@@ -113,10 +172,21 @@ not. The real one, read off the shipping lock:
 binary `sha2 0.10.9` is what `zcash_primitives`, `zcash_transparent`,
 `zcash_script`, `tauri-plugin-zcash`, `bip0039`, `bs58`, `tauri-codegen` and
 `wry` all resolve to — because librustzcash's workspace declares `sha2 = "0.10"`.
-Moving `f2z-msg-identity` to 0.11 would add a second SHA-256 to the shipped
-wallet. That is the constraint, and it is upstream's, not `akd_core`'s.
+That is the constraint, and it is upstream's, not `akd_core`'s.
 
 The comment in `rs/Cargo.toml` has been corrected to say so.
+
+**Second correction, 2026-08-31 — and it is the same failure again.** This
+section used to finish "Moving `f2z-msg-identity` to 0.11 would add a second
+SHA-256 to the shipped wallet." It would not. The wallet lock already carries
+**0.10.9 and 0.11.0**: the MLS half of the graph brought 0.11 in through
+`bip32`, `ed25519-dalek`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`, and
+nothing re-read the sentence that said otherwise. 14 packages resolve `sha2`
+on 0.10 and 4 packages on 0.11. So the real cost of moving `f2z-msg-identity` is
+*defection* — it would leave the copy every Zcash crate in the binary shares —
+not a new copy. Both numbers, and both edges, are now `evidence` entries in
+`scripts/check-dependency-register.mjs`, so the next time this drifts the check
+says so rather than a reader eventually noticing.
 
 ---
 
@@ -201,9 +271,10 @@ cheapest of the three rules and the one that would have caught that.
 ## Why a scheduled issue and not a gate
 
 The offline half of `scripts/check-dependency-register.mjs` — this page agreeing
-with `.gitmodules`, the `[patch.crates-io]` set, and librustzcash's declared
-versions — depends on nothing outside this repository, so it is safe to run on a
-pull request and it does.
+with `.gitmodules`, the `[patch.crates-io]` set, every constraint source §3's
+holds name, and the four wallet lockfiles its measured numbers came from —
+depends on nothing outside this repository, so it is safe to run on a pull
+request and it does.
 
 The network half is deliberately **not** a required check. Every one of its
 verdicts is a statement about somebody else's repository: whether `zcash/librustzcash`

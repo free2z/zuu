@@ -11,10 +11,11 @@ name: dependency-register
 # TWO JOBS, AND THE SPLIT IS THE DESIGN.
 #
 #   `offline` runs on pull requests. It reads only files in this repository —
-#   the register, `.gitmodules`, the `[patch.crates-io]` sites and
-#   z/zcash/librustzcash's own `[workspace.dependencies]` — so its verdict
-#   depends on nothing outside the tree and it is safe to run on a contributor's
-#   change.
+#   the register, `.gitmodules`, the `[patch.crates-io]` sites, every constraint
+#   source a version hold names (librustzcash's and zcash_note_encryption's
+#   dependency tables) and the wallet lockfiles the register's measured numbers
+#   were read off — so its verdict depends on nothing outside the tree and it is
+#   safe to run on a contributor's change.
 #
 #   `upstream` runs weekly and on dispatch, and files an issue rather than
 #   failing a check. Every verdict it renders is a statement about someone
@@ -36,6 +37,7 @@ on:
       - 'scripts/check-dependency-register.mjs'
       - '.gitmodules'
       - '**/Cargo.toml'
+      - '**/Cargo.lock'
       - '.github/workflows/dependency-register.yml'
   push:
     branches: [main]
@@ -44,6 +46,7 @@ on:
       - 'scripts/check-dependency-register.mjs'
       - '.gitmodules'
       - '**/Cargo.toml'
+      - '**/Cargo.lock'
       - '.github/workflows/dependency-register.yml'
   schedule:
     # Mondays 08:00 UTC — the `upstream` job only, an hour after zuuallet.yml's
@@ -70,11 +73,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The register claims six version holds are *upstream librustzcash's*
-      # requirement rather than ours. The check re-reads that claim out of
-      # upstream's own manifest, so the submodule has to be here.
-      - name: Fetch librustzcash submodule
-        run: git submodule update --init z/zcash/librustzcash
+      # Section 3's holds are re-read out of the manifests that force them.
+      # Most are librustzcash's `[workspace.dependencies]`; `chacha20poly1305`
+      # is `zcash_note_encryption`'s own `[dependencies]`, which is a separate
+      # crate and therefore a separate submodule. Both have to be here or the
+      # check reports an un-checked-out source rather than a verdict.
+      - name: Fetch the submodules holds are verified against
+        run: |
+          git submodule update --init \
+            z/zcash/librustzcash \
+            z/zcash/zcash_note_encryption
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -101,8 +109,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Fetch librustzcash submodule
-        run: git submodule update --init z/zcash/librustzcash
+      - name: Fetch the submodules holds are verified against
+        run: |
+          git submodule update --init \
+            z/zcash/librustzcash \
+            z/zcash/zcash_note_encryption
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
