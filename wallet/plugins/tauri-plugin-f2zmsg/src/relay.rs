@@ -429,8 +429,10 @@ impl RelayConnection {
     /// `BIND_SEND` (§6.3). Once-only and irreversible.
     ///
     /// `attempt` is what turns `ERR_ALREADY_BOUND` into either
-    /// `send-address-stolen` — a relay operator took the write capability, and
-    /// that is fatal, loud and non-dismissible (§7.4). On an ordinary
+    /// `send-address-stolen` — the fresh address was already bound to another
+    /// or unknown key, and that is fatal, loud and non-dismissible (§7.4).
+    /// The refusal identifies the relay that returned it, not who bound the
+    /// address. On an ordinary
     /// [`BindAttempt::Later`] it is `relay-protocol-violation`, meaning we
     /// should not have tried. In a durable [`BindAttempt::OutcomeUnknown`]
     /// context it is consumed here as [`BindSendOutcome::AlreadyBoundAfterUnknown`]

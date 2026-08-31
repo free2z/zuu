@@ -1161,16 +1161,19 @@ to recover from a failure that has a clean, cheap alternative: make a new queue.
 
 ### 7.4 The consequence, said plainly
 
-**A relay operator who reads `send_addr` out of its own database and calls
-`BIND_SEND` first steals the write capability.** The legitimate sender then gets
-`ERR_ALREADY_BOUND`, and the operator can append whatever it likes to the
-recipient's queue.
+**Anyone who learns `send_addr` and calls `BIND_SEND` first takes the write
+capability.** A malicious relay operator can do that by reading its own database,
+but so can any holder of a leaked, observed, or decommissioned address. The
+legitimate sender then gets `ERR_ALREADY_BOUND`, and the winning key can append
+whatever it likes to the recipient's queue.
 
 The client rule is therefore: **`ERR_ALREADY_BOUND` on a first bind attempt for
 an address that arrived in a fresh `queue_advert` is a loud, non-dismissible
 failure.** Not a retry, not a warning toast, not a log line. The conversation is
 marked as compromised at the transport layer, the queue is abandoned, and the
-user is told that the relay it names behaved incorrectly.
+user is shown the relay that returned the result. The observable fact is only
+that the fresh address was already bound to another or unknown key; the result
+does not identify who performed that bind.
 
 The durable `OutcomeUnknown` reconciliation in §7.3 is deliberately excluded:
 its `ERR_ALREADY_BOUND` is ambiguous rather than theft evidence and is never
@@ -1178,24 +1181,27 @@ exposed through the public error mapper. Any ordinary later bind remains a
 client protocol defect.
 
 **This does not prevent the theft of the write capability. It makes it noisy.**
-The operator gets the capability; what it does not get is silence. That is the
-entire property, and it should be read as exactly that much and no more:
+The winning key holder gets the capability; what it does not get is silence.
+That is the entire property, and it should be read as exactly that much and no
+more:
 
-- The operator cannot **read** the queue — `send_addr` authorizes `APPEND` only,
+- The holder cannot **read** the queue — `send_addr` authorizes `APPEND` only,
   and the recv key is not derivable from it
   ([`ARCHITECTURE.md` §6.2](./ARCHITECTURE.md#62-queues)).
-- Anything the operator appends fails MLS authentication at the recipient, so it
+- Anything the holder appends fails MLS authentication at the recipient, so it
   is garbage, not forgery
   ([`THREAT-MODEL.md` §3.3](./THREAT-MODEL.md#33-compromised-relay-operator-third-party-or-ours)).
-- What the operator gains is the ability to **deny** the legitimate sender its
+- What the holder gains is the ability to **deny** the legitimate sender its
   queue, and to fill the recipient's quota. Both are denial of service, which the
   operator already had by simply refusing to serve.
-- What the design buys is that the denial is **attributable to a specific relay
-  at a specific moment**, rather than presenting as flaky delivery.
+- What the design buys is that the refusal is **attributable to a specific relay
+  at a specific moment**, rather than presenting as flaky delivery. It does not
+  attribute the winning key to that relay.
 
-An operator willing to be caught can do this. Nothing here stops it. The relevant
-comparison is not "secure versus insecure" but "detected versus undetected", and
-the same comparison governs
+A malicious relay operator is one possible winning holder and can do this
+without being prevented. A holder who learned the address elsewhere can do the
+same. The relevant comparison is not "secure versus insecure" but "detected
+versus undetected", and the same comparison governs
 [`THREAT-MODEL.md` §4.5](./THREAT-MODEL.md#45-server-side-deletion-is-auditable-not-verifiable).
 
 A partial narrowing that was considered and **not** adopted in v1: requiring the

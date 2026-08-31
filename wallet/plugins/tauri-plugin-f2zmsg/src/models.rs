@@ -317,8 +317,9 @@ pub enum VerificationState {
 }
 
 /// §3.3. `compromised` means the send side of a queue this conversation depends
-/// on was bound by somebody else (`WIRE.md` §7.4) — loud and non-dismissible,
-/// never a retry and never a toast.
+/// on was already bound to another or unknown key (`WIRE.md` §7.4) — loud and
+/// non-dismissible, never a retry and never a toast. The relay is attributed;
+/// the actor who performed the bind is not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransportHealth {
@@ -720,6 +721,9 @@ pub struct Alarm {
     pub raised_at: i64,
     pub dismissible: NeverDismissible,
     pub handle: Option<String>,
+    /// The relay this alarm attributes, when the alarm is relay-specific.
+    #[serde(default)]
+    pub relay_url: Option<String>,
     pub old_fingerprint: Option<String>,
     pub new_fingerprint: Option<String>,
     /// ADR 0014 platform reset — the UI says "platform-assisted".
@@ -1094,6 +1098,38 @@ mod tests {
         let json = serde_json::to_value(NeverDismissible).expect("serialize");
         assert_eq!(json, serde_json::json!(false));
         assert!(serde_json::from_value::<NeverDismissible>(serde_json::json!(true)).is_err());
+    }
+
+    #[test]
+    fn relay_attribution_serializes_and_old_alarms_default_to_none() {
+        let alarm = Alarm {
+            alarm_id: "alarm".into(),
+            kind: AlarmKind::QueueSendAddressStolen,
+            severity: AlarmSeverity::Critical,
+            raised_at: 7,
+            dismissible: NeverDismissible,
+            handle: Some("peer".into()),
+            relay_url: Some("wss://relay.example/relay/v1".into()),
+            old_fingerprint: None,
+            new_fingerprint: None,
+            platform_assisted: false,
+            cooldown_ends_at: None,
+            acknowledged_at: None,
+        };
+        let json = serde_json::to_value(&alarm).expect("serialize alarm");
+        assert_eq!(json["relayUrl"], "wss://relay.example/relay/v1");
+
+        let mut legacy = json;
+        legacy
+            .as_object_mut()
+            .expect("alarm object")
+            .remove("relayUrl");
+        assert_eq!(
+            serde_json::from_value::<Alarm>(legacy)
+                .expect("legacy alarm")
+                .relay_url,
+            None
+        );
     }
 
     #[test]

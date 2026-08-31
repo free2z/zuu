@@ -49,6 +49,7 @@ export const ErrorCodeSchema = z.enum([
   "storage-full",
   "gap-unrecoverable",
   "not-supported-in-browser",
+  // component-internal (local engine or peer-reported relay/directory fault)
   "internal",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
@@ -491,6 +492,7 @@ export const AlarmSchema = z.object({
   raisedAt: z.number().int(),
   dismissible: z.literal(false),
   handle: z.string().nullable(),
+  relayUrl: z.string().nullable(),
   oldFingerprint: z.string().nullable(),
   newFingerprint: z.string().nullable(),
   /** ADR 0014 platform reset — say "platform-assisted". */

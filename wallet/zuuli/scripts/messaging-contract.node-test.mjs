@@ -75,6 +75,9 @@ const modelsPath = fileURLToPath(
     import.meta.url,
   ),
 );
+const typesPath = fileURLToPath(
+  new URL("../src/lib/messaging/types.ts", import.meta.url),
+);
 
 const contract = readFileSync(contractPath, "utf8");
 const wire = readFileSync(wirePath, "utf8");
@@ -86,6 +89,7 @@ const wireCodes = readFileSync(wireCodesPath, "utf8");
 const engine = readFileSync(enginePath, "utf8");
 const store = readFileSync(storePath, "utf8");
 const models = readFileSync(modelsPath, "utf8");
+const types = readFileSync(typesPath, "utf8");
 
 /// §2.2: these three need the wallet seed, so they live in
 /// `wallet/zuuli/src-tauri/src/messaging.rs` and are invoked with no `plugin:`
@@ -271,14 +275,17 @@ const REVIEWED_BIND_CALLER_DIGESTS = {
 };
 
 const REVIEWED_BIND_HELPER_DIGESTS = {
+  alarms: "cbc1e217f045ec30484a4fb75f4172f06967d01561acd8c43af3fb984d01ba08",
+  acknowledge_alarm: "45679d36b649e2b4f94efe5fa410cb7a57d78d6c36304b39bae66b0dfcf7a7d5",
   append_and_confirm_binding: "616c0079ee090b81565faa6edb08a1d555e4974cc1f3be316240035df29e6a2c",
   persist_and_emit_send_address_stolen: "d354fa606aebbfd60e3c9da844c214e00916f6d0afb0966d596748ccda04157a",
-  ensure_bound: "17b60d211595af28a4c8b94e838af6f489aa3020c4ce35ee90471c4f3c530b95",
+  ensure_bound: "8a9e4793f8e896892fbb34d16e0d3622fdbc8ea6c63ca0305acb0a0c45de2851",
   persist_bind_state: "f9d9a95dee05a8ad5821707b315a39efb5bd7900e7492e6155214a9c7b5e9555",
-  set_peer_advert: "5c4d9c18a3504527555d06204ddb4debd15866a7fbf4b04cd79ab6f0e7884386",
-  unenroll: "47d9c9f95e73ec338ce4c687f3856da4c6f87ae09fc570658e39a26b72b9f509",
-  leave_conversation: "bd2efebc3b8fb5b1fc36414758876113a52f615ed60e61f9d9d3c49416b5c8f4",
+  set_peer_advert: "ed9eccea11aca60298f0549e47486e46a00db816ff320bea7512eca0fe0add61",
+  unenroll: "7010b1db1c2ad84340fa54fb6e068f9b6775644df6dd2cde86ab6e906009ffea",
+  leave_conversation: "673121980c042560f89118c0f3e10e1e03433bf26471c4efaac6cec33fd0b376",
   mark_send_address_stolen_delivery: "3d2495c0d3ce5b117045b37cd798fe839ba9720d7c4b5d9047a0baaa8b1b2283",
+  send_address_stolen_alarm: "3aca370f3dcc4321fa7ebe5ef06fdc85cea259e7d3ff99a1f745eee0d47a3b2f",
 };
 
 function relayErrorContractFailures({
@@ -289,6 +296,7 @@ function relayErrorContractFailures({
   engineRuntime = engine,
   storeRuntime = store,
   publicModels = models,
+  shippingTypes = types,
 } = {}) {
   const failures = [];
   const code10Rows = clientContract
@@ -440,6 +448,8 @@ function relayErrorContractFailures({
   }
 
   for (const name of [
+    "alarms",
+    "acknowledge_alarm",
     "append_and_confirm_binding",
     "persist_and_emit_send_address_stolen",
     "ensure_bound",
@@ -448,6 +458,7 @@ function relayErrorContractFailures({
     "unenroll",
     "leave_conversation",
     "mark_send_address_stolen_delivery",
+    "send_address_stolen_alarm",
   ]) {
     const normalized = normalizedRustFunction(engineRuntime, name);
     const digest =
@@ -457,7 +468,27 @@ function relayErrorContractFailures({
     if (digest !== REVIEWED_BIND_HELPER_DIGESTS[name]) {
       failures.push(`${name} complete comment/literal-insensitive body digest: ${digest}`);
     }
-    if (name === "append_and_confirm_binding") {
+    if (name === "alarms") {
+      if (
+        !normalized?.includes("self.volatile_compromise_alarms.values()") ||
+        !normalized.includes("append_alarm_once(&mut alarms, alarm)")
+      ) {
+        failures.push("public alarm listing omits volatile security evidence");
+      }
+    } else if (name === "acknowledge_alarm") {
+      const commit = normalized?.indexOf(".commit(") ?? -1;
+      const persistAlarm = normalized?.indexOf("records.put_alarms(&alarms)") ?? -1;
+      const persistBlocker = normalized?.indexOf("records.put_conversation(stored)") ?? -1;
+      const clearFallback = normalized?.search(/volatile_compromise_alarms\s*\.remove\(/) ?? -1;
+      if (
+        commit < 0 ||
+        persistAlarm < commit ||
+        persistBlocker < persistAlarm ||
+        clearFallback < commit
+      ) {
+        failures.push("alarm acknowledgement does not atomically persist evidence/blocker before clearing fallback");
+      }
+    } else if (name === "append_and_confirm_binding") {
       const append = normalized?.indexOf(".append(send_key, send_addr, ciphertext)") ?? -1;
       const confirmed = normalized?.indexOf(
         "persist_bind_state(&stored.conversation_id, BindState::Confirmed)",
@@ -489,29 +520,38 @@ function relayErrorContractFailures({
     } else if (name === "set_peer_advert") {
       const parsedAddress = normalized?.indexOf("queue_address(&advert.send_addr)") ?? -1;
       const identical = normalized?.indexOf("if identical") ?? -1;
+      const freshSeed = normalized?.indexOf("rand::rng().fill_bytes(&mut send_key_seed)") ?? -1;
       const replacement = normalized?.indexOf("bind_state: Some(BindState::Fresh)") ?? -1;
       const commit = normalized?.indexOf(".commit(") ?? -1;
-      const clearFallback = normalized?.indexOf(".compromised_conversations.remove(") ?? -1;
+      const flushAlarm = normalized?.indexOf("records.put_alarms(&alarms)") ?? -1;
+      const clearFallback = normalized?.indexOf(".volatile_compromise_alarms.remove(") ?? -1;
       if (
         parsedAddress < 0 ||
         identical < parsedAddress ||
+        freshSeed < identical ||
         replacement < identical ||
         commit < replacement ||
+        flushAlarm < commit ||
         clearFallback < commit
       ) {
-        failures.push("advert replay/replacement state is not canonical and commit-ordered");
+        failures.push("advert replay/replacement key, alarm, or state is not fresh and commit-ordered");
+      }
+      if (normalized?.includes("queue_key(conversation_id, LABEL_QUEUE_SEND)")) {
+        failures.push("distinct replacement advert reuses the deterministic initial send key");
       }
     } else if (name === "unenroll") {
       const commit = normalized?.indexOf(".commit(") ?? -1;
-      const clearFallback = normalized?.indexOf("compromised_conversations.clear()") ?? -1;
-      if (commit < 0 || clearFallback < commit) {
-        failures.push("unenroll clears in-memory compromise before durable deletion");
+      const flushAlarm = normalized?.indexOf("records.put_alarms(&alarms)") ?? -1;
+      const clearFallback = normalized?.indexOf("volatile_compromise_alarms.clear()") ?? -1;
+      if (commit < 0 || flushAlarm < commit || clearFallback < commit) {
+        failures.push("unenroll clears in-memory compromise before durable deletion/alarm flush");
       }
     } else if (name === "leave_conversation") {
       const commit = normalized?.indexOf(".commit(") ?? -1;
-      const clearFallback = normalized?.indexOf(".compromised_conversations.remove(") ?? -1;
-      if (commit < 0 || clearFallback < commit) {
-        failures.push("leave_conversation clears queue compromise before durable removal");
+      const flushAlarm = normalized?.indexOf("records.put_alarms(&alarms)") ?? -1;
+      const clearFallback = normalized?.indexOf(".volatile_compromise_alarms.remove(") ?? -1;
+      if (commit < 0 || flushAlarm < commit || clearFallback < commit) {
+        failures.push("leave_conversation clears queue compromise before durable removal/alarm flush");
       }
     } else if (name === "mark_send_address_stolen_delivery") {
       if (
@@ -519,6 +559,10 @@ function relayErrorContractFailures({
         !normalized.includes("if let Err(error) = self.mark_delivery(")
       ) {
         failures.push("delivery-state failure can mask definitive theft");
+      }
+    } else if (name === "send_address_stolen_alarm") {
+      if (!normalized?.includes("relay_url: Some(relay_url.to_owned())")) {
+        failures.push("queue theft alarm omits the relay returning AlreadyBound");
       }
     }
   }
@@ -601,6 +645,85 @@ function relayErrorContractFailures({
   }
   if (!publicModels.includes("component-internal fault: either this engine failed locally")) {
     failures.push("public ErrorCode model does not describe component-relative internal faults");
+  }
+
+  for (const [name, source, required] of [
+    ["CLIENT-CONTRACT Alarm", clientContract, "relayUrl: string | null;       // required for queue/relay attribution"],
+    ["shipping Alarm schema", shippingTypes, "relayUrl: z.string().nullable()"],
+    ["Rust Alarm model", publicModels, "#[serde(default)]\n    pub relay_url: Option<String>"],
+    ["shipping theft alarm", engineRuntime, "send_address_stolen_alarm(&current.peer_handle, &outbound.relay_url)"],
+    ["shipping theft alarm field", engineRuntime, "relay_url: Some(relay_url.to_owned())"],
+  ]) {
+    if (!source.includes(required)) {
+      failures.push(`${name} is missing ${JSON.stringify(required)}`);
+    }
+  }
+
+  for (const required of [
+    "already bound to another or unknown key",
+    "name the relay that returned the result",
+    "does not identify who bound it",
+  ]) {
+    if (!clientContract.includes(required)) {
+      failures.push(`CLIENT-CONTRACT neutral theft attribution is missing ${JSON.stringify(required)}`);
+    }
+  }
+  for (const required of [
+    "leaked, observed, or decommissioned address",
+    "shown the relay that returned the result",
+    "does not identify who performed that bind",
+  ]) {
+    if (!wireSpec.includes(required)) {
+      failures.push(`WIRE neutral theft attribution is missing ${JSON.stringify(required)}`);
+    }
+  }
+  if (!publicModels.includes("The relay is attributed;\n/// the actor who performed the bind is not.")) {
+    failures.push("public transport model over-attributes a fresh AlreadyBound actor");
+  }
+  if (!relayRuntime.includes("The refusal identifies the relay that returned it, not who bound the")) {
+    failures.push("shipping relay client over-attributes a fresh AlreadyBound actor");
+  }
+
+  for (const required of [
+    "acknowledging_volatile_alarm_durably_preserves_active_queue_blocker",
+    "relay_attribution_serializes_and_old_alarms_default_to_none",
+    "a failed unenrollment must not partially flush volatile evidence",
+    "successful removal must discard the queue-scoped blocker",
+    "recovered storage installs replacement and flushes alarm",
+    "assert_ne!(\n            replacement_queue.send_key_seed",
+    "legacy unknown retry remained",
+  ]) {
+    if (!engineRuntime.includes(required) && !publicModels.includes(required)) {
+      failures.push(`shipping alarm/replacement regression is missing ${JSON.stringify(required)}`);
+    }
+  }
+
+  const componentSection =
+    "// component-internal (local engine or peer-reported relay/directory fault)";
+  for (const [name, source, startMarker, endMarker] of [
+    ["CLIENT-CONTRACT ErrorCode union", clientContract, "type ErrorCode =", "```"],
+    ["shipping ErrorCode schema", shippingTypes, "export const ErrorCodeSchema", "]);"],
+  ]) {
+    const start = source.indexOf(startMarker);
+    const end = start < 0 ? -1 : source.indexOf(endMarker, start + startMarker.length);
+    const block = start < 0 || end < 0 ? "" : source.slice(start, end);
+    const local = block.indexOf("// local");
+    const component = block.indexOf(componentSection);
+    const internal = block.indexOf('"internal"');
+    const componentCount = block.split(componentSection).length - 1;
+    const directlyClassified =
+      component >= 0 &&
+      /^\s*\|?\s*"internal"\s*[,;]/.test(block.slice(component + componentSection.length));
+    if (
+      local < 0 ||
+      component <= local ||
+      internal <= component ||
+      componentCount !== 1 ||
+      !directlyClassified ||
+      block.slice(local, component).includes('"internal"')
+    ) {
+      failures.push(`${name} does not classify internal as component-relative`);
+    }
   }
 
   return failures;
@@ -966,7 +1089,7 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
   const advertCommitOrderMutation = mutateRustFunction(engine, "set_peer_advert", (body) =>
     body.replace(
       "        self.records()",
-      "        if let Some(identity) = &old_identity { self.compromised_conversations.remove(identity); }\n        self.records()",
+      "        if let Some(identity) = &old_identity { self.volatile_compromise_alarms.remove(identity); }\n        self.records()",
     ),
   );
   assert.notDeepEqual(
@@ -977,7 +1100,7 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
   const unenrollOrderMutation = mutateRustFunction(engine, "unenroll", (body) =>
     body.replace(
       "        let ids = inner.records().conversation_ids()?;",
-      "        inner.compromised_conversations.clear();\n        let ids = inner.records().conversation_ids()?;",
+      "        inner.volatile_compromise_alarms.clear();\n        let ids = inner.records().conversation_ids()?;",
     ),
   );
   assert.notDeepEqual(
@@ -988,7 +1111,7 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
   const leaveOrderMutation = mutateRustFunction(engine, "leave_conversation", (body) =>
     body.replace(
       "        inner.groups.remove(conversation_id);",
-      "        inner.compromised_conversations.remove(&old_identity.clone().unwrap());\n        inner.groups.remove(conversation_id);",
+      "        inner.volatile_compromise_alarms.remove(&old_identity.clone().unwrap());\n        inner.groups.remove(conversation_id);",
     ),
   );
   assert.notDeepEqual(
@@ -1029,4 +1152,137 @@ test("relay error binding rejects public-contract, mapper, and call-site mutatio
     relayErrorContractFailures({ publicModels: internalRuntimeMutation }),
     [],
   );
+
+  const componentSection =
+    "// component-internal (local engine or peer-reported relay/directory fault)";
+  const internalUnionMutation = contract.replace(
+    `${componentSection}\n  | "internal";`,
+    `| "internal";\n  ${componentSection}`,
+  );
+  assert.notEqual(
+    internalUnionMutation,
+    contract,
+    "CLIENT-CONTRACT internal classification mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: internalUnionMutation }),
+    [],
+  );
+
+  const internalSchemaMutation = types.replace(
+    `${componentSection}\n  "internal",`,
+    `"internal",\n  ${componentSection}`,
+  );
+  assert.notEqual(
+    internalSchemaMutation,
+    types,
+    "shipping internal classification mutation did not apply",
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTypes: internalSchemaMutation }),
+    [],
+  );
+
+  const alarmContractMutation = contract.replace(
+    "  relayUrl: string | null;       // required for queue/relay attribution\n",
+    "",
+  );
+  assert.notEqual(alarmContractMutation, contract, "Alarm contract mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: alarmContractMutation }),
+    [],
+  );
+
+  const alarmSchemaMutation = types.replace("  relayUrl: z.string().nullable(),\n", "");
+  assert.notEqual(alarmSchemaMutation, types, "Alarm schema mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ shippingTypes: alarmSchemaMutation }),
+    [],
+  );
+
+  const alarmModelMutation = models.replace(
+    "#[serde(default)]\n    pub relay_url: Option<String>",
+    "pub relay_url: Option<String>",
+  );
+  assert.notEqual(alarmModelMutation, models, "Alarm model mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ publicModels: alarmModelMutation }),
+    [],
+  );
+
+  const alarmFieldMutation = mutateRustFunction(engine, "send_address_stolen_alarm", (body) =>
+    body.replace("relay_url: Some(relay_url.to_owned())", "relay_url: None"),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: alarmFieldMutation }),
+    [],
+  );
+
+  const alarmCallMutation = engine.replace(
+    "send_address_stolen_alarm(&current.peer_handle, &outbound.relay_url)",
+    "send_address_stolen_alarm(&current.peer_handle, \"unknown relay\")",
+  );
+  assert.notEqual(alarmCallMutation, engine, "Alarm attribution call mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: alarmCallMutation }),
+    [],
+  );
+
+  const replacementKeyMutation = mutateRustFunction(engine, "set_peer_advert", (body) =>
+    body.replace(
+      "rand::rng().fill_bytes(&mut send_key_seed);",
+      "send_key_seed = self.queue_key(conversation_id, LABEL_QUEUE_SEND)?;",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: replacementKeyMutation }),
+    [],
+  );
+
+  const volatileListMutation = mutateRustFunction(engine, "alarms", (body) =>
+    body.replace("for alarm in self.volatile_compromise_alarms.values()", "for alarm in [].iter()"),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: volatileListMutation }),
+    [],
+  );
+
+  const acknowledgeBlockerMutation = mutateRustFunction(engine, "acknowledge_alarm", (body) =>
+    body.replace(
+      "records.put_conversation(stored)?;",
+      "let _mutation_drops_the_durable_queue_blocker = stored;",
+    ),
+  );
+  assert.notDeepEqual(
+    relayErrorContractFailures({ engineRuntime: acknowledgeBlockerMutation }),
+    [],
+  );
+
+  for (const name of ["set_peer_advert", "unenroll", "leave_conversation"]) {
+    const flushMutation = mutateRustFunction(engine, name, (body) =>
+      body.replace("records.put_alarms(&alarms)", "Ok(())"),
+    );
+    assert.notDeepEqual(
+      relayErrorContractFailures({ engineRuntime: flushMutation }),
+      [],
+      `${name} volatile alarm flush mutation escaped`,
+    );
+  }
+
+  const neutralContractMutation = contract.replace(
+    "The result does not identify who bound it.",
+    "The relay operator bound it.",
+  );
+  assert.notEqual(neutralContractMutation, contract, "neutral contract mutation did not apply");
+  assert.notDeepEqual(
+    relayErrorContractFailures({ clientContract: neutralContractMutation }),
+    [],
+  );
+
+  const neutralWireMutation = wire.replace(
+    "the result\ndoes not identify who performed that bind.",
+    "the relay operator performed that bind.",
+  );
+  assert.notEqual(neutralWireMutation, wire, "neutral WIRE mutation did not apply");
+  assert.notDeepEqual(relayErrorContractFailures({ wireSpec: neutralWireMutation }), []);
 });

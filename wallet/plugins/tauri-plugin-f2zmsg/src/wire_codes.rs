@@ -37,9 +37,11 @@ use crate::models::ErrorCode;
 
 /// Whether this is the first bind for an address the peer has just advertised.
 ///
-/// `ERR_ALREADY_BOUND` on a *first* bind means a relay operator took the write
-/// capability (`WIRE.md` §7.4) and is fatal, loud and non-dismissible. On any
-/// later bind it means we should not have tried, which is our own bug.
+/// `ERR_ALREADY_BOUND` on a *first* bind means the fresh address was already
+/// bound to another or unknown key (`WIRE.md` §7.4) and is fatal, loud and
+/// non-dismissible. It identifies the relay returning the refusal, not who
+/// bound the address. On any later bind it means we should not have tried,
+/// which is our own bug.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindAttempt {
     FirstForFreshAdvert,

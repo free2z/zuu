@@ -486,8 +486,8 @@ conversation is unaffected. A UI that surfaces engine state should treat it the
 same way it treats a missing contact queue: reachable-by-nobody, not broken.
 
 `transportHealth: "compromised"` means the send side of a queue this conversation
-depends on was bound by somebody else — `ERR_ALREADY_BOUND` on a first bind for
-a freshly advertised address
+depends on was already bound to another or unknown key — `ERR_ALREADY_BOUND` on
+a first bind for a freshly advertised address
 ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). It is a loud,
 non-dismissible failure, not a retry and not a toast.
 
@@ -828,6 +828,7 @@ interface Alarm {
   raisedAt: number;
   dismissible: false;            // structurally false for every critical alarm
   handle: string | null;
+  relayUrl: string | null;       // required for queue/relay attribution
   oldFingerprint: string | null;
   newFingerprint: string | null;
   platformAssisted: boolean;     // ADR 0014 platform_reset
@@ -1670,6 +1671,7 @@ type ErrorCode =
   | "storage-full"
   | "gap-unrecoverable"
   | "not-supported-in-browser"
+  // component-internal (local engine or peer-reported relay/directory fault)
   | "internal";
 ```
 
@@ -1685,7 +1687,7 @@ type ErrorCode =
 | `relay-refused-insecure` | | The relay declares `transport_security: "none"` or `channel_binding_mode: "none"` and the user has not opted in. Offer the opt-in with copy stating that ciphertext is protected by MLS but connection metadata, queue addresses and commands travel in the clear ([`WIRE.md` §2.3](./WIRE.md#23-listener-rules-and-the-insecure-override)). |
 | `relay-capability-mismatch` | | Its padding set, TTL ceiling, or `.well-known` digest disagrees with what it serves. Refuse the relay and say which check failed ([`WIRE.md` §11.2](./WIRE.md#112-served-two-ways-on-purpose), [§11.3](./WIRE.md#113-what-a-client-does-with-it)). |
 | `send-unavailable` | ● | The single collapsed send-side refusal: absent, deleted, expired, full, or backpressure — the relay is forbidden from distinguishing them ([`WIRE.md` §6.3](./WIRE.md#63-commands-signed-by-the-send-side-queue-key)). Exponential backoff to the retry budget, then ask the peer in-band for a fresh queue advert. **The UI cannot tell the user why, and must not guess.** |
-| `send-address-stolen` | | **Fatal, loud, non-dismissible.** `ERR_ALREADY_BOUND` on a first bind for a freshly advertised address: a relay operator took the write capability ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). Mark `transportHealth: "compromised"`, abandon the queue, name the relay. Not a warning toast. Not a log line. |
+| `send-address-stolen` | | **Fatal, loud, non-dismissible.** `ERR_ALREADY_BOUND` on a first bind for a freshly advertised address means the address was already bound to another or unknown key ([`WIRE.md` §7.4](./WIRE.md#74-the-consequence-said-plainly)). Mark `transportHealth: "compromised"`, abandon the queue, and name the relay that returned the result. The result does not identify who bound it. Not a warning toast. Not a log line. |
 | `pow-required` | ● | Obtain a challenge and compute a stamp. Show it as work, not as a network wait. |
 | `pow-failed` | ● | The challenge expired or was consumed. Get a fresh one and retry once. |
 | `directory-unreachable` | ● | Existing conversations continue. New-handle resolution is unavailable — say that, do not fall back. |

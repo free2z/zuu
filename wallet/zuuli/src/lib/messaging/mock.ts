@@ -210,6 +210,7 @@ function initialState(): MockState {
               raisedAt: Date.UTC(2026, 7, 24),
               dismissible: false,
               handle: null,
+              relayUrl: null,
               oldFingerprint: null,
               newFingerprint: null,
               platformAssisted: false,

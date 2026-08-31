@@ -43,7 +43,7 @@
 //! and application records; `f2z-msg-store` can express that and `f2z-msg-mls`
 //! does not expose it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead as _, KeyInit as _};
@@ -182,9 +182,10 @@ struct Inner<B: StorageBackend> {
     /// emit after their durable commit; a refused commit still emits the loud
     /// in-memory fallback while the process-local blocker stays active.
     sink: Arc<dyn EventSink>,
-    /// Definitive theft evidence whose durable write failed. Sticky for this
-    /// process so retries cannot continue on the compromised queue.
-    compromised_conversations: HashSet<String>,
+    /// Definitive queue-theft alarms whose atomic durable write failed, keyed
+    /// by outbound identity. They keep the queue blocked and the alarm list
+    /// honest until a later durable transition flushes the evidence.
+    volatile_compromise_alarms: HashMap<String, Alarm>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,7 +265,7 @@ impl<B: StorageBackend> Engine<B> {
                 dags: HashMap::new(),
                 queue_seed: None,
                 sink: inner_sink,
-                compromised_conversations: HashSet::new(),
+                volatile_compromise_alarms: HashMap::new(),
             }),
             sink,
             directory: Arc::new(NoDirectory),
@@ -616,17 +617,22 @@ impl<B: StorageBackend> Engine<B> {
         inner.mls = None;
         inner.queue_seed = None;
         let ids = inner.records().conversation_ids()?;
+        let mut alarms = inner.records().alarms()?;
+        for alarm in inner.volatile_compromise_alarms.values() {
+            append_alarm_once(&mut alarms, alarm);
+        }
         inner.records().commit(|records| {
             for id in &ids {
                 records.remove_conversation(id)?;
             }
-            records.clear_identity()
+            records.clear_identity()?;
+            records.put_alarms(&alarms)
         })?;
         // `stop` deliberately retains this process-local evidence, but a
         // completed unenrollment has durably removed every queue identity it
         // could describe. Clear it only after that commit succeeds: otherwise
         // a failed unenrollment could reopen an actively compromised queue.
-        inner.compromised_conversations.clear();
+        inner.volatile_compromise_alarms.clear();
         inner.state = EngineState::NotEnrolled;
         let status = inner.status(&*self.directory)?;
         self.sink.engine_state(&status);
@@ -880,17 +886,26 @@ impl<B: StorageBackend> Engine<B> {
         let mut inner = self.inner.lock().await;
         let stored = inner.conversation(conversation_id)?;
         let old_identity = outbound_identity(&stored);
+        let volatile_alarm = old_identity
+            .as_ref()
+            .and_then(|identity| inner.volatile_compromise_alarms.get(identity))
+            .cloned();
+        let mut alarms = inner.records().alarms()?;
+        if let Some(alarm) = &volatile_alarm {
+            append_alarm_once(&mut alarms, alarm);
+        }
         inner.groups.remove(conversation_id);
         // The DAG is derived from the records being removed here. Leaving it
         // behind would let a re-created conversation with the same id inherit a
         // graph describing messages that no longer exist — and `msg_id` being a
         // content hash means a stale vertex looks exactly like a real one.
         inner.dags.remove(conversation_id);
-        inner
-            .records()
-            .commit(|records| records.remove_conversation(conversation_id))?;
+        inner.records().commit(|records| {
+            records.remove_conversation(conversation_id)?;
+            records.put_alarms(&alarms)
+        })?;
         if let Some(identity) = old_identity {
-            inner.compromised_conversations.remove(&identity);
+            inner.volatile_compromise_alarms.remove(&identity);
         }
         Ok(())
     }
@@ -1712,7 +1727,7 @@ impl<B: StorageBackend> Engine<B> {
     /// `internal` if the store cannot be read.
     pub async fn list_alarms(&self) -> Result<Vec<Alarm>> {
         let inner = self.inner.lock().await;
-        inner.records().alarms()
+        inner.alarms()
     }
 
     /// §3.10 `acknowledge_alarm`.
@@ -1730,17 +1745,64 @@ impl<B: StorageBackend> Engine<B> {
                 "acknowledging an alarm requires a typed confirmation",
             ));
         }
-        let inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().await;
         let mut alarms = inner.records().alarms()?;
-        let alarm = alarms
-            .iter_mut()
-            .find(|alarm| alarm.alarm_id == alarm_id)
-            .ok_or_else(|| Error::internal("no such alarm"))?;
-        alarm.acknowledged_at = Some(now_ms());
-        let acknowledged = alarm.clone();
-        inner
-            .records()
-            .commit(|records| records.put_alarms(&alarms))?;
+        let volatile_identity = inner
+            .volatile_compromise_alarms
+            .iter()
+            .find_map(|(identity, alarm)| (alarm.alarm_id == alarm_id).then(|| identity.clone()));
+        let acknowledged =
+            if let Some(alarm) = alarms.iter_mut().find(|alarm| alarm.alarm_id == alarm_id) {
+                alarm.acknowledged_at = Some(now_ms());
+                alarm.clone()
+            } else if let Some(identity) = volatile_identity.as_ref() {
+                let mut alarm = inner
+                    .volatile_compromise_alarms
+                    .get(identity)
+                    .cloned()
+                    .ok_or_else(|| Error::internal("volatile alarm disappeared"))?;
+                alarm.acknowledged_at = Some(now_ms());
+                append_alarm_once(&mut alarms, &alarm);
+                alarm
+            } else {
+                return Err(Error::internal("no such alarm"));
+            };
+        let mut recovered_conversation = None;
+        if let Some(identity) = volatile_identity.as_ref() {
+            for conversation_id in inner.records().conversation_ids()? {
+                let Some(mut stored) = inner.records().conversation(&conversation_id)? else {
+                    continue;
+                };
+                if outbound_identity(&stored).as_ref() == Some(identity) {
+                    // Storage has recovered. Make both halves of the security
+                    // transition durable in the same commit before replacing
+                    // the volatile blocker: acknowledgement is never a route
+                    // to reopening the abandoned queue, including on restart.
+                    stored.send_address_stolen = true;
+                    recovered_conversation = Some(stored);
+                    break;
+                }
+            }
+        }
+        inner.records().commit(|records| {
+            records.put_alarms(&alarms)?;
+            if let Some(stored) = &recovered_conversation {
+                records.put_conversation(stored)?;
+            }
+            Ok(())
+        })?;
+        if let Some(identity) = volatile_identity {
+            if recovered_conversation.is_some() {
+                inner.volatile_compromise_alarms.remove(&identity);
+            } else {
+                // No live queue identity remains to block, but retain the
+                // in-process evidence until a lifecycle transition can flush
+                // or clear the orphan deterministically.
+                inner
+                    .volatile_compromise_alarms
+                    .insert(identity, acknowledged.clone());
+            }
+        }
         self.sink.alarm(&acknowledged);
         Ok(acknowledged)
     }
@@ -2301,6 +2363,19 @@ impl<B: StorageBackend> Inner<B> {
         RecordStore::new(&self.records)
     }
 
+    fn alarms(&self) -> Result<Vec<Alarm>> {
+        let mut alarms = self.records().alarms()?;
+        for alarm in self.volatile_compromise_alarms.values() {
+            append_alarm_once(&mut alarms, alarm);
+        }
+        alarms.sort_by(|left, right| {
+            left.raised_at
+                .cmp(&right.raised_at)
+                .then_with(|| left.alarm_id.cmp(&right.alarm_id))
+        });
+        Ok(alarms)
+    }
+
     /// The conversation's causal DAG, rebuilt from the store on first use.
     ///
     /// `f2z-msg-dag` persists nothing, deliberately: it is `no_std` and the
@@ -2467,8 +2542,9 @@ impl<B: StorageBackend> Inner<B> {
             // a send affordance is supposed to be gated on.
             transport_health: if self.send_address_is_stolen(stored) {
                 // §7.4: the send side of a queue this conversation depends on
-                // was bound by somebody else. Loud and non-dismissible — never
-                // a toast, never a retry.
+                // was already bound to another or unknown key. Attribute the
+                // relay returning that result, not an unobservable actor. Loud
+                // and non-dismissible — never a toast, never a retry.
                 TransportHealth::Compromised
             } else if stored.queues.inbound.is_none() {
                 TransportHealth::Unavailable
@@ -2710,10 +2786,7 @@ impl<B: StorageBackend> Inner<B> {
                 // conversation compromised and persist its alarm atomically,
                 // then emit only after that commit. Not a warning toast and not
                 // a log line.
-                let alarm = send_address_stolen_alarm(&current.peer_handle);
-                if let Some(identity) = outbound_identity(&current) {
-                    self.compromised_conversations.insert(identity);
-                }
+                let alarm = send_address_stolen_alarm(&current.peer_handle, &outbound.relay_url);
                 if let Err(commit_error) =
                     self.persist_and_emit_send_address_stolen(&stored.conversation_id, &alarm)
                 {
@@ -2725,6 +2798,10 @@ impl<B: StorageBackend> Inner<B> {
                         code = %commit_error.code(),
                         "could not persist send-address-stolen evidence atomically"
                     );
+                    if let Some(identity) = outbound_identity(&current) {
+                        self.volatile_compromise_alarms
+                            .insert(identity, alarm.clone());
+                    }
                     self.sink.alarm(&alarm);
                 }
                 Err(error)
@@ -2771,7 +2848,7 @@ impl<B: StorageBackend> Inner<B> {
     fn send_address_is_stolen(&self, stored: &StoredConversation) -> bool {
         stored.send_address_stolen
             || outbound_identity(stored)
-                .is_some_and(|identity| self.compromised_conversations.contains(&identity))
+                .is_some_and(|identity| self.volatile_compromise_alarms.contains_key(&identity))
     }
 
     /// Send the same-key `APPEND` that reconciles an unknown `BIND_SEND`
@@ -3074,7 +3151,7 @@ fn kind_slug(kind: AlarmKind) -> &'static str {
     }
 }
 
-fn send_address_stolen_alarm(peer_handle: &str) -> Alarm {
+fn send_address_stolen_alarm(peer_handle: &str, relay_url: &str) -> Alarm {
     let now = now_ms();
     Alarm {
         alarm_id: format!("{}-{now}", kind_slug(AlarmKind::QueueSendAddressStolen)),
@@ -3083,11 +3160,21 @@ fn send_address_stolen_alarm(peer_handle: &str) -> Alarm {
         raised_at: now,
         dismissible: NeverDismissible,
         handle: Some(peer_handle.to_owned()),
+        relay_url: Some(relay_url.to_owned()),
         old_fingerprint: None,
         new_fingerprint: None,
         platform_assisted: false,
         cooldown_ends_at: None,
         acknowledged_at: None,
+    }
+}
+
+fn append_alarm_once(alarms: &mut Vec<Alarm>, alarm: &Alarm) {
+    if !alarms
+        .iter()
+        .any(|existing| existing.alarm_id == alarm.alarm_id)
+    {
+        alarms.push(alarm.clone());
     }
 }
 
@@ -3446,12 +3533,22 @@ impl<B: StorageBackend> Inner<B> {
             // and any active theft evidence; it is not a fresh bind attempt.
             return Ok(());
         }
+        let mut send_key_seed = [0_u8; 32];
+        rand::rng().fill_bytes(&mut send_key_seed);
         let old_identity = outbound_identity(&stored);
+        let volatile_alarm = old_identity
+            .as_ref()
+            .and_then(|identity| self.volatile_compromise_alarms.get(identity))
+            .cloned();
+        let mut alarms = self.records().alarms()?;
+        if let Some(alarm) = &volatile_alarm {
+            append_alarm_once(&mut alarms, alarm);
+        }
         stored.queues.outbound = Some(OutboundQueue {
             relay_url: advert.relay_url.clone(),
             relay_id: advert.relay_id.clone(),
             send_addr: canonical_send_addr,
-            send_key_seed: hex::encode(self.queue_key(conversation_id, LABEL_QUEUE_SEND)?),
+            send_key_seed: hex::encode(send_key_seed),
             bind_state: Some(BindState::Fresh),
             bound: false,
         });
@@ -3459,10 +3556,12 @@ impl<B: StorageBackend> Inner<B> {
         // active property of the abandoned queue, not of every future queue in
         // the conversation.
         stored.send_address_stolen = false;
-        self.records()
-            .commit(|records| records.put_conversation(&stored))?;
+        self.records().commit(|records| {
+            records.put_conversation(&stored)?;
+            records.put_alarms(&alarms)
+        })?;
         if let Some(identity) = old_identity {
-            self.compromised_conversations.remove(&identity);
+            self.volatile_compromise_alarms.remove(&identity);
         }
         Ok(())
     }
@@ -5127,13 +5226,13 @@ mod tests {
         }
     }
 
-    struct FailApplyNumber {
-        inner: MemoryBackend,
+    struct FailApplyNumber<B = MemoryBackend> {
+        inner: B,
         calls: AtomicUsize,
         fail_on: Arc<AtomicUsize>,
     }
 
-    impl StorageBackend for FailApplyNumber {
+    impl<B: StorageBackend> StorageBackend for FailApplyNumber<B> {
         fn get(&self, key: &[u8]) -> f2z_msg_store::Result<Option<Vec<u8>>> {
             self.inner.get(key)
         }
@@ -5300,8 +5399,11 @@ mod tests {
             .inner
             .lock()
             .await
-            .compromised_conversations
-            .insert("old-queue-identity".into());
+            .volatile_compromise_alarms
+            .insert(
+                "old-queue-identity".into(),
+                send_address_stolen_alarm("peer", "wss://relay.example/relay/v1"),
+            );
         failed_commit.store(true, Ordering::SeqCst);
         assert_eq!(
             failed_engine
@@ -5316,9 +5418,20 @@ mod tests {
                 .inner
                 .lock()
                 .await
-                .compromised_conversations
-                .contains("old-queue-identity"),
+                .volatile_compromise_alarms
+                .contains_key("old-queue-identity"),
             "a failed durable deletion must retain the in-memory blocker"
+        );
+        assert!(
+            failed_engine
+                .inner
+                .lock()
+                .await
+                .records()
+                .alarms()
+                .expect("durable alarms")
+                .is_empty(),
+            "a failed unenrollment must not partially flush volatile evidence"
         );
 
         let successful_engine = test_engine(MemoryBackend::new());
@@ -5326,20 +5439,25 @@ mod tests {
             .inner
             .lock()
             .await
-            .compromised_conversations
-            .insert("old-queue-identity".into());
+            .volatile_compromise_alarms
+            .insert(
+                "old-queue-identity".into(),
+                send_address_stolen_alarm("peer", "wss://relay.example/relay/v1"),
+            );
         successful_engine
             .unenroll("delete my enrollment")
             .await
             .expect("durable unenrollment");
+        let successful_inner = successful_engine.inner.lock().await;
         assert!(
-            successful_engine
-                .inner
-                .lock()
-                .await
-                .compromised_conversations
-                .is_empty(),
+            successful_inner.volatile_compromise_alarms.is_empty(),
             "a completed unenrollment must discard process-local queue identities"
+        );
+        let durable = successful_inner.records().alarms().expect("durable alarms");
+        assert_eq!(durable.len(), 1);
+        assert_eq!(
+            durable[0].relay_url.as_deref(),
+            Some("wss://relay.example/relay/v1")
         );
     }
 
@@ -5366,7 +5484,10 @@ mod tests {
                 .records()
                 .commit(|records| records.put_conversation(&stored))
                 .expect("initial conversation");
-            inner.compromised_conversations.insert(identity.clone());
+            inner.volatile_compromise_alarms.insert(
+                identity.clone(),
+                send_address_stolen_alarm("peer", "ws://relay.invalid/relay/v1"),
+            );
         }
         failed_commit.store(true, Ordering::SeqCst);
         assert_eq!(
@@ -5380,9 +5501,12 @@ mod tests {
         let failed_inner = failed_engine.inner.lock().await;
         assert!(failed_inner.conversation("conversation").is_ok());
         assert!(
-            failed_inner.compromised_conversations.contains(&identity),
+            failed_inner
+                .volatile_compromise_alarms
+                .contains_key(&identity),
             "a failed durable removal must retain the queue blocker"
         );
+        assert!(failed_inner.records().alarms().expect("alarms").is_empty());
         drop(failed_inner);
 
         let successful_engine = test_engine(MemoryBackend::new());
@@ -5392,7 +5516,10 @@ mod tests {
                 .records()
                 .commit(|records| records.put_conversation(&stored))
                 .expect("initial conversation");
-            inner.compromised_conversations.insert(identity.clone());
+            inner.volatile_compromise_alarms.insert(
+                identity.clone(),
+                send_address_stolen_alarm("peer", "ws://relay.invalid/relay/v1"),
+            );
         }
         successful_engine
             .leave_conversation("conversation")
@@ -5402,10 +5529,96 @@ mod tests {
         assert!(successful_inner.conversation("conversation").is_err());
         assert!(
             !successful_inner
-                .compromised_conversations
-                .contains(&identity),
+                .volatile_compromise_alarms
+                .contains_key(&identity),
             "successful removal must discard the queue-scoped blocker"
         );
+        let durable = successful_inner.records().alarms().expect("durable alarms");
+        assert_eq!(durable.len(), 1);
+        assert_eq!(
+            durable[0].relay_url.as_deref(),
+            Some("ws://relay.invalid/relay/v1")
+        );
+    }
+
+    #[tokio::test]
+    async fn acknowledging_volatile_alarm_durably_preserves_active_queue_blocker() {
+        let queue_addr =
+            f2z_codec::types::QueueAddress::from_slice(&[9; 32]).expect("test queue address");
+        let stored = conversation(
+            "ws://relay.invalid/relay/v1",
+            queue_addr,
+            [7; 32],
+            BindState::Fresh,
+        );
+        let identity = outbound_identity(&stored).expect("outbound identity");
+        let root = tempfile::tempdir().expect("tempdir");
+        let database = root.path().join("acknowledged-volatile-alarm.sqlite3");
+        let sink = Arc::new(RecordingSink::new());
+        let engine = Engine::new(
+            SqliteBackend::open(&database).expect("database"),
+            sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("test engine");
+        let alarm = send_address_stolen_alarm("peer", "ws://relay.invalid/relay/v1");
+        let alarm_id = alarm.alarm_id.clone();
+        {
+            let mut inner = engine.inner.lock().await;
+            inner
+                .records()
+                .commit(|records| records.put_conversation(&stored))
+                .expect("conversation");
+            inner
+                .volatile_compromise_alarms
+                .insert(identity.clone(), alarm);
+        }
+
+        let listed = engine.list_alarms().await.expect("merged alarms");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0].relay_url.as_deref(),
+            Some("ws://relay.invalid/relay/v1")
+        );
+        let acknowledged = engine
+            .acknowledge_alarm(&alarm_id, "I understand")
+            .await
+            .expect("acknowledge volatile alarm");
+        assert!(acknowledged.acknowledged_at.is_some());
+
+        let inner = engine.inner.lock().await;
+        assert!(!inner.volatile_compromise_alarms.contains_key(&identity));
+        let durably_blocked = inner.conversation("conversation").expect("conversation");
+        assert!(durably_blocked.send_address_stolen);
+        assert!(inner.send_address_is_stolen(&durably_blocked));
+        assert_eq!(
+            inner
+                .view(&durably_blocked)
+                .expect("public view")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+        let durable = inner.records().alarms().expect("durable alarms");
+        assert_eq!(durable.len(), 1);
+        assert!(durable[0].acknowledged_at.is_some());
+        assert_eq!(sink.payloads(names::ALARM).len(), 1);
+        drop(inner);
+        drop(engine);
+
+        let restarted = test_engine(SqliteBackend::open(&database).expect("reopen database"));
+        let inner = restarted.inner.lock().await;
+        let after_restart = inner.conversation("conversation").expect("conversation");
+        assert!(after_restart.send_address_stolen);
+        assert_eq!(
+            inner
+                .view(&after_restart)
+                .expect("public view")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+        let alarms = inner.records().alarms().expect("alarms");
+        assert_eq!(alarms.len(), 1);
+        assert!(alarms[0].acknowledged_at.is_some());
     }
 
     #[tokio::test]
@@ -5416,7 +5629,6 @@ mod tests {
         let mut connection = relay_connection(&url).await;
         let (_send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
         let stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
-
         let fail = Arc::new(AtomicBool::new(false));
         let engine = test_engine(FailNextApply {
             inner: MemoryBackend::new(),
@@ -5611,7 +5823,13 @@ mod tests {
             )
             .await
             .expect("shipping delivery reconciles unknown-outcome BIND");
-        assert_eq!(delivered.state, DeliveryState::Accepted);
+        assert_eq!(
+            delivered.state,
+            DeliveryState::Accepted,
+            "stale-clone reconciliation remained {:?} with failure {:?}",
+            delivered.state,
+            delivered.failure
+        );
 
         let confirmed = inner
             .conversation("conversation")
@@ -5714,7 +5932,13 @@ mod tests {
             .deliver(&unknown, "message", b"unknown-outcome-reconciliation", 3)
             .await
             .expect("honest AlreadyBound reconciles through APPEND");
-        assert_eq!(delivered.state, DeliveryState::Accepted);
+        assert_eq!(
+            delivered.state,
+            DeliveryState::Accepted,
+            "AlreadyBound reconciliation remained {:?} with failure {:?}",
+            delivered.state,
+            delivered.failure
+        );
         let confirmed = inner.conversation("conversation").expect("confirmed");
         let confirmed_queue = confirmed.queues.outbound.as_ref().expect("outbound");
         assert_eq!(confirmed_queue.bind_state, Some(BindState::Confirmed));
@@ -5768,7 +5992,7 @@ mod tests {
                 records.put_message(&pending_message())
             })
             .expect("initial records");
-        inner.connections.insert(url, connection);
+        inner.connections.insert(url.clone(), connection);
 
         let accepted = inner
             .deliver(&stored, "message", b"accepted-before-local-confirmation", 3)
@@ -5831,7 +6055,7 @@ mod tests {
         assert!(sink.payloads(names::ALARM).is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn legacy_unknown_unbound_restart_binds_appends_and_confirms_without_alarm() {
         let relay = FakeRelay::with_defaults().expect("fake relay");
         let server = relay.listen_loopback().await.expect("relay listener");
@@ -5840,6 +6064,7 @@ mod tests {
         let database = root.path().join("legacy-unbound.sqlite3");
         let mut connection = relay_connection(&url).await;
         let (_send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
+        drop(connection);
         let mut legacy = conversation(&url, send_addr, send_seed, BindState::Fresh);
         let queue = legacy.queues.outbound.as_mut().expect("legacy outbound");
         queue.bind_state = None;
@@ -5865,13 +6090,21 @@ mod tests {
         )
         .expect("restarted engine");
         let mut inner = restarted.inner.lock().await;
-        inner.connections.insert(url, connection);
+        inner
+            .connections
+            .insert(url.clone(), relay_connection(&url).await);
         let stale = inner.conversation("conversation").expect("legacy record");
         let delivered = inner
             .deliver(&stale, "message", b"legacy-unknown-unbound", 7)
             .await
             .expect("unknown retry may receive direct BIND success");
-        assert_eq!(delivered.state, DeliveryState::Accepted);
+        assert_eq!(
+            delivered.state,
+            DeliveryState::Accepted,
+            "legacy unknown retry remained {:?} with failure {:?}",
+            delivered.state,
+            delivered.failure
+        );
         let confirmed = inner.conversation("conversation").expect("confirmed");
         let outbound = confirmed.queues.outbound.as_ref().expect("outbound");
         assert_eq!(outbound.bind_state, Some(BindState::Confirmed));
@@ -5901,6 +6134,13 @@ mod tests {
         );
 
         let stored = conversation(&url, send_addr, send_seed, BindState::Fresh);
+        let original_send_key_seed = stored
+            .queues
+            .outbound
+            .as_ref()
+            .expect("original outbound")
+            .send_key_seed
+            .clone();
         let sink = Arc::new(RecordingSink::new());
         let engine = Engine::new(MemoryBackend::new(), sink.clone(), Platform::ZuuliDesktop)
             .expect("test engine");
@@ -5927,11 +6167,13 @@ mod tests {
         let alarms = inner.records().alarms().expect("alarms");
         assert_eq!(alarms.len(), 1);
         assert_eq!(alarms[0].kind, AlarmKind::QueueSendAddressStolen);
+        assert_eq!(alarms[0].relay_url.as_deref(), Some(url.as_str()));
         let emitted = sink.payloads(names::ALARM);
         assert_eq!(emitted.len(), 1);
         let emitted_alarm: Alarm =
             serde_json::from_value(emitted[0].clone()).expect("alarm event payload");
         assert_eq!(emitted_alarm.kind, AlarmKind::QueueSendAddressStolen);
+        assert_eq!(emitted_alarm.relay_url.as_deref(), Some(url.as_str()));
         let compromised = inner
             .conversation("conversation")
             .and_then(|stored| inner.view(&stored))
@@ -5998,6 +6240,18 @@ mod tests {
             still_compromised.transport_health,
             TransportHealth::Compromised
         );
+        assert_eq!(
+            inner
+                .conversation("conversation")
+                .expect("identical advert state")
+                .queues
+                .outbound
+                .as_ref()
+                .expect("outbound")
+                .send_key_seed,
+            original_send_key_seed,
+            "identical advert replay must preserve the existing send key"
+        );
 
         inner.queue_seed = Some([29; 32]);
         let replacement_send_addr = {
@@ -6021,6 +6275,10 @@ mod tests {
             .expect("replaced conversation");
         let replacement_queue = replaced.queues.outbound.as_ref().expect("replacement");
         assert_eq!(replacement_queue.effective_bind_state(), BindState::Fresh);
+        assert_ne!(
+            replacement_queue.send_key_seed, original_send_key_seed,
+            "a distinct replacement address must get a fresh send key"
+        );
         assert!(!replaced.send_address_stolen);
 
         let delivered = inner
@@ -6144,6 +6402,8 @@ mod tests {
         let relay = FakeRelay::with_defaults().expect("fake relay");
         let server = relay.listen_loopback().await.expect("relay listener");
         let url = server.url();
+        let root = tempfile::tempdir().expect("tempdir");
+        let database = root.path().join("volatile-alarm.sqlite3");
         let mut connection = relay_connection(&url).await;
         let (send_key, send_addr, send_seed) = create_send_address(&mut connection).await;
         connection
@@ -6159,7 +6419,7 @@ mod tests {
         let sink = Arc::new(RecordingSink::new());
         let engine = Engine::new(
             FailApplyNumber {
-                inner: MemoryBackend::new(),
+                inner: SqliteBackend::open(&database).expect("durable database"),
                 calls: AtomicUsize::new(0),
                 fail_on: Arc::clone(&fail_on),
             },
@@ -6173,7 +6433,7 @@ mod tests {
             .records()
             .commit(|records| records.put_conversation(&stored))
             .expect("initial conversation");
-        inner.connections.insert(url, connection);
+        inner.connections.insert(url.clone(), connection);
         // One successful preflight apply, then fail the single atomic
         // conversation+alarm transition.
         fail_on.store(3, Ordering::SeqCst);
@@ -6201,6 +6461,13 @@ mod tests {
         );
         assert!(!after.send_address_stolen);
         assert!(inner.records().alarms().expect("alarms").is_empty());
+        let visible_alarms = inner.alarms().expect("merged alarm view");
+        assert_eq!(visible_alarms.len(), 1);
+        assert_eq!(
+            visible_alarms[0].relay_url.as_deref(),
+            Some(url.as_str()),
+            "volatile fallback must retain the relay attribution"
+        );
         let emitted = sink.payloads(names::ALARM);
         assert_eq!(emitted.len(), 1);
         let emitted_alarm: Alarm =
@@ -6267,6 +6534,41 @@ mod tests {
             ErrorCode::SendAddressStolen
         );
         assert_eq!(faults.armed(), 2);
+        assert_eq!(inner.alarms().expect("merged alarms").len(), 1);
         faults.disarm();
+
+        fail_on.store(0, Ordering::SeqCst);
+        inner
+            .set_peer_advert("conversation", &replacement)
+            .expect("recovered storage installs replacement and flushes alarm");
+        let replaced = inner
+            .conversation("conversation")
+            .expect("replacement conversation");
+        assert_ne!(
+            inner
+                .view(&replaced)
+                .expect("replacement public view")
+                .transport_health,
+            TransportHealth::Compromised
+        );
+        assert!(inner.volatile_compromise_alarms.is_empty());
+        let durable_alarms = inner.records().alarms().expect("durable alarms");
+        assert_eq!(durable_alarms.len(), 1);
+        assert_eq!(durable_alarms[0].relay_url.as_deref(), Some(url.as_str()));
+        assert_eq!(sink.payloads(names::ALARM).len(), 1);
+        drop(inner);
+        drop(engine);
+
+        let restarted_sink = Arc::new(RecordingSink::new());
+        let restarted = Engine::new(
+            SqliteBackend::open(&database).expect("reopen durable database"),
+            restarted_sink.clone(),
+            Platform::ZuuliDesktop,
+        )
+        .expect("restart engine");
+        let restarted_alarms = restarted.list_alarms().await.expect("restart alarm list");
+        assert_eq!(restarted_alarms.len(), 1);
+        assert_eq!(restarted_alarms[0].relay_url.as_deref(), Some(url.as_str()));
+        assert!(restarted_sink.payloads(names::ALARM).is_empty());
     }
 }
