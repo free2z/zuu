@@ -781,6 +781,7 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "proptest",
+ "syn 2.0.119",
  "tls_codec 0.4.2",
 ]
 

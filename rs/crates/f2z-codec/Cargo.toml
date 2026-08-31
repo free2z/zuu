@@ -25,3 +25,10 @@ tls_codec = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# `tests/workspace_debug_scan.rs` parses every workspace source file with this
+# rather than hand-rolled line scanning (#636): `syn::parse_file` needs `full`
+# for whole-file items (structs, enums, impls) and `parsing` for the parser
+# entry points this test calls directly. Already in `rs/Cargo.lock` beneath
+# `tls_codec_derive` and `zeroize_derive`, so using it here directly adds no
+# new dependency to the graph.
+syn = { version = "2", default-features = false, features = ["full", "parsing"] }
